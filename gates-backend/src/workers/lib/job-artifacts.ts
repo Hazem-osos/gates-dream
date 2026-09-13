@@ -2,7 +2,7 @@ import { mkdir, writeFile, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { env } from '../../shared/config/env';
 import { logger } from '../../shared/logger';
-import { resolveStorageProvider } from '../../modules/archive/storage/resolve-storage-provider';
+import { resolveStorageProvider } from '../../modules/archive/object-store/resolve-storage-provider';
 import type { JobArtifactResult } from '../jobs/async-job.types';
 
 function jobsRoot(): string {
