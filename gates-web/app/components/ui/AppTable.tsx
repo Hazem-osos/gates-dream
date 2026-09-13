@@ -180,6 +180,7 @@ export function AppTable<T extends Record<string, unknown>>({
               tabIndex={0}
               className={cn(
                 'table w-full table-fixed absolute left-0 h-10 border-b border-[#E8F1F6] hover:bg-[#E8F4FA] transition-colors',
+                vRow.index % 2 === 1 && 'bg-[#F3F9FC]',
                 onRowClick && 'cursor-pointer',
                 rowClassName?.(row)
               )}
@@ -210,6 +211,7 @@ export function AppTable<T extends Record<string, unknown>>({
             tabIndex={0}
             className={cn(
               'h-10 border-b border-[#E8F1F6] hover:bg-[#E8F4FA] transition-colors',
+              rowIndex % 2 === 1 && 'bg-[#F3F9FC]',
               onRowClick && 'cursor-pointer',
               rowClassName?.(row)
             )}

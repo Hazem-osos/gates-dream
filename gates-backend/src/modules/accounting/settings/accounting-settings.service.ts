@@ -1,5 +1,9 @@
 import { AppError } from '../../../shared/middleware/error-handler';
 import {
+  parseFlexibleDate,
+  upsertCompanyFiscalYear,
+} from '../../company/services/fiscal-year-sync.service';
+import {
   ACCOUNT_SLOT_ALIASES,
   TAX_ACCOUNT_SLOT_ALIASES,
   applyAccountSlot,
@@ -446,6 +450,22 @@ export class AccountingSettingsService {
         });
       }
     });
+
+    const fyStart = input.general?.fiscalYearStart;
+    const fyEnd = input.general?.fiscalYearEnd;
+    if (fyStart && fyEnd) {
+      try {
+        const start = parseFlexibleDate(fyStart);
+        await upsertCompanyFiscalYear(actor.companyId, {
+          name: `السنة المالية ${start?.getUTCFullYear() ?? new Date().getUTCFullYear()}`,
+          startDate: fyStart,
+          endDate: fyEnd,
+        });
+      } catch {
+        // Settings row already saved — fiscal year record is best-effort so a bad date format
+        // does not roll back the rest of accounting settings.
+      }
+    }
 
     await this.ports.recordTrace({
       companyId: actor.companyId,

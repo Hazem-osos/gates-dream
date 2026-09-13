@@ -139,6 +139,7 @@ function useGatesAiController(): GatesAiApi {
     '/ai/insights/active',
     undefined,
     {
+      enabled: pathname !== '/' && pathname !== '/login' && !pathname.startsWith('/login'),
       staleTime: 60_000,
       refetchInterval: 60_000,
       refetchOnWindowFocus: true,

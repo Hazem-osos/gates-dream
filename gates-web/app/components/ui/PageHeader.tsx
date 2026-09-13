@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation';
 import { ChevronLeft, Star } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { usePageFavorites } from '@/lib/hooks/usePageFavorites';
+import { useRegisterScreenChrome } from '@/components/erp/AppScreenChromeContext';
 
 export interface PageHeaderProps {
   title: string;
@@ -32,6 +33,7 @@ export function PageHeader({
   const favLabel = favoriteLabel ?? title;
   const { isFavorite, toggleFavorite } = usePageFavorites();
   const starred = favHref ? isFavorite(favHref) : false;
+  useRegisterScreenChrome();
 
   return (
     <header

@@ -52,7 +52,7 @@ export function QuickCreateSafeModal({
         onCreated({
           id: row.id,
           arabicName: row.arabicName || name.trim(),
-          code: row.code ?? code.trim() || null,
+          code: row.code ?? (code.trim() || null),
         });
         onClose();
       },

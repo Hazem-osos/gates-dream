@@ -5,8 +5,10 @@ import { branchQuerySchema } from '../schemas/branch.schema';
 import { branchService } from '../services/branch.service';
 import { companyCurrentService } from '../services/company-current.service';
 import {
+  companyBasicsSchema,
   updateCompanyCurrentSchema,
   upsertTenantBranchSchema,
+  upsertTenantFiscalYearSchema,
 } from '../schemas/company-current.schema';
 import { logger } from '../../../shared/logger';
 import { AuthRequest } from '../../../shared/auth/types';
@@ -189,6 +191,44 @@ router.post(
 );
 
 /**
+ * PUT /api/v1/company/basics — company profile + main branch + fiscal year in one save
+ */
+router.put(
+  '/basics',
+  authorize({ resource: 'company', action: 'edit' }),
+  validate({ body: companyBasicsSchema }),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const companyId = req.companyId;
+      if (!companyId) {
+        return void res.status(400).json({
+          status: 'error',
+          message: 'Company context is required',
+        });
+      }
+      const data = await companyCurrentService.saveBasics(companyId, req.body);
+      return void res.json({
+        status: 'success',
+        message: 'Company basics saved',
+        data,
+      });
+    } catch (error) {
+      logger.error({ error }, 'PUT /company/basics failed');
+      const status =
+        error instanceof Error && error.message.includes('غير صالح')
+          ? 400
+          : error instanceof Error && error.message.includes('يجب أن يسبق')
+            ? 400
+            : 500;
+      return void res.status(status).json({
+        status: 'error',
+        message: error instanceof Error ? error.message : 'Failed to save company basics',
+      });
+    }
+  }
+);
+
+/**
  * GET /api/v1/company/fiscal-years
  * Lists fiscal years for the authenticated tenant company (for X-Fiscal-Year-Id bootstrap).
  */
@@ -219,6 +259,7 @@ router.get(
           select: {
             id: true,
             legacyYearId: true,
+            arabicName: true,
             status: true,
             startDate: true,
             endDate: true,
@@ -243,6 +284,40 @@ router.get(
         status: 'error',
         message:
           error instanceof Error ? error.message : 'Failed to list fiscal years',
+      });
+    }
+  }
+);
+
+router.post(
+  '/fiscal-years',
+  authorize({ resource: 'company', action: 'edit' }),
+  validate({ body: upsertTenantFiscalYearSchema }),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const companyId = req.companyId;
+      if (!companyId) {
+        return void res.status(400).json({
+          status: 'error',
+          message: 'Company context is required',
+        });
+      }
+      const data = await companyCurrentService.upsertFiscalYear(companyId, req.body);
+      return void res.status(201).json({
+        status: 'success',
+        message: 'Fiscal year saved',
+        data,
+      });
+    } catch (error) {
+      logger.error({ error }, 'POST /company/fiscal-years failed');
+      const status =
+        error instanceof Error &&
+        (error.message.includes('غير صالح') || error.message.includes('يجب أن يسبق'))
+          ? 400
+          : 500;
+      return void res.status(status).json({
+        status: 'error',
+        message: error instanceof Error ? error.message : 'Failed to save fiscal year',
       });
     }
   }

@@ -34,7 +34,7 @@ export default function AccountingSettingsPage() {
       description: 'إدارة معلومات الشركة الأساسية',
       icon: '🏢',
       color: 'bg-blue-100 text-blue-800',
-      href: '/accounting-settings/company-data',
+      href: '/settings/company',
     },
     {
       key: 'create-users',

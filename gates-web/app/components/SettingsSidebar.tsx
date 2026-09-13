@@ -16,7 +16,7 @@ const items: MenuItem[] = [
   { icon: '📦', label: 'النسخ الاحتياطي', desc: 'تصدير بيانات الشركة', href: '/settings/backup' },
   { icon: '🖨', label: 'تخطيط المستندات', desc: 'قوالب الطباعة والهوية', href: '/settings/document-layout' },
   { icon: '📑', label: 'أنماط الإدخال', desc: 'ترقيم وثوابت وأعمدة الفواتير', href: '/settings/document-profiles' },
-  { icon: '⚙️', label: 'الإعدادات المحاسبية', desc: 'إعدادات النظام المتقدمة', href: '/accounting-settings/company-data' },
+  { icon: '⚙️', label: 'الإعدادات المحاسبية', desc: 'إعدادات النظام المتقدمة', href: '/accounting-settings/company-settings/accounting-settings' },
 ];
 
 export default function SettingsSidebar({

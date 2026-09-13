@@ -6,15 +6,20 @@ import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
 import { useEffect, useMemo, useState } from 'react';
 import {
+  PageHeader,
   FormSectionCard,
   CompactFormField,
   AdvancedFieldsSection,
   FormStickyFooter,
   compactControlClass,
 } from '@/components/ui';
-import { Building2, GitBranch, ShieldCheck } from 'lucide-react';
+import { DatePickerWithHijri } from '@/components/ui/DatePickerWithHijri';
+import { Building2, CalendarRange, GitBranch, ShieldCheck } from 'lucide-react';
 import { useCurrentUserProfile } from '@/lib/hooks/useCurrentUserProfile';
 import { downloadTenantBackup } from '@/lib/company/download-tenant-backup';
+import { refreshTenantContextFromApi } from '@/lib/tenant/refresh-tenant-context';
+import { notifyTenantContextReady, setTenantContext } from '@/lib/tenant/tenant-context-storage';
+import { clearConditionalGetCache } from '@/lib/api/conditional-get-cache';
 
 interface CompanyCurrent {
   id: string;
@@ -59,12 +64,49 @@ interface SafeRow {
   arabicName: string;
 }
 
+interface FiscalYearRow {
+  id: string;
+  arabicName?: string | null;
+  status: string;
+  startDate: string;
+  endDate: string;
+}
+
+type BasicsSaveResult = CompanyCurrent & {
+  branchId?: string;
+  fiscalYearId?: string;
+};
+
 function isOwnerRole(roles: string[] | undefined) {
   return (roles ?? []).some((role) => {
     const n = role.trim().toLowerCase();
     return n === 'admin' || n === 'owner' || n === 'super_admin' || n === 'superadmin';
   });
 }
+
+function yearStartIso(year = new Date().getFullYear()) {
+  return `${year}-01-01`;
+}
+
+function yearEndIso(year = new Date().getFullYear()) {
+  return `${year}-12-31`;
+}
+
+function toInputDate(value: string | null | undefined): string {
+  if (!value) return '';
+  if (/^\d{4}-\d{2}-\d{2}/.test(value)) return value.slice(0, 10);
+  const dmy = value.match(/^(\d{1,2})[/\-](\d{1,2})[/\-](\d{4})/);
+  if (dmy) {
+    const dd = dmy[1].padStart(2, '0');
+    const mm = dmy[2].padStart(2, '0');
+    return `${dmy[3]}-${mm}-${dd}`;
+  }
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toISOString().slice(0, 10);
+}
+
+const companyOnlyQuery = { requireFullTenant: false as const };
 
 export default function CompanySettingsPage() {
   useBackendReachability();
@@ -80,30 +122,56 @@ export default function CompanySettingsPage() {
     clientSecret: '',
     activityCode: '',
   });
-  const [branchDraft, setBranchDraft] = useState<Record<string, { wh: string; safe: string }>>({});
+  const [branchForm, setBranchForm] = useState({
+    id: '',
+    arabicName: 'الفرع الرئيسي',
+    warehouseName: 'المخزن الرئيسي',
+    safeName: 'الخزينة الرئيسية',
+  });
+  const [fiscalForm, setFiscalForm] = useState({
+    id: '',
+    name: `السنة المالية ${new Date().getFullYear()}`,
+    startDate: yearStartIso(),
+    endDate: yearEndIso(),
+  });
 
   const { data: companyRes, isLoading } = useApiQuery<CompanyCurrent>(
     ['company-current'],
-    '/company/current'
+    '/company/current',
+    undefined,
+    companyOnlyQuery
   );
-  const { data: branchesRes } = useApiQuery<BranchRow[]>(['company-branches'], '/company/branches', {
-    limit: 100,
-  });
+  const { data: branchesRes } = useApiQuery<BranchRow[]>(
+    ['company-branches'],
+    '/company/branches',
+    { limit: 100 },
+    companyOnlyQuery
+  );
+  const { data: fyRes } = useApiQuery<FiscalYearRow[]>(
+    ['company-fiscal-years'],
+    '/company/fiscal-years',
+    { page: 1, limit: 50 },
+    companyOnlyQuery
+  );
   const { data: whRes } = useApiQuery<WarehouseRow[]>(
     ['warehouses-list'],
     '/inventory/warehouses',
-    { limit: 200 }
+    { limit: 200 },
+    companyOnlyQuery
   );
   const { data: safesRes } = useApiQuery<SafeRow[]>(
     ['safes-list'],
     '/accounting/safes',
-    { limit: 200 }
+    { limit: 200 },
+    companyOnlyQuery
   );
 
   const company = companyRes?.data;
   const branches = useMemo(() => branchesRes?.data ?? [], [branchesRes?.data]);
+  const years = useMemo(() => fyRes?.data ?? [], [fyRes?.data]);
   const warehouses = whRes?.data ?? [];
   const safes = safesRes?.data ?? [];
+  const mainBranch = branches[0];
 
   useEffect(() => {
     if (!company) return;
@@ -116,38 +184,55 @@ export default function CompanySettingsPage() {
   }, [company]);
 
   useEffect(() => {
-    if (!branches.length) return;
-    setBranchDraft((prev) => {
-      const next = { ...prev };
-      for (const b of branches) {
-        next[b.id] = {
-          wh: b.defaultWarehouseId ?? prev[b.id]?.wh ?? '',
-          safe: b.defaultSafeId ?? prev[b.id]?.safe ?? '',
-        };
-      }
-      return next;
-    });
-  }, [branches]);
+    if (!mainBranch) return;
+    setBranchForm((prev) => ({
+      id: mainBranch.id,
+      arabicName: mainBranch.arabicName || prev.arabicName,
+      warehouseName:
+        mainBranch.defaultWarehouse?.arabicName ||
+        warehouses.find((w) => w.id === mainBranch.defaultWarehouseId)?.arabicName ||
+        prev.warehouseName,
+      safeName:
+        mainBranch.defaultSafe?.arabicName ||
+        safes.find((s) => s.id === mainBranch.defaultSafeId)?.arabicName ||
+        prev.safeName,
+    }));
+  }, [mainBranch, warehouses, safes]);
 
-  const saveCompany = useApiMutation<CompanyCurrent, Record<string, unknown>>(
-    '/company/current',
+  useEffect(() => {
+    const year = years[0];
+    if (!year) return;
+    const start = toInputDate(year.startDate) || yearStartIso();
+    setFiscalForm({
+      id: year.id,
+      name: year.arabicName?.trim() || `السنة المالية ${start.slice(0, 4)}`,
+      startDate: start,
+      endDate: toInputDate(year.endDate) || yearEndIso(),
+    });
+  }, [years]);
+
+  const saveBasics = useApiMutation<BasicsSaveResult, Record<string, unknown>>(
+    '/company/basics',
     'PUT',
     {
-      onSuccess: () => {
-        setSuccess('تم حفظ بيانات الشركة');
+      successMessage: 'تم حفظ بيانات الشركة والفرع والسنة المالية',
+      onSuccess: (res) => {
+        const data = res.data;
+        if (data?.branchId || data?.fiscalYearId) {
+          setTenantContext({
+            ...(data.branchId ? { branchId: data.branchId } : {}),
+            ...(data.fiscalYearId ? { fiscalYearId: data.fiscalYearId } : {}),
+          });
+          notifyTenantContextReady();
+        }
+        clearConditionalGetCache();
+        void refreshTenantContextFromApi().catch(() => undefined);
+        setSuccess('تم حفظ بيانات الشركة والفرع والسنة المالية');
         invalidate(['company-current']);
-      },
-      onError: (e) => setError(e.message),
-    }
-  );
-
-  const saveBranch = useApiMutation<BranchRow, Record<string, unknown>>(
-    '/company/branches',
-    'POST',
-    {
-      onSuccess: () => {
-        setSuccess('تم حفظ إعدادات الفرع');
         invalidate(['company-branches']);
+        invalidate(['company-fiscal-years']);
+        invalidate(['warehouses-list']);
+        invalidate(['safes-list']);
       },
       onError: (e) => setError(e.message),
     }
@@ -167,9 +252,70 @@ export default function CompanySettingsPage() {
     (v) => String(v ?? '').trim().length > 0
   ).length;
 
+  const handleSave = () => {
+    setError('');
+    setSuccess('');
+    if (!String(form.nameAr ?? '').trim()) {
+      setError('اسم الشركة مطلوب');
+      return;
+    }
+    if (!branchForm.arabicName.trim()) {
+      setError('اسم الفرع الرئيسي مطلوب');
+      return;
+    }
+    if (!branchForm.warehouseName.trim() || !branchForm.safeName.trim()) {
+      setError('عرّف المخزن الرئيسي والخزينة الرئيسية');
+      return;
+    }
+    if (!fiscalForm.startDate || !fiscalForm.endDate) {
+      setError('حدد بداية ونهاية السنة المالية');
+      return;
+    }
+    if (fiscalForm.startDate >= fiscalForm.endDate) {
+      setError('تاريخ بداية السنة المالية يجب أن يسبق تاريخ النهاية');
+      return;
+    }
+
+    saveBasics.mutate({
+      nameAr: form.nameAr?.trim(),
+      nameEn: form.nameEn,
+      taxRegistrationNumber: form.taxRegistrationNumber,
+      commercialRegister: form.commercialRegister,
+      currencyCode: form.currencyCode || 'EGP',
+      logoUrl: form.logoUrl,
+      phone: form.phone,
+      email: form.email?.trim() || null,
+      address: form.address,
+      activityCode: eInv.activityCode,
+      eInvoiceSettings: {
+        clientId: eInv.clientId || null,
+        ...(eInv.clientSecret ? { clientSecret: eInv.clientSecret } : {}),
+        activityCode: eInv.activityCode || null,
+      },
+      branch: {
+        ...(branchForm.id ? { id: branchForm.id } : {}),
+        arabicName: branchForm.arabicName.trim(),
+        warehouseName: branchForm.warehouseName.trim(),
+        safeName: branchForm.safeName.trim(),
+        defaultWarehouseId: mainBranch?.defaultWarehouseId || null,
+        defaultSafeId: mainBranch?.defaultSafeId || null,
+      },
+      fiscalYear: {
+        ...(fiscalForm.id ? { id: fiscalForm.id } : {}),
+        name: fiscalForm.name.trim() || `السنة المالية ${fiscalForm.startDate.slice(0, 4)}`,
+        startDate: fiscalForm.startDate,
+        endDate: fiscalForm.endDate,
+      },
+    });
+  };
+
   return (
     <div className="mx-auto max-w-5xl p-6" dir="rtl">
-      <h1 className="mb-6 text-2xl font-bold text-[#0E79AA]">إعدادات وبيانات الشركة</h1>
+      <PageHeader
+        title="إعدادات وبيانات الشركة"
+        description="عرّف الشركة والفرع الرئيسي والسنة المالية من هنا — الحفظ من أعلى الصفحة"
+        breadcrumbs={[{ label: 'الإعدادات' }, { label: 'بيانات الشركة' }]}
+      />
       {error && <ErrorToast message={error} onClose={() => setError('')} />}
       {success && <SuccessToast message={success} onClose={() => setSuccess('')} />}
 
@@ -180,6 +326,7 @@ export default function CompanySettingsPage() {
           <FormSectionCard title="البيانات الأساسية" subtitle="اسم الشركة والبيانات الرسمية" icon={Building2}>
             <CompactFormField
               label="الاسم (عربي)"
+              required
               value={form.nameAr ?? ''}
               onChange={(e) => setForm({ ...form, nameAr: e.target.value })}
             />
@@ -200,7 +347,7 @@ export default function CompanySettingsPage() {
             />
             <CompactFormField
               label="العملة الافتراضية"
-              value={form.currencyCode ?? ''}
+              value={form.currencyCode ?? 'EGP'}
               onChange={(e) => setForm({ ...form, currencyCode: e.target.value })}
             />
             <CompactFormField
@@ -237,6 +384,57 @@ export default function CompanySettingsPage() {
             </div>
           </FormSectionCard>
 
+          <FormSectionCard
+            title="السنة المالية"
+            subtitle="هذه السنة هي اللي النظام يشتغل عليها — مش مجرد ملاحظة محفوظة"
+            icon={CalendarRange}
+          >
+            <CompactFormField
+              label="اسم السنة"
+              required
+              value={fiscalForm.name}
+              onChange={(e) => setFiscalForm((f) => ({ ...f, name: e.target.value }))}
+            />
+            <DatePickerWithHijri
+              label="من تاريخ"
+              required
+              value={fiscalForm.startDate}
+              onChange={(value) => setFiscalForm((f) => ({ ...f, startDate: value }))}
+            />
+            <DatePickerWithHijri
+              label="إلى تاريخ"
+              required
+              value={fiscalForm.endDate}
+              onChange={(value) => setFiscalForm((f) => ({ ...f, endDate: value }))}
+            />
+          </FormSectionCard>
+
+          <FormSectionCard
+            title="الفرع الرئيسي — المخزن والخزينة"
+            subtitle="فرع واحد يكفي للبداية. المخزن والخزينة يتسجلوا بالاسم هنا مش من قوائم فاضية"
+            icon={GitBranch}
+            bodyClassName="grid-cols-1 sm:grid-cols-2 lg:grid-cols-3"
+          >
+            <CompactFormField
+              label="اسم الفرع الرئيسي"
+              required
+              value={branchForm.arabicName}
+              onChange={(e) => setBranchForm((f) => ({ ...f, arabicName: e.target.value }))}
+            />
+            <CompactFormField
+              label="المخزن الرئيسي"
+              required
+              value={branchForm.warehouseName}
+              onChange={(e) => setBranchForm((f) => ({ ...f, warehouseName: e.target.value }))}
+            />
+            <CompactFormField
+              label="الخزينة الرئيسية"
+              required
+              value={branchForm.safeName}
+              onChange={(e) => setBranchForm((f) => ({ ...f, safeName: e.target.value }))}
+            />
+          </FormSectionCard>
+
           <AdvancedFieldsSection title="الفوترة الإلكترونية (ETA)" badgeCount={eInvFilledCount}>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
               <CompactFormField
@@ -263,76 +461,6 @@ export default function CompanySettingsPage() {
             </div>
           </AdvancedFieldsSection>
 
-          <FormSectionCard
-            title="الفروع — المخزن والخزينة الافتراضية"
-            icon={GitBranch}
-            bodyClassName="grid-cols-1 sm:grid-cols-1 lg:grid-cols-1"
-          >
-            <div className="space-y-3">
-              {branches.map((b) => (
-                <div key={b.id} className="rounded-xl border border-[#E6F0F7] bg-white p-4">
-                  <div className="mb-3 text-sm font-semibold text-zinc-900">{b.arabicName}</div>
-                  <div className="grid gap-3 md:grid-cols-2">
-                    <CompactFormField label="المخزن الافتراضي">
-                      <select
-                        className={compactControlClass}
-                        value={branchDraft[b.id]?.wh ?? ''}
-                        onChange={(e) =>
-                          setBranchDraft((d) => ({
-                            ...d,
-                            [b.id]: { ...d[b.id], wh: e.target.value },
-                          }))
-                        }
-                      >
-                        <option value="">—</option>
-                        {warehouses
-                          .filter((w) => !w.branchId || w.branchId === b.id)
-                          .map((w) => (
-                            <option key={w.id} value={w.id}>
-                              {w.arabicName}
-                            </option>
-                          ))}
-                      </select>
-                    </CompactFormField>
-                    <CompactFormField label="الخزينة النقدية الافتراضية">
-                      <select
-                        className={compactControlClass}
-                        value={branchDraft[b.id]?.safe ?? ''}
-                        onChange={(e) =>
-                          setBranchDraft((d) => ({
-                            ...d,
-                            [b.id]: { ...d[b.id], safe: e.target.value },
-                          }))
-                        }
-                      >
-                        <option value="">—</option>
-                        {safes.map((s) => (
-                          <option key={s.id} value={s.id}>
-                            {s.arabicName}
-                          </option>
-                        ))}
-                      </select>
-                    </CompactFormField>
-                  </div>
-                  <button
-                    type="button"
-                    className="mt-3 h-9 text-sm font-medium text-[#0E79AA]"
-                    onClick={() =>
-                      saveBranch.mutate({
-                        id: b.id,
-                        arabicName: b.arabicName,
-                        defaultWarehouseId: branchDraft[b.id]?.wh || null,
-                        defaultSafeId: branchDraft[b.id]?.safe || null,
-                      })
-                    }
-                  >
-                    حفظ هذا الفرع
-                  </button>
-                </div>
-              ))}
-            </div>
-          </FormSectionCard>
-
           {canBackup ? (
             <FormSectionCard title="نسخة احتياطية مشفّرة">
               <p className="mb-3 text-sm text-slate-600">
@@ -343,7 +471,8 @@ export default function CompanySettingsPage() {
                 .
               </p>
               <p className="mb-3 text-sm text-slate-600">
-                تنزيل أرشيف مشفّر لبيانات شركتك (عملاء، فواتير، قيود، أصناف). الملف لا يُفتح إلا بمفتاح التشفير الخاص بالخادم.
+                تنزيل أرشيف مشفّر لبيانات شركتك (عملاء، فواتير، قيود، أصناف). الملف لا يُفتح إلا بمفتاح
+                التشفير الخاص بالخادم.
               </p>
               <button
                 type="button"
@@ -371,28 +500,10 @@ export default function CompanySettingsPage() {
           ) : null}
 
           <FormStickyFooter
-            onSave={() =>
-              saveCompany.mutate({
-                nameAr: form.nameAr,
-                nameEn: form.nameEn,
-                taxRegistrationNumber: form.taxRegistrationNumber,
-                commercialRegister: form.commercialRegister,
-                currencyCode: form.currencyCode,
-                logoUrl: form.logoUrl,
-                phone: form.phone,
-                email: form.email,
-                address: form.address,
-                activityCode: eInv.activityCode,
-                eInvoiceSettings: {
-                  clientId: eInv.clientId || null,
-                  ...(eInv.clientSecret ? { clientSecret: eInv.clientSecret } : {}),
-                  activityCode: eInv.activityCode || null,
-                },
-              })
-            }
-            saveText="حفظ بيانات الشركة"
-            saveLoading={saveCompany.isPending}
-            saveDisabled={saveCompany.isPending}
+            onSave={handleSave}
+            saveText="حفظ"
+            saveLoading={saveBasics.isPending}
+            saveDisabled={saveBasics.isPending}
             respectPermissions={false}
           />
         </>

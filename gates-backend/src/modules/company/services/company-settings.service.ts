@@ -5,6 +5,7 @@ import {
   invalidateTenantCache,
   tenantCacheKeys,
 } from '../../../shared/cache/tenant-metadata-cache';
+import { parseFlexibleDate, upsertCompanyFiscalYear } from './fiscal-year-sync.service';
 
 export interface CompanySettingsData {
   // General settings
@@ -229,6 +230,19 @@ export class CompanySettingsService {
           exchangeGainLossAccountId: data.exchangeGainLossAccountId,
         },
       });
+
+      if (data.fiscalYearStart && data.fiscalYearEnd) {
+        try {
+          const start = parseFlexibleDate(data.fiscalYearStart);
+          await upsertCompanyFiscalYear(companyId, {
+            name: `السنة المالية ${start?.getUTCFullYear() ?? new Date().getUTCFullYear()}`,
+            startDate: data.fiscalYearStart,
+            endDate: data.fiscalYearEnd,
+          });
+        } catch (fyErr) {
+          logger.warn({ fyErr, companyId }, 'Could not sync FiscalYear from company settings dates');
+        }
+      }
 
       logger.info({ companyId }, 'Company settings updated');
       await invalidateTenantCache(tenantCacheKeys.companySettings(companyId));

@@ -59,11 +59,28 @@ export function isOnboardingApiPath(url: string): boolean {
   return path === '/onboarding' || path.startsWith('/onboarding/');
 }
 
-/** Mutations: onboarding only needs company (branch/FY created by bootstrap). */
+/** Company identity / first branch / fiscal year / COA seed — only company header is required. */
+export function isCompanyBootstrapApiPath(url: string): boolean {
+  const path = url.split('?')[0] ?? url;
+  return (
+    path === '/company/current' ||
+    path === '/company/basics' ||
+    path === '/company/branches' ||
+    path === '/company/fiscal-years' ||
+    path.startsWith('/company/onboarding') ||
+    path === '/accounting/settings' ||
+    path === '/accounting/accounts/seed-defaults' ||
+    path === '/accounting/accounts/seed-default-coa' ||
+    path.startsWith('/accounting/accounts/seed-')
+  );
+}
+
+/** Mutations: onboarding and first-time company setup only need company (branch/FY created by the call). */
 export function isMutationTenantReady(url: string, ctx: TenantContextSnapshot): boolean {
   const path = url.split('?')[0] ?? url;
   if (path === '/users/me' || path.startsWith('/users/me/')) return Boolean(ctx.companyId);
   if (isOnboardingApiPath(url)) return Boolean(ctx.companyId);
+  if (isCompanyBootstrapApiPath(url)) return Boolean(ctx.companyId);
   return Boolean(ctx.companyId && ctx.branchId && ctx.fiscalYearId);
 }
 

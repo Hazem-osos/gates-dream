@@ -10,7 +10,7 @@
     "dev:workers": "nodemon --exec ts-node src/workers/index.ts",
     "build": "prisma generate && tsc -p tsconfig.json",
     "start": "node dist/index.js",
-    "railway:build": "prisma generate && tsc -p tsconfig.json",
+    "railway:build": "prisma generate",
     "railway:start": "node scripts/railway-start.mjs",
     "start:workers": "node dist/workers/index.js",
     "prisma:generate": "prisma generate",

@@ -706,7 +706,6 @@ export class ItemService {
       orderBy: { arabicName: 'asc' },
       select: {
         id: true,
-        code: true,
         serial: true,
         barcode: true,
         arabicName: true,
@@ -758,7 +757,7 @@ export class ItemService {
       const base = {
         itemId: item.id,
         itemName: item.arabicName,
-        itemCode: item.code || item.serial || '',
+        itemCode: item.serial || '',
         barcode: item.barcode || '',
         purchasePrice: Number(item.lastPurchasePrice || item.averageCost || 0),
         salePrice: Number(item.priceRetail || item.consumerPrice || item.priceWholesale || 0),

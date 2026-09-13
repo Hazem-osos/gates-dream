@@ -1,0 +1,17 @@
+node_modules
+.next
+out
+coverage
+test-results
+playwright-report
+blob-report
+playwright/.cache
+playwright/.auth
+.env
+.env.local
+.env.*.local
+.git
+.git.local-backup
+*.log
+.DS_Store
+e2e

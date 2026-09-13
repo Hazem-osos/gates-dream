@@ -8,6 +8,7 @@ import { apiClient } from '@/lib/api/client';
 import { getAccessTokenFromAuthSuccessResponse } from '@/lib/auth/extract-access-token';
 import { resetAuthSessionStorage } from '@/lib/auth/reset-auth-session';
 import { queryKeys } from '@/lib/query/query-keys';
+import { LocaleProvider, useMarketingLocale } from '@/lib/marketing/locale';
 
 const LOGIN_PATH = process.env.NEXT_PUBLIC_AUTH_LOGIN_PATH || '/auth/login';
 const POST_AUTH_REDIRECT = process.env.NEXT_PUBLIC_POST_AUTH_REDIRECT || '/dashboard';
@@ -25,6 +26,7 @@ function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
+  const { copy } = useMarketingLocale();
 
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -37,7 +39,7 @@ function LoginForm() {
     setError('');
 
     if (!username.trim() || !password) {
-      setError('اسم المستخدم وكلمة المرور مطلوبان');
+      setError(copy.login.required);
       return;
     }
 
@@ -50,7 +52,7 @@ function LoginForm() {
       const token = getAccessTokenFromAuthSuccessResponse(res);
 
       if (!token) {
-        setError('لم يتم استلام رمز الدخول من الخادم');
+        setError(copy.login.noToken);
         return;
       }
 
@@ -61,7 +63,7 @@ function LoginForm() {
       router.replace(target);
       router.refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'فشل تسجيل الدخول');
+      setError(err instanceof Error ? err.message : copy.login.failed);
     } finally {
       setPending(false);
     }
@@ -70,8 +72,8 @@ function LoginForm() {
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
       <div>
-        <label htmlFor="username" className="block text-sm font-semibold text-[#0A3D5E] mb-2">
-          اسم المستخدم أو البريد الإلكتروني
+        <label htmlFor="username" className="mb-2 block text-sm font-semibold text-[#0A3D5E]">
+          {copy.login.username}
         </label>
         <input
           id="username"
@@ -85,8 +87,8 @@ function LoginForm() {
       </div>
 
       <div>
-        <label htmlFor="password" className="block text-sm font-semibold text-[#0A3D5E] mb-2">
-          كلمة المرور
+        <label htmlFor="password" className="mb-2 block text-sm font-semibold text-[#0A3D5E]">
+          {copy.login.password}
         </label>
         <input
           id="password"
@@ -106,12 +108,12 @@ function LoginForm() {
             type="checkbox"
             checked={remember}
             onChange={(e) => setRemember(e.target.checked)}
-            className="w-4 h-4 rounded border-[#CFE7F2] text-[#0E79AA] focus:ring-[#0E79AA]"
+            className="h-4 w-4 rounded border-[#CFE7F2] text-[#0E79AA] focus:ring-[#0E79AA]"
           />
-          تذكرني على هذا الجهاز
+          {copy.login.remember}
         </label>
         <Link href="/forgot-password" className="text-[#0E79AA] hover:underline">
-          نسيت كلمة المرور؟
+          {copy.login.forgot}
         </Link>
       </div>
 
@@ -129,18 +131,33 @@ function LoginForm() {
         disabled={pending}
         className="h-12 w-full rounded-xl bg-gradient-to-l from-[#0E79AA] to-[#1787B8] font-bold text-white shadow-lg transition-transform duration-200 hover:scale-[1.01] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
       >
-        {pending ? 'جاري الدخول…' : 'تسجيل الدخول'}
+        {pending ? copy.login.pending : copy.login.submit}
       </button>
     </form>
   );
 }
 
-export default function LoginPage() {
+function LoginView() {
+  const { copy, dir, toggleLocale } = useMarketingLocale();
+
   return (
     <div
-      dir="rtl"
+      dir={dir}
       className="relative flex min-h-screen items-center justify-center overflow-hidden bg-gradient-to-br from-[#062A42] via-[#0E79AA] to-[#0A3D5E] px-4 py-12"
     >
+      <div className="absolute inset-x-0 top-0 z-10 flex items-center justify-between px-6 py-5 text-white">
+        <Link href="/" className="text-sm tracking-[0.18em] text-white/80 hover:text-white">
+          {copy.login.back}
+        </Link>
+        <button
+          type="button"
+          onClick={toggleLocale}
+          className="text-xs uppercase tracking-[0.18em] text-white/75 hover:text-white"
+        >
+          {copy.nav.language}
+        </button>
+      </div>
+
       <div
         aria-hidden
         className="pointer-events-none absolute -top-40 -right-32 h-[520px] w-[520px] rounded-full bg-white/10 blur-3xl"
@@ -153,19 +170,27 @@ export default function LoginPage() {
       <div className="relative w-full max-w-md">
         <div className="mb-8 text-center">
           <span className="block text-4xl font-black tracking-wide text-white [text-shadow:0_2px_2px_rgba(0,0,0,0.35),0_0_18px_rgba(255,255,255,0.3)]">
-            GATES SOFT
+            GATES
           </span>
           <span className="mx-auto mt-2 block h-0.5 w-40 bg-gradient-to-r from-transparent via-white to-transparent opacity-70" />
-          <p className="mt-4 text-white/80">نظام إدارة الموارد المتكامل</p>
+          <p className="mt-4 text-white/80">{copy.login.product}</p>
         </div>
 
         <div className="rounded-3xl border border-white/40 bg-white/95 p-8 shadow-2xl backdrop-blur">
-          <h1 className="mb-6 text-xl font-bold text-[#0E79AA]">تسجيل الدخول</h1>
+          <h1 className="mb-6 text-xl font-bold text-[#0E79AA]">{copy.login.title}</h1>
           <Suspense fallback={<div className="h-64" />}>
             <LoginForm />
           </Suspense>
         </div>
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <LocaleProvider>
+      <LoginView />
+    </LocaleProvider>
   );
 }

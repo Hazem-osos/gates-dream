@@ -38,12 +38,7 @@ function run(command, args) {
   }
 }
 
-const compiled = path.join(root, 'dist/index.js');
-if (!existsSync(compiled)) {
-  console.error('dist/index.js is missing. The Railway build step did not finish.');
-  process.exit(1);
-}
-
+run('npx', ['prisma', 'generate']);
 run('npx', ['prisma', 'migrate', 'deploy']);
 
 if (truthy(process.env.SEED_ON_BOOT)) {
@@ -55,7 +50,13 @@ if (truthy(process.env.SEED_ON_BOOT)) {
   run('npx', ['tsx', 'prisma/seed.ts']);
 }
 
-const child = spawn(process.execPath, [compiled], {
+const entry = path.join(root, 'src/index.ts');
+if (!existsSync(entry)) {
+  console.error('src/index.ts is missing from the deploy.');
+  process.exit(1);
+}
+
+const child = spawn('npx', ['tsx', entry], {
   cwd: root,
   env: process.env,
   stdio: 'inherit',

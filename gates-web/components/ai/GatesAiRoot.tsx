@@ -10,6 +10,7 @@ import { AiErrorExplainerRoot } from './AiErrorExplainerRoot';
 
 function isChromeHidden(pathname: string | null): boolean {
   if (!pathname) return false;
+  if (pathname === '/') return true;
   return ['/login', '/register', '/forgot-password', '/logout', '/onboarding'].some(
     (path) => pathname === path || pathname.startsWith(`${path}/`)
   );

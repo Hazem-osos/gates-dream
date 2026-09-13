@@ -42,7 +42,7 @@ export function QuickCreateWarehouseModal({ open, initialName, onClose, onCreate
         onCreated({
           id: row.id,
           arabicName: row.arabicName || name.trim(),
-          code: row.code ?? code.trim() || null,
+          code: row.code ?? (code.trim() || null),
         });
         onClose();
       },

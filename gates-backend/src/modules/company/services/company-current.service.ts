@@ -1,6 +1,14 @@
 import prisma from '../../../shared/database/prisma';
 import { logger } from '../../../shared/logger';
-import type { UpdateCompanyCurrentInput, UpsertTenantBranchInput } from '../schemas/company-current.schema';
+import type {
+  CompanyBasicsInput,
+  UpdateCompanyCurrentInput,
+  UpsertTenantBranchInput,
+  UpsertTenantFiscalYearInput,
+} from '../schemas/company-current.schema';
+import { upsertCompanyFiscalYear } from './fiscal-year-sync.service';
+import { companyOnboardingService } from './company-onboarding.service';
+import { ensureDefaultPieceUnit } from '../../inventory/services/ensure-default-unit';
 
 function maskSecret(secret: string | null | undefined): string | null {
   if (!secret) return null;
@@ -210,6 +218,163 @@ export class CompanyCurrentService {
       },
     });
     return created;
+  }
+
+  async upsertFiscalYear(companyId: string, input: UpsertTenantFiscalYearInput) {
+    return upsertCompanyFiscalYear(companyId, input);
+  }
+
+  async saveBasics(companyId: string, input: CompanyBasicsInput) {
+    await this.updateCurrent(companyId, {
+      nameAr: input.nameAr,
+      nameEn: input.nameEn,
+      taxRegistrationNumber: input.taxRegistrationNumber,
+      commercialRegister: input.commercialRegister,
+      activityCode: input.activityCode,
+      currencyCode: input.currencyCode,
+      logoUrl: input.logoUrl,
+      phone: input.phone,
+      email: input.email,
+      address: input.address,
+      eInvoiceSettings: input.eInvoiceSettings,
+    });
+
+    const currencyCode = input.currencyCode?.trim() || 'EGP';
+
+    const result = await prisma.$transaction(async (tx) => {
+      let branch = input.branch.id
+        ? await tx.branch.findFirst({
+            where: { id: input.branch.id, companyId, deletedAt: null },
+          })
+        : await tx.branch.findFirst({
+            where: { companyId, deletedAt: null },
+            orderBy: { createdAt: 'asc' },
+          });
+
+      if (!branch) {
+        branch = await tx.branch.create({
+          data: {
+            companyId,
+            arabicName: input.branch.arabicName.trim(),
+            branchNumber: '01',
+          },
+        });
+      } else {
+        branch = await tx.branch.update({
+          where: { id: branch.id },
+          data: { arabicName: input.branch.arabicName.trim() },
+        });
+      }
+
+      let warehouse =
+        (input.branch.defaultWarehouseId
+          ? await tx.warehouse.findFirst({
+              where: { id: input.branch.defaultWarehouseId, companyId },
+            })
+          : null) ??
+        (await tx.warehouse.findFirst({
+          where: { companyId, branchId: branch.id },
+          orderBy: { createdAt: 'asc' },
+        })) ??
+        (await tx.warehouse.findFirst({
+          where: { companyId },
+          orderBy: { createdAt: 'asc' },
+        }));
+
+      if (!warehouse) {
+        warehouse = await tx.warehouse.create({
+          data: {
+            companyId,
+            branchId: branch.id,
+            code: 'WH-01',
+            arabicName: input.branch.warehouseName.trim(),
+            englishName: input.branch.warehouseName.trim(),
+            isActive: true,
+          },
+        });
+      } else {
+        warehouse = await tx.warehouse.update({
+          where: { id: warehouse.id },
+          data: {
+            arabicName: input.branch.warehouseName.trim(),
+            branchId: warehouse.branchId ?? branch.id,
+            isActive: true,
+          },
+        });
+      }
+
+      const cashAccount = await tx.account.findFirst({
+        where: {
+          companyId,
+          deletedAt: null,
+          OR: [{ code: '1111' }, { code: '1000' }, { code: '1101' }],
+        },
+        orderBy: { code: 'asc' },
+      });
+
+      let safe =
+        (input.branch.defaultSafeId
+          ? await tx.safe.findFirst({
+              where: { id: input.branch.defaultSafeId, companyId },
+            })
+          : null) ??
+        (await tx.safe.findFirst({
+          where: { companyId },
+          orderBy: { createdAt: 'asc' },
+        }));
+
+      if (!safe) {
+        safe = await tx.safe.create({
+          data: {
+            companyId,
+            code: 'SAFE-01',
+            arabicName: input.branch.safeName.trim(),
+            englishName: input.branch.safeName.trim(),
+            currencyCode,
+            glAccountId: cashAccount?.id ?? null,
+            isActive: true,
+          },
+        });
+      } else {
+        safe = await tx.safe.update({
+          where: { id: safe.id },
+          data: {
+            arabicName: input.branch.safeName.trim(),
+            isActive: true,
+            glAccountId: safe.glAccountId ?? cashAccount?.id ?? null,
+          },
+        });
+      }
+
+      branch = await tx.branch.update({
+        where: { id: branch.id },
+        data: {
+          defaultWarehouseId: warehouse.id,
+          defaultSafeId: safe.id,
+        },
+      });
+
+      const fiscalYear = await upsertCompanyFiscalYear(companyId, input.fiscalYear, tx);
+      const unit = await ensureDefaultPieceUnit(companyId, tx);
+
+      return {
+        branchId: branch.id,
+        fiscalYearId: fiscalYear.id,
+        warehouseId: warehouse.id,
+        safeId: safe.id,
+        unitId: unit.id,
+      };
+    });
+
+    try {
+      await companyOnboardingService.syncOnboardedFlag(companyId);
+    } catch (err) {
+      logger.warn({ err, companyId }, 'Could not sync onboarded flag after company basics');
+    }
+
+    logger.info({ companyId, ...result }, 'Company basics saved');
+    const company = await this.getCurrent(companyId);
+    return { ...company, ...result };
   }
 }
 

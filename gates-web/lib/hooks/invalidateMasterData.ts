@@ -15,6 +15,8 @@ export function invalidateMasterDataQueries(
   invalidate(['cost-centers']);
   invalidate(['currencies']);
   invalidate(['company-branches']);
+  invalidate(['company-current']);
+  invalidate(['company-fiscal-years']);
   invalidate(['tax-rules']);
   invalidate(['gl-defaults']);
   invalidate(['accounting-settings']);
@@ -33,6 +35,8 @@ export function invalidateMasterDataClient(queryClient: QueryClient) {
     ['cost-centers'],
     ['currencies'],
     ['company-branches'],
+    ['company-current'],
+    ['company-fiscal-years'],
     ['tax-rules'],
     ['gl-defaults'],
     ['accounting-settings'],

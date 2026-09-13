@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { ImagePlus, Package, Plus, Trash2, Upload, X } from 'lucide-react';
 import {
@@ -838,7 +839,17 @@ export default function ItemCardPage() {
                 ) : unitRows.length === 0 ? (
                   <tr>
                     <td colSpan={5} className="py-6">
-                      <EmptyState title="لا توجد وحدات مسجلة. عرّف الوحدات من دليل الوحدات واربطها بالصنف." />
+                      <EmptyState
+                        title="لا توجد وحدات مسجلة"
+                        description="عرّف وحدة واحدة على الأقل ثم اربطها بالصنف."
+                        action={
+                          <Link href="/inventory/creations/unit">
+                            <Button type="button" variant="primary" size="sm">
+                              تعريف الوحدات
+                            </Button>
+                          </Link>
+                        }
+                      />
                     </td>
                   </tr>
                 ) : (

@@ -3,6 +3,7 @@ import { scopedItemQuantityWhere } from '../utils/item-quantity-tenant';
 import { SYSTEM_GL_CODES } from '../../accounting/data/system-account-map';
 import type { Prisma } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
+import { ensureDefaultPieceUnit } from './ensure-default-unit';
 
 export const DEMO_ITEM_SERIAL = 'ITEM-01';
 export const DEMO_ITEM_AR = 'صنف تجريبي';
@@ -218,17 +219,12 @@ export class DemoCatalogService {
     tx?: Prisma.TransactionClient
   ): Promise<DemoCatalogResult> {
     const run = async (client: Prisma.TransactionClient) => {
-      const unit = await client.unit.findFirst({
-        where: { companyId, code: 'PCS' },
-      });
-      if (!unit) {
-        throw new Error('وحدة PCS غير موجودة — شغّل تهيئة دليل الحسابات أولاً');
-      }
+      const unit = await ensureDefaultPieceUnit(companyId, client);
 
       const unitIds = await this.ensureExtraUnits(companyId, client);
       unitIds.set('PCS', unit.id);
 
-      const warehouse =
+      let warehouse =
         (await client.warehouse.findFirst({
           where: { companyId, code: 'WH-01', isActive: true },
         })) ??
@@ -237,7 +233,20 @@ export class DemoCatalogService {
           orderBy: { createdAt: 'asc' },
         }));
       if (!warehouse) {
-        throw new Error('لا يوجد مخزن — أكمل التهيئة أولاً');
+        const branch = await client.branch.findFirst({
+          where: { companyId, deletedAt: null },
+          orderBy: { createdAt: 'asc' },
+        });
+        warehouse = await client.warehouse.create({
+          data: {
+            companyId,
+            branchId: branch?.id ?? null,
+            code: 'WH-01',
+            arabicName: 'المخزن الرئيسي',
+            englishName: 'Main Warehouse',
+            isActive: true,
+          },
+        });
       }
 
       const inventoryAccount = await client.account.findFirst({

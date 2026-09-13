@@ -32,7 +32,7 @@ export const accountingSettingsModules: (ModuleItem | ModuleWithChildren)[] = [
     icon: '',
     label: 'بيانات الشركة',
     color: '#0E79AA',
-    href: '/accounting-settings/company-data'
+    href: '/settings/company'
   },
   {
     key: 'create-user-groups',

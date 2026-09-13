@@ -17,7 +17,7 @@ function authGateEnabled(): boolean {
 const PUBLIC_PATHS = ['/login', '/register', '/forgot-password', '/logout', '/share'];
 
 function isPublicPath(pathname: string): boolean {
-  if (pathname === '/health' || pathname.startsWith('/health/') || pathname.startsWith('/api/')) {
+  if (pathname === '/' || pathname === '/health' || pathname.startsWith('/health/') || pathname.startsWith('/api/')) {
     return true;
   }
   return PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`));

@@ -77,10 +77,11 @@ export default function RootLayout({
     };
   }, []);
 
-  // Auth surfaces render standalone (no sidebar / navbar / tabs).
+  // Auth, share, and the public marketing homepage render without ERP chrome.
   const isAuthRoute = ['/login', '/register', '/forgot-password', '/logout', '/share'].some(
     (p) => pathname === p || pathname?.startsWith(`${p}/`)
   );
+  const isMarketingRoute = pathname === '/';
   const isOnboardingRoute = pathname === '/onboarding' || pathname?.startsWith('/onboarding/');
   const isRealEstate = Boolean(pathname?.startsWith('/real-estate'));
   const isManufacturing = pathname?.startsWith('/manufacturing');
@@ -116,8 +117,8 @@ export default function RootLayout({
         <CommandPaletteProvider>
         <GatesAiRoot>
         <OnboardingRouteGuard>
-        {isAuthRoute || isOnboardingRoute ? (
-          <main className="min-h-screen bg-white">{children}</main>
+        {isAuthRoute || isOnboardingRoute || isMarketingRoute ? (
+          <main className={isMarketingRoute ? 'min-h-screen bg-[#EBE6D6]' : 'min-h-screen bg-white'}>{children}</main>
         ) : (
           <Suspense fallback={null}>
             <ProductTourProvider>

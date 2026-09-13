@@ -24,7 +24,7 @@ export function useCoaTreeQuery() {
     ['coa-tree'],
     '/accounting/accounts/tree',
     undefined,
-    { staleTime: 60_000 }
+    { staleTime: 60_000, requireFullTenant: false }
   );
 }
 

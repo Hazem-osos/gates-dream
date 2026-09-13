@@ -63,7 +63,26 @@ export function FormStickyFooter({
       setHeaderHost(null);
       return;
     }
-    setHeaderHost(document.querySelector<HTMLElement>('[data-gates-page-header-actions]'));
+
+    const findHost = () => document.querySelector<HTMLElement>('[data-gates-page-header-actions]');
+    const found = findHost();
+    if (found) {
+      setHeaderHost(found);
+      return;
+    }
+
+    const id = window.setInterval(() => {
+      const el = findHost();
+      if (el) {
+        setHeaderHost(el);
+        window.clearInterval(id);
+      }
+    }, 50);
+    const timeout = window.setTimeout(() => window.clearInterval(id), 2000);
+    return () => {
+      window.clearInterval(id);
+      window.clearTimeout(timeout);
+    };
   }, []);
 
   const actions = (

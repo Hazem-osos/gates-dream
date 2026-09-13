@@ -13,15 +13,16 @@ export function OnboardingRouteGuard({ children }: { children: React.ReactNode }
   const router = useRouter();
 
   const isAuthRoute = AUTH_ROUTES.some((p) => pathname === p || pathname?.startsWith(`${p}/`));
+  const isMarketingRoute = pathname === '/';
   const isOnboardingRoute = pathname === '/onboarding' || pathname?.startsWith('/onboarding/');
 
-  const { data } = useOnboardingStatus(!isAuthRoute);
+  const { data } = useOnboardingStatus(!isAuthRoute && !isMarketingRoute);
 
   const companyId = getTenantContext().companyId;
   const status = data?.data ?? readPersistedOnboardingStatus(companyId);
 
   useEffect(() => {
-    if (isAuthRoute || !status) return;
+    if (isAuthRoute || isMarketingRoute || !status) return;
 
     if (status.isOnboarded) {
       if (isOnboardingRoute) {
@@ -35,7 +36,7 @@ export function OnboardingRouteGuard({ children }: { children: React.ReactNode }
         router.replace('/onboarding');
       }
     }
-  }, [isAuthRoute, isOnboardingRoute, status, router]);
+  }, [isAuthRoute, isMarketingRoute, isOnboardingRoute, status, router]);
 
   return <>{children}</>;
 }

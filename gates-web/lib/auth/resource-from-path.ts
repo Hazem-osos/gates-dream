@@ -48,6 +48,7 @@ const PATH_RESOURCE: Array<{ prefix: string; resource: string; module?: string }
   { prefix: '/importexport/accreditations/documentary-credit', resource: 'documentary-credit', module: 'trade' },
   { prefix: '/importexport/', resource: 'import-export', module: 'trade' },
   { prefix: '/manufacturing/', resource: 'sensor', module: 'manufacturing' },
+  { prefix: '/settings/company', resource: 'company', module: 'system' },
   { prefix: '/accounting-settings/company-data', resource: 'company', module: 'system' },
   { prefix: '/accounting-settings/create-user-groups', resource: 'user_permission', module: 'system' },
   { prefix: '/accounting-settings/operations-management/define-new-operation-screens', resource: 'new-module', module: 'system' },

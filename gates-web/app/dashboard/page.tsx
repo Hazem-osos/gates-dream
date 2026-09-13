@@ -1,7 +1,10 @@
 'use client';
 
-/**
- * Product default landing after auth (register / login).
- * Reuses the main ERP shell from `/` so PLG flows land on a real dashboard without duplicating logic.
- */
-export { default } from '../page';
+import { useBackendReachability } from '@/lib/hooks/useBackendReachability';
+import LiveExecutiveDashboard from '../components/LiveExecutiveDashboard';
+
+/** Authenticated ERP landing. Public homepage is the marketing site at `/`. */
+export default function DashboardPage() {
+  useBackendReachability();
+  return <LiveExecutiveDashboard />;
+}

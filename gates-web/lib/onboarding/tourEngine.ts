@@ -11,7 +11,7 @@ export function pathnameMatchesTourRoute(pathname: string | null, route: string)
   if (!pathname) return false;
   const n = pathname.replace(/\/$/, '') || '/';
   const r = route.replace(/\/$/, '') || '/';
-  if (r === '/dashboard') return n === '/' || n === '/dashboard';
+  if (r === '/dashboard') return n === '/dashboard';
   return n === r || n.startsWith(`${r}/`);
 }
 

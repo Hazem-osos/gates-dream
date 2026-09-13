@@ -2,6 +2,7 @@
 
 import { useApiMutation, useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
 import { staleTimes } from '@/lib/query/query-keys';
+import { refreshTenantContextFromApi } from '@/lib/tenant/refresh-tenant-context';
 import type {
   AccountingSettingsFacade,
   AccountingSettingsPutBody,
@@ -14,7 +15,7 @@ export function useAccountingSettingsQuery() {
     ACCOUNTING_SETTINGS_QUERY_KEY,
     '/accounting/settings',
     undefined,
-    { staleTime: staleTimes.masterMs }
+    { staleTime: staleTimes.masterMs, requireFullTenant: false }
   );
 }
 
@@ -34,6 +35,8 @@ export function useAccountingSettingsMutation() {
         invalidate(ACCOUNTING_SETTINGS_QUERY_KEY);
         invalidate(['gl-defaults']);
         invalidate(['company-settings']);
+        invalidate(['company-fiscal-years']);
+        void refreshTenantContextFromApi().catch(() => undefined);
       },
     }
   );
