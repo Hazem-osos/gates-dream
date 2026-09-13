@@ -1,5 +1,5 @@
 import { Queue, type JobsOptions } from 'bullmq';
-import { workerRedisConnection } from '../../../workers/redis-connection';
+import { lazyBullmqQueue, workerRedisConnection } from '../../../workers/redis-connection';
 import { DEFAULT_AUTOMATION_JOB_OPTIONS } from '../constants';
 import {
   AUTOMATION_QUEUE_NAMES,
@@ -18,32 +18,39 @@ export function automationJobOptions(overrides: JobsOptions = {}): JobsOptions {
   };
 }
 
-export const automationSchedulersQueue = new Queue<
-  DailyLateFeeJobData | ChequeMaturityJobData | DynamicPricingJobData
->(AUTOMATION_QUEUE_NAMES.schedulers, {
-  connection: workerRedisConnection,
-  defaultJobOptions: DEFAULT_AUTOMATION_JOB_OPTIONS,
-});
-
-export const realEstateChequesQueue = new Queue<ChequeBouncedJobData>(AUTOMATION_QUEUE_NAMES.cheques, {
-  connection: workerRedisConnection,
-  defaultJobOptions: DEFAULT_AUTOMATION_JOB_OPTIONS,
-});
-
-export const subcontractWorkflowsQueue = new Queue<SubcontractInvoiceWorkflowJobData>(
-  AUTOMATION_QUEUE_NAMES.subcontractWorkflows,
-  {
-    connection: workerRedisConnection,
-    defaultJobOptions: DEFAULT_AUTOMATION_JOB_OPTIONS,
-  }
+export const automationSchedulersQueue = lazyBullmqQueue(
+  () =>
+    new Queue<DailyLateFeeJobData | ChequeMaturityJobData | DynamicPricingJobData>(
+      AUTOMATION_QUEUE_NAMES.schedulers,
+      {
+        connection: workerRedisConnection,
+        defaultJobOptions: DEFAULT_AUTOMATION_JOB_OPTIONS,
+      }
+    )
 );
 
-export const realEstateCancellationsQueue = new Queue<UnitCancellationReleasedJobData>(
-  AUTOMATION_QUEUE_NAMES.cancellations,
-  {
-    connection: workerRedisConnection,
-    defaultJobOptions: DEFAULT_AUTOMATION_JOB_OPTIONS,
-  }
+export const realEstateChequesQueue = lazyBullmqQueue(
+  () =>
+    new Queue<ChequeBouncedJobData>(AUTOMATION_QUEUE_NAMES.cheques, {
+      connection: workerRedisConnection,
+      defaultJobOptions: DEFAULT_AUTOMATION_JOB_OPTIONS,
+    })
+);
+
+export const subcontractWorkflowsQueue = lazyBullmqQueue(
+  () =>
+    new Queue<SubcontractInvoiceWorkflowJobData>(AUTOMATION_QUEUE_NAMES.subcontractWorkflows, {
+      connection: workerRedisConnection,
+      defaultJobOptions: DEFAULT_AUTOMATION_JOB_OPTIONS,
+    })
+);
+
+export const realEstateCancellationsQueue = lazyBullmqQueue(
+  () =>
+    new Queue<UnitCancellationReleasedJobData>(AUTOMATION_QUEUE_NAMES.cancellations, {
+      connection: workerRedisConnection,
+      defaultJobOptions: DEFAULT_AUTOMATION_JOB_OPTIONS,
+    })
 );
 
 export const automationQueues = [

@@ -1,6 +1,5 @@
 import { Queue } from 'bullmq';
-import { logger } from '../../shared/logger';
-import { workerRedisConnection } from '../redis-connection';
+import { lazyBullmqQueue, workerRedisConnection } from '../redis-connection';
 
 /**
  * Payroll Queue
@@ -33,6 +32,4 @@ export const createPayrollQueue = (): Queue<PayrollJobData> => {
   });
 };
 
-export const payrollQueue = createPayrollQueue();
-
-logger.info('Payroll queue initialized');
+export const payrollQueue = lazyBullmqQueue(createPayrollQueue);

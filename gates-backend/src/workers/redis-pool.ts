@@ -17,7 +17,11 @@ const baseOptions = {
 };
 
 function createPooledConnection(connectionName: string): IORedis {
-  return new IORedis(url, { ...baseOptions, connectionName });
+  const client = new IORedis(url, { ...baseOptions, connectionName });
+  client.on('error', () => {
+    // REDIS_ENABLED=false (or Redis down): do not crash the API or flood logs.
+  });
+  return client;
 }
 
 export const bullmqRedisPool = {
