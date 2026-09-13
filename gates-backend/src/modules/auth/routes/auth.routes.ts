@@ -15,7 +15,10 @@
 import { Router } from 'express';
 import { validate } from '../../../shared/middleware/validate';
 import { authenticate, optionalAuth } from '../../../shared/middleware/auth.middleware';
-import { tokenRefreshRateLimiter } from '../../../shared/middleware/rate-limit.middleware';
+import {
+  authRateLimiter,
+  tokenRefreshRateLimiter,
+} from '../../../shared/middleware/rate-limit.middleware';
 import {
   loginSchema,
   registerSchema,
@@ -34,10 +37,10 @@ import {
 const router = Router();
 
 // ── POST /api/v1/auth/register ────────────────────────────────────────────────
-router.post('/register', validate({ body: registerSchema }), registerHandler);
+router.post('/register', authRateLimiter, validate({ body: registerSchema }), registerHandler);
 
 // ── POST /api/v1/auth/login ───────────────────────────────────────────────────
-router.post('/login', validate({ body: loginSchema }), loginHandler);
+router.post('/login', authRateLimiter, validate({ body: loginSchema }), loginHandler);
 
 // ── POST /api/v1/auth/refresh ─────────────────────────────────────────────────
 router.post(

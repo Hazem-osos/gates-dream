@@ -2,6 +2,8 @@ import { Request, Response, NextFunction } from 'express';
 import { redisClient } from '../cache/redis';
 import { logger } from '../logger';
 import { extractSecurityContext } from '../security/security-audit';
+import { isAuthRateLimitBypassPath } from './rate-limit.middleware';
+import { env } from '../config/env';
 
 /**
  * Distributed Rate Limiting Middleware
@@ -54,9 +56,7 @@ export function distributedRateLimit(
   const message = options.message || 'Too many requests, please try again later';
 
   return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    // Skip if Redis not available (fail open)
-    if (!redisClient.isReady()) {
-      logger.warn('Redis not available for distributed rate limiting, skipping');
+    if (!env.REDIS_ENABLED || !redisClient.isReady() || isAuthRateLimitBypassPath(req)) {
       return next();
     }
 

@@ -8,30 +8,44 @@ import { recordViolation } from './ip-blocking.middleware';
  * Prevents abuse by limiting requests per IP address
  */
 
-/**
- * General API rate limiter
- * Production: 100 requests / 15 min per IP. Development: relaxed for local ERP + Command Palette.
- */
 const API_RATE_WINDOW_MS = 15 * 60 * 1000;
-const API_RATE_MAX =
-  Number.parseInt(process.env.API_RATE_LIMIT_MAX ?? '', 10) ||
-  (process.env.NODE_ENV === 'production' ? 100 : 5000);
+
+/**
+ * ERP pages fire dozens of API calls per navigation. 100/15min (the old
+ * production default) locks out a single clerk — and when the Next.js
+ * rewrite proxies every browser request, Express used to see one shared
+ * IP for the whole tenant. Default is now ERP-sized; override with
+ * API_RATE_LIMIT_MAX if needed.
+ */
+const API_RATE_MAX = Number.parseInt(process.env.API_RATE_LIMIT_MAX ?? '', 10) || 5000;
+
+const AUTH_RATE_MAX =
+  Number.parseInt(process.env.AUTH_RATE_LIMIT_MAX ?? '', 10) || 30;
+
+const REFRESH_RATE_MAX =
+  Number.parseInt(process.env.AUTH_REFRESH_RATE_LIMIT_MAX ?? '', 10) || 60;
+
+/** Login / session bootstrap must not share the general API bucket. */
+export function isAuthRateLimitBypassPath(req: Request): boolean {
+  const url = `${req.originalUrl || ''} ${req.path || ''}`;
+  return /\/auth\/(login|register|logout|refresh|me|verify|profile)(\/|\?|$)/i.test(url);
+}
 
 export const apiRateLimiter = rateLimit({
   windowMs: API_RATE_WINDOW_MS,
   max: API_RATE_MAX,
+  skip: isAuthRateLimitBypassPath,
   message: {
     status: 'error',
     message: 'Too many requests from this IP, please try again later.',
   },
-  standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
-  legacyHeaders: false, // Disable the `X-RateLimit-*` headers
+  standardHeaders: true,
+  legacyHeaders: false,
   handler: async (req: Request, res: Response) => {
     const ip = req.ip || req.socket.remoteAddress || 'unknown';
-    
-    // Record violation for IP blocking
+
     await recordViolation(ip);
-    
+
     logger.warn(
       {
         ip,
@@ -48,25 +62,24 @@ export const apiRateLimiter = rateLimit({
 });
 
 /**
- * Strict rate limiter for authentication endpoints
- * 5 requests per 15 minutes per IP
+ * Brute-force shield for login/register only (not /me, /verify, /refresh).
+ * Successful logins are not counted.
  */
 export const authRateLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5, // Limit each IP to 5 authentication requests per windowMs
+  windowMs: 15 * 60 * 1000,
+  max: AUTH_RATE_MAX,
   message: {
     status: 'error',
     message: 'Too many authentication attempts, please try again later.',
   },
   standardHeaders: true,
   legacyHeaders: false,
-  skipSuccessfulRequests: true, // Don't count successful requests
+  skipSuccessfulRequests: true,
   handler: async (req: Request, res: Response) => {
     const ip = req.ip || req.socket.remoteAddress || 'unknown';
-    
-    // Record violation for IP blocking
+
     await recordViolation(ip);
-    
+
     logger.warn(
       {
         ip,
@@ -83,12 +96,11 @@ export const authRateLimiter = rateLimit({
 });
 
 /**
- * Strict rate limiter for token refresh
- * 10 requests per 15 minutes per IP
+ * Token refresh — clients refresh on focus/visibility; 10/15min was too tight.
  */
 export const tokenRefreshRateLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 10, // Limit each IP to 10 token refresh requests per windowMs
+  windowMs: 15 * 60 * 1000,
+  max: REFRESH_RATE_MAX,
   message: {
     status: 'error',
     message: 'Too many token refresh attempts, please try again later.',
@@ -113,11 +125,10 @@ export const tokenRefreshRateLimiter = rateLimit({
 
 /**
  * Rate limiter for write operations (POST, PUT, DELETE)
- * 50 requests per 15 minutes per IP
  */
 export const writeOperationRateLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 50, // Limit each IP to 50 write operations per windowMs
+  windowMs: 15 * 60 * 1000,
+  max: 200,
   message: {
     status: 'error',
     message: 'Too many write operations, please try again later.',
@@ -175,4 +186,3 @@ export const createRateLimiter = (options: {
     },
   });
 };
-

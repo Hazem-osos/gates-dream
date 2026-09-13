@@ -6,7 +6,7 @@ import cookieParser from 'cookie-parser';
 import { errorHandler } from './shared/middleware/error-handler';
 import { requestLogger } from './shared/middleware/request-logger';
 import { cache } from './shared/cache/cache.middleware';
-import { apiRateLimiter, authRateLimiter, tokenRefreshRateLimiter } from './shared/middleware/rate-limit.middleware';
+import { apiRateLimiter } from './shared/middleware/rate-limit.middleware';
 import { sanitize, preventSQLInjection, preventXSS } from './shared/middleware/sanitize.middleware';
 import { apiAuthGate } from './shared/middleware/api-auth-mode.middleware';
 import { setTenantContext } from './shared/middleware/tenant.middleware';
@@ -199,6 +199,14 @@ import { env } from './shared/config/env';
 
 const app: Express = express();
 
+// Railway + Next.js rewrite sit in front of this process. Without trust
+// proxy, req.ip is the Next.js container for every user and they all share
+// one rate-limit bucket.
+const trustProxyRaw = (process.env.TRUST_PROXY ?? '1').trim().toLowerCase();
+if (trustProxyRaw !== 'false' && trustProxyRaw !== '0') {
+  app.set('trust proxy', /^\d+$/.test(trustProxyRaw) ? Number(trustProxyRaw) : 1);
+}
+
 // Security middleware with enhanced configuration
 // In development, disable CSP so the browser can call the API on another port (e.g. Next :3000 → API :3001).
 // Otherwise connectSrc: 'self' blocks fetch() and surfaces as "Failed to fetch".
@@ -297,8 +305,7 @@ app.use(metricsMiddleware);
 app.use('/api/v1', apiRateLimiter);
 
 const distributedRateMax =
-  Number.parseInt(process.env.API_RATE_LIMIT_MAX ?? '', 10) ||
-  (process.env.NODE_ENV === 'production' ? 100 : 5000);
+  Number.parseInt(process.env.API_RATE_LIMIT_MAX ?? '', 10) || 5000;
 
 // Distributed rate limiting (Redis-backed, for horizontal scaling)
 import { distributedRateLimit } from './shared/middleware/distributed-rate-limit.middleware';
@@ -361,10 +368,7 @@ app.get('/health/ready', async (_req: Request, res: Response) => {
   });
 });
 
-// Auth routes (public endpoints for authentication)
-// Apply strict rate limiting to auth endpoints
-app.use('/api/v1/auth', authRateLimiter);
-app.use('/api/v1/auth/refresh', tokenRefreshRateLimiter);
+// Auth routes (login/register carry their own limiter; /me and /verify must not)
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/public/share', publicShareRouter);
 

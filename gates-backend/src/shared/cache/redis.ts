@@ -3,29 +3,51 @@ import { logger } from '../logger';
 
 /**
  * Redis Client Singleton
- * Manages Redis connection for caching and job queue
+ * Manages Redis connection for caching and job queue.
+ *
+ * Must only connect when REDIS_ENABLED is explicitly true. Importing this
+ * module must never open a socket — Railway/local boxes without Redis were
+ * flooding logs with ECONNREFUSED 127.0.0.1:6379 from a default-export
+ * side effect that called getClient() at load time.
  */
+
+function isRedisEnabledFlag(): boolean {
+  return ['true', '1', 'yes', 'on'].includes((process.env.REDIS_ENABLED ?? '').trim().toLowerCase());
+}
 
 class RedisClient {
   private client: Redis | null = null;
   private isConnected = false;
   private readyHandlers: Array<() => void> = [];
+  private lastErrorLogAt = 0;
 
   /**
-   * Initialize Redis connection
+   * Initialize Redis connection. No-op when Redis is disabled.
    */
-  initialize(): Redis {
+  initialize(): Redis | null {
+    if (!isRedisEnabledFlag()) {
+      return null;
+    }
+
     if (this.client && this.isConnected) {
       return this.client;
     }
 
-    const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
+    if (this.client) {
+      return this.client;
+    }
+
+    const redisUrl = process.env.REDIS_URL?.trim() || 'redis://127.0.0.1:6379';
 
     this.client = new Redis(redisUrl, {
+      lazyConnect: true,
+      enableOfflineQueue: false,
+      maxRetriesPerRequest: 1,
       retryStrategy: (times) => {
-        const delay = Math.min(times * 50, 2000);
-        logger.warn({ times, delay }, 'Redis connection retry');
-        return delay;
+        if (times > 10) {
+          return 30_000;
+        }
+        return Math.min(times * 200, 5_000);
       },
       reconnectOnError: (err) => {
         const targetError = 'READONLY';
@@ -35,7 +57,6 @@ class RedisClient {
         }
         return false;
       },
-      maxRetriesPerRequest: 3,
     });
 
     this.client.on('connect', () => {
@@ -56,24 +77,37 @@ class RedisClient {
     });
 
     this.client.on('error', (err) => {
-      logger.error({ err }, 'Redis connection error');
       this.isConnected = false;
+      const now = Date.now();
+      if (now - this.lastErrorLogAt > 30_000) {
+        this.lastErrorLogAt = now;
+        logger.warn({ err }, 'Redis connection error (retries continue in background)');
+      }
     });
 
     this.client.on('close', () => {
-      logger.warn('Redis connection closed');
       this.isConnected = false;
+    });
+
+    void this.client.connect().catch((err) => {
+      const now = Date.now();
+      if (now - this.lastErrorLogAt > 30_000) {
+        this.lastErrorLogAt = now;
+        logger.warn({ err }, 'Redis initial connect failed');
+      }
     });
 
     return this.client;
   }
 
   /**
-   * Get Redis client instance
+   * Get Redis client instance. Throws if Redis was never initialized.
    */
   getClient(): Redis {
     if (!this.client) {
-      return this.initialize();
+      throw new Error(
+        'Redis client is not initialized. Set REDIS_ENABLED=true and call redisClient.initialize().'
+      );
     }
     return this.client;
   }
@@ -96,7 +130,11 @@ class RedisClient {
    */
   async disconnect(): Promise<void> {
     if (this.client) {
-      await this.client.quit();
+      try {
+        await this.client.quit();
+      } catch {
+        this.client.disconnect();
+      }
       this.client = null;
       this.isConnected = false;
       logger.info('Redis disconnected');
@@ -105,14 +143,3 @@ class RedisClient {
 }
 
 export const redisClient = new RedisClient();
-
-// Wave 6 fix: this module-load side effect used to connect to Redis whenever
-// `REDIS_ENABLED` wasn't literally `'false'` — the same permissive default
-// fixed in `env.ts`'s `REDIS_ENABLED` parsing — independently of and ahead
-// of `index.ts`'s explicit `redisClient.initialize()` call, which is gated
-// on the validated `env.REDIS_ENABLED`. A box that correctly resolved
-// `env.REDIS_ENABLED` to `false` still ended up with a live Redis
-// connection attempt from this side effect. Initialization now happens
-// exactly once, from `index.ts`.
-
-export default redisClient.getClient();

@@ -57,7 +57,10 @@ export function subscribeCacheInvalidation(
   onPrefix: (prefix: string) => void
 ): void {
   if (subscriber) return;
-  if (process.env.REDIS_ENABLED === 'false') return;
+  const redisOn = ['true', '1', 'yes', 'on'].includes(
+    (process.env.REDIS_ENABLED ?? '').trim().toLowerCase()
+  );
+  if (!redisOn) return;
 
   const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
   subscriber = new Redis(redisUrl, {

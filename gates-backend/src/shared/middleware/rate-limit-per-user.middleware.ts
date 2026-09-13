@@ -93,11 +93,11 @@ export function createRateLimitMiddleware(config: Partial<RateLimitConfig> = {})
 }
 
 /**
- * Per-user rate limiter (100 requests per 15 minutes)
+ * Per-user rate limiter (invoice / journal clerks need headroom)
  */
 export const perUserRateLimiter = createRateLimitMiddleware({
   windowMs: 15 * 60 * 1000,
-  maxRequests: 100,
+  maxRequests: 1000,
 });
 
 /**
