@@ -3,9 +3,9 @@ import prisma from '../../../shared/database/prisma';
 import { AppError } from '../../../shared/middleware/error-handler';
 import type { ArchiveEntityType } from '../types/archive-entity.types';
 import { isArchiveEntityType } from '../types/archive-entity.types';
-import type { StorageProvider } from '../storage/storage-provider';
-import { buildTenantObjectKey, sanitizeFileName } from '../storage/storage-provider';
-import { resolveStorageProvider } from '../storage/resolve-storage-provider';
+import type { StorageProvider } from '../object-store/storage-provider';
+import { buildTenantObjectKey, sanitizeFileName } from '../object-store/storage-provider';
+import { resolveStorageProvider } from '../object-store/resolve-storage-provider';
 import { licenseSubscriptionService } from '../../platform/services/license-subscription.service';
 import { ENTITY_TYPE_TO_LINK } from '../types/document-attachment.types';
 

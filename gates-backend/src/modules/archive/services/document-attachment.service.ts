@@ -3,14 +3,14 @@ import type { DocumentCategory, Prisma } from '@prisma/client';
 import prisma from '../../../shared/database/prisma';
 import { AppError } from '../../../shared/middleware/error-handler';
 import { licenseSubscriptionService } from '../../platform/services/license-subscription.service';
-import { resolveStorageProvider } from '../storage/resolve-storage-provider';
-import type { StorageProvider } from '../storage/storage-provider';
+import { resolveStorageProvider } from '../object-store/resolve-storage-provider';
+import type { StorageProvider } from '../object-store/storage-provider';
 import {
   assertTenantKey,
   buildTenantObjectKey,
   sanitizeFileName,
-} from '../storage/storage-provider';
-import { consumeLocalUploadTicket } from '../storage/local-upload-tickets';
+} from '../object-store/storage-provider';
+import { consumeLocalUploadTicket } from '../object-store/local-upload-tickets';
 import {
   assertAllowedFile,
   deriveEntityPointer,
