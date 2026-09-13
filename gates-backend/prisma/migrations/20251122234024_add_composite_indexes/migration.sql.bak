@@ -1,0 +1,116 @@
+-- Migration: Add Composite Indexes for Query Performance (MySQL)
+-- These indexes optimize frequently used query patterns across all modules
+-- Note: MySQL-compatible syntax (no partial indexes with WHERE clause)
+
+-- ============================================
+-- ACCOUNTING MODULE INDEXES
+-- ============================================
+
+-- Journal Entries: Company + Date queries
+CREATE INDEX IF NOT EXISTS idx_journal_entries_company_date 
+ON journal_entries(company_id, date DESC);
+
+-- Journal Entries: Company + Status queries
+CREATE INDEX IF NOT EXISTS idx_journal_entries_company_status 
+ON journal_entries(company_id, is_posted, is_approved);
+
+-- Journal Entry Lines: Journal Entry + Account
+CREATE INDEX IF NOT EXISTS idx_journal_entry_lines_entry_account 
+ON journal_entry_lines(journal_entry_id, account_id);
+
+-- Accounts: Company + Code (for lookups)
+CREATE INDEX IF NOT EXISTS idx_accounts_company_code 
+ON accounts(company_id, code);
+
+-- Accounts: Company + Active status
+-- Note: MySQL doesn't support partial indexes with WHERE clause
+-- This index covers all rows, filter in application queries
+CREATE INDEX IF NOT EXISTS idx_accounts_company_active 
+ON accounts(company_id, is_active);
+
+-- Customers: Company + Code
+CREATE INDEX IF NOT EXISTS idx_customers_company_code 
+ON customers(company_id, code);
+
+-- Suppliers: Company + Code
+CREATE INDEX IF NOT EXISTS idx_suppliers_company_code 
+ON suppliers(company_id, code);
+
+-- ============================================
+-- INVENTORY MODULE INDEXES
+-- ============================================
+
+-- Invoices: Company + Type + Date
+CREATE INDEX IF NOT EXISTS idx_invoices_company_type_date 
+ON invoices(company_id, invoice_type, date DESC);
+
+-- Invoices: Company + Status
+CREATE INDEX IF NOT EXISTS idx_invoices_company_status 
+ON invoices(company_id, is_posted, is_approved);
+
+-- Invoice Lines: Invoice + Item
+CREATE INDEX IF NOT EXISTS idx_invoice_lines_invoice_item 
+ON invoice_lines(invoice_id, item_id);
+
+-- Items: Company + Active
+-- Note: MySQL doesn't support partial indexes with WHERE clause
+-- This index covers all rows, filter in application queries
+CREATE INDEX IF NOT EXISTS idx_items_company_active 
+ON items(company_id, is_active);
+
+-- Item Quantities: Item + Warehouse
+CREATE INDEX IF NOT EXISTS idx_item_quantities_item_warehouse 
+ON item_quantities(item_id, warehouse_id);
+
+-- ============================================
+-- HR MODULE INDEXES
+-- ============================================
+
+-- Employees: Company + Active
+-- Note: MySQL doesn't support partial indexes with WHERE clause
+-- This index covers all rows, filter in application queries
+CREATE INDEX IF NOT EXISTS idx_employees_company_active 
+ON employees(company_id, is_active);
+
+-- Employee Contracts: Employee + Active
+-- Note: MySQL doesn't support partial indexes with WHERE clause
+-- This index covers all rows, filter in application queries
+CREATE INDEX IF NOT EXISTS idx_employee_contracts_employee_active 
+ON employee_contracts(employee_id, is_active);
+
+-- Monthly Salaries: Company + Period
+CREATE INDEX IF NOT EXISTS idx_monthly_salaries_company_period 
+ON monthly_salaries(company_id, period_year, period_month);
+
+-- Monthly Salaries: Employee + Period
+CREATE INDEX IF NOT EXISTS idx_monthly_salaries_employee_period 
+ON monthly_salaries(employee_id, period_year, period_month);
+
+-- ============================================
+-- SCHOOLS MODULE INDEXES
+-- ============================================
+
+-- Students: Company + Stage
+CREATE INDEX IF NOT EXISTS idx_students_company_stage 
+ON students(company_id, stage_id);
+
+-- Student Installments: Student + Date
+CREATE INDEX IF NOT EXISTS idx_student_installments_student_date 
+ON student_installments(student_id, date DESC);
+
+-- Student Installments: Student + Paid status
+CREATE INDEX IF NOT EXISTS idx_student_installments_student_paid 
+ON student_installments(student_id, is_paid);
+
+-- ============================================
+-- AUDIT AND LOGGING INDEXES
+-- ============================================
+
+-- Audit Logs: Tenant + Table + Date (for audit queries)
+CREATE INDEX IF NOT EXISTS idx_audit_logs_tenant_table_date 
+ON audit_logs(tenant_id, table_name, at DESC);
+
+-- Activity Logs: Tenant + Kind + Date
+CREATE INDEX IF NOT EXISTS idx_activity_logs_tenant_kind_date 
+ON activity_logs(tenant_id, kind, at DESC);
+

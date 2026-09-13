@@ -1,0 +1,255 @@
+import { computeInvoiceFinancialSummary } from './computeInvoiceFinancialSummary';
+import { mapDiscountToM5Payload, type DiscountType } from './discount-type';
+import { parsePricingCalculationBasis, syncLineUnitFields } from './unit-conversion';
+
+type CurrencyLike = { id: string; code: string };
+type ItemUnitLike = {
+  unitId?: string;
+  isBaseUnit?: boolean;
+  isFactorFixed?: boolean | null;
+  conversionFactor?: number | string | null;
+  unit?: { id: string };
+};
+type ItemLike = { id: string; units?: ItemUnitLike[] };
+
+export type SalesInvoiceLineForm = {
+  itemId: string;
+  unitId?: string;
+  quantity: number;
+  baseQuantity?: number;
+  conversionFactor?: number;
+  baseUnitId?: string;
+  unitPrice: number;
+  discount?: number;
+  discountValue?: number;
+  discountType?: DiscountType | string;
+  taxRate?: number;
+  /** H10 fix: the original sold/purchased line this return line reverses. */
+  originalInvoiceLineId?: string;
+  /** Sales Invoice Enterprise Redesign: purely descriptive lot/traceability +
+   * note fields (InvoiceLine.batchNumber/expiryDate/productionDate/
+   * serialNumbers/lineNotes/taxExemptionReason) — collected by the line grid
+   * since before this redesign but previously dropped here before reaching
+   * the API. */
+  batchNumber?: string;
+  expiryDate?: string;
+  productionDate?: string;
+  serialNumbers?: string;
+  lineNotes?: string;
+  taxExemptionReason?: string;
+  warehouseId?: string;
+  costCenterId?: string;
+  withholdingTaxRate?: number;
+  withholdingTaxAmount?: number;
+  batchAllocations?: Array<{
+    batchId?: string;
+    batchNumber: string;
+    qty: number;
+    expiryDate?: string | null;
+  }>;
+  color?: string;
+  size?: string;
+  customRevenueAccountId?: string;
+  lineAccountId?: string;
+};
+
+export function resolveItemUnitId(
+  itemId: string,
+  items: ItemLike[],
+  explicitUnitId?: string
+): string | undefined {
+  if (explicitUnitId?.trim()) return explicitUnitId.trim();
+  const item = items.find((i) => i.id === itemId);
+  const link = item?.units?.find((u) => u.isBaseUnit) ?? item?.units?.[0];
+  return link?.unit?.id ?? link?.unitId;
+}
+
+type M5FormData = {
+  invoiceNumber?: string;
+  description?: string;
+  date?: string;
+  dueDate?: string;
+  hijriDate?: string;
+  customerId?: string;
+  supplierId?: string;
+  warehouseId: string;
+  documentProfileId?: string;
+  costCenterId?: string;
+  delegateId?: string;
+  sellerId?: string;
+  currencyId?: string;
+  exchangeRate?: number;
+  taxTreatmentType?: 'taxable' | 'exempt' | 'export';
+  isDelivered?: boolean;
+  handoverDate?: string;
+  paymentMethod?: string;
+  paymentSplits?: unknown;
+  internalNotes?: unknown;
+  allowReturn?: boolean;
+  returnDays?: number;
+  invoiceConditions?: string[];
+  developmentFeeEnabled?: boolean;
+  developmentFeeMode?: 'percent' | 'fixed';
+  developmentFeeRate?: number;
+  developmentFeeFixedAmount?: number;
+  pricingCalculationBasis?: string;
+  sourceType?: string;
+  sourceId?: string;
+  sourceNumber?: string;
+  originalInvoiceId?: string;
+  originalInvoiceNumber?: string;
+  installments?: Array<{
+    installmentNumber: number;
+    dueDate: string;
+    hijriDueDate?: string;
+    amount: number;
+    notes?: string;
+  }>;
+  adjustments?: unknown;
+  lines: SalesInvoiceLineForm[];
+};
+
+export function mapSalesFormToM5CreateBody(
+  data: M5FormData,
+  opts: {
+    invoiceKind: 'SALE' | 'PURCHASE' | 'SALE_RETURN' | 'PURCHASE_RETURN';
+    currencies: CurrencyLike[];
+    items: ItemLike[];
+    applyTax?: boolean;
+  }
+): Record<string, unknown> {
+  const applyTax = opts.applyTax !== false;
+  const currency = opts.currencies.find((c) => c.id === data.currencyId);
+  const currencyCode = currency?.code ?? 'EGP';
+  const pricingCalculationBasis = parsePricingCalculationBasis(data.pricingCalculationBasis);
+  const feePreview = computeInvoiceFinancialSummary(data.lines, {
+    applyTax,
+    developmentFeeEnabled: data.developmentFeeEnabled,
+    developmentFeeMode: data.developmentFeeMode,
+    developmentFeeRate: data.developmentFeeRate,
+    developmentFeeFixedAmount: data.developmentFeeFixedAmount,
+    pricingCalculationBasis,
+  });
+
+  const lines = data.lines.map((line, index) => {
+    const unitId = resolveItemUnitId(line.itemId, opts.items, line.unitId);
+    if (!unitId) {
+      throw new Error('تعذر تحديد وحدة الصنف — تأكد من ربط وحدات الأصناف في بطاقة الصنف.');
+    }
+    const item = opts.items.find((i) => i.id === line.itemId);
+    const synced = syncLineUnitFields(
+      {
+        quantity: line.quantity || 1,
+        baseQuantity: line.baseQuantity,
+        conversionFactor: line.conversionFactor,
+        unitId,
+        baseUnitId: line.baseUnitId,
+      },
+      item?.units,
+      { quantity: line.quantity || 1, baseQuantity: line.baseQuantity }
+    );
+    const qty = synced.quantity || 1;
+    return {
+      itemId: line.itemId,
+      unitId,
+      quantity: qty,
+      baseQuantity: synced.baseQuantity || qty,
+      conversionFactor: synced.conversionFactor || 1,
+      baseUnitId: synced.baseUnitId || undefined,
+      price: line.unitPrice ?? 0,
+      ...mapDiscountToM5Payload(line),
+      taxPercent: applyTax ? (line.taxRate ?? 0) : 0,
+      lineOrder: index + 1,
+      originalInvoiceLineId: line.originalInvoiceLineId || undefined,
+      batchNumber: line.batchNumber || undefined,
+      expiryDate: line.expiryDate ? new Date(line.expiryDate).toISOString() : undefined,
+      productionDate: line.productionDate ? new Date(line.productionDate).toISOString() : undefined,
+      serialNumbers: line.serialNumbers || undefined,
+      lineNotes: line.lineNotes || undefined,
+      taxExemptionReason: line.taxExemptionReason || undefined,
+      warehouseId: line.warehouseId || data.warehouseId || undefined,
+      costCenterId: line.costCenterId || undefined,
+      withholdingTaxRate: line.withholdingTaxRate || undefined,
+      withholdingTaxAmount: line.withholdingTaxAmount || undefined,
+      batchAllocations: line.batchAllocations?.length ? line.batchAllocations : undefined,
+      color: line.color || undefined,
+      size: line.size || undefined,
+      customRevenueAccountId: line.customRevenueAccountId || line.lineAccountId || undefined,
+    };
+  });
+
+  return {
+    invoiceKind: opts.invoiceKind,
+    invoiceNumber: data.invoiceNumber || undefined,
+    description: data.description || undefined,
+    date: data.date ? new Date(data.date).toISOString() : new Date().toISOString(),
+    dueDate: data.dueDate ? new Date(data.dueDate).toISOString() : undefined,
+    hijriDate: data.hijriDate || undefined,
+    currencyCode,
+    exchangeRate: data.exchangeRate && data.exchangeRate > 0 ? data.exchangeRate : undefined,
+    customerId: data.customerId || undefined,
+    supplierId: data.supplierId || undefined,
+    warehouseId: data.warehouseId,
+    documentProfileId: data.documentProfileId || undefined,
+    sourceType: data.sourceType && data.sourceType !== 'NONE' ? data.sourceType : 'NONE',
+    sourceId: data.sourceId || undefined,
+    sourceNumber: data.sourceNumber || undefined,
+    originalInvoiceId: data.originalInvoiceId || undefined,
+    originalInvoiceNumber: data.originalInvoiceNumber || undefined,
+    costCenterId: data.costCenterId || undefined,
+    representativeId: data.delegateId || undefined,
+    sellerId: data.sellerId || undefined,
+    taxTreatmentType: data.taxTreatmentType || undefined,
+    isDelivered: data.isDelivered ?? false,
+    handoverDate: data.handoverDate ? new Date(data.handoverDate).toISOString() : undefined,
+    paymentMethod: data.paymentMethod,
+    paymentSplits: data.paymentSplits,
+    internalNotes: data.internalNotes,
+    isSalesTaxInvoice: applyTax,
+    allowReturn: data.allowReturn ?? false,
+    returnDays: data.allowReturn ? (data.returnDays ?? 365) : undefined,
+    invoiceConditions: data.invoiceConditions,
+    developmentFeeRate: feePreview.developmentFeeRate,
+    developmentFeeAmount: feePreview.developmentFeeAmount,
+    withholdingTaxAmount: feePreview.withholdingTaxAmount,
+    pricingCalculationBasis,
+    installments: data.installments?.length
+      ? data.installments.map((row) => ({
+          installmentNumber: row.installmentNumber,
+          dueDate: row.dueDate,
+          hijriDueDate: row.hijriDueDate || undefined,
+          amount: row.amount,
+          notes: row.notes || undefined,
+        }))
+      : data.installments,
+    adjustments: data.adjustments,
+    lines,
+  };
+}
+
+/** PUT /invoices/:id — same payload minus `invoiceKind`, which is immutable. */
+export function mapSalesFormToM5UpdateBody(
+  data: M5FormData,
+  opts: {
+    invoiceKind: 'SALE' | 'PURCHASE' | 'SALE_RETURN' | 'PURCHASE_RETURN';
+    currencies: CurrencyLike[];
+    items: ItemLike[];
+    applyTax?: boolean;
+    /**
+     * Wave 5 fix: the backend's M14 optimistic-lock guard
+     * (`InvoiceM5Service.update`) rejects the write with 409 when
+     * `expectedVersion` doesn't match the row's current `version` — but it
+     * only does that when the caller actually sends one. The frontend never
+     * did, so two people editing the same draft invoice always resolved as
+     * last-write-wins with no warning. Pass the `version` read from the
+     * GET that populated the form so a stale edit is rejected instead of
+     * silently overwriting a newer save.
+     */
+    expectedVersion?: number;
+  }
+): Record<string, unknown> {
+  const body = mapSalesFormToM5CreateBody(data, opts);
+  delete body.invoiceKind;
+  body.expectedVersion = opts.expectedVersion ?? 0;
+  return body;
+}

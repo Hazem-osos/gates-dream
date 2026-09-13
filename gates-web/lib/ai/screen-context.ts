@@ -1,0 +1,82 @@
+export type AiClientContext = {
+  currentPath: string;
+  pageTitle: string;
+  documentId?: string;
+  documentStatus?: string;
+  formErrors?: string[];
+};
+
+const SCREEN_TITLES: Record<string, string> = {
+  '/growth': 'محرك النمو',
+  '/growth/impact': 'أثر Gates',
+  '/inventory/operations/sales-invoice': 'فاتورة مبيعات',
+  '/inventory/operations/sales-returns': 'مردود مبيعات',
+  '/inventory/operations/final-purchase-invoice': 'فاتورة مشتريات',
+  '/inventory/operations/purchase-returns': 'مردود مشتريات',
+  '/inventory/operations/price-quote': 'عرض سعر',
+  '/inventory/operations/sales-order': 'أمر بيع',
+  '/inventory/operations/purchase-order': 'أمر شراء',
+  '/sales/quotes': 'عرض سعر',
+  '/sales/orders': 'أمر بيع',
+  '/inventory/operations/assembly': 'تجميع الأصناف',
+  '/inventory/operations/disassembly': 'تفكيك الأصناف',
+  '/inventory/disassembly': 'تفكيك الأصناف',
+  '/inventory/assembly': 'تجميع الأصناف',
+  '/inventory/operations/issue': 'إذن صرف مخزني',
+  '/inventory/operations/opening-stock': 'بضاعة أول المدة',
+  '/inventory/opening-stock': 'بضاعة أول المدة',
+  '/inventory/operations/item-offers': 'عروض الأصناف',
+  '/inventory/promotions/new': 'عروض الأصناف',
+  '/accounting/operations/treasury/payment': 'سند صرف',
+  '/accounting/operations/treasury/receipt': 'سند قبض',
+  '/accounting/operations/securities/payment': 'ورقة مدفوعات',
+  '/accounting/operations/securities/reciept': 'ورقة مقبوضات',
+  '/accounting/operations/securities/bulk-create': 'إنشاء عدة أوراق',
+  '/treasury/papers/batch-receipt/new': 'إنشاء عدة أوراق قبض',
+  '/settings/document-profiles': 'أنماط المستندات',
+  '/sales/invoices/new': 'فاتورة مبيعات',
+  '/sales/returns/new': 'مردود مبيعات جديد',
+  '/purchases/invoices/new': 'فاتورة مشتريات',
+  '/purchases/returns/new': 'مردود مشتريات',
+  '/accounting/cheques/incoming': 'الشيكات الواردة',
+  '/accounting/cheques/outgoing': 'الشيكات الصادرة',
+  '/accounting/vouchers/payment/new': 'سند صرف',
+  '/accounting/vouchers/receipt/new': 'سند قبض',
+  '/accounting/tax/wht-certificates': 'إشعارات خصم المنبع',
+  '/accounting/tools/transfer-account': 'نقل حركة حساب',
+  '/accounting/tools/transfer-cost-center': 'نقل حركة مركز التكلفة',
+  '/accounting/operations/account-movement': 'نقل حركة حساب',
+  '/accounting/operations/cost-center-movement': 'نقل حركة مركز التكلفة',
+  '/accounting/operations/treasury/temp-receipt': 'إيصال استلام مؤقت',
+  '/accounting/vouchers/temporary-receipt': 'إيصال استلام مؤقت',
+};
+
+function lookupTitle(pathname: string): string | undefined {
+  if (SCREEN_TITLES[pathname]) return SCREEN_TITLES[pathname];
+  const match = Object.entries(SCREEN_TITLES).find(
+    ([path]) => pathname === path || pathname.startsWith(`${path}/`)
+  );
+  return match?.[1];
+}
+
+export function resolveAiScreenContext(pathname: string): AiClientContext {
+  const fromMap = lookupTitle(pathname);
+  const docTitle =
+    typeof document !== 'undefined' ? document.title.replace(/\s*[|·\-].*$/, '').trim() : '';
+  const pageTitle = fromMap || docTitle || pathname;
+  return { currentPath: pathname, pageTitle };
+}
+
+export function mergeAiClientContext(
+  pathname: string,
+  session?: { documentId?: string; documentStatus?: string; pageTitle?: string; formErrors?: string[] }
+): AiClientContext {
+  const base = resolveAiScreenContext(pathname);
+  return {
+    ...base,
+    pageTitle: session?.pageTitle?.trim() || base.pageTitle,
+    documentId: session?.documentId || base.documentId,
+    documentStatus: session?.documentStatus,
+    formErrors: session?.formErrors?.length ? session.formErrors : undefined,
+  };
+}

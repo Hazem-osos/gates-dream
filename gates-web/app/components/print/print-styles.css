@@ -1,0 +1,124 @@
+@media print {
+  body {
+    margin: 0;
+    padding: 0;
+    background: #fff;
+    color: #000;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .print-hide-screen {
+    display: none !important;
+  }
+  .print-page {
+    box-shadow: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    max-width: none !important;
+  }
+}
+
+.print-page {
+  font-family: 'Segoe UI', Tahoma, Arial, sans-serif;
+  color: #111;
+  background: #fff;
+}
+
+.print-a4 {
+  width: 210mm;
+  min-height: 297mm;
+  padding: 12mm 14mm;
+  margin: 0 auto;
+  box-sizing: border-box;
+}
+
+.print-thermal {
+  width: 80mm;
+  max-width: 80mm;
+  padding: 4mm 3mm;
+  font-size: 11px;
+  line-height: 1.35;
+  margin: 0 auto;
+}
+
+.print-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+
+.print-table th,
+.print-table td {
+  border: 1px solid #ccc;
+  padding: 4px 6px;
+  text-align: right;
+}
+
+.print-table th {
+  background: #f0f7fb;
+  font-weight: 700;
+}
+
+.print-muted {
+  color: #555;
+  font-size: 10px;
+}
+
+.print-title {
+  font-size: 18px;
+  font-weight: 800;
+  color: #0e78aa;
+  margin: 0;
+}
+
+.print-signatures {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-top: 24px;
+  text-align: center;
+  font-size: 11px;
+}
+
+.print-signature-box {
+  border-top: 1px solid #333;
+  padding-top: 8px;
+  min-height: 48px;
+}
+
+.thermal-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 4px;
+}
+
+.thermal-divider {
+  border-top: 1px dashed #999;
+  margin: 6px 0;
+}
+
+.barcode-label-sheet {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4mm;
+  justify-content: flex-start;
+}
+
+.barcode-label {
+  border: 1px dashed #ccc;
+  text-align: center;
+  padding: 2mm;
+  box-sizing: border-box;
+  page-break-inside: avoid;
+}
+
+.barcode-label-38x25 {
+  width: 38mm;
+  height: 25mm;
+}
+
+.barcode-label-50x30 {
+  width: 50mm;
+  height: 30mm;
+}

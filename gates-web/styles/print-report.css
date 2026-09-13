@@ -1,0 +1,121 @@
+/* Enterprise A4 report print — scoped via #report-print-root */
+
+@media print {
+  @page {
+    size: A4;
+    margin: 14mm 12mm 18mm;
+  }
+
+  body {
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  .no-print,
+  nav,
+  header,
+  aside,
+  [data-app-tabs],
+  [data-app-sidebar] {
+    display: none !important;
+  }
+
+  body * {
+    visibility: hidden;
+  }
+
+  #report-print-root,
+  #report-print-root * {
+    visibility: visible;
+  }
+
+  #report-print-root {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    background: white !important;
+    color: #000 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  .report-print-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 10pt;
+  }
+
+  .report-print-table thead {
+    display: table-header-group;
+  }
+
+  .report-print-table th,
+  .report-print-table td {
+    border: 1px solid #333;
+    padding: 4px 6px;
+    text-align: center;
+    color: #000 !important;
+  }
+
+  .report-print-table th {
+    background: #e8e8e8 !important;
+    font-weight: 700;
+  }
+
+  .report-print-badge {
+    border: 1px solid #666 !important;
+    background: transparent !important;
+    color: #000 !important;
+    padding: 0 4px;
+    border-radius: 2px;
+    font-size: 9pt;
+  }
+
+  .report-print-metric {
+    border: 1px solid #ccc;
+    break-inside: avoid;
+  }
+
+  .report-print-footer {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    font-size: 9pt;
+    color: #444;
+    border-top: 1px solid #ccc;
+    padding-top: 4mm;
+    display: flex;
+    justify-content: space-between;
+  }
+
+  .report-print-page::after {
+    counter-increment: report-page;
+    content: 'صفحة ' counter(report-page);
+  }
+
+  body {
+    counter-reset: report-page;
+  }
+}
+
+.report-print-header-brand {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 2px solid #0e78aa;
+}
+
+.report-print-only {
+  display: none;
+}
+
+@media print {
+  .report-print-only {
+    display: block;
+  }
+}

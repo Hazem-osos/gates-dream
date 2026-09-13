@@ -1,0 +1,11 @@
+-- C12 fix (Item 38): `audit_logs` (Prisma model `AuditLog`) had zero
+-- writers anywhere in the application — verified no `auditLog.create` call
+-- site across `src/`. It presented a tamper-evident hash-chain audit API
+-- backed by an always-empty table, which is worse than not having the
+-- feature at all. Document/journal-entry audit logging is implemented via
+-- `documentAuditService` writing to `activity_logs` instead (see
+-- `journal-posting.service.ts`); `audit-log.service.ts` now serves its
+-- existing routes from that table. Dropping the table also implicitly
+-- drops its indexes (`audit_logs_tenantId_tableName_at_idx`,
+-- `idx_audit_logs_tenant_table_date`).
+DROP TABLE IF EXISTS `audit_logs`;

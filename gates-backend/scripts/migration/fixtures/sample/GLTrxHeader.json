@@ -1,0 +1,17 @@
+[
+  {
+    "CompanyCode": "MIG1",
+    "BranchCode": "01",
+    "YearID": "20240001",
+    "GlNum": "1",
+    "Date": "2024-02-01T00:00:00.000Z",
+    "DateH": "1445-07-21",
+    "DescA": "Opening JE",
+    "CurrencyCode": "EGP",
+    "Balanced": "T",
+    "Status": "Post",
+    "Deleted": "F",
+    "Type": "GL",
+    "UserCode": "import"
+  }
+]

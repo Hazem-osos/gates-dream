@@ -1,0 +1,24 @@
+[
+  {
+    "CompanyCode": "MIG1",
+    "BranchCode": "01",
+    "YearID": "20240001",
+    "GlNum": "1",
+    "LineNum": 1,
+    "AccountNo": "1100",
+    "DebitValue": 1000,
+    "CreditValue": 0,
+    "Change": 1
+  },
+  {
+    "CompanyCode": "MIG1",
+    "BranchCode": "01",
+    "YearID": "20240001",
+    "GlNum": "1",
+    "LineNum": 2,
+    "AccountNo": "4100",
+    "DebitValue": 0,
+    "CreditValue": 1000,
+    "Change": 1
+  }
+]

@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gates-config
+data:
+  NODE_ENV: "production"
+  PORT: "3001"
+  REDIS_ENABLED: "true"
+  KEYCLOAK_ENABLED: "true"
+  MQTT_ENABLED: "false"
+  LOG_LEVEL: "info"
+

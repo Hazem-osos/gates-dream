@@ -1,0 +1,257 @@
+/* Gates product tour — z-index: overlay 9998, popover 9999 */
+
+/*
+ * The driver.js overlay is an SVG with a single cut-out path (viewport rect
+ * minus the highlighted element's rect via fill-rule: evenodd) — the "hole"
+ * is what lets the real, sharp target element show through. `backdrop-filter`
+ * does NOT respect that cutout: it blurs the element's whole bounding box
+ * before the path/hole is composited on top, which blurs the highlighted
+ * element too. So the dimming here must stay a plain, non-blurred fill —
+ * it's driven entirely by the JS `overlayColor`/`overlayOpacity` driver
+ * options (which paint the path itself and correctly respect the hole).
+ */
+.driver-active .driver-overlay,
+.driver-active #driver-page-overlay {
+  z-index: 9998 !important;
+}
+
+.driver-active .driver-active-element,
+.driver-active-element,
+.gates-tour-spotlight {
+  z-index: 9998 !important;
+  position: relative;
+  outline: none !important;
+  background-color: rgba(255, 255, 255, 0.02);
+  box-shadow:
+    0 0 0 4px rgba(125, 211, 252, 0.95),
+    0 0 0 10px rgba(56, 189, 248, 0.35),
+    0 0 34px 6px rgba(186, 230, 253, 0.65),
+    0 8px 32px rgba(14, 165, 233, 0.35) !important;
+  filter: brightness(1.04) saturate(1.05);
+  border-radius: 0.75rem !important;
+}
+
+.gates-tour-spotlight {
+  transition: box-shadow 0.2s ease, filter 0.2s ease;
+}
+
+/* Additive: pulsating glow for steps waiting on a user CLICK/INPUT_CHANGE/SELECT_OPTION trigger. */
+@keyframes gates-academy-pulse-glow {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 4px rgba(125, 211, 252, 0.95),
+      0 0 0 10px rgba(56, 189, 248, 0.35),
+      0 0 34px 6px rgba(186, 230, 253, 0.65),
+      0 8px 32px rgba(14, 165, 233, 0.35);
+  }
+  50% {
+    box-shadow:
+      0 0 0 6px rgba(251, 191, 36, 0.95),
+      0 0 0 15px rgba(251, 191, 36, 0.35),
+      0 0 40px 10px rgba(253, 224, 71, 0.6),
+      0 8px 36px rgba(217, 119, 6, 0.4);
+  }
+}
+
+.gates-tour-spotlight.gates-academy-awaiting-trigger {
+  animation: gates-academy-pulse-glow 1.6s ease-in-out infinite;
+}
+
+.driver-active .driver-popover.gates-tour-popover {
+  z-index: 9999 !important;
+  inset: auto !important;
+  margin: 0 !important;
+  transform: none !important;
+}
+
+/* Command palette must stay clickable above driver.js (driver-active disables pointer-events on *) */
+body.driver-active [data-gates-command-palette],
+body.driver-active [data-gates-command-palette] * {
+  pointer-events: auto !important;
+}
+
+body.gates-tour-active:not(.driver-active) {
+  overflow: auto;
+}
+
+body.gates-tour-active.driver-active {
+  overflow: hidden;
+}
+
+.gates-tour-popover.driver-popover {
+  box-sizing: border-box;
+  font-family: inherit;
+  direction: rtl;
+  text-align: right;
+  position: fixed !important;
+  z-index: 9999 !important;
+  width: 380px;
+  max-width: 90vw;
+  padding: 1.25rem;
+  overflow: visible;
+  border-radius: 1rem;
+  background: #ffffff;
+  color: #0f172a;
+  border: 1px solid #e2e8f0;
+  box-shadow:
+    0 25px 50px -12px rgba(15, 23, 42, 0.25),
+    0 0 0 1px rgba(255, 255, 255, 0.6) inset;
+  animation: none;
+}
+
+@keyframes gates-tour-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.gates-tour-popover .driver-popover-arrow {
+  display: none !important;
+}
+
+.gates-tour-popover .gates-tour-title {
+  display: block;
+  margin: 0 0 0.375rem;
+  padding: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1.4;
+  color: #0f172a;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.gates-tour-popover .gates-tour-description {
+  margin: 0;
+  padding: 0;
+  font-size: 0.875rem;
+  line-height: 1.625;
+  color: #475569;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.gates-tour-popover .gates-tour-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-top: 1rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid #f1f5f9;
+  flex-wrap: wrap;
+}
+
+.gates-tour-popover .gates-tour-nav {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.gates-tour-popover .gates-tour-btn-prev {
+  cursor: pointer;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1;
+  height: 2rem;
+  padding: 0 0.75rem;
+  border-radius: 0.5rem;
+  border: none;
+  background: transparent;
+  color: #475569;
+  transition: background-color 0.2s, color 0.2s;
+}
+
+.gates-tour-popover .gates-tour-btn-prev:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+.gates-tour-popover .gates-tour-btn-prev.driver-popover-btn-disabled {
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+.gates-tour-popover .gates-tour-btn-next {
+  cursor: pointer;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1;
+  height: 2rem;
+  padding: 0 1rem;
+  border-radius: 0.5rem;
+  border: none;
+  color: #fff;
+  background: #0284c7;
+  box-shadow: 0 1px 2px rgba(2, 132, 199, 0.25);
+  transition: background-color 0.2s;
+}
+
+.gates-tour-popover .gates-tour-btn-next:hover {
+  background: #0369a1;
+}
+
+.gates-tour-popover .gates-tour-skip {
+  cursor: pointer;
+  position: static !important;
+  width: auto !important;
+  height: auto !important;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: #94a3b8;
+  background: transparent;
+  border: none;
+  transition: color 0.2s;
+  white-space: nowrap;
+  padding: 0.25rem;
+}
+
+.gates-tour-popover .gates-tour-skip:hover {
+  color: #334155;
+}
+
+.gates-tour-popover .driver-popover-progress-text {
+  display: none !important;
+}
+
+.gates-tour-popover .gates-tour-nav.driver-popover-navigation-btns {
+  display: flex !important;
+}
+
+body.gates-tour-active [data-tour='global-search'],
+body.gates-tour-active [data-tour='module-nav'],
+body.gates-tour-active [data-tour='privacy-eye'],
+body.gates-tour-active [data-tour='coa-tree'],
+body.gates-tour-active [data-tour='invoice-items-grid'],
+body.gates-tour-active [data-tour='invoice-line-grid'],
+body.gates-tour-active [data-tour='invoice-impact-tabs'],
+body.gates-tour-active [data-tour='sentinel-radar'],
+#gates-tour-invoice-customer {
+  scroll-margin-top: 6.5rem;
+  scroll-margin-bottom: 18rem;
+}
+
+body.gates-tour-active [data-tour='invoice-party-jit'].gates-tour-party-jit-anchor,
+#gates-tour-invoice-customer.gates-tour-party-jit-anchor {
+  border-radius: 0.75rem;
+  padding: 0.25rem;
+  margin: -0.25rem;
+}
+
+body.gates-tour-active [data-tour='item-search-card'],
+body.gates-tour-active [data-tour='warehouse-stock-matrix'],
+body.gates-tour-active [data-tour='reorder-level-alert'],
+body.gates-tour-active [data-tour='kpi-net-profit'],
+body.gates-tour-active [data-tour='treasury-balances'],
+body.gates-tour-active [data-tour='sentinel-radar-btn'],
+body.gates-tour-active [data-tour='stock-movement-types'] {
+  scroll-margin-top: 5rem;
+  scroll-margin-bottom: 22rem;
+}

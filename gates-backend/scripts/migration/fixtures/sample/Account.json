@@ -1,0 +1,26 @@
+[
+  {
+    "CompanyCode": "MIG1",
+    "AccountCode": "1100",
+    "AccountNameA": "Cash",
+    "AccountNameE": "Cash",
+    "AccountType": "1",
+    "Deleted": "F"
+  },
+  {
+    "CompanyCode": "MIG1",
+    "AccountCode": "4100",
+    "AccountNameA": "Sales",
+    "AccountNameE": "Sales",
+    "AccountType": "4",
+    "Deleted": "F"
+  },
+  {
+    "CompanyCode": "MIG1",
+    "AccountCode": "1200",
+    "AccountNameA": "Accounts Receivable",
+    "AccountNameE": "AR",
+    "AccountType": "1",
+    "Deleted": "F"
+  }
+]

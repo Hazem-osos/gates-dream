@@ -1,0 +1,27 @@
+# Gates ERP — MySQL 8.0.30+ local / shared-host profile
+# Use when MySQL shares an 8G laptop or a small Docker VM with Node, Next, Redis.
+# Production dedicated 8G hosts must use my.cnf (6G buffer pool) instead.
+
+[mysqld]
+innodb_buffer_pool_size = 1G
+# Buffer pool is 1G — a single instance avoids wasted mutexes on a small pool.
+innodb_buffer_pool_instances = 1
+# Leave innodb_flush_method at the platform default (fsync on macOS Homebrew,
+# O_DIRECT is safe to add only on Linux).
+
+innodb_redo_log_capacity = 512M
+innodb_log_buffer_size = 32M
+innodb_flush_log_at_trx_commit = 1
+
+innodb_io_capacity = 500
+innodb_io_capacity_max = 1000
+
+# Dev Prisma pools: API 10 + workers 10 + scripts/admin.
+max_connections = 40
+thread_cache_size = 8
+
+tmp_table_size = 64M
+max_heap_table_size = 64M
+
+character-set-server = utf8mb4
+collation-server = utf8mb4_unicode_ci

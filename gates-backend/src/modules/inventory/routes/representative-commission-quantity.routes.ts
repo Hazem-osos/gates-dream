@@ -1,0 +1,75 @@
+import { Router, Response } from 'express';
+import { validate } from '../../../shared/middleware/validate';
+import { authenticate } from '../../../shared/middleware/auth.middleware';
+import { authorize } from '../../../shared/middleware/authorize.middleware';
+import { setTenantContext } from '../../../shared/middleware/tenant.middleware';
+import {
+  replaceCommissionQuantitiesSchema,
+  commissionQuantityQuerySchema,
+} from '../schemas/representative-commission-quantity.schema';
+import { representativeCommissionQuantityService } from '../services/representative-commission-quantity.service';
+import { logger } from '../../../shared/logger';
+import { AuthRequest } from '../../../shared/auth/types';
+
+const router = Router();
+
+router.use(authenticate);
+router.use(setTenantContext);
+
+router.get(
+  '/',
+  authorize({ resource: 'invoice', action: 'view' }),
+  validate({ query: commissionQuantityQuerySchema }),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const companyId = req.companyId || req.tenantId;
+      if (!companyId) {
+        return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+      }
+      const result = await representativeCommissionQuantityService.list(companyId, {
+        page: req.query.page as number | undefined,
+        limit: req.query.limit as number | undefined,
+        search: req.query.search as string | undefined,
+      });
+      return void res.json({
+        status: 'success',
+        data: result.rows,
+        pagination: result.pagination,
+      });
+    } catch (error) {
+      logger.error({ error }, 'Error listing commission quantity lines');
+      return void res.status(500).json({
+        status: 'error',
+        message: error instanceof Error ? error.message : 'تعذر العرض',
+      });
+    }
+  }
+);
+
+router.put(
+  '/',
+  authorize({ resource: 'invoice', action: 'edit' }),
+  validate({ body: replaceCommissionQuantitiesSchema }),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const companyId = req.companyId || req.tenantId;
+      if (!companyId) {
+        return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+      }
+      const result = await representativeCommissionQuantityService.replaceAll(companyId, req.body);
+      return void res.json({
+        status: 'success',
+        data: result.rows,
+        pagination: result.pagination,
+      });
+    } catch (error) {
+      logger.error({ error, body: req.body }, 'Error saving commission quantity lines');
+      return void res.status(500).json({
+        status: 'error',
+        message: error instanceof Error ? error.message : 'تعذر الحفظ',
+      });
+    }
+  }
+);
+
+export default router;

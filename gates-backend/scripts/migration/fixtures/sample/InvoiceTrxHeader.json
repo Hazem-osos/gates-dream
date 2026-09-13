@@ -1,0 +1,17 @@
+[
+  {
+    "CompanyCode": "MIG1",
+    "BranchCode": "01",
+    "YearID": "20240001",
+    "InvoiceNum": "1001",
+    "TrxType": "S",
+    "Date": "2024-03-01T00:00:00.000Z",
+    "CustomerCode": "C001",
+    "StoreCode": "WH01",
+    "CurrencyCode": "EGP",
+    "TotalValue": 500,
+    "NetValue": 500,
+    "Status": "Post",
+    "Deleted": "F"
+  }
+]

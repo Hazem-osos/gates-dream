@@ -1,0 +1,271 @@
+'use client';
+
+import { Trash2 } from 'lucide-react';
+import { AccountSelect } from '@/app/components/form/AccountSelect';
+import { CostCenterSelect } from '@/app/components/form/CostCenterSelect';
+import { UniversalDataGrid } from '@/components/ui/data-entry-grid';
+import { dataEntryGridInputClass } from '@/components/ui/data-entry-grid/tokens';
+import {
+  handleLineGridKeyDown,
+  OPENING_BALANCE_LINE_FIELD_ORDER,
+  lineGridDataAttrs,
+} from '@/lib/keyboard/gridLineFocus';
+import type { EditableJournalLine } from '@/components/accounting/EditableJournalLinesTable';
+
+export type OpeningBalanceLineCurrency = {
+  id: string;
+  code: string;
+  arabicName?: string;
+};
+
+type Props = {
+  gridId?: string;
+  lines: EditableJournalLine[];
+  onChange: (lines: EditableJournalLine[]) => void;
+  onAddLine: () => void;
+  disabled?: boolean;
+  currencies?: OpeningBalanceLineCurrency[];
+  defaultCurrencyId?: string;
+  accountLabelFor?: (accountId: string) => string | undefined;
+};
+
+function emptyLine(currencyId?: string): EditableJournalLine {
+  return {
+    accountId: '',
+    description: '',
+    debit: 0,
+    credit: 0,
+    currencyId,
+    exchangeRate: 1,
+    costCenterId: '',
+  };
+}
+
+function formatAmountInput(value: number) {
+  if (!value) return '';
+  return value.toLocaleString('en-US', {
+    minimumFractionDigits: value % 1 === 0 ? 0 : 2,
+    maximumFractionDigits: 2,
+  });
+}
+
+export function OpeningBalanceLinesTable({
+  gridId = 'opening-balance-lines',
+  lines,
+  onChange,
+  onAddLine,
+  disabled,
+  currencies = [],
+  defaultCurrencyId,
+  accountLabelFor,
+}: Props) {
+  const fieldOrder = OPENING_BALANCE_LINE_FIELD_ORDER;
+
+  const updateLine = (index: number, patch: Partial<EditableJournalLine>) => {
+    const current = lines[index] ?? emptyLine(defaultCurrencyId);
+    const next = lines.length ? [...lines] : [];
+    if (!lines[index]) {
+      while (next.length < index) next.push(emptyLine(defaultCurrencyId));
+      next.push({ ...current, ...patch });
+    } else {
+      next[index] = { ...current, ...patch };
+    }
+    onChange(next);
+  };
+
+  const removeLine = (index: number) => {
+    if (lines.length <= 1) {
+      onChange([emptyLine(defaultCurrencyId)]);
+      return;
+    }
+    onChange(lines.filter((_, i) => i !== index));
+  };
+
+  const keyHandlers = (index: number, field: string) => ({
+    ...lineGridDataAttrs(gridId, index, field),
+    onKeyDown: (e: React.KeyboardEvent<HTMLElement>) => {
+      if (e.key === 'Enter' && (field === 'costCenter' || field === 'description') && !e.shiftKey) {
+        e.preventDefault();
+        onAddLine();
+        window.setTimeout(() => {
+          document
+            .querySelector<HTMLElement>(
+              `[data-line-grid="${gridId}"][data-line-index="${index + 1}"][data-line-field="account"]`
+            )
+            ?.focus();
+        }, 50);
+        return;
+      }
+      handleLineGridKeyDown(e, {
+        gridId,
+        lineIndex: index,
+        fieldOrder,
+        onAppendLine: onAddLine,
+        onRemoveLine: removeLine,
+      });
+    },
+  });
+
+  const columns = [
+    { id: '#', label: '#', className: 'w-10 text-center', align: 'center' as const },
+    { id: 'account', label: 'الحساب', className: 'min-w-[220px]' },
+    { id: 'description', label: 'البيان', className: 'min-w-[140px]' },
+    { id: 'debit', label: 'مدين', className: 'w-28 min-w-[6.5rem]', align: 'center' as const },
+    { id: 'credit', label: 'دائن', className: 'w-28 min-w-[6.5rem]', align: 'center' as const },
+    { id: 'currency', label: 'العملة', className: 'w-24 min-w-[6rem]' },
+    { id: 'rate', label: 'سعر الصرف', className: 'w-24 min-w-[6rem]', align: 'center' as const },
+    { id: 'costCenter', label: 'مركز التكلفة', className: 'w-44 min-w-[10rem]' },
+    { id: 'action', label: 'إجراء', className: 'w-12 text-center', align: 'center' as const },
+  ];
+
+  return (
+    <UniversalDataGrid
+      columns={columns}
+      rowCount={Math.max(lines.length, 1)}
+      disabled={disabled}
+      onAddRow={disabled ? undefined : onAddLine}
+      addLabel="إضافة طرف جديد (Enter)"
+      renderCell={(index, columnId) => {
+        const line = lines[index] ?? emptyLine(defaultCurrencyId);
+        if (columnId === '#') {
+          return (
+            <span className="block text-center font-mono text-xs text-muted-foreground">{index + 1}</span>
+          );
+        }
+        if (columnId === 'account') {
+          return (
+            <AccountSelect
+              value={line.accountId}
+              onChange={(accountId) => updateLine(index, { accountId })}
+              disabled={disabled}
+              leafOnly
+              emptyLabel="اختر الحساب"
+              className={dataEntryGridInputClass}
+              selectedAccount={
+                line.accountId && accountLabelFor
+                  ? { id: line.accountId, code: '', arabicName: accountLabelFor(line.accountId) || '' }
+                  : undefined
+              }
+              nativeSelectProps={{
+                ...lineGridDataAttrs(gridId, index, 'account'),
+                onKeyDown: (e) => keyHandlers(index, 'account').onKeyDown(e),
+              }}
+            />
+          );
+        }
+        if (columnId === 'description') {
+          return (
+            <input
+              type="text"
+              disabled={disabled}
+              value={line.description || ''}
+              onChange={(e) => updateLine(index, { description: e.target.value })}
+              className={`${dataEntryGridInputClass} text-start`}
+              placeholder="البيان"
+              {...keyHandlers(index, 'description')}
+            />
+          );
+        }
+        if (columnId === 'debit') {
+          return (
+            <input
+              type="text"
+              inputMode="decimal"
+              disabled={disabled}
+              value={formatAmountInput(Number(line.debit) || 0)}
+              onChange={(e) => {
+                const raw = e.target.value.replace(/,/g, '');
+                if (raw === '' || raw === '.') {
+                  updateLine(index, { debit: 0 });
+                  return;
+                }
+                const parsed = Number(raw);
+                if (!Number.isNaN(parsed)) updateLine(index, { debit: parsed, credit: parsed > 0 ? 0 : line.credit });
+              }}
+              className={`${dataEntryGridInputClass} h-9 text-xs text-end font-mono font-medium`}
+              placeholder="0.00"
+              {...keyHandlers(index, 'debit')}
+            />
+          );
+        }
+        if (columnId === 'credit') {
+          return (
+            <input
+              type="text"
+              inputMode="decimal"
+              disabled={disabled}
+              value={formatAmountInput(Number(line.credit) || 0)}
+              onChange={(e) => {
+                const raw = e.target.value.replace(/,/g, '');
+                if (raw === '' || raw === '.') {
+                  updateLine(index, { credit: 0 });
+                  return;
+                }
+                const parsed = Number(raw);
+                if (!Number.isNaN(parsed)) updateLine(index, { credit: parsed, debit: parsed > 0 ? 0 : line.debit });
+              }}
+              className={`${dataEntryGridInputClass} h-9 text-xs text-end font-mono font-medium`}
+              placeholder="0.00"
+              {...keyHandlers(index, 'credit')}
+            />
+          );
+        }
+        if (columnId === 'currency') {
+          return (
+            <select
+              className={dataEntryGridInputClass}
+              disabled={disabled}
+              value={line.currencyId || defaultCurrencyId || ''}
+              onChange={(e) => updateLine(index, { currencyId: e.target.value })}
+              {...keyHandlers(index, 'currency')}
+            >
+              {(currencies.length ? currencies : [{ id: 'egp', code: 'EGP' }]).map((c) => (
+                <option key={c.id || c.code} value={c.id}>
+                  {c.code}
+                </option>
+              ))}
+            </select>
+          );
+        }
+        if (columnId === 'rate') {
+          const selected = currencies.find((c) => c.id === (line.currencyId || defaultCurrencyId));
+          const isBase = (selected?.code || 'EGP') === 'EGP';
+          return (
+            <input
+              type="number"
+              step="0.0001"
+              disabled={disabled || isBase}
+              value={isBase ? 1 : line.exchangeRate ?? 1}
+              onChange={(e) => updateLine(index, { exchangeRate: Number(e.target.value) || 1 })}
+              className={`${dataEntryGridInputClass} h-9 text-xs text-end font-mono`}
+              {...keyHandlers(index, 'rate')}
+            />
+          );
+        }
+        if (columnId === 'costCenter') {
+          return (
+            <CostCenterSelect
+              value={line.costCenterId || ''}
+              onChange={(id) => updateLine(index, { costCenterId: id })}
+              disabled={disabled}
+              emptyLabel="اختياري"
+              className={dataEntryGridInputClass}
+              nativeSelectProps={keyHandlers(index, 'costCenter')}
+            />
+          );
+        }
+        return (
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() => removeLine(index)}
+            className="mx-auto flex h-8 w-8 items-center justify-center rounded-md text-slate-400 opacity-0 transition-opacity hover:bg-rose-50 hover:text-rose-600 group-hover/row:opacity-100 disabled:opacity-20"
+            aria-label="حذف السطر"
+          >
+            <Trash2 className="h-4 w-4" />
+          </button>
+        );
+      }}
+    />
+  );
+}

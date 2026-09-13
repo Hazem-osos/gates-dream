@@ -1,0 +1,61 @@
+{
+  "dashboard": {
+    "title": "Gates ERP Backend Metrics",
+    "tags": ["gates", "erp", "backend"],
+    "timezone": "browser",
+    "panels": [
+      {
+        "title": "HTTP Requests Rate",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(http_requests_total[5m])",
+            "legendFormat": "{{method}}"
+          }
+        ]
+      },
+      {
+        "title": "HTTP Response Time",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "http_response_time_avg",
+            "legendFormat": "Average"
+          },
+          {
+            "expr": "http_response_time_max",
+            "legendFormat": "Max"
+          }
+        ]
+      },
+      {
+        "title": "Database Queries",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(database_queries_total[5m])",
+            "legendFormat": "Queries/sec"
+          },
+          {
+            "expr": "rate(database_queries_slow[5m])",
+            "legendFormat": "Slow Queries/sec"
+          }
+        ]
+      },
+      {
+        "title": "Cache Hit Rate",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "cache_hit_rate",
+            "legendFormat": "Hit Rate"
+          }
+        ]
+      }
+    ],
+    "refresh": "10s",
+    "schemaVersion": 16,
+    "version": 1
+  }
+}
+

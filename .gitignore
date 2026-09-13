@@ -1,0 +1,44 @@
+# Nested local history (do not treat gates-web as a submodule)
+gates-web/.git.local-backup/
+
+# Delphi dump — never publish
+MainProgram/
+
+# Dependencies and build output
+**/node_modules/
+**/.next/
+**/out/
+**/dist/
+**/build/
+**/*.tsbuildinfo
+
+# Secrets
+**/.env
+**/.env.local
+**/.env.*.local
+!**/.env.example
+
+# OS / IDE
+.DS_Store
+**/.DS_Store
+.idea/
+.vscode/
+
+# Tests and local storage
+**/coverage/
+**/.nyc_output/
+**/test-results/
+**/playwright-report/
+**/blob-report/
+**/playwright/.cache/
+**/playwright/.auth/
+gates-backend/storage/
+gates-backend/backups/
+gates-backend/exports/
+gates-backend/scripts/migration/fixtures/prod-like/
+
+# Logs
+**/*.log
+**/npm-debug.log*
+**/yarn-error.log*
+**/.vercel

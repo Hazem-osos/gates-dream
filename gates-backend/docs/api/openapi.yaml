@@ -1,0 +1,364 @@
+openapi: 3.0.3
+info:
+  title: Gates ERP API
+  description: Enterprise Resource Planning API
+  version: 1.0.0
+  contact:
+    name: Gates ERP Support
+    email: support@gates-erp.com
+
+servers:
+  - url: http://localhost:3001/api/v1
+    description: Development server
+  - url: https://api.gates-erp.com/api/v1
+    description: Production server
+
+tags:
+  - name: Health
+    description: Health check endpoints
+  - name: Accounting
+    description: Accounting operations
+  - name: Inventory
+    description: Inventory management
+  - name: HR
+    description: Human Resources operations
+  - name: Schools
+    description: Schools management
+
+paths:
+  /health:
+    get:
+      tags:
+        - Health
+      summary: Health check
+      description: Returns health status of the application and dependencies
+      responses:
+        '200':
+          description: Application is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatus'
+        '503':
+          description: Application is unhealthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthStatus'
+
+  /metrics:
+    get:
+      tags:
+        - Health
+      summary: Prometheus metrics
+      description: Returns Prometheus metrics for monitoring
+      responses:
+        '200':
+          description: Metrics in Prometheus format
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /accounting/accounts:
+    get:
+      tags:
+        - Accounting
+      summary: List accounts
+      description: Get list of accounts for the current tenant
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+      responses:
+        '200':
+          description: List of accounts
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Account'
+                  pagination:
+                    $ref: '#/components/schemas/Pagination'
+
+    post:
+      tags:
+        - Accounting
+      summary: Create account
+      description: Create a new account
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AccountCreate'
+      responses:
+        '201':
+          description: Account created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Account'
+        '400':
+          description: Validation error
+        '401':
+          description: Unauthorized
+
+  /accounting/journal-entries:
+    get:
+      tags:
+        - Accounting
+      summary: List journal entries
+      description: Get list of journal entries
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: dateFrom
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: dateTo
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: List of journal entries
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/JournalEntry'
+
+    post:
+      tags:
+        - Accounting
+      summary: Create journal entry
+      description: Create a new journal entry
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/JournalEntryCreate'
+      responses:
+        '201':
+          description: Journal entry created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JournalEntry'
+        '400':
+          description: Validation error
+        '401':
+          description: Unauthorized
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [healthy, unhealthy, degraded]
+        timestamp:
+          type: string
+          format: date-time
+        uptime:
+          type: number
+        checks:
+          type: object
+          properties:
+            database:
+              $ref: '#/components/schemas/DependencyCheck'
+            redis:
+              $ref: '#/components/schemas/DependencyCheck'
+            mqtt:
+              $ref: '#/components/schemas/DependencyCheck'
+            keycloak:
+              $ref: '#/components/schemas/DependencyCheck'
+
+    DependencyCheck:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [healthy, unhealthy]
+        responseTime:
+          type: number
+        message:
+          type: string
+        error:
+          type: string
+
+    Account:
+      type: object
+      properties:
+        id:
+          type: string
+        code:
+          type: string
+        name:
+          type: string
+        arabicName:
+          type: string
+        accountType:
+          type: string
+        isActive:
+          type: boolean
+        companyId:
+          type: string
+
+    AccountCreate:
+      type: object
+      required:
+        - code
+        - name
+        - accountType
+      properties:
+        code:
+          type: string
+        name:
+          type: string
+        arabicName:
+          type: string
+        accountType:
+          type: string
+        isActive:
+          type: boolean
+          default: true
+
+    JournalEntry:
+      type: object
+      properties:
+        id:
+          type: string
+        date:
+          type: string
+          format: date
+        description:
+          type: string
+        isPosted:
+          type: boolean
+        isApproved:
+          type: boolean
+        companyId:
+          type: string
+        lines:
+          type: array
+          items:
+            $ref: '#/components/schemas/JournalEntryLine'
+
+    JournalEntryCreate:
+      type: object
+      required:
+        - date
+        - description
+        - lines
+      properties:
+        date:
+          type: string
+          format: date
+        description:
+          type: string
+        lines:
+          type: array
+          items:
+            $ref: '#/components/schemas/JournalEntryLineCreate'
+          minItems: 2
+
+    JournalEntryLine:
+      type: object
+      properties:
+        id:
+          type: string
+        accountId:
+          type: string
+        debit:
+          type: number
+        credit:
+          type: number
+        description:
+          type: string
+
+    JournalEntryLineCreate:
+      type: object
+      required:
+        - accountId
+      properties:
+        accountId:
+          type: string
+        debit:
+          type: number
+          default: 0
+        credit:
+          type: number
+          default: 0
+        description:
+          type: string
+
+    Pagination:
+      type: object
+      properties:
+        page:
+          type: integer
+        limit:
+          type: integer
+        total:
+          type: integer
+        totalPages:
+          type: integer
+        hasMore:
+          type: boolean
+
+    Error:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [error]
+        message:
+          type: string
+        errors:
+          type: array
+          items:
+            type: string

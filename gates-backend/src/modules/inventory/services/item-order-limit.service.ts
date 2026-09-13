@@ -1,0 +1,188 @@
+// @ts-nocheck — Prisma interactive transaction client is a subset of prisma.
+import { Decimal } from '@prisma/client/runtime/library';
+import prisma from '../../../shared/database/prisma';
+import { logger } from '../../../shared/logger';
+import type {
+  CreateItemOrderLimitInput,
+  ItemOrderLimitLineInput,
+  UpdateItemOrderLimitInput,
+} from '../schemas/item-order-limit.schema';
+
+const includeDetail = {
+  warehouse: { select: { id: true, code: true, arabicName: true } },
+  lines: {
+    include: {
+      item: {
+        select: {
+          id: true,
+          code: true,
+          serial: true,
+          arabicName: true,
+          orderLimit: true,
+        },
+      },
+    },
+    orderBy: { item: { arabicName: 'asc' as const } },
+  },
+};
+
+function filledLines(lines?: ItemOrderLimitLineInput[]) {
+  return (lines ?? []).filter((line) => line.itemId);
+}
+
+export class ItemOrderLimitService {
+  async list(
+    companyId: string,
+    options: { page?: number; limit?: number; search?: string; isActive?: boolean }
+  ) {
+    const page = options.page || 1;
+    const limit = options.limit || 50;
+    const skip = (page - 1) * limit;
+    const where: {
+      companyId: string;
+      isActive?: boolean;
+      OR?: { code?: { contains: string }; description?: { contains: string } }[];
+    } = { companyId };
+    if (options.search) {
+      where.OR = [
+        { code: { contains: options.search } },
+        { description: { contains: options.search } },
+      ];
+    }
+    if (options.isActive !== undefined) where.isActive = options.isActive;
+
+    const [rows, total] = await Promise.all([
+      prisma.itemOrderLimitList.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          warehouse: { select: { id: true, code: true, arabicName: true } },
+          _count: { select: { lines: true } },
+        },
+      }),
+      prisma.itemOrderLimitList.count({ where }),
+    ]);
+
+    return {
+      rows,
+      pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+    };
+  }
+
+  async getById(companyId: string, id: string) {
+    const row = await prisma.itemOrderLimitList.findFirst({
+      where: { id, companyId },
+      include: includeDetail,
+    });
+    if (!row) throw new Error('Order limit list not found');
+    return row;
+  }
+
+  private async replaceLines(
+    tx: typeof prisma,
+    companyId: string,
+    listId: string,
+    lines: ItemOrderLimitLineInput[]
+  ) {
+    const kept = filledLines(lines);
+    const itemIds = [...new Set(kept.map((l) => l.itemId))];
+    if (itemIds.length) {
+      const items = await tx.item.findMany({
+        where: { companyId, id: { in: itemIds } },
+        select: { id: true },
+      });
+      if (items.length !== itemIds.length) throw new Error('Item not found');
+    }
+
+    await tx.itemOrderLimitLine.deleteMany({ where: { listId } });
+    if (kept.length) {
+      await tx.itemOrderLimitLine.createMany({
+        data: kept.map((line) => ({
+          listId,
+          itemId: line.itemId,
+          orderLimit: new Decimal(line.orderLimit),
+        })),
+      });
+      await Promise.all(
+        kept.map((line) =>
+          tx.item.update({
+            where: { id: line.itemId },
+            data: { orderLimit: new Decimal(line.orderLimit) },
+          })
+        )
+      );
+    }
+  }
+
+  async create(companyId: string, data: CreateItemOrderLimitInput) {
+    const warehouse = await prisma.warehouse.findFirst({
+      where: { id: data.warehouseId, companyId },
+    });
+    if (!warehouse) throw new Error('Warehouse not found');
+
+    const created = await prisma.$transaction(async (tx) => {
+      const list = await tx.itemOrderLimitList.create({
+        data: {
+          companyId,
+          code: data.code || null,
+          warehouseId: data.warehouseId,
+          description: data.description || null,
+        },
+      });
+      await this.replaceLines(tx, companyId, list.id, data.lines ?? []);
+      return list.id;
+    });
+
+    logger.info({ companyId, id: created }, 'Item order limit list created');
+    return this.getById(companyId, created);
+  }
+
+  async update(companyId: string, id: string, data: UpdateItemOrderLimitInput) {
+    const existing = await prisma.itemOrderLimitList.findFirst({
+      where: { id, companyId },
+    });
+    if (!existing) throw new Error('Order limit list not found');
+
+    if (data.warehouseId) {
+      const warehouse = await prisma.warehouse.findFirst({
+        where: { id: data.warehouseId, companyId },
+      });
+      if (!warehouse) throw new Error('Warehouse not found');
+    }
+
+    await prisma.$transaction(async (tx) => {
+      await tx.itemOrderLimitList.update({
+        where: { id },
+        data: {
+          ...(data.code !== undefined && { code: data.code || null }),
+          ...(data.warehouseId && { warehouseId: data.warehouseId }),
+          ...(data.description !== undefined && { description: data.description || null }),
+          ...(data.isActive !== undefined && { isActive: data.isActive }),
+        },
+      });
+      if (data.lines) {
+        await this.replaceLines(tx, companyId, id, data.lines);
+      }
+    });
+
+    logger.info({ companyId, id }, 'Item order limit list updated');
+    return this.getById(companyId, id);
+  }
+
+  async remove(companyId: string, id: string) {
+    const existing = await prisma.itemOrderLimitList.findFirst({
+      where: { id, companyId },
+    });
+    if (!existing) throw new Error('Order limit list not found');
+    await prisma.itemOrderLimitList.update({
+      where: { id },
+      data: { isActive: false },
+    });
+    logger.info({ companyId, id }, 'Item order limit list deleted');
+    return { success: true };
+  }
+}
+
+export const itemOrderLimitService = new ItemOrderLimitService();

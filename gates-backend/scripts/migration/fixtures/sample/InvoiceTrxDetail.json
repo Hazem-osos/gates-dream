@@ -1,0 +1,12 @@
+[
+  {
+    "CompanyCode": "MIG1",
+    "YearID": "20240001",
+    "InvoiceNum": "1001",
+    "LineNum": 1,
+    "ItemCode": "SKU-001",
+    "Quantity": 10,
+    "Price": 50,
+    "TotalValue": 500
+  }
+]

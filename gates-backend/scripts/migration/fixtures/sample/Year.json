@@ -1,0 +1,11 @@
+[
+  {
+    "CompanyCode": "MIG1",
+    "BranchCode": "01",
+    "YearCode": "20240001",
+    "YearNameA": "FY 2024",
+    "FromDate": "2024-01-01T00:00:00.000Z",
+    "ToDate": "2024-12-31T23:59:59.000Z",
+    "Status": "Open"
+  }
+]

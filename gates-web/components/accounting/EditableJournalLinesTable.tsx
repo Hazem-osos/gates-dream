@@ -1,0 +1,193 @@
+'use client';
+
+import { Plus, Trash2 } from 'lucide-react';
+import { AccountSelect } from '@/app/components/form/AccountSelect';
+import { CostCenterSelect } from '@/app/components/form/CostCenterSelect';
+import { Button, IconButton, compactControlClass } from '@/components/ui';
+
+export type EditableJournalLine = {
+  accountId: string;
+  description: string;
+  debit: number;
+  credit: number;
+  currencyId?: string;
+  exchangeRate: number;
+  costCenterId?: string;
+};
+
+export type CurrencyOption = {
+  id: string;
+  code: string;
+  arabicName: string;
+};
+
+type Props = {
+  lines: EditableJournalLine[];
+  onChange: (lines: EditableJournalLine[]) => void;
+  currencies?: CurrencyOption[];
+  defaultCurrencyId?: string;
+  disabled?: boolean;
+};
+
+export function emptyJournalLine(currencyId?: string): EditableJournalLine {
+  return {
+    accountId: '',
+    description: '',
+    debit: 0,
+    credit: 0,
+    currencyId,
+    exchangeRate: 1,
+    costCenterId: '',
+  };
+}
+
+export function EditableJournalLinesTable({
+  lines,
+  onChange,
+  currencies = [],
+  defaultCurrencyId,
+  disabled,
+}: Props) {
+  const updateLine = (index: number, patch: Partial<EditableJournalLine>) => {
+    const next = [...lines];
+    next[index] = { ...next[index], ...patch };
+    onChange(next);
+  };
+
+  const addLine = () => {
+    onChange([...lines, emptyJournalLine(defaultCurrencyId)]);
+  };
+
+  const removeLine = (index: number) => {
+    onChange(lines.filter((_, i) => i !== index));
+  };
+
+  return (
+    <div className="space-y-3" dir="rtl">
+      <div className="flex items-center justify-end">
+        <Button type="button" variant="primary" size="sm" className="gap-2" onClick={addLine} disabled={disabled}>
+          <Plus className="h-4 w-4" aria-hidden />
+          إضافة سطر
+        </Button>
+      </div>
+      <div className="overflow-x-auto rounded-xl border border-[#D6EAF3] bg-white">
+        <table className="min-w-full text-center text-xs sm:text-sm">
+          <thead>
+            <tr>
+              {['م', 'الحساب', 'الشرح', 'مدين', 'دائن', 'العملة', 'سعر الصرف', 'مركز التكلفة', ''].map((h) => (
+                <th
+                  key={h || 'actions'}
+                  className="bg-[#0E78AA] px-2 py-2 text-xs font-bold text-white border-r border-white/20 last:border-r-0"
+                >
+                  {h}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {lines.length === 0 ? (
+              <tr>
+                <td colSpan={9} className="px-3 py-6 text-sm text-slate-500">
+                  لا توجد بنود — اضغط «إضافة سطر» لإدخال الحساب والمبلغ. الجدول جزء من المستند ويُرسل مع الحفظ.
+                </td>
+              </tr>
+            ) : (
+              lines.map((line, index) => (
+                <tr key={`jl-${index}`} className={index % 2 === 0 ? 'bg-[#F6FBFD]' : 'bg-white'}>
+                  <td className="border-x border-[#D6EAF3] px-2 py-1.5 tabular-nums">{index + 1}</td>
+                  <td className="min-w-[12rem] border-x border-[#D6EAF3] px-1.5 py-1.5">
+                    <AccountSelect
+                      value={line.accountId}
+                      onChange={(accountId) => updateLine(index, { accountId })}
+                      className={compactControlClass}
+                      disabled={disabled}
+                      emptyLabel="اختر الحساب"
+                    />
+                  </td>
+                  <td className="min-w-[8rem] border-x border-[#D6EAF3] px-1.5 py-1.5">
+                    <input
+                      className={compactControlClass}
+                      value={line.description}
+                      disabled={disabled}
+                      placeholder="الشرح"
+                      onChange={(e) => updateLine(index, { description: e.target.value })}
+                    />
+                  </td>
+                  <td className="w-24 border-x border-[#D6EAF3] px-1.5 py-1.5">
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      className={`${compactControlClass} text-center`}
+                      value={line.debit || ''}
+                      disabled={disabled}
+                      onChange={(e) =>
+                        updateLine(index, { debit: parseFloat(e.target.value) || 0, credit: 0 })
+                      }
+                    />
+                  </td>
+                  <td className="w-24 border-x border-[#D6EAF3] px-1.5 py-1.5">
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      className={`${compactControlClass} text-center`}
+                      value={line.credit || ''}
+                      disabled={disabled}
+                      onChange={(e) =>
+                        updateLine(index, { credit: parseFloat(e.target.value) || 0, debit: 0 })
+                      }
+                    />
+                  </td>
+                  <td className="w-32 border-x border-[#D6EAF3] px-1.5 py-1.5">
+                    <select
+                      className={compactControlClass}
+                      value={line.currencyId || defaultCurrencyId || ''}
+                      disabled={disabled || currencies.length === 0}
+                      onChange={(e) => updateLine(index, { currencyId: e.target.value })}
+                    >
+                      {currencies.length === 0 ? <option value="">—</option> : null}
+                      {currencies.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.arabicName} ({c.code})
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+                  <td className="w-24 border-x border-[#D6EAF3] px-1.5 py-1.5">
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.0001"
+                      className={`${compactControlClass} text-center`}
+                      value={line.exchangeRate || ''}
+                      disabled={disabled}
+                      onChange={(e) => updateLine(index, { exchangeRate: parseFloat(e.target.value) || 1 })}
+                    />
+                  </td>
+                  <td className="min-w-[10rem] border-x border-[#D6EAF3] px-1.5 py-1.5">
+                    <CostCenterSelect
+                      value={line.costCenterId || ''}
+                      onChange={(costCenterId) => updateLine(index, { costCenterId })}
+                      className={compactControlClass}
+                      disabled={disabled}
+                    />
+                  </td>
+                  <td className="border-x border-[#D6EAF3] px-1.5 py-1.5">
+                    <IconButton
+                      icon={Trash2}
+                      label="حذف السطر"
+                      variant="danger"
+                      onClick={() => removeLine(index)}
+                      disabled={disabled}
+                    />
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}

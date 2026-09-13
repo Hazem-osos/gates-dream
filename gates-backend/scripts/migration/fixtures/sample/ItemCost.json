@@ -1,0 +1,13 @@
+[
+  {
+    "CompanyCode": "MIG1",
+    "BranchCode": "01",
+    "ItemCode": "SKU-001",
+    "Serial": 1,
+    "Cost": 25.5,
+    "Date": "2024-01-01T00:00:00.000Z",
+    "SourceType": "OPENING",
+    "SourceNum": "1",
+    "YearID": "20240001"
+  }
+]

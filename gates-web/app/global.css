@@ -1,0 +1,414 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom Scrollbar Styles */
+.scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: #93c5fd #dbeafe;
+}
+
+.scrollbar-thin::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: #dbeafe;
+  border-radius: 4px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: #93c5fd;
+  border-radius: 4px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background: #60a5fa;
+}
+
+html.gates-privacy-mode .gates-sensitive {
+  filter: blur(10px);
+  user-select: none;
+  pointer-events: none;
+}
+
+@media print {
+  body.gates-print-active * {
+    visibility: hidden !important;
+  }
+  body.gates-print-active #gates-print-root,
+  body.gates-print-active #gates-print-root * {
+    visibility: visible !important;
+  }
+  body.gates-print-active #gates-print-root {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    z-index: 99999 !important;
+    background: #fff !important;
+  }
+}
+
+/* Lock the document pane to the viewport; wide tables scroll inside .erp-scroll-x */
+.erp-contain {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  background-color: #fff;
+}
+
+.erp-scroll-x {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+  scrollbar-color: #8ebfd6 transparent;
+}
+.erp-scroll-x::-webkit-scrollbar {
+  height: 6px;
+}
+.erp-scroll-x::-webkit-scrollbar-track {
+  background: transparent;
+}
+.erp-scroll-x::-webkit-scrollbar-thumb {
+  background: #8ebfd6;
+  border-radius: 999px;
+}
+.erp-scroll-x::-webkit-scrollbar-thumb:hover {
+  background: #0E78AA;
+}
+
+/* Horizontal scrollbar specific styles */
+.overflow-x-auto::-webkit-scrollbar {
+  height: 8px;
+}
+
+.overflow-x-auto::-webkit-scrollbar-track {
+  background: #dbeafe;
+  border-radius: 4px;
+}
+
+.overflow-x-auto::-webkit-scrollbar-thumb {
+  background: #93c5fd;
+  border-radius: 4px;
+}
+
+.overflow-x-auto::-webkit-scrollbar-thumb:hover {
+  background: #60a5fa;
+}
+/* Global CSS Reset and Base Styles */
+*, *::before, *::after { box-sizing: border-box; }
+html {
+  color-scheme: light;
+  max-width: 100%;
+}
+body, h1, h2, h3, h4, h5, h6, p, figure, blockquote, dl, dd { margin: 0; }
+body {
+  min-height: 100vh;
+  max-width: 100%;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  background-color: #fff;
+  color: #222;
+}
+ul[class], ol[class] { list-style: none; padding: 0; }
+a { text-decoration: none; color: inherit; }
+img, picture, video, canvas, svg { display: block; max-width: 100%; }
+input, button, textarea, select { font: inherit; }
+@media (prefers-reduced-motion: reduce) {
+  html:focus-within { scroll-behavior: auto; }
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+.page {
+    --gray-rgb: 0, 0, 0;
+    --gray-alpha-200: rgba(var(--gray-rgb), 0.08);
+    --gray-alpha-100: rgba(var(--gray-rgb), 0.05);
+  
+    --button-primary-hover: #383838;
+    --button-secondary-hover: #f2f2f2;
+  
+    display: grid;
+    grid-template-rows: 20px 1fr 20px;
+    align-items: center;
+    justify-items: center;
+    min-height: 100svh;
+    padding: 80px;
+    gap: 64px;
+    font-family: var(--font-geist-sans);
+  }
+  
+  @media (prefers-color-scheme: dark) {
+    .page {
+      --gray-rgb: 255, 255, 255;
+      --gray-alpha-200: rgba(var(--gray-rgb), 0.145);
+      --gray-alpha-100: rgba(var(--gray-rgb), 0.06);
+  
+      --button-primary-hover: #ccc;
+      --button-secondary-hover: #1a1a1a;
+    }
+  }
+  
+  .main {
+    display: flex;
+    flex-direction: column;
+    gap: 32px;
+    grid-row-start: 2;
+  }
+  
+  .main ol {
+    font-family: var(--font-geist-mono);
+    padding-left: 0;
+    margin: 0;
+    font-size: 14px;
+    line-height: 24px;
+    letter-spacing: -0.01em;
+    list-style-position: inside;
+  }
+  
+  .main li:not(:last-of-type) {
+    margin-bottom: 8px;
+  }
+  
+  .main code {
+    font-family: inherit;
+    background: var(--gray-alpha-100);
+    padding: 2px 4px;
+    border-radius: 4px;
+    font-weight: 600;
+  }
+  
+  .ctas {
+    display: flex;
+    gap: 16px;
+  }
+  
+  .ctas a {
+    appearance: none;
+    border-radius: 128px;
+    height: 48px;
+    padding: 0 20px;
+    border: 1px solid transparent;
+    transition:
+      background 0.2s,
+      color 0.2s,
+      border-color 0.2s;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    line-height: 20px;
+    font-weight: 500;
+  }
+  
+  a.primary {
+    background: var(--foreground);
+    color: var(--background);
+    gap: 8px;
+  }
+  
+  a.secondary {
+    border-color: var(--gray-alpha-200);
+    min-width: 158px;
+  }
+  
+  .footer {
+    grid-row-start: 3;
+    display: flex;
+    gap: 24px;
+  }
+  
+  .footer a {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  
+  .footer img {
+    flex-shrink: 0;
+  }
+  
+  /* Enable hover only on non-touch devices */
+  @media (hover: hover) and (pointer: fine) {
+    a.primary:hover {
+      background: var(--button-primary-hover);
+      border-color: transparent;
+    }
+  
+    a.secondary:hover {
+      background: var(--button-secondary-hover);
+      border-color: transparent;
+    }
+  
+    .footer a:hover {
+      text-decoration: underline;
+      text-underline-offset: 4px;
+    }
+  }
+  
+  @media (max-width: 600px) {
+    .page {
+      padding: 32px;
+      padding-bottom: 80px;
+    }
+  
+    .main {
+      align-items: center;
+    }
+  
+    .main ol {
+      text-align: center;
+    }
+  
+    .ctas {
+      flex-direction: column;
+    }
+  
+    .ctas a {
+      font-size: 14px;
+      height: 40px;
+      padding: 0 16px;
+    }
+  
+    a.secondary {
+      min-width: auto;
+    }
+  
+    .footer {
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: center;
+    }
+  }
+  
+  @media (prefers-color-scheme: dark) {
+    .logo {
+      filter: invert();
+    }
+  }
+  
+/* Custom animations for fancy modal */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.3s ease-out;
+}
+
+.animate-scaleIn {
+  animation: scaleIn 0.3s ease-out;
+}
+
+@keyframes gates-shimmer {
+  0% {
+    transform: translateX(100%);
+  }
+  100% {
+    transform: translateX(-100%);
+  }
+}
+
+/* RTL-native metallic wave: starts at inline-start (right) and sweeps left. */
+.gates-shimmer {
+  position: relative;
+  overflow: hidden;
+  background-color: #e2e8f0;
+}
+.gates-shimmer::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.15) 35%,
+    rgba(255, 255, 255, 0.7) 50%,
+    rgba(255, 255, 255, 0.15) 65%,
+    transparent 100%
+  );
+  animation: gates-shimmer 1.45s ease-in-out infinite;
+}
+
+.gates-content-enter {
+  animation: fadeIn 0.3s ease-out;
+}
+
+/* Chart of Accounts — always render as light surface (even when app uses dark theme) */
+.coa-page {
+  color-scheme: light;
+  background-color: #fff;
+  color: #0f172a;
+}
+
+/* Unified Gates tables: blue header, hairline columns, white / ice-blue stripes */
+@media screen {
+  main table:not([data-plain-table]) {
+    border-collapse: collapse;
+  }
+  main table:not([data-plain-table]) thead th {
+    background-color: #0e78aa !important;
+    color: #fff !important;
+    font-weight: 600;
+    border-inline-end: 1px solid rgba(255, 255, 255, 0.2);
+  }
+  main table:not([data-plain-table]) thead th:last-child {
+    border-inline-end: none;
+  }
+  main table:not([data-plain-table]) tbody td {
+    border-inline-end: 1px solid #e8f1f6;
+  }
+  main table:not([data-plain-table]) tbody td:last-child {
+    border-inline-end: none;
+  }
+  main table:not([data-plain-table]) tbody td:nth-child(even) {
+    box-shadow: inset 0 0 0 999px rgba(14, 120, 170, 0.045);
+  }
+  main table:not([data-plain-table]) tbody tr:hover td {
+    box-shadow: inset 0 0 0 999px rgba(14, 120, 170, 0.08);
+  }
+}
+
+/* Unified report filter fields — match ERP forms (sales invoice, etc.) */
+@layer components {
+  .report-filter-unified-fields input:not([type='checkbox']):not([type='radio']):not([type='hidden']),
+  .report-filter-unified-fields select,
+  .report-filter-unified-fields textarea {
+    @apply !w-full !h-9 !px-3 !text-xs sm:!text-sm !text-gray-700 !rounded-lg !border !border-[#D6EAF3] !bg-[#F6FBFD] !shadow-none;
+    @apply !transition-colors !duration-200 placeholder:!text-slate-400;
+    @apply focus:!border-[#0E78AA] focus:!ring-2 focus:!ring-[#0E78AA]/20 focus:!outline-none focus:!bg-white;
+  }
+
+  .report-filter-unified-fields label {
+    @apply !text-xs !font-semibold !text-slate-600 !mb-1.5 !block !text-right;
+  }
+}
