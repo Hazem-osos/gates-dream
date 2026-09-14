@@ -366,6 +366,19 @@ export function SecuritiesPaperEngine({ kind }: Props) {
       (errs) => setError(firstFormError(errs))
     )();
 
+  const onUnpostDoc = async () => {
+    if (!selectedId) return;
+    try {
+      const res = await apiClient.post<SecuritiesPaperRecord>(`${apiPath}/${selectedId}/unpost`, {});
+      setLoaded(res.data ?? { ...loaded, id: selectedId, isPosted: false });
+      setSuccess('تم فك ترحيل الورقة');
+      invalidateQuery([listKey]);
+      invalidateQuery([listKey, 'one', selectedId]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'تعذر فك ترحيل الورقة');
+    }
+  };
+
   const onCancelDoc = async () => {
     if (!selectedId) {
       resetNew();
@@ -471,6 +484,7 @@ export function SecuritiesPaperEngine({ kind }: Props) {
           hidePostActions: true,
           onNew: resetNew,
           newLabel: 'جديد',
+          onUnpost: () => void onUnpostDoc(),
           extraItems: [
             {
               id: 'collect',

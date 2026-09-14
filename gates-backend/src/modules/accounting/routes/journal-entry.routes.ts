@@ -357,25 +357,14 @@ router.post(
 
       return void res.json({
         status: 'success',
-        message: 'Journal entry unposted successfully',
+        message: 'تم فك ترحيل القيد',
         data: journalEntry,
       });
     } catch (error) {
-      logger.error({ error }, 'Error unposting journal entry');
-      const status =
-        error instanceof Error &&
-        (error.message === 'Journal entry not found' ||
-          error.message.includes('not posted') ||
-          error.message.includes('Cannot'))
-          ? 400
-          : 500;
-      return void res.status(status).json({
-        status: 'error',
-        message:
-          error instanceof Error
-            ? error.message
-            : 'Failed to unpost journal entry',
-      });
+      if (!(error instanceof AppError) || error.statusCode >= 500) {
+        logger.error({ error }, 'Error unposting journal entry');
+      }
+      return void sendRouteError(res, error, 'تعذّر فك ترحيل القيد');
     }
   }
 );

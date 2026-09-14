@@ -348,7 +348,9 @@ function OpeningBalancePageInner() {
     'POST',
     {
       onSuccess: () => {
-        setSuccess('تم إنشاء قيد عكسي — القيد الأصلي يبقى مرحّلاً في دفتر الأستاذ');
+        setIsPosted(false);
+        setSuccess('تم فك ترحيل القيد');
+        unlockForEdit();
         invalidateQuery(['journal-entries']);
       },
       onError: (err: ApiError) => setError(err.message || 'حدث خطأ أثناء فك الترحيل'),
@@ -401,7 +403,7 @@ function OpeningBalancePageInner() {
     setSuccess('');
     if (isPosted) {
       postAfterSaveRef.current = false;
-      setError('يجب إلغاء الترحيل أولاً للتعديل');
+      setError('فك الترحيل أولاً من قائمة (...) حتى يمكن التعديل');
       return;
     }
     if (!validateLines()) {
@@ -560,7 +562,7 @@ function OpeningBalancePageInner() {
           isPosted,
           onEdit: () => {
             if (isPosted) {
-              setError('يجب إلغاء الترحيل أولاً للتعديل');
+              setError('فك الترحيل أولاً من قائمة (...) حتى يمكن التعديل');
               return;
             }
             unlockForEdit();

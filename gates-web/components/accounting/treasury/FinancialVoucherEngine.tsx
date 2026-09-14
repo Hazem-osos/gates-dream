@@ -536,6 +536,26 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
     }
   );
 
+  const unpostMutation = useApiMutation<CashTxRow, Record<string, never>>(
+    savedVoucherId ? `/treasury/cash-transactions/${savedVoucherId}/unpost` : '/treasury/cash-transactions',
+    'POST',
+    {
+      onSuccess: (res: { data?: CashTxRow }) => {
+        const row = res?.data;
+        setIsPosted(false);
+        if (row) {
+          setDocumentVersion(typeof row.version === 'number' ? row.version : documentVersion + 1);
+          setJournalEntryId(row.journalEntryId ?? null);
+        }
+        setSuccess('تم فك ترحيل السند');
+        unlockForEdit();
+        invalidateQuery(['treasury-cash-transactions']);
+        invalidateQuery(['cash-voucher-detail', savedVoucherId ?? 'none']);
+      },
+      onError: (err: ApiError) => setError(err.message || 'تعذر فك ترحيل السند'),
+    }
+  );
+
   const approveMutation = useApiMutation<unknown, Record<string, never>>(
     savedVoucherId ? `/treasury/cash-transactions/${savedVoucherId}/approve` : '/treasury/cash-transactions',
     'POST',
@@ -549,7 +569,7 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
   );
 
   const loading = saveMutation.isPending || updateMutation.isPending;
-  const financialBusy = loading;
+  const financialBusy = loading || unpostMutation.isPending;
 
   useEffect(() => {
     if (currencies.length > 0 && !currencyId) {
@@ -1031,12 +1051,14 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
           newLabel: 'جديد',
           onEdit: () => {
             if (isPosted) {
-              setError('السند مرحّل ومثبت محاسبياً ولا يمكن تعديله');
+              setError('فك الترحيل أولاً من قائمة (...) حتى يمكن التعديل');
               return;
             }
             setIsEditing(true);
             unlockForEdit();
           },
+          onUnpost: () => unpostMutation.mutate({}),
+          unpostPending: unpostMutation.isPending,
           onPrint: triggerPrint,
           onDuplicate: handleDuplicate,
           onVoid: () => cancelMutation.mutate({ expectedVersion: documentVersion }),

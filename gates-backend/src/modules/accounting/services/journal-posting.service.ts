@@ -757,7 +757,7 @@ export class JournalPostingService {
       true
     );
     if (!glUnPost) {
-      throw new AppError(403, 'Unposting general ledger is disabled for this company');
+      throw new AppError(403, 'فك ترحيل القيود مقفول لهذه الشركة');
     }
     await advancedRightsService.assertCanPostFamily(ctx.companyId, ctx.userId, ctx.branchId, 'glUnpost', {
       isAdmin: ctx.isAdmin,
@@ -767,31 +767,76 @@ export class JournalPostingService {
     return prisma.$transaction(async (tx) => {
       const entry = await tx.journalEntry.findFirst({
         where: { id: journalEntryId, companyId: ctx.companyId },
+        include: { lines: { orderBy: { lineOrder: 'asc' } } },
       });
 
       if (!entry) {
-        throw new AppError(404, 'Journal entry not found');
+        throw new AppError(404, 'القيد غير موجود');
       }
       if (entry.postingStatus !== 'Post' && !entry.isPosted) {
-        throw new AppError(400, 'Journal entry is not posted');
+        throw new AppError(400, 'القيد غير مرحّل');
       }
       if (entry.isApproved) {
-        throw new AppError(400, 'Cannot unpost an approved journal entry');
+        throw new AppError(400, 'لا يمكن فك ترحيل قيد معتمد');
       }
-      if (entry.branchId && entry.branchId !== ctx.branchId) {
-        throw new AppError(403, 'Journal entry belongs to a different branch');
+      if (entry.branchId && ctx.branchId && entry.branchId !== ctx.branchId) {
+        throw new AppError(403, 'القيد تابع لفرع آخر');
+      }
+      if (entry.entryType === 'REVERSAL' || entry.entryType === 'YearClose') {
+        throw new AppError(422, 'لا يمكن فك ترحيل قيد عكسي أو قيد إقفال من هنا');
+      }
+
+      const autoGlSources = new Set([
+        'SI',
+        'PI',
+        'SR',
+        'PR',
+        'CR',
+        'CP',
+        'CEP',
+        'CKC',
+        'CKB',
+        'CKE',
+      ]);
+      if (entry.sourceType && autoGlSources.has(entry.sourceType)) {
+        throw new AppError(
+          422,
+          'هذا القيد مربوط بمستند آخر. فك الترحيل من شاشة الفاتورة أو السند الأصلي.'
+        );
+      }
+
+      const existingReversal = await tx.journalEntry.findFirst({
+        where: { reversalOfJournalEntryId: entry.id },
+        select: { id: true },
+      });
+      if (existingReversal) {
+        throw new AppError(
+          422,
+          'هذا القيد عليه قيد عكسي. لا يمكن فك ترحيله للتعديل.'
+        );
       }
 
       await fiscalYearService.assertOpenForDate(ctx.companyId, entry.date);
 
-      // Wave 2 fix: date the contra entry at the original document date, not
-      // today. Reversing a June 30 posting with a reversal dated in a later
-      // period would silently shift its financial-statement impact into the
-      // wrong period; assertOpenForDate above already confirms entry.date's
-      // period is open, so it's always safe to reuse.
-      const { original, reversal } = await this.reverseJournalEntryInTx(tx, ctx, journalEntryId, {
+      await applyPostedJournalBalancesInTx(tx, {
+        companyId: ctx.companyId,
         date: entry.date,
-        reason: 'فك ترحيل',
+        currencyCode: entry.currencyCode,
+        invert: true,
+        lines: entry.lines,
+      });
+
+      const unposted = await tx.journalEntry.update({
+        where: { id: journalEntryId },
+        data: {
+          isPosted: false,
+          postingStatus: 'UnPost',
+          workflowStatus: 'DRAFT',
+          postedAt: null,
+          postedBy: null,
+          activeSourceKey: null,
+        },
+        include: this.journalInclude(),
       });
 
       await documentAuditService.record(
@@ -805,7 +850,7 @@ export class JournalPostingService {
         tx
       );
 
-      return { ...original, reversal };
+      return unposted;
     });
   }
 }

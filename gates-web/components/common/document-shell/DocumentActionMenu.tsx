@@ -102,7 +102,7 @@ export function DocumentActionMenu({
     ? editLockedHint ??
       (hidePostActions
         ? 'المستند مرحل ومثبت محاسبياً ولا يمكن تعديله'
-        : 'المستند مرحل ومثبت محاسبياً. يجب إلغاء الترحيل أولاً من قائمة (...)')
+        : 'المستند مرحل ومثبت محاسبياً. فك الترحيل أولاً من قائمة (...)')
     : undefined;
 
   const items = [
@@ -128,13 +128,17 @@ export function DocumentActionMenu({
             disabled: !hasDocument || isPosted || isCancelled || !onPost || postPending,
             onClick: () => onPost?.(),
           },
+        ]),
+    ...(onUnpost
+      ? [
           {
             id: 'unpost',
-            label: unpostPending ? 'جاري إلغاء الترحيل…' : 'إلغاء الترحيل',
-            disabled: !hasDocument || !isPosted || isCancelled || !onUnpost || unpostPending,
+            label: unpostPending ? 'جاري فك الترحيل…' : 'فك الترحيل',
+            disabled: !hasDocument || !isPosted || isCancelled || unpostPending,
             onClick: () => setConfirm('unpost'),
           },
-        ]),
+        ]
+      : []),
     {
       id: 'print',
       label: printLabel ?? (hidePostActions ? 'طباعة السند' : 'طباعة المستند'),
@@ -240,11 +244,11 @@ export function DocumentActionMenu({
         <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/40 px-4" dir="rtl">
           <div className="w-full max-w-md rounded-2xl border border-[#D6EAF3] bg-white p-5 shadow-xl">
             <h2 className="text-base font-bold text-[#0A3D5E]">
-              {confirm === 'unpost' ? 'إلغاء ترحيل المستند' : 'إلغاء المستند'}
+              {confirm === 'unpost' ? 'فك ترحيل المستند' : 'إلغاء المستند'}
             </h2>
             <p className="mt-2 text-sm leading-6 text-slate-600">
               {confirm === 'unpost'
-                ? 'سيتم عكس القيود المحاسبية وإعادة المستند إلى مسودة. هل تريد المتابعة؟'
+                ? 'سيتم فك الترحيل وإعادة المستند إلى مسودة حتى يمكن تعديله أو حذفه. هل تريد المتابعة؟'
                 : 'سيتم إلغاء / حذف هذا المستند. هذا الإجراء لا يمكن التراجع عنه بسهولة. هل تريد المتابعة؟'}
             </p>
             <div className="mt-5 flex items-center justify-end gap-2">

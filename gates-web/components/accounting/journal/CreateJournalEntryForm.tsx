@@ -334,10 +334,12 @@ function CreateJournalEntryFormInner() {
     'POST',
     {
       onSuccess: () => {
-        setIsPosted(true);
-        setVoucherStatus('مرحل');
-        setSuccess('تم إنشاء قيد عكسي — القيد الأصلي يبقى مرحّلاً في دفتر الأستاذ');
+        setIsPosted(false);
+        setVoucherStatus('مسودة');
+        setSuccess('تم فك ترحيل القيد');
+        unlockForEdit();
         invalidateQuery(['journal-entries']);
+        invalidateQuery(['journal-entry', savedJournalEntryId]);
       },
       onError: (error: ApiError) => {
         setError(error.message || 'حدث خطأ أثناء فك الترحيل');
@@ -641,11 +643,13 @@ function CreateJournalEntryFormInner() {
           newLabel: 'جديد',
           onEdit: () => {
             if (isPosted) {
-              setError('يجب إلغاء الترحيل أولاً للتعديل');
+              setError('فك الترحيل أولاً من قائمة (...) حتى يمكن التعديل');
               return;
             }
             unlockForEdit();
           },
+          onUnpost: () => unpostJournalMutation.mutate({}),
+          unpostPending: unpostJournalMutation.isPending,
           onPrint: triggerPrint,
           printLabel: 'طباعة قيد اليومية',
           onDuplicate: handleDuplicate,

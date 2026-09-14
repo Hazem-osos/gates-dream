@@ -366,10 +366,12 @@ export class JournalEntryService {
       );
       return await journalPostingService.unpostJournalEntry(ctx, journalEntryId);
     } catch (error) {
-      logger.error(
-        { error, companyId, journalEntryId },
-        'Error unposting journal entry'
-      );
+      if (!(error instanceof AppError) || error.statusCode >= 500) {
+        logger.error(
+          { error, companyId, journalEntryId },
+          'Error unposting journal entry'
+        );
+      }
       throw error;
     }
   }
