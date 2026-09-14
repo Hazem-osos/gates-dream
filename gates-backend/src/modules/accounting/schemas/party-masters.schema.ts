@@ -52,14 +52,31 @@ export const updatePersonItemPriceSchema = createPersonItemPriceSchema
   .partial();
 
 export const createCustomerCategorySchema = z.object({
-  legacyCode: z.string().min(1).max(30),
+  code: z.string().min(1).max(30).optional(),
+  legacyCode: z.string().min(1).max(30).optional(),
   arabicName: z.string().min(1),
   englishName: z.string().optional(),
-});
+}).transform((v) => ({
+  legacyCode: (v.legacyCode || v.code || '').trim(),
+  arabicName: v.arabicName,
+  englishName: v.englishName,
+})).refine((v) => v.legacyCode.length > 0, { message: 'كود المجموعة مطلوب' });
 
-export const updateCustomerCategorySchema = createCustomerCategorySchema.partial().extend({
+export const updateCustomerCategorySchema = z.object({
+  code: z.string().min(1).max(30).optional(),
+  legacyCode: z.string().min(1).max(30).optional(),
+  arabicName: z.string().min(1).optional(),
+  englishName: z.string().optional(),
   isActive: z.boolean().optional(),
-});
+}).transform((v) => ({
+  ...(v.legacyCode || v.code ? { legacyCode: (v.legacyCode || v.code || '').trim() } : {}),
+  ...(v.arabicName !== undefined ? { arabicName: v.arabicName } : {}),
+  ...(v.englishName !== undefined ? { englishName: v.englishName } : {}),
+  ...(v.isActive !== undefined ? { isActive: v.isActive } : {}),
+}));
+
+export const createSupplierCategorySchema = createCustomerCategorySchema;
+export const updateSupplierCategorySchema = updateCustomerCategorySchema;
 
 export const costPreviewSchema = z.object({
   branchId: z.string().uuid(),

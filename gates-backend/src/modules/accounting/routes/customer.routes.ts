@@ -54,6 +54,7 @@ router.get(
         customerType: req.query.customerType as string | undefined,
         isActive: req.query.isActive as boolean | undefined,
         accountId: req.query.accountId as string | undefined,
+        customerCategoryId: req.query.customerCategoryId as string | undefined,
       });
 
       const etag = await getMasterCatalogEtag(companyId, 'customer');

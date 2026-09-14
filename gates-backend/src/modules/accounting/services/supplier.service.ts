@@ -59,6 +59,7 @@ export interface CreateSupplierData {
   estimatedBudget?: number;
   paymentTermsDays?: number | null;
   currencyCode?: string;
+  supplierCategoryId?: string | null;
 }
 
 export interface UpdateSupplierData extends Partial<CreateSupplierData> {
@@ -110,6 +111,7 @@ export class SupplierService {
             : null,
           paymentTermsDays: data.paymentTermsDays ?? null,
           currencyCode: data.currencyCode,
+          supplierCategoryId: data.supplierCategoryId ?? null,
         },
         include: {
           mainAccount: {
@@ -198,6 +200,7 @@ export class SupplierService {
       search?: string;
       supplierType?: string;
       isActive?: boolean;
+      supplierCategoryId?: string;
     }
   ) {
     try {
@@ -232,6 +235,10 @@ export class SupplierService {
 
       if (options.isActive !== undefined) {
         where.isActive = options.isActive;
+      }
+
+      if (options.supplierCategoryId) {
+        where.supplierCategoryId = options.supplierCategoryId;
       }
 
       const [suppliers, total] = await Promise.all([
@@ -290,6 +297,8 @@ export class SupplierService {
       if (data.isActive !== undefined) updateData.isActive = data.isActive;
       if (data.paymentTermsDays !== undefined)
         updateData.paymentTermsDays = data.paymentTermsDays;
+      if (data.supplierCategoryId !== undefined)
+        updateData.supplierCategoryId = data.supplierCategoryId;
       // Add other fields as needed
 
       const supplier = await prisma.supplier.update({

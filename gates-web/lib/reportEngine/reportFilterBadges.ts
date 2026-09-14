@@ -6,6 +6,8 @@ export type ReportFilterBadge = {
 const FILTER_LABELS: Record<string, string> = {
   customerId: 'العميل',
   supplierId: 'المورد',
+  customerCategoryId: 'مجموعة العميل',
+  supplierCategoryId: 'مجموعة المورد',
   warehouseId: 'المخزن',
   branchId: 'الفرع',
   delegateId: 'المندوب',

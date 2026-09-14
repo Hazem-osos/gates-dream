@@ -13,6 +13,7 @@ import {
   ReportFilterField,
   ReportFilterOptionsRow,
   ReportFilterPartySelect,
+  ReportFilterPartyGroupSelect,
   reportFilterInputClass,
 } from '@/components/report/reportFilterFields';
 
@@ -29,6 +30,8 @@ export type AccountReportFilterValues = {
   includeDetails: boolean;
   customerId: string;
   supplierId: string;
+  customerCategoryId: string;
+  supplierCategoryId: string;
 };
 
 export type AccountReportFieldFlag =
@@ -76,6 +79,8 @@ export function emptyAccountReportFilters(): AccountReportFilterValues {
     includeDetails: true,
     customerId: '',
     supplierId: '',
+    customerCategoryId: '',
+    supplierCategoryId: '',
   };
 }
 
@@ -129,6 +134,12 @@ export function buildAccountReportQuery(
   if (fields.includeDetails) params.set('includeDetails', String(values.includeDetails));
   if (fields.customer && values.customerId) params.set('customerId', values.customerId);
   if (fields.supplier && values.supplierId) params.set('supplierId', values.supplierId);
+  if (fields.customer && values.customerCategoryId) {
+    params.set('customerCategoryId', values.customerCategoryId);
+  }
+  if (fields.supplier && values.supplierCategoryId) {
+    params.set('supplierCategoryId', values.supplierCategoryId);
+  }
   return params;
 }
 
@@ -219,6 +230,12 @@ export function renderAccountReportFields(
         value={values.customerId}
         onChange={(customerId) => patch({ customerId })}
         emptyLabel="كل العملاء"
+      />,
+      <ReportFilterPartyGroupSelect
+        key="customer-group"
+        kind="CUSTOMER"
+        value={values.customerCategoryId}
+        onChange={(customerCategoryId) => patch({ customerCategoryId })}
       />
     );
   }
@@ -232,6 +249,12 @@ export function renderAccountReportFields(
         value={values.supplierId}
         onChange={(supplierId) => patch({ supplierId })}
         emptyLabel="كل الموردين"
+      />,
+      <ReportFilterPartyGroupSelect
+        key="supplier-group"
+        kind="SUPPLIER"
+        value={values.supplierCategoryId}
+        onChange={(supplierCategoryId) => patch({ supplierCategoryId })}
       />
     );
   }

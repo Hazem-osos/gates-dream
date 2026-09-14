@@ -5,6 +5,11 @@ import { Decimal } from '@prisma/client/runtime/library';
 import { scopedItemQuantityWhere } from '../utils/item-quantity-tenant';
 import { agedOpenItemsService } from '../../accounting/services/aged-open-items.service';
 import { roundTo4 } from '../../../shared/utils/decimal-round';
+import {
+  applyCustomerGroupWhere,
+  applySupplierGroupWhere,
+  applySupplierMasterWhere,
+} from '../../accounting/services/party-group-filter';
 
 export interface InventoryReportFilters {
   fromDate?: Date;
@@ -15,6 +20,8 @@ export interface InventoryReportFilters {
   itemId?: string;
   customerId?: string;
   supplierId?: string;
+  customerCategoryId?: string;
+  supplierCategoryId?: string;
   delegateId?: string;
   costCenterId?: string;
   currencyId?: string;
@@ -91,9 +98,7 @@ export class InventoryReportsService {
         where.warehouseId = warehouseId;
       }
 
-      if (customerId) {
-        where.customerId = customerId;
-      }
+      applyCustomerGroupWhere(where, filters);
 
       if (branchId) {
         where.branchId = branchId;
@@ -250,9 +255,7 @@ export class InventoryReportsService {
         where.warehouseId = warehouseId;
       }
 
-      if (supplierId) {
-        where.supplierId = supplierId;
-      }
+      applySupplierGroupWhere(where, filters);
 
       if (profileId) {
         where.documentProfileId = profileId;
@@ -359,9 +362,7 @@ export class InventoryReportsService {
         where.warehouseId = warehouseId;
       }
 
-      if (customerId) {
-        where.customerId = customerId;
-      }
+      applyCustomerGroupWhere(where, filters);
 
       const skip = (page - 1) * limit;
 
@@ -453,9 +454,7 @@ export class InventoryReportsService {
         where.warehouseId = warehouseId;
       }
 
-      if (supplierId) {
-        where.supplierId = supplierId;
-      }
+      applySupplierGroupWhere(where, filters);
 
       const skip = (page - 1) * limit;
 
@@ -817,6 +816,7 @@ export class InventoryReportsService {
       const report = await agedOpenItemsService.getAgedReceivables({
         companyId,
         customerId,
+        customerCategoryId: filters.customerCategoryId,
         asOfDate: asOfDate ?? new Date(),
       });
 
@@ -873,6 +873,7 @@ export class InventoryReportsService {
       const report = await agedOpenItemsService.getAgedPayables({
         companyId,
         supplierId,
+        supplierCategoryId: filters.supplierCategoryId,
         asOfDate: asOfDate ?? new Date(),
       });
 
@@ -1028,6 +1029,7 @@ export class InventoryReportsService {
         companyId,
         branchId,
         customerId,
+        customerCategoryId: filters.customerCategoryId,
         asOfDate: date,
       });
 
@@ -1479,7 +1481,7 @@ export class InventoryReportsService {
       };
 
       if (warehouseId) where.warehouseId = warehouseId;
-      if (customerId) where.customerId = customerId;
+      applyCustomerGroupWhere(where, filters);
 
       const skip = (page - 1) * limit;
 
@@ -1655,7 +1657,7 @@ export class InventoryReportsService {
         isCancelled: false,
       };
 
-      if (customerId) where.customerId = customerId;
+      applyCustomerGroupWhere(where, filters);
       if (fromDate || toDate) {
         where.date = {};
         if (fromDate) where.date.gte = fromDate;
@@ -1750,19 +1752,19 @@ export class InventoryReportsService {
       const { companyId, customerId, itemId, fromDate, toDate } = filters;
       const { page = 1, limit = 100 } = options;
 
-      if (!customerId) {
+      if (!customerId && !filters.customerCategoryId) {
         throw new Error('Customer ID is required');
       }
 
       const where: any = {
         companyId,
-        customerId,
         invoiceType: {
           in: ['sales', 'salesReturn'],
         },
         isPosted: true,
         isCancelled: false,
       };
+      applyCustomerGroupWhere(where, filters);
 
       if (fromDate || toDate) {
         where.date = {};
@@ -1844,7 +1846,7 @@ export class InventoryReportsService {
         isCancelled: false,
       };
 
-      if (customerId) where.customerId = customerId;
+      applyCustomerGroupWhere(where, filters);
 
       const invoices = await prisma.invoice.findMany({
         where,
@@ -1912,7 +1914,7 @@ export class InventoryReportsService {
         isCancelled: false,
       };
 
-      if (supplierId) where.supplierId = supplierId;
+      applySupplierGroupWhere(where, filters);
       if (fromDate || toDate) {
         where.date = {};
         if (fromDate) where.date.gte = fromDate;
@@ -2000,9 +2002,7 @@ export class InventoryReportsService {
       const { page = 1, limit = 100 } = options;
 
       const suppliersWhere: any = { companyId, isActive: true };
-      if (supplierId) {
-        suppliersWhere.id = supplierId;
-      }
+      applySupplierMasterWhere(suppliersWhere, filters);
 
       const suppliers = await prisma.supplier.findMany({
         where: suppliersWhere,
@@ -2092,19 +2092,19 @@ export class InventoryReportsService {
       const { companyId, supplierId, itemId, fromDate, toDate } = filters;
       const { page = 1, limit = 100 } = options;
 
-      if (!supplierId) {
+      if (!supplierId && !filters.supplierCategoryId) {
         throw new Error('Supplier ID is required');
       }
 
       const where: any = {
         companyId,
-        supplierId,
         invoiceType: {
           in: ['purchase', 'purchaseReturn'],
         },
         isPosted: true,
         isCancelled: false,
       };
+      applySupplierGroupWhere(where, filters);
 
       if (fromDate || toDate) {
         where.date = {};
@@ -2189,14 +2189,14 @@ export class InventoryReportsService {
         },
       };
 
-      if (customerId) {
-        where.customerId = customerId;
+      applyCustomerGroupWhere(where, filters);
+      applySupplierGroupWhere(where, filters);
+      if (filters.customerId || filters.customerCategoryId) {
         where.invoiceType = {
           in: ['sales', 'salesReturn'],
         };
       }
-      if (supplierId) {
-        where.supplierId = supplierId;
+      if (filters.supplierId || filters.supplierCategoryId) {
         where.invoiceType = {
           in: ['purchase', 'purchaseReturn'],
         };
@@ -2301,7 +2301,7 @@ export class InventoryReportsService {
         isCancelled: false,
       };
 
-      if (customerId) where.customerId = customerId;
+      applyCustomerGroupWhere(where, filters);
 
       const invoices = await prisma.invoice.findMany({
         where,

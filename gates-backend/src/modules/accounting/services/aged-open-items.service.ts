@@ -31,6 +31,8 @@ export type AgedOpenItemsParams = {
   branchId?: string;
   customerId?: string;
   supplierId?: string;
+  customerCategoryId?: string;
+  supplierCategoryId?: string;
 };
 
 async function loadOpenInvoices(
@@ -48,6 +50,12 @@ async function loadOpenInvoices(
       ...(params.branchId ? { branchId: params.branchId } : {}),
       ...(params.customerId ? { customerId: params.customerId } : {}),
       ...(params.supplierId ? { supplierId: params.supplierId } : {}),
+      ...(params.customerCategoryId
+        ? { customer: { customerCategoryId: params.customerCategoryId } }
+        : {}),
+      ...(params.supplierCategoryId
+        ? { supplier: { supplierCategoryId: params.supplierCategoryId } }
+        : {}),
     },
     orderBy: [{ date: 'asc' }],
     include: {
@@ -253,7 +261,13 @@ export class AgedOpenItemsService {
     params: AgedOpenItemsParams,
     side: 'AR' | 'AP'
   ) {
-    const isFiltered = !!(params.branchId || params.customerId || params.supplierId);
+    const isFiltered = !!(
+      params.branchId ||
+      params.customerId ||
+      params.supplierId ||
+      params.customerCategoryId ||
+      params.supplierCategoryId
+    );
     if (isFiltered) {
       return {
         ...report,

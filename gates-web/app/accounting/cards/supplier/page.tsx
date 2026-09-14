@@ -74,6 +74,7 @@ export default function SupplierPage() {
     registrationNumber: '',
     financier: '',
     discountType: '',
+    supplierCategoryId: '',
   });
 
   // Fetch accounts
@@ -91,6 +92,14 @@ export default function SupplierPage() {
     { limit: 100, isActive: true }
   );
   const currencies = currenciesResponse?.data || [];
+
+  const { data: categoriesResponse } = useApiQuery<
+    { id: string; code?: string; arabicName: string }[]
+  >(['supplier-categories'], '/accounting/supplier-categories', {
+    limit: 200,
+    isActive: true,
+  });
+  const supplierCategories = categoriesResponse?.data || [];
 
   // Supplier mutation
   const supplierMutation = useApiMutation<unknown, Record<string, unknown>>(
@@ -137,6 +146,7 @@ export default function SupplierPage() {
           registrationNumber: '',
           financier: '',
           discountType: '',
+          supplierCategoryId: '',
         });
         setIsTaxInfoChecked(false);
       },
@@ -203,6 +213,7 @@ export default function SupplierPage() {
         registrationNumber: formData.registrationNumber || undefined,
         financier: formData.financier || undefined,
         discountType: formData.discountType || undefined,
+        supplierCategoryId: formData.supplierCategoryId || undefined,
       });
     } catch (error: unknown) {
       setError(error instanceof Error ? error.message : 'حدث خطأ أثناء الحفظ');
@@ -244,6 +255,7 @@ export default function SupplierPage() {
       registrationNumber: '',
       financier: '',
       discountType: '',
+      supplierCategoryId: '',
     });
     setIsTaxInfoChecked(false);
     setError('');
@@ -323,6 +335,20 @@ export default function SupplierPage() {
               onChange={(e) => setFormData((prev) => ({ ...prev, phone1: e.target.value }))}
               placeholder="إدخل رقم الهاتف"
             />
+            <CompactFormField label="مجموعة المورد">
+              <select
+                className={compactControlClass}
+                value={formData.supplierCategoryId}
+                onChange={(e) => setFormData((prev) => ({ ...prev, supplierCategoryId: e.target.value }))}
+              >
+                <option value="">بدون مجموعة</option>
+                {supplierCategories.map((cat) => (
+                  <option key={cat.id} value={cat.id}>
+                    {cat.code ? `${cat.code} — ${cat.arabicName}` : cat.arabicName}
+                  </option>
+                ))}
+              </select>
+            </CompactFormField>
             <CompactFormField label="نوع المورد" className="sm:col-span-2">
               <div className="flex flex-wrap gap-2">
                 {[

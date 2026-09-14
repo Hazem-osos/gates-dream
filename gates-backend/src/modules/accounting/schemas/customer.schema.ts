@@ -70,6 +70,7 @@ export const customerQuerySchema = z.object({
     .optional()
     .transform((val) => (val === undefined ? undefined : val === 'true')),
   accountId: z.string().uuid().optional(),
+  customerCategoryId: z.string().uuid().optional(),
 });
 
 export const bulkCreateCustomersSchema = z.object({

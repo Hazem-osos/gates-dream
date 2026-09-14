@@ -29,6 +29,7 @@ export const WORKSPACE_HUB_GROUPS: WorkspaceHubGroup[] = [
       { label: 'عروض الأسعار', href: '/inventory/operations/price-quote' },
       { label: 'أوامر البيع', href: '/inventory/operations/sales-order' },
       { label: 'العملاء', href: '/accounting/cards/customer' },
+      { label: 'مجموعات العملاء', href: '/accounting/cards/customer-group' },
       { label: 'مرتجعات المبيعات', href: '/inventory/operations/sales-returns' },
     ],
   },

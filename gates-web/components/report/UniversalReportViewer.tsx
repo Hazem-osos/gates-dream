@@ -26,6 +26,8 @@ const PARAM_KEYS = [
   'studentId',
   'customerId',
   'supplierId',
+  'customerCategoryId',
+  'supplierCategoryId',
   'accountId',
   'costCenterId',
   'includeDetails',

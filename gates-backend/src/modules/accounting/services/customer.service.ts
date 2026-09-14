@@ -227,6 +227,7 @@ export class CustomerService {
       customerType?: string;
       isActive?: boolean;
       accountId?: string;
+      customerCategoryId?: string;
     }
   ) {
     try {
@@ -261,6 +262,10 @@ export class CustomerService {
 
       if (options.isActive !== undefined) {
         where.isActive = options.isActive;
+      }
+
+      if (options.customerCategoryId) {
+        where.customerCategoryId = options.customerCategoryId;
       }
 
       if (options.accountId) {

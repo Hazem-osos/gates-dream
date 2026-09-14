@@ -13,12 +13,15 @@ import {
   updatePersonItemPriceSchema,
   createCustomerCategorySchema,
   updateCustomerCategorySchema,
+  createSupplierCategorySchema,
+  updateSupplierCategorySchema,
 } from '../schemas/party-masters.schema';
 import {
   personService,
   personGroupService,
   personItemPriceService,
   customerCategoryService,
+  supplierCategoryService,
 } from '../services/party-masters.service';
 import { AuthRequest } from '../../../shared/auth/types';
 
@@ -183,8 +186,15 @@ router.post(
   async (req: AuthRequest, res: Response) => {
     const cid = companyId(req);
     if (!cid) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
-    const data = await customerCategoryService.create(cid, req.body);
-    return void res.status(201).json({ status: 'success', data });
+    try {
+      const data = await customerCategoryService.create(cid, req.body);
+      return void res.status(201).json({ status: 'success', data });
+    } catch (e) {
+      return void res.status(409).json({
+        status: 'error',
+        message: e instanceof Error ? e.message : 'تعذر إنشاء مجموعة العميل',
+      });
+    }
   }
 );
 
@@ -197,6 +207,70 @@ router.put(
     if (!cid) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
     const data = await customerCategoryService.update(cid, req.params.id, req.body);
     return void res.json({ status: 'success', data });
+  }
+);
+
+router.delete(
+  '/customer-categories/:id',
+  authorize({ resource: 'customer', action: 'delete' }),
+  async (req: AuthRequest, res: Response) => {
+    const cid = companyId(req);
+    if (!cid) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+    await customerCategoryService.delete(cid, req.params.id);
+    return void res.json({ status: 'success', message: 'تم حذف مجموعة العميل' });
+  }
+);
+
+router.get(
+  '/supplier-categories',
+  authorize({ resource: 'supplier', action: 'view' }),
+  async (req: AuthRequest, res: Response) => {
+    const cid = companyId(req);
+    if (!cid) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+    const data = await supplierCategoryService.list(cid);
+    return void res.json({ status: 'success', data });
+  }
+);
+
+router.post(
+  '/supplier-categories',
+  authorize({ resource: 'supplier', action: 'edit' }),
+  validate({ body: createSupplierCategorySchema }),
+  async (req: AuthRequest, res: Response) => {
+    const cid = companyId(req);
+    if (!cid) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+    try {
+      const data = await supplierCategoryService.create(cid, req.body);
+      return void res.status(201).json({ status: 'success', data });
+    } catch (e) {
+      return void res.status(409).json({
+        status: 'error',
+        message: e instanceof Error ? e.message : 'تعذر إنشاء مجموعة المورد',
+      });
+    }
+  }
+);
+
+router.put(
+  '/supplier-categories/:id',
+  authorize({ resource: 'supplier', action: 'edit' }),
+  validate({ body: updateSupplierCategorySchema }),
+  async (req: AuthRequest, res: Response) => {
+    const cid = companyId(req);
+    if (!cid) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+    const data = await supplierCategoryService.update(cid, req.params.id, req.body);
+    return void res.json({ status: 'success', data });
+  }
+);
+
+router.delete(
+  '/supplier-categories/:id',
+  authorize({ resource: 'supplier', action: 'delete' }),
+  async (req: AuthRequest, res: Response) => {
+    const cid = companyId(req);
+    if (!cid) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+    await supplierCategoryService.delete(cid, req.params.id);
+    return void res.json({ status: 'success', message: 'تم حذف مجموعة المورد' });
   }
 );
 

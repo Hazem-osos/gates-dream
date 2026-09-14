@@ -251,6 +251,41 @@ export function ReportFilterOptionsRow({ children }: { children: ReactNode }) {
   );
 }
 
+export function ReportFilterPartyGroupSelect({
+  kind,
+  value,
+  onChange,
+  emptyLabel,
+}: {
+  kind: 'CUSTOMER' | 'SUPPLIER';
+  value: string;
+  onChange: (id: string) => void;
+  emptyLabel?: string;
+}) {
+  const isCustomer = kind === 'CUSTOMER';
+  const { data, isLoading } = useApiQuery<
+    { id: string; code?: string | null; arabicName?: string | null; name?: string | null }[]
+  >(
+    [isCustomer ? 'report-filter-customer-groups' : 'report-filter-supplier-groups'],
+    isCustomer ? '/accounting/customer-categories' : '/accounting/supplier-categories',
+    { limit: 500, isActive: true }
+  );
+  const options = (data?.data ?? []).map((g) => {
+    const name = g.arabicName || g.name || '';
+    return { value: g.id, label: g.code ? `${g.code} — ${name}` : name };
+  });
+  return (
+    <ReportFilterCombobox
+      label={isCustomer ? 'مجموعة العميل' : 'مجموعة المورد'}
+      value={value}
+      onChange={onChange}
+      options={options}
+      placeholder={emptyLabel ?? (isCustomer ? 'كل مجموعات العملاء' : 'كل مجموعات الموردين')}
+      loading={isLoading}
+    />
+  );
+}
+
 export function ReportFilterPartySelect({
   label,
   kind,

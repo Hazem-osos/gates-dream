@@ -707,14 +707,35 @@ export class ReportsService {
    */
   async getCreditAging(filters: ReportFilters, options: ReportOptions = {}): Promise<ReportResult> {
     try {
-      const { companyId, customerId, supplierId, branchId, asOfDate = new Date() } = filters;
+      const {
+        companyId,
+        customerId,
+        supplierId,
+        branchId,
+        asOfDate = new Date(),
+        customerCategoryId,
+        supplierCategoryId,
+      } = filters;
       const { page = 1, limit = 100 } = options;
 
-      const side: 'AR' | 'AP' = supplierId && !customerId ? 'AP' : 'AR';
+      const side: 'AR' | 'AP' =
+        (supplierId || supplierCategoryId) && !(customerId || customerCategoryId) ? 'AP' : 'AR';
       const report =
         side === 'AR'
-          ? await agedOpenItemsService.getAgedReceivables({ companyId, branchId, asOfDate, customerId })
-          : await agedOpenItemsService.getAgedPayables({ companyId, branchId, asOfDate, supplierId });
+          ? await agedOpenItemsService.getAgedReceivables({
+              companyId,
+              branchId,
+              asOfDate,
+              customerId,
+              customerCategoryId,
+            })
+          : await agedOpenItemsService.getAgedPayables({
+              companyId,
+              branchId,
+              asOfDate,
+              supplierId,
+              supplierCategoryId,
+            });
 
       const OLD_BUCKET_MAP: Record<AgingBucketKey, string> = {
         current_0_30: 'current',
@@ -1382,6 +1403,7 @@ export class ReportsService {
         companyId,
         branchId,
         supplierId,
+        supplierCategoryId: filters.supplierCategoryId,
         asOfDate: asOfDate ?? new Date(),
       });
 

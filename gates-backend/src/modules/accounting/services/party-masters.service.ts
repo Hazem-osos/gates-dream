@@ -195,25 +195,91 @@ export class PersonItemPriceService {
   }
 }
 
+function mapCategory<T extends { legacyCode: string }>(row: T) {
+  return { ...row, code: row.legacyCode };
+}
+
 export class CustomerCategoryService {
   async create(
     companyId: string,
     data: { legacyCode: string; arabicName: string; englishName?: string }
   ) {
-    return prisma.customerCategory.create({ data: { companyId, ...data } });
+    try {
+      const row = await prisma.customerCategory.create({ data: { companyId, ...data } });
+      return mapCategory(row);
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        throw new Error('كود مجموعة العميل مستخدم من قبل');
+      }
+      throw e;
+    }
   }
 
   async list(companyId: string) {
-    return prisma.customerCategory.findMany({
+    const rows = await prisma.customerCategory.findMany({
       where: { companyId, isActive: true },
-      orderBy: { arabicName: 'asc' },
+      orderBy: [{ legacyCode: 'asc' }, { arabicName: 'asc' }],
+      include: { _count: { select: { customers: true } } },
     });
+    return rows.map(mapCategory);
   }
 
   async update(companyId: string, id: string, data: Prisma.CustomerCategoryUpdateInput) {
     const row = await prisma.customerCategory.findFirst({ where: { id, companyId } });
-    if (!row) throw new Error('Customer category not found');
-    return prisma.customerCategory.update({ where: { id }, data });
+    if (!row) throw new Error('مجموعة العميل غير موجودة');
+    const updated = await prisma.customerCategory.update({ where: { id }, data });
+    return mapCategory(updated);
+  }
+
+  async delete(companyId: string, id: string) {
+    const row = await prisma.customerCategory.findFirst({ where: { id, companyId } });
+    if (!row) throw new Error('مجموعة العميل غير موجودة');
+    await prisma.customerCategory.update({
+      where: { id },
+      data: { isActive: false, legacyCode: `${row.legacyCode}__del__${id.slice(0, 8)}` },
+    });
+  }
+}
+
+export class SupplierCategoryService {
+  async create(
+    companyId: string,
+    data: { legacyCode: string; arabicName: string; englishName?: string }
+  ) {
+    try {
+      const row = await prisma.supplierCategory.create({ data: { companyId, ...data } });
+      return mapCategory(row);
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        throw new Error('كود مجموعة المورد مستخدم من قبل');
+      }
+      throw e;
+    }
+  }
+
+  async list(companyId: string) {
+    const rows = await prisma.supplierCategory.findMany({
+      where: { companyId, isActive: true },
+      orderBy: [{ legacyCode: 'asc' }, { arabicName: 'asc' }],
+      include: { _count: { select: { suppliers: true } } },
+    });
+    return rows.map(mapCategory);
+  }
+
+  async update(companyId: string, id: string, data: Prisma.SupplierCategoryUpdateInput) {
+    const row = await prisma.supplierCategory.findFirst({ where: { id, companyId } });
+    if (!row) throw new Error('مجموعة المورد غير موجودة');
+    const updated = await prisma.supplierCategory.update({ where: { id }, data });
+    return mapCategory(updated);
+  }
+
+  async delete(companyId: string, id: string) {
+    const row = await prisma.supplierCategory.findFirst({ where: { id, companyId } });
+    if (!row) throw new Error('مجموعة المورد غير موجودة');
+    await prisma.supplierCategory.update({
+      where: { id },
+      data: { isActive: false, legacyCode: `${row.legacyCode}__del__${id.slice(0, 8)}` },
+    });
   }
 }
 
@@ -221,3 +287,4 @@ export const personService = new PersonService();
 export const personGroupService = new PersonGroupService();
 export const personItemPriceService = new PersonItemPriceService();
 export const customerCategoryService = new CustomerCategoryService();
+export const supplierCategoryService = new SupplierCategoryService();

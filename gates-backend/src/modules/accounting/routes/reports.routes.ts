@@ -10,6 +10,7 @@ import { logger } from '../../../shared/logger';
 import { AuthRequest } from '../../../shared/auth/types';
 import prisma from '../../../shared/database/prisma';
 import { startOfDayUtc, endOfDayUtc } from '../../../shared/utils/report-date';
+import { partyGroupFromQuery } from '../services/party-group-filter';
 import { requireRedisEnabled } from '../../../shared/jobs/require-redis';
 
 const router = Router();
@@ -136,6 +137,7 @@ router.get(
       }
 
       const filters = {
+        ...partyGroupFromQuery(req.query),
         companyId,
         fromDate: req.query.fromDate ? parseRangeStart(req.query.fromDate, 'fromDate') : undefined,
         toDate: req.query.toDate ? parseRangeEnd(req.query.toDate, 'toDate') : undefined,
@@ -185,6 +187,7 @@ router.get(
       }
 
       const filters = {
+        ...partyGroupFromQuery(req.query),
         companyId,
         fromDate: req.query.fromDate ? parseRangeStart(req.query.fromDate, 'fromDate') : undefined,
         toDate: req.query.toDate ? parseRangeEnd(req.query.toDate, 'toDate') : undefined,
@@ -231,6 +234,7 @@ router.get(
       }
 
       const filters = {
+        ...partyGroupFromQuery(req.query),
         companyId,
         fromDate: req.query.fromDate ? parseRangeStart(req.query.fromDate, 'fromDate') : undefined,
         toDate: req.query.toDate ? parseRangeEnd(req.query.toDate, 'toDate') : undefined,
@@ -310,6 +314,7 @@ router.get(
       }
 
       const filters = {
+        ...partyGroupFromQuery(req.query),
         companyId,
         fromDate: req.query.fromDate ? parseRangeStart(req.query.fromDate, 'fromDate') : undefined,
         toDate: req.query.toDate ? parseRangeEnd(req.query.toDate, 'toDate') : undefined,
@@ -358,6 +363,7 @@ router.get(
       }
 
       const filters = {
+        ...partyGroupFromQuery(req.query),
         companyId,
         customerId: req.query.customerId as string | undefined,
         supplierId: req.query.supplierId as string | undefined,
@@ -406,6 +412,7 @@ router.get(
       }
 
       const filters = {
+        ...partyGroupFromQuery(req.query),
         companyId,
         toDate: req.query.toDate ? parseRangeEnd(req.query.toDate, 'toDate') : todayEndOfDayUtc(),
         branchId: req.query.branchId as string | undefined,
@@ -452,6 +459,7 @@ router.get(
       }
 
       const filters = {
+        ...partyGroupFromQuery(req.query),
         companyId,
         toDate: req.query.toDate ? parseRangeEnd(req.query.toDate, 'toDate') : todayEndOfDayUtc(),
         branchId: req.query.branchId as string | undefined,
@@ -498,6 +506,7 @@ router.get(
       }
 
       const filters = {
+        ...partyGroupFromQuery(req.query),
         companyId,
         toDate: req.query.toDate ? parseRangeEnd(req.query.toDate, 'toDate') : todayEndOfDayUtc(),
         costCenterId: req.query.costCenterId as string | undefined,
@@ -545,6 +554,7 @@ router.get(
       }
 
       const filters = {
+        ...partyGroupFromQuery(req.query),
         companyId,
         fromDate: req.query.fromDate ? parseRangeStart(req.query.fromDate, 'fromDate') : undefined,
         toDate: req.query.toDate ? parseRangeEnd(req.query.toDate, 'toDate') : undefined,
@@ -616,6 +626,7 @@ router.get(
       }
 
       const filters = {
+        ...partyGroupFromQuery(req.query),
         companyId,
         fromDate: req.query.fromDate ? parseRangeStart(req.query.fromDate, 'fromDate') : undefined,
         toDate: req.query.toDate ? parseRangeEnd(req.query.toDate, 'toDate') : undefined,
@@ -691,6 +702,7 @@ router.get(
       }
 
       const filters = {
+        ...partyGroupFromQuery(req.query),
         companyId,
         fromDate: req.query.fromDate ? parseRangeStart(req.query.fromDate, 'fromDate') : undefined,
         toDate: req.query.toDate ? parseRangeEnd(req.query.toDate, 'toDate') : undefined,
@@ -738,6 +750,7 @@ router.get(
       }
 
       const filters = {
+        ...partyGroupFromQuery(req.query),
         companyId,
         supplierId: req.query.supplierId as string | undefined,
         branchId: req.query.branchId as string | undefined,
@@ -821,6 +834,7 @@ router.get(
       const toDate = new Date(parseInt(year), parseInt(month), 0);
 
       const filters = {
+        ...partyGroupFromQuery(req.query),
         companyId,
         toDate,
         branchId: req.query.branchId as string | undefined,
@@ -868,6 +882,7 @@ router.get(
       }
 
       const filters = {
+        ...partyGroupFromQuery(req.query),
         companyId,
         fromDate: req.query.fromDate ? parseRangeStart(req.query.fromDate, 'fromDate') : undefined,
         toDate: req.query.toDate ? parseRangeEnd(req.query.toDate, 'toDate') : undefined,
@@ -1003,6 +1018,7 @@ router.get(
       }
 
       const filters = {
+        ...partyGroupFromQuery(req.query),
         companyId,
         costCenterId: req.query.costCenterId as string,
         toDate: req.query.toDate ? parseRangeEnd(req.query.toDate, 'toDate') : todayEndOfDayUtc(),
@@ -1050,6 +1066,7 @@ router.get(
       }
 
       const filters = {
+        ...partyGroupFromQuery(req.query),
         companyId,
         fromDate: req.query.fromDate ? parseRangeStart(req.query.fromDate, 'fromDate') : undefined,
         toDate: req.query.toDate ? parseRangeEnd(req.query.toDate, 'toDate') : undefined,
@@ -1104,6 +1121,7 @@ router.get(
       }
 
       const filters = {
+        ...partyGroupFromQuery(req.query),
         companyId,
         fromDate: parseRangeStart(req.query.fromDate, 'fromDate'),
         toDate: parseRangeEnd(req.query.toDate, 'toDate'),
@@ -1159,6 +1177,7 @@ router.get(
       }
 
       const filters = {
+        ...partyGroupFromQuery(req.query),
         companyId,
         fromDate: parseRangeStart(req.query.fromDate, 'fromDate'),
         toDate: parseRangeEnd(req.query.toDate, 'toDate'),
@@ -1206,6 +1225,7 @@ router.get(
       }
 
       const filters = {
+        ...partyGroupFromQuery(req.query),
         companyId,
         toDate: req.query.toDate ? parseRangeEnd(req.query.toDate, 'toDate') : todayEndOfDayUtc(),
         branchId: req.query.branchId as string | undefined,
@@ -1252,6 +1272,7 @@ router.get(
       }
 
       const filters = {
+        ...partyGroupFromQuery(req.query),
         companyId,
         safeId: req.query.safeId as string | undefined,
         fromDate: req.query.fromDate ? parseRangeStart(req.query.fromDate, 'fromDate') : undefined,
@@ -1307,6 +1328,7 @@ router.get(
       }
 
       const filters = {
+        ...partyGroupFromQuery(req.query),
         companyId,
         fromDate: parseRangeStart(req.query.fromDate, 'fromDate'),
         toDate: parseRangeEnd(req.query.toDate, 'toDate'),
@@ -1354,6 +1376,7 @@ router.get(
       }
 
       const filters = {
+        ...partyGroupFromQuery(req.query),
         companyId,
         fromDate: req.query.fromDate ? parseRangeStart(req.query.fromDate, 'fromDate') : undefined,
         toDate: req.query.toDate ? parseRangeEnd(req.query.toDate, 'toDate') : undefined,
@@ -1408,6 +1431,7 @@ router.get(
       }
 
       const filters = {
+        ...partyGroupFromQuery(req.query),
         companyId,
         fromDate: parseRangeStart(req.query.fromDate, 'fromDate'),
         toDate: parseRangeEnd(req.query.toDate, 'toDate'),
@@ -1455,6 +1479,7 @@ router.get(
       }
 
       const filters = {
+        ...partyGroupFromQuery(req.query),
         companyId,
         fromDate: req.query.fromDate ? parseRangeStart(req.query.fromDate, 'fromDate') : undefined,
         toDate: req.query.toDate ? parseRangeEnd(req.query.toDate, 'toDate') : undefined,

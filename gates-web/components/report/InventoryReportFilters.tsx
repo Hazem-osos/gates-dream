@@ -16,6 +16,7 @@ import {
   ReportFilterItemSelect,
   ReportFilterOptionsRow,
   ReportFilterPartySelect,
+  ReportFilterPartyGroupSelect,
   ReportFilterSelect,
   ReportFilterWarehouseSelect,
   reportFilterInputClass,
@@ -31,6 +32,8 @@ export type InventoryReportFilterValues = {
   itemGroupId: string;
   customerId: string;
   supplierId: string;
+  customerCategoryId: string;
+  supplierCategoryId: string;
   delegateId: string;
   sellerId: string;
   costCenterId: string;
@@ -89,6 +92,8 @@ export function emptyInventoryReportFilters(): InventoryReportFilterValues {
     itemGroupId: '',
     customerId: '',
     supplierId: '',
+    customerCategoryId: '',
+    supplierCategoryId: '',
     delegateId: '',
     sellerId: '',
     costCenterId: '',
@@ -136,6 +141,12 @@ export function buildInventoryReportQuery(
   if (fields.itemGroup && values.itemGroupId) params.set('itemGroupId', values.itemGroupId);
   if (fields.customer && values.customerId) params.set('customerId', values.customerId);
   if (fields.supplier && values.supplierId) params.set('supplierId', values.supplierId);
+  if (fields.customer && values.customerCategoryId) {
+    params.set('customerCategoryId', values.customerCategoryId);
+  }
+  if (fields.supplier && values.supplierCategoryId) {
+    params.set('supplierCategoryId', values.supplierCategoryId);
+  }
   if (fields.delegate && values.delegateId) params.set('delegateId', values.delegateId);
   if (fields.seller && values.sellerId) params.set('sellerId', values.sellerId);
   if (fields.costCenter && values.costCenterId) params.set('costCenterId', values.costCenterId);
@@ -232,6 +243,12 @@ export function renderInventoryReportFields(
         value={values.customerId}
         onChange={(customerId) => patch({ customerId })}
         emptyLabel="كل العملاء"
+      />,
+      <ReportFilterPartyGroupSelect
+        key="customer-group"
+        kind="CUSTOMER"
+        value={values.customerCategoryId}
+        onChange={(customerCategoryId) => patch({ customerCategoryId })}
       />
     );
   }
@@ -244,6 +261,12 @@ export function renderInventoryReportFields(
         value={values.supplierId}
         onChange={(supplierId) => patch({ supplierId })}
         emptyLabel="كل الموردين"
+      />,
+      <ReportFilterPartyGroupSelect
+        key="supplier-group"
+        kind="SUPPLIER"
+        value={values.supplierCategoryId}
+        onChange={(supplierCategoryId) => patch({ supplierCategoryId })}
       />
     );
   }

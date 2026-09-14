@@ -464,7 +464,7 @@ app.use('/api/v1/inventory/customer-contracts', customerContractRoutes);
 app.use('/api/v1/inventory/clothing-matrix', clothingMatrixRoutes);
 app.use('/api/v1/inventory/reports', inventoryReportsRoutes);
 app.use('/api/v1/inventory', inventoryWave0Routes);
-app.use('/api/v1/accounting', cache({ ttl: 300 }), partyMastersRoutes);
+app.use('/api/v1/accounting', partyMastersRoutes);
 app.use('/api/v1/accounting', counterpartyOffsetRoutes);
 
 // Accounting routes

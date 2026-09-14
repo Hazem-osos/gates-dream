@@ -182,6 +182,7 @@ router.get(
         ...baseParams(req),
         asOfDate: parseDate(req.query.asOfDate ?? req.query.toDate, 'asOfDate'),
         customerId: (req.query.customerId as string) || undefined,
+        customerCategoryId: (req.query.customerCategoryId as string) || undefined,
       });
       return void res.json({ status: 'success', data });
     } catch (e) {
@@ -203,6 +204,7 @@ router.get(
         ...baseParams(req),
         asOfDate: parseDate(req.query.asOfDate ?? req.query.toDate, 'asOfDate'),
         supplierId: (req.query.supplierId as string) || undefined,
+        supplierCategoryId: (req.query.supplierCategoryId as string) || undefined,
       });
       return void res.json({ status: 'success', data });
     } catch (e) {

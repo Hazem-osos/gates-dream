@@ -223,6 +223,7 @@ model Company {
   distributors                              Distributor[]
   drivers                                   Driver[]
   customerCategories                        CustomerCategory[]
+  supplierCategories                        SupplierCategory[]
   itemCategories                            ItemCategory[]
   persons                                   Person[]
   personGroups                              PersonGroup[]
@@ -1406,6 +1407,24 @@ model CustomerCategory {
   @@map("customer_categories")
 }
 
+model SupplierCategory {
+  id          String   @id @default(uuid())
+  companyId   String
+  legacyCode  String   @db.VarChar(30)
+  arabicName  String
+  englishName String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  company   Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  suppliers Supplier[]
+
+  @@unique([companyId, legacyCode])
+  @@index([companyId])
+  @@map("supplier_categories")
+}
+
 // Customer Contracts
 model CustomerContract {
   id                 String   @id @default(uuid())
@@ -1498,6 +1517,7 @@ model Supplier {
   /// set explicitly. Null means due on the invoice date (no credit term).
   paymentTermsDays   Int?
   currencyCode       String?
+  supplierCategoryId String?
   balance            Decimal  @default(0) @db.Decimal(15, 2)
   isActive           Boolean  @default(true)
   createdAt          DateTime @default(now())
@@ -1505,6 +1525,7 @@ model Supplier {
 
   company                    Company                     @relation(fields: [companyId], references: [id], onDelete: Cascade)
   mainAccount                Account?                    @relation("SupplierMainAccount", fields: [mainAccountId], references: [id])
+  supplierCategory           SupplierCategory?           @relation(fields: [supplierCategoryId], references: [id], onDelete: SetNull)
   linkedCustomer             Customer?                   @relation("SupplierToLinkedCustomer", fields: [linkedCustomerId], references: [id], onDelete: SetNull)
   invoices                   Invoice[]
   purchaseOrders             PurchaseOrder[]
@@ -1526,6 +1547,7 @@ model Supplier {
   @@index([companyId])
   @@index([code])
   @@index([linkedCustomerId])
+  @@index([supplierCategoryId])
   // Wave 4 fix: reconciles idx_suppliers_company_code, created directly
   // by a raw-SQL migration but never declared here.
   @@index([companyId, code])

@@ -37,6 +37,7 @@ export const createSupplierSchema = z.object({
   /** Credit terms in days, used to derive Invoice.dueDate (H6). */
   paymentTermsDays: z.number().int().nonnegative().optional().nullable(),
   currencyCode: z.string().optional(),
+  supplierCategoryId: z.string().uuid().optional().nullable(),
 });
 
 export const updateSupplierSchema = createSupplierSchema.partial().extend({
@@ -53,6 +54,7 @@ export const supplierQuerySchema = z.object({
     .string()
     .optional()
     .transform((val) => (val === undefined ? undefined : val === 'true')),
+  supplierCategoryId: z.string().uuid().optional(),
 });
 
 export type CreateSupplierInput = z.infer<typeof createSupplierSchema>;

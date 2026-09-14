@@ -329,7 +329,6 @@ export default function CustomerPage() {
     formData.fax,
     formData.warning,
     formData.estimatedBudget,
-    formData.customerCategoryId,
     formData.currencyCode,
     formData.nationality,
     formData.how !== 'local' ? formData.how : '',
@@ -384,6 +383,20 @@ export default function CustomerPage() {
               onChange={(e) => setFormData((prev) => ({ ...prev, phone1: e.target.value }))}
               placeholder="إدخل رقم الهاتف"
             />
+            <CompactFormField label="مجموعة العميل">
+              <select
+                className={compactControlClass}
+                value={formData.customerCategoryId}
+                onChange={(e) => setFormData((prev) => ({ ...prev, customerCategoryId: e.target.value }))}
+              >
+                <option value="">بدون مجموعة</option>
+                {customerCategories.map((cat) => (
+                  <option key={cat.id} value={cat.id}>
+                    {cat.code ? `${cat.code} — ${cat.arabicName}` : cat.arabicName}
+                  </option>
+                ))}
+              </select>
+            </CompactFormField>
             <CompactFormField label="نوع العميل" className="sm:col-span-2">
               <div className="flex flex-wrap gap-2">
                 {[
@@ -606,20 +619,6 @@ export default function CustomerPage() {
                 onChange={(e) => setFormData((prev) => ({ ...prev, estimatedBudget: e.target.value }))}
                 placeholder="إدخل الموازنة التقديرية"
               />
-              <CompactFormField label="فئة العميل">
-                <select
-                  className={compactControlClass}
-                  value={formData.customerCategoryId}
-                  onChange={(e) => setFormData((prev) => ({ ...prev, customerCategoryId: e.target.value }))}
-                >
-                  <option value="">—</option>
-                  {customerCategories.map((cat) => (
-                    <option key={cat.id} value={cat.id}>
-                      {cat.arabicName}
-                    </option>
-                  ))}
-                </select>
-              </CompactFormField>
               <CompactFormField label="رمز العملة">
                 <select
                   className={compactControlClass}

@@ -167,6 +167,7 @@ export const TENANT_SCOPED_MODELS = new Set<string>([
   'subcontractor',
   'subcontractorExtract',
   'supplier',
+  'supplierCategory',
   'systemNotification',
   'taxDeclaration',
   'taxPeriod',

@@ -45,6 +45,7 @@ router.get(
         search: req.query.search as string | undefined,
         supplierType: req.query.supplierType as string | undefined,
         isActive: req.query.isActive as boolean | undefined,
+        supplierCategoryId: req.query.supplierCategoryId as string | undefined,
       });
 
       logger.info(
