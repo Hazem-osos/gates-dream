@@ -17,6 +17,7 @@ export type AccountFormPayload = {
   defaultCostCenterId?: string | null;
   warning?: 'مدين' | 'دائن' | 'بدون' | null;
   budget?: number | null;
+  creditLimit?: number | null;
   currencyCode?: string | null;
 };
 

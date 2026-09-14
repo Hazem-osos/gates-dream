@@ -177,6 +177,8 @@ export default function CurrenciesPage() {
       {success ? <SuccessToast message={success} onClose={() => setSuccess('')} /> : null}
 
       <ErpDocumentPageHeader
+        compact
+        registerChrome={false}
         breadcrumbs={[
           { href: '/accounting', label: 'الحسابات' },
           { label: 'إنشاءات الحسابات' },
@@ -206,17 +208,20 @@ export default function CurrenciesPage() {
         currentId={selectedId}
       />
 
-      <FormSectionCard title="بيانات العملة" subtitle="المسلسل ورمز العملة والاسم" icon={Coins}>
+      <FormSectionCard
+        title="بيانات العملة"
+        subtitle="المسلسل ورمز العملة والاسم"
+        icon={Coins}
+        className="mb-3 p-3 sm:p-4"
+        bodyClassName="!grid-cols-[6.5rem_minmax(13rem,1fr)_minmax(16rem,1.4fr)]"
+      >
         <CompactFormField
           label="المسلسل"
           placeholder="رقم المسلسل"
           value={form.serial}
           onChange={(e) => patch({ serial: e.target.value })}
         />
-        <div className="space-y-1.5">
-          <label className="text-xs font-semibold text-[#0A3D5E]">
-            رمز العملة <span className="text-red-500">*</span>
-          </label>
+        <CompactFormField label="رمز العملة" required>
           <select
             className={compactControlClass}
             value={form.code}
@@ -229,7 +234,7 @@ export default function CurrenciesPage() {
               </option>
             ))}
           </select>
-        </div>
+        </CompactFormField>
         <CompactFormField
           label="الإسم العربي"
           placeholder="إدخل الإسم بالعربي"

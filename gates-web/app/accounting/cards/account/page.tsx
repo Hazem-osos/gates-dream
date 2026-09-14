@@ -155,7 +155,7 @@ function InputDesign() {
   return (
     <div className="p-6" style={{ direction: 'rtl' }}>
       <PageHeader
-        title="بطاقة حساب"
+        title="دليل الحسابات"
         breadcrumbs={[
           { label: 'الحسابات', href: '/accounting' },
           { label: 'البطاقات' },
@@ -167,16 +167,20 @@ function InputDesign() {
         <UserPermissionsBar resource="account" module="accounting" />
       </div>
       <form className="w-full text-base">
-        <FormSectionCard title="البيانات الأساسية" subtitle="الحقول اللازمة لتعريف الحساب" icon={Landmark}>
+        <FormSectionCard
+          title="البيانات الأساسية"
+          subtitle="الحقول اللازمة لتعريف الحساب"
+          icon={Landmark}
+          bodyClassName="!grid-cols-[8rem_minmax(16rem,1.6fr)_minmax(10rem,1fr)_minmax(10rem,1fr)]"
+        >
           <CompactFormField
-            label={autoNumbering ? 'رقم الحساب (تلقائي)' : 'رقم الحساب'}
+            label={autoNumbering ? 'رقم الحساب' : 'رقم الحساب'}
             required={!autoNumbering}
             value={formData.code}
             readOnly={autoNumbering}
             disabled={autoNumbering}
             onChange={(e) => setFormData((prev) => ({ ...prev, code: e.target.value }))}
-            placeholder={autoNumbering ? 'يُولَّد تلقائياً' : 'إدخل رقم الحساب'}
-            hint={autoNumbering ? 'الترقيم تلقائي من إعدادات شجرة الحسابات' : undefined}
+            placeholder={autoNumbering ? 'تلقائي' : 'رقم الحساب'}
           />
           <CompactFormField
             label="الإسم العربي"
@@ -185,6 +189,31 @@ function InputDesign() {
             onChange={(e) => setFormData((prev) => ({ ...prev, arabicName: e.target.value }))}
             placeholder="إدخل الإسم بالعربي"
           />
+          <CompactFormField
+            label="الحد الائتماني"
+            type="number"
+            step="0.01"
+            min="0"
+            value={formData.budget}
+            onChange={(e) => setFormData((prev) => ({ ...prev, budget: e.target.value }))}
+            placeholder="0"
+          />
+          <CompactFormField label="جهة التحذير">
+            <select
+              className={compactControlClass}
+              value={formData.warning || 'بدون'}
+              onChange={(e) =>
+                setFormData((prev) => ({
+                  ...prev,
+                  warning: e.target.value as 'مدين' | 'دائن' | 'بدون',
+                }))
+              }
+            >
+              <option value="بدون">بدون</option>
+              <option value="مدين">مدين</option>
+              <option value="دائن">دائن</option>
+            </select>
+          </CompactFormField>
           <CompactFormField label="ج رئيسي">
             <select
               className={compactControlClass}

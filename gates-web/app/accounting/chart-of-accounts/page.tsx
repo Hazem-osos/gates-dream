@@ -33,10 +33,29 @@ const NATURE_FILTERS: { id: CoaNatureFilter; label: string }[] = [
   { id: 'all', label: 'الكل' },
   { id: 'asset', label: 'الأصول' },
   { id: 'liability', label: 'الالتزامات' },
-  { id: 'equity', label: 'الملكية' },
   { id: 'revenue', label: 'الإيرادات' },
   { id: 'expense', label: 'المصروفات' },
 ];
+
+function isEquityAccount(node: CoaHierarchyAccount): boolean {
+  const code = (node.code ?? '').trim();
+  const name = `${node.arabicName ?? ''} ${node.nameAr ?? ''}`;
+  return (
+    code === '3' ||
+    code.startsWith('3') ||
+    name.includes('ملكية') ||
+    (node.accountType ?? '').toLowerCase() === 'equity'
+  );
+}
+
+function withoutEquity(nodes: CoaHierarchyAccount[]): CoaHierarchyAccount[] {
+  return nodes
+    .filter((node) => !isEquityAccount(node))
+    .map((node) => ({
+      ...node,
+      children: node.children?.length ? withoutEquity(node.children) : node.children,
+    }));
+}
 
 export default function ChartOfAccountsPage() {
   useBackendReachability();
@@ -59,7 +78,7 @@ export default function ChartOfAccountsPage() {
   const [ledgerOpen, setLedgerOpen] = useState(false);
   const [ledgerNode, setLedgerNode] = useState<CoaHierarchyAccount | null>(null);
 
-  const tree = (data?.data ?? []) as CoaHierarchyAccount[];
+  const tree = withoutEquity((data?.data ?? []) as CoaHierarchyAccount[]);
   const isEmpty = !isLoading && tree.length === 0;
 
   const seedCoa = useSeedDefaultCoa({
@@ -140,10 +159,10 @@ export default function ChartOfAccountsPage() {
       style={{ colorScheme: 'light' }}
     >
       <PageHeader
-        title="شجرة الحسابات"
+        title="دليل الحسابات"
         description="دليل حسابات مصري معياري — بحث، تصفية، وكشف حساب"
         favoriteHref="/accounting/chart-of-accounts"
-        favoriteLabel="شجرة الحسابات"
+        favoriteLabel="دليل الحسابات"
         className="[&_h1]:text-xl [&_h1]:font-bold [&_h1]:!text-slate-900 [&_p]:!text-slate-600"
         statusBadge={
           <span className="inline-flex items-center border border-slate-200 bg-slate-100 text-slate-600 text-xs px-2.5 py-1 rounded-full font-medium">

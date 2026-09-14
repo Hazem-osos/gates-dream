@@ -211,6 +211,8 @@ export default function AccountingPeriodsPage() {
       {success ? <SuccessToast message={success} onClose={() => setSuccess('')} /> : null}
 
       <ErpDocumentPageHeader
+        compact
+        registerChrome={false}
         breadcrumbs={[
           { href: '/accounting', label: 'الحسابات' },
           { label: 'إنشاءات الحسابات' },
@@ -240,41 +242,42 @@ export default function AccountingPeriodsPage() {
         currentId={selectedId}
       />
 
-      <FormSectionCard title="بيانات الفترة" subtitle="المسلسل والاسم والتواريخ وحالة السنة" icon={CalendarRange}>
-        <div className="col-span-full space-y-3">
-          <div
-            className={`flex flex-wrap items-center justify-between gap-3 rounded-2xl border px-4 py-3 ${
-              form.isClosed
-                ? 'border-red-200 bg-red-50 text-red-800'
-                : 'border-emerald-200 bg-emerald-50 text-emerald-800'
-            }`}
-          >
-            <div>
-              <p className="text-xs font-semibold opacity-80">حالة السنة المالية</p>
-              <p className="text-xl font-black tracking-tight">
-                {form.isClosed ? 'مغلقة' : 'مفتوحة'}
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                disabled={!selectedId || !form.isClosed || opening || closing}
-                onClick={() => void handleOpen()}
-                className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-300 bg-white px-3 py-2 text-sm font-semibold text-emerald-800 disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                <Unlock className="h-4 w-4" />
-                {opening ? 'جاري الفتح…' : 'فتح الفترة المالية'}
-              </button>
-              <button
-                type="button"
-                disabled={!selectedId || form.isClosed || opening || closing}
-                onClick={() => void handleClose()}
-                className="inline-flex items-center gap-1.5 rounded-xl border border-red-300 bg-white px-3 py-2 text-sm font-semibold text-red-800 disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                <Lock className="h-4 w-4" />
-                {closing ? 'جاري الإغلاق…' : 'إغلاق الفترة المالية'}
-              </button>
-            </div>
+      <FormSectionCard
+        title="بيانات الفترة"
+        subtitle="المسلسل والاسم والتواريخ وحالة السنة"
+        icon={CalendarRange}
+        className="mb-3 p-3 sm:p-4"
+        bodyClassName="!grid-cols-[7rem_minmax(12rem,1fr)_10.5rem_10.5rem]"
+      >
+        <div
+          className={`col-span-full flex flex-wrap items-center justify-between gap-2 rounded-xl border px-3 py-2 ${
+            form.isClosed
+              ? 'border-red-200 bg-red-50 text-red-800'
+              : 'border-emerald-200 bg-emerald-50 text-emerald-800'
+          }`}
+        >
+          <span className="text-sm font-black">
+            حالة السنة: {form.isClosed ? 'مغلقة' : 'مفتوحة'}
+          </span>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={!selectedId || !form.isClosed || opening || closing}
+              onClick={() => void handleOpen()}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-300 bg-white px-2.5 py-1 text-xs font-semibold text-emerald-800 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <Unlock className="h-3.5 w-3.5" />
+              {opening ? 'جاري الفتح…' : 'فتح الفترة المالية'}
+            </button>
+            <button
+              type="button"
+              disabled={!selectedId || form.isClosed || opening || closing}
+              onClick={() => void handleClose()}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-red-300 bg-white px-2.5 py-1 text-xs font-semibold text-red-800 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <Lock className="h-3.5 w-3.5" />
+              {closing ? 'جاري الإغلاق…' : 'إغلاق الفترة المالية'}
+            </button>
           </div>
         </div>
 

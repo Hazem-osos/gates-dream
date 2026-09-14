@@ -252,7 +252,7 @@ export const accountingModules: ModuleWithChildren[] = [
         label: 'البطاقات',
         color: '#0E79AA',
         children: [
-          { key: 'account', icon: '📇', label: 'بطاقة الحساب', color: '#0E79AA', href: '/accounting/chart-of-accounts' },
+          { key: 'account', icon: '📇', label: 'دليل الحسابات', color: '#0E79AA', href: '/accounting/chart-of-accounts' },
           { key: 'cost-center', icon: '📊', label: 'بطاقة مركز التكلفة', color: '#0E79AA', href: '/accounting/cards/cost-center' },
           { key: 'supplier', icon: '📋', label: 'بطاقة مورد', color: '#0E79AA', href: '/accounting/cards/supplier' },
           { key: 'customer', icon: '👥', label: 'بطاقة عميل', color: '#0E79AA', href: '/accounting/cards/customer' },
@@ -268,7 +268,7 @@ export const accountingModules: ModuleWithChildren[] = [
         label: 'الدليل',
         color: '#0E79AA',
         children: [
-          { key: 'accounts-guide', icon: '📚', label: 'شجرة الحسابات', color: '#0E79AA' , href: '/accounting/chart-of-accounts' },
+          { key: 'accounts-guide', icon: '📚', label: 'دليل الحسابات', color: '#0E79AA' , href: '/accounting/chart-of-accounts' },
           { key: 'cost-centers-guide', icon: '📊', label: 'دليل مراكز التكلفة', color: '#0E79AA' , href: '/accounting/guide/cost-center'  },
           { key: 'representatives-guide', icon: '👥', label: 'دليل المندوبين', color: '#0E79AA' , href: '/accounting/guide/representatives-guide' },
         ]

@@ -77,6 +77,8 @@ type Props = {
   /** When false, hide the `[ رقم المستند ]` chip (list / settings pages). */
   showDocumentRef?: boolean;
   registerChrome?: boolean;
+  /** Tighter header — same actions as the sales invoice, without extra chrome height. */
+  compact?: boolean;
 };
 
 export function ErpDocumentPageHeader({
@@ -119,6 +121,7 @@ export function ErpDocumentPageHeader({
   postTriggerId,
   showDocumentRef = true,
   registerChrome = true,
+  compact = false,
 }: Props) {
   const docTitle = docNumber?.trim() ? docNumber : 'مسودة جديدة';
   const { isFavorite, toggleFavorite } = usePageFavorites();
@@ -145,10 +148,11 @@ export function ErpDocumentPageHeader({
   }, [currentId, statusLabel, statusTone, title]);
 
   return (
-    <header className="sticky top-0 z-40 -mx-3 px-3 py-2.5 mb-2 bg-white/95 backdrop-blur-md border-b border-[#E6F0F7] shadow-sm rounded-lg overflow-visible" data-tour="document-header" data-tour-legacy="erp-page-header">
+    <header className={`sticky top-0 z-40 -mx-3 px-3 bg-white/95 backdrop-blur-md border-b border-[#E6F0F7] shadow-sm rounded-lg overflow-visible ${compact ? 'py-1.5 mb-1' : 'py-2.5 mb-2'}`} data-tour="document-header" data-tour-legacy="erp-page-header">
       {registerChrome ? <RegisterScreenChrome /> : null}
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div className="min-w-0 space-y-0.5">
+      <div className={`flex flex-wrap justify-between gap-2 ${compact ? 'items-center' : 'items-start'}`}>
+        <div className={`min-w-0 ${compact ? '' : 'space-y-0.5'}`}>
+          {compact ? null : (
           <nav className="text-[11px] text-[#64748B] flex flex-wrap items-center gap-1">
             {breadcrumbs.map((crumb, i) => (
               <span key={`${crumb.label}-${i}`} className="flex items-center gap-1">
@@ -165,6 +169,7 @@ export function ErpDocumentPageHeader({
               </span>
             ))}
           </nav>
+          )}
           <div className="flex flex-wrap items-center gap-2">
             <h1 className="text-base font-bold text-[#0A3D5E]">
               {title}

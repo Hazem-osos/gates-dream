@@ -31,6 +31,7 @@ const emptyForm: AccountFormPayload = {
   costCenterRequired: 'بدون',
   defaultCostCenterId: null,
   warning: 'بدون',
+  budget: null,
 };
 
 export function AccountFormModal({
@@ -76,7 +77,8 @@ export function AccountFormModal({
         accountSide: initial.nature === 'DEBIT' ? 'مدين' : initial.nature === 'CREDIT' ? 'دائن' : null,
         costCenterRequired: (initial.costCenterRequired as AccountFormPayload['costCenterRequired']) || 'بدون',
         defaultCostCenterId: initial.defaultCostCenterId ?? null,
-        warning: 'بدون',
+        warning: (initial as { warning?: AccountFormPayload['warning'] }).warning || 'بدون',
+        budget: (initial as { budget?: number | null }).budget ?? null,
       });
     } else {
       setForm({
@@ -147,15 +149,20 @@ export function AccountFormModal({
           </h2>
           <p className="mb-4 text-sm text-slate-500">الحساب الأب: {parentLabel}</p>
 
-          <FormSectionCard title="البيانات الأساسية" subtitle="الحقول اللازمة لتعريف الحساب" icon={Landmark} className="mb-3">
+          <FormSectionCard
+            title="البيانات الأساسية"
+            subtitle="الحقول اللازمة لتعريف الحساب"
+            icon={Landmark}
+            className="mb-3"
+            bodyClassName="!grid-cols-[8rem_minmax(16rem,1.6fr)_minmax(9rem,1fr)_minmax(9rem,1fr)]"
+          >
             <CompactFormField
-              label={autoNumbering ? 'رقم الحساب (تلقائي)' : 'رقم الحساب'}
-              className="lg:col-span-3"
+              label={autoNumbering ? 'رقم الحساب' : 'رقم الحساب'}
               value={form.code}
               readOnly={autoNumbering}
               disabled={autoNumbering}
               onChange={(e) => setForm((f) => ({ ...f, code: e.target.value }))}
-              hint={autoNumbering ? 'الترقيم تلقائي من إعدادات شجرة الحسابات' : 'أدخل رقم الحساب يدوياً'}
+              hint={autoNumbering ? 'تلقائي' : 'أدخل الرقم'}
             />
             <CompactFormField
               label="الاسم العربي"
@@ -163,6 +170,35 @@ export function AccountFormModal({
               value={form.arabicName}
               onChange={(e) => setForm((f) => ({ ...f, arabicName: e.target.value }))}
             />
+            <CompactFormField
+              label="الحد الائتماني"
+              type="number"
+              min="0"
+              step="0.01"
+              value={form.budget != null ? String(form.budget) : ''}
+              onChange={(e) =>
+                setForm((f) => ({
+                  ...f,
+                  budget: e.target.value ? Number(e.target.value) : null,
+                }))
+              }
+            />
+            <CompactFormField label="جهة التحذير">
+              <select
+                className={compactControlClass}
+                value={form.warning ?? 'بدون'}
+                onChange={(e) =>
+                  setForm((f) => ({
+                    ...f,
+                    warning: e.target.value as AccountFormPayload['warning'],
+                  }))
+                }
+              >
+                <option value="بدون">بدون</option>
+                <option value="مدين">مدين</option>
+                <option value="دائن">دائن</option>
+              </select>
+            </CompactFormField>
             <CompactFormField label="الحساب الأب">
               <input className={compactControlClass} value={parentLabel} readOnly />
             </CompactFormField>
@@ -191,7 +227,6 @@ export function AccountFormModal({
                 <option value="">—</option>
                 <option value="asset">أصول</option>
                 <option value="liability">التزامات</option>
-                <option value="equity">حقوق ملكية</option>
                 <option value="revenue">إيرادات</option>
                 <option value="expense">مصروفات</option>
               </select>
