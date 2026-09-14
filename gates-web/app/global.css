@@ -55,6 +55,7 @@ html.gates-privacy-mode .gates-sensitive {
 .erp-contain {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
+  align-content: start;
   width: 100%;
   max-width: 100%;
   min-width: 0;

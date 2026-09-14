@@ -79,7 +79,19 @@ type Props = {
   registerChrome?: boolean;
   /** Tighter header — same actions as the sales invoice, without extra chrome height. */
   compact?: boolean;
+  /**
+   * When false, never lock Save as if this were a posted voucher.
+   * Master-data screens (periods, currencies) must pass false.
+   */
+  lockWhenPosted?: boolean;
 };
+
+function isPostedStatusLabel(label: string): boolean {
+  const t = label.trim();
+  if (!t || /غير\s*مرح/.test(t)) return false;
+  if (/مسودة|جديد|تعديل|مفتوحة|مغلقة/.test(t)) return false;
+  return /مرحّ?ل|posted/i.test(t);
+}
 
 export function ErpDocumentPageHeader({
   breadcrumbs,
@@ -122,13 +134,14 @@ export function ErpDocumentPageHeader({
   showDocumentRef = true,
   registerChrome = true,
   compact = false,
+  lockWhenPosted = true,
 }: Props) {
   const docTitle = docNumber?.trim() ? docNumber : 'مسودة جديدة';
   const { isFavorite, toggleFavorite } = usePageFavorites();
   const starred = favoriteHref ? isFavorite(favoriteHref) : false;
   const documentMode = useOptionalDocumentMode();
   const isReadOnly = documentMode?.isReadOnly === true;
-  const looksPosted = statusTone === 'success' || /مرحّل|مرحل|posted/i.test(statusLabel);
+  const looksPosted = lockWhenPosted && isPostedStatusLabel(statusLabel);
   const hidePost = hideStandalonePost || Boolean(standardActions);
   const saveHint = isReadOnly
     ? 'المستند في وضع العرض فقط. اضغط على (...) ثم (تعديل) للبدء في التغيير'

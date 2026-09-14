@@ -252,7 +252,6 @@ export const accountingModules: ModuleWithChildren[] = [
         label: 'البطاقات',
         color: '#0E79AA',
         children: [
-          { key: 'account', icon: '📇', label: 'دليل الحسابات', color: '#0E79AA', href: '/accounting/chart-of-accounts' },
           { key: 'cost-center', icon: '📊', label: 'بطاقة مركز التكلفة', color: '#0E79AA', href: '/accounting/cards/cost-center' },
           { key: 'supplier', icon: '📋', label: 'بطاقة مورد', color: '#0E79AA', href: '/accounting/cards/supplier' },
           { key: 'customer', icon: '👥', label: 'بطاقة عميل', color: '#0E79AA', href: '/accounting/cards/customer' },

@@ -11,7 +11,7 @@ type Props = {
 export function ErpDocumentLayout({ children, className = '' }: Props) {
   return (
     <div
-      className={`${className} erp-contain min-h-0 bg-white p-3`.trim()}
+      className={`${className} erp-contain content-start min-h-0 bg-white p-3`.trim()}
       dir="rtl"
     >
       {children}

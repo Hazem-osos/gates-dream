@@ -178,6 +178,7 @@ export default function CurrenciesPage() {
 
       <ErpDocumentPageHeader
         compact
+        lockWhenPosted={false}
         registerChrome={false}
         breadcrumbs={[
           { href: '/accounting', label: 'الحسابات' },

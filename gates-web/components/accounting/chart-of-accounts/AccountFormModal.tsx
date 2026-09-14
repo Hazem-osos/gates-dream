@@ -142,7 +142,7 @@ export function AccountFormModal({
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
       <button type="button" className="absolute inset-0 bg-black/45 backdrop-blur-[2px]" aria-label="إغلاق" onClick={onClose} />
-      <div className="relative w-full max-w-2xl overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-xl" dir="rtl">
+      <div className="relative w-full max-w-4xl overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-xl" dir="rtl">
         <div className="p-6 pb-0">
           <h2 className="mb-1 text-xl font-bold text-[#0E79AA]">
             {mode === 'create' ? (parentAccount ? 'إضافة حساب فرعي' : 'إضافة حساب رئيسي') : 'تعديل حساب'}
@@ -154,7 +154,7 @@ export function AccountFormModal({
             subtitle="الحقول اللازمة لتعريف الحساب"
             icon={Landmark}
             className="mb-3"
-            bodyClassName="!grid-cols-[8rem_minmax(16rem,1.6fr)_minmax(9rem,1fr)_minmax(9rem,1fr)]"
+            bodyClassName="!grid-cols-[7rem_minmax(0,1.8fr)_minmax(0,10rem)_minmax(0,11rem)]"
           >
             <CompactFormField
               label={autoNumbering ? 'رقم الحساب' : 'رقم الحساب'}

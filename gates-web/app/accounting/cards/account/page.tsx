@@ -171,7 +171,7 @@ function InputDesign() {
           title="البيانات الأساسية"
           subtitle="الحقول اللازمة لتعريف الحساب"
           icon={Landmark}
-          bodyClassName="!grid-cols-[8rem_minmax(16rem,1.6fr)_minmax(10rem,1fr)_minmax(10rem,1fr)]"
+          bodyClassName="!grid-cols-[7rem_minmax(0,1.8fr)_minmax(0,10rem)_minmax(0,11rem)]"
         >
           <CompactFormField
             label={autoNumbering ? 'رقم الحساب' : 'رقم الحساب'}

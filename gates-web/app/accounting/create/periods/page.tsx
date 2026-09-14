@@ -212,6 +212,7 @@ export default function AccountingPeriodsPage() {
 
       <ErpDocumentPageHeader
         compact
+        lockWhenPosted={false}
         registerChrome={false}
         breadcrumbs={[
           { href: '/accounting', label: 'الحسابات' },
@@ -220,8 +221,8 @@ export default function AccountingPeriodsPage() {
         ]}
         title="الفترات المحاسبية"
         docNumber={form.code || (selectedId ? 'تعديل' : 'جديد')}
-        statusTone={form.isClosed ? 'danger' : 'success'}
-        statusLabel={form.isClosed ? 'مغلقة' : 'مفتوحة'}
+        statusTone={selectedId ? (form.isClosed ? 'danger' : 'success') : 'info'}
+        statusLabel={selectedId ? (form.isClosed ? 'مغلقة' : 'مفتوحة') : 'جديد'}
         saveLabel="حفظ"
         onSaveDraft={() => void handleSave()}
         savePending={saving}

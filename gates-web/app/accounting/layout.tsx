@@ -8,7 +8,7 @@ export default function AccountingLayout({
 }) {
   return (
     <div className="flex min-w-0 flex-1 flex-col">
-      <div className="erp-contain min-w-0 flex-1 p-3">
+      <div className="erp-contain content-start min-w-0 flex-1 p-3">
         {children}
       </div>
     </div>
