@@ -31,6 +31,9 @@ function companyIdOf(req: AuthRequest): string {
 
 function sendError(res: Response, error: unknown, fallback: string) {
   const status = error instanceof AppError ? error.statusCode : 500;
+  if (!(error instanceof AppError) || error.statusCode >= 500) {
+    logger.error({ error }, fallback);
+  }
   return void res.status(status).json({
     status: 'error',
     message: error instanceof Error ? error.message : fallback,
@@ -82,7 +85,6 @@ router.get(
         pagination: result.pagination,
       });
     } catch (error) {
-      logger.error({ error }, 'Error listing periods');
       return sendError(res, error, 'تعذّر تحميل الفترات');
     }
   }
@@ -96,7 +98,6 @@ router.get(
       const period = await periodService.getCurrentPeriod(companyIdOf(req));
       return void res.json({ status: 'success', data: period });
     } catch (error) {
-      logger.error({ error }, 'Error getting current period');
       return sendError(res, error, 'تعذّر تحميل الفترة الحالية');
     }
   }
@@ -110,7 +111,6 @@ router.get(
       const period = await periodService.getPeriodById(companyIdOf(req), req.params.id);
       return void res.json({ status: 'success', data: period });
     } catch (error) {
-      logger.error({ error }, 'Error getting period');
       return sendError(res, error, 'تعذّر تحميل الفترة');
     }
   }
@@ -135,7 +135,6 @@ router.post(
         data: period,
       });
     } catch (error) {
-      logger.error({ error, body: req.body }, 'Error creating period');
       return sendError(res, error, 'تعذّر حفظ الفترة');
     }
   }
@@ -163,7 +162,6 @@ router.put(
         data: period,
       });
     } catch (error) {
-      logger.error({ error, periodId: req.params.id }, 'Error updating period');
       return sendError(res, error, 'تعذّر تحديث الفترة');
     }
   }
@@ -182,7 +180,6 @@ router.post(
         data: period,
       });
     } catch (error) {
-      logger.error({ error, periodId: req.params.id }, 'Error closing period');
       return sendError(res, error, 'تعذّر إغلاق الفترة');
     }
   }
@@ -201,7 +198,6 @@ router.post(
         data: period,
       });
     } catch (error) {
-      logger.error({ error, periodId: req.params.id }, 'Error reopening period');
       return sendError(res, error, 'تعذّر فتح الفترة');
     }
   }
@@ -218,7 +214,6 @@ router.delete(
         message: 'تم حذف الفترة',
       });
     } catch (error) {
-      logger.error({ error, periodId: req.params.id }, 'Error deleting period');
       return sendError(res, error, 'تعذّر حذف الفترة');
     }
   }

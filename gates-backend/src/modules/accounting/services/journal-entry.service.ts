@@ -464,37 +464,32 @@ export class JournalEntryService {
    * Cancel journal entry
    */
   async cancelJournalEntry(companyId: string, journalEntryId: string) {
-    try {
-      const journalEntry = await prisma.journalEntry.findFirst({
-        where: { id: journalEntryId, companyId },
-      });
+    const journalEntry = await prisma.journalEntry.findFirst({
+      where: { id: journalEntryId, companyId },
+    });
 
-      if (!journalEntry) {
-        throw new Error('Journal entry not found');
-      }
-
-      if (journalEntry.isCancelled) {
-        throw new Error('Journal entry is already cancelled');
-      }
-
-      if (journalEntry.isPosted) {
-        throw new Error('Cannot cancel a posted journal entry. Unpost it first.');
-      }
-
-      const updated = await prisma.journalEntry.update({
-        where: { id: journalEntryId },
-        data: { isCancelled: true },
-      });
-
-      logger.info({ companyId, journalEntryId }, 'Journal entry cancelled');
-      return updated;
-    } catch (error) {
-      logger.error(
-        { error, companyId, journalEntryId },
-        'Error cancelling journal entry'
-      );
-      throw error;
+    if (!journalEntry) {
+      throw new AppError(404, 'القيد غير موجود');
     }
+
+    if (journalEntry.isCancelled) {
+      throw new AppError(400, 'القيد ملغي بالفعل');
+    }
+
+    if (journalEntry.isPosted) {
+      throw new AppError(
+        422,
+        'القيد مرحّل. ألغِ الترحيل أولاً من قائمة (...) ثم أعد الإلغاء.'
+      );
+    }
+
+    const updated = await prisma.journalEntry.update({
+      where: { id: journalEntryId },
+      data: { isCancelled: true },
+    });
+
+    logger.info({ companyId, journalEntryId }, 'Journal entry cancelled');
+    return updated;
   }
 
   /**

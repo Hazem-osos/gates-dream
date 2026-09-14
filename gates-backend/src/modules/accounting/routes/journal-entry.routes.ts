@@ -496,23 +496,14 @@ router.post(
 
       return void res.json({
         status: 'success',
-        message: 'Journal entry cancelled successfully',
+        message: 'تم إلغاء القيد',
         data: journalEntry,
       });
     } catch (error) {
-      logger.error({ error }, 'Error cancelling journal entry');
-      const status =
-        error instanceof Error &&
-        (error.message === 'Journal entry not found' ||
-          error.message.includes('already') ||
-          error.message.includes('Cannot'))
-          ? 400
-          : 500;
-      return void res.status(status).json({
-        status: 'error',
-        message:
-          error instanceof Error ? error.message : 'Failed to cancel journal entry',
-      });
+      if (!(error instanceof AppError) || error.statusCode >= 500) {
+        logger.error({ error }, 'Error cancelling journal entry');
+      }
+      return void sendRouteError(res, error, 'تعذّر إلغاء القيد');
     }
   }
 );

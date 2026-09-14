@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start --hostname 0.0.0.0",
-    "railway:start": "next start --hostname 0.0.0.0",
+    "railway:start": "node scripts/railway-start.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "eslint --quiet \"app/accounting/**/*.{ts,tsx}\" \"app/inventory/**/*.{ts,tsx}\" \"app/extracts/**/*.{ts,tsx}\" \"app/contracting/**/*.{ts,tsx}\" && eslint --quiet \"lib/**/*.{ts,tsx}\" \"components/report/**/*.{ts,tsx}\" \"components/GlobalApiErrorToast.tsx\"",
     "audit:client-storage": "node scripts/audit-client-storage.mjs",
