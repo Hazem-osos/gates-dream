@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { ArrowRightLeft, Receipt } from 'lucide-react';
 import { Button } from '@/components/ui';
+import { printOperationalDocument } from '@/lib/print/printOperationalDocument';
 import { ErpDocumentLayout } from '@/components/erp/ErpDocumentLayout';
 import { ErpDocumentPageHeader } from '@/components/erp/ErpDocumentPageHeader';
 import { DocumentBrowseDrawer } from '@/components/erp/DocumentBrowseDrawer';
@@ -307,7 +308,30 @@ export function PriceQuoteForm() {
           favoriteLabel="عرض سعر"
           moreMenuItems={[
             { id: 'new', label: 'عرض جديد', onClick: resetNew },
-            { id: 'print', label: 'طباعة', onClick: () => window.print() },
+            {
+              id: 'print',
+              label: 'طباعة',
+              onClick: () => {
+                void printOperationalDocument({
+                  title: 'عرض سعر',
+                  documentNo: quoteNumber || 'مسودة',
+                  documentDate: date,
+                  buyerName: description || undefined,
+                  currency: currencies.find((c) => c.id === currencyId)?.code,
+                  lines: entered.map((line) => {
+                    const parts = commercialLineParts(line);
+                    return {
+                      description: [line.itemCode, line.itemName].filter(Boolean).join(' — ') || 'صنف',
+                      quantity: line.quantity,
+                      unitPrice: line.unitPrice,
+                      taxPercent: line.taxRate,
+                      taxAmount: parts.taxValue,
+                      total: parts.net,
+                    };
+                  }),
+                });
+              },
+            },
             {
               id: 'duplicate',
               label: 'تكرار',

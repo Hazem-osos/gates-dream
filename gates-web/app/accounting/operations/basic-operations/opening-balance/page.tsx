@@ -33,18 +33,11 @@ import {
   useDocumentMode,
 } from '@/components/common/document-shell';
 import { useCompanyPrintProfile } from '@/lib/hooks/useCompanyPrintProfile';
-import { PrintDocumentButton, renderPrintableAndOpen } from '@/app/components/print/PrintDocumentButton';
+import { PrintDocumentButton } from '@/app/components/print/PrintDocumentButton';
+import { printOperationalDocument } from '@/lib/print/printOperationalDocument';
 import type { JournalPrintModel } from '@/lib/print/types';
 import { DynamicChunkSkeleton } from '@/components/ui/DynamicChunkSkeleton';
 import { onFieldErrors } from '@/lib/forms/on-field-errors';
-
-const JournalPrintTemplate = dynamic(
-  () =>
-    import('@/app/components/print/JournalPrintTemplate').then((m) => ({
-      default: m.JournalPrintTemplate,
-    })),
-  { ssr: false }
-);
 
 const JournalEntriesListSection = dynamic(
   () =>
@@ -552,9 +545,22 @@ function OpeningBalancePageInner() {
           <PrintDocumentButton
             label="طباعة قيد اليومية"
             disabled={!lines.length}
-            onPrintA4={() => (
-              <JournalPrintTemplate company={companyProfile} journal={journalPrintModel} />
-            )}
+            onPrintLayout={() =>
+              printOperationalDocument({
+                title: 'قيد افتتاحي',
+                documentNo: journalPrintModel.voucherNumber || 'مسودة',
+                documentDate: lockedDate || new Date().toISOString().slice(0, 10),
+                sellerName: companyProfile?.nameAr,
+                buyerName: journalPrintModel.description,
+                currency: journalPrintModel.currencyCode,
+                lines: journalPrintModel.lines.map((line) => ({
+                  description: `${line.accountLabel}${line.description ? ` — ${line.description}` : ''}`,
+                  quantity: 1,
+                  unitPrice: line.debit || line.credit || 0,
+                  total: line.debit || line.credit || 0,
+                })),
+              })
+            }
           />
         }
         standardActions={{
@@ -571,9 +577,20 @@ function OpeningBalancePageInner() {
           onUnpost: () => unpostJournalMutation.mutate({}),
           onPrint: () => {
             if (!lines.length) return;
-            renderPrintableAndOpen(() => (
-              <JournalPrintTemplate company={companyProfile} journal={journalPrintModel} />
-            ));
+            void printOperationalDocument({
+              title: 'قيد افتتاحي',
+              documentNo: journalPrintModel.voucherNumber || 'مسودة',
+              documentDate: lockedDate || new Date().toISOString().slice(0, 10),
+              sellerName: companyProfile?.nameAr,
+              buyerName: journalPrintModel.description,
+              currency: journalPrintModel.currencyCode,
+              lines: journalPrintModel.lines.map((line) => ({
+                description: `${line.accountLabel}${line.description ? ` — ${line.description}` : ''}`,
+                quantity: 1,
+                unitPrice: line.debit || line.credit || 0,
+                total: line.debit || line.credit || 0,
+              })),
+            });
           },
           onDuplicate: handleDuplicate,
           postPending: postJournalMutation.isPending,

@@ -8,7 +8,10 @@ import {
   Button,
 } from '@/components/ui';
 import { useApiQuery } from '@/lib/hooks/useApi';
+import { useQueryClient } from '@tanstack/react-query';
 import type { ExportColumnDef } from '@/lib/export/export-utils';
+import { toast } from '@/lib/feedback/toast';
+import { deleteDraftDocument } from '@/lib/documents/deleteDraftDocument';
 
 type DocRow = {
   id: string;
@@ -37,10 +40,50 @@ export function StockDocumentsListSection({
   selectedId: string | null;
   onSelect: (id: string | null) => void;
 }) {
+  const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [search, setSearch] = useState('');
   const [postedFilter, setPostedFilter] = useState<'all' | 'posted' | 'draft'>('all');
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const draftActions = (r: DocRow) => (
+    <div className="flex flex-wrap items-center justify-center gap-1.5">
+      <Button
+        variant="secondary"
+        size="sm"
+        onClick={(e) => {
+          e.stopPropagation();
+          onSelect(r.id);
+        }}
+      >
+        فتح
+      </Button>
+      {!r.isPosted ? (
+        <Button
+          variant="danger"
+          size="sm"
+          disabled={deletingId === r.id}
+          onClick={async (e) => {
+            e.stopPropagation();
+            if (!window.confirm('حذف هذه المسودة؟')) return;
+            setDeletingId(r.id);
+            try {
+              await deleteDraftDocument(apiPath, r.id);
+              toast.success('تم حذف المسودة');
+              await queryClient.invalidateQueries({ queryKey: [listKey] });
+            } catch (error) {
+              toast.error(error instanceof Error ? error.message : 'تعذر حذف المسودة');
+            } finally {
+              setDeletingId(null);
+            }
+          }}
+        >
+          حذف المسودة
+        </Button>
+      ) : null}
+    </div>
+  );
 
   const queryParams = useMemo(() => {
     const p: Record<string, string | number | boolean> = { page, limit: pageSize };
@@ -92,18 +135,7 @@ export function StockDocumentsListSection({
             id: 'actions',
             header: '',
             align: 'center' as const,
-            cell: (r: DocRow) => (
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onSelect(r.id);
-                }}
-              >
-                فتح
-              </Button>
-            ),
+            cell: (r: DocRow) => draftActions(r),
           },
         ]
       : [
@@ -139,18 +171,7 @@ export function StockDocumentsListSection({
             id: 'actions',
             header: '',
             align: 'center' as const,
-            cell: (r: DocRow) => (
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onSelect(r.id);
-                }}
-              >
-                فتح
-              </Button>
-            ),
+            cell: (r: DocRow) => draftActions(r),
           },
         ];
 

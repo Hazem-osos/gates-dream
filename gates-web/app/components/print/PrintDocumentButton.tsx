@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useCallback, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { createRoot, type Root } from 'react-dom/client';
 import { Printer } from 'lucide-react';
 import { Button } from '@/app/components/ui/button';
@@ -22,7 +23,9 @@ export function renderPrintableAndOpen(
     printRoot = createRoot(printHost);
   }
 
-  printRoot?.render(render());
+  flushSync(() => {
+    printRoot?.render(render());
+  });
 
   document.body.classList.add('gates-print-active');
 
@@ -36,19 +39,21 @@ export function renderPrintableAndOpen(
 
   window.setTimeout(() => {
     window.print();
-  }, 150);
+  }, 400);
 }
 
 export function PrintDocumentButton({
   label = 'طباعة',
   disabled,
   onPrintA4,
+  onPrintLayout,
   onPrintThermal,
   variant = 'secondary',
 }: {
   label?: string;
   disabled?: boolean;
-  onPrintA4: () => React.ReactElement;
+  onPrintA4?: () => React.ReactElement;
+  onPrintLayout?: () => void | Promise<void>;
   onPrintThermal?: () => React.ReactElement;
   variant?: 'primary' | 'secondary';
 }) {
@@ -69,8 +74,15 @@ export function PrintDocumentButton({
         className="gap-2"
         data-print-document=""
         onClick={() => {
-          if (onPrintThermal) setOpen((v) => !v);
-          else run(onPrintA4);
+          if (onPrintThermal && (onPrintLayout || onPrintA4)) {
+            setOpen((v) => !v);
+            return;
+          }
+          if (onPrintLayout) {
+            void onPrintLayout();
+            return;
+          }
+          if (onPrintA4) run(onPrintA4);
         }}
       >
         <Printer className="h-4 w-4" aria-hidden />
@@ -81,7 +93,14 @@ export function PrintDocumentButton({
           <button
             type="button"
             className="block w-full px-4 py-2 text-right text-sm hover:bg-[#EEF7FB]"
-            onClick={() => run(onPrintA4)}
+            onClick={() => {
+              if (onPrintLayout) {
+                setOpen(false);
+                void onPrintLayout();
+                return;
+              }
+              if (onPrintA4) run(onPrintA4);
+            }}
           >
             A4 — فاتورة ضريبية
           </button>

@@ -182,6 +182,7 @@ export function ChequePortfolioEngine({ direction }: Props) {
       }}
       searchPlaceholder="بحث برقم الشيك أو اسم البنك…"
       printTitle={title}
+      allowDeleteDraft={false}
       resolveStatus={(row) => {
         const status = asCheque(row).status;
         if (!isChequeStatus(status)) return { variant: 'neutral', label: String(status || '—') };
@@ -239,6 +240,7 @@ export function ChequePortfolioEngine({ direction }: Props) {
       }}
       searchPlaceholder="بحث برقم الشيك أو اسم البنك…"
       printTitle={title}
+      allowDeleteDraft={false}
       resolveStatus={(row) => {
         const status = asCheque(row).status;
         if (!isChequeStatus(status)) return { variant: 'neutral', label: String(status || '—') };

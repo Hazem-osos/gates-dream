@@ -16,6 +16,9 @@ import {
   useRowDetailPrefetch,
 } from '@/lib/hooks/useRowDetailPrefetch';
 import { JournalSourceBadge } from '@/components/accounting/JournalSourceBadge';
+import { toast } from '@/lib/feedback/toast';
+import { deleteDraftDocument } from '@/lib/documents/deleteDraftDocument';
+import { useQueryClient } from '@tanstack/react-query';
 
 export type JournalEntryRow = {
   id: string;
@@ -42,8 +45,10 @@ export function JournalEntriesListSection({
   hrefBase?: string;
 }) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const { prefetchDetail } = useRowDetailPrefetch();
   const [page, setPage] = useState(1);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [pageSize, setPageSize] = useState(10);
   const [search, setSearch] = useState('');
   const [postedFilter, setPostedFilter] = useState<'all' | 'posted' | 'draft'>('all');
@@ -67,6 +72,7 @@ export function JournalEntriesListSection({
     if (postedFilter === 'posted') p.isPosted = true;
     if (postedFilter === 'draft') p.isPosted = false;
     if (entryType) p.entryType = entryType;
+    p.isCancelled = false;
     return p;
   }, [page, pageSize, search, startDate, endDate, postedFilter, entryType]);
 
@@ -205,19 +211,44 @@ export function JournalEntriesListSection({
             header: '',
             align: 'center',
             cell: (r) => (
-              <Button
-                variant="secondary"
-                size="sm"
-                onMouseEnter={() => prefetchDetail(journalEntryDetailPrefetch(r.id))}
-                onFocus={() => prefetchDetail(journalEntryDetailPrefetch(r.id))}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onSelectEntry?.(r.id);
-                  router.push(`${hrefBase}?id=${r.id}`);
-                }}
-              >
-                فتح
-              </Button>
+              <div className="flex flex-wrap items-center justify-center gap-1.5">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onMouseEnter={() => prefetchDetail(journalEntryDetailPrefetch(r.id))}
+                  onFocus={() => prefetchDetail(journalEntryDetailPrefetch(r.id))}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onSelectEntry?.(r.id);
+                    router.push(`${hrefBase}?id=${r.id}`);
+                  }}
+                >
+                  فتح
+                </Button>
+                {!r.isPosted ? (
+                  <Button
+                    variant="danger"
+                    size="sm"
+                    disabled={deletingId === r.id}
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      if (!window.confirm('حذف هذه المسودة؟')) return;
+                      setDeletingId(r.id);
+                      try {
+                        await deleteDraftDocument('/accounting/journal-entries', r.id);
+                        toast.success('تم حذف المسودة');
+                        await queryClient.invalidateQueries({ queryKey: ['journal-entries'] });
+                      } catch (error) {
+                        toast.error(error instanceof Error ? error.message : 'تعذر حذف المسودة');
+                      } finally {
+                        setDeletingId(null);
+                      }
+                    }}
+                  >
+                    حذف المسودة
+                  </Button>
+                ) : null}
+              </div>
             ),
           },
         ]}

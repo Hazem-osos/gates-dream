@@ -95,6 +95,8 @@ export interface TaxInvoiceLine {
 export interface TaxInvoiceMock {
   kind: 'TAX_INVOICE';
   documentKind: 'TAX_INVOICE' | 'DEBIT_NOTE';
+  /** Overrides the default "فاتورة ضريبية" title when printing other documents. */
+  printTitle?: string;
   documentNo: string;
   documentDate: string;
   sellerName: string;

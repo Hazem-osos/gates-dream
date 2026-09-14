@@ -1,12 +1,13 @@
 'use client';
 
-import { useEffect, useMemo, useState, type ReactElement } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { createRoot, type Root } from 'react-dom/client';
 import { Printer, X, Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import dynamic from 'next/dynamic';
 import { PrintDocumentRenderer } from '@/components/documentLayout/PrintDocumentRenderer';
+import { printInvoiceDocument } from '@/lib/print/printOperationalDocument';
+import { renderPrintableAndOpen } from '@/app/components/print/PrintDocumentButton';
 
 const A4InvoiceTemplate = dynamic(
   () =>
@@ -105,26 +106,20 @@ function renderPreviewElement(
   }
 }
 
-let printHost: HTMLDivElement | null = null;
-let printRoot: Root | null = null;
-
-function runPrint(node: ReactElement) {
-  if (typeof document === 'undefined') return;
-  if (!printHost) {
-    printHost = document.createElement('div');
-    printHost.id = 'gates-print-hub-root';
-    document.body.appendChild(printHost);
-    printRoot = createRoot(printHost);
+async function runHubPrint(
+  templateId: PrintHubTemplateId,
+  company: CompanyPrintProfile | undefined,
+  invoice: InvoicePrintModel,
+  skipEmptyLines?: boolean
+) {
+  if (templateId === 'thermal-pos') {
+    renderPrintableAndOpen(() => <ThermalReceiptTemplate company={company} invoice={invoice} />);
+    return;
   }
-  printRoot?.render(node);
-  document.body.classList.add('gates-print-active');
-  const cleanup = () => {
-    document.body.classList.remove('gates-print-active');
-    printRoot?.render(<div />);
-    window.removeEventListener('afterprint', cleanup);
-  };
-  window.addEventListener('afterprint', cleanup);
-  window.setTimeout(() => window.print(), 150);
+  await printInvoiceDocument(invoice, company, {
+    skipEmptyLines,
+    title: templateId === 'delivery-slip' ? 'إذن تسليم' : undefined,
+  });
 }
 
 type Props = {
@@ -199,7 +194,10 @@ export function PrintHubModal({ open, onClose, company, invoice, skipEmptyLines 
                 type="button"
                 disabled={disabled}
                 className="w-full gap-2"
-                onClick={() => preview && runPrint(preview)}
+                onClick={() => {
+                  if (!invoice) return;
+                  void runHubPrint(templateId, company, invoice, skipEmptyLines);
+                }}
               >
                 <Printer className="h-4 w-4" />
                 طباعة فورية
@@ -209,7 +207,10 @@ export function PrintHubModal({ open, onClose, company, invoice, skipEmptyLines 
                 variant="secondary"
                 disabled={disabled}
                 className="w-full gap-2"
-                onClick={() => preview && runPrint(preview)}
+                onClick={() => {
+                  if (!invoice) return;
+                  void runHubPrint(templateId, company, invoice, skipEmptyLines);
+                }}
               >
                 <Download className="h-4 w-4" />
                 تحميل PDF (طباعة إلى PDF)

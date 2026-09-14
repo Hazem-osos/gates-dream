@@ -1,10 +1,13 @@
 'use client';
 
 import { useMemo, useState, type ReactNode } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { AppTable, Button, FilterToolbar, StatusBadge, type StatusTone } from '@/components/ui';
 import { useApiQuery } from '@/lib/hooks/useApi';
 import { useResourcePermissions } from '@/lib/hooks/useResourcePermissions';
 import type { ExportColumnDef } from '@/lib/export/export-utils';
+import { toast } from '@/lib/feedback/toast';
+import { deleteDraftDocument, isDraftDocumentRow } from '@/lib/documents/deleteDraftDocument';
 
 export type GenericRecordRow = {
   id: string;
@@ -31,6 +34,7 @@ type Props = {
   rowActions?: (row: GenericRecordRow) => ReactNode;
   searchPlaceholder?: string;
   printTitle?: string;
+  allowDeleteDraft?: boolean;
 };
 
 export function GenericRecordsList({
@@ -45,10 +49,13 @@ export function GenericRecordsList({
   rowActions,
   searchPlaceholder = 'بحث بالرقم أو الاسم…',
   printTitle,
+  allowDeleteDraft = true,
 }: Props) {
   const { canView } = useResourcePermissions();
+  const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const pageSize = 10;
 
   const extraKey = JSON.stringify(extraParams ?? {});
@@ -163,16 +170,37 @@ export function GenericRecordsList({
             id: 'open',
             header: '',
             cell: (row: GenericRecordRow) => (
-              <Button
-                size="sm"
-                variant="secondary"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onSelect(row.id, row);
-                }}
-              >
-                فتح
-              </Button>
+              <div className="flex flex-wrap justify-end gap-1" onClick={(e) => e.stopPropagation()}>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => onSelect(row.id, row)}
+                >
+                  فتح
+                </Button>
+                {allowDeleteDraft && isDraftDocumentRow(row) ? (
+                  <Button
+                    size="sm"
+                    variant="danger"
+                    disabled={deletingId === row.id}
+                    onClick={async () => {
+                      if (!window.confirm('حذف هذه المسودة؟')) return;
+                      setDeletingId(row.id);
+                      try {
+                        await deleteDraftDocument(apiPath, row.id);
+                        toast.success('تم حذف المسودة');
+                        await queryClient.invalidateQueries({ queryKey: [listKey] });
+                      } catch (error) {
+                        toast.error(error instanceof Error ? error.message : 'تعذر حذف المسودة');
+                      } finally {
+                        setDeletingId(null);
+                      }
+                    }}
+                  >
+                    حذف المسودة
+                  </Button>
+                ) : null}
+              </div>
             ),
           },
         ]}

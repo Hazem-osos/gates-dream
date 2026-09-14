@@ -3,7 +3,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useForm, type Resolver, type SubmitHandler, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { CompactFormField, compactControlClass } from '@/components/ui';
+import { Button, CompactFormField, compactControlClass } from '@/components/ui';
+import { toast } from '@/lib/feedback/toast';
+import { deleteDraftDocument, isDraftDocumentRow } from '@/lib/documents/deleteDraftDocument';
+import { printOperationalDocument } from '@/lib/print/printOperationalDocument';
 import { ErpDocumentLayout } from '@/components/erp/ErpDocumentLayout';
 import { ErpFormHeaderCard } from '@/components/erp/ErpFormHeaderCard';
 import { DocumentBrowseDrawer } from '@/components/erp/DocumentBrowseDrawer';
@@ -202,22 +205,21 @@ function TemporaryReceiptFormInner() {
   };
 
   const handlePrint = () => {
-    const win = window.open('', '_blank', 'noopener,noreferrer,width=720,height=900');
-    if (!win) return;
-    win.document.write(`
-      <html lang="ar" dir="rtl"><head><title>إيصال استلام مؤقت</title>
-      <style>body{font-family:sans-serif;padding:24px} h1{font-size:20px} .row{margin:8px 0}</style>
-      </head><body>
-        <h1>إيصال استلام مؤقت ${receiptNumber || ''}</h1>
-        <div class="row">التاريخ: ${date || ''} — ${date ? toHijriDate(date) : ''}</div>
-        <div class="row">المستلم: ${recipient || '—'}</div>
-        <div class="row">المبلغ: ${totalAmount.toLocaleString('ar-EG', { minimumFractionDigits: 2 })} ${selectedCurrency?.code || 'ج.م'}</div>
-        <div class="row">البيان: ${watch('description') || '—'}</div>
-      </body></html>
-    `);
-    win.document.close();
-    win.focus();
-    win.print();
+    void printOperationalDocument({
+      title: 'إيصال استلام مؤقت',
+      documentNo: receiptNumber || 'مسودة',
+      documentDate: date || new Date().toISOString().slice(0, 10),
+      buyerName: recipient || undefined,
+      currency: selectedCurrency?.code,
+      lines: [
+        {
+          description: watch('description') || 'إيصال استلام مؤقت',
+          quantity: 1,
+          unitPrice: totalAmount,
+          total: totalAmount,
+        },
+      ],
+    });
   };
 
   const handleDuplicate = () => {
@@ -376,10 +378,10 @@ function TemporaryReceiptFormInner() {
         ) : (
           <ul className="divide-y divide-border/70">
             {browseRows.map((row) => (
-              <li key={row.id}>
+              <li key={row.id} className="flex items-center gap-2 px-2">
                 <button
                   type="button"
-                  className={`flex w-full items-center justify-between px-3 py-2.5 text-right text-sm hover:bg-muted/40 ${
+                  className={`flex min-w-0 flex-1 items-center justify-between px-3 py-2.5 text-right text-sm hover:bg-muted/40 ${
                     selectedId === row.id ? 'bg-primary/5' : ''
                   }`}
                   onClick={() => {
@@ -395,6 +397,25 @@ function TemporaryReceiptFormInner() {
                     {Number(row.amount || 0).toLocaleString('ar-EG', { minimumFractionDigits: 2 })}
                   </span>
                 </button>
+                {isDraftDocumentRow(row) ? (
+                  <Button
+                    size="sm"
+                    variant="danger"
+                    onClick={async () => {
+                      if (!window.confirm('حذف هذه المسودة؟')) return;
+                      try {
+                        await deleteDraftDocument('/accounting/treasury-receipts', row.id);
+                        toast.success('تم حذف المسودة');
+                        invalidateQuery(['treasury-receipts']);
+                        if (selectedId === row.id) resetNew();
+                      } catch (error) {
+                        toast.error(error instanceof Error ? error.message : 'تعذر حذف المسودة');
+                      }
+                    }}
+                  >
+                    حذف المسودة
+                  </Button>
+                ) : null}
               </li>
             ))}
           </ul>

@@ -1,18 +1,14 @@
 'use client';
 
 import { useMemo } from 'react';
-import dynamic from 'next/dynamic';
 import { PrintDocumentButton } from '@/app/components/print/PrintDocumentButton';
-import { tafqeetEgp } from '@/lib/print/tafqeet';
+import { printOperationalDocument } from '@/lib/print/printOperationalDocument';
 import type { CompanyPrintProfile, VoucherPrintKind, VoucherPrintLine } from '@/lib/print/types';
 
-const VoucherPrintTemplate = dynamic(
-  () =>
-    import('@/app/components/print/VoucherPrintTemplate').then((m) => ({
-      default: m.VoucherPrintTemplate,
-    })),
-  { ssr: false }
-);
+const VOUCHER_TITLE: Record<VoucherPrintKind, string> = {
+  RECEIPT: 'سند قبض',
+  PAYMENT: 'سند صرف',
+};
 
 export function VoucherPrintActions({
   kind,
@@ -35,19 +31,15 @@ export function VoucherPrintActions({
   lines: VoucherPrintLine[];
   totalAmount: number;
 }) {
-  const model = useMemo(
-    () => ({
-      kind,
-      voucherNumber,
-      date,
-      description,
-      safeName,
-      currencyCode,
-      lines,
-      totalAmount,
-      amountInWords: tafqeetEgp(totalAmount),
-    }),
-    [kind, voucherNumber, date, description, safeName, currencyCode, lines, totalAmount]
+  const printLines = useMemo(
+    () =>
+      lines.map((line) => ({
+        description: `${line.accountLabel}${line.description ? ` — ${line.description}` : ''}`,
+        quantity: 1,
+        unitPrice: Number(line.amount) || 0,
+        total: Number(line.amount) || 0,
+      })),
+    [lines]
   );
 
   const canPrint =
@@ -58,7 +50,17 @@ export function VoucherPrintActions({
     <PrintDocumentButton
       label="طباعة"
       disabled={!canPrint}
-      onPrintA4={() => <VoucherPrintTemplate company={company} voucher={model} />}
+      onPrintLayout={() =>
+        printOperationalDocument({
+          title: VOUCHER_TITLE[kind] || 'سند',
+          documentNo: voucherNumber || 'مسودة',
+          documentDate: date || new Date().toISOString().slice(0, 10),
+          sellerName: company?.nameAr,
+          buyerName: [description, safeName].filter(Boolean).join(' — ') || undefined,
+          currency: currencyCode,
+          lines: printLines,
+        })
+      }
     />
   );
 }

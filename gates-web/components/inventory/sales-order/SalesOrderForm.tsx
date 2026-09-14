@@ -4,6 +4,9 @@ import { useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Receipt } from 'lucide-react';
 import { Button } from '@/components/ui';
+import { toast } from '@/lib/feedback/toast';
+import { deleteDraftDocument } from '@/lib/documents/deleteDraftDocument';
+import { printOperationalDocument } from '@/lib/print/printOperationalDocument';
 import { ErpDocumentLayout } from '@/components/erp/ErpDocumentLayout';
 import { ErpDocumentPageHeader } from '@/components/erp/ErpDocumentPageHeader';
 import { DocumentBrowseDrawer } from '@/components/erp/DocumentBrowseDrawer';
@@ -353,7 +356,30 @@ export function SalesOrderForm() {
           favoriteLabel="أمر بيع"
           moreMenuItems={[
             { id: 'new', label: 'أمر جديد', onClick: resetNew },
-            { id: 'print', label: 'طباعة', onClick: () => window.print() },
+            {
+              id: 'print',
+              label: 'طباعة',
+              onClick: () => {
+                void printOperationalDocument({
+                  title: 'أمر بيع',
+                  documentNo: orderNumber || 'مسودة',
+                  documentDate: date,
+                  buyerName: description || undefined,
+                  currency: currencies.find((c) => c.id === currencyId)?.code,
+                  lines: entered.map((line) => {
+                    const parts = commercialLineParts(line);
+                    return {
+                      description: [line.itemCode, line.itemName].filter(Boolean).join(' — ') || 'صنف',
+                      quantity: line.quantity,
+                      unitPrice: line.unitPrice,
+                      taxPercent: line.taxRate,
+                      taxAmount: parts.taxValue,
+                      total: parts.net,
+                    };
+                  }),
+                });
+              },
+            },
             {
               id: 'duplicate',
               label: 'تكرار',
@@ -481,10 +507,10 @@ export function SalesOrderForm() {
           ) : (
             <ul className="divide-y divide-border/70">
               {previousOrders.map((row) => (
-                <li key={row.id}>
+                <li key={row.id} className="flex items-center gap-2 px-2">
                   <button
                     type="button"
-                    className="flex w-full items-center justify-between px-3 py-2.5 text-right text-sm hover:bg-muted/40"
+                    className="flex min-w-0 flex-1 items-center justify-between px-3 py-2.5 text-right text-sm hover:bg-muted/40"
                     onClick={() => {
                       setSelectedId(row.id);
                       setBrowseOpen(false);
@@ -497,6 +523,28 @@ export function SalesOrderForm() {
                       {row.date ? new Date(row.date).toLocaleDateString('ar-EG') : '—'}
                     </span>
                   </button>
+                  {!row.isCancelled ? (
+                    <Button
+                      size="sm"
+                      variant="danger"
+                      onClick={async () => {
+                        if (!window.confirm('حذف هذه المسودة؟')) return;
+                        try {
+                          await deleteDraftDocument('/invoices', row.id);
+                          toast.success('تم حذف المسودة');
+                          invalidateQuery(['invoices']);
+                          if (selectedId === row.id) {
+                            setSelectedId(null);
+                            setBrowseOpen(false);
+                          }
+                        } catch (error) {
+                          toast.error(error instanceof Error ? error.message : 'تعذر حذف المسودة');
+                        }
+                      }}
+                    >
+                      حذف المسودة
+                    </Button>
+                  ) : null}
                 </li>
               ))}
             </ul>

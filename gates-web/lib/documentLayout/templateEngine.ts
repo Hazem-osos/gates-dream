@@ -300,6 +300,7 @@ function taxInvoiceBody(data: TaxInvoiceMock, config: DocumentLayoutConfig): str
 function docTitleFor(data: PreviewMockData): string {
   if (data.kind === 'CONTRACTOR_INVOICE') return `مستخلص أعمال رقم ${data.extractSequence}`;
   if (data.kind === 'REAL_ESTATE_RECEIPT') return 'إيصال سداد قسط عقاري';
+  if (data.printTitle) return data.printTitle;
   return data.documentKind === 'DEBIT_NOTE' ? 'إشعار خصم' : 'فاتورة ضريبية';
 }
 

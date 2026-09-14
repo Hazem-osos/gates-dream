@@ -458,6 +458,7 @@ export function ItemOfferForm() {
             apiPath="/inventory/item-offers"
             listKey="item-offers-browse"
             paging="skip"
+            allowDeleteDraft={false}
             searchPlaceholder="بحث باسم العرض…"
             columns={[
               {

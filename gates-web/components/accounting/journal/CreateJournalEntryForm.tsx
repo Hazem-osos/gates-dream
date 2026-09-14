@@ -29,6 +29,7 @@ import {
 import { useAccountsQuery, useCurrenciesQuery } from '@/lib/hooks/useMasterDataQueries';
 import { useCompanyPrintProfile } from '@/lib/hooks/useCompanyPrintProfile';
 import { PrintDocumentButton } from '@/app/components/print/PrintDocumentButton';
+import { printOperationalDocument } from '@/lib/print/printOperationalDocument';
 import {
   DocumentFormLock,
   DocumentModeProvider,
@@ -36,13 +37,6 @@ import {
   useDocumentMode,
 } from '@/components/common/document-shell';
 
-const JournalPrintTemplate = dynamic(
-  () =>
-    import('@/app/components/print/JournalPrintTemplate').then((m) => ({
-      default: m.JournalPrintTemplate,
-    })),
-  { ssr: false }
-);
 import type { JournalPrintModel } from '@/lib/print/types';
 import { DocumentApprovalBar } from '@/app/components/accounting/DocumentApprovalBar';
 import { DatePickerWithHijri } from '@/components/ui/DatePickerWithHijri';
@@ -622,9 +616,22 @@ function CreateJournalEntryFormInner() {
           <PrintDocumentButton
             label="طباعة"
             disabled={!watchedLines?.length}
-            onPrintA4={() => (
-              <JournalPrintTemplate company={companyProfile} journal={journalPrintModel} />
-            )}
+            onPrintLayout={() =>
+              printOperationalDocument({
+                title: 'قيد يومية',
+                documentNo: journalPrintModel.voucherNumber || 'مسودة',
+                documentDate: dateW || new Date().toISOString().slice(0, 10),
+                sellerName: companyProfile?.nameAr,
+                buyerName: journalPrintModel.description,
+                currency: journalPrintModel.currencyCode,
+                lines: journalPrintModel.lines.map((line) => ({
+                  description: `${line.accountLabel}${line.description ? ` — ${line.description}` : ''}`,
+                  quantity: 1,
+                  unitPrice: line.debit || line.credit || 0,
+                  total: line.debit || line.credit || 0,
+                })),
+              })
+            }
           />
         }
         favoriteHref="/accounting/operations/journal-entry"

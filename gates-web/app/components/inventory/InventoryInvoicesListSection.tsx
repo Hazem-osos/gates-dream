@@ -303,7 +303,7 @@ export function InventoryInvoicesListSection({
                         cancelDraftMutation.mutate(r.id);
                       }}
                     >
-                      إلغاء المسودة
+                      حذف المسودة
                     </Button>
                   ) : null}
                 </div>
@@ -489,7 +489,7 @@ export function InventoryInvoicesListSection({
                       cancelDraftMutation.mutate(r.id);
                     }}
                   >
-                    إلغاء المسودة
+                    حذف المسودة
                   </Button>
                 ) : null}
               </div>

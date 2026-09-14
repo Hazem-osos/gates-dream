@@ -3,14 +3,9 @@
 import { useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import { PrintDocumentButton } from '@/app/components/print/PrintDocumentButton';
-
-const A4InvoiceTemplate = dynamic(
-  () =>
-    import('@/app/components/print/A4InvoiceTemplate').then((m) => ({
-      default: m.A4InvoiceTemplate,
-    })),
-  { ssr: false }
-);
+import { printInvoiceDocument } from '@/lib/print/printOperationalDocument';
+import { buildInvoicePrintModelFromApi } from '@/lib/print/buildInvoicePrintModel';
+import type { CompanyPrintProfile } from '@/lib/print/types';
 
 const ThermalReceiptTemplate = dynamic(
   () =>
@@ -19,8 +14,6 @@ const ThermalReceiptTemplate = dynamic(
     })),
   { ssr: false }
 );
-import { buildInvoicePrintModelFromApi } from '@/lib/print/buildInvoicePrintModel';
-import type { CompanyPrintProfile } from '@/lib/print/types';
 
 export function InvoicePrintActions({
   invoice,
@@ -37,20 +30,14 @@ export function InvoicePrintActions({
   }, [invoice, company]);
 
   if (!model || model.lines.length === 0) {
-    return (
-      <PrintDocumentButton
-        label="طباعة"
-        disabled
-        onPrintA4={() => <div />}
-      />
-    );
+    return <PrintDocumentButton label="طباعة" disabled onPrintA4={() => <div />} />;
   }
 
   return (
     <PrintDocumentButton
       label="طباعة"
       disabled={disabled}
-      onPrintA4={() => <A4InvoiceTemplate company={company} invoice={model} />}
+      onPrintLayout={() => printInvoiceDocument(model, company)}
       onPrintThermal={() => <ThermalReceiptTemplate company={company} invoice={model} />}
     />
   );
