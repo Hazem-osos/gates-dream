@@ -60,7 +60,7 @@ export const journalEntrySchema = z
     date: z.string().min(1, 'هذا الحقل مطلوب'),
     referenceNumber: z.string().optional(),
     hijriDate: z.string().optional(),
-    description: z.string().min(1, 'هذا الحقل مطلوب'),
+    description: z.string().optional(),
     currencyId: z.string().min(1, 'يجب اختيار العملة'),
     lines: z.array(journalLineSchema).min(1, 'يرجى إضافة سطر واحد على الأقل'),
   })
@@ -83,7 +83,7 @@ export type JournalLineFormValues = z.infer<typeof journalLineSchema>;
 export const openingBalanceHeaderSchema = z.object({
   isPosted: z.boolean(),
   entryNumber: z.string().optional(),
-  description: z.string().trim().min(1, 'الشرح مطلوب'),
+  description: z.string().optional(),
   currency: z.string().min(1, 'اختر العملة'),
   date: z.string().optional(),
   hijriDate: z.string().optional(),
@@ -316,7 +316,7 @@ export type TreasuryTempReceiptFormInput = z.infer<typeof treasuryTempReceiptFor
 
 export const receiptVoucherHeaderFormSchema = z.object({
   date: z.string().min(1, 'يرجى إدخال التاريخ'),
-  description: z.string().trim().min(1, 'يرجى إدخال الشرح'),
+  description: z.string().optional(),
   safeId: z.string().min(1, 'يرجى اختيار الصندوق'),
   currencyId: z.string().min(1, 'اختر العملة'),
   voucherNumber: z.string().optional(),
@@ -343,7 +343,7 @@ export const paymentVoucherAllocationFormSchema = z.object({
 
 export const paymentVoucherHeaderFormSchema = z.object({
   date: z.string().min(1, 'يرجى إدخال التاريخ'),
-  description: z.string().trim().min(1, 'يرجى إدخال الشرح'),
+  description: z.string().optional(),
   safeId: z.string().min(1, 'يرجى اختيار الصندوق'),
   currencyId: z.string().min(1, 'اختر العملة'),
   voucherNumber: z
@@ -361,7 +361,7 @@ export type PaymentVoucherHeaderFormInput = z.infer<typeof paymentVoucherHeaderF
 
 export const financialVoucherHeaderFormSchema = z.object({
   date: z.string().min(1, 'يرجى إدخال التاريخ'),
-  description: z.string().trim().min(1, 'يرجى إدخال الشرح'),
+  description: z.string().optional(),
   fundId: z.string().min(1, 'يرجى اختيار الوعاء المالي'),
   currencyId: z.string().min(1, 'اختر العملة'),
   voucherNumber: z
@@ -381,7 +381,7 @@ export type FinancialVoucherHeaderFormInput = z.infer<typeof financialVoucherHea
 
 export const treasuryOrderHeaderFormSchema = z.object({
   date: z.string().min(1, 'يرجى إدخال التاريخ'),
-  description: z.string().trim().min(1, 'يرجى إدخال الشرح'),
+  description: z.string().optional(),
   fundId: z.string().min(1, 'يرجى اختيار الخزينة'),
   currencyId: z.string().min(1, 'اختر العملة'),
   voucherNumber: z
@@ -516,7 +516,7 @@ export type AccountCardFormInput = z.infer<typeof accountCardFormSchema>;
 
 /** بطاقة مركز التكلفة — التسلسل الهرمي + حالة التفعيل. */
 export const costCenterCardFormSchema = z.object({
-  code: z.string().trim().min(1, 'يرجى إدخال رقم مركز التكلفة'),
+  code: z.string().optional(),
   arabicName: z.string().trim().min(1, 'يرجى إدخال الإسم العربي'),
   englishName: z.string().optional(),
   centerType: z.string().optional(),

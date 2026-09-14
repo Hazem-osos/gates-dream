@@ -1,4 +1,4 @@
-import { Router, Response } from 'express';
+import { Router, Response, NextFunction } from 'express';
 import { validate } from '../../../shared/middleware/validate';
 import { authenticate } from '../../../shared/middleware/auth.middleware';
 import { authorize } from '../../../shared/middleware/authorize.middleware';
@@ -67,19 +67,43 @@ router.get(
 );
 
 /**
+ * GET /api/v1/accounting/cost-centers/next-code
+ */
+router.get(
+  '/next-code',
+  authorize({ resource: 'cost-center', action: 'view' }),
+  async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      const companyId = req.companyId || req.tenantId;
+      if (!companyId) {
+        return void res.status(400).json({
+          status: 'error',
+          message: 'معرّف الشركة مطلوب',
+        });
+      }
+      const parentId = (req.query.parentId as string) || null;
+      const code = await costCenterService.suggestNextCostCenterCode(companyId, parentId);
+      return void res.json({ status: 'success', data: { code, parentId } });
+    } catch (error) {
+      return next(error);
+    }
+  }
+);
+
+/**
  * GET /api/v1/accounting/cost-centers/:id
  * Get cost center by ID
  */
 router.get(
   '/:id',
   authorize({ resource: 'cost-center', action: 'view' }),
-  async (req: AuthRequest, res: Response) => {
+  async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const companyId = req.companyId || req.tenantId;
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -93,18 +117,10 @@ router.get(
         data: costCenter,
       });
     } catch (error) {
-      logger.error({ error }, 'Error getting cost center');
-      const status =
-        error instanceof Error && error.message === 'Cost center not found'
-          ? 404
-          : 500;
-      return void res.status(status).json({
-        status: 'error',
-        message:
-          error instanceof Error
-            ? error.message
-            : 'Failed to get cost center',
-      });
+      if (!(error instanceof AppError) || error.statusCode >= 500) {
+        logger.error({ error }, 'Error getting cost center');
+      }
+      return next(error);
     }
   }
 );
@@ -117,13 +133,13 @@ router.post(
   '/',
   authorize({ resource: 'cost-center', action: 'edit' }),
   validate({ body: createCostCenterSchema }),
-  async (req: AuthRequest, res: Response) => {
+  async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const companyId = req.companyId || req.tenantId;
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -134,18 +150,14 @@ router.post(
 
       return void res.status(201).json({
         status: 'success',
-        message: 'Cost center created successfully',
+        message: 'تم حفظ مركز التكلفة',
         data: costCenter,
       });
     } catch (error) {
-      logger.error({ error }, 'Error creating cost center');
-      return void res.status(500).json({
-        status: 'error',
-        message:
-          error instanceof Error
-            ? error.message
-            : 'Failed to create cost center',
-      });
+      if (!(error instanceof AppError) || error.statusCode >= 500) {
+        logger.error({ error }, 'Error creating cost center');
+      }
+      return next(error);
     }
   }
 );
@@ -158,13 +170,13 @@ router.put(
   '/:id',
   authorize({ resource: 'cost-center', action: 'edit' }),
   validate({ body: updateCostCenterSchema }),
-  async (req: AuthRequest, res: Response) => {
+  async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const companyId = req.companyId || req.tenantId;
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -176,22 +188,14 @@ router.put(
 
       return void res.json({
         status: 'success',
-        message: 'Cost center updated successfully',
+        message: 'تم تحديث مركز التكلفة',
         data: costCenter,
       });
     } catch (error) {
-      logger.error({ error }, 'Error updating cost center');
-      const status =
-        error instanceof Error && error.message === 'Cost center not found'
-          ? 404
-          : 500;
-      return void res.status(status).json({
-        status: 'error',
-        message:
-          error instanceof Error
-            ? error.message
-            : 'Failed to update cost center',
-      });
+      if (!(error instanceof AppError) || error.statusCode >= 500) {
+        logger.error({ error }, 'Error updating cost center');
+      }
+      return next(error);
     }
   }
 );
@@ -203,13 +207,13 @@ router.put(
 router.delete(
   '/:id',
   authorize({ resource: 'cost-center', action: 'delete' }),
-  async (req: AuthRequest, res: Response) => {
+  async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const companyId = req.companyId || req.tenantId;
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -220,20 +224,10 @@ router.delete(
         message: 'تم حذف مركز التكلفة',
       });
     } catch (error) {
-      if (error instanceof AppError) {
-        return void res.status(error.statusCode).json({
-          status: 'error',
-          message: error.message,
-        });
+      if (!(error instanceof AppError) || error.statusCode >= 500) {
+        logger.error({ error }, 'Error deleting cost center');
       }
-      logger.error({ error }, 'Error deleting cost center');
-      return void res.status(500).json({
-        status: 'error',
-        message:
-          error instanceof Error
-            ? error.message
-            : 'Failed to delete cost center',
-      });
+      return next(error);
     }
   }
 );

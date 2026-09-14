@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 export const createCostCenterSchema = z.object({
-  code: z.string().min(1, 'Cost center code is required'),
+  code: z.string().trim().optional(),
   arabicName: z.string().min(1, 'Arabic name is required'),
   englishName: z.string().optional(),
   centerType: z.string().optional().nullable(),

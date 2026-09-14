@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Layers } from 'lucide-react';
 import { PageHeader, FilterToolbar, Button, CompactFormField, compactControlClass } from '@/components/ui';
 import { MasterGuideTree } from '@/components/accounting/guide/MasterGuideTree';
@@ -55,6 +55,20 @@ export default function CostCentersGuidePage() {
   const [form, setForm] = useState<FormState>(emptyForm);
   const [saving, setSaving] = useState(false);
 
+  const { data: nextCodeResponse } = useApiQuery<{ code?: string }>(
+    ['cost-centers', 'next-code', form.parentId || 'root'],
+    '/accounting/cost-centers/next-code',
+    form.parentId ? { parentId: form.parentId } : undefined,
+    { enabled: modalOpen && modalMode === 'create' }
+  );
+
+  useEffect(() => {
+    if (!modalOpen || modalMode !== 'create') return;
+    const suggested = nextCodeResponse?.data?.code;
+    if (!suggested) return;
+    setForm((f) => (f.code ? f : { ...f, code: suggested }));
+  }, [modalOpen, modalMode, nextCodeResponse?.data?.code]);
+
   const tree = useMemo(
     () =>
       buildParentTree(rows, (item, children) => ({
@@ -100,14 +114,14 @@ export default function CostCentersGuidePage() {
   };
 
   const handleSave = async () => {
-    if (!form.code.trim() || !form.arabicName.trim()) {
-      toast.error('أدخل رقم المركز والاسم العربي');
+    if (!form.arabicName.trim()) {
+      toast.error('أدخل اسم المركز');
       return;
     }
     setSaving(true);
     try {
       const body = {
-        code: form.code.trim(),
+        code: form.code.trim() || undefined,
         arabicName: form.arabicName.trim(),
         englishName: form.englishName.trim() || undefined,
         centerType: form.centerType || undefined,
@@ -124,7 +138,9 @@ export default function CostCentersGuidePage() {
       void refetch();
       setModalOpen(false);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'تعذر الحفظ');
+      toast.error('تعذّر حفظ مركز التكلفة', {
+        description: e instanceof Error ? e.message : 'راجع المركز الأب والحركات المرتبطة به.',
+      });
     } finally {
       setSaving(false);
     }
@@ -138,7 +154,12 @@ export default function CostCentersGuidePage() {
       invalidate(['cost-centers']);
       void refetch();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'تعذر الحذف — تحقق من وجود مراكز فرعية أو حركات.');
+      toast.error('تعذّر حذف مركز التكلفة', {
+        description:
+          e instanceof Error
+            ? e.message
+            : 'تحقق من وجود مراكز فرعية أو حركات، أو انقل الحركة من شاشة «نقل حركة مركز التكلفة».',
+      });
     }
   };
 
@@ -218,9 +239,9 @@ export default function CostCentersGuidePage() {
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <CompactFormField
             label="رقم مركز التكلفة"
-            required
             value={form.code}
             onChange={(e) => setForm((f) => ({ ...f, code: e.target.value }))}
+            placeholder="تلقائي أو أدخل يدوياً"
           />
           <CompactFormField
             label="الاسم العربي"

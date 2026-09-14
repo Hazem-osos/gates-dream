@@ -1,6 +1,6 @@
 'use client';
 import * as React from "react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Layers } from "lucide-react";
 import UserPermissionsBar from "@/components/UserPermissionsBar";
 import {
@@ -49,6 +49,7 @@ function CostCenterPage() {
   const invalidateQuery = useInvalidateQuery();
   
   const [formData, setFormData] = useState({ ...EMPTY_COST_CENTER_FORM });
+  const [codeTouched, setCodeTouched] = useState(false);
 
   const [showParentSearch, setShowParentSearch] = useState(false);
   const [parentSearchTerm, setParentSearchTerm] = useState('');
@@ -62,6 +63,18 @@ function CostCenterPage() {
     { limit: 1000, isActive: true }
   );
   const costCenters = costCentersResponse?.data || [];
+
+  const { data: nextCodeResponse } = useApiQuery<{ code?: string }>(
+    ['cost-centers', 'next-code', formData.parentId || 'root'],
+    '/accounting/cost-centers/next-code',
+    formData.parentId ? { parentId: formData.parentId } : undefined
+  );
+
+  useEffect(() => {
+    const suggested = nextCodeResponse?.data?.code;
+    if (!suggested || codeTouched) return;
+    setFormData((prev) => (prev.code === suggested ? prev : { ...prev, code: suggested }));
+  }, [codeTouched, nextCodeResponse?.data?.code]);
 
   // Fetch currencies
   const { data: currenciesResponse } = useApiQuery<Currency[]>(
@@ -81,6 +94,7 @@ function CostCenterPage() {
         invalidateQuery(['cost-centers']);
         // Reset form
         setFormData({ ...EMPTY_COST_CENTER_FORM });
+        setCodeTouched(false);
       },
       onError: (error: ApiError) => {
         setError(error.message || 'حدث خطأ أثناء الحفظ');
@@ -114,7 +128,7 @@ function CostCenterPage() {
     }
 
     const requestBody = {
-      code: formData.code,
+      code: formData.code.trim() || undefined,
       arabicName: formData.arabicName,
       englishName: formData.englishName || undefined,
       centerType: formData.centerType || undefined,
@@ -133,6 +147,7 @@ function CostCenterPage() {
     setError('');
     setSuccess('');
     setFormData({ ...EMPTY_COST_CENTER_FORM });
+    setCodeTouched(false);
   };
 
   const selectedParent = costCenters.find((cc: CostCenter) => cc.id === formData.parentId);
@@ -168,8 +183,11 @@ function CostCenterPage() {
           <CompactFormField
             label="رقم مركز التكلفة"
             value={formData.code}
-            onChange={(e) => setFormData({ ...formData, code: e.target.value })}
-            placeholder="إدخل رقم مركز التكلفة"
+            onChange={(e) => {
+              setCodeTouched(true);
+              setFormData({ ...formData, code: e.target.value });
+            }}
+            placeholder="تلقائي أو أدخل يدوياً"
           />
           <CompactFormField
             label="إسم المركز"
