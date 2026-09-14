@@ -13,6 +13,7 @@ import {
 import { UserPermissions } from '@/components/ui/UserPermissions';
 import { ActionButtons } from '@/components/ui/ActionButtons';
 import { CrudButtons } from '@/components/ui/CrudButtons';
+import { printPageContent } from '@/lib/print/printHtml';
 
 function parseNum(value: string): number {
   const n = parseFloat(String(value).replace(/,/g, '').trim());
@@ -54,7 +55,7 @@ export default function DocumentaryCreditDefinitionPage() {
   ].filter((v) => String(v ?? '').trim().length > 0).length;
 
   return (
-    <div className="min-h-screen bg-white p-4 sm:p-6" dir="rtl">
+    <div className="min-h-screen bg-white p-4 sm:p-6" dir="rtl" data-print-root="">
       <PageHeader
         title="تعريف الإعتماد المستندي"
         breadcrumbs={[
@@ -201,6 +202,7 @@ export default function DocumentaryCreditDefinitionPage() {
           <button
             type="button"
             className="flex items-center gap-2 rounded-lg bg-[#0E79AA] px-4 py-2 text-sm font-semibold text-white hover:bg-[#0B6188]"
+            onClick={() => void printPageContent('اعتماد مستندي')}
           >
             <span className="text-lg leading-none">🖨️</span>
             طباعة

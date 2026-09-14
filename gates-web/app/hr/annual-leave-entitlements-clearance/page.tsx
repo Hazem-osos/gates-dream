@@ -11,6 +11,7 @@ import {
   annualLeaveEntitlementsClearanceFormSchema,
   type AnnualLeaveEntitlementsClearanceFormInput,
 } from '@/lib/validation/hr.schema';
+import { printPageContent } from '@/lib/print/printHtml';
 
 type EmployeePreset = 'employee' | 'employee1' | 'employee2';
 
@@ -370,6 +371,7 @@ export default function AnnualLeaveEntitlementsClearancePage() {
                   <button
                     type="button"
                     className="px-6 py-2 bg-[#0E79AA] text-white rounded-lg hover:bg-[#094C6B] transition-colors flex items-center gap-2"
+                    onClick={() => void printPageContent('تصفية مستحقات الأجازة السنوية')}
                   >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path

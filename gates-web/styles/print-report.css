@@ -11,21 +11,21 @@
     -webkit-print-color-adjust: exact;
   }
 
-  .no-print,
-  nav,
-  header,
-  aside,
-  [data-app-tabs],
-  [data-app-sidebar] {
+  body.gates-report-print .no-print,
+  body.gates-report-print nav,
+  body.gates-report-print header,
+  body.gates-report-print aside,
+  body.gates-report-print [data-app-tabs],
+  body.gates-report-print [data-app-sidebar] {
     display: none !important;
   }
 
-  body * {
+  body.gates-report-print * {
     visibility: hidden;
   }
 
-  #report-print-root,
-  #report-print-root * {
+  body.gates-report-print #report-print-root,
+  body.gates-report-print #report-print-root * {
     visibility: visible;
   }
 

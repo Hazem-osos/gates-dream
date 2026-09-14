@@ -1,6 +1,7 @@
 import { uint8ToBase64 } from '@/lib/printer/escpos-encoder';
 import type { ThermalInvoiceData, ThermalRollWidth } from '@/lib/printer/types';
 import { formatThermalMoney } from '@/lib/printer/from-invoice-print-model';
+import { printHtml } from '@/lib/print/printHtml';
 
 export function printViaRawBT(base64Data: string): void {
   const rawBtUrl = `rawbt:base64,${base64Data}`;
@@ -83,17 +84,7 @@ export function printThermalViaBrowser(
   widthMm: ThermalRollWidth
 ): void {
   const html = buildThermalReceiptHtml(data, widthMm);
-  const frame = document.createElement('iframe');
-  frame.setAttribute('aria-hidden', 'true');
-  frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;';
-  document.body.appendChild(frame);
-  const doc = frame.contentDocument;
-  if (!doc) {
-    frame.remove();
-    throw new Error('تعذّر فتح نافذة الطباعة.');
-  }
-  doc.open();
-  doc.write(`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8" />
+  void printHtml(`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8" />
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap" />
     <style>
       @page { size: ${widthMm}mm auto; margin: 0; }
@@ -104,23 +95,4 @@ export function printThermalViaBrowser(
       .gates-thermal-receipt { width: ${widthMm}mm; max-width: ${widthMm}mm; }
     </style>
   </head><body>${html}</body></html>`);
-  doc.close();
-  const cleanup = () => {
-    window.setTimeout(() => frame.remove(), 400);
-  };
-  frame.onload = () => {
-    try {
-      frame.contentWindow?.focus();
-      frame.contentWindow?.print();
-    } finally {
-      cleanup();
-    }
-  };
-  window.setTimeout(() => {
-    try {
-      frame.contentWindow?.print();
-    } finally {
-      cleanup();
-    }
-  }, 400);
 }

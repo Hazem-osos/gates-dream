@@ -35,7 +35,7 @@ export function HrPageChrome({
       refreshing={refreshing}
       onRefresh={onRefresh}
     >
-      {children}
+      <div data-print-root="">{children}</div>
     </CommandCenter>
   );
 }

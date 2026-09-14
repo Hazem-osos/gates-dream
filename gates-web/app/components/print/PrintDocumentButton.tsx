@@ -5,6 +5,7 @@ import { flushSync } from 'react-dom';
 import { createRoot, type Root } from 'react-dom/client';
 import { Printer } from 'lucide-react';
 import { Button } from '@/app/components/ui/button';
+import { printHtml, wrapPrintHtml } from '@/lib/print/printHtml';
 import '@/app/components/print/print-styles.css';
 
 let printHost: HTMLDivElement | null = null;
@@ -27,19 +28,10 @@ export function renderPrintableAndOpen(
     printRoot?.render(render());
   });
 
-  document.body.classList.add('gates-print-active');
-
-  const cleanup = () => {
-    document.body.classList.remove('gates-print-active');
+  const markup = printHost.innerHTML;
+  void printHtml(wrapPrintHtml(markup, 'طباعة')).finally(() => {
     printRoot?.render(<div />);
-    window.removeEventListener('afterprint', cleanup);
-  };
-
-  window.addEventListener('afterprint', cleanup);
-
-  window.setTimeout(() => {
-    window.print();
-  }, 400);
+  });
 }
 
 export function PrintDocumentButton({

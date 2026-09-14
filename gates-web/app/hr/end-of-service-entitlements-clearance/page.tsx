@@ -7,6 +7,7 @@ import { HrPageChrome } from '@/components/hr/HrPageChrome';
 import { DASH_PANEL } from '@/components/dashboard-primitives';
 import { ActionButtons } from '@/components/ui/ActionButtons';
 import { CrudButtons } from '@/components/ui/CrudButtons';
+import { printPageContent } from '@/lib/print/printHtml';
 import {
   endOfServiceEntitlementsClearanceFormSchema,
   type EndOfServiceEntitlementsClearanceFormInput,
@@ -179,7 +180,7 @@ export default function EndOfServiceEntitlementsClearancePage() {
 
                 <div className="flex justify-between items-center">
                   <div className="flex gap-3 items-center">
-                    <button type="button" className="px-6 py-2 bg-[#0E79AA] text-white rounded-lg hover:bg-[#094C6B] transition-colors">
+                    <button type="button" className="px-6 py-2 bg-[#0E79AA] text-white rounded-lg hover:bg-[#094C6B] transition-colors" onClick={() => void printPageContent('تصفية مستحقات نهاية الخدمة')}>
                       طباعة
                     </button>
                     <CrudButtons />

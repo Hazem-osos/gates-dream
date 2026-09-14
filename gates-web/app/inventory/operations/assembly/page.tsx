@@ -20,6 +20,7 @@ import { useApiMutation, useApiQuery, useInvalidateQuery } from '@/lib/hooks/use
 import { apiClient } from '@/lib/api/client';
 import { toHijriDate } from '@/lib/hijri-date';
 import type { ApiError } from '@/lib/api/types';
+import { printPageContent } from '@/lib/print/printHtml';
 
 type AssemblyParentItem = {
   id: string;
@@ -400,7 +401,7 @@ function AssemblyPageInner() {
                 if (selectedId) unpostMutation.mutate({});
               },
             },
-            { id: 'print', label: 'طباعة أمر التجميع', onClick: () => window.print() },
+            { id: 'print', label: 'طباعة أمر التجميع', onClick: () => void printPageContent('أمر التجميع') },
             { id: 'duplicate', label: 'تكرار التجميع', onClick: handleDuplicate },
             {
               id: 'cancel',

@@ -22,6 +22,7 @@ import { PRICE_TIER_LABELS, type PriceTier } from '@/lib/inventory/pricing-engin
 import dynamic from 'next/dynamic';
 import { DynamicModalSkeleton } from '@/components/ui/DynamicChunkSkeleton';
 import { getTenantContext } from '@/lib/tenant/tenant-context-storage';
+import { printPageContent } from '@/lib/print/printHtml';
 
 const CounterpartyOffsetModal = dynamic(
   () =>
@@ -334,7 +335,7 @@ export default function CustomerPage() {
   ].filter((v) => String(v ?? '').trim().length > 0).length;
 
   return (
-    <div className="p-6" style={{ direction: 'rtl' }}>
+    <div className="p-6" style={{ direction: 'rtl' }} data-print-root="">
       <PageHeader
         title="بطاقة عميل"
         breadcrumbs={[
@@ -708,7 +709,7 @@ export default function CustomerPage() {
                 <button
                   type="button"
                   className="text-[#2A63D0] hover:underline flex items-center gap-1 bg-transparent border-0 cursor-pointer p-0 font-inherit"
-                  onClick={() => typeof window !== 'undefined' && window.print()}
+                  onClick={() => void printPageContent('بطاقة عميل')}
                 >
                   <img src="/print.svg" alt="طباعة" className="w-5 h-5" /> طباعة
                 </button>

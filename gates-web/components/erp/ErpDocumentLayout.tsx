@@ -13,6 +13,7 @@ export function ErpDocumentLayout({ children, className = '' }: Props) {
     <div
       className={`${className} erp-contain content-start min-h-0 bg-white p-3`.trim()}
       dir="rtl"
+      data-print-root=""
     >
       {children}
     </div>

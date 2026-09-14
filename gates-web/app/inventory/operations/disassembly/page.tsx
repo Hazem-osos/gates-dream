@@ -20,6 +20,7 @@ import { useApiMutation, useApiQuery, useInvalidateQuery } from '@/lib/hooks/use
 import { apiClient } from '@/lib/api/client';
 import { toHijriDate } from '@/lib/hijri-date';
 import type { ApiError } from '@/lib/api/types';
+import { printPageContent } from '@/lib/print/printHtml';
 
 type ParentItem = {
   id: string;
@@ -417,7 +418,7 @@ function DisassemblyPageInner() {
                 if (selectedId) unpostMutation.mutate({});
               },
             },
-            { id: 'print', label: 'طباعة أمر التفكيك', onClick: () => window.print() },
+            { id: 'print', label: 'طباعة أمر التفكيك', onClick: () => void printPageContent('أمر التفكيك') },
             { id: 'duplicate', label: 'تكرار التفكيك', onClick: handleDuplicate },
             {
               id: 'cancel',

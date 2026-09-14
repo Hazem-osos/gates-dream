@@ -9,6 +9,7 @@ import { ActionButtons } from '@/components/ui/ActionButtons';
 import { useApiMutation, useInvalidateQuery } from '@/lib/hooks/useApi';
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
+import { printPageContent } from '@/lib/print/printHtml';
 
 function createDefaultCustomerData() {
   return {
@@ -808,7 +809,7 @@ export default function CustomerCardPage() {
                 <Image src="/lucide_edit.svg" alt="Design" width={16} height={16} />
                 <span className="text-sm font-medium">تصميم</span>
               </button>
-              <button className="flex items-center space-x-2 space-x-reverse text-[#0E78AA] hover:text-[#094C6B] transition-colors">
+              <button type="button" className="flex items-center space-x-2 space-x-reverse text-[#0E78AA] hover:text-[#094C6B] transition-colors" onClick={() => void printPageContent('بطاقة عميل إلكترونية')}>
                 <Image src="/mdi_file.svg" alt="Print" width={16} height={16} />
                 <span className="text-sm font-medium">طباعة</span>
               </button>

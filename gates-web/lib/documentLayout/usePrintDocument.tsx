@@ -3,6 +3,7 @@
 import { useCallback } from 'react';
 import { renderPrintableAndOpen } from '@/app/components/print/PrintDocumentButton';
 import { PrintDocumentRenderer } from '@/components/documentLayout/PrintDocumentRenderer';
+import { printHtml } from '@/lib/print/printHtml';
 import { FONT_FAMILY_OPTIONS, type DocumentLayoutConfig } from './types';
 import type { PreviewMockData } from './mockData';
 import { buildQrDataUrl, buildQrPayload } from './qr';
@@ -36,50 +37,12 @@ export async function preloadDocumentFonts(fontFamily: string): Promise<void> {
   }
 }
 
-async function printHtmlInIframe(html: string): Promise<void> {
-  if (typeof document === 'undefined') return;
-  const iframe = document.createElement('iframe');
-  iframe.setAttribute('aria-hidden', 'true');
-  iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden;';
-  document.body.appendChild(iframe);
-
-  const doc = iframe.contentDocument;
-  const win = iframe.contentWindow;
-  if (!doc || !win) {
-    iframe.remove();
-    return;
-  }
-
-  doc.open();
-  doc.write(html);
-  doc.close();
-
-  try {
-    if (doc.fonts?.ready) {
-      await Promise.race([doc.fonts.ready, new Promise((r) => setTimeout(r, 1500))]);
-    }
-  } catch {
-    /* ignore */
-  }
-
-  await new Promise((r) => setTimeout(r, 80));
-
-  const cleanup = () => {
-    win.removeEventListener('afterprint', cleanup);
-    iframe.remove();
-  };
-  win.addEventListener('afterprint', cleanup);
-  win.focus();
-  win.print();
-  window.setTimeout(cleanup, 60_000);
-}
-
 export function usePrintDocument() {
   const printDocument = useCallback(async (data: PreviewMockData, config: DocumentLayoutConfig) => {
     await preloadDocumentFonts(config.fontFamily);
     const qrDataUrl = config.showQrCode ? await buildQrDataUrl(buildQrPayload(data)) : null;
     const html = generateDocumentHtml(data, config, { qrDataUrl });
-    await printHtmlInIframe(html);
+    await printHtml(html);
   }, []);
 
   const printDocuments = useCallback(async (items: Array<{ data: PreviewMockData; config: DocumentLayoutConfig }>) => {
@@ -92,7 +55,7 @@ export function usePrintDocument() {
       })
     );
     const html = wrapDocumentHtml(pages.join(''), items[0].config, 'مستندات');
-    await printHtmlInIframe(html);
+    await printHtml(html);
   }, []);
 
   const printReactDocument = useCallback(

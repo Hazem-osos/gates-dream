@@ -13,6 +13,7 @@ import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
 import { WarehouseSelect } from '@/app/components/form/WarehouseSelect';
 import { useApiMutation, useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
+import { printHtml } from '@/lib/print/printHtml';
 import { useWarehousesQuery, type ItemOption, type WarehouseOption } from '@/lib/hooks/useMasterDataQueries';
 import { useOpeningStockDraft } from '@/lib/hooks/useOpeningStockDraft';
 import { apiClient } from '@/lib/api/client';
@@ -427,8 +428,6 @@ function OpeningStockFormInner() {
   };
 
   const handlePrint = () => {
-    const win = window.open('', '_blank', 'noopener,noreferrer,width=980,height=900');
-    if (!win) return;
     const rows = lines
       .filter((line) => line.itemId || line.itemCode)
       .map(
@@ -447,7 +446,7 @@ function OpeningStockFormInner() {
         </tr>`
       )
       .join('');
-    win.document.write(`
+    void printHtml(`
       <html lang="ar" dir="rtl"><head><title>كشف بضاعة أول المدة</title>
       <style>
         body{font-family:sans-serif;padding:24px}
@@ -468,9 +467,6 @@ function OpeningStockFormInner() {
         <p>عدد الأصناف: ${itemCount} — إجمالي الكميات: ${totalQuantity} — القيمة: ${formatMoney(totalValue)} ج.م</p>
       </body></html>
     `);
-    win.document.close();
-    win.focus();
-    win.print();
   };
 
   const handleExportExcel = async () => {

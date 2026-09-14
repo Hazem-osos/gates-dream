@@ -19,6 +19,7 @@ import { WhatsAppShareButton } from '@/components/share/WhatsAppShareButton';
 import { Button } from '@/components/ui';
 import { buildContractExtractWhatsAppMessage } from '@/lib/whatsapp/messageTemplates';
 import type { InternalNoteEntry } from '@/lib/invoices/payment-split.types';
+import { printPageContent } from '@/lib/print/printHtml';
 
 type ProjectOption = {
   id: string;
@@ -276,13 +277,13 @@ export default function ContractExtractEditorPage() {
   };
 
   const handlePrint = () => {
-    window.print();
+    void printPageContent(isNew ? 'مستخلص جديد' : `مستخلص ${extractNumber}`);
   };
 
   const status = extractRes?.data?.status;
 
   return (
-    <div className="min-h-screen bg-[#E3F6FC] p-4 print:bg-white print:p-0" dir="rtl">
+    <div className="min-h-screen bg-[#E3F6FC] p-4 print:bg-white print:p-0" dir="rtl" data-print-root="">
       <div className="mx-auto grid w-full max-w-none grid-cols-1 gap-4 lg:grid-cols-[1fr_320px]">
         <OuterCard>
           <InnerCard>

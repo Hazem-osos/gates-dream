@@ -15,6 +15,7 @@ import { useReportColumnVisibility } from '@/lib/reportEngine/useReportColumnVis
 import { formatReportCell } from '@/lib/reportEngine/reportFormatters';
 import type { ReportFilterBadge } from '@/lib/reportEngine/reportFilterBadges';
 import { exportTableToExcel } from '@/lib/export/export-utils';
+import { printDom } from '@/lib/print/printHtml';
 import { useCompanyPrintProfile } from '@/lib/hooks/useCompanyPrintProfile';
 import { useApiQuery } from '@/lib/hooks/useApi';
 import { queryKeys } from '@/lib/query/query-keys';
@@ -150,8 +151,10 @@ export function UniversalReportView({
   const pending = !mounted || Boolean(isLoading);
 
   const handlePrint = useCallback(() => {
-    window.print();
-  }, []);
+    const root = document.getElementById('report-print-root');
+    if (!root) return;
+    void printDom(root, title);
+  }, [title]);
 
   const handleExport = useCallback(async () => {
     const file = exportFileName ?? `${reportKey}-report`;

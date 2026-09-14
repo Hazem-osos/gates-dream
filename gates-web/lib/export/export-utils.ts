@@ -1,6 +1,7 @@
 'use client';
 
 import type { AppTableColumn } from '@/app/components/ui/AppTable';
+import { printDom, printHtml, wrapPrintHtml } from '@/lib/print/printHtml';
 
 export type ExportColumnDef<T extends Record<string, unknown> = Record<string, unknown>> = {
   header: string;
@@ -79,22 +80,11 @@ export async function exportTableToExcel<T extends Record<string, unknown>>(
 }
 
 export function openPrintWindow(html: string, title = 'طباعة'): void {
-  const w = window.open('', '_blank', 'noopener,noreferrer');
-  if (!w) {
-    window.alert('يرجى السماح بالنوافذ المنبثقة للطباعة');
-    return;
-  }
-  w.document.open();
-  w.document.write(`<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="utf-8"/><title>${title}</title></head><body>${html}</body></html>`);
-  w.document.close();
-  w.focus();
-  window.setTimeout(() => {
-    w.print();
-  }, 350);
+  void printHtml(wrapPrintHtml(html, title));
 }
 
 export function printElementById(elementId: string, title?: string): void {
   const el = document.getElementById(elementId);
   if (!el) return;
-  openPrintWindow(el.outerHTML, title);
+  void printDom(el, title);
 }

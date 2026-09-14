@@ -15,6 +15,7 @@ import { CrudButtons } from '@/components/ui/CrudButtons';
 import { useApiQuery } from '@/lib/hooks/useApi';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { TableSkeleton } from '@/components/ui/TableSkeleton';
+import { printPageContent } from '@/lib/print/printHtml';
 
 type MeasurementRow = {
   id: string;
@@ -128,7 +129,7 @@ export default function ProjectMeasurementDefinitionPage() {
                   <Button className="bg-[#0E78AA] text-white hover:bg-[#094C6B] px-4 py-2 rounded-md flex items-center gap-2 transition-colors">
                     <span className="text-lg">✕</span> إلغاء
                   </Button>
-                  <Button className="bg-[#0E78AA] text-white hover:bg-[#094C6B] px-4 py-2 rounded-md flex items-center gap-2 transition-colors">
+                  <Button type="button" className="bg-[#0E78AA] text-white hover:bg-[#094C6B] px-4 py-2 rounded-md flex items-center gap-2 transition-colors" onClick={() => void printPageContent('تعريف قياس المشروع')}>
                     <span className="text-lg">🖨️</span> طباعة
                   </Button>
                 </div>

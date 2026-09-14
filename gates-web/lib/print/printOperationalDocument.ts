@@ -7,6 +7,7 @@ import { invoicePrintModelToTaxPreview } from '@/lib/documentLayout/fromDomain';
 import type { TaxInvoiceMock } from '@/lib/documentLayout/mockData';
 import type { DocumentLayoutConfig } from '@/lib/documentLayout/types';
 import type { CompanyPrintProfile, InvoicePrintModel } from '@/lib/print/types';
+import { printHtml } from '@/lib/print/printHtml';
 
 const HINT_KEY = 'gates.print-layout-hint-v1';
 
@@ -86,39 +87,6 @@ function showFirstPrintHint() {
   });
 }
 
-async function printHtmlInIframe(html: string): Promise<void> {
-  if (typeof document === 'undefined') return;
-  const iframe = document.createElement('iframe');
-  iframe.setAttribute('aria-hidden', 'true');
-  iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;';
-  document.body.appendChild(iframe);
-  const doc = iframe.contentDocument;
-  const win = iframe.contentWindow;
-  if (!doc || !win) {
-    iframe.remove();
-    return;
-  }
-  doc.open();
-  doc.write(html);
-  doc.close();
-  try {
-    if (doc.fonts?.ready) {
-      await Promise.race([doc.fonts.ready, new Promise((resolve) => setTimeout(resolve, 1500))]);
-    }
-  } catch {
-    /* ignore */
-  }
-  await new Promise((resolve) => setTimeout(resolve, 120));
-  const cleanup = () => {
-    win.removeEventListener('afterprint', cleanup);
-    iframe.remove();
-  };
-  win.addEventListener('afterprint', cleanup);
-  win.focus();
-  win.print();
-  window.setTimeout(cleanup, 60_000);
-}
-
 async function printTaxInvoice(data: TaxInvoiceMock): Promise<void> {
   try {
     const config = await resolveDocumentLayout('TAX_INVOICE');
@@ -132,7 +100,7 @@ async function printTaxInvoice(data: TaxInvoiceMock): Promise<void> {
     await preloadDocumentFonts(config.fontFamily);
     const qrDataUrl = config.showQrCode ? await buildQrDataUrl(buildQrPayload(merged)) : null;
     const html = generateDocumentHtml(merged, config, { qrDataUrl });
-    await printHtmlInIframe(html);
+    await printHtml(html);
   } catch (error) {
     toast.error('تعذر الطباعة', {
       description: error instanceof Error ? error.message : 'جرّب تاني أو اضبط التخطيط من الإعدادات.',

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
+import { printPageContent } from '@/lib/print/printHtml';
 
 type ShareView = {
   kind: 'invoice' | 'statement';
@@ -52,7 +53,7 @@ export default function PublicSharePage() {
   }
 
   return (
-    <main className="mx-auto max-w-2xl p-6 text-[#062A3A]" dir="rtl">
+    <main className="mx-auto max-w-2xl p-6 text-[#062A3A]" dir="rtl" data-print-root="">
       <p className="text-xs text-slate-500">{data.companyName}</p>
       <h1 className="mt-1 text-2xl font-black">{data.title}</h1>
       <p className="mt-1 text-sm">{data.party}</p>
@@ -90,7 +91,7 @@ export default function PublicSharePage() {
       <button
         type="button"
         className="mt-6 rounded-lg bg-[#0E79AA] px-4 py-2 text-sm font-bold text-white print:hidden"
-        onClick={() => window.print()}
+        onClick={() => void printPageContent(data.title)}
       >
         طباعة / حفظ PDF
       </button>

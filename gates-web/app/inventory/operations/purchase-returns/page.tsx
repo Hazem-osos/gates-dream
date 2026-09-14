@@ -23,6 +23,7 @@ import { TransactionSettingsDrawer } from '@/components/settings/transaction-set
 import { PurchaseInvoiceBottomSplit } from '@/components/inventory/purchase-invoice/PurchaseInvoiceBottomSplit';
 import dynamic from 'next/dynamic';
 import { LineGridSkeleton } from '@/components/ui/DynamicChunkSkeleton';
+import { printPageContent } from '@/lib/print/printHtml';
 
 const ReturnInvoiceLinesGrid = dynamic(
   () =>
@@ -434,7 +435,7 @@ export default function PurchaseReturnsPage() {
         editDisabled={!selectedReturnId || isPosted}
         moreMenuItems={[
           { id: 'new', label: 'مردود جديد', onClick: resetForm },
-          { id: 'print', label: 'طباعة', onClick: () => window.print() },
+          { id: 'print', label: 'طباعة', onClick: () => void printPageContent('مرتجع مشتريات') },
           {
             id: 'post',
             label: 'ترحيل المردود',
