@@ -42,9 +42,12 @@ export type TransactionSettingsDto = TransactionSettings & {
 async function seedFromLegacy(
   companyId: string,
   documentType: TransactionDocumentType
-): Promise<Prisma.TransactionSettingsCreateInput> {
-  const base: Prisma.TransactionSettingsCreateInput = {
-    company: { connect: { id: companyId } },
+): Promise<Prisma.TransactionSettingsUncheckedCreateInput> {
+  // Unchecked scalars only. The tenant-scoping extension stamps `companyId`
+  // onto every create; mixing that with `company: { connect }` is rejected
+  // by Prisma as "Unknown argument companyId".
+  const base: Prisma.TransactionSettingsUncheckedCreateInput = {
+    companyId,
     documentType: documentType as DocumentBaseType,
   };
   if (documentType !== 'SALES_INVOICE' && documentType !== 'PURCHASE_INVOICE') {
@@ -52,7 +55,7 @@ async function seedFromLegacy(
   }
   const formType = documentType === 'SALES_INVOICE' ? 'SI01' : 'PI01';
   const legacy = await invoiceModuleSettingsService.resolve(companyId, formType);
-  const seeded: Prisma.TransactionSettingsCreateInput = {
+  const seeded: Prisma.TransactionSettingsUncheckedCreateInput = {
     ...base,
     numberingMode: legacy.serialAutomatic === 'A' ? 'AUTOMATIC' : 'MANUAL',
     sequenceMode: legacy.serialContanious === 'C' ? 'CONTINUOUS' : 'ANNUAL_RESET',
@@ -69,8 +72,8 @@ async function seedFromLegacy(
   };
   const costCenterId = asUuid(legacy.ccenter);
   const warehouseId = asUuid(legacy.defaultStore);
-  if (costCenterId) seeded.defaultCostCenter = { connect: { id: costCenterId } };
-  if (warehouseId) seeded.defaultWarehouse = { connect: { id: warehouseId } };
+  if (costCenterId) seeded.defaultCostCenterId = costCenterId;
+  if (warehouseId) seeded.defaultWarehouseId = warehouseId;
   return seeded;
 }
 
@@ -92,7 +95,12 @@ export class TransactionSettingsService {
         include: settingsInclude,
       });
     } catch {
-      const { defaultCostCenter: _cc, defaultWarehouse: _wh, ...safe } = data;
+      const raced = await prisma.transactionSettings.findUnique({
+        where: { companyId_documentType: { companyId, documentType } },
+        include: settingsInclude,
+      });
+      if (raced) return raced;
+      const { defaultCostCenterId: _cc, defaultWarehouseId: _wh, ...safe } = data;
       return prisma.transactionSettings.create({
         data: safe,
         include: settingsInclude,

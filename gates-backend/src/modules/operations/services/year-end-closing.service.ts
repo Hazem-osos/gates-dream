@@ -97,7 +97,7 @@ export class YearEndClosingService {
       select: {
         quantityOnHand: true,
         warehouse: { select: { arabicName: true, code: true } },
-        item: { select: { arabicName: true, code: true } },
+        item: { select: { arabicName: true, serial: true } },
       },
       take: 6,
     });
@@ -105,7 +105,7 @@ export class YearEndClosingService {
       const samples = negativeBalances
         .map((row) => {
           const warehouse = row.warehouse.arabicName || row.warehouse.code || 'مخزن';
-          const item = row.item.arabicName || row.item.code || 'صنف';
+          const item = row.item.arabicName || row.item.serial || 'صنف';
           return `«${warehouse}» / «${item}» (${Number(row.quantityOnHand)})`;
         })
         .join('، ');
