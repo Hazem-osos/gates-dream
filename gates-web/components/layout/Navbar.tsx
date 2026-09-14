@@ -80,7 +80,7 @@ export function Navbar() {
           <Link
             href="/login"
             className={`hidden px-4 py-2 text-[0.68rem] uppercase tracking-[0.18em] md:inline-flex ${
-              light ? 'bg-[#0A0A0A] text-[#F3F2ED]' : 'bg-[#F5F5F1] text-[#080808]'
+              light ? 'bg-[var(--gates-blue)] text-white' : 'bg-[#F5F5F1] text-[#080808]'
             }`}
           >
             {copy.nav.demo}

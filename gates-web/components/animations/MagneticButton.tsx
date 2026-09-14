@@ -7,7 +7,7 @@ import { gsap, registerGsapPlugins } from '../../lib/gsap';
 type MagneticButtonProps = {
   href: string;
   children: ReactNode;
-  variant?: 'solid' | 'ghost' | 'inverse';
+  variant?: 'solid' | 'ghost' | 'inverse' | 'brand' | 'brand-ghost';
   className?: string;
 };
 
@@ -37,7 +37,11 @@ export function MagneticButton({ href, children, variant = 'solid', className = 
       ? 'bg-[var(--foreground)] text-[var(--background)] hover:opacity-80'
       : variant === 'inverse'
         ? 'bg-[var(--text-inverse)] text-[var(--surface-ink)] hover:opacity-80'
-        : 'border border-current bg-transparent hover:bg-[var(--foreground)] hover:text-[var(--background)]';
+        : variant === 'brand'
+          ? 'bg-[var(--gates-blue)] text-[var(--gates-white)] hover:opacity-90'
+          : variant === 'brand-ghost'
+            ? 'border border-[var(--gates-blue)]/45 bg-transparent text-[var(--gates-navy)] hover:border-[var(--gates-blue)] hover:bg-[var(--gates-blue)] hover:text-[var(--gates-white)]'
+            : 'border border-current bg-transparent hover:bg-[var(--foreground)] hover:text-[var(--background)]';
 
   return (
     <Link

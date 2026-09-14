@@ -1,4 +1,5 @@
 import prisma from '../../../shared/database/prisma';
+import { refuseProductionSeed } from '../../../shared/config/prod-seed';
 import { logger } from '../../../shared/logger';
 import {
   invalidateTenantCache,
@@ -35,6 +36,17 @@ export class TenantProvisioningService {
     companyId: string,
     options?: { force?: boolean; currencyCode?: string; industry?: CoaIndustryKey | string }
   ): Promise<TenantProvisionResult> {
+    if (refuseProductionSeed()) {
+      const count = await prisma.account.count({ where: { companyId, deletedAt: null } });
+      logger.warn({ companyId, count }, 'Skipping tenant provisioning in production');
+      return {
+        success: true,
+        count,
+        accountsCreated: 0,
+        skipped: true,
+      };
+    }
+
     const result = await prisma.$transaction(
       async (tx) => {
         return this.provisionWithinTransaction(companyId, tx, options);

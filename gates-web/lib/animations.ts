@@ -33,15 +33,20 @@ export const GATES_AI = {
 } as const;
 
 export const HERO = {
-  desktopVh: 380,
-  mobileVh: 210,
-  /** Scroll ranges as fractions of the hero pin (one timeline). */
+  desktopVh: 400,
+  mobileVh: 260,
+  /** Scroll ranges as fractions of the hero pin — one master GSAP timeline. */
   phases: {
-    stillEnd: 0.1,
-    travelEnd: 0.4,
-    connectEnd: 0.56,
-    coreEnd: 0.7,
-    settleEnd: 0.84,
+    /** 0–12%: white stage, headline, inactive Gates Engine. */
+    stillEnd: 0.12,
+    /** 12–63%: modules travel + dock one at a time (per-module phases live in data/modules.ts). */
+    dockEnd: 0.63,
+    /** 63–72%: modules compress toward the core into one connected machine. */
+    compressEnd: 0.72,
+    /** 72–82%: 2.5D rotate/scale reveal of the GATES word behind the machine. */
+    rotateEnd: 0.82,
+    /** 82–92%: machine morphs into the browser-like ERP dashboard. */
+    dashboardEnd: 0.92,
     finish: 1,
   },
 } as const;

@@ -1,6 +1,7 @@
 import prisma from '../../../shared/database/prisma';
 import { logger } from '../../../shared/logger';
 import { tenantProvisioningService } from '../../accounting/services/tenant-provisioning.service';
+import { refuseProductionSeed } from '../../../shared/config/prod-seed';
 
 export interface CreateCompanyData {
   serial?: string;
@@ -67,10 +68,12 @@ export class CompanyService {
 
       logger.info({ companyId: company.id }, 'Company created');
 
-      try {
-        await tenantProvisioningService.provisionStandardTenant(company.id, { currencyCode: 'EGP' });
-      } catch (provisionErr) {
-        logger.error({ provisionErr, companyId: company.id }, 'Tenant provisioning failed after company create');
+      if (!refuseProductionSeed()) {
+        try {
+          await tenantProvisioningService.provisionStandardTenant(company.id, { currencyCode: 'EGP' });
+        } catch (provisionErr) {
+          logger.error({ provisionErr, companyId: company.id }, 'Tenant provisioning failed after company create');
+        }
       }
 
       return company;

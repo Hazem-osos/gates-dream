@@ -27,7 +27,7 @@ Required on **gates-backend**:
 - `CORS_ALLOW_RAILWAY=true`
 - `KEYCLOAK_ENABLED=false`, `REDIS_ENABLED=false`, `MQTT_ENABLED=false`
 - `API_AUTH_MODE=enforce`
-- First boot: `SEED_ON_BOOT=true`, `ALLOW_PROD_SEED=true`, and a `SEED_OWNER_PASSWORD` you share with testers
+- Do **not** set `SEED_ON_BOOT` or `ALLOW_PROD_SEED` — production must not seed
 
 Required on **gates-web** (mark `BACKEND_PROXY_TARGET` as **available at build time**):
 
@@ -35,13 +35,12 @@ Required on **gates-web** (mark `BACKEND_PROXY_TARGET` as **available at build t
 - `BACKEND_PROXY_TARGET=http://${{gates-backend.RAILWAY_PRIVATE_DOMAIN}}:${{gates-backend.PORT}}`
 - Do **not** set `NEXT_PUBLIC_API_URL` — the UI uses same-origin `/api/v1`
 
-Deploy **backend first** (MySQL must be running). After the first successful seed, turn `SEED_ON_BOOT` off so restarts do not re-run seed.
+Deploy **backend first** (MySQL must be running). Create the company and users from the app — do not run seed on Railway.
 
 ### Tester login
 
 - URL: the `gates-web` public Railway URL
-- Email: `owner@example.com`
-- Password: the `SEED_OWNER_PASSWORD` you set
+- Use the account you created in the app (no seeded `owner@example.com`)
 
 ## Local
 

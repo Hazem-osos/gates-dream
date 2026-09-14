@@ -1,7 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { CalendarRange } from 'lucide-react';
 import {
   PageHeader,
@@ -12,6 +11,7 @@ import {
 } from '@/components/ui';
 import { DatePickerWithHijri } from '@/components/ui/DatePickerWithHijri';
 import { PeriodsListSection, type PeriodRow } from '@/components/accounting/PeriodsListSection';
+import { DocumentBrowseDrawer } from '@/components/erp/DocumentBrowseDrawer';
 import { useInvalidateQuery } from '@/lib/hooks/useApi';
 import { apiClient } from '@/lib/api/client';
 import ErrorToast from '@/components/ErrorToast';
@@ -57,13 +57,13 @@ const emptyForm = (): FormState => ({
 });
 
 export default function AccountingPeriodsPage() {
-  const router = useRouter();
   const invalidateQuery = useInvalidateQuery();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [saving, setSaving] = useState(false);
+  const [showGuide, setShowGuide] = useState(false);
 
   const patch = (next: Partial<FormState>) => setForm((prev) => ({ ...prev, ...next }));
 
@@ -78,6 +78,7 @@ export default function AccountingPeriodsPage() {
     });
     setError('');
     setSuccess('');
+    setShowGuide(false);
   };
 
   const handleNew = () => {
@@ -136,17 +137,27 @@ export default function AccountingPeriodsPage() {
     }
   };
 
-  const handleDelete = async () => {
-    if (!selectedId) return;
+  const deletePeriod = async (id: string) => {
     setError('');
     try {
-      await apiClient.delete(`/accounting/periods/${selectedId}`);
-      handleNew();
+      await apiClient.delete(`/accounting/periods/${id}`);
+      if (selectedId === id) handleNew();
       setSuccess('تم حذف الفترة');
       invalidateQuery(['periods']);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'تعذر الحذف');
     }
+  };
+
+  const handleDelete = async () => {
+    if (!selectedId) return;
+    if (!window.confirm('حذف الفترة المحاسبية الحالية؟')) return;
+    await deletePeriod(selectedId);
+  };
+
+  const handleDeleteFromGuide = async (row: PeriodRow) => {
+    if (!window.confirm(`حذف الفترة «${row.name}»؟`)) return;
+    await deletePeriod(row.id);
   };
 
   return (
@@ -163,14 +174,13 @@ export default function AccountingPeriodsPage() {
         ]}
         actions={
           <CrudButtons
-            onPrevious={() => router.back()}
+            onPrevious={() => setShowGuide(true)}
+            previousLabel="السابق"
             onAdd={handleNew}
             onDelete={selectedId ? () => void handleDelete() : undefined}
           />
         }
       />
-
-      <PeriodsListSection onSelect={hydrate} selectedId={selectedId} />
 
       <FormSectionCard title="بيانات الفترة" subtitle="المسلسل والاسم والتواريخ وحالة الفترة" icon={CalendarRange}>
         <CompactFormField
@@ -224,12 +234,24 @@ export default function AccountingPeriodsPage() {
       </FormSectionCard>
 
       <FormStickyFooter
-        onCancel={() => router.back()}
+        onCancel={handleNew}
         onSave={() => void handleSave()}
         saveLoading={saving}
         saveDisabled={saving}
         status={selectedId ? 'تعديل' : 'مسودة'}
       />
+
+      <DocumentBrowseDrawer
+        open={showGuide}
+        onClose={() => setShowGuide(false)}
+        title="دليل الفترات المحاسبية"
+      >
+        <PeriodsListSection
+          onSelect={hydrate}
+          onDelete={(row) => void handleDeleteFromGuide(row)}
+          selectedId={selectedId}
+        />
+      </DocumentBrowseDrawer>
     </div>
   );
 }

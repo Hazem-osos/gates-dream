@@ -5,34 +5,22 @@ import { AppTable, FilterToolbar, Button, StatusBadge } from '@/components/ui';
 import { useApiQuery } from '@/lib/hooks/useApi';
 import type { ExportColumnDef } from '@/lib/export/export-utils';
 
-export type PeriodRow = {
+export type CurrencyRow = {
   id: string;
   code: string;
-  name: string;
-  startDate: string;
-  endDate: string;
-  isClosed?: boolean;
+  arabicName: string;
+  englishName?: string | null;
+  exchangeRate?: number | string | null;
   isActive?: boolean;
 };
 
-function dateLabel(value: string | null | undefined): string {
-  if (!value) return '—';
-  if (/^\d{4}-\d{2}-\d{2}/.test(value)) return value.slice(0, 10);
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return '—';
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-}
-
-export function PeriodsListSection({
+export function CurrenciesListSection({
   onSelect,
   onDelete,
   selectedId,
 }: {
-  onSelect?: (row: PeriodRow) => void;
-  onDelete?: (row: PeriodRow) => void;
+  onSelect?: (row: CurrencyRow) => void;
+  onDelete?: (row: CurrencyRow) => void;
   selectedId?: string | null;
 }) {
   const [page, setPage] = useState(1);
@@ -45,9 +33,9 @@ export function PeriodsListSection({
     return p;
   }, [page, pageSize, search]);
 
-  const { data, isLoading } = useApiQuery<PeriodRow[]>(
-    ['periods', { page, search, pageSize }],
-    '/accounting/periods',
+  const { data, isLoading } = useApiQuery<CurrencyRow[]>(
+    ['currencies', { page, search, pageSize }],
+    '/accounting/currencies',
     queryParams,
     { staleTime: 15_000 }
   );
@@ -55,39 +43,42 @@ export function PeriodsListSection({
   const rows = useMemo(() => data?.data ?? [], [data?.data]);
   const total = data?.pagination?.total ?? data?.meta?.total ?? rows.length;
 
-  const exportColumns: ExportColumnDef<PeriodRow>[] = [
-    { id: 'code', header: 'المسلسل', getValue: (r) => r.code || '' },
-    { id: 'name', header: 'الاسم', accessor: 'name' },
-    { id: 'start', header: 'من تاريخ', getValue: (r) => dateLabel(r.startDate) },
-    { id: 'end', header: 'إلى تاريخ', getValue: (r) => dateLabel(r.endDate) },
-    { id: 'status', header: 'الحالة', getValue: (r) => (r.isClosed ? 'مغلقة' : 'مفتوحة') },
+  const exportColumns: ExportColumnDef<CurrencyRow>[] = [
+    { id: 'code', header: 'الرمز', accessor: 'code' },
+    { id: 'arabicName', header: 'الاسم العربي', accessor: 'arabicName' },
+    { id: 'englishName', header: 'الاسم الإنجليزي', getValue: (r) => r.englishName || '' },
+    { id: 'rate', header: 'سعر الصرف', getValue: (r) => String(r.exchangeRate ?? '') },
   ];
 
   return (
-    <section className="mb-6 space-y-4">
+    <section className="space-y-4">
       <FilterToolbar
-        searchPlaceholder="بحث بالمسلسل أو اسم الفترة…"
+        searchPlaceholder="بحث بالرمز أو اسم العملة…"
         onSearchChange={(v) => {
           setPage(1);
           setSearch(v);
         }}
         exportConfig={{
-          fileName: 'accounting-periods',
+          fileName: 'currencies',
           columns: exportColumns as ExportColumnDef<Record<string, unknown>>[],
           rows: rows as Record<string, unknown>[],
         }}
       />
-      <AppTable<PeriodRow>
+      <AppTable<CurrencyRow>
         isLoading={isLoading}
         data={rows}
         getRowKey={(r) => r.id}
-        emptyTitle="لا توجد فترات محاسبية"
-        emptyDescription="أضف فترة جديدة من قائمة الإجراءات."
+        emptyTitle="لا توجد عملات"
+        emptyDescription="أضف عملة جديدة من قائمة الإجراءات."
         columns={[
-          { id: 'code', header: 'المسلسل', cell: (r) => r.code || '—' },
-          { id: 'name', header: 'الاسم', accessor: 'name' },
-          { id: 'start', header: 'من تاريخ', cell: (r) => dateLabel(r.startDate) },
-          { id: 'end', header: 'إلى تاريخ', cell: (r) => dateLabel(r.endDate) },
+          { id: 'code', header: 'الرمز', accessor: 'code' },
+          { id: 'arabicName', header: 'الاسم العربي', accessor: 'arabicName' },
+          { id: 'englishName', header: 'الإنجليزي', cell: (r) => r.englishName || '—' },
+          {
+            id: 'rate',
+            header: 'سعر الصرف',
+            cell: (r) => (r.exchangeRate != null && r.exchangeRate !== '' ? String(r.exchangeRate) : '—'),
+          },
           {
             id: 'status',
             header: 'الحالة',
@@ -95,8 +86,8 @@ export function PeriodsListSection({
             cell: (r) => (
               <StatusBadge
                 compact
-                variant={r.isClosed ? 'danger' : 'success'}
-                label={r.isClosed ? 'مغلقة' : 'مفتوحة'}
+                variant={r.isActive === false ? 'danger' : 'success'}
+                label={r.isActive === false ? 'غير نشطة' : 'نشطة'}
               />
             ),
           },

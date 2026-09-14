@@ -1,118 +1,171 @@
-"use client";
-import * as React from "react";
-import { useState } from "react";
-import { Coins } from "lucide-react";
+'use client';
+
+import { useState } from 'react';
+import { Coins } from 'lucide-react';
 import {
+  PageHeader,
   FormSectionCard,
   CompactFormField,
   AdvancedFieldsSection,
   FormStickyFooter,
-  UserPermissions,
-} from "@/components/ui";
-import { useApiMutation, useInvalidateQuery } from "@/lib/hooks/useApi";
-import ErrorToast from "@/components/ErrorToast";
-import SuccessToast from "@/components/SuccessToast";
-import type { ApiError } from '@/lib/api/types';
+  CrudButtons,
+} from '@/components/ui';
+import { DocumentBrowseDrawer } from '@/components/erp/DocumentBrowseDrawer';
+import { CurrenciesListSection, type CurrencyRow } from '@/components/accounting/CurrenciesListSection';
+import { useInvalidateQuery } from '@/lib/hooks/useApi';
+import { apiClient } from '@/lib/api/client';
+import ErrorToast from '@/components/ErrorToast';
+import SuccessToast from '@/components/SuccessToast';
 
-function InputDesign() {
+type FormState = {
+  code: string;
+  arabicName: string;
+  englishName: string;
+  exchangeRate: string;
+};
+
+const emptyForm = (): FormState => ({
+  code: '',
+  arabicName: '',
+  englishName: '',
+  exchangeRate: '',
+});
+
+function rateToInput(value: number | string | null | undefined): string {
+  if (value == null || value === '') return '';
+  return String(value);
+}
+
+export default function CurrenciesPage() {
   const invalidateQuery = useInvalidateQuery();
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [form, setForm] = useState<FormState>(emptyForm);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  const [formData, setFormData] = useState({
-    code: '',
-    arabicName: '',
-    englishName: '',
-    exchangeRate: '',
-  });
+  const [saving, setSaving] = useState(false);
+  const [showGuide, setShowGuide] = useState(false);
 
-  // Currency mutation
-  const currencyMutation = useApiMutation<unknown, Record<string, unknown>>(
-    '/accounting/currencies',
-    'POST',
-    {
-      onSuccess: () => {
-        setSuccess('تم حفظ العملة بنجاح');
-        invalidateQuery(['currencies']);
-        handleCancel();
-      },
-      onError: (error: ApiError) => {
-        setError(error.message || 'حدث خطأ أثناء الحفظ');
-      },
-    }
-  );
+  const patch = (next: Partial<FormState>) => setForm((prev) => ({ ...prev, ...next }));
 
-  const handleInputChange = (field: string, value: string) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
-  };
-
-  const handleSave = () => {
+  const hydrate = (row: CurrencyRow) => {
+    setSelectedId(row.id);
+    setForm({
+      code: row.code ?? '',
+      arabicName: row.arabicName ?? '',
+      englishName: row.englishName ?? '',
+      exchangeRate: rateToInput(row.exchangeRate),
+    });
     setError('');
     setSuccess('');
+    setShowGuide(false);
+  };
 
-    if (!formData.code) {
+  const handleNew = () => {
+    setSelectedId(null);
+    setForm(emptyForm());
+    setError('');
+    setSuccess('');
+  };
+
+  const handleSave = async () => {
+    setError('');
+    setSuccess('');
+    if (!form.code.trim()) {
       setError('يرجى إدخال رمز العملة');
       return;
     }
-
-    if (!formData.arabicName) {
+    if (!form.arabicName.trim()) {
       setError('يرجى إدخال الاسم العربي');
       return;
     }
 
-    const requestBody: Record<string, unknown> = {
-      code: formData.code,
-      arabicName: formData.arabicName,
-      englishName: formData.englishName || undefined,
-      exchangeRate: formData.exchangeRate ? parseFloat(formData.exchangeRate) : undefined,
+    const body = {
+      code: form.code.trim(),
+      arabicName: form.arabicName.trim(),
+      englishName: form.englishName.trim() || undefined,
+      exchangeRate: form.exchangeRate ? parseFloat(form.exchangeRate) : undefined,
     };
 
-    currencyMutation.mutate(requestBody);
+    setSaving(true);
+    try {
+      if (selectedId) {
+        const res = await apiClient.put<CurrencyRow>(`/accounting/currencies/${selectedId}`, body);
+        if (res.data) hydrate(res.data);
+        setSuccess('تم تحديث العملة');
+      } else {
+        const res = await apiClient.post<CurrencyRow>('/accounting/currencies', body);
+        if (res.data) hydrate(res.data);
+        setSuccess('تم حفظ العملة');
+      }
+      invalidateQuery(['currencies']);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'حدث خطأ أثناء الحفظ');
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const handleCancel = () => {
-    setFormData({
-      code: '',
-      arabicName: '',
-      englishName: '',
-      exchangeRate: '',
-    });
+  const deleteCurrency = async (id: string) => {
     setError('');
-    setSuccess('');
+    try {
+      await apiClient.delete(`/accounting/currencies/${id}`);
+      if (selectedId === id) handleNew();
+      setSuccess('تم حذف العملة');
+      invalidateQuery(['currencies']);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'تعذر الحذف');
+    }
   };
 
-  const advancedFilledCount = [formData.englishName, formData.exchangeRate].filter(
+  const handleDelete = async () => {
+    if (!selectedId) return;
+    if (!window.confirm('حذف العملة الحالية؟')) return;
+    await deleteCurrency(selectedId);
+  };
+
+  const handleDeleteFromGuide = async (row: CurrencyRow) => {
+    if (!window.confirm(`حذف العملة «${row.arabicName}»؟`)) return;
+    await deleteCurrency(row.id);
+  };
+
+  const advancedFilledCount = [form.englishName, form.exchangeRate].filter(
     (v) => String(v ?? '').trim().length > 0
   ).length;
 
   return (
-    <div className="p-6" style={{ direction: 'rtl' }}>
-      <div className="mb-6">
-        <div className="text-right">
-          <h1 className="text-xl font-bold text-[#0E78AA] mb-2">إنشاء عملات</h1>
-          <div className="h-1 bg-sky-700 rounded w-full"></div>
-        </div>
-      </div>
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50 p-6" style={{ direction: 'rtl' }}>
+      {error ? <ErrorToast message={error} onClose={() => setError('')} /> : null}
+      {success ? <SuccessToast message={success} onClose={() => setSuccess('')} /> : null}
 
-      <div className="mb-4">
-        <UserPermissions />
-      </div>
-
-      {error && <ErrorToast message={error} onClose={() => setError('')} />}
-      {success && <SuccessToast message={success} onClose={() => setSuccess('')} />}
+      <PageHeader
+        title="تعريف العملات"
+        breadcrumbs={[
+          { label: 'الحسابات', href: '/accounting' },
+          { label: 'إنشاءات الحسابات' },
+          { label: 'تعريف العملات' },
+        ]}
+        actions={
+          <CrudButtons
+            onPrevious={() => setShowGuide(true)}
+            onAdd={handleNew}
+            onDelete={selectedId ? () => void handleDelete() : undefined}
+          />
+        }
+      />
 
       <FormSectionCard title="بيانات العملة" subtitle="الرمز والاسم العربي" icon={Coins}>
         <CompactFormField
           label="رمز العملة"
           placeholder="إدخل رمز العملة"
-          value={formData.code}
-          onChange={(e) => handleInputChange('code', e.target.value)}
+          value={form.code}
+          onChange={(e) => patch({ code: e.target.value })}
           required
         />
         <CompactFormField
           label="الإسم العربي"
           placeholder="إدخل الإسم بالعربي"
-          value={formData.arabicName}
-          onChange={(e) => handleInputChange('arabicName', e.target.value)}
+          value={form.arabicName}
+          onChange={(e) => patch({ arabicName: e.target.value })}
           required
         />
       </FormSectionCard>
@@ -122,30 +175,42 @@ function InputDesign() {
           <CompactFormField
             label="الإسم الإنجليزي"
             placeholder="إدخل الإسم الإنجليزي"
-            value={formData.englishName}
-            onChange={(e) => handleInputChange('englishName', e.target.value)}
+            value={form.englishName}
+            onChange={(e) => patch({ englishName: e.target.value })}
           />
           <CompactFormField
             label="سعر الصرف"
             type="number"
             placeholder="إدخل سعر الصرف"
-            value={formData.exchangeRate}
-            onChange={(e) => handleInputChange('exchangeRate', e.target.value)}
+            value={form.exchangeRate}
+            onChange={(e) => patch({ exchangeRate: e.target.value })}
           />
           <CompactFormField label="العملة الرئيسية =" suffix="جزء عملة">
-            <input type="text" value="100" readOnly className="h-9 w-full border-0 bg-transparent px-3 text-xs font-medium text-[#094C6B] shadow-none focus:ring-0 sm:text-sm" />
+            <input
+              type="text"
+              value="100"
+              readOnly
+              className="h-9 w-full border-0 bg-transparent px-3 text-xs font-medium text-[#094C6B] shadow-none focus:ring-0 sm:text-sm"
+            />
           </CompactFormField>
         </div>
       </AdvancedFieldsSection>
 
       <FormStickyFooter
-        onSave={handleSave}
-        onCancel={handleCancel}
-        saveText={currencyMutation.isPending ? 'جاري الحفظ...' : 'حفظ'}
-        saveLoading={currencyMutation.isPending}
+        onCancel={handleNew}
+        onSave={() => void handleSave()}
+        saveLoading={saving}
+        saveDisabled={saving}
+        status={selectedId ? 'تعديل' : 'مسودة'}
       />
+
+      <DocumentBrowseDrawer open={showGuide} onClose={() => setShowGuide(false)} title="دليل العملات">
+        <CurrenciesListSection
+          onSelect={hydrate}
+          onDelete={(row) => void handleDeleteFromGuide(row)}
+          selectedId={selectedId}
+        />
+      </DocumentBrowseDrawer>
     </div>
   );
-} 
-
-export default InputDesign;
+}

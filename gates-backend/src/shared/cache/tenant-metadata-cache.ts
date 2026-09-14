@@ -104,7 +104,7 @@ export async function invalidateTenantCache(prefix: string): Promise<void> {
   const published = await publishCacheInvalidation(prefix);
   if (!published) {
     clearEntireL1();
-    logger.error({ prefix }, 'Invalidation did not reach Redis; flushed entire L1');
+    logger.warn({ prefix }, 'Invalidation did not reach Redis; flushed entire L1');
   }
 }
 

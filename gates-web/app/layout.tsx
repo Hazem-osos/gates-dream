@@ -118,7 +118,7 @@ export default function RootLayout({
         <GatesAiRoot>
         <OnboardingRouteGuard>
         {isAuthRoute || isOnboardingRoute || isMarketingRoute ? (
-          <main className={isMarketingRoute ? 'min-h-screen bg-[#EBE6D6]' : 'min-h-screen bg-white'}>{children}</main>
+          <main className="min-h-screen bg-white">{children}</main>
         ) : (
           <Suspense fallback={null}>
             <ProductTourProvider>

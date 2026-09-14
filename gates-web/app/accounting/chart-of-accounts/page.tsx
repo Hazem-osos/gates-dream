@@ -77,6 +77,8 @@ export default function ChartOfAccountsPage() {
     setModalOpen(true);
   }, []);
 
+  const allowSeed = process.env.NODE_ENV !== 'production';
+
   const headerActions = useMemo(
     () =>
       isEmpty ? null : (
@@ -84,18 +86,20 @@ export default function ChartOfAccountsPage() {
           <Button type="button" variant="secondary" size="sm" onClick={openCreateRoot}>
             + إضافة حساب رئيسي
           </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={() => seedCoa.mutate({ industry, force: false })}
-            disabled={seedCoa.isPending}
-          >
-            {seedCoa.isPending ? 'جاري التحديث…' : 'مزامنة الدليل القياسي'}
-          </Button>
+          {allowSeed ? (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => seedCoa.mutate({ industry, force: false })}
+              disabled={seedCoa.isPending}
+            >
+              {seedCoa.isPending ? 'جاري التحديث…' : 'مزامنة الدليل القياسي'}
+            </Button>
+          ) : null}
         </div>
       ),
-    [isEmpty, industry, openCreateRoot, seedCoa]
+    [isEmpty, industry, openCreateRoot, seedCoa, allowSeed]
   );
 
   const openCreateChild = (parent: CoaHierarchyAccount) => {
@@ -151,7 +155,9 @@ export default function ChartOfAccountsPage() {
             industry={industry}
             onIndustryChange={setIndustry}
             seeding={seedCoa.isPending}
-            onSeed={() => seedCoa.mutate({ industry, force: false })}
+            allowSeed={allowSeed}
+            onSeed={allowSeed ? () => seedCoa.mutate({ industry, force: false }) : undefined}
+            onCreateRoot={openCreateRoot}
           />
         </div>
       ) : (

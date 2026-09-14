@@ -15,6 +15,7 @@ import { dataImportService } from '../services/data-import.service';
 import { onboardingStateService } from '../services/onboarding-state.service';
 import { retireWelcomeTourNotification } from '../../notifications/services/onboarding-welcome-notification.service';
 import { z } from 'zod';
+import { refuseProductionSeed } from '../../../shared/config/prod-seed';
 
 const router = Router();
 
@@ -88,6 +89,12 @@ router.post(
   '/seed-demo',
   authorize({ resource: 'company', action: 'edit' }),
   async (req: AuthRequest, res: Response) => {
+    if (refuseProductionSeed()) {
+      return void res.status(403).json({
+        status: 'error',
+        message: 'تهيئة البيانات التجريبية معطلة على بيئة التشغيل',
+      });
+    }
     try {
       const companyId = req.companyId;
       if (!companyId) {

@@ -65,24 +65,18 @@ export function FormStickyFooter({
     }
 
     const findHost = () => document.querySelector<HTMLElement>('[data-gates-page-header-actions]');
-    const found = findHost();
-    if (found) {
-      setHeaderHost(found);
-      return;
-    }
-
-    const id = window.setInterval(() => {
+    const sync = () => {
       const el = findHost();
-      if (el) {
-        setHeaderHost(el);
-        window.clearInterval(id);
-      }
-    }, 50);
-    const timeout = window.setTimeout(() => window.clearInterval(id), 2000);
-    return () => {
-      window.clearInterval(id);
-      window.clearTimeout(timeout);
+      setHeaderHost((current) => {
+        if (el?.isConnected) return el;
+        if (current?.isConnected) return current;
+        return null;
+      });
     };
+
+    sync();
+    const id = window.setInterval(sync, 150);
+    return () => window.clearInterval(id);
   }, []);
 
   const actions = (
@@ -135,22 +129,9 @@ export function FormStickyFooter({
     </div>
   );
 
-  if (keepInPlace) {
-    return (
-      <div
-        ref={probeRef}
-        className={cn(
-          'sticky bottom-0 z-20 mt-4 flex flex-wrap items-center justify-end gap-3 border-t border-[#D6EAF3]/80 bg-white/85 p-3 px-5 backdrop-blur-md',
-          className
-        )}
-        dir="rtl"
-      >
-        {actions}
-      </div>
-    );
-  }
+  const hostReady = Boolean(headerHost?.isConnected);
 
-  if (headerHost) {
+  if (!keepInPlace && hostReady && headerHost) {
     return (
       <>
         <div ref={probeRef} className="hidden" aria-hidden />
@@ -159,5 +140,16 @@ export function FormStickyFooter({
     );
   }
 
-  return <div ref={probeRef} className="hidden" aria-hidden />;
+  return (
+    <div
+      ref={probeRef}
+      className={cn(
+        'sticky bottom-0 z-20 mt-4 flex flex-wrap items-center justify-end gap-3 border-t border-[#D6EAF3]/80 bg-white/85 p-3 px-5 backdrop-blur-md',
+        className
+      )}
+      dir="rtl"
+    >
+      {actions}
+    </div>
+  );
 }

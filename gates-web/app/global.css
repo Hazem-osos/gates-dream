@@ -423,6 +423,13 @@ input, button, textarea, select { font: inherit; }
   --accent: #7a6144;
   --surface-ink: #080808;
   --text-inverse: #f5f5f1;
+
+  /* GATES brand identity — used by the hero system. Blue + white + navy, no beige. */
+  --gates-blue: #0e79aa;
+  --gates-blue-dark: #073753;
+  --gates-blue-light: #5fd4ff;
+  --gates-white: #ffffff;
+  --gates-navy: #04101c;
 }
 
 html.gates-marketing-root {
@@ -432,6 +439,17 @@ html.gates-marketing-root,
 html.gates-marketing-root body {
   background: var(--background);
   color: var(--foreground);
+}
+/*
+ * `overflow-x: hidden` on `body` (not just `html`) forces the UA to compute
+ * `overflow-y: auto` on body too (CSS overflow spec: a non-visible x/y pairs
+ * with visible on the other axis get upgraded to auto). That makes `body`
+ * qualify as a scroll container, which breaks `position: sticky` for every
+ * pinned hero/section on this page (their nearest scrolling ancestor becomes
+ * the never-scrolling `body` box instead of the real viewport). Keep the
+ * horizontal-scroll guard on `html` only.
+ */
+html.gates-marketing-root {
   overflow-x: hidden;
 }
 

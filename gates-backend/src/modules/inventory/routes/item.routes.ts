@@ -22,6 +22,7 @@ import { traceAudit } from '../../../shared/middleware/trace-audit.middleware';
 import { AppError } from '../../../shared/middleware/error-handler';
 import { itemPricingPolicyQuerySchema } from '../../transaction-settings/transaction-settings.schema';
 import { resolveItemPricingPolicy } from '../../transaction-settings/item-pricing-policy.service';
+import { refuseProductionSeed } from '../../../shared/config/prod-seed';
 
 const router = Router();
 
@@ -88,6 +89,13 @@ router.post(
   '/seed-demo-catalog',
   authorize({ resource: 'item', action: 'edit' }),
   async (req: AuthRequest, res: Response) => {
+    if (refuseProductionSeed()) {
+      return void res.status(403).json({
+        status: 'error',
+        message: 'تهيئة البيانات التجريبية معطلة على بيئة التشغيل',
+      });
+    }
+
     try {
       const companyId = req.companyId || req.tenantId;
       if (!companyId) {

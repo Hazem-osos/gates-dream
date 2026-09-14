@@ -23,6 +23,7 @@ import { env } from '../../../shared/config/env';
 import { AppError } from '../../../shared/middleware/error-handler';
 import { userService } from '../../users/services/user.service';
 import { tenantProvisioningService } from '../../accounting/services/tenant-provisioning.service';
+import { refuseProductionSeed } from '../../../shared/config/prod-seed';
 import type { JwtPayload } from '../../../shared/auth/types';
 import type {
   RegisterInput,
@@ -161,10 +162,12 @@ async function resolveRegistrationCompanyId(): Promise<string | null> {
       { companyId: bootstrapped.id },
       '[Auth] Created/activated default company in dev (DB was empty). Run npm run seed for full fixtures.'
     );
-    try {
-      await tenantProvisioningService.provisionStandardTenant(bootstrapped.id);
-    } catch (e) {
-      logger.error({ e, companyId: bootstrapped.id }, '[Auth] Tenant provisioning failed for bootstrapped company');
+    if (!refuseProductionSeed()) {
+      try {
+        await tenantProvisioningService.provisionStandardTenant(bootstrapped.id);
+      } catch (e) {
+        logger.error({ e, companyId: bootstrapped.id }, '[Auth] Tenant provisioning failed for bootstrapped company');
+      }
     }
     return bootstrapped.id;
   }

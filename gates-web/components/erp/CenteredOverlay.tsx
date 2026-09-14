@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 
 type Width = 'md' | 'lg' | 'xl' | 'full';
@@ -31,10 +31,20 @@ export function CenteredOverlay({
   labelledBy,
 }: Props) {
   const [mounted, setMounted] = useState(false);
+  const openedAtRef = useRef(0);
 
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  useEffect(() => {
+    if (open) openedAtRef.current = Date.now();
+  }, [open]);
+
+  const handleClose = () => {
+    if (Date.now() - openedAtRef.current < 250) return;
+    onClose();
+  };
 
   if (!open || !mounted) return null;
 
@@ -46,7 +56,7 @@ export function CenteredOverlay({
       aria-modal="true"
       aria-labelledby={labelledBy}
     >
-      <button type="button" className="fixed inset-0 bg-black/45" aria-label="إغلاق" onClick={onClose} />
+      <button type="button" className="fixed inset-0 bg-black/45" aria-label="إغلاق" onClick={handleClose} />
       <div
         className={`relative my-auto flex min-h-0 max-h-[min(92dvh,calc(100dvh-2rem))] w-full ${WIDTH[width]} flex-col overflow-hidden rounded-2xl border border-[#E6F0F7] bg-white shadow-2xl`}
       >

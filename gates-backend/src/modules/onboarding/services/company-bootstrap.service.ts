@@ -5,6 +5,7 @@ import { companyOnboardingService } from '../../company/services/company-onboard
 import type { OnboardingSetupInput } from '../../company/schemas/company-onboarding.schema';
 import { demoCatalogService } from '../../inventory/services/demo-catalog.service';
 import { retireWelcomeTourNotification } from '../../notifications/services/onboarding-welcome-notification.service';
+import { refuseProductionSeed } from '../../../shared/config/prod-seed';
 
 const VERTICAL_TO_INDUSTRY: Record<BootstrapInput['vertical'], OnboardingSetupInput['industryTemplate']> = {
   TRADING: 'TRADE',
@@ -54,7 +55,7 @@ export class CompanyBootstrapService {
         arabicName: input.branch.warehouseName,
         code: input.branch.warehouseCode ?? 'WH-01',
       },
-      seedStandardCoa: true,
+      seedStandardCoa: !refuseProductionSeed(),
     };
 
     const result = await companyOnboardingService.runSetup(companyId, setupBody);

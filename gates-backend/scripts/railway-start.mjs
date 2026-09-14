@@ -42,12 +42,17 @@ run('npx', ['prisma', 'generate']);
 run('npx', ['prisma', 'migrate', 'deploy']);
 
 if (truthy(process.env.SEED_ON_BOOT)) {
-  if (!process.env.SEED_OWNER_PASSWORD) {
-    console.error('SEED_ON_BOOT=true requires SEED_OWNER_PASSWORD so testers can log in.');
-    process.exit(1);
+  const prod = process.env.NODE_ENV === 'production';
+  if (prod && !truthy(process.env.ALLOW_PROD_SEED)) {
+    console.warn('SEED_ON_BOOT ignored in production — ALLOW_PROD_SEED is not set.');
+  } else {
+    if (!process.env.SEED_OWNER_PASSWORD) {
+      console.error('SEED_ON_BOOT=true requires SEED_OWNER_PASSWORD so testers can log in.');
+      process.exit(1);
+    }
+    if (prod) process.env.ALLOW_PROD_SEED = process.env.ALLOW_PROD_SEED || 'true';
+    run('npx', ['tsx', 'prisma/seed.ts']);
   }
-  process.env.ALLOW_PROD_SEED = process.env.ALLOW_PROD_SEED || 'true';
-  run('npx', ['tsx', 'prisma/seed.ts']);
 }
 
 const entry = path.join(root, 'src/index.ts');

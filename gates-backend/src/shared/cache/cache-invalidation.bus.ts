@@ -34,10 +34,17 @@ export async function flushPendingCacheInvalidations(): Promise<void> {
  * is down the prefix is queued and the caller gets `false` so it can flush
  * local L1 and log.
  */
+function isRedisEnabled(): boolean {
+  return ['true', '1', 'yes', 'on'].includes((process.env.REDIS_ENABLED ?? '').trim().toLowerCase());
+}
+
 export async function publishCacheInvalidation(prefix: string): Promise<boolean> {
+  if (!isRedisEnabled()) {
+    return true;
+  }
   if (!redisClient.isReady()) {
     pendingInvalidationPrefixes.add(prefix);
-    logger.error({ prefix }, 'Cache invalidation queued: Redis publisher is not ready');
+    logger.warn({ prefix }, 'Cache invalidation queued: Redis publisher is not ready');
     return false;
   }
   try {

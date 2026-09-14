@@ -17,6 +17,7 @@ import { AuthRequest } from '../../../shared/auth/types';
 import { getCoaTreeEtag, getMasterCatalogEtag } from '../../../shared/services/master-catalog-version.service';
 import { applyMasterDataEtag, sendJsonWithEtag } from '../../../shared/http/master-data-etag';
 import { traceAudit } from '../../../shared/middleware/trace-audit.middleware';
+import { refuseProductionSeed } from '../../../shared/config/prod-seed';
 
 const router = Router();
 
@@ -32,6 +33,13 @@ router.use(traceAudit('mnsmAccountcard'));
  * Seed standard chart of accounts + default unit / warehouse / safe
  */
 async function handleSeedDefaults(req: AuthRequest, res: Response) {
+  if (refuseProductionSeed()) {
+    return void res.status(403).json({
+      status: 'error',
+      message: 'تهيئة الدليل معطلة على بيئة التشغيل',
+    });
+  }
+
   try {
     const companyId = req.companyId || req.tenantId;
     if (!companyId) {
