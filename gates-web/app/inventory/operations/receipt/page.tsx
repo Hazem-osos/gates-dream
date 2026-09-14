@@ -30,6 +30,7 @@ import {
   type InventoryWarehouseDocHeaderFormInput,
 } from '@/lib/validation/inventory.schema';
 import type { ApiError } from '@/lib/api/types';
+import { onFieldErrors } from '@/lib/forms/on-field-errors';
 
 
 interface Warehouse {
@@ -394,7 +395,8 @@ export default function ReceiptPage() {
         docNumber={watch('serialNumber') || ''}
         statusTone={isPosted ? 'success' : 'warning'}
         statusLabel={isPosted ? 'مرحّل' : 'مسودة'}
-        onSaveDraft={() => void handleSubmit(onSaveValid)()}
+        saveLabel="حفظ"
+        onSaveDraft={() => void handleSubmit(onSaveValid, onFieldErrors(setError))()}
         onCancel={handleNew}
         cancelLabel="تراجع"
         onPost={() => handlePostUnpost(true)}
@@ -403,7 +405,7 @@ export default function ReceiptPage() {
         postPending={postReceiptMutation.isPending}
         canPost={!!selectedReceiptId && !isPosted}
         moreMenuItems={[
-          { id: 'new', label: 'سند جديد', onClick: handleNew },
+          { id: 'new', label: 'جديد', onClick: handleNew },
           { id: 'del', label: 'حذف', onClick: handleDelete, destructive: true },
         ]}
         onBrowseList={() => setShowList(true)}
@@ -625,9 +627,6 @@ export default function ReceiptPage() {
       </div>
 
       <FormStickyFooter
-        onCancel={handleNew}
-        onSave={() => void handleSubmit(onSaveValid)()}
-        saveLoading={loading}
         status={`${receiptLines.length} بند · ${totalAmount.toLocaleString('ar-EG')} ج.م`}
       />
 

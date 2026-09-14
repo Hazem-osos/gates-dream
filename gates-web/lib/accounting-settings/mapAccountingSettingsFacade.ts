@@ -130,6 +130,7 @@ export function mapFacadeToForm(facade: AccountingSettingsFacade): AccountingSet
     dueSecuritiesWarningDays: g.dueSecuritiesWarningDays ?? base.dueSecuritiesWarningDays,
     lockPostingBeforeDate: g.lockPostingBeforeDate ?? '',
     autoNumbering: g.autoNumbering ?? true,
+    coaAutoNumbering: g.coaAutoNumbering !== false,
     costMethod: 'average',
     pricingCalculationBasis:
       g.pricingCalculationBasis === 'BASE_UNIT_QTY' ? 'BASE_UNIT_QTY' : 'SELECTED_UNIT_QTY',
@@ -184,6 +185,7 @@ export function formToPutPayload(form: AccountingSettingsFormState): AccountingS
       dueSecuritiesWarningDays: form.dueSecuritiesWarningDays,
       lockPostingBeforeDate: form.lockPostingBeforeDate || null,
       autoNumbering: form.autoNumbering,
+      coaAutoNumbering: form.coaAutoNumbering !== false,
       costMethod: 'average',
       pricingCalculationBasis: form.pricingCalculationBasis,
       backupPath: form.backupPath || null,

@@ -470,7 +470,7 @@ export function SecuritiesPaperEngine({ kind }: Props) {
           isCancelled: Boolean(loaded?.isCancelled),
           hidePostActions: true,
           onNew: resetNew,
-          newLabel: 'ورقة جديدة',
+          newLabel: 'جديد',
           extraItems: [
             {
               id: 'collect',

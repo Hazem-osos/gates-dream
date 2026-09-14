@@ -458,9 +458,13 @@ function SalesInvoicePageInner() {
   }, [invoiceIdFromUrl, selectedInvoiceId]);
 
   useEffect(() => {
-    if (selectedInvoiceId) lockToView();
-    else setMode('create');
-  }, [lockToView, selectedInvoiceId, setMode]);
+    if (!selectedInvoiceId) {
+      setMode('create');
+      return;
+    }
+    if (isPosted) lockToView();
+    else setMode('edit');
+  }, [isPosted, lockToView, selectedInvoiceId, setMode]);
 
   const aiDraftAppliedRef = useRef(false);
   useEffect(() => {

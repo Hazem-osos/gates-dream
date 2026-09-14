@@ -7,13 +7,14 @@ import type { ApiError } from '@/lib/api/types';
 import type { CoaHierarchyAccount } from '@/lib/accounting/mapCoaToTreeNodes';
 
 export type AccountFormPayload = {
-  code: string;
+  code?: string;
   arabicName: string;
   englishName?: string;
   accountType?: string;
   parentId?: string | null;
   accountSide?: 'مدين' | 'دائن' | null;
   costCenterRequired?: 'إجباري' | 'اختياري' | 'بدون' | null;
+  defaultCostCenterId?: string | null;
   warning?: 'مدين' | 'دائن' | 'بدون' | null;
   budget?: number | null;
   currencyCode?: string | null;

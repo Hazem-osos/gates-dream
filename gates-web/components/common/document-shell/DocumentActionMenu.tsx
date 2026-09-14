@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { usePathname, useRouter } from 'next/navigation';
 import { MessageSquare, MoreHorizontal, Receipt } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { SimpleDropdownMenu } from '@/components/inventory/SimpleDropdownMenu';
@@ -73,6 +74,15 @@ export function DocumentActionMenu({
 }: DocumentActionMenuProps) {
   const mode = useOptionalDocumentMode();
   const isReadOnly = mode?.isReadOnly ?? false;
+  const router = useRouter();
+  const pathname = usePathname();
+  const startNewDocument = () => {
+    if (onNew) {
+      onNew();
+      return;
+    }
+    router.replace(pathname);
+  };
   const [confirm, setConfirm] = useState<'unpost' | 'void' | null>(null);
   const [phoneDialogOpen, setPhoneDialogOpen] = useState(false);
   const [manualPhone, setManualPhone] = useState('');
@@ -96,16 +106,12 @@ export function DocumentActionMenu({
     : undefined;
 
   const items = [
-    ...(onNew
-      ? [
-          {
-            id: 'new',
-            label: newLabel ?? 'جديد',
-            disabled: false,
-            onClick: () => onNew(),
-          },
-        ]
-      : []),
+    {
+      id: 'new',
+      label: newLabel ?? 'جديد',
+      disabled: false,
+      onClick: startNewDocument,
+    },
     {
       id: 'edit',
       label: 'تعديل',

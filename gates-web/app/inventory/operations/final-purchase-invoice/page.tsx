@@ -195,9 +195,13 @@ function FinalPurchaseInvoicePageInner() {
   const aiDraftAppliedRef = useRef(false);
 
   useEffect(() => {
-    if (selectedInvoiceId) lockToView();
-    else setMode('create');
-  }, [lockToView, selectedInvoiceId, setMode]);
+    if (!selectedInvoiceId) {
+      setMode('create');
+      return;
+    }
+    if (isPosted) lockToView();
+    else setMode('edit');
+  }, [isPosted, lockToView, selectedInvoiceId, setMode]);
 
   useEffect(() => {
     if (aiDraftAppliedRef.current || !fromAiDraft || selectedInvoiceId) return;

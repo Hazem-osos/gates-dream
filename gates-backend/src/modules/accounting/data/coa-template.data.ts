@@ -269,6 +269,7 @@ const CORE_EGYPTIAN_COA: CoaTemplateRow[] = [
     englishName: 'Equity',
     accountType: 'equity',
     accountSide: 'credit',
+    parentCode: '2',
   },
   {
     code: '31',

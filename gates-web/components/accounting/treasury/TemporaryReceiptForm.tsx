@@ -14,6 +14,7 @@ import { useApiMutation, useApiQuery, useInvalidateQuery } from '@/lib/hooks/use
 import { apiClient } from '@/lib/api/client';
 import { toHijriDate } from '@/lib/hijri-date';
 import type { ApiError } from '@/lib/api/types';
+import { onFieldErrors } from '@/lib/forms/on-field-errors';
 import {
   treasuryTempReceiptFormSchema,
   type TreasuryTempReceiptFormInput,
@@ -257,7 +258,7 @@ function TemporaryReceiptFormInner() {
         dateError={Boolean(errors.date)}
         savePending={saving}
         canSave={!isReadOnly}
-        onSave={() => void handleSubmit(onValid)()}
+        onSave={() => void handleSubmit(onValid, onFieldErrors(setError))()}
         onBrowseList={() => setBrowseOpen(true)}
         onEdit={unlockForEdit}
         onPrint={handlePrint}
@@ -361,7 +362,7 @@ function TemporaryReceiptFormInner() {
         currencyCode={selectedCurrency?.code}
         isSubmitting={saving}
         canSave={!isReadOnly}
-        onSave={() => void handleSubmit(onValid)()}
+        onSave={() => void handleSubmit(onValid, onFieldErrors(setError))()}
         onCancel={resetNew}
       />
 

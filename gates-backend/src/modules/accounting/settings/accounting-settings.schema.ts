@@ -18,6 +18,7 @@ export const accountingSettingsGeneralSchema = z.object({
   dueSecuritiesWarningDays: z.number().int().nonnegative().optional().nullable(),
   lockPostingBeforeDate: z.string().optional().nullable(),
   autoNumbering: z.boolean().optional(),
+  coaAutoNumbering: z.boolean().optional(),
   costMethod: z.enum(['average']).optional().nullable(),
   pricingCalculationBasis: z.enum(['SELECTED_UNIT_QTY', 'BASE_UNIT_QTY']).optional(),
   backupPath: z.string().optional().nullable(),

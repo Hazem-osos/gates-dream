@@ -16,8 +16,7 @@ export type WorkflowStatus =
 
 export type ApprovalRequirement =
   | 'HIGH_VALUE'
-  | 'CREDIT_LIMIT'
-  | 'MAKER_CHECKER_JOURNAL';
+  | 'CREDIT_LIMIT';
 
 export type ApprovalEvaluation = {
   entityType: DocumentEntityType;
@@ -33,7 +32,6 @@ export type ApprovalEvaluation = {
 };
 
 const SETTING_HIGH_VALUE = 'ApprovalHighValueThreshold';
-const SETTING_MAKER_CHECKER = 'ApprovalEnforceMakerCheckerJournal';
 const SETTING_CREDIT_LIMIT = 'ApprovalEnforceCreditLimit';
 
 export class ApprovalWorkflowService {
@@ -42,10 +40,6 @@ export class ApprovalWorkflowService {
     if (!raw) return 50_000;
     const n = Number(raw.replace(/,/g, ''));
     return Number.isFinite(n) ? n : 50_000;
-  }
-
-  async isMakerCheckerEnabled(companyId: string): Promise<boolean> {
-    return companySettingService.getFlag(companyId, SETTING_MAKER_CHECKER, true);
   }
 
   async isCreditLimitApprovalEnabled(companyId: string): Promise<boolean> {
@@ -140,29 +134,16 @@ export class ApprovalWorkflowService {
         workflowStatus: true,
         isPosted: true,
         isCancelled: true,
-        createdBy: true,
-        sourceType: true,
-        entryType: true,
       },
     });
     if (!entry) throw new AppError(404, 'Journal entry not found');
 
     const workflowStatus = this.normalizeStatus(entry.workflowStatus, entry.isPosted);
-    const requirements: ApprovalRequirement[] = [];
-    const manual =
-      !entry.sourceType ||
-      entry.entryType === 'MANUAL' ||
-      entry.entryType === 'manual' ||
-      entry.sourceType === 'GL';
-    if (manual && (await this.isMakerCheckerEnabled(companyId))) {
-      requirements.push('MAKER_CHECKER_JOURNAL');
-    }
-
     return this.buildEvaluation(
       'JOURNAL_ENTRY',
       entry.id,
       workflowStatus,
-      requirements.length > 0,
+      false,
       entry.isCancelled
     );
   }
@@ -270,22 +251,10 @@ export class ApprovalWorkflowService {
     }
   }
 
-  async assertCanPostJournal(companyId: string, journalEntryId: string, actorUserId: string) {
+  async assertCanPostJournal(companyId: string, journalEntryId: string, _actorUserId?: string) {
     const ev = await this.evaluateJournal(companyId, journalEntryId);
     if (!ev.canPost) {
       throw new AppError(422, ev.blockReason ?? 'Journal entry cannot be posted in current workflow state');
-    }
-
-    const entry = await prisma.journalEntry.findFirst({
-      where: { id: journalEntryId, companyId },
-      select: { createdBy: true },
-    });
-    if (
-      entry &&
-      (await this.isMakerCheckerEnabled(companyId)) &&
-      entry.createdBy === actorUserId
-    ) {
-      throw new AppError(403, 'Maker-Checker: لا يمكنك ترحيل قيد أنشأته بنفسك');
     }
   }
 
@@ -357,16 +326,6 @@ export class ApprovalWorkflowService {
     const ev = await this.evaluateEntity(companyId, entityType, entityId);
     if (!ev.canApprove) {
       throw new AppError(422, 'Document is not awaiting approval');
-    }
-
-    if (entityType === 'JOURNAL_ENTRY' && (await this.isMakerCheckerEnabled(companyId))) {
-      const entry = await prisma.journalEntry.findFirst({
-        where: { id: entityId, companyId },
-        select: { createdBy: true },
-      });
-      if (entry?.createdBy === approverUserId) {
-        throw new AppError(403, 'Maker-Checker: لا يمكنك اعتماد قيد أنشأته بنفسك');
-      }
     }
 
     const now = new Date();

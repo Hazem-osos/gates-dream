@@ -24,6 +24,7 @@ import {
   type InventoryOpeningStockHeaderFormInput,
 } from '@/lib/validation/inventory.schema';
 import type { ApiError } from '@/lib/api/types';
+import { onFieldErrors } from '@/lib/forms/on-field-errors';
 import { OpeningStockHeader } from './OpeningStockHeader';
 import { OpeningStockLinesTable } from './OpeningStockLinesTable';
 import { OpeningStockStickyFooter } from './OpeningStockStickyFooter';
@@ -292,7 +293,7 @@ function OpeningStockFormInner() {
   const onSave = () => {
     void handleSubmit(async () => {
       await persistDraft();
-    })();
+    }, onFieldErrors(setError))();
   };
 
   const handleAddRow = () => {

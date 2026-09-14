@@ -82,7 +82,7 @@ function MarketingDocument({ children }: { children: React.ReactNode }) {
       data-locale={locale}
       dir={dir}
     >
-      <a className="gates-skip" href="#gates-system">
+      <a className="gates-skip" href="#opening">
         {copy.nav.skip}
       </a>
       <ScrollProgress />

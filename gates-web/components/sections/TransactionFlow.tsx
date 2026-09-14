@@ -10,20 +10,20 @@ import { SectionLabel } from '../ui/SectionLabel';
 export function TransactionFlow() {
   const { locale, copy } = useMarketingLocale();
   const sectionRef = useRef<HTMLElement>(null);
+  const sheetRef = useRef<HTMLDivElement>(null);
   const tokenRef = useRef<HTMLDivElement>(null);
-  const railRef = useRef<HTMLDivElement>(null);
-  const coreRef = useRef<HTMLDivElement>(null);
+  const trackRef = useRef<HTMLDivElement>(null);
   const closerRef = useRef<HTMLParagraphElement>(null);
   const headlineRef = useRef<HTMLDivElement>(null);
   const stationRefs = useRef<(HTMLDivElement | null)[]>([]);
-  const pulseRefs = useRef<(SVGCircleElement | null)[]>([]);
+  const pulseRefs = useRef<(HTMLSpanElement | null)[]>([]);
 
   useLayoutEffect(() => {
     registerGsapPlugins();
     const section = sectionRef.current;
-    const rail = railRef.current;
+    const track = trackRef.current;
     const token = tokenRef.current;
-    if (!section || !rail || !token) return;
+    if (!section || !track || !token) return;
 
     const ctx = gsap.context(() => {
       const mm = gsap.matchMedia();
@@ -38,24 +38,29 @@ export function TransactionFlow() {
           const compact = Boolean(media.conditions?.mobile);
           const reduced = Boolean(media.conditions?.reduce);
           const stations = stationRefs.current.filter(Boolean) as HTMLDivElement[];
-          const pulses = pulseRefs.current.filter(Boolean) as SVGCircleElement[];
-          const dir = locale === 'ar' ? -1 : 1;
+          const pulses = pulseRefs.current.filter(Boolean) as HTMLSpanElement[];
 
           const travel = () => {
-            const max = rail.offsetWidth - token.offsetWidth;
-            return dir * Math.max(0, max);
+            const last = stations[stations.length - 1];
+            if (!last) return 0;
+            const trackBox = track.getBoundingClientRect();
+            const lastBox = last.getBoundingClientRect();
+            const tokenW = token.offsetWidth;
+            const startX = locale === 'ar' ? trackBox.width - tokenW : 0;
+            const endX = lastBox.left - trackBox.left + lastBox.width / 2 - tokenW / 2;
+            return endX - startX;
           };
 
-          gsap.set(token, { yPercent: -50, x: 0 });
-          gsap.set(stations, { opacity: compact ? 0.35 : 0.22 });
-          gsap.set(pulses, { opacity: 0 });
-          gsap.set(closerRef.current, { opacity: 0, y: 20 });
-          gsap.set(coreRef.current, { scale: 1 });
+          gsap.set(sheetRef.current, { yPercent: 0, opacity: 1 });
+          gsap.set(token, { yPercent: -50, x: 0, y: 0 });
+          gsap.set(stations, { opacity: compact ? 0.4 : 0.38, scale: 0.98 });
+          gsap.set(pulses, { opacity: 0, scale: 0.4 });
+          gsap.set(closerRef.current, { opacity: 0, y: 16 });
           gsap.set(headlineRef.current, { opacity: 1, y: 0 });
 
           if (reduced) {
-            gsap.set(token, { yPercent: -50, x: travel() * 0.55 });
-            gsap.set(stations, { opacity: 1 });
+            gsap.set(token, { x: travel() });
+            gsap.set(stations, { opacity: 1, scale: 1 });
             gsap.set(closerRef.current, { opacity: 1, y: 0 });
             emitNavTheme('light');
             return;
@@ -67,36 +72,26 @@ export function TransactionFlow() {
               trigger: section,
               start: 'top top',
               end: 'bottom bottom',
-              scrub: compact ? 0.3 : 0.65,
+              scrub: compact ? 0.15 : 0.2,
               invalidateOnRefresh: true,
               onEnter: () => emitNavTheme('light'),
               onEnterBack: () => emitNavTheme('light'),
             },
           });
 
-          // 0–12% sale sits at origin
-          tl.to(token, { x: 0, duration: 0.12 }, 0);
-
-          // 12–88% token travels the GATES rail; stations ignite in sequence
-          tl.to(token, { x: travel, duration: 0.76, ease: 'power1.inOut' }, 0.12);
-          tl.to(coreRef.current, { scale: compact ? 1.06 : 1.12, duration: 0.2 }, 0.38);
+          tl.to(token, { x: travel, duration: 0.62 }, 0.04);
 
           stations.forEach((station, i) => {
-            const at = 0.18 + i * 0.13;
-            tl.to(station, { opacity: 1, duration: 0.06 }, at);
+            const at = 0.04 + (i / Math.max(1, stations.length - 1)) * 0.58;
+            tl.to(station, { opacity: 1, scale: 1, duration: 0.06 }, at);
             if (pulses[i]) {
-              tl.fromTo(
-                pulses[i],
-                { opacity: 0, attr: { r: 2 } },
-                { opacity: 1, attr: { r: 7 }, duration: 0.08 },
-                at
-              );
-              tl.to(pulses[i], { opacity: 0, duration: 0.08 }, at + 0.08);
+              tl.fromTo(pulses[i], { opacity: 0, scale: 0.4 }, { opacity: 1, scale: 1, duration: 0.05 }, at);
+              tl.to(pulses[i], { opacity: 0.2, duration: 0.06 }, at + 0.06);
             }
           });
 
-          tl.to(headlineRef.current, { opacity: 0.2, y: compact ? -8 : -16, duration: 0.1 }, 0.84);
-          tl.to(closerRef.current, { opacity: 1, y: 0, duration: 0.12 }, 0.86);
+          tl.to(headlineRef.current, { opacity: 0.75, duration: 0.08 }, 0.78);
+          tl.to(closerRef.current, { opacity: 1, y: 0, duration: 0.1 }, 0.72);
         }
       );
     }, section);
@@ -108,68 +103,53 @@ export function TransactionFlow() {
     <section
       ref={sectionRef}
       id="solutions"
-      className="relative h-[200vh] overflow-x-hidden bg-[var(--background)] text-[var(--foreground)] md:h-[300vh]"
+      className="relative h-[220vh] overflow-x-hidden bg-[#061826] text-[var(--gates-ink)] md:h-[260vh]"
       aria-label={copy.transaction.headlineLine1}
     >
-      <div className="sticky top-0 flex h-[100svh] flex-col overflow-hidden px-5 pb-8 pt-24 md:px-12 md:pt-28">
+      <div
+        ref={sheetRef}
+        className="sticky top-0 flex h-[100svh] flex-col overflow-hidden bg-[#f7fbfd] px-5 pb-10 pt-24 md:px-12 md:pt-28"
+      >
         <div ref={headlineRef} className="mx-auto w-full max-w-[88rem]">
           <SectionLabel index="03">{copy.transaction.eyebrow}</SectionLabel>
-          <h2 className="mt-5 max-w-[14ch] font-editorial text-[clamp(2.4rem,6vw,6.5rem)] leading-[0.9] tracking-[-0.04em]">
+          <h2 className="mt-5 max-w-[14ch] text-[clamp(2.2rem,5.2vw,4.8rem)] font-semibold leading-[1.04] tracking-[-0.03em]">
             <span className="block">{copy.transaction.headlineLine1}</span>
-            <span className="block">{copy.transaction.headlineLine2}</span>
+            <span className="block text-[var(--gates-blue)]">{copy.transaction.headlineLine2}</span>
           </h2>
         </div>
 
-        <div className="relative mx-auto flex w-full max-w-[88rem] flex-1 flex-col justify-center">
-          <div className="mb-6 flex items-center justify-between gap-4 md:mb-10">
-            <p className="font-mono text-[0.62rem] tracking-[0.22em] text-[var(--foreground)]/40">
-              {copy.transaction.sale}
-            </p>
-            <div
-              ref={coreRef}
-              className="border border-[var(--foreground)]/20 px-4 py-2 font-mono text-[0.68rem] tracking-[0.28em]"
-            >
-              {copy.transaction.core}
-            </div>
-          </div>
-
-          <div ref={railRef} className="relative h-16 md:h-20">
-            <div className="absolute inset-x-0 top-1/2 h-px -translate-y-1/2 bg-[var(--foreground)]/15" />
-            <svg className="pointer-events-none absolute inset-0 h-full w-full" aria-hidden>
-              {TRANSACTION_STATIONS.map((station, i) => (
-                <circle
-                  key={station.id}
-                  ref={(el) => {
-                    pulseRefs.current[i] = el;
-                  }}
-                  cx={`${18 + i * 16}%`}
-                  cy="50%"
-                  r="2"
-                  fill="var(--accent)"
-                />
-              ))}
-            </svg>
+        <div ref={trackRef} className="relative mx-auto flex w-full max-w-[92rem] flex-1 flex-col justify-center">
+          <div className="relative mb-6 hidden h-14 md:block">
+            <div className="absolute inset-x-[8%] top-1/2 h-1.5 -translate-y-1/2 rounded-full bg-[#d7eaf4]" />
+            <div className="absolute inset-x-[8%] top-1/2 h-1.5 -translate-y-1/2 rounded-full bg-[#0b6fa4]/25" />
             <div
               ref={tokenRef}
-              className="absolute start-0 top-1/2 z-10 flex h-10 items-center border border-[var(--foreground)] bg-[var(--background)] px-3 font-mono text-[0.58rem] tracking-[0.16em] md:h-12 md:px-4"
+              className="absolute start-0 top-1/2 z-10 flex h-12 w-12 items-center justify-center rounded-full bg-[#0b6fa4] text-[0.72rem] font-semibold text-white shadow-[0_16px_36px_rgba(11,111,164,0.4)]"
             >
-              {copy.transaction.sale}
+              G
             </div>
           </div>
 
-          <div className="mt-8 grid grid-cols-2 gap-3 md:mt-12 md:grid-cols-5 md:gap-5">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-6">
             {TRANSACTION_STATIONS.map((station, i) => (
               <div
                 key={station.id}
                 ref={(el) => {
                   stationRefs.current[i] = el;
                 }}
-                className="border border-[var(--foreground)]/12 px-3 py-3 md:px-4 md:py-4"
+                className="relative rounded-2xl border border-[#d7eaf4] bg-white px-4 py-5 shadow-[0_18px_48px_rgba(7,27,43,0.07)]"
               >
-                <p className="font-mono text-[0.58rem] tracking-[0.18em] text-[var(--foreground)]/40">
+                <span
+                  ref={(el) => {
+                    pulseRefs.current[i] = el;
+                  }}
+                  className="absolute -top-2 end-5 h-3.5 w-3.5 rounded-full bg-[#1499d6] shadow-[0_0_16px_rgba(20,153,214,0.55)]"
+                />
+                <p className="text-[0.72rem] font-semibold text-[#0b6fa4]">{station.index}</p>
+                <p className="mt-2 text-[1.05rem] font-semibold leading-snug text-[#0b1620] md:text-[1.02rem]">
                   {station.label[locale]}
                 </p>
-                <p className="mt-2 text-sm md:text-base">{station.detail[locale]}</p>
+                <p className="mt-2 text-[0.8rem] text-[#4d6472]">{station.detail[locale]}</p>
               </div>
             ))}
           </div>
@@ -177,7 +157,7 @@ export function TransactionFlow() {
 
         <p
           ref={closerRef}
-          className="mx-auto max-w-[88rem] font-editorial text-[clamp(1.4rem,3vw,2.4rem)] tracking-[-0.03em] text-[var(--foreground)]"
+          className="mx-auto max-w-[88rem] text-[clamp(1.2rem,2.4vw,1.9rem)] font-medium tracking-[-0.02em] text-[var(--gates-navy)]"
         >
           {copy.transaction.closer}
         </p>

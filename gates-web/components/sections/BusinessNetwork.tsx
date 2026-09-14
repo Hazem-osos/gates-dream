@@ -12,8 +12,8 @@ const CORE = { x: 50, y: 50 };
 function curve(x: number, y: number) {
   const mx = (CORE.x + x) / 2;
   const my = (CORE.y + y) / 2;
-  const ox = mx + (CORE.y - y) * 0.12;
-  const oy = my + (x - CORE.x) * 0.12;
+  const ox = Number((mx + (CORE.y - y) * 0.12).toFixed(3));
+  const oy = Number((my + (x - CORE.x) * 0.12).toFixed(3));
   return `M ${CORE.x} ${CORE.y} Q ${ox} ${oy} ${x} ${y}`;
 }
 

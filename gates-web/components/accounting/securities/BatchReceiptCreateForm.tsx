@@ -20,6 +20,7 @@ import SuccessToast from '@/components/SuccessToast';
 import { useApiMutation, useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
 import { useCurrenciesQuery } from '@/lib/hooks/useMasterDataQueries';
 import type { ApiError } from '@/lib/api/types';
+import { onFieldErrors } from '@/lib/forms/on-field-errors';
 import { toHijriDate } from '@/lib/hijri-date';
 import {
   securitiesBulkCreateHeaderFormSchema,
@@ -235,7 +236,7 @@ export function BatchReceiptCreateForm() {
           description: line.description.trim() || values.notes?.trim() || undefined,
         })),
       });
-    })();
+    }, onFieldErrors(setError))();
   };
 
   return (

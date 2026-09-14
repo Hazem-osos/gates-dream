@@ -37,10 +37,10 @@ export function MagneticButton({ href, children, variant = 'solid', className = 
       ? 'bg-[var(--foreground)] text-[var(--background)] hover:opacity-80'
       : variant === 'inverse'
         ? 'bg-[var(--text-inverse)] text-[var(--surface-ink)] hover:opacity-80'
-        : variant === 'brand'
-          ? 'bg-[var(--gates-blue)] text-[var(--gates-white)] hover:opacity-90'
+        :         variant === 'brand'
+          ? 'bg-[var(--gates-blue)] text-[var(--gates-white)] hover:scale-[1.03] hover:bg-[var(--gates-blue-strong)]'
           : variant === 'brand-ghost'
-            ? 'border border-[var(--gates-blue)]/45 bg-transparent text-[var(--gates-navy)] hover:border-[var(--gates-blue)] hover:bg-[var(--gates-blue)] hover:text-[var(--gates-white)]'
+            ? 'border border-[var(--gates-blue)] bg-white text-[var(--gates-navy)] hover:scale-[1.03] hover:border-[var(--gates-blue-strong)] hover:bg-[var(--gates-blue-soft)]'
             : 'border border-current bg-transparent hover:bg-[var(--foreground)] hover:text-[var(--background)]';
 
   return (
@@ -49,7 +49,7 @@ export function MagneticButton({ href, children, variant = 'solid', className = 
       href={href}
       onMouseMove={onMove}
       onMouseLeave={onLeave}
-      className={`inline-flex items-center gap-3 px-6 py-3 text-[0.78rem] font-medium uppercase tracking-[0.18em] transition-colors duration-300 ${styles} ${className}`}
+      className={`inline-flex items-center gap-3 rounded-full px-6 py-3 text-[0.8rem] font-medium transition duration-300 ${styles} ${className}`}
     >
       {children}
       <span aria-hidden className="gates-arrow inline-block transition-transform duration-300">

@@ -42,7 +42,7 @@ type Props = {
 export function DocumentHeaderBar(props: Props) {
   const mode = useOptionalDocumentMode();
   const saveLabel =
-    props.saveLabel ?? (mode?.isEditing ? 'حفظ التعديلات' : mode?.isCreating ? 'حفظ المستند' : 'حفظ');
+    props.saveLabel ?? (mode?.isEditing ? 'حفظ التعديلات' : 'حفظ');
 
   return (
     <div data-tour="document-header">

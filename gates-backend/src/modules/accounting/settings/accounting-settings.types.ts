@@ -21,6 +21,7 @@ export type AccountingSettingsGeneral = {
   dueSecuritiesWarningDays: number | null;
   lockPostingBeforeDate: string | null;
   autoNumbering: boolean;
+  coaAutoNumbering: boolean;
   costMethod: string | null;
   pricingCalculationBasis: string;
   backupPath: string | null;

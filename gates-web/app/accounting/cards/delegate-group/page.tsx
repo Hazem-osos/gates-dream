@@ -10,6 +10,8 @@ import {
   FormStickyFooter,
   FormSectionCard,
 } from '@/components/ui';
+import ErrorToast from '@/components/ErrorToast';
+import SuccessToast from '@/components/SuccessToast';
 
 const EMPTY_FORM = {
   serial: '',
@@ -20,9 +22,39 @@ const EMPTY_FORM = {
 export default function DelegateGroupPage() {
   useBackendReachability();
   const [formData, setFormData] = useState(EMPTY_FORM);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  const [saving, setSaving] = useState(false);
 
   const handleCancel = () => {
     setFormData(EMPTY_FORM);
+    setError('');
+    setSuccess('');
+  };
+
+  const handleSave = () => {
+    if (!formData.arabicName.trim()) {
+      setSuccess('');
+      setError('أدخل الاسم العربي لمجموعة المندوبين قبل الحفظ');
+      return;
+    }
+    setError('');
+    setSaving(true);
+    try {
+      const key = 'gates:delegate-groups';
+      const raw = window.localStorage.getItem(key);
+      const existing = raw ? (JSON.parse(raw) as Array<typeof EMPTY_FORM>) : [];
+      const next = [
+        ...existing.filter((row) => row.serial !== formData.serial || !formData.serial),
+        { ...formData },
+      ];
+      window.localStorage.setItem(key, JSON.stringify(next));
+      setSuccess('تم حفظ مجموعة المندوبين');
+    } catch {
+      setError('تعذر حفظ مجموعة المندوبين');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const advancedFilledCount = [formData.englishName].filter((v) => String(v ?? '').trim().length > 0).length;
@@ -65,8 +97,16 @@ export default function DelegateGroupPage() {
           </div>
         </AdvancedFieldsSection>
 
-        <FormStickyFooter onCancel={handleCancel} onSave={() => {}} status="مسودة" />
+        <FormStickyFooter
+          onCancel={handleCancel}
+          onSave={handleSave}
+          saveLoading={saving}
+          status={success ? 'محفوظ' : 'مسودة'}
+        />
       </form>
+
+      {error ? <ErrorToast message={error} onClose={() => setError('')} /> : null}
+      {success ? <SuccessToast message={success} onClose={() => setSuccess('')} /> : null}
     </div>
   );
 }

@@ -71,6 +71,7 @@ import {
 } from '@/lib/treasury/financial-voucher.variant';
 import { consumeAiTransactionDraft, peekAiTransactionDraft } from '@/lib/ai/ai-draft-storage';
 import { useAccountingSettingsQuery } from '@/lib/hooks/useAccountingSettings';
+import { onFieldErrors } from '@/lib/forms/on-field-errors';
 import {
   formatTreasuryBalanceLabel,
   isCashAmountOverBalance,
@@ -259,27 +260,29 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
     (id: string | null) => {
       setSavedVoucherId(id);
       if (id) {
-        lockToView();
         router.replace(`${pathname}?id=${id}`, { scroll: false });
       } else {
         router.replace(pathname, { scroll: false });
       }
     },
-    [lockToView, pathname, router]
+    [pathname, router]
   );
 
   useEffect(() => {
     const id = idFromUrl?.trim();
     if (id && id !== savedVoucherId) {
       setSavedVoucherId(id);
-      lockToView();
     }
-  }, [idFromUrl, lockToView, savedVoucherId]);
+  }, [idFromUrl, savedVoucherId]);
 
   useEffect(() => {
-    if (savedVoucherId) lockToView();
-    else setMode('create');
-  }, [lockToView, savedVoucherId, setMode]);
+    if (!savedVoucherId) {
+      setMode('create');
+      return;
+    }
+    if (isPosted || isCancelled) lockToView();
+    else setMode('edit');
+  }, [isCancelled, isPosted, lockToView, savedVoucherId, setMode]);
 
   const {
     register,
@@ -452,7 +455,8 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
           setJournalNumber(row.journalEntry?.voucherNumber ?? null);
           setIsEditing(false);
           lastHydratedIdRef.current = row.id;
-          lockToView();
+          if (row.isPosted) lockToView();
+          else setMode('edit');
           router.replace(`${pathname}?id=${row.id}`, { scroll: false });
         }
         setSuccess(row?.isPosted ? `تم حفظ وترحيل ${variant.title} تلقائياً` : `تم حفظ ${variant.title} بنجاح`);
@@ -486,7 +490,8 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
           setJournalNumber(row.journalEntry?.voucherNumber ?? journalNumber);
           setIsEditing(false);
           lastHydratedIdRef.current = row.id;
-          lockToView();
+          if (row.isPosted) lockToView();
+          else setMode('edit');
         }
         setSuccess(`تم حفظ تعديلات ${variant.title} بنجاح`);
         invalidateQuery(['treasury-cash-transactions']);
@@ -582,7 +587,8 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
     setIsCancelled(asTemplate ? false : Boolean(row.isCancelled));
     setIsEditing(asTemplate);
     if (asTemplate) setMode('create');
-    else lockToView();
+    else if (row.isPosted || row.isCancelled) lockToView();
+    else setMode('edit');
     setJournalEntryId(asTemplate ? null : row.journalEntryId ?? row.journalEntry?.id ?? null);
     setJournalNumber(asTemplate ? null : row.journalEntry?.voucherNumber ?? null);
     setValue('voucherNumber', row.voucherNumber ?? '', { shouldValidate: false });
@@ -914,7 +920,7 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
         return;
       }
       saveMutation.mutate(payload);
-    })();
+    }, onFieldErrors(setError))();
   };
 
   const voucherPrintLines = voucherLines.map((line) => {
@@ -982,6 +988,15 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
         statusTone={isCancelled ? 'danger' : isPosted ? 'success' : 'warning'}
         statusLabel={voucherStatusLabel}
         onSaveDraft={onSave}
+        saveLabel={
+          isEditing && savedVoucherId
+            ? 'حفظ التعديلات'
+            : isBankDebit
+              ? 'حفظ إشعار الخصم'
+              : isBankCredit
+                ? 'حفظ إشعار الإضافة'
+                : 'حفظ السند'
+        }
         savePending={financialBusy}
         canSave={!isReadOnly && !isPosted && !isCancelled && !financialBusy}
         hideStandalonePost
@@ -1013,7 +1028,7 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
           isCancelled,
           hidePostActions: true,
           onNew: resetForm,
-          newLabel: 'سند جديد',
+          newLabel: 'جديد',
           onEdit: () => {
             if (isPosted) {
               setError('السند مرحّل ومثبت محاسبياً ولا يمكن تعديله');

@@ -9,11 +9,11 @@ export const EASE = {
 
 export const CONNECTED = {
   desktopVh: 280,
-  mobileVh: 200,
+  mobileVh: 220,
 } as const;
 
 export const TRANSACTION = {
-  desktopVh: 300,
+  desktopVh: 240,
   mobileVh: 200,
 } as const;
 
@@ -32,21 +32,66 @@ export const GATES_AI = {
   mobileVh: 200,
 } as const;
 
+/** First cinematic act: intro → sale → inventory → accounting → system reveal. */
+export const OPENING = {
+  desktopVh: 860,
+  mobileVh: 680,
+  phases: {
+    introEnd: 0.12,
+    saleEnd: 0.34,
+    inventoryEnd: 0.54,
+    accountingEnd: 0.72,
+    revealEnd: 1,
+  },
+} as const;
+
+/** Second act: enter GATES → product camera → HQ → locations. Stops before Egypt map. */
+export const PRODUCT_SCALE = {
+  desktopVh: 740,
+  mobileVh: 580,
+  phases: {
+    enterEnd: 0.14,
+    dashSettleEnd: 0.28,
+    salesEnd: 0.42,
+    inventoryEnd: 0.56,
+    accountingEnd: 0.70,
+    understandEnd: 0.80,
+    hqEnd: 0.88,
+    locationsEnd: 1,
+  },
+} as const;
+
+/** Third act: after the connected sale — retail, briefing, draft, live network. */
+export const COMPANY_STORY = {
+  desktopVh: 660,
+  mobileVh: 520,
+  phases: {
+    holdEnd: 0.03,
+    retailEnd: 0.12,
+    tokenEnd: 0.26,
+    briefingEnd: 0.33,
+    investigateEnd: 0.48,
+    draftEnd: 0.6,
+    purchaseEnd: 0.71,
+    decisionEnd: 0.79,
+    networkEnd: 0.91,
+    osEnd: 1,
+  },
+} as const;
+
 export const HERO = {
-  desktopVh: 400,
-  mobileVh: 260,
+  desktopVh: 420,
+  mobileVh: 280,
   /** Scroll ranges as fractions of the hero pin — one master GSAP timeline. */
   phases: {
-    /** 0–12%: white stage, headline, inactive Gates Engine. */
+    /** 0–12%: headline + partially assembled platform. */
     stillEnd: 0.12,
-    /** 12–63%: modules travel + dock one at a time (per-module phases live in data/modules.ts). */
-    dockEnd: 0.63,
-    /** 63–72%: modules compress toward the core into one connected machine. */
-    compressEnd: 0.72,
-    /** 72–82%: 2.5D rotate/scale reveal of the GATES word behind the machine. */
-    rotateEnd: 0.82,
-    /** 82–92%: machine morphs into the browser-like ERP dashboard. */
-    dashboardEnd: 0.92,
+    /** 12–38%: module panels arrive as UI layers. */
+    dockEnd: 0.38,
+    /** 38–58%: panels assemble into one interface. */
+    compressEnd: 0.58,
+    /** 58–88%: assembled system becomes a production dashboard. */
+    dashboardEnd: 0.88,
     finish: 1,
   },
 } as const;

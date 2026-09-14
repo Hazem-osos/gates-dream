@@ -13,6 +13,8 @@ export type CoaHierarchyAccount = {
   type?: 'HEADER' | 'DETAIL';
   accountType?: string;
   currentBalance?: number;
+  defaultCostCenterId?: string | null;
+  costCenterRequired?: string | null;
   children?: CoaHierarchyAccount[];
 };
 

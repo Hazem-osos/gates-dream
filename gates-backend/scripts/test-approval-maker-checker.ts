@@ -1,8 +1,7 @@
 /**
- * Maker-Checker: creator cannot approve their own manual journal when policy is on.
+ * Creator may approve and post their own journal. Self-approval is allowed.
  * Run: npm run test:approval-maker-checker
  */
-import { PrismaClient } from '@prisma/client';
 import { approvalWorkflowService } from '../src/modules/accounting/services/approval-workflow.service.js';
 import { journalPostingService } from '../src/modules/accounting/services/journal-posting.service.js';
 import prisma from '../src/shared/database/prisma.js';
@@ -50,7 +49,7 @@ async function main() {
   const entry = await journalPostingService.createJournalEntry(ctx, {
     date: new Date(),
     currencyCode: 'EGP',
-    description: `Maker-checker test ${Date.now()}`,
+    description: `Self-approval test ${Date.now()}`,
     lines: [
       { accountId: accounts[0].id, debit: 100, credit: 0, lineOrder: 1 },
       { accountId: accounts[1].id, debit: 0, credit: 100, lineOrder: 2 },
@@ -59,20 +58,26 @@ async function main() {
 
   assert(!!entry, 'Journal created');
 
-  await approvalWorkflowService.submit(COMPANY_ID, 'JOURNAL_ENTRY', entry!.id, makerId);
+  const before = await approvalWorkflowService.evaluateJournal(COMPANY_ID, entry!.id);
+  assert(before.canPost, 'Creator can post their own journal without a second approver');
 
-  let blocked = false;
-  try {
-    await approvalWorkflowService.approve(COMPANY_ID, 'JOURNAL_ENTRY', entry!.id, makerId);
-  } catch (e) {
-    blocked = e instanceof Error && e.message.includes('Maker-Checker');
-  }
-  assert(blocked, 'Self-approval must be blocked');
+  await prisma.journalEntry.update({
+    where: { id: entry!.id },
+    data: { workflowStatus: 'PENDING_APPROVAL' },
+  });
+
+  const approved = await approvalWorkflowService.approve(
+    COMPANY_ID,
+    'JOURNAL_ENTRY',
+    entry!.id,
+    makerId
+  );
+  assert(approved.workflowStatus === 'APPROVED', 'Creator can approve their own journal');
 
   await prisma.journalEntryLine.deleteMany({ where: { journalEntryId: entry!.id } });
   await prisma.journalEntry.delete({ where: { id: entry!.id } });
 
-  console.log('Approval maker-checker OK');
+  console.log('Self-approval allowed');
 }
 
 main()

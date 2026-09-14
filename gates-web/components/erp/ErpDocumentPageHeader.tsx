@@ -42,6 +42,7 @@ type Props = {
   onCancel?: () => void;
   cancelLabel?: string;
   saveLabel?: string;
+  saveDisabledHint?: string;
   postLabel?: string;
   savePending?: boolean;
   postPending?: boolean;
@@ -84,7 +85,8 @@ export function ErpDocumentPageHeader({
   docNumber,
   statusTone,
   statusLabel,
-  saveLabel = 'حفظ مسودة',
+  saveLabel = 'حفظ',
+  saveDisabledHint,
   postLabel = 'ترحيل',
   savePending,
   postPending,
@@ -130,7 +132,7 @@ export function ErpDocumentPageHeader({
     : looksPosted
       ? 'المستند مرحل ومثبت محاسبياً. يجب إلغاء الترحيل أولاً من قائمة (...)'
       : !canSave
-        ? 'يرجى اختيار العميل وإضافة صنف واحد على الأقل في الجدول للحفظ'
+        ? saveDisabledHint || 'لا يمكن الحفظ الآن — أكمل البيانات المطلوبة أو انتظر انتهاء العملية'
         : undefined;
   const saveDisabled = Boolean(saveHint) || Boolean(savePending);
 
@@ -190,6 +192,7 @@ export function ErpDocumentPageHeader({
         </div>
 
         <div className={`${formActionPairClass} shrink-0`}>
+          <div data-gates-page-header-actions className="contents" />
           {onBrowseList ? (
             <DocumentPreviousBrowser
               onOpenList={onBrowseList}

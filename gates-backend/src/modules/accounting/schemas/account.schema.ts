@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 export const createAccountSchema = z.object({
-  code: z.string().min(1, 'Account code is required'),
+  code: z.string().trim().optional().or(z.literal('')),
   arabicName: z.string().min(1, 'Arabic name is required'),
   englishName: z.string().optional(),
   accountType: z.string().optional(),
@@ -11,6 +11,7 @@ export const createAccountSchema = z.object({
   statementType: z.enum(['BALANCE_SHEET', 'INCOME_STATEMENT']).optional(),
   costCenterRequired: z.enum(['إجباري', 'اختياري', 'بدون']).optional().nullable(),
   requiresCostCenter: z.boolean().optional(),
+  defaultCostCenterId: z.string().uuid().optional().nullable(),
   warning: z.enum(['مدين', 'دائن', 'بدون']).optional().nullable(),
   budget: z.number().nonnegative().optional().nullable(),
   currencyCode: z.string().optional().nullable(),

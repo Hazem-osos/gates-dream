@@ -38,7 +38,7 @@ export function FormStickyFooter({
   onSaveDraft,
   cancelText = 'تراجع',
   saveText = 'حفظ',
-  draftText = 'حفظ مسودة',
+  draftText = 'حفظ',
   saveDisabled,
   cancelDisabled,
   saveLoading,

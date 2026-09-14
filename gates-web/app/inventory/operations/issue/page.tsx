@@ -37,6 +37,7 @@ import {
   type InventoryWarehouseDocHeaderFormInput,
 } from '@/lib/validation/inventory.schema';
 import type { ApiError } from '@/lib/api/types';
+import { onFieldErrors } from '@/lib/forms/on-field-errors';
 import { useIssueTourPrepare } from '@/lib/onboarding/useIssueTourPrepare';
 import { consumeAiTransactionDraft } from '@/lib/ai/ai-draft-storage';
 import { invoiceDateFromDraft, issueLinesFromAiDraft } from '@/lib/ai/hydrate-ai-draft';
@@ -145,9 +146,13 @@ function IssuePageInner() {
   const aiDraftAppliedRef = useRef(false);
 
   useEffect(() => {
-    if (selectedIssueId) lockToView();
-    else setMode('create');
-  }, [lockToView, selectedIssueId, setMode]);
+    if (!selectedIssueId) {
+      setMode('create');
+      return;
+    }
+    if (isPosted) lockToView();
+    else setMode('edit');
+  }, [isPosted, lockToView, selectedIssueId, setMode]);
 
   useEffect(() => {
     if (aiDraftAppliedRef.current || !fromAiDraft || selectedIssueId) return;
@@ -446,7 +451,8 @@ function IssuePageInner() {
         docNumber={watch('serialNumber') || ''}
         statusTone={isPosted ? 'success' : 'warning'}
         statusLabel={isPosted ? 'مرحّل' : 'مسودة'}
-        onSaveDraft={() => void handleSubmit(onSaveValid)()}
+        saveLabel="حفظ"
+        onSaveDraft={() => void handleSubmit(onSaveValid, onFieldErrors(setError))()}
         onCancel={handleNew}
         cancelLabel="تراجع"
         onPost={() => handlePostUnpost(true)}
@@ -473,7 +479,8 @@ function IssuePageInner() {
           onPost: () => handlePostUnpost(true),
           onUnpost: () => handlePostUnpost(false),
           onVoid: handleDelete,
-          extraItems: [{ id: 'new', label: 'سند جديد', onClick: handleNew }],
+          onNew: handleNew,
+          newLabel: 'جديد',
         }}
       />
 
@@ -696,9 +703,6 @@ function IssuePageInner() {
 
       {isReadOnly ? null : (
       <FormStickyFooter
-        onCancel={handleNew}
-        onSave={() => void handleSubmit(onSaveValid)()}
-        saveLoading={loading}
         status={`${issueLines.length} بند · ${totalAmount.toLocaleString('ar-EG')} ج.م`}
       />
       )}

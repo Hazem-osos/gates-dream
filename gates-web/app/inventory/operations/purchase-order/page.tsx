@@ -26,6 +26,7 @@ import {
   type InventoryPurchaseOrderHeaderFormInput,
 } from '@/lib/validation/inventory.schema';
 import type { ApiError } from '@/lib/api/types';
+import { onFieldErrors } from '@/lib/forms/on-field-errors';
 
 import { InvoiceFinancialSummary } from '@/components/inventory/InvoiceFinancialSummary';
 import { computeInvoiceFinancialSummary } from '@/lib/invoices/computeInvoiceFinancialSummary';
@@ -667,7 +668,7 @@ export default function PurchaseOrderPage() {
                 tax: line.tax || 0,
               })),
             });
-          })()
+          }, onFieldErrors(setError))()
         }
         saveLoading={loading}
         extraActions={

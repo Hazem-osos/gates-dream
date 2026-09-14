@@ -118,6 +118,8 @@ export function PurchaseInvoicePageHeader({
       standardActions={{
         hasDocument: Boolean(currentId),
         isPosted: statusTone === 'success',
+        onNew,
+        newLabel: 'جديد',
         onEdit,
         onPost,
         onUnpost,
@@ -128,7 +130,6 @@ export function PurchaseInvoicePageHeader({
         voidPending: deletePending,
         whatsAppShare,
         extraItems: [
-          { id: 'new', label: 'فاتورة جديدة', onClick: onNew },
           { id: 'collect', label: 'سداد / دفع', onClick: onCollectPayment },
           { id: 'history', label: 'مدفوعات سابقة', onClick: onPaymentHistory },
           { id: 'journal', label: 'فتح القيد', onClick: onOpenJournal },

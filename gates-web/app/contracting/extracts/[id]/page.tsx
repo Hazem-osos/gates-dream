@@ -315,7 +315,7 @@ export default function ContractExtractEditorPage() {
                       disabled={postMutation.isPending}
                       onClick={() => void handleSave()}
                     >
-                      حفظ مسودة
+                      حفظ
                     </Button>
                     {!isNew && (
                       <Button

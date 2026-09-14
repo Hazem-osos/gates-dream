@@ -40,6 +40,7 @@ import {
   type InventoryTransferHeaderFormInput,
 } from '@/lib/validation/inventory.schema';
 import type { ApiError } from '@/lib/api/types';
+import { onFieldErrors } from '@/lib/forms/on-field-errors';
 
 
 interface TransferLine {
@@ -132,9 +133,13 @@ function TransferPageInner() {
   );
 
   useEffect(() => {
-    if (selectedTransferId) lockToView();
-    else setMode('create');
-  }, [lockToView, selectedTransferId, setMode]);
+    if (!selectedTransferId) {
+      setMode('create');
+      return;
+    }
+    if (statusPosted) lockToView();
+    else setMode('edit');
+  }, [lockToView, selectedTransferId, setMode, statusPosted]);
 
   const openTransfer = (id: string | null) => {
     setSelectedTransferId(id);
@@ -381,7 +386,8 @@ function TransferPageInner() {
         docNumber={watch('serialNumber') || ''}
         statusTone={statusPosted ? 'success' : 'warning'}
         statusLabel={statusPosted ? 'مرحّل' : 'مسودة'}
-        onSaveDraft={() => void handleSubmit(onSaveValid)()}
+        saveLabel="حفظ"
+        onSaveDraft={() => void handleSubmit(onSaveValid, onFieldErrors(setError))()}
         onCancel={handleNew}
         cancelLabel="تراجع"
         onPost={() => handlePostUnpost(true)}
@@ -409,7 +415,8 @@ function TransferPageInner() {
           onPost: () => handlePostUnpost(true),
           onUnpost: () => handlePostUnpost(false),
           onVoid: handleDelete,
-          extraItems: [{ id: 'new', label: 'سند جديد', onClick: handleNew }],
+          onNew: handleNew,
+          newLabel: 'جديد',
         }}
       />
 
@@ -646,9 +653,6 @@ function TransferPageInner() {
 
       {isReadOnly ? null : (
       <FormStickyFooter
-        onCancel={handleNew}
-        onSave={() => void handleSubmit(onSaveValid)()}
-        saveLoading={loading}
         status={`${transferLines.length} بند · ${totalAmount.toLocaleString('ar-EG')} ج.م`}
       />
       )}

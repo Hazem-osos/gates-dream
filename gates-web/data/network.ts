@@ -25,8 +25,8 @@ export const NETWORK_NODES: NetworkNode[] = [
 export function networkPoint(node: NetworkNode, cx = 50, cy = 50) {
   const rad = (node.angle * Math.PI) / 180;
   return {
-    x: cx + node.radius * Math.cos(rad),
-    y: cy + node.radius * Math.sin(rad),
+    x: Number((cx + node.radius * Math.cos(rad)).toFixed(3)),
+    y: Number((cy + node.radius * Math.sin(rad)).toFixed(3)),
   };
 }
 

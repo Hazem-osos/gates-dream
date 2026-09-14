@@ -234,6 +234,8 @@ export function SalesInvoicePageHeader(props: Props) {
         hasDocument: Boolean(currentId),
         isPosted: statusTone === 'success',
         isCancelled,
+        onNew: onNewInvoice,
+        newLabel: 'جديد',
         onEdit,
         onPost,
         onUnpost,
@@ -251,7 +253,7 @@ export function SalesInvoicePageHeader(props: Props) {
         duplicatePending,
         voidPending: deletePending,
         whatsAppShare: props.whatsAppShare,
-        extraItems: moreItems.filter((item) => !['unpost', 'delete', 'duplicate'].includes(item.id)),
+        extraItems: moreItems.filter((item) => !['new', 'unpost', 'delete', 'duplicate'].includes(item.id)),
       }}
       extraActions={currentId ? <WhatsAppShareButton kind="invoice" invoiceId={currentId} /> : undefined}
       moreTrigger={

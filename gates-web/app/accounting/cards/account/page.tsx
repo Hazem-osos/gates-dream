@@ -1,6 +1,6 @@
 "use client";
 import * as React from "react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Landmark } from "lucide-react";
 import UserPermissionsBar from "@/components/UserPermissionsBar";
 import {
@@ -17,6 +17,9 @@ import ErrorToast from "@/components/ErrorToast";
 import SuccessToast from "@/components/SuccessToast";
 import type { ApiError } from '@/lib/api/types';
 import { accountCardFormSchema } from '@/lib/validation/accounting.schema';
+import { CostCenterSelect } from '@/app/components/form/CostCenterSelect';
+import { useAccountingSettingsQuery } from '@/lib/hooks/useAccountingSettings';
+import { useSuggestAccountCode } from '@/lib/hooks/useChartOfAccounts';
 
 const EMPTY_ACCOUNT_FORM = {
   code: '',
@@ -28,6 +31,7 @@ const EMPTY_ACCOUNT_FORM = {
   accountNature: 'DEBIT' as 'DEBIT' | 'CREDIT',
   statementType: 'BALANCE_SHEET' as 'BALANCE_SHEET' | 'INCOME_STATEMENT',
   costCenterRequired: '' as 'إجباري' | 'اختياري' | 'بدون' | '',
+  defaultCostCenterId: '',
   requiresCostCenter: false,
   warning: '' as 'مدين' | 'دائن' | 'بدون' | '',
   budget: '',
@@ -52,9 +56,18 @@ function InputDesign() {
   const invalidateQuery = useInvalidateQuery();
   
   const [formData, setFormData] = useState({ ...EMPTY_ACCOUNT_FORM });
+  const { data: settingsRes } = useAccountingSettingsQuery();
+  const autoNumbering = settingsRes?.data?.general?.coaAutoNumbering !== false;
+  const { data: suggestRes } = useSuggestAccountCode(formData.parentId || null, true);
 
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+
+  useEffect(() => {
+    const suggested = suggestRes?.data?.code;
+    if (!suggested || !autoNumbering) return;
+    setFormData((prev) => (prev.code === suggested ? prev : { ...prev, code: suggested }));
+  }, [autoNumbering, suggestRes?.data?.code]);
 
   // Fetch parent accounts
   const { data: accountsResponse } = useApiQuery<Account[]>(
@@ -95,10 +108,14 @@ function InputDesign() {
       setError(parsed.error.issues[0]?.message || 'يرجى مراجعة بيانات الحساب');
       return;
     }
+    if (!autoNumbering && !formData.code.trim()) {
+      setError('رقم الحساب مطلوب — الترقيم يدوي');
+      return;
+    }
 
     try {
       await accountMutation.mutateAsync({
-        code: formData.code,
+        code: formData.code || undefined,
         arabicName: formData.arabicName,
         englishName: formData.englishName || undefined,
         accountType: formData.accountType || undefined,
@@ -108,6 +125,7 @@ function InputDesign() {
         statementType: formData.statementType,
         costCenterRequired:
           formData.costCenterRequired || (formData.requiresCostCenter ? 'إجباري' : undefined),
+        defaultCostCenterId: formData.defaultCostCenterId || undefined,
         requiresCostCenter: formData.requiresCostCenter,
         warning: formData.warning || undefined,
         budget: formData.budget ? parseFloat(formData.budget) : undefined,
@@ -151,11 +169,14 @@ function InputDesign() {
       <form className="w-full text-base">
         <FormSectionCard title="البيانات الأساسية" subtitle="الحقول اللازمة لتعريف الحساب" icon={Landmark}>
           <CompactFormField
-            label="رقم الحساب"
-            required
+            label={autoNumbering ? 'رقم الحساب (تلقائي)' : 'رقم الحساب'}
+            required={!autoNumbering}
             value={formData.code}
+            readOnly={autoNumbering}
+            disabled={autoNumbering}
             onChange={(e) => setFormData((prev) => ({ ...prev, code: e.target.value }))}
-            placeholder="إدخل رقم الحساب"
+            placeholder={autoNumbering ? 'يُولَّد تلقائياً' : 'إدخل رقم الحساب'}
+            hint={autoNumbering ? 'الترقيم تلقائي من إعدادات شجرة الحسابات' : undefined}
           />
           <CompactFormField
             label="الإسم العربي"
@@ -189,6 +210,13 @@ function InputDesign() {
               <option value="جاري">جاري</option>
               <option value="استثمار">استثمار</option>
             </select>
+          </CompactFormField>
+          <CompactFormField label="مركز التكلفة (اختياري)" className="sm:col-span-2">
+            <CostCenterSelect
+              value={formData.defaultCostCenterId}
+              onChange={(id) => setFormData((prev) => ({ ...prev, defaultCostCenterId: id }))}
+              emptyLabel="غير مربوط"
+            />
           </CompactFormField>
           <CompactFormField label="جهة الحساب" className="sm:col-span-2">
             <div className="flex flex-wrap gap-2">

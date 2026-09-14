@@ -496,7 +496,7 @@ export type SecuritiesMultiCollectionFormInput = z.infer<typeof securitiesMultiC
 
 /** بطاقة الحساب — طبيعة الحساب + التقرير الختامي + إلزام مركز التكلفة. */
 export const accountCardFormSchema = z.object({
-  code: z.string().trim().min(1, 'يرجى إدخال رقم الحساب'),
+  code: z.string().trim().optional(),
   arabicName: z.string().trim().min(1, 'يرجى إدخال الإسم العربي'),
   englishName: z.string().optional(),
   accountType: z.string().optional(),
@@ -505,6 +505,7 @@ export const accountCardFormSchema = z.object({
   accountNature: z.enum(['DEBIT', 'CREDIT']),
   statementType: z.enum(['BALANCE_SHEET', 'INCOME_STATEMENT']),
   costCenterRequired: z.enum(['إجباري', 'اختياري', 'بدون', '']).optional(),
+  defaultCostCenterId: z.string().optional(),
   requiresCostCenter: z.boolean(),
   warning: z.enum(['مدين', 'دائن', 'بدون', '']).optional(),
   budget: z.string().optional(),

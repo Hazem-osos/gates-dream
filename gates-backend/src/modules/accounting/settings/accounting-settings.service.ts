@@ -238,6 +238,7 @@ export class AccountingSettingsService {
         dueSecuritiesWarningDays: settings.dueSecuritiesWarningDays,
         lockPostingBeforeDate: settings.lockPostingBeforeDate,
         autoNumbering: settings.autoNumbering ?? true,
+        coaAutoNumbering: advanced.coaAutoNumbering !== false,
         costMethod: settings.costMethod,
         pricingCalculationBasis: settings.pricingCalculationBasis ?? 'SELECTED_UNIT_QTY',
         backupPath: settings.backupPath,
@@ -310,6 +311,9 @@ export class AccountingSettingsService {
       const current = await this.ensureCompanySettings(tx, actor.companyId);
       const defs = asAccountDefs(current.accountDefinitions);
       const advanced = asAdvancedSettings(current.advancedSettings);
+      if (input.general?.coaAutoNumbering !== undefined) {
+        advanced.coaAutoNumbering = input.general.coaAutoNumbering;
+      }
 
       if (input.accounts) {
         for (const [key, aliases] of Object.entries(ACCOUNT_SLOT_ALIASES)) {

@@ -25,6 +25,7 @@ import {
   type InventoryWarehouseDocHeaderFormInput,
 } from '@/lib/validation/inventory.schema';
 import type { ApiError } from '@/lib/api/types';
+import { onFieldErrors } from '@/lib/forms/on-field-errors';
 import { StockMovementBottomSplit } from '@/components/inventory/stock/StockMovementBottomSplit';
 
 
@@ -731,7 +732,7 @@ export default function AdjustmentPage() {
 
       <FormStickyFooter
         onCancel={handleNew}
-        onSave={() => void handleSubmit(onSaveValid)()}
+        onSave={() => void handleSubmit(onSaveValid, onFieldErrors(setError))()}
         saveLoading={loading}
         status={`${adjustmentLines.length} بند · ${totalAdjustment.toLocaleString('ar-EG')} ج.م`}
         extraActions={

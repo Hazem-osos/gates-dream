@@ -7,163 +7,220 @@ type VisualProps = {
   locale: MarketingLocale;
 };
 
-function Frame({ title, sample, children }: { title: string; sample: string; children: ReactNode }) {
+function Chrome({ title, sample, children }: { title: string; sample: string; children: ReactNode }) {
   return (
-    <div className="relative h-full min-h-[16rem] border border-white/12 bg-white/[0.02] p-4 md:min-h-0 md:p-6">
-      <div className="mb-4 flex items-center justify-between font-mono text-[0.58rem] tracking-[0.22em] text-white/35">
-        <span>{title}</span>
-        <span>{sample}</span>
+    <div className="relative flex h-full min-h-[18rem] flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#0b2233] shadow-[0_28px_80px_rgba(0,0,0,0.28)] md:min-h-0">
+      <div className="flex items-center justify-between border-b border-white/8 bg-[#071b2b] px-4 py-3">
+        <div className="flex items-center gap-2">
+          <span className="h-2 w-2 rounded-full bg-[#1499d6]" />
+          <span className="text-[0.78rem] font-semibold text-white">{title}</span>
+        </div>
+        <span className="rounded-full bg-white/8 px-2 py-0.5 text-[0.58rem] text-white/45">{sample}</span>
       </div>
-      {children}
+      <div className="min-h-0 flex-1 p-4 md:p-5">{children}</div>
     </div>
   );
 }
 
-function AccountingVisual({ sample }: VisualProps) {
+function AccountingVisual({ sample, locale }: VisualProps) {
+  const ar = locale === 'ar';
+  const rows = [
+    { code: '4100', name: ar ? 'مبيعات' : 'Sales', v: '842,100' },
+    { code: '1100', name: ar ? 'نقدية' : 'Cash', v: '1.18M' },
+    { code: '1200', name: ar ? 'ذمم' : 'AR', v: '430,200' },
+    { code: '2100', name: ar ? 'ذمم دائنة' : 'AP', v: '196,400' },
+  ];
   return (
-    <Frame title="LEDGER" sample={sample}>
-      <div className="space-y-2">
-        {['1100', '1200', '2100', '4100'].map((code, i) => (
-          <div key={code} data-viz-row className="flex items-center gap-3 border-b border-white/8 py-2">
-            <span className="w-10 font-mono text-[0.62rem] text-white/35">{code}</span>
-            <span className="h-px flex-1 bg-white/15" />
-            <span className="font-mono text-[0.62rem] text-white/50">{['84.2', '12.6', '41.0', '96.4'][i]}</span>
+    <Chrome title={ar ? 'لوحة مالية' : 'Financial dashboard'} sample={sample}>
+      <div className="grid grid-cols-2 gap-2.5">
+        {[
+          { l: ar ? 'صافي الربح' : 'Net profit', v: '312K' },
+          { l: ar ? 'الهامش' : 'Margin', v: '18.4%' },
+        ].map((k) => (
+          <div key={k.l} className="rounded-xl bg-white/[0.05] px-3 py-3">
+            <p className="text-[0.62rem] text-white/40">{k.l}</p>
+            <p className="mt-1 text-xl font-semibold text-white">{k.v}</p>
           </div>
         ))}
       </div>
-      <div className="mt-6 grid grid-cols-2 gap-3">
-        <div className="border border-white/10 px-3 py-3">
-          <p className="font-mono text-[0.55rem] tracking-[0.18em] text-white/30">CASH</p>
-          <p className="mt-1 text-lg text-white/80">● ● ● ● ○</p>
-        </div>
-        <div className="border border-white/10 px-3 py-3">
-          <p className="font-mono text-[0.55rem] tracking-[0.18em] text-white/30">BALANCE</p>
-          <p className="mt-1 text-lg text-white/80">— —</p>
-        </div>
+      <div className="mt-4 space-y-2.5">
+        {rows.map((row) => (
+          <div key={row.code} className="flex items-center justify-between text-[0.78rem]">
+            <span className="font-medium text-[#1499d6]">{row.code}</span>
+            <span className="flex-1 px-3 text-white/55">{row.name}</span>
+            <span className="tabular-nums font-semibold text-white">{row.v}</span>
+          </div>
+        ))}
       </div>
-      <svg className="mt-5 h-14 w-full text-white/40" viewBox="0 0 200 40" fill="none" aria-hidden>
-        <path d="M0 28 L28 22 L56 26 L84 14 L112 18 L140 8 L168 12 L200 6" stroke="currentColor" strokeWidth="1" />
+      <svg className="mt-4 h-16 w-full" viewBox="0 0 220 44" fill="none" aria-hidden>
+        <path d="M0 32 L28 26 L56 28 L84 16 L112 20 L140 10 L168 14 L220 8" stroke="#1499d6" strokeWidth="2.2" />
       </svg>
-    </Frame>
+    </Chrome>
   );
 }
 
-function InventoryVisual({ sample }: VisualProps) {
+function InventoryVisual({ sample, locale }: VisualProps) {
+  const ar = locale === 'ar';
   return (
-    <Frame title="WAREHOUSE" sample={sample}>
-      <div className="grid grid-cols-6 gap-2">
+    <Chrome title={ar ? 'خريطة المخزون' : 'Stock map'} sample={sample}>
+      <div className="grid grid-cols-6 gap-1.5">
         {Array.from({ length: 18 }).map((_, i) => (
           <div
             key={i}
-            data-viz-block
-            className="aspect-square border border-white/15"
-            style={{ opacity: i % 5 === 0 ? 0.25 : 0.7 }}
-          />
+            className="flex aspect-square items-center justify-center rounded-md text-[0.52rem] text-white/50"
+            style={{
+              background: i % 7 === 0 ? 'rgba(20,153,214,0.55)' : i % 4 === 0 ? 'rgba(20,153,214,0.2)' : 'rgba(255,255,255,0.06)',
+            }}
+          >
+            {i % 7 === 0 ? '!' : ''}
+          </div>
         ))}
       </div>
-      <div className="mt-6 flex items-end justify-between gap-4">
+      <div className="mt-5 grid grid-cols-3 gap-3">
         <div>
-          <p className="font-mono text-[0.55rem] tracking-[0.18em] text-white/30">ON HAND</p>
-          <p className="mt-1 font-mono text-2xl text-white/80">1,284</p>
+          <p className="text-[0.58rem] text-white/40">{ar ? 'المتاح' : 'On hand'}</p>
+          <p className="mt-1 text-2xl font-semibold text-white">1,284</p>
         </div>
-        <svg className="h-10 flex-1 text-white/35" viewBox="0 0 160 32" fill="none" aria-hidden>
-          <path d="M0 16 H160" stroke="currentColor" strokeWidth="0.6" />
-          <path d="M20 16 L44 8 L72 22 L108 10 L140 18" stroke="currentColor" strokeWidth="1" />
-        </svg>
-      </div>
-    </Frame>
-  );
-}
-
-function SalesVisual({ sample }: VisualProps) {
-  const stages = ['QUOTE', 'ORDER', 'INVOICE', 'PAID'];
-  return (
-    <Frame title="PIPELINE" sample={sample}>
-      <div className="flex flex-col gap-4">
-        {stages.map((stage, i) => (
-          <div key={stage} data-viz-stage className="flex items-center gap-3">
-            <span className="w-16 font-mono text-[0.58rem] tracking-[0.16em] text-white/40">{stage}</span>
-            <span className="relative h-px flex-1 bg-white/15">
-              <span
-                className="absolute top-1/2 h-2 w-2 -translate-y-1/2 rounded-full bg-[var(--accent)]"
-                style={{ insetInlineStart: `${18 + i * 18}%` }}
-              />
-            </span>
-          </div>
-        ))}
-      </div>
-    </Frame>
-  );
-}
-
-function CrmVisual({ sample }: VisualProps) {
-  return (
-    <Frame title="RELATIONS" sample={sample}>
-      <div className="space-y-3">
-        {['A / HEAD OFFICE', 'B / BRANCH', 'C / KEY ACCOUNT'].map((row) => (
-          <div key={row} className="flex items-center justify-between border border-white/10 px-3 py-3">
-            <span className="font-mono text-[0.62rem] tracking-[0.14em] text-white/55">{row}</span>
-            <span className="h-px w-12 bg-white/20" />
-          </div>
-        ))}
-      </div>
-    </Frame>
-  );
-}
-
-function HrVisual({ sample }: VisualProps) {
-  return (
-    <Frame title="STRUCTURE" sample={sample}>
-      <div className="flex flex-col items-center gap-3">
-        <div className="h-10 w-24 border border-white/20" />
-        <span className="h-6 w-px bg-white/20" />
-        <div className="grid w-full grid-cols-3 gap-2">
-          <div className="h-10 border border-white/15" />
-          <div className="h-10 border border-white/15" />
-          <div className="h-10 border border-white/15" />
+        <div>
+          <p className="text-[0.58rem] text-white/40">{ar ? 'تحت الحد' : 'Below min'}</p>
+          <p className="mt-1 text-2xl font-semibold text-[#1499d6]">7</p>
         </div>
-        <div className="hidden w-full grid-cols-4 gap-2 md:grid">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="h-8 border border-white/10" />
-          ))}
+        <div>
+          <p className="text-[0.58rem] text-white/40">{ar ? 'مستودعات' : 'Warehouses'}</p>
+          <p className="mt-1 text-2xl font-semibold text-white">4</p>
         </div>
       </div>
-    </Frame>
+    </Chrome>
   );
 }
 
-function ManufacturingVisual({ sample }: VisualProps) {
+function SalesVisual({ sample, locale }: VisualProps) {
+  const ar = locale === 'ar';
+  const stages = [
+    { en: 'Quote', ar: 'عرض', n: 18 },
+    { en: 'Order', ar: 'طلب', n: 11 },
+    { en: 'Invoice', ar: 'فاتورة', n: 9 },
+    { en: 'Paid', ar: 'محصّل', n: 6 },
+  ];
   return (
-    <Frame title="FLOW" sample={sample}>
-      <div className="flex items-center justify-between gap-2">
-        {['MAT', 'WIP', 'FG'].map((node, i) => (
-          <div key={node} className="flex flex-1 items-center gap-2">
-            <div data-viz-node className="flex h-16 flex-1 items-center justify-center border border-white/15 font-mono text-[0.62rem] tracking-[0.18em] text-white/50">
-              {node}
+    <Chrome title={ar ? 'خط الأنابيب' : 'Pipeline'} sample={sample}>
+      <div className="space-y-3.5">
+        {stages.map((s) => (
+          <div key={s.en}>
+            <div className="mb-1.5 flex justify-between text-[0.72rem] text-white/70">
+              <span>{ar ? s.ar : s.en}</span>
+              <span className="font-semibold text-white">{s.n}</span>
             </div>
-            {i < 2 ? <span className="hidden h-px w-6 bg-white/25 md:block" /> : null}
+            <div className="h-2 overflow-hidden rounded-full bg-white/8">
+              <div className="h-full rounded-full bg-[#1499d6]" style={{ width: `${28 + s.n * 4}%` }} />
+            </div>
           </div>
         ))}
       </div>
-      <svg className="mt-6 h-8 w-full text-[var(--accent)]" viewBox="0 0 200 16" aria-hidden>
-        <circle data-viz-pulse r="2" cx="8" cy="8" fill="currentColor" />
-      </svg>
-    </Frame>
+    </Chrome>
   );
 }
 
-function ProjectsVisual({ sample }: VisualProps) {
+function CrmVisual({ sample, locale }: VisualProps) {
+  const ar = locale === 'ar';
+  const events = [
+    { t: ar ? 'اتصال' : 'Call', d: ar ? 'منذ ساعتين' : '2h ago' },
+    { t: ar ? 'عرض سعر' : 'Quote sent', d: ar ? 'أمس' : 'Yesterday' },
+    { t: ar ? 'زيارة فرع' : 'Branch visit', d: ar ? '3 أيام' : '3 days' },
+    { t: ar ? 'فاتورة' : 'Invoice', d: ar ? 'أسبوع' : '1 week' },
+  ];
   return (
-    <Frame title="TIMELINE" sample={sample}>
-      <div className="space-y-4">
-        {[72, 48, 86].map((w, i) => (
-          <div key={i}>
-            <div className="mb-1 h-px w-full bg-white/10" />
-            <div className="h-3 border border-white/15" style={{ width: `${w}%` }} />
+    <Chrome title={ar ? 'مسار العميل' : 'Customer timeline'} sample={sample}>
+      <p className="text-base font-semibold text-white">{ar ? 'شركة النيل للتجارة' : 'Nile Trading'}</p>
+      <p className="mt-1 text-[0.68rem] text-white/40">{ar ? 'حساب رئيسي · القاهرة' : 'Key account · Cairo'}</p>
+      <div className="mt-5 space-y-3">
+        {events.map((e, i) => (
+          <div key={e.t} className="flex items-center gap-3">
+            <span className={`h-2.5 w-2.5 rounded-full ${i === 0 ? 'bg-[#1499d6]' : 'bg-white/25'}`} />
+            <span className="flex-1 text-[0.82rem] text-white/85">{e.t}</span>
+            <span className="text-[0.62rem] text-white/35">{e.d}</span>
           </div>
         ))}
       </div>
-    </Frame>
+    </Chrome>
+  );
+}
+
+function HrVisual({ sample, locale }: VisualProps) {
+  const ar = locale === 'ar';
+  return (
+    <Chrome title={ar ? 'القوى العاملة' : 'Workforce'} sample={sample}>
+      <div className="grid grid-cols-3 gap-2.5">
+        {[
+          { l: ar ? 'موظفون' : 'Headcount', v: '148' },
+          { l: ar ? 'حضور' : 'Present', v: '96%' },
+          { l: ar ? 'رواتب' : 'Payroll', v: '412K' },
+        ].map((k) => (
+          <div key={k.l} className="rounded-xl bg-white/[0.05] px-2 py-3.5 text-center">
+            <p className="text-xl font-semibold text-white">{k.v}</p>
+            <p className="mt-1 text-[0.58rem] text-white/40">{k.l}</p>
+          </div>
+        ))}
+      </div>
+      <div className="mt-6 flex items-end gap-1.5">
+        {[42, 64, 50, 80, 58, 90, 72, 84].map((h, i) => (
+          <span key={i} className="flex-1 rounded-sm bg-[#1499d6]" style={{ height: `${h}px`, opacity: 0.45 + i * 0.06 }} />
+        ))}
+      </div>
+    </Chrome>
+  );
+}
+
+function ManufacturingVisual({ sample, locale }: VisualProps) {
+  const ar = locale === 'ar';
+  const nodes = [
+    { en: 'Materials', ar: 'مواد' },
+    { en: 'WIP', ar: 'تشغيل' },
+    { en: 'Finished', ar: 'تام' },
+  ];
+  return (
+    <Chrome title={ar ? 'تدفق الإنتاج' : 'Production flow'} sample={sample}>
+      <div className="flex items-center gap-2">
+        {nodes.map((n, i) => (
+          <div key={n.en} className="flex flex-1 items-center gap-2">
+            <div className="flex-1 rounded-xl bg-white/[0.06] py-5 text-center text-[0.78rem] font-medium text-white">
+              {ar ? n.ar : n.en}
+            </div>
+            {i < 2 ? <span className="h-px w-5 bg-[#1499d6]" /> : null}
+          </div>
+        ))}
+      </div>
+      <p className="mt-5 text-[0.78rem] text-white/55">{ar ? 'أمر شغل WO-204 · 86% مكتمل' : 'Work order WO-204 · 86% complete'}</p>
+      <div className="mt-2 h-2 overflow-hidden rounded-full bg-white/8">
+        <div className="h-full w-[86%] rounded-full bg-[#1499d6]" />
+      </div>
+    </Chrome>
+  );
+}
+
+function ProjectsVisual({ sample, locale }: VisualProps) {
+  const ar = locale === 'ar';
+  const rows = [
+    { n: ar ? 'مجمع النيل' : 'Nile Complex', m: 18, p: 72 },
+    { n: ar ? 'توسعة جدة' : 'Jeddah Expand', m: 9, p: 48 },
+    { n: ar ? 'خط إنتاج 2' : 'Line 02', m: 4, p: 86 },
+  ];
+  return (
+    <Chrome title={ar ? 'ربحية المشاريع' : 'Project profitability'} sample={sample}>
+      <div className="space-y-5">
+        {rows.map((r) => (
+          <div key={r.n}>
+            <div className="mb-1.5 flex justify-between text-[0.78rem]">
+              <span className="font-medium text-white">{r.n}</span>
+              <span className="text-[#1499d6]">{r.m}% {ar ? 'هامش' : 'margin'}</span>
+            </div>
+            <div className="h-2 overflow-hidden rounded-full bg-white/8">
+              <div className="h-full rounded-full bg-[#1499d6]" style={{ width: `${r.p}%` }} />
+            </div>
+          </div>
+        ))}
+      </div>
+    </Chrome>
   );
 }
 

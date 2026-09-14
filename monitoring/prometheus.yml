@@ -1,0 +1,10 @@
+# Scrape config example — adjust targets and add service discovery in real deployments.
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: gates-backend
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - host.docker.internal:3001

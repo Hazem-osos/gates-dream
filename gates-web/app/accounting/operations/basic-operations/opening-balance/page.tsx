@@ -36,6 +36,7 @@ import { useCompanyPrintProfile } from '@/lib/hooks/useCompanyPrintProfile';
 import { PrintDocumentButton, renderPrintableAndOpen } from '@/app/components/print/PrintDocumentButton';
 import type { JournalPrintModel } from '@/lib/print/types';
 import { DynamicChunkSkeleton } from '@/components/ui/DynamicChunkSkeleton';
+import { onFieldErrors } from '@/lib/forms/on-field-errors';
 
 const JournalPrintTemplate = dynamic(
   () =>
@@ -185,9 +186,13 @@ function OpeningBalancePageInner() {
   }, [journalEntryIdFromUrl, savedJournalEntryId]);
 
   useEffect(() => {
-    if (savedJournalEntryId) lockToView();
-    else setMode('create');
-  }, [lockToView, savedJournalEntryId, setMode]);
+    if (!savedJournalEntryId) {
+      setMode('create');
+      return;
+    }
+    if (isPosted) lockToView();
+    else setMode('edit');
+  }, [isPosted, lockToView, savedJournalEntryId, setMode]);
 
   useEffect(() => {
     if (!openingMeta?.openingDate) return;
@@ -419,8 +424,9 @@ function OpeningBalancePageInner() {
     }
     if (!savedJournalEntryId) {
       postAfterSaveRef.current = true;
-      void handleSubmit(onSave, () => {
+      void handleSubmit(onSave, (errs) => {
         postAfterSaveRef.current = false;
+        onFieldErrors(setError)(errs);
       })();
       return;
     }
@@ -534,7 +540,7 @@ function OpeningBalancePageInner() {
         isSyncingInventory={isSyncingInventory}
         canSync={!isReadOnly && !isPosted}
         onSyncOpeningInventory={() => void handleSyncOpeningInventory()}
-        onSaveDraft={() => void handleSubmit(onSave)()}
+        onSaveDraft={() => void handleSubmit(onSave, onFieldErrors(setError))()}
         savePending={financialBusy}
         canSave={!isReadOnly && !isPosted && !financialBusy}
         onBrowseList={() => setShowList(true)}
@@ -569,7 +575,8 @@ function OpeningBalancePageInner() {
           },
           onDuplicate: handleDuplicate,
           postPending: postJournalMutation.isPending,
-          extraItems: [{ id: 'new', label: 'قيد جديد', onClick: startNewEntry }],
+          onNew: startNewEntry,
+          newLabel: 'جديد',
         }}
         openingDate={lockedDate}
         hijriDate={lockedHijri}
@@ -614,7 +621,7 @@ function OpeningBalancePageInner() {
       <OpeningBalanceFooter
         debitTotal={totals.debit}
         creditTotal={totals.credit}
-        onSaveDraft={() => void handleSubmit(onSave)()}
+        onSaveDraft={() => void handleSubmit(onSave, onFieldErrors(setError))()}
         onPost={handlePost}
         onCancel={onCancel}
         savePending={financialBusy}

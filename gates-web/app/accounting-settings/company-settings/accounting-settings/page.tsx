@@ -1593,6 +1593,16 @@ export default function CompanyAccountingSettingsPage() {
                               </div>
                             </CompactFormField>
                           ))}
+                          <CompactFormField label="ترقيم شجرة الحسابات">
+                            <select
+                              className={compactControlClass}
+                              value={settings.coaAutoNumbering === false ? 'manual' : 'auto'}
+                              onChange={(e) => update('coaAutoNumbering', e.target.value === 'auto')}
+                            >
+                              <option value="auto">تلقائي — يُقفل حقل رقم الحساب</option>
+                              <option value="manual">يدوي — إدخال رقم الحساب</option>
+                            </select>
+                          </CompactFormField>
                           <CompactFormField
                             label="من تاريخ"
                             type="date"

@@ -55,6 +55,7 @@ import {
   formatTreasuryBalanceLabel,
   isCashAmountOverBalance,
 } from '@/lib/accounting-settings/guardrail-hints';
+import { onFieldErrors } from '@/lib/forms/on-field-errors';
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
 import {
@@ -205,27 +206,32 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
     (id: string | null) => {
       setSavedOrderId(id);
       if (id) {
-        lockToView();
         router.replace(`${pathname}?id=${id}`, { scroll: false });
       } else {
         router.replace(pathname, { scroll: false });
       }
     },
-    [lockToView, pathname, router]
+    [pathname, router]
   );
 
   useEffect(() => {
     const id = idFromUrl?.trim();
     if (id && id !== savedOrderId) {
       setSavedOrderId(id);
-      lockToView();
     }
-  }, [idFromUrl, lockToView, savedOrderId]);
+  }, [idFromUrl, savedOrderId]);
 
   useEffect(() => {
-    if (savedOrderId) lockToView();
-    else setMode('create');
-  }, [lockToView, savedOrderId, setMode]);
+    if (!savedOrderId) {
+      setMode('create');
+      return;
+    }
+    if (isCancelled || executionStatus === 'COMPLETED' || executionStatus === 'CANCELLED') {
+      lockToView();
+      return;
+    }
+    setMode('edit');
+  }, [executionStatus, isCancelled, lockToView, savedOrderId, setMode]);
 
   const {
     register,
@@ -327,7 +333,6 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
         if (row?.id) {
           applyCashRow(row);
           lastHydratedIdRef.current = row.id;
-          lockToView();
           router.replace(`${pathname}?id=${row.id}`, { scroll: false });
         }
         setSuccess(`تم حفظ ${variant.title} بنجاح`);
@@ -356,7 +361,6 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
         if (row?.id) {
           applyCashRow(row);
           lastHydratedIdRef.current = row.id;
-          lockToView();
         }
         setSuccess(`تم حفظ تعديلات ${variant.title}`);
         invalidateQuery(['treasury-cash-transactions']);
@@ -427,7 +431,11 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
       setExecutedAt(asTemplate ? null : row.executedAt ?? null);
       setExecutedByName(asTemplate ? null : row.executedByName ?? null);
       if (asTemplate) setMode('create');
-      else lockToView();
+      else if (row.isCancelled || row.executionStatus === 'COMPLETED' || row.executionStatus === 'CANCELLED') {
+        lockToView();
+      } else {
+        setMode('edit');
+      }
       setValue('voucherNumber', asTemplate ? '' : row.voucherNumber ?? '', { shouldValidate: false });
       setValue('date', row.date?.slice(0, 10) || todayStr, { shouldValidate: false });
       setValue('hijriDate', row.hijriDate || toHijriDate(row.date?.slice(0, 10) || todayStr), {
@@ -617,7 +625,7 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
         return;
       }
       saveMutation.mutate(payload);
-    })();
+    }, onFieldErrors(setError))();
   };
 
   const addLine = () =>
@@ -716,6 +724,8 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
           isPosted: completed,
           isCancelled,
           hidePostActions: true,
+          onNew: resetForm,
+          newLabel: 'جديد',
           printLabel: isPaymentOrder
             ? 'طباعة أمر الصرف'
             : isReceiptOrder

@@ -39,7 +39,7 @@ export const HERO_MODULES: HeroModule[] = [
     side: 'left',
     edgePosition: 25,
     align: 'center',
-    phase: { start: 0.12, end: 0.25 },
+    phase: { start: 0.12, end: 0.16 },
     mobile: true,
   },
   {
@@ -49,7 +49,7 @@ export const HERO_MODULES: HeroModule[] = [
     side: 'right',
     edgePosition: 62,
     align: 'center',
-    phase: { start: 0.25, end: 0.38 },
+    phase: { start: 0.16, end: 0.2 },
     mobile: true,
   },
   {
@@ -59,7 +59,7 @@ export const HERO_MODULES: HeroModule[] = [
     side: 'bottom',
     edgePosition: 30,
     align: 'before',
-    phase: { start: 0.38, end: 0.44 },
+    phase: { start: 0.2, end: 0.24 },
     mobile: true,
   },
   {
@@ -69,7 +69,7 @@ export const HERO_MODULES: HeroModule[] = [
     side: 'right',
     edgePosition: 21,
     align: 'center',
-    phase: { start: 0.44, end: 0.5 },
+    phase: { start: 0.24, end: 0.28 },
   },
   {
     id: 'hr',
@@ -78,7 +78,7 @@ export const HERO_MODULES: HeroModule[] = [
     side: 'left',
     edgePosition: 73,
     align: 'center',
-    phase: { start: 0.5, end: 0.543 },
+    phase: { start: 0.28, end: 0.32 },
     mobile: true,
   },
   {
@@ -88,7 +88,7 @@ export const HERO_MODULES: HeroModule[] = [
     side: 'bottom',
     edgePosition: 70,
     align: 'after',
-    phase: { start: 0.543, end: 0.587 },
+    phase: { start: 0.32, end: 0.35 },
   },
   {
     id: 'projects',
@@ -97,7 +97,7 @@ export const HERO_MODULES: HeroModule[] = [
     side: 'top',
     edgePosition: 50,
     align: 'center',
-    phase: { start: 0.587, end: 0.63 },
+    phase: { start: 0.35, end: 0.38 },
   },
 ];
 

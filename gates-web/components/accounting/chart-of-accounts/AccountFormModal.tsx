@@ -9,6 +9,8 @@ import {
   FormSectionCard,
   compactControlClass,
 } from '@/components/ui';
+import { CostCenterSelect } from '@/app/components/form/CostCenterSelect';
+import { useAccountingSettingsQuery } from '@/lib/hooks/useAccountingSettings';
 import {
   useCreateAccountMutation,
   useSuggestAccountCode,
@@ -27,6 +29,7 @@ const emptyForm: AccountFormPayload = {
   parentId: null,
   accountSide: null,
   costCenterRequired: 'بدون',
+  defaultCostCenterId: null,
   warning: 'بدون',
 };
 
@@ -55,6 +58,8 @@ export function AccountFormModal({
     open && mode === 'create'
   );
 
+  const { data: settingsRes } = useAccountingSettingsQuery();
+  const autoNumbering = settingsRes?.data?.general?.coaAutoNumbering !== false;
   const createMut = useCreateAccountMutation();
   const updateMut = useUpdateAccountMutation();
   const pending = createMut.isPending || updateMut.isPending;
@@ -69,7 +74,8 @@ export function AccountFormModal({
         accountType: initial.accountType ?? '',
         parentId: null,
         accountSide: initial.nature === 'DEBIT' ? 'مدين' : initial.nature === 'CREDIT' ? 'دائن' : null,
-        costCenterRequired: 'بدون',
+        costCenterRequired: (initial.costCenterRequired as AccountFormPayload['costCenterRequired']) || 'بدون',
+        defaultCostCenterId: initial.defaultCostCenterId ?? null,
         warning: 'بدون',
       });
     } else {
@@ -85,16 +91,19 @@ export function AccountFormModal({
   useEffect(() => {
     if (!open || mode !== 'create') return;
     const code = suggestRes?.data?.code;
-    if (code) {
-      setForm((f) => (f.code ? f : { ...f, code }));
-    }
-  }, [suggestRes?.data?.code, open, mode]);
+    if (!code) return;
+    setForm((f) => (autoNumbering || !f.code ? { ...f, code } : f));
+  }, [suggestRes?.data?.code, open, mode, autoNumbering]);
 
   if (!open) return null;
 
   const submit = async () => {
-    if (!form.code.trim() || !form.arabicName.trim()) {
-      onError('رقم الحساب والاسم العربي مطلوبان');
+    if (!form.arabicName.trim()) {
+      onError('الاسم العربي مطلوب');
+      return;
+    }
+    if (!autoNumbering && !form.code.trim()) {
+      onError('رقم الحساب مطلوب — الترقيم يدوي');
       return;
     }
     try {
@@ -124,6 +133,7 @@ export function AccountFormModal({
 
   const advancedFilledCount = [
     form.englishName,
+    form.defaultCostCenterId,
     form.costCenterRequired && form.costCenterRequired !== 'بدون' ? form.costCenterRequired : '',
   ].filter((v) => String(v ?? '').trim().length > 0).length;
 
@@ -139,10 +149,13 @@ export function AccountFormModal({
 
           <FormSectionCard title="البيانات الأساسية" subtitle="الحقول اللازمة لتعريف الحساب" icon={Landmark} className="mb-3">
             <CompactFormField
-              label="رقم الحساب المقترح"
+              label={autoNumbering ? 'رقم الحساب (تلقائي)' : 'رقم الحساب'}
               className="lg:col-span-3"
               value={form.code}
+              readOnly={autoNumbering}
+              disabled={autoNumbering}
               onChange={(e) => setForm((f) => ({ ...f, code: e.target.value }))}
+              hint={autoNumbering ? 'الترقيم تلقائي من إعدادات شجرة الحسابات' : 'أدخل رقم الحساب يدوياً'}
             />
             <CompactFormField
               label="الاسم العربي"
@@ -182,6 +195,13 @@ export function AccountFormModal({
                 <option value="revenue">إيرادات</option>
                 <option value="expense">مصروفات</option>
               </select>
+            </CompactFormField>
+            <CompactFormField label="مركز التكلفة (اختياري)" className="lg:col-span-2">
+              <CostCenterSelect
+                value={form.defaultCostCenterId || ''}
+                onChange={(id) => setForm((f) => ({ ...f, defaultCostCenterId: id || null }))}
+                emptyLabel="غير مربوط"
+              />
             </CompactFormField>
           </FormSectionCard>
 

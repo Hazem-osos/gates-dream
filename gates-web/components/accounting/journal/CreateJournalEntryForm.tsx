@@ -48,6 +48,7 @@ import { DocumentApprovalBar } from '@/app/components/accounting/DocumentApprova
 import { DatePickerWithHijri } from '@/components/ui/DatePickerWithHijri';
 import { RecurringEntryPickerModal, type RecurringTemplate } from '@/components/accounting/RecurringEntryPickerModal';
 import { toHijriDate } from '@/lib/hijri-date';
+import { onFieldErrors } from '@/lib/forms/on-field-errors';
 import { resolveJournalSourceKind, type JournalSourceType } from '@/lib/accounting/journal-source';
 
 const JournalEntriesListSection = dynamic(
@@ -168,9 +169,13 @@ function CreateJournalEntryFormInner() {
   }, [journalEntryIdFromUrl, savedJournalEntryId]);
 
   useEffect(() => {
-    if (savedJournalEntryId) lockToView();
-    else setMode('create');
-  }, [lockToView, savedJournalEntryId, setMode]);
+    if (!savedJournalEntryId) {
+      setMode('create');
+      return;
+    }
+    if (isPosted) lockToView();
+    else setMode('edit');
+  }, [isPosted, lockToView, savedJournalEntryId, setMode]);
 
   const openJournal = useCallback(
     (id: string | null) => {
@@ -554,6 +559,7 @@ function CreateJournalEntryFormInner() {
     setVoucherStatus('غير مرحل');
     setError('');
     setSuccess('');
+    setMode('create');
     if (journalEntryIdFromUrl) {
       router.replace('/accounting/operations/journal-entry');
     }
@@ -603,7 +609,8 @@ function CreateJournalEntryFormInner() {
         docNumber={referenceNumberW || voucherStatus}
         statusTone={isPosted ? 'success' : 'warning'}
         statusLabel={isPosted ? 'مرحّل' : 'مسودة'}
-        onSaveDraft={() => void handleSubmit(onValidSubmit)()}
+        saveLabel="حفظ"
+        onSaveDraft={() => void handleSubmit(onValidSubmit, onFieldErrors(setError))()}
         onPost={handlePost}
         savePending={financialBusy}
         postPending={postJournalMutation.isPending}
@@ -630,6 +637,8 @@ function CreateJournalEntryFormInner() {
           hasDocument: Boolean(savedJournalEntryId) || Boolean(watchedLines?.length),
           isPosted,
           hidePostActions: true,
+          onNew: startNewEntry,
+          newLabel: 'جديد',
           onEdit: () => {
             if (isPosted) {
               setError('يجب إلغاء الترحيل أولاً للتعديل');
@@ -786,7 +795,7 @@ function CreateJournalEntryFormInner() {
         sourceType={sourceKind}
         sourceId={sourceId}
         sourceNumber={sourceNumber}
-        onSaveDraft={() => void handleSubmit(onValidSubmit)()}
+        onSaveDraft={() => void handleSubmit(onValidSubmit, onFieldErrors(setError))()}
         onPost={handlePost}
         onCancel={startNewEntry}
         savePending={financialBusy}

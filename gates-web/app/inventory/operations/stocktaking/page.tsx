@@ -25,6 +25,7 @@ import {
   type InventoryStocktakingPageFormInput,
 } from '@/lib/validation/inventory.schema';
 import type { ApiError } from '@/lib/api/types';
+import { onFieldErrors } from '@/lib/forms/on-field-errors';
 import { dispatchAcademyTrigger } from '@/lib/onboarding/tourCheckpoints';
 
 import { formatMoneyAr } from '@/lib/formatMoney';
@@ -517,7 +518,7 @@ export default function StocktakingPage() {
                 unitPrice: line.unitPrice,
               })),
             });
-          })()
+          }, onFieldErrors(setError))()
         }
         saveLoading={loading}
         saveTourId="stocktaking-save-btn"

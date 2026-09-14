@@ -64,7 +64,7 @@ export function OpeningStockHeader({
         statusTone={isPosted ? 'success' : 'warning'}
         statusLabel={isPosted ? 'مرحل ومثبت (Posted)' : 'مسودة (Draft)'}
         onSaveDraft={onSave}
-        saveLabel="حفظ كمسودة"
+        saveLabel="حفظ"
         savePending={savePending}
         canSave={canSave}
         onBrowseList={onBrowseList}

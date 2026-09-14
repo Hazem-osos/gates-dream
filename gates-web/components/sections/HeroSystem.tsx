@@ -1,19 +1,55 @@
 'use client';
 
 import { useLayoutEffect, useRef } from 'react';
-import { HERO_MODULES, type HeroModule } from '../../data/modules';
+import { HERO_MODULES, type HeroModuleId } from '../../data/modules';
 import { emitNavTheme, HERO } from '../../lib/animations';
 import { gsap, registerGsapPlugins } from '../../lib/gsap';
 import { useMarketingLocale } from '../../lib/marketing/locale';
 import { MagneticButton } from '../animations/MagneticButton';
-import { BusinessModule } from '../ui/BusinessModule';
-import { GatesEngine } from '../ui/GatesEngine';
+import { ModulePanel } from '../ui/ModulePanel';
+import { ProductDashboard } from '../ui/ProductDashboard';
 
 const PHASE = HERO.phases;
-/** Which docked modules carry a visible data particle once connected (keep it sparse — 1-3). */
-const PACKET_MODULE_IDS: HeroModule['id'][] = ['accounting', 'sales', 'projects'];
+const PACKET_IDS: HeroModuleId[] = ['accounting', 'sales', 'projects'];
+const INTRO_IDS: HeroModuleId[] = ['accounting', 'inventory', 'sales'];
 
-type Point = { x: number; y: number };
+type Offset = { x: number; y: number; rotateX: number; rotateY: number };
+
+function panelMotion(id: HeroModuleId, w: number, h: number, compact: boolean): { from: Offset; dock: Offset } {
+  const sx = compact ? 0.28 : 0.36;
+  const sy = compact ? 0.24 : 0.3;
+  const map: Record<HeroModuleId, { from: Offset; dock: Offset }> = {
+    accounting: {
+      from: { x: -w * sx, y: -h * sy, rotateX: 8, rotateY: -18 },
+      dock: { x: -w * 0.2, y: -h * 0.16, rotateX: 2, rotateY: -6 },
+    },
+    inventory: {
+      from: { x: -w * sx, y: h * sy, rotateX: -6, rotateY: -14 },
+      dock: { x: -w * 0.18, y: h * 0.15, rotateX: -2, rotateY: -5 },
+    },
+    sales: {
+      from: { x: 0, y: h * (sy + 0.06), rotateX: -10, rotateY: 0 },
+      dock: { x: 0, y: h * 0.18, rotateX: -3, rotateY: 0 },
+    },
+    crm: {
+      from: { x: w * sx, y: -h * sy, rotateX: 6, rotateY: 16 },
+      dock: { x: w * 0.18, y: -h * 0.14, rotateX: 2, rotateY: 6 },
+    },
+    hr: {
+      from: { x: -w * (sx + 0.06), y: 0, rotateX: 0, rotateY: -16 },
+      dock: { x: -w * 0.24, y: 0, rotateX: 0, rotateY: -5 },
+    },
+    manufacturing: {
+      from: { x: w * sx, y: h * sy, rotateX: -6, rotateY: 14 },
+      dock: { x: w * 0.2, y: h * 0.13, rotateX: -2, rotateY: 5 },
+    },
+    projects: {
+      from: { x: w * 0.04, y: -h * (sy + 0.05), rotateX: 12, rotateY: 3 },
+      dock: { x: w * 0.04, y: -h * 0.2, rotateX: 3, rotateY: 1 },
+    },
+  };
+  return map[id];
+}
 
 export function HeroSystem() {
   const { locale, copy } = useMarketingLocale();
@@ -22,23 +58,13 @@ export function HeroSystem() {
   const stageRef = useRef<HTMLDivElement>(null);
   const fieldRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
-
+  const coreRef = useRef<HTMLDivElement>(null);
+  const planesRef = useRef<HTMLDivElement>(null);
+  const dashboardWrapRef = useRef<HTMLDivElement>(null);
   const moduleRefs = useRef<(HTMLDivElement | null)[]>([]);
-  const moduleFrameRefs = useRef<(HTMLDivElement | null)[]>([]);
-  const moduleNameRefs = useRef<(HTMLSpanElement | null)[]>([]);
   const pathRefs = useRef<(SVGPathElement | null)[]>([]);
-  const packetRefs = useRef<(SVGRectElement | null)[]>([]);
-
-  const engineFrameRef = useRef<HTMLDivElement>(null);
-  const engineCoreRef = useRef<HTMLDivElement>(null);
-  const engineCoreLabelRef = useRef<HTMLDivElement>(null);
-  const engineDashboardRef = useRef<HTMLDivElement>(null);
-  const engineTabBarRef = useRef<HTMLDivElement>(null);
-  const engineSidebarWordRef = useRef<HTMLSpanElement>(null);
-  const enginePortsRef = useRef<HTMLDivElement>(null);
-  const engineLabelRef = useRef<HTMLParagraphElement>(null);
-
-  const brandRef = useRef<HTMLParagraphElement>(null);
+  const packetRefs = useRef<(SVGCircleElement | null)[]>([]);
+  const particleRefs = useRef<(HTMLSpanElement | null)[]>([]);
   const eyebrowRef = useRef<HTMLParagraphElement>(null);
   const headlineWrapRef = useRef<HTMLDivElement>(null);
   const supportRef = useRef<HTMLParagraphElement>(null);
@@ -51,9 +77,8 @@ export function HeroSystem() {
     const stage = stageRef.current;
     const field = fieldRef.current;
     const svg = svgRef.current;
-    const engineFrame = engineFrameRef.current;
-    const engineCore = engineCoreRef.current;
-    if (!section || !stage || !field || !svg || !engineFrame || !engineCore) return;
+    const core = coreRef.current;
+    if (!section || !stage || !field || !svg || !core) return;
 
     const ctx = gsap.context(() => {
       const mm = gsap.matchMedia();
@@ -67,147 +92,71 @@ export function HeroSystem() {
         (media) => {
           const compact = Boolean(media.conditions?.mobile);
           const reduced = Boolean(media.conditions?.reduce);
-
           const activeModules = HERO_MODULES.filter((m) => !compact || m.mobile);
           const inactiveModules = HERO_MODULES.filter((m) => compact && !m.mobile);
-          const packetModules = activeModules.filter((m) => PACKET_MODULE_IDS.includes(m.id));
+          const packetModules = activeModules.filter((m) => PACKET_IDS.includes(m.id));
+          const fromMap: Offset[] = [];
+          const dockMap: Offset[] = [];
 
-          let sidebarTargets: Point[] = [];
-          let coreTarget = { x: 0, y: 0, width: 200, height: 200 };
-          let dashboardTarget = { x: 0, y: 0, width: 200, height: 200 };
-          const dockPositions: Point[] = [];
-          const startPositions: Point[] = [];
-
-          /**
-           * Measures the real Gates Engine box and every module's own rendered size, then
-           * derives dock/start/rail geometry from those measurements — never hard-coded
-           * percentages. That's what keeps the connection ports pixel-aligned and the
-           * modules from overlapping the (narrower) engine face at every breakpoint.
-           */
           const layout = () => {
             const w = field.clientWidth;
             const h = field.clientHeight;
             svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
-
-            const fieldRect = field.getBoundingClientRect();
-            const engineRect = engineFrame.getBoundingClientRect();
-            const engineCenter = {
-              x: engineRect.left - fieldRect.left + engineRect.width / 2,
-              y: engineRect.top - fieldRect.top + engineRect.height / 2,
-            };
-            const engineHalf = { x: engineRect.width / 2, y: engineRect.height / 2 };
-            const gap = compact ? 14 : 24;
-            const offscreen = compact ? 0.64 : 0.6;
+            const cx = w / 2;
+            const cy = h / 2;
 
             HERO_MODULES.forEach((m, i) => {
-              const el = moduleRefs.current[i];
+              const motion = panelMotion(m.id, w, h, compact);
+              fromMap[i] = motion.from;
+              dockMap[i] = motion.dock;
               const path = pathRefs.current[i];
-              if (!el) return;
-              const mw = el.offsetWidth;
-              const mh = el.offsetHeight;
-
-              let dockX = engineCenter.x;
-              let dockY = engineCenter.y;
-              let engineX = engineCenter.x;
-              let engineY = engineCenter.y;
-              let startX = dockX;
-              let startY = dockY;
-
-              if (m.side === 'left') {
-                dockY = engineCenter.y - engineHalf.y + (engineRect.height * m.edgePosition) / 100;
-                dockX = engineCenter.x - engineHalf.x - gap - mw / 2;
-                engineX = engineCenter.x - engineHalf.x;
-                engineY = dockY;
-                startX = -w * offscreen;
-                startY = dockY;
-              } else if (m.side === 'right') {
-                dockY = engineCenter.y - engineHalf.y + (engineRect.height * m.edgePosition) / 100;
-                dockX = engineCenter.x + engineHalf.x + gap + mw / 2;
-                engineX = engineCenter.x + engineHalf.x;
-                engineY = dockY;
-                startX = w * (1 + offscreen);
-                startY = dockY;
-              } else if (m.side === 'top') {
-                dockX = engineCenter.x;
-                dockY = engineCenter.y - engineHalf.y - gap - mh / 2;
-                engineX = dockX;
-                engineY = engineCenter.y - engineHalf.y;
-                startX = dockX;
-                startY = -h * offscreen;
-              } else {
-                const sideOffset = gap / 2 + mw / 2;
-                dockX = m.align === 'before' ? engineCenter.x - sideOffset : m.align === 'after' ? engineCenter.x + sideOffset : engineCenter.x;
-                dockY = engineCenter.y + engineHalf.y + gap + mh / 2;
-                engineX = dockX;
-                engineY = engineCenter.y + engineHalf.y;
-                startX = dockX;
-                startY = h * (1 + offscreen);
-              }
-
-              dockPositions[i] = { x: dockX - w / 2, y: dockY - h / 2 };
-              startPositions[i] = { x: startX - w / 2, y: startY - h / 2 };
-
-              if (path) {
-                path.setAttribute('d', `M ${dockX} ${dockY} L ${engineX} ${engineY}`);
-                const length = path.getTotalLength();
-                path.setAttribute('stroke-dasharray', String(length));
-                path.setAttribute('stroke-dashoffset', String(length));
-              }
+              if (!path) return;
+              const x2 = cx + motion.dock.x;
+              const y2 = cy + motion.dock.y;
+              path.setAttribute('d', `M ${cx} ${cy} Q ${(cx + x2) / 2} ${cy - 24} ${x2} ${y2}`);
+              const length = path.getTotalLength();
+              path.setAttribute('stroke-dasharray', String(length));
+              path.setAttribute('stroke-dashoffset', String(length));
             });
-
-            // Dashboard-phase target geometry — the engine literally re-shapes into this.
-            const dashW = Math.min(w * (compact ? 0.88 : 0.62), compact ? 560 : 960);
-            const dashH = h * (compact ? 0.5 : 0.56);
-            const centerX = engineCenter.x;
-            const centerY = h / 2;
-            dashboardTarget = {
-              x: centerX - w / 2,
-              y: centerY - h / 2,
-              width: dashW,
-              height: dashH,
-            };
-            const sidebarColW = Math.max(compact ? 92 : 128, dashW * 0.24);
-            const frameLeftOffsetX = dashboardTarget.x - dashW / 2;
-            const rows = activeModules.length;
-            const rowH = (dashH - 24) / rows;
-            sidebarTargets = activeModules.map((_, i) => ({
-              x: frameLeftOffsetX + sidebarColW / 2,
-              y: dashboardTarget.y - dashH / 2 + 12 + rowH * (i + 0.5),
-            }));
-            coreTarget = {
-              x: dashboardTarget.x + sidebarColW / 2,
-              y: dashboardTarget.y,
-              width: dashW - sidebarColW - 24,
-              height: dashH - 24,
-            };
           };
 
-          // The engine's own centering transform (xPercent/yPercent: -50) MUST be applied
-          // before `layout()` reads its getBoundingClientRect() — otherwise the rect still
-          // reflects the untransformed `left-1/2 top-1/2` box (top-left corner pinned to the
-          // field's center, not the box's own center), which silently shifts every dock,
-          // rail, and dashboard coordinate derived from `engineCenter` by half the engine's
-          // width/height. Set it (and the field's own identity transform) first, then measure.
           gsap.set(stage, { backgroundColor: '#ffffff' });
-          gsap.set(field, { xPercent: 0, yPercent: 0, x: 0, y: 0, scale: 1, rotationY: 0, rotationX: 0 });
-          gsap.set(engineFrame, { xPercent: -50, yPercent: -50, x: 0, y: 0, borderColor: 'var(--gates-blue)' });
-          gsap.set(engineCore, { xPercent: -50, yPercent: -50, x: 0, y: 0, scale: 1 });
-
+          gsap.set(field, { x: 0, y: 0, scale: 1, rotationY: 0, rotationX: 0 });
           layout();
 
           const paths = pathRefs.current.filter(Boolean) as SVGPathElement[];
-          const packets = packetRefs.current.filter(Boolean) as SVGRectElement[];
+          const packets = packetRefs.current.filter(Boolean) as SVGCircleElement[];
+          const particles = particleRefs.current.filter(Boolean) as HTMLSpanElement[];
 
-          // Initial states
           gsap.set(paths, { opacity: 0 });
           gsap.set(packets, { opacity: 0 });
+          gsap.set(particles, { opacity: 0.35, scale: 0.8 });
+          gsap.set(core, { opacity: 1, scale: 0.92, rotateX: 10, rotateY: -8 });
+          gsap.set(planesRef.current, { opacity: 0.9, y: 12 });
+          gsap.set(dashboardWrapRef.current, { opacity: 0, scale: 0.88, y: 28 });
+          gsap.set([eyebrowRef.current, headlineWrapRef.current, supportRef.current, ctaRef.current], {
+            opacity: 1,
+            y: 0,
+          });
+          gsap.set(wipeRef.current, { opacity: 0, clipPath: 'circle(0% at 38% 55%)' });
+          emitNavTheme('light');
 
           activeModules.forEach((m) => {
             const idx = HERO_MODULES.indexOf(m);
             const el = moduleRefs.current[idx];
-            if (!el) return;
-            const start = startPositions[idx];
-            gsap.set(el, { xPercent: -50, yPercent: -50, x: start.x, y: start.y, scale: 1, opacity: 1 });
+            const from = fromMap[idx];
+            if (!el || !from) return;
+            const intro = INTRO_IDS.includes(m.id);
+            gsap.set(el, {
+              xPercent: -50,
+              yPercent: -50,
+              x: from.x * (intro ? 0.55 : 1),
+              y: from.y * (intro ? 0.55 : 1),
+              rotateX: from.rotateX,
+              rotateY: from.rotateY,
+              opacity: intro ? 1 : 0,
+              scale: intro ? 1 : 0.9,
+            });
           });
           inactiveModules.forEach((m) => {
             const idx = HERO_MODULES.indexOf(m);
@@ -215,30 +164,16 @@ export function HeroSystem() {
             if (el) gsap.set(el, { opacity: 0 });
           });
 
-          gsap.set(engineTabBarRef.current, { opacity: 0 });
-          gsap.set(engineDashboardRef.current, { opacity: 0 });
-          gsap.set(enginePortsRef.current, { opacity: 1 });
-          gsap.set(engineLabelRef.current, { opacity: 1 });
-
-          gsap.set(brandRef.current, { opacity: 0, scale: 1 });
-          gsap.set([eyebrowRef.current, headlineWrapRef.current, supportRef.current, ctaRef.current], {
-            opacity: 1,
-            y: 0,
-          });
-          gsap.set(wipeRef.current, { scaleY: 0, transformOrigin: '50% 100%', backgroundColor: 'var(--gates-blue-dark)' });
-          emitNavTheme('light');
-
           if (reduced) {
             activeModules.forEach((m) => {
               const idx = HERO_MODULES.indexOf(m);
               const el = moduleRefs.current[idx];
-              if (!el) return;
-              const dock = dockPositions[idx];
-              gsap.set(el, { x: dock.x, y: dock.y });
+              const dock = dockMap[idx];
+              if (!el || !dock) return;
+              gsap.set(el, { x: dock.x, y: dock.y, opacity: 1, rotateX: 0, rotateY: 0, scale: 1 });
             });
-            gsap.set(paths, { opacity: 0.4, attr: { 'stroke-dashoffset': 0 } });
-            gsap.set(engineFrame, { borderColor: 'var(--gates-blue)' });
-            gsap.set(supportRef.current, { opacity: 1 });
+            gsap.set(core, { opacity: 1, scale: 1, rotateX: 0, rotateY: 0 });
+            gsap.set(dashboardWrapRef.current, { opacity: 1, scale: 1, y: 0 });
             return;
           }
 
@@ -248,171 +183,100 @@ export function HeroSystem() {
               trigger: section,
               start: 'top top',
               end: 'bottom bottom',
-              scrub: compact ? 0.3 : 0.5,
+              scrub: compact ? 0.35 : 0.5,
               invalidateOnRefresh: true,
               onRefresh: layout,
-              onUpdate: (self) => emitNavTheme(self.progress >= 0.88 ? 'dark' : 'light'),
+              onUpdate: (self) => emitNavTheme(self.progress >= 0.9 ? 'dark' : 'light'),
             },
           });
 
-          // ---- 0–12%: hold. Headline + inactive engine outline own the frame. ----
-          tl.to([supportRef.current, ctaRef.current], { opacity: 0, y: -14, duration: 0.05 }, PHASE.stillEnd);
+          tl.to(particles, { opacity: 0.8, scale: 1, duration: PHASE.stillEnd, stagger: 0.015 }, 0);
+          tl.to(core, { scale: 1, rotateX: 6, rotateY: -4, duration: PHASE.stillEnd }, 0);
+          tl.to(planesRef.current, { y: 0, duration: PHASE.stillEnd }, 0);
 
-          // ---- 12–63%: modules travel a straight mechanical rail and dock, one turn at a time. ----
+          tl.to([supportRef.current, ctaRef.current], { opacity: 0, y: -18, duration: 0.05 }, PHASE.stillEnd);
+
           activeModules.forEach((m) => {
             const idx = HERO_MODULES.indexOf(m);
             const el = moduleRefs.current[idx];
-            const frameEl = moduleFrameRefs.current[idx];
-            const path = pathRefs.current[idx];
-            if (!el) return;
-            const dock = dockPositions[idx];
+            const from = fromMap[idx];
+            if (!el || !from) return;
             const dur = m.phase.end - m.phase.start;
-            const t0 = m.phase.start;
-
-            tl.to(el, { x: dock.x, y: dock.y, duration: dur * 0.78, ease: 'power2.inOut' }, t0);
-            // impact: compression + snap-back — the "physical" dock reaction.
-            tl.to(el, { scale: 0.9, duration: dur * 0.06 }, t0 + dur * 0.78);
-            tl.to(el, { scale: 1, duration: dur * 0.16, ease: 'back.out(2.6)' }, t0 + dur * 0.84);
-            if (frameEl) {
-              tl.to(frameEl, { backgroundColor: 'var(--gates-blue)', duration: dur * 0.06 }, t0 + dur * 0.78);
-              tl.to(frameEl, { backgroundColor: 'var(--gates-white)', duration: dur * 0.22 }, t0 + dur * 0.84);
-            }
-            if (path) {
-              tl.to(path, { opacity: 0.55, duration: dur * 0.05 }, t0 + dur * 0.62);
-              tl.to(
-                path,
-                { attr: { 'stroke-dashoffset': 0 }, duration: dur * 0.3, ease: 'power2.inOut' },
-                t0 + dur * 0.62
-              );
-            }
-            if (PACKET_MODULE_IDS.includes(m.id) && path) {
-              const packetIdx = packetModules.findIndex((pm) => pm.id === m.id);
-              const packet = packets[packetIdx];
-              if (packet) {
-                tl.to(packet, { opacity: 1, duration: 0.015 }, t0 + dur * 0.66);
-                tl.to(
-                  packet,
-                  {
-                    motionPath: { path, align: path, alignOrigin: [0.5, 0.5], autoRotate: false },
-                    duration: dur * 0.26,
-                    ease: 'none',
-                  },
-                  t0 + dur * 0.66
-                );
-                tl.to(packet, { opacity: 0, duration: 0.02 }, t0 + dur * 0.92);
-              }
-            }
-          });
-
-          // Subtle composition shift as Inventory docks from the right.
-          const inventoryPhase = HERO_MODULES.find((m) => m.id === 'inventory')?.phase.start ?? 0.25;
-          tl.to(field, { x: compact ? -6 : -16, scale: compact ? 1.01 : 1.02, duration: 0.03, ease: 'power2.inOut' }, inventoryPhase);
-
-          // ---- 63–72%: modules compress toward the core — one connected machine. ----
-          const compressDur = PHASE.compressEnd - PHASE.dockEnd;
-          activeModules.forEach((m) => {
-            const idx = HERO_MODULES.indexOf(m);
-            const el = moduleRefs.current[idx];
-            if (!el) return;
-            const dock = dockPositions[idx];
-            tl.to(
-              el,
-              { x: dock.x * 0.52, y: dock.y * 0.52, scale: compact ? 0.82 : 0.86, duration: compressDur, ease: 'power2.inOut' },
-              PHASE.dockEnd
-            );
-          });
-          tl.to(paths, { opacity: 0, duration: compressDur * 0.6 }, PHASE.dockEnd);
-          tl.to(engineCore, { scale: 1.12, duration: compressDur, ease: 'power2.inOut' }, PHASE.dockEnd);
-          tl.to(
-            engineFrame,
-            { boxShadow: '0 0 46px -6px rgba(14,121,170,0.45)', duration: compressDur * 0.4 },
-            PHASE.dockEnd
-          );
-          tl.to(headlineWrapRef.current, { y: -34, opacity: 0, duration: compressDur, ease: 'power2.in' }, PHASE.dockEnd);
-          tl.to(eyebrowRef.current, { opacity: 0, duration: compressDur * 0.5 }, PHASE.dockEnd);
-
-          // ---- 72–82%: 2.5D rotate/scale — the GATES word is revealed behind the machine. ----
-          const rotateDur = PHASE.rotateEnd - PHASE.compressEnd;
-          tl.to(
-            field,
-            {
-              rotationY: compact ? 5 : 9,
-              rotationX: compact ? -2 : -4,
-              scale: compact ? 1.05 : 1.09,
-              duration: rotateDur,
-              ease: 'power2.inOut',
-            },
-            PHASE.compressEnd
-          );
-          tl.to(brandRef.current, { opacity: compact ? 0.1 : 0.14, scale: compact ? 1.04 : 1.08, duration: rotateDur }, PHASE.compressEnd);
-
-          // ---- 82–92%: the machine becomes the browser-like ERP interface. ----
-          const dashDur = PHASE.dashboardEnd - PHASE.rotateEnd;
-          tl.to(
-            field,
-            { rotationY: 0, rotationX: 0, x: 0, scale: compact ? 1.03 : 1.05, duration: dashDur * 0.45, ease: 'power2.inOut' },
-            PHASE.rotateEnd
-          );
-          tl.to(brandRef.current, { opacity: 0, duration: dashDur * 0.3 }, PHASE.rotateEnd);
-          tl.to(
-            engineFrame,
-            {
-              width: dashboardTarget.width,
-              height: dashboardTarget.height,
-              x: dashboardTarget.x,
-              y: dashboardTarget.y,
-              duration: dashDur,
-              ease: 'power2.inOut',
-            },
-            PHASE.rotateEnd
-          );
-          tl.to(enginePortsRef.current, { opacity: 0, duration: dashDur * 0.3 }, PHASE.rotateEnd);
-          tl.to(engineLabelRef.current, { opacity: 0, duration: dashDur * 0.25 }, PHASE.rotateEnd);
-          tl.to(engineTabBarRef.current, { opacity: 1, duration: dashDur * 0.3 }, PHASE.rotateEnd + dashDur * 0.4);
-
-          activeModules.forEach((m, i) => {
-            const idx = HERO_MODULES.indexOf(m);
-            const el = moduleRefs.current[idx];
-            const nameEl = moduleNameRefs.current[idx];
-            if (!el) return;
-            const target = sidebarTargets[i];
             tl.to(
               el,
               {
-                x: target.x,
-                y: target.y,
-                scale: compact ? 0.58 : 0.64,
-                duration: dashDur,
-                ease: 'power2.inOut',
+                opacity: 1,
+                scale: 1,
+                x: from.x * 0.7,
+                y: from.y * 0.7,
+                duration: dur,
               },
-              PHASE.rotateEnd
+              m.phase.start
             );
-            if (nameEl) {
-              tl.to(nameEl, { opacity: 0.85, duration: dashDur * 0.4 }, PHASE.rotateEnd + dashDur * 0.5);
-            }
           });
 
-          tl.to(
-            engineCore,
-            {
-              width: coreTarget.width,
-              height: coreTarget.height,
-              x: coreTarget.x,
-              y: coreTarget.y,
-              scale: 1,
-              duration: dashDur,
-              ease: 'power2.inOut',
-            },
-            PHASE.rotateEnd
-          );
-          tl.to(engineCoreLabelRef.current, { opacity: 0, duration: dashDur * 0.25 }, PHASE.rotateEnd);
-          tl.to(engineDashboardRef.current, { opacity: 1, duration: dashDur * 0.4 }, PHASE.rotateEnd + dashDur * 0.5);
+          const assembleDur = PHASE.compressEnd - PHASE.dockEnd;
+          activeModules.forEach((m) => {
+            const idx = HERO_MODULES.indexOf(m);
+            const el = moduleRefs.current[idx];
+            const dock = dockMap[idx];
+            if (!el || !dock) return;
+            tl.to(
+              el,
+              {
+                x: dock.x,
+                y: dock.y,
+                rotateX: dock.rotateX,
+                rotateY: dock.rotateY,
+                scale: compact ? 0.9 : 0.94,
+                duration: assembleDur,
+              },
+              PHASE.dockEnd
+            );
+          });
 
-          // ---- 92–100%: interface expands toward the viewer; background turns Gates Blue. ----
+          tl.to(paths, { opacity: 0.75, duration: assembleDur * 0.2 }, PHASE.dockEnd);
+          paths.forEach((path, i) => {
+            tl.to(path, { attr: { 'stroke-dashoffset': 0 }, duration: assembleDur * 0.65 }, PHASE.dockEnd + i * 0.015);
+          });
+          packetModules.forEach((m, packetIdx) => {
+            const idx = HERO_MODULES.indexOf(m);
+            const path = pathRefs.current[idx];
+            const packet = packets[packetIdx];
+            if (!path || !packet) return;
+            tl.to(packet, { opacity: 1, duration: 0.03 }, PHASE.dockEnd + 0.16);
+            tl.to(
+              packet,
+              {
+                motionPath: { path, align: path, alignOrigin: [0.5, 0.5] },
+                duration: assembleDur * 0.5,
+              },
+              PHASE.dockEnd + 0.18
+            );
+            tl.to(packet, { opacity: 0, duration: 0.05 }, PHASE.dockEnd + assembleDur * 0.72);
+          });
+
+          tl.to(core, { scale: 1.06, rotateX: 2, rotateY: -2, duration: assembleDur }, PHASE.dockEnd);
+          tl.to(eyebrowRef.current, { opacity: 0, duration: assembleDur * 0.4 }, PHASE.dockEnd);
+          tl.to(headlineWrapRef.current, { opacity: 0, y: -36, duration: assembleDur }, PHASE.dockEnd);
+
+          const dashDur = PHASE.dashboardEnd - PHASE.compressEnd;
+          const assembledEls = activeModules
+            .map((m) => moduleRefs.current[HERO_MODULES.indexOf(m)])
+            .filter((el): el is HTMLDivElement => Boolean(el));
+          tl.to(assembledEls, { opacity: 0, scale: 0.78, duration: dashDur * 0.2 }, PHASE.compressEnd);
+          tl.to(paths, { opacity: 0, duration: dashDur * 0.12 }, PHASE.compressEnd);
+          tl.to(core, { opacity: 0, scale: 1.1, duration: dashDur * 0.2 }, PHASE.compressEnd);
+          tl.to(planesRef.current, { opacity: 0, duration: dashDur * 0.16 }, PHASE.compressEnd);
+          tl.to(particles, { opacity: 0, duration: dashDur * 0.1 }, PHASE.compressEnd);
+          tl.to(dashboardWrapRef.current, { opacity: 1, scale: 1, y: 0, duration: dashDur * 0.28 }, PHASE.compressEnd);
+          tl.to(stage, { backgroundColor: '#f7fbfd', duration: dashDur * 0.18 }, PHASE.compressEnd);
+          tl.to(field, { scale: compact ? 1.02 : 1.04, duration: dashDur * 0.4 }, PHASE.compressEnd + dashDur * 0.3);
+
           const finalDur = PHASE.finish - PHASE.dashboardEnd;
-          tl.to(stage, { backgroundColor: 'var(--gates-blue)', duration: finalDur * 0.55 }, PHASE.dashboardEnd);
-          tl.to(field, { scale: compact ? 1.1 : 1.16, duration: finalDur, ease: 'power2.in' }, PHASE.dashboardEnd);
-          tl.to(wipeRef.current, { scaleY: 1, duration: finalDur * 0.75, ease: 'power3.inOut' }, PHASE.dashboardEnd + finalDur * 0.2);
+          tl.to(dashboardWrapRef.current, { scale: compact ? 1.08 : 1.14, duration: finalDur }, PHASE.dashboardEnd);
+          tl.to(stage, { backgroundColor: '#061826', duration: finalDur * 0.55 }, PHASE.dashboardEnd);
+          tl.to(wipeRef.current, { opacity: 1, clipPath: 'circle(140% at 38% 55%)', duration: finalDur }, PHASE.dashboardEnd);
         }
       );
     }, section);
@@ -427,22 +291,76 @@ export function HeroSystem() {
     <section
       ref={sectionRef}
       id="gates-system"
-      className="relative h-[210vh] md:h-[400vh]"
+      className="relative h-[280vh] md:h-[420vh]"
       aria-label={copy.hero.headlineLine1}
     >
       <div ref={stageRef} className="gates-hero-stage sticky top-0 h-[100svh] overflow-hidden bg-white">
-        <div className="gates-tech-grid pointer-events-none absolute inset-0 opacity-70" aria-hidden />
-
-        <p
-          ref={brandRef}
+        <div
+          className="pointer-events-none absolute inset-0"
+          style={{ background: 'radial-gradient(ellipse at 28% 48%, rgba(20,153,214,0.14), transparent 52%)' }}
           aria-hidden
-          className="pointer-events-none absolute inset-x-0 top-[18%] text-center text-[clamp(6rem,20vw,17rem)] font-bold leading-[0.78] tracking-[-0.04em] text-[var(--gates-blue)]"
-        >
-          {copy.wordmark}
-        </p>
+        />
 
-        <div className="absolute inset-0" style={{ perspective: '1700px' }}>
-          <div ref={fieldRef} className="relative h-full w-full" style={{ transformStyle: 'flat' }}>
+        <div
+          className="relative mx-4 mt-4 h-[46vh] md:absolute md:inset-x-auto md:mx-0 md:mt-0 md:h-auto md:bottom-[8%] md:end-[-2%] md:start-[32%] md:top-[8%]"
+          style={{ perspective: '1800px' }}
+        >
+          <div ref={fieldRef} className="absolute inset-0" style={{ transformStyle: 'preserve-3d' }}>
+            {['16%', '30%', '48%', '64%', '78%'].map((top, i) => (
+              <span
+                key={i}
+                ref={(el) => {
+                  particleRefs.current[i] = el;
+                }}
+                className="absolute h-1.5 w-1.5 rounded-full bg-[#1499d6]"
+                style={{ top, insetInlineStart: `${12 + i * 16}%` }}
+              />
+            ))}
+
+            <div
+              ref={planesRef}
+              className="pointer-events-none absolute left-1/2 top-1/2 h-[84%] w-[90%] -translate-x-1/2 -translate-y-1/2"
+              style={{ transformStyle: 'preserve-3d' }}
+            >
+              <div
+                className="absolute inset-0 rounded-[28px] bg-[#0b6fa4]/20"
+                style={{ transform: 'translateZ(-80px) rotateX(14deg)' }}
+              />
+              <div
+                className="absolute inset-[5%] rounded-[24px] bg-[#eaf6fc]"
+                style={{ transform: 'translateZ(-32px) rotateX(9deg)' }}
+              />
+            </div>
+
+            <div
+              ref={coreRef}
+              className="pointer-events-none absolute left-1/2 top-1/2 z-10 h-[min(68%,28rem)] w-[min(88%,40rem)] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-[20px] bg-[#071b2b] text-white shadow-[0_32px_90px_rgba(11,111,164,0.34)]"
+            >
+              <div className="flex h-10 items-center justify-between border-b border-white/10 px-4">
+                <span className="text-[0.72rem] font-semibold tracking-[0.2em] text-[#1499d6]">GATES</span>
+                <span className="text-[0.62rem] text-white/50">{copy.hero.eyebrow}</span>
+              </div>
+              <div className="grid h-[calc(100%-2.5rem)] grid-cols-3 gap-2.5 p-3.5">
+                <div className="rounded-xl bg-white/8 p-3">
+                  <p className="text-[0.62rem] text-white/45">{locale === 'ar' ? 'الإيراد' : 'Revenue'}</p>
+                  <p className="mt-1 text-lg font-semibold">2.41M</p>
+                </div>
+                <div className="rounded-xl bg-white/8 p-3">
+                  <p className="text-[0.62rem] text-white/45">{locale === 'ar' ? 'النقد' : 'Cash'}</p>
+                  <p className="mt-1 text-lg font-semibold">1.18M</p>
+                </div>
+                <div className="rounded-xl bg-white/8 p-3">
+                  <p className="text-[0.62rem] text-white/45">{locale === 'ar' ? 'الفريق' : 'Team'}</p>
+                  <p className="mt-1 text-lg font-semibold">148</p>
+                </div>
+                <div className="col-span-3 rounded-xl bg-[#0b6fa4]/35 p-3">
+                  <svg viewBox="0 0 260 64" className="h-full w-full" aria-hidden>
+                    <path d="M0 48 L32 42 L64 44 L96 28 L128 32 L160 16 L192 20 L224 10 L260 14" fill="none" stroke="#8ed8f5" strokeWidth="2.4" />
+                  </svg>
+                </div>
+              </div>
+            </div>
+
             <svg ref={svgRef} className="pointer-events-none absolute inset-0 h-full w-full" aria-hidden>
               {HERO_MODULES.map((mod, i) => (
                 <path
@@ -451,107 +369,68 @@ export function HeroSystem() {
                     pathRefs.current[i] = el;
                   }}
                   fill="none"
-                  stroke="var(--gates-blue)"
-                  strokeWidth="1.25"
+                  stroke="#1499d6"
+                  strokeWidth="1.6"
                 />
               ))}
-              {PACKET_MODULE_IDS.map((id) => (
-                <rect
-                  key={`pkt-${id}`}
+              {PACKET_IDS.map((id, i) => (
+                <circle
+                  key={id}
                   ref={(el) => {
-                    const idx = HERO_MODULES.filter((m) => PACKET_MODULE_IDS.includes(m.id)).findIndex(
-                      (m) => m.id === id
-                    );
-                    packetRefs.current[idx] = el;
+                    packetRefs.current[i] = el;
                   }}
-                  width="5"
-                  height="5"
-                  fill="var(--gates-blue-light)"
+                  r="4"
+                  fill="#1499d6"
                 />
               ))}
             </svg>
 
             {HERO_MODULES.map((mod, i) => (
-              <BusinessModule
+              <ModulePanel
                 key={mod.id}
-                number={mod.index}
+                id={mod.id}
                 name={mod.label[locale]}
-                side={mod.side}
+                locale={locale}
                 cardRef={(el) => {
                   moduleRefs.current[i] = el;
-                }}
-                frameRef={(el) => {
-                  moduleFrameRefs.current[i] = el;
-                }}
-                nameRef={(el) => {
-                  moduleNameRefs.current[i] = el;
                 }}
               />
             ))}
 
-            <GatesEngine
-              label={copy.hero.core}
-              frameRef={(el) => {
-                engineFrameRef.current = el;
-              }}
-              coreRef={(el) => {
-                engineCoreRef.current = el;
-              }}
-              coreLabelRef={(el) => {
-                engineCoreLabelRef.current = el;
-              }}
-              dashboardRef={(el) => {
-                engineDashboardRef.current = el;
-              }}
-              tabBarRef={(el) => {
-                engineTabBarRef.current = el;
-              }}
-              sidebarWordRef={(el) => {
-                engineSidebarWordRef.current = el;
-              }}
-              portsRef={(el) => {
-                enginePortsRef.current = el;
-              }}
-              engineLabelRef={(el) => {
-                engineLabelRef.current = el;
-              }}
-            />
+            <div ref={dashboardWrapRef} className="absolute inset-0 z-40 md:inset-[2%]" style={{ opacity: 0 }}>
+              <ProductDashboard locale={locale} sample={copy.hero.sample} title={copy.hero.dashboardTitle} />
+            </div>
           </div>
         </div>
 
-        <div className="relative z-30 flex h-full flex-col justify-between px-5 pb-8 pt-24 md:px-12 md:pb-12 md:pt-28">
-          <div ref={headlineWrapRef} className="max-w-[19rem] md:max-w-[30rem]">
-            <p
-              ref={eyebrowRef}
-              className="text-[0.68rem] font-medium uppercase tracking-[0.28em] text-[var(--gates-blue)]"
-            >
-              {copy.hero.eyebrow}
-            </p>
-            <h1 className="mt-6 text-[clamp(2.4rem,6.2vw,5.75rem)] font-semibold leading-[0.94] tracking-[-0.01em] text-[var(--gates-navy)]">
+        <div className="relative z-20 flex h-auto w-full max-w-[36rem] flex-col justify-start px-5 pt-24 md:absolute md:inset-y-0 md:start-0 md:h-full md:justify-center md:px-12 md:pt-0">
+          <p ref={eyebrowRef} className="text-[0.78rem] font-medium text-[#0b6fa4]">
+            {copy.hero.eyebrow}
+          </p>
+          <div ref={headlineWrapRef}>
+            <h1 className="mt-3 text-[clamp(2.5rem,6vw,5.6rem)] font-semibold leading-[1.02] tracking-[-0.035em] text-[#0b1620]">
               <span className="block">{copy.hero.headlineLine1}</span>
               <span className="block">{copy.hero.headlineLine2}</span>
             </h1>
           </div>
-
-          <div className="flex flex-col gap-8 md:flex-row md:items-end md:justify-between">
-            <p ref={supportRef} className="max-w-sm text-[0.88rem] leading-relaxed text-[var(--gates-navy)]/55 md:text-[1.02rem]">
-              {copy.hero.support}
-            </p>
-            <div ref={ctaRef} className="flex flex-wrap gap-3">
-              <MagneticButton href="/login" variant="brand">
-                {copy.hero.demo}
-              </MagneticButton>
-              <MagneticButton href="#product" variant="brand-ghost">
-                {copy.hero.explore}
-              </MagneticButton>
-            </div>
+          <p ref={supportRef} className="mt-5 max-w-md text-[1rem] leading-relaxed text-[#4d6472] md:text-[1.08rem]">
+            {copy.hero.support}
+          </p>
+          <div ref={ctaRef} className="mt-7 flex flex-wrap gap-3">
+            <MagneticButton href="/login" variant="brand">
+              {copy.hero.demo}
+            </MagneticButton>
+            <MagneticButton href="#product" variant="brand-ghost">
+              {copy.hero.explore}
+            </MagneticButton>
           </div>
         </div>
 
         <div
           ref={wipeRef}
           aria-hidden
-          className="pointer-events-none absolute inset-0 z-50 origin-bottom"
+          className="pointer-events-none absolute inset-0 z-50 bg-[#061826]"
+          style={{ clipPath: 'circle(0% at 38% 55%)', opacity: 0 }}
         />
       </div>
     </section>

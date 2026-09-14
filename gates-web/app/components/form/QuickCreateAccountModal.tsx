@@ -4,6 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { CompactFormField, FormSectionCard } from '@/components/ui';
 import { useApiMutation } from '@/lib/hooks/useApi';
 import { useSuggestAccountCode } from '@/lib/hooks/useChartOfAccounts';
+import { useAccountingSettingsQuery } from '@/lib/hooks/useAccountingSettings';
 import { invalidateMasterDataClient } from '@/lib/hooks/invalidateMasterData';
 import type { ApiError } from '@/lib/api/types';
 import { useQueryClient } from '@tanstack/react-query';
@@ -29,6 +30,8 @@ export function QuickCreateAccountModal({ open, initialName, onClose, onCreated 
   const [codeTouched, setCodeTouched] = useState(false);
   const [error, setError] = useState('');
 
+  const { data: settingsRes } = useAccountingSettingsQuery();
+  const autoNumbering = settingsRes?.data?.general?.coaAutoNumbering !== false;
   const { data: suggestRes } = useSuggestAccountCode(null, open);
 
   useEffect(() => {
@@ -71,13 +74,13 @@ export function QuickCreateAccountModal({ open, initialName, onClose, onCreated 
       setError('الاسم مطلوب');
       return;
     }
-    if (!code.trim()) {
-      setError('كود الحساب مطلوب');
+    if (!autoNumbering && !code.trim()) {
+      setError('كود الحساب مطلوب — الترقيم يدوي');
       return;
     }
     mutation.mutate({
       arabicName: name.trim(),
-      code: code.trim(),
+      code: code.trim() || undefined,
     });
   };
 
@@ -100,9 +103,11 @@ export function QuickCreateAccountModal({ open, initialName, onClose, onCreated 
           autoFocus
         />
         <CompactFormField
-          label="الكود"
-          required
+          label={autoNumbering ? 'الكود (تلقائي)' : 'الكود'}
+          required={!autoNumbering}
           value={code}
+          readOnly={autoNumbering}
+          disabled={autoNumbering}
           onChange={(e) => {
             setCodeTouched(true);
             setCode(e.target.value);

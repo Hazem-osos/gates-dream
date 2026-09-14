@@ -24,6 +24,7 @@ export interface CreateAccountData {
   statementType?: 'BALANCE_SHEET' | 'INCOME_STATEMENT';
   costCenterRequired?: string;
   requiresCostCenter?: boolean;
+  defaultCostCenterId?: string | null;
   warning?: string;
   budget?: number;
   currencyCode?: string;
@@ -122,13 +123,77 @@ export class AccountService {
   /**
    * Create a new account
    */
+  private async isCoaAutoNumbering(companyId: string): Promise<boolean> {
+    const settings = await prisma.companySettings.findUnique({
+      where: { companyId },
+      select: { advancedSettings: true },
+    });
+    const advanced =
+      settings?.advancedSettings && typeof settings.advancedSettings === 'object'
+        ? (settings.advancedSettings as Record<string, unknown>)
+        : {};
+    return advanced.coaAutoNumbering !== false;
+  }
+
+  async reparentEquityUnderLiabilities(companyId: string): Promise<boolean> {
+    const equity = await prisma.account.findFirst({
+      where: {
+        companyId,
+        deletedAt: null,
+        parentId: null,
+        OR: [
+          { code: '3' },
+          { code: '3000' },
+          { arabicName: { contains: 'حقوق الملكية' } },
+        ],
+      },
+      select: { id: true },
+    });
+    if (!equity) return false;
+
+    const liabilities = await prisma.account.findFirst({
+      where: {
+        companyId,
+        deletedAt: null,
+        OR: [{ code: '2' }, { arabicName: 'الالتزامات' }],
+        NOT: { id: equity.id },
+      },
+      select: { id: true },
+    });
+    if (!liabilities) return false;
+
+    await prisma.account.update({
+      where: { id: equity.id },
+      data: { parentId: liabilities.id },
+    });
+    await invalidateTenantCache(tenantCacheKeys.coaTree(companyId));
+    return true;
+  }
+
   async createAccount(companyId: string, data: CreateAccountData) {
     try {
       const classified = resolveAccountClassification(data);
+      let code = data.code?.trim() ?? '';
+      if (!code) {
+        if (!(await this.isCoaAutoNumbering(companyId))) {
+          throw new AppError(400, 'رقم الحساب مطلوب — الترقيم يدوي في إعدادات شجرة الحسابات');
+        }
+        code = await this.suggestNextAccountCode(companyId, data.parentId);
+      }
+
+      let defaultCostCenterId = data.defaultCostCenterId ?? null;
+      if (defaultCostCenterId) {
+        const cc = await prisma.costCenter.findFirst({
+          where: { id: defaultCostCenterId, companyId, isActive: true },
+          select: { id: true },
+        });
+        if (!cc) throw new AppError(400, 'مركز التكلفة غير موجود');
+      }
+
       const account = await prisma.account.create({
         data: {
           companyId,
-          code: data.code,
+          code,
           arabicName: data.arabicName,
           englishName: data.englishName,
           accountType: data.accountType,
@@ -138,6 +203,7 @@ export class AccountService {
           statementType: classified.statementType,
           costCenterRequired: classified.costCenterRequired,
           requiresCostCenter: classified.requiresCostCenter,
+          defaultCostCenterId,
           warning: data.warning,
           budget: data.budget ? new Decimal(data.budget) : null,
           currencyCode: data.currencyCode,
@@ -352,6 +418,16 @@ export class AccountService {
       if (data.currencyCode !== undefined)
         updateData.currencyCode = data.currencyCode;
       if (data.isActive !== undefined) updateData.isActive = data.isActive;
+      if (data.defaultCostCenterId !== undefined) {
+        if (data.defaultCostCenterId) {
+          const cc = await prisma.costCenter.findFirst({
+            where: { id: data.defaultCostCenterId, companyId, isActive: true },
+            select: { id: true },
+          });
+          if (!cc) throw new AppError(400, 'مركز التكلفة غير موجود');
+        }
+        updateData.defaultCostCenterId = data.defaultCostCenterId || null;
+      }
 
       const account = await prisma.account.update({
         where: { id: accountId, companyId },
@@ -442,6 +518,7 @@ export class AccountService {
     parentId?: string
   ): Promise<AccountHierarchyNode[]> {
     try {
+      await this.reparentEquityUnderLiabilities(companyId);
       const accounts = await getTenantCached(tenantCacheKeys.coaTree(companyId), () =>
         prisma.account.findMany({
           where: {
@@ -457,6 +534,8 @@ export class AccountService {
             accountType: true,
             accountSide: true,
             parentId: true,
+            defaultCostCenterId: true,
+            costCenterRequired: true,
           },
           orderBy: [{ code: 'asc' }],
         })

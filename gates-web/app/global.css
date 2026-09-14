@@ -416,20 +416,25 @@ input, button, textarea, select { font: inherit; }
 /* ——— GATES marketing site (homepage `/`) ——— */
 .gates-marketing-root,
 .gates-marketing {
-  --background: #ebe6d6;
-  --foreground: #0a0a0a;
-  --muted: #6b6a64;
-  --border: rgba(10, 10, 10, 0.12);
-  --accent: #7a6144;
-  --surface-ink: #080808;
-  --text-inverse: #f5f5f1;
-
-  /* GATES brand identity — used by the hero system. Blue + white + navy, no beige. */
-  --gates-blue: #0e79aa;
-  --gates-blue-dark: #073753;
-  --gates-blue-light: #5fd4ff;
+  --gates-blue: #0b6fa4;
+  --gates-blue-strong: #005f9e;
+  --gates-blue-bright: #1499d6;
+  --gates-blue-soft: #eaf6fc;
+  --gates-navy: #071b2b;
+  --gates-ink: #0b1620;
   --gates-white: #ffffff;
-  --gates-navy: #04101c;
+  --gates-surface: #f7fbfd;
+  --gates-border: #d7eaf4;
+  --gates-blue-dark: #061826;
+  --gates-blue-light: #1499d6;
+
+  --background: #ffffff;
+  --foreground: #0b1620;
+  --muted: #4d6472;
+  --border: #d7eaf4;
+  --accent: #0b6fa4;
+  --surface-ink: #061826;
+  --text-inverse: #f4fafd;
 }
 
 html.gates-marketing-root {
@@ -463,14 +468,14 @@ html.gates-marketing-root {
   font-family: var(--font-geist), ui-sans-serif, system-ui, sans-serif;
 }
 
-.gates-marketing[data-locale='en'] .font-editorial,
-.gates-marketing[data-locale='en'] .font-editorial * {
-  font-family: var(--font-newsreader), Georgia, serif;
+.gates-marketing .font-editorial,
+.gates-marketing .font-editorial * {
+  font-family: var(--font-ibm-arabic), var(--font-geist), ui-sans-serif, system-ui, sans-serif;
 }
 
-.gates-marketing[data-locale='ar'] .font-editorial,
-.gates-marketing[data-locale='ar'] .font-editorial * {
-  font-family: var(--font-ibm-arabic), Georgia, serif;
+.gates-marketing[data-locale='en'] .font-editorial,
+.gates-marketing[data-locale='en'] .font-editorial * {
+  font-family: var(--font-geist), ui-sans-serif, system-ui, sans-serif;
 }
 
 .gates-marketing[dir='rtl'] [class*='tracking-'] {
@@ -489,16 +494,36 @@ html.gates-marketing-root {
 
 .gates-tech-grid {
   background-image:
-    linear-gradient(to right, rgba(10, 10, 10, 0.045) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(10, 10, 10, 0.045) 1px, transparent 1px);
-  background-size: 72px 72px;
+    linear-gradient(to right, rgba(11, 111, 164, 0.045) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(11, 111, 164, 0.045) 1px, transparent 1px);
+  background-size: 80px 80px;
 }
 
 .gates-tech-grid-dark {
   background-image:
-    linear-gradient(to right, rgba(245, 245, 241, 0.04) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(245, 245, 241, 0.04) 1px, transparent 1px);
-  background-size: 72px 72px;
+    linear-gradient(to right, rgba(234, 246, 252, 0.035) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(234, 246, 252, 0.035) 1px, transparent 1px);
+  background-size: 80px 80px;
+}
+
+.gates-soft-shadow {
+  box-shadow: 0 20px 60px rgba(7, 27, 43, 0.1);
+}
+
+.gates-glass-panel {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(234, 246, 252, 0.88));
+  border: 1px solid var(--gates-border);
+  border-radius: 16px;
+  box-shadow: 0 18px 50px rgba(7, 27, 43, 0.1);
+  backdrop-filter: blur(16px);
+}
+
+.gates-product-chrome {
+  border-radius: 16px;
+  box-shadow: 0 24px 70px rgba(7, 27, 43, 0.16);
+  border: 1px solid var(--gates-border);
+  overflow: hidden;
+  background: #ffffff;
 }
 
 .gates-nav-link {
@@ -543,6 +568,20 @@ html.gates-marketing-root {
   font-size: 0.75rem;
   letter-spacing: 0.12em;
   text-transform: uppercase;
+}
+
+.gates-cinematic-scene {
+  perspective: 1400px;
+  perspective-origin: 50% 46%;
+}
+
+.gates-cinematic-camera {
+  transform-style: preserve-3d;
+  will-change: transform;
+}
+
+.gates-cinematic-stage {
+  isolation: isolate;
 }
 
 .gates-skip:focus {
