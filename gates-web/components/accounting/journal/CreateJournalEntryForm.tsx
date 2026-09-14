@@ -135,7 +135,7 @@ export default function CreateJournalEntryForm() {
 
 function CreateJournalEntryFormInner() {
   const router = useRouter();
-  const { lockToView, setMode, unlockForEdit, isReadOnly } = useDocumentMode();
+  const { lockToView, setMode, unlockForEdit, isReadOnly, mode } = useDocumentMode();
   const invalidateQuery = useInvalidateQuery();
   const searchParams = useSearchParams();
   const journalEntryIdFromUrl = searchParams.get('id');
@@ -143,6 +143,7 @@ function CreateJournalEntryFormInner() {
   const [showList, setShowList] = useState(false);
   const [isCyclic, setIsCyclic] = useState(true);
   const [isPosted, setIsPosted] = useState(false);
+  const [isApproved, setIsApproved] = useState(false);
   const [voucherStatus, setVoucherStatus] = useState('غير مرحل');
   const [showRecurringPicker, setShowRecurringPicker] = useState(false);
   const [sourceKind, setSourceKind] = useState<JournalSourceType>('MANUAL');
@@ -168,8 +169,8 @@ function CreateJournalEntryFormInner() {
       return;
     }
     if (isPosted) lockToView();
-    else setMode('edit');
-  }, [isPosted, lockToView, savedJournalEntryId, setMode]);
+    else if (savedJournalEntryId && mode === 'create') setMode('edit');
+  }, [isPosted, lockToView, mode, savedJournalEntryId, setMode]);
 
   const openJournal = useCallback(
     (id: string | null) => {
@@ -253,6 +254,7 @@ function CreateJournalEntryFormInner() {
     });
     setIsCyclic(loadedJournalEntry.isCyclic ?? true);
     setIsPosted(loadedJournalEntry.isPosted ?? false);
+    setIsApproved(loadedJournalEntry.isApproved ?? false);
     setVoucherStatus(loadedJournalEntry.isPosted ? 'مرحل' : 'غير مرحل');
     setLoadedVersion(loadedJournalEntry.version);
     setSourceKind(
@@ -329,6 +331,7 @@ function CreateJournalEntryFormInner() {
     {
       onSuccess: () => {
         setIsPosted(false);
+        setIsApproved(false);
         setVoucherStatus('مسودة');
         setSuccess('تم فك ترحيل القيد');
         unlockForEdit();
@@ -337,6 +340,24 @@ function CreateJournalEntryFormInner() {
       },
       onError: (error: ApiError) => {
         setError(error.message || 'حدث خطأ أثناء فك الترحيل');
+      },
+    }
+  );
+
+  const unapproveJournalMutation = useApiMutation<unknown, Record<string, never>>(
+    savedJournalEntryId
+      ? `/accounting/journal-entries/${savedJournalEntryId}/unapprove`
+      : '/accounting/journal-entries',
+    'POST',
+    {
+      onSuccess: () => {
+        setIsApproved(false);
+        setSuccess('تم إلغاء اعتماد القيد');
+        invalidateQuery(['journal-entries']);
+        invalidateQuery(['journal-entry', savedJournalEntryId]);
+      },
+      onError: (error: ApiError) => {
+        setError(error.message || 'تعذر إلغاء الاعتماد');
       },
     }
   );
@@ -552,6 +573,7 @@ function CreateJournalEntryFormInner() {
     setSavedJournalEntryId(null);
     setLoadedVersion(undefined);
     setIsPosted(false);
+    setIsApproved(false);
     setVoucherStatus('غير مرحل');
     setError('');
     setSuccess('');
@@ -565,6 +587,7 @@ function CreateJournalEntryFormInner() {
     setSavedJournalEntryId(null);
     setLoadedVersion(undefined);
     setIsPosted(false);
+    setIsApproved(false);
     setVoucherStatus('غير مرحل');
     setSourceKind('MANUAL');
     setSourceId(null);
@@ -655,6 +678,8 @@ function CreateJournalEntryFormInner() {
             }
             unlockForEdit();
           },
+          isApproved,
+          onUnapprove: () => unapproveJournalMutation.mutate({}),
           onUnpost: () => unpostJournalMutation.mutate({}),
           unpostPending: unpostJournalMutation.isPending,
           onPrint: triggerPrint,
@@ -670,6 +695,7 @@ function CreateJournalEntryFormInner() {
       <DocumentBrowseDrawer open={showList} onClose={() => setShowList(false)} title="القيود السابقة">
         <JournalEntriesListSection
           onSelectEntry={() => {
+            lockToView();
             setShowList(false);
           }}
         />

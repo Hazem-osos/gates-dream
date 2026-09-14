@@ -53,6 +53,8 @@ type Props = {
   printTrigger?: ReactNode;
   printMenuItems?: ErpHeaderMenuItem[];
   moreMenuItems?: ErpHeaderMenuItem[];
+  onEdit?: () => void;
+  editDisabled?: boolean;
   moreTrigger?: ReactNode;
   /** Replaces the default three-dots / standard action menu when provided. */
   actionMenu?: ReactNode;
@@ -113,6 +115,8 @@ export function ErpDocumentPageHeader({
   printTrigger,
   printMenuItems,
   moreMenuItems,
+  onEdit,
+  editDisabled,
   moreTrigger,
   actionMenu,
   extraActions,
@@ -294,7 +298,19 @@ export function ErpDocumentPageHeader({
                   </Button>
                 )
               }
-              items={moreMenuItems?.length ? moreMenuItems : []}
+              items={[
+                ...(onEdit
+                  ? [
+                      {
+                        id: 'edit',
+                        label: 'تعديل',
+                        onClick: onEdit,
+                        disabled: editDisabled ?? !currentId,
+                      },
+                    ]
+                  : []),
+                ...(moreMenuItems ?? []),
+              ]}
             />
           )}
         </div>

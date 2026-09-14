@@ -1675,6 +1675,19 @@ function SalesInvoicePageInner() {
           onBarcodeLabels: () => setShowPrint(true),
         }}
         onUnpost={() => handlePostUnpost(false)}
+        isApproved={isApproved}
+        onUnapprove={() => {
+          if (!selectedInvoiceId) return;
+          void apiClient
+            .post(`/invoices/${selectedInvoiceId}/unapprove`, {})
+            .then(() => {
+              setIsApproved(false);
+              toast.success('تم إلغاء اعتماد الفاتورة');
+            })
+            .catch((error: unknown) => {
+              toast.error(error instanceof Error ? error.message : 'تعذر إلغاء الاعتماد');
+            });
+        }}
         onDelete={handleDelete}
         onOpenJournal={handleToolbarOpenJournal}
         onCollectPayment={handleToolbarCollectPayment}

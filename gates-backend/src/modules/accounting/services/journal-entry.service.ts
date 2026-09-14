@@ -442,13 +442,9 @@ export class JournalEntryService {
         throw new Error('Journal entry is not approved');
       }
 
-      if (journalEntry.isPosted) {
-        throw new Error('Cannot unapprove a posted journal entry');
-      }
-
       const updated = await prisma.journalEntry.update({
         where: { id: journalEntryId },
-        data: { isApproved: false },
+        data: { isApproved: false, workflowStatus: journalEntry.isPosted ? journalEntry.workflowStatus : 'DRAFT' },
       });
 
       logger.info({ companyId, journalEntryId }, 'Journal entry unapproved');

@@ -358,6 +358,21 @@ router.post(
   }
 );
 
+router.post(
+  '/:id/unapprove',
+  authorize({ resource: 'invoice', action: 'edit' }),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const companyId = req.companyId || req.tenantId;
+      if (!companyId) throw new AppError(400, 'Company context is required');
+      const data = await invoicePostingOrchestrator.unapprove(companyId, req.params.id);
+      return void res.json({ status: 'success', data, message: 'تم إلغاء اعتماد المستند' });
+    } catch (e: unknown) {
+      return respondError(res, e, 'تعذر إلغاء الاعتماد');
+    }
+  }
+);
+
 router.get(
   '/:id/installments',
   authorize({ resource: 'invoice', action: 'view' }),

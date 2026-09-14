@@ -657,6 +657,19 @@ function FinalPurchaseInvoicePageInner() {
     }
   );
 
+  const unapproveInvoiceMutation = useApiMutation<unknown, Record<string, unknown>>(
+    selectedInvoiceId ? `/invoices/${selectedInvoiceId}/unapprove` : '/invoices',
+    'POST',
+    {
+      onSuccess: () => {
+        setSuccess('تم إلغاء اعتماد الفاتورة');
+        invalidateQuery(['invoices']);
+        invalidateQuery(['invoice', selectedInvoiceId]);
+      },
+      onError: (err) => setError(err.message || 'تعذر إلغاء الاعتماد'),
+    }
+  );
+
   const { data: safesResponse } = useApiQuery<Array<{ id: string }>>(
     ['accounting', 'safes', 'settlement'],
     '/accounting/safes',
@@ -864,6 +877,10 @@ function FinalPurchaseInvoicePageInner() {
         onUnpost={() => {
           if (financialBusy || !selectedInvoiceId) return;
           unpostInvoiceMutation.mutate({});
+        }}
+        onUnapprove={() => {
+          if (!selectedInvoiceId) return;
+          unapproveInvoiceMutation.mutate({});
         }}
         onDelete={() => {
           if (financialBusy) return;

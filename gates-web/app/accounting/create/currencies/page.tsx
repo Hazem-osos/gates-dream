@@ -10,6 +10,7 @@ import {
 } from '@/components/ui';
 import { DocumentBrowseDrawer } from '@/components/erp/DocumentBrowseDrawer';
 import { ErpDocumentLayout, ErpDocumentPageHeader } from '@/components/erp';
+import { DocumentModeProvider, useDocumentMode } from '@/components/common/document-shell';
 import { CurrenciesListSection, type CurrencyRow } from '@/components/accounting/CurrenciesListSection';
 import { CURRENCY_CATALOG, findCurrencyCatalog } from '@/lib/accounting/currency-catalog';
 import { useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
@@ -47,7 +48,8 @@ const emptyForm = (serial = '1'): FormState => ({
   exchangeRate: '',
 });
 
-export default function CurrenciesPage() {
+function CurrenciesPageInner() {
+  const { isReadOnly, unlockForEdit, lockToView, setMode } = useDocumentMode();
   const invalidateQuery = useInvalidateQuery();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
@@ -76,9 +78,11 @@ export default function CurrenciesPage() {
     setSelectedId(null);
     setForm(emptyForm(nextSerial));
     setError('');
+    setMode('create');
   };
 
   const hydrate = (row: CurrencyRow) => {
+    lockToView();
     const catalog = findCurrencyCatalog(row.code || row.symbol || '');
     setSelectedId(row.id);
     setForm({
@@ -192,8 +196,13 @@ export default function CurrenciesPage() {
         saveLabel="حفظ"
         onSaveDraft={() => void handleSave()}
         savePending={saving}
-        canSave={!saving}
+        canSave={!isReadOnly && !saving}
         hideStandalonePost
+        onEdit={() => {
+          if (!selectedId) return;
+          unlockForEdit();
+        }}
+        editDisabled={!selectedId}
         moreMenuItems={[
           { id: 'new', label: 'جديد', onClick: handleNew },
           {
@@ -275,5 +284,13 @@ export default function CurrenciesPage() {
         <CurrenciesListSection onSelect={hydrate} selectedId={selectedId} />
       </DocumentBrowseDrawer>
     </ErpDocumentLayout>
+  );
+}
+
+export default function CurrenciesPage() {
+  return (
+    <DocumentModeProvider initialMode="create">
+      <CurrenciesPageInner />
+    </DocumentModeProvider>
   );
 }

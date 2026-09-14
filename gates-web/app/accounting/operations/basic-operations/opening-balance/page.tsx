@@ -184,7 +184,7 @@ function OpeningBalancePageInner() {
       return;
     }
     if (isPosted) lockToView();
-    else setMode('edit');
+    else if (savedJournalEntryId) setMode('edit');
   }, [isPosted, lockToView, savedJournalEntryId, setMode]);
 
   useEffect(() => {
@@ -574,6 +574,15 @@ function OpeningBalancePageInner() {
             unlockForEdit();
           },
           onPost: handlePost,
+          onUnapprove: () => {
+            if (!savedJournalEntryId) return;
+            void apiClient
+              .post(`/accounting/journal-entries/${savedJournalEntryId}/unapprove`, {})
+              .then(() => setSuccess('تم إلغاء اعتماد القيد'))
+              .catch((err: unknown) =>
+                setError(err instanceof Error ? err.message : 'تعذر إلغاء الاعتماد')
+              );
+          },
           onUnpost: () => unpostJournalMutation.mutate({}),
           onPrint: () => {
             if (!lines.length) return;
@@ -614,7 +623,10 @@ function OpeningBalancePageInner() {
         <JournalEntriesListSection
           entryType={OPENING_ENTRY_TYPE}
           hrefBase={OPENING_HREF}
-          onSelectEntry={() => setShowList(false)}
+          onSelectEntry={() => {
+            lockToView();
+            setShowList(false);
+          }}
         />
       </DocumentBrowseDrawer>
 

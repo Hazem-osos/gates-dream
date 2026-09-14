@@ -59,6 +59,9 @@ export function DocumentApprovalBar({
   >('/approval/reject', 'POST', { showSuccessToast: false });
 
   if (!entityId || isPosted || !state) return null;
+  if (!state.requiresApproval && (state.workflowStatus === 'DRAFT' || !state.workflowStatus)) {
+    return null;
+  }
 
   const refresh = () => {
     void refetch();

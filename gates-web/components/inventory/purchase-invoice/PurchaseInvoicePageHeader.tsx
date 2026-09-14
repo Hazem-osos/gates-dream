@@ -38,6 +38,8 @@ type Props = {
   printInvoice: Record<string, unknown> | null;
   company?: CompanyPrintProfile;
   onUnpost: () => void;
+  onUnapprove?: () => void;
+  isApproved?: boolean;
   onDelete: () => void;
   onOpenJournal: () => void;
   onCollectPayment: () => void;
@@ -68,6 +70,8 @@ export function PurchaseInvoicePageHeader({
   printInvoice,
   company,
   onUnpost,
+  onUnapprove,
+  isApproved,
   onDelete,
   onOpenJournal,
   onCollectPayment,
@@ -122,6 +126,8 @@ export function PurchaseInvoicePageHeader({
         newLabel: 'جديد',
         onEdit,
         onPost,
+        isApproved,
+        onUnapprove,
         onUnpost,
         onThermalPrint: canThermal ? () => setThermalOpen(true) : undefined,
         onVoid: onDelete,

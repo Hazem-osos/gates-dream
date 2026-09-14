@@ -35,15 +35,15 @@ const SETTING_HIGH_VALUE = 'ApprovalHighValueThreshold';
 const SETTING_CREDIT_LIMIT = 'ApprovalEnforceCreditLimit';
 
 export class ApprovalWorkflowService {
-  async getHighValueThreshold(companyId: string): Promise<number> {
+  async getHighValueThreshold(companyId: string): Promise<number | null> {
     const raw = await companySettingService.getEntry(companyId, SETTING_HIGH_VALUE);
-    if (!raw) return 50_000;
+    if (!raw || !raw.trim()) return null;
     const n = Number(raw.replace(/,/g, ''));
-    return Number.isFinite(n) ? n : 50_000;
+    return Number.isFinite(n) && n > 0 ? n : null;
   }
 
   async isCreditLimitApprovalEnabled(companyId: string): Promise<boolean> {
-    return companySettingService.getFlag(companyId, SETTING_CREDIT_LIMIT, true);
+    return companySettingService.getFlag(companyId, SETTING_CREDIT_LIMIT, false);
   }
 
   private normalizeStatus(status: string | null | undefined, isPosted: boolean): WorkflowStatus {
@@ -82,7 +82,7 @@ export class ApprovalWorkflowService {
     const threshold = await this.getHighValueThreshold(companyId);
     const net = Number(invoice.netAmount);
 
-    if (net > threshold) requirements.push('HIGH_VALUE');
+    if (threshold != null && net > threshold) requirements.push('HIGH_VALUE');
 
     if (
       invoice.customerId &&

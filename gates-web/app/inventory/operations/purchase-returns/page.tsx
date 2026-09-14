@@ -424,6 +424,14 @@ export default function PurchaseReturnsPage() {
         hideStandalonePost
         savePending={financialBusy}
         canSave={!isPosted && !financialBusy}
+        onEdit={() => {
+          if (!selectedReturnId) return;
+          if (isPosted) {
+            setError('فك الترحيل أولاً حتى يمكن التعديل');
+            return;
+          }
+        }}
+        editDisabled={!selectedReturnId || isPosted}
         moreMenuItems={[
           { id: 'new', label: 'مردود جديد', onClick: resetForm },
           { id: 'print', label: 'طباعة', onClick: () => window.print() },

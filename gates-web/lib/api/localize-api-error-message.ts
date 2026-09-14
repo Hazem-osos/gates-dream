@@ -69,6 +69,9 @@ const EXACT: Record<string, string> = {
   'post the invoice before recording a settlement': 'رحّل الفاتورة قبل تسجيل التحصيل',
   'invoice must be posted before collecting payment': 'يجب ترحيل الفاتورة قبل التحصيل',
   'invoice must be posted before approval': 'يجب ترحيل الفاتورة قبل الاعتماد',
+  'cannot unapprove a posted journal entry': 'تم إلغاء الاعتماد — يمكنك فك الترحيل الآن',
+  'journal entry is not approved': 'القيد غير معتمد',
+  'invoice is not approved': 'الفاتورة غير معتمدة',
   'line quantity must be greater than 0': 'كمية السطر يجب أن تكون أكبر من صفر',
   'base quantity must be greater than 0': 'الكمية الأساسية يجب أن تكون أكبر من صفر',
   'quote already converted': 'تم تحويل عرض السعر مسبقاً',
@@ -104,6 +107,10 @@ const RULES: Rule[] = [
   {
     test: /insufficient component quantity.*?available:\s*([\d.]+),\s*required:\s*([\d.]+)/i,
     ar: (m) => `كمية المكوّن غير كافية — المتاح: ${m[1]}، المطلوب: ${m[2]}.`,
+  },
+  {
+    test: /cannot unpost an approved/i,
+    ar: 'تم تعطيل قفل الاعتماد — أعد فك الترحيل. لو استمر الخطأ حدّث الصفحة.',
   },
   {
     test: /cannot unpost:?\s*insufficient.*?current:\s*([\d.]+),\s*required:\s*([\d.]+)/i,

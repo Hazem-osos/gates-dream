@@ -352,6 +352,14 @@ export function SalesOrderForm() {
           hideStandalonePost
           onBrowseList={() => setBrowseOpen(true)}
           browseListLabel="السابق"
+          onEdit={() => {
+            if (!selectedId) return;
+            if (loaded?.isCancelled) {
+              setError('لا يمكن تعديل أمر ملغي');
+              return;
+            }
+          }}
+          editDisabled={!selectedId || Boolean(loaded?.isCancelled)}
           favoriteHref="/inventory/operations/sales-order"
           favoriteLabel="أمر بيع"
           moreMenuItems={[

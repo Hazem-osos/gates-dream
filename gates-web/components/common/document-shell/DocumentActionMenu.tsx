@@ -29,6 +29,8 @@ export type DocumentActionMenuProps = {
   onEdit?: () => void;
   onPost?: () => void;
   onUnpost?: () => void;
+  onUnapprove?: () => void;
+  isApproved?: boolean;
   onPrint?: () => void;
   onThermalPrint?: () => void;
   onDuplicate?: () => void;
@@ -56,6 +58,8 @@ export function DocumentActionMenu({
   onEdit,
   onPost,
   onUnpost,
+  onUnapprove,
+  isApproved = false,
   onPrint,
   onThermalPrint,
   onDuplicate,
@@ -97,7 +101,7 @@ export function DocumentActionMenu({
     setPhoneDialogOpen(true);
   };
 
-  const editDisabled = !hasDocument || !isReadOnly || isCancelled || isPosted;
+  const editDisabled = !hasDocument || isCancelled || isPosted || !onEdit;
   const editHint = isPosted
     ? editLockedHint ??
       (hidePostActions
@@ -129,6 +133,16 @@ export function DocumentActionMenu({
             onClick: () => onPost?.(),
           },
         ]),
+    ...(onUnapprove
+      ? [
+          {
+            id: 'unapprove',
+            label: 'إلغاء الاعتماد',
+            disabled: !hasDocument || isCancelled,
+            onClick: () => onUnapprove(),
+          },
+        ]
+      : []),
     ...(onUnpost
       ? [
           {

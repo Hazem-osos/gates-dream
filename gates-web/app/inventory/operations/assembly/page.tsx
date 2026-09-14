@@ -377,8 +377,8 @@ function AssemblyPageInner() {
           moreMenuItems={[
             {
               id: 'edit',
-              label: 'تعديل السند',
-              disabled: !selectedId || !isPosted,
+              label: 'تعديل',
+              disabled: !selectedId || isPosted || isCancelled,
               onClick: () => {
                 if (isPosted) setError('يجب فك الترحيل أولاً للتعديل');
               },

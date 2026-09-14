@@ -404,6 +404,14 @@ export default function ReceiptPage() {
         savePending={loading}
         postPending={postReceiptMutation.isPending}
         canPost={!!selectedReceiptId && !isPosted}
+        onEdit={() => {
+          if (!selectedReceiptId) return;
+          if (isPosted) {
+            setError('فك الترحيل أولاً من قائمة (...) حتى يمكن التعديل');
+            return;
+          }
+        }}
+        editDisabled={!selectedReceiptId || isPosted}
         moreMenuItems={[
           { id: 'new', label: 'جديد', onClick: handleNew },
           { id: 'del', label: 'حذف', onClick: handleDelete, destructive: true },

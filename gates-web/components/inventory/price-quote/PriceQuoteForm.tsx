@@ -304,6 +304,10 @@ export function PriceQuoteForm() {
           hideStandalonePost
           onBrowseList={() => setBrowseOpen(true)}
           browseListLabel="السابق"
+          onEdit={() => {
+            if (!selectedId) return;
+          }}
+          editDisabled={!selectedId}
           favoriteHref="/inventory/operations/price-quote"
           favoriteLabel="عرض سعر"
           moreMenuItems={[

@@ -1032,20 +1032,9 @@ export class InvoicePostingOrchestrator {
     if (!invoice.isPosted) {
       throw new AppError(400, 'Invoice is not posted');
     }
-    if (invoice.isApproved) {
-      // H4 fix: approved+posted invoices are a control boundary, not a dead
-      // end — they cannot be unposted/edited in place, but the sanctioned
-      // correction path is a SALE_RETURN/PURCHASE_RETURN (credit note)
-      // referencing this invoice's lines via `originalInvoiceLineId` (H10),
-      // which is validated against over-return and posts its own balanced
-      // reversing journal without touching the original approved document.
-      throw new AppError(
-        400,
-        'Cannot unpost an approved invoice — it is a locked financial record. ' +
-          'Correct it by creating a return/credit note (SALE_RETURN or PURCHASE_RETURN) ' +
-          'that references this invoice\'s lines instead.'
-      );
-    }
+    // Approval is optional and only applies when the company configured a
+    // chain. Unpost always returns the invoice to draft, including clearing
+    // isApproved so the owner is not stuck without an approval page setup.
 
     const kind = resolveKind(invoice);
     const moduleCode = invoice.moduleCode ?? defaultInvoiceModuleCode(kind);
@@ -1183,6 +1172,22 @@ export class InvoicePostingOrchestrator {
       );
 
       return unposted;
+    });
+  }
+
+  async unapprove(companyId: string, invoiceId: string) {
+    const invoice = await prisma.invoice.findFirst({
+      where: { id: invoiceId, companyId },
+      select: { id: true, isApproved: true, isPosted: true, workflowStatus: true },
+    });
+    if (!invoice) throw new AppError(404, 'الفاتورة غير موجودة');
+    if (!invoice.isApproved) throw new AppError(400, 'المستند غير معتمد');
+    return prisma.invoice.update({
+      where: { id: invoiceId },
+      data: {
+        isApproved: false,
+        workflowStatus: invoice.isPosted ? invoice.workflowStatus : 'DRAFT',
+      },
     });
   }
 }

@@ -7,6 +7,7 @@ import { DatePickerWithHijri } from '@/components/ui/DatePickerWithHijri';
 import { PeriodsListSection, type PeriodRow } from '@/components/accounting/PeriodsListSection';
 import { DocumentBrowseDrawer } from '@/components/erp/DocumentBrowseDrawer';
 import { ErpDocumentLayout, ErpDocumentPageHeader } from '@/components/erp';
+import { DocumentModeProvider, useDocumentMode } from '@/components/common/document-shell';
 import { useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
 import { apiClient } from '@/lib/api/client';
 import ErrorToast from '@/components/ErrorToast';
@@ -52,7 +53,8 @@ const emptyForm = (startDate = todayIso()): FormState => ({
   isClosed: false,
 });
 
-export default function AccountingPeriodsPage() {
+function AccountingPeriodsPageInner() {
+  const { isReadOnly, unlockForEdit, lockToView, setMode } = useDocumentMode();
   const invalidateQuery = useInvalidateQuery();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
@@ -96,9 +98,11 @@ export default function AccountingPeriodsPage() {
     setSelectedId(null);
     setForm(emptyForm(start));
     setError('');
+    setMode('create');
   };
 
   const hydrate = (row: PeriodRow) => {
+    lockToView();
     setSelectedId(row.id);
     setForm({
       code: row.code ?? '',
@@ -226,8 +230,17 @@ export default function AccountingPeriodsPage() {
         saveLabel="حفظ"
         onSaveDraft={() => void handleSave()}
         savePending={saving}
-        canSave={!saving && !closing && !opening}
+        canSave={!isReadOnly && !saving && !closing && !opening}
         hideStandalonePost
+        onEdit={() => {
+          if (!selectedId) return;
+          if (form.isClosed) {
+            setError('افتح الفترة أولاً ثم اضغط تعديل');
+            return;
+          }
+          unlockForEdit();
+        }}
+        editDisabled={!selectedId}
         moreMenuItems={[
           { id: 'new', label: 'جديد', onClick: handleNew },
           {
@@ -286,6 +299,7 @@ export default function AccountingPeriodsPage() {
           label="المسلسل"
           placeholder="إدخل رقم المسلسل"
           value={form.code}
+          disabled={isReadOnly}
           onChange={(e) => patch({ code: e.target.value })}
         />
         <CompactFormField
@@ -293,12 +307,13 @@ export default function AccountingPeriodsPage() {
           placeholder="إدخل اسم الفترة"
           required
           value={form.name}
+          disabled={isReadOnly}
           onChange={(e) => patch({ name: e.target.value })}
         />
         <DatePickerWithHijri
           label="من تاريخ"
           required
-          disabled={startDateLocked}
+          disabled={startDateLocked || isReadOnly}
           value={startDateLocked && !selectedId ? nextStartDate : form.startDate}
           onChange={(value) => patch({ startDate: value })}
         />
@@ -306,6 +321,7 @@ export default function AccountingPeriodsPage() {
           label="إلى تاريخ"
           required
           value={form.endDate}
+          disabled={isReadOnly}
           onChange={(value) => patch({ endDate: value })}
         />
       </FormSectionCard>
@@ -318,5 +334,13 @@ export default function AccountingPeriodsPage() {
         <PeriodsListSection onSelect={hydrate} selectedId={selectedId} />
       </DocumentBrowseDrawer>
     </ErpDocumentLayout>
+  );
+}
+
+export default function AccountingPeriodsPage() {
+  return (
+    <DocumentModeProvider initialMode="create">
+      <AccountingPeriodsPageInner />
+    </DocumentModeProvider>
   );
 }

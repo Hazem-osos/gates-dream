@@ -776,9 +776,8 @@ export class JournalPostingService {
       if (entry.postingStatus !== 'Post' && !entry.isPosted) {
         throw new AppError(400, 'القيد غير مرحّل');
       }
-      if (entry.isApproved) {
-        throw new AppError(400, 'لا يمكن فك ترحيل قيد معتمد');
-      }
+      // Approval is a pre-post gate only. If no approval chain is configured
+      // (or the owner is reversing their own post), unpost clears the flag.
       if (entry.branchId && ctx.branchId && entry.branchId !== ctx.branchId) {
         throw new AppError(403, 'القيد تابع لفرع آخر');
       }
@@ -830,6 +829,7 @@ export class JournalPostingService {
         where: { id: journalEntryId },
         data: {
           isPosted: false,
+          isApproved: false,
           postingStatus: 'UnPost',
           workflowStatus: 'DRAFT',
           postedAt: null,

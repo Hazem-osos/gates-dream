@@ -49,6 +49,8 @@ type Props = {
     onBarcodeLabels: () => void;
   };
   onUnpost: () => void;
+  onUnapprove?: () => void;
+  isApproved?: boolean;
   onDelete: () => void;
   onOpenJournal: () => void;
   onCollectPayment: () => void;
@@ -89,6 +91,8 @@ export function SalesInvoicePageHeader(props: Props) {
     company,
     printOptions,
     onUnpost,
+    onUnapprove,
+    isApproved,
     onDelete,
     onOpenJournal,
     onCollectPayment,
@@ -238,6 +242,8 @@ export function SalesInvoicePageHeader(props: Props) {
         newLabel: 'جديد',
         onEdit,
         onPost,
+        isApproved,
+        onUnapprove,
         onUnpost,
         onPrint: canPrint ? () => setPrintHubOpen(true) : undefined,
         onThermalPrint: canPrint
