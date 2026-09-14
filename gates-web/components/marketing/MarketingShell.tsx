@@ -4,7 +4,7 @@ import { IBM_Plex_Sans_Arabic, Newsreader } from 'next/font/google';
 import { useEffect } from 'react';
 import { Navbar } from '../layout/Navbar';
 import { ScrollProgress } from '../animations/ScrollProgress';
-import { createMarketingLenis, scrollToHash } from '../../lib/lenis';
+import { createMarketingLenis, scrollToHash, startHomepageAutoplay } from '../../lib/lenis';
 import { registerGsapPlugins, ScrollTrigger } from '../../lib/gsap';
 import { LocaleProvider, useMarketingLocale } from '../../lib/marketing/locale';
 
@@ -29,6 +29,8 @@ function MarketingDocument({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     registerGsapPlugins();
     const html = document.documentElement;
+    const previousLang = html.lang;
+    const previousDir = html.getAttribute('dir');
     html.classList.add('gates-marketing-root');
     html.lang = locale;
     html.dir = dir;
@@ -36,15 +38,17 @@ function MarketingDocument({ children }: { children: React.ReactNode }) {
     html.style.overflowX = 'hidden';
     return () => {
       html.classList.remove('gates-marketing-root');
-      html.lang = 'en';
-      html.dir = 'rtl';
+      html.lang = previousLang || 'ar';
+      html.setAttribute('dir', previousDir || 'rtl');
       html.style.overflowX = previousOverflow;
     };
   }, [locale, dir]);
 
   useEffect(() => {
     const destroy = createMarketingLenis();
+    const stopAutoplay = startHomepageAutoplay();
     return () => {
+      stopAutoplay();
       destroy?.();
     };
   }, []);
