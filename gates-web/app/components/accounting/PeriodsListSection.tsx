@@ -20,40 +20,50 @@ function dateLabel(value: string | null | undefined): string {
   if (/^\d{4}-\d{2}-\d{2}/.test(value)) return value.slice(0, 10);
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return '—';
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function matchesSearch(row: PeriodRow, search: string): boolean {
+  const q = search.trim().toLowerCase();
+  if (!q) return true;
+  const haystack = [
+    row.code,
+    row.name,
+    dateLabel(row.startDate),
+    dateLabel(row.endDate),
+    row.isClosed ? 'مغلقة' : 'مفتوحة',
+    row.isClosed ? 'closed' : 'open',
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+  return haystack.includes(q);
 }
 
 export function PeriodsListSection({
   onSelect,
-  onDelete,
   selectedId,
 }: {
   onSelect?: (row: PeriodRow) => void;
-  onDelete?: (row: PeriodRow) => void;
   selectedId?: string | null;
 }) {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [search, setSearch] = useState('');
 
-  const queryParams = useMemo(() => {
-    const p: Record<string, string | number | boolean> = { page, limit: pageSize };
-    if (search.trim().length >= 2) p.search = search.trim();
-    return p;
-  }, [page, pageSize, search]);
-
   const { data, isLoading } = useApiQuery<PeriodRow[]>(
-    ['periods', { page, search, pageSize }],
+    ['periods', { page: 1, pageSize: 200 }],
     '/accounting/periods',
-    queryParams,
+    { page: 1, limit: 200 },
     { staleTime: 15_000 }
   );
 
-  const rows = useMemo(() => data?.data ?? [], [data?.data]);
-  const total = data?.pagination?.total ?? data?.meta?.total ?? rows.length;
+  const allRows = useMemo(() => data?.data ?? [], [data?.data]);
+  const filtered = useMemo(
+    () => allRows.filter((row) => matchesSearch(row, search)),
+    [allRows, search]
+  );
+  const rows = filtered.slice((page - 1) * pageSize, page * pageSize);
 
   const exportColumns: ExportColumnDef<PeriodRow>[] = [
     { id: 'code', header: 'المسلسل', getValue: (r) => r.code || '' },
@@ -66,7 +76,7 @@ export function PeriodsListSection({
   return (
     <section className="mb-6 space-y-4">
       <FilterToolbar
-        searchPlaceholder="بحث بالمسلسل أو اسم الفترة…"
+        searchPlaceholder="بحث بأي عمود: المسلسل، الاسم، التاريخ، الحالة…"
         onSearchChange={(v) => {
           setPage(1);
           setSearch(v);
@@ -74,7 +84,7 @@ export function PeriodsListSection({
         exportConfig={{
           fileName: 'accounting-periods',
           columns: exportColumns as ExportColumnDef<Record<string, unknown>>[],
-          rows: rows as Record<string, unknown>[],
+          rows: filtered as Record<string, unknown>[],
         }}
       />
       <AppTable<PeriodRow>
@@ -105,32 +115,20 @@ export function PeriodsListSection({
             header: '',
             align: 'center',
             cell: (r) => (
-              <div className="flex items-center justify-center gap-1">
-                <Button
-                  variant={selectedId === r.id ? 'primary' : 'ghost'}
-                  size="sm"
-                  onClick={() => onSelect?.(r)}
-                >
-                  فتح
-                </Button>
-                {onDelete ? (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="text-red-600 hover:bg-red-50 hover:text-red-700"
-                    onClick={() => onDelete(r)}
-                  >
-                    حذف
-                  </Button>
-                ) : null}
-              </div>
+              <Button
+                variant={selectedId === r.id ? 'primary' : 'ghost'}
+                size="sm"
+                onClick={() => onSelect?.(r)}
+              >
+                فتح
+              </Button>
             ),
           },
         ]}
         pagination={{
           page,
           pageSize,
-          totalItems: total,
+          totalItems: filtered.length,
           onPageChange: setPage,
           onPageSizeChange: (n) => {
             setPage(1);

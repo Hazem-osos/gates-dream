@@ -9,32 +9,64 @@ import {
   periodQuerySchema,
 } from '../schemas/period.schema';
 import { periodService } from '../services/period.service';
+import { journalEntryService } from '../services/journal-entry.service';
 import { logger } from '../../../shared/logger';
 import { AuthRequest } from '../../../shared/auth/types';
+import { AppError } from '../../../shared/middleware/error-handler';
+import { isAdminRequest } from '../../../shared/auth/roles.util';
+import prisma from '../../../shared/database/prisma';
 
 const router = Router();
 
 router.use(authenticate);
 router.use(setTenantContext);
 
-/**
- * GET /api/v1/accounting/periods
- * List periods with pagination and filters
- */
+function companyIdOf(req: AuthRequest): string {
+  const companyId = req.companyId || req.tenantId;
+  if (!companyId) {
+    throw new AppError(400, 'معرّف الشركة مطلوب');
+  }
+  return companyId;
+}
+
+function sendError(res: Response, error: unknown, fallback: string) {
+  const status = error instanceof AppError ? error.statusCode : 500;
+  return void res.status(status).json({
+    status: 'error',
+    message: error instanceof Error ? error.message : fallback,
+  });
+}
+
+async function postingContext(req: AuthRequest) {
+  const companyId = companyIdOf(req);
+  let branchId = req.branchId;
+  if (!branchId) {
+    const branch = await prisma.branch.findFirst({
+      where: { companyId, deletedAt: null },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true },
+    });
+    branchId = branch?.id;
+  }
+  if (!branchId) {
+    throw new AppError(400, 'يجب اختيار فرع قبل فتح أو إغلاق الفترة');
+  }
+  return journalEntryService.buildPostingContext(
+    companyId,
+    branchId,
+    req.user?.sub ?? 'system',
+    req.fiscalYearId,
+    isAdminRequest(req)
+  );
+}
+
 router.get(
   '/',
   authorize({ resource: 'period', action: 'view' }),
   validate({ query: periodQuerySchema }),
   async (req: AuthRequest, res: Response) => {
     try {
-      const companyId = req.companyId || req.tenantId;
-      if (!companyId) {
-        return void res.status(400).json({
-          status: 'error',
-          message: 'Company ID is required',
-        });
-      }
-
+      const companyId = companyIdOf(req);
       const result = await periodService.listPeriods(companyId, {
         page: req.query.page as number | undefined,
         limit: req.query.limit as number | undefined,
@@ -43,290 +75,151 @@ router.get(
         isClosed: req.query.isClosed as boolean | undefined,
       });
 
-      logger.info(
-        { companyId, count: result.periods.length },
-        'Periods listed'
-      );
-
       return void res.json({
         status: 'success',
         data: result.periods,
+        nextStartDate: result.nextStartDate,
         pagination: result.pagination,
       });
     } catch (error) {
       logger.error({ error }, 'Error listing periods');
-      return void res.status(500).json({
-        status: 'error',
-        message:
-          error instanceof Error ? error.message : 'Failed to list periods',
-      });
+      return sendError(res, error, 'تعذّر تحميل الفترات');
     }
   }
 );
 
-/**
- * GET /api/v1/accounting/periods/current
- * Get current active period
- */
 router.get(
   '/current',
   authorize({ resource: 'period', action: 'view' }),
   async (req: AuthRequest, res: Response) => {
     try {
-      const companyId = req.companyId || req.tenantId;
-      if (!companyId) {
-        return void res.status(400).json({
-          status: 'error',
-          message: 'Company ID is required',
-        });
-      }
-
-      const period = await periodService.getCurrentPeriod(companyId);
-
-      return void res.json({
-        status: 'success',
-        data: period,
-      });
+      const period = await periodService.getCurrentPeriod(companyIdOf(req));
+      return void res.json({ status: 'success', data: period });
     } catch (error) {
       logger.error({ error }, 'Error getting current period');
-      const status =
-        error instanceof Error && error.message === 'No active period found'
-          ? 404
-          : 500;
-      return void res.status(status).json({
-        status: 'error',
-        message:
-          error instanceof Error ? error.message : 'Failed to get current period',
-      });
+      return sendError(res, error, 'تعذّر تحميل الفترة الحالية');
     }
   }
 );
 
-/**
- * GET /api/v1/accounting/periods/:id
- * Get period by ID
- */
 router.get(
   '/:id',
   authorize({ resource: 'period', action: 'view' }),
   async (req: AuthRequest, res: Response) => {
     try {
-      const companyId = req.companyId || req.tenantId;
-      if (!companyId) {
-        return void res.status(400).json({
-          status: 'error',
-          message: 'Company ID is required',
-        });
-      }
-
-      const period = await periodService.getPeriodById(
-        companyId,
-        req.params.id
-      );
-
-      return void res.json({
-        status: 'success',
-        data: period,
-      });
+      const period = await periodService.getPeriodById(companyIdOf(req), req.params.id);
+      return void res.json({ status: 'success', data: period });
     } catch (error) {
       logger.error({ error }, 'Error getting period');
-      const status =
-        error instanceof Error && error.message === 'Period not found'
-          ? 404
-          : 500;
-      return void res.status(status).json({
-        status: 'error',
-        message:
-          error instanceof Error ? error.message : 'Failed to get period',
-      });
+      return sendError(res, error, 'تعذّر تحميل الفترة');
     }
   }
 );
 
-/**
- * POST /api/v1/accounting/periods
- * Create period
- */
 router.post(
   '/',
   authorize({ resource: 'period', action: 'edit' }),
   validate({ body: createPeriodSchema }),
   async (req: AuthRequest, res: Response) => {
     try {
-      const companyId = req.companyId || req.tenantId;
-      if (!companyId) {
-        return void res.status(400).json({
-          status: 'error',
-          message: 'Company ID is required',
-        });
-      }
-
-      // Convert date strings to Date objects
       const data = {
         ...req.body,
         startDate:
-          typeof req.body.startDate === 'string'
-            ? new Date(req.body.startDate)
-            : req.body.startDate,
-        endDate:
-          typeof req.body.endDate === 'string'
-            ? new Date(req.body.endDate)
-            : req.body.endDate,
+          typeof req.body.startDate === 'string' ? new Date(req.body.startDate) : req.body.startDate,
+        endDate: typeof req.body.endDate === 'string' ? new Date(req.body.endDate) : req.body.endDate,
       };
-
-      const period = await periodService.createPeriod(companyId, data);
-
-      logger.info({ companyId, periodId: period.id }, 'Period created');
-
+      const period = await periodService.createPeriod(companyIdOf(req), data);
       return void res.status(201).json({
         status: 'success',
-        message: 'Period created successfully',
+        message: 'تم حفظ الفترة',
         data: period,
       });
     } catch (error) {
       logger.error({ error, body: req.body }, 'Error creating period');
-      return void res.status(500).json({
-        status: 'error',
-        message:
-          error instanceof Error ? error.message : 'Failed to create period',
-      });
+      return sendError(res, error, 'تعذّر حفظ الفترة');
     }
   }
 );
 
-/**
- * PUT /api/v1/accounting/periods/:id
- * Update period
- */
 router.put(
   '/:id',
   authorize({ resource: 'period', action: 'edit' }),
   validate({ body: updatePeriodSchema }),
   async (req: AuthRequest, res: Response) => {
     try {
-      const companyId = req.companyId || req.tenantId;
-      if (!companyId) {
-        return void res.status(400).json({
-          status: 'error',
-          message: 'Company ID is required',
-        });
-      }
-
-      // Convert date strings to Date objects if provided
-      const data: any = { ...req.body };
+      const data: Record<string, unknown> = { ...req.body };
       if (req.body.startDate) {
         data.startDate =
-          typeof req.body.startDate === 'string'
-            ? new Date(req.body.startDate)
-            : req.body.startDate;
+          typeof req.body.startDate === 'string' ? new Date(req.body.startDate) : req.body.startDate;
       }
       if (req.body.endDate) {
         data.endDate =
-          typeof req.body.endDate === 'string'
-            ? new Date(req.body.endDate)
-            : req.body.endDate;
+          typeof req.body.endDate === 'string' ? new Date(req.body.endDate) : req.body.endDate;
       }
-
-      const period = await periodService.updatePeriod(
-        companyId,
-        req.params.id,
-        data
-      );
-
+      const period = await periodService.updatePeriod(companyIdOf(req), req.params.id, data);
       return void res.json({
         status: 'success',
-        message: 'Period updated successfully',
+        message: 'تم تحديث الفترة',
         data: period,
       });
     } catch (error) {
       logger.error({ error, periodId: req.params.id }, 'Error updating period');
-      const status =
-        error instanceof Error &&
-        (error.message === 'Period not found' ||
-          error.message === 'Start date must be before end date')
-          ? 404
-          : 500;
-      return void res.status(status).json({
-        status: 'error',
-        message:
-          error instanceof Error ? error.message : 'Failed to update period',
-      });
+      return sendError(res, error, 'تعذّر تحديث الفترة');
     }
   }
 );
 
-/**
- * POST /api/v1/accounting/periods/:id/close
- * Close period
- */
 router.post(
   '/:id/close',
   authorize({ resource: 'period', action: 'edit' }),
   async (req: AuthRequest, res: Response) => {
     try {
-      const companyId = req.companyId || req.tenantId;
-      if (!companyId) {
-        return void res.status(400).json({
-          status: 'error',
-          message: 'Company ID is required',
-        });
-      }
-
-      const period = await periodService.closePeriod(companyId, req.params.id);
-
+      const ctx = await postingContext(req);
+      const period = await periodService.closePeriod(companyIdOf(req), req.params.id, ctx);
       return void res.json({
         status: 'success',
-        message: 'Period closed successfully',
+        message: 'تم إغلاق الفترة المالية',
         data: period,
       });
     } catch (error) {
       logger.error({ error, periodId: req.params.id }, 'Error closing period');
-      const status =
-        error instanceof Error &&
-        (error.message === 'Period not found' ||
-          error.message === 'Period is already closed')
-          ? 404
-          : 500;
-      return void res.status(status).json({
-        status: 'error',
-        message:
-          error instanceof Error ? error.message : 'Failed to close period',
-      });
+      return sendError(res, error, 'تعذّر إغلاق الفترة');
     }
   }
 );
 
-/**
- * DELETE /api/v1/accounting/periods/:id
- * Delete period (soft delete)
- */
-router.delete(
-  '/:id',
-  authorize({ resource: 'period', action: 'delete' }),
+router.post(
+  '/:id/reopen',
+  authorize({ resource: 'period', action: 'edit' }),
   async (req: AuthRequest, res: Response) => {
     try {
-      const companyId = req.companyId || req.tenantId;
-      if (!companyId) {
-        return void res.status(400).json({
-          status: 'error',
-          message: 'Company ID is required',
-        });
-      }
+      const ctx = await postingContext(req);
+      const period = await periodService.reopenPeriod(companyIdOf(req), req.params.id, ctx);
+      return void res.json({
+        status: 'success',
+        message: 'تم فتح الفترة المالية',
+        data: period,
+      });
+    } catch (error) {
+      logger.error({ error, periodId: req.params.id }, 'Error reopening period');
+      return sendError(res, error, 'تعذّر فتح الفترة');
+    }
+  }
+);
 
-      await periodService.deletePeriod(companyId, req.params.id);
-
-      return void res.status(204).send();
+router.delete(
+  '/:id',
+  authorize({ resource: 'period', action: 'edit' }),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      await periodService.deletePeriod(companyIdOf(req), req.params.id);
+      return void res.json({
+        status: 'success',
+        message: 'تم حذف الفترة',
+      });
     } catch (error) {
       logger.error({ error, periodId: req.params.id }, 'Error deleting period');
-      const status =
-        error instanceof Error && error.message === 'Period not found'
-          ? 404
-          : 500;
-      return void res.status(status).json({
-        status: 'error',
-        message:
-          error instanceof Error ? error.message : 'Failed to delete period',
-      });
+      return sendError(res, error, 'تعذّر حذف الفترة');
     }
   }
 );

@@ -1,7 +1,9 @@
 import { z } from 'zod';
 
 export const createCurrencySchema = z.object({
+  serial: z.number().int().positive().optional().nullable(),
   code: z.string().min(1, 'Currency code is required'),
+  symbol: z.string().max(16).optional().nullable(),
   arabicName: z.string().min(1, 'Arabic name is required'),
   englishName: z.string().optional(),
   exchangeRate: z.number().positive().optional().nullable(),

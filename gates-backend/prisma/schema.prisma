@@ -823,6 +823,7 @@ model Account {
   statementType      StatementType   @default(BALANCE_SHEET)
   costCenterRequired String? // إجباري/اختياري/بدون (legacy caption)
   requiresCostCenter Boolean         @default(false)
+  defaultCostCenterId String?
   warning            String? // مدين/دائن/بدون
   budget             Decimal?  @db.Decimal(15, 2)
   currencyCode       String?
@@ -834,6 +835,7 @@ model Account {
   company                 Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
   parent                  Account?               @relation("AccountHierarchy", fields: [parentId], references: [id])
   children                Account[]              @relation("AccountHierarchy")
+  defaultCostCenter       CostCenter?            @relation("AccountDefaultCostCenter", fields: [defaultCostCenterId], references: [id], onDelete: SetNull)
   journalEntryLines       JournalEntryLine[]
   recurringJournalLines   RecurringJournalLine[]
   costCenterMovements     CostCenterMovement[]
@@ -863,6 +865,7 @@ model Account {
 
   @@unique([companyId, code])
   @@index([companyId])
+  @@index([defaultCostCenterId])
   // Wave 4 fix: reconciles idx_accounts_company_active, created directly
   // by a raw-SQL migration but never declared here.
   @@index([companyId, isActive])
@@ -919,6 +922,7 @@ model CostCenter {
   invoiceAdjustments  InvoiceAdjustment[]
   documentProfiles    DocumentProfile[]
   transactionSettings TransactionSettings[]
+  accountsAsDefault   Account[]             @relation("AccountDefaultCostCenter")
 
   @@unique([companyId, code])
   @@index([companyId, parentId])
@@ -1580,7 +1584,9 @@ model Delegate {
 model Currency {
   id           String   @id @default(uuid())
   companyId    String
+  serial       Int?
   code         String // e.g., "EGP"
+  symbol       String?  @db.VarChar(16)
   arabicName   String
   englishName  String?
   exchangeRate Decimal? @db.Decimal(15, 6)
@@ -1595,6 +1601,7 @@ model Currency {
   priceQuotes     PriceQuote[]
 
   @@unique([companyId, code])
+  @@unique([companyId, serial])
   @@map("currencies")
 }
 

@@ -26,7 +26,7 @@ export class YearEndClosingService {
     if (!fallback) {
       throw new AppError(
         422,
-        'Configure company_settings.retainedEarningsAccountId or account 3900'
+        'حساب الأرباح والخسائر غير مضبوط. حدّده من إعدادات الحسابات (أرباح محتجزة / أرباح وخسائر) ثم أعد الإغلاق.'
       );
     }
     return fallback.id;
@@ -37,7 +37,7 @@ export class YearEndClosingService {
       where: { id: fiscalYearId, companyId },
     });
     if (!year) throw new AppError(404, 'Fiscal year not found');
-    if (year.status === 'Close') throw new AppError(400, 'Fiscal year is already closed');
+    if (year.status === 'Close') throw new AppError(400, 'السنة المالية مغلقة بالفعل');
 
     // Legacy `untYear.pas dxButton2Click` (message 1911): every earlier fiscal year
     // (by ToDate/endDate) must already be closed before this one can close — years
@@ -54,48 +54,13 @@ export class YearEndClosingService {
     if (earlierOpenYear) {
       throw new AppError(
         422,
-        `يجب إغلاق السنة السابقة أولا (${earlierOpenYear.legacyYearId})` // LangMessages 1911
+        `يجب إغلاق السنة السابقة أولاً (${earlierOpenYear.arabicName || earlierOpenYear.legacyYearId}) ثم أعد المحاولة.`
       );
     }
 
-    const unpostedJe = await prisma.journalEntry.count({
-      where: {
-        companyId,
-        fiscalYearId,
-        isCancelled: false,
-        deletedAt: null,
-        OR: [{ isPosted: false }, { postingStatus: 'UnPost' }],
-      },
-    });
-    if (unpostedJe > 0) {
-      throw new AppError(422, `${unpostedJe} journal entries are not posted in this fiscal year`);
-    }
-
-    const unpostedInv = await prisma.invoice.count({
-      where: {
-        companyId,
-        fiscalYearId,
-        isCancelled: false,
-        isPosted: false,
-      },
-    });
-    if (unpostedInv > 0) {
-      throw new AppError(422, `${unpostedInv} invoices are not posted in this fiscal year`);
-    }
-
-    const unpostedCash = await prisma.cashTransaction.count({
-      where: {
-        companyId,
-        fiscalYearId,
-        isCancelled: false,
-        isPosted: false,
-      },
-    });
-    if (unpostedCash > 0) {
-      throw new AppError(
-        422,
-        `${unpostedCash} cash transactions are not posted in this fiscal year`
-      );
+    const blockers = await this.collectCloseBlockers(companyId, fiscalYearId, year.startDate, year.endDate);
+    if (blockers.length > 0) {
+      throw new AppError(422, blockers.join(' — '));
     }
 
     const tb = await financialReportService.getTrialBalance({
@@ -105,10 +70,123 @@ export class YearEndClosingService {
       endDate: year.endDate,
     });
     if (!tb.verification.balanced) {
-      throw new AppError(422, 'Trial balance is not balanced for the fiscal year');
+      throw new AppError(
+        422,
+        'ميزان المراجعة غير متزن لهذه السنة. راجع القيود غير المتوازنة أو الحركات الناقصة ثم أعد الإغلاق.'
+      );
     }
 
     return year;
+  }
+
+  /**
+   * Year-end close gates the user asked for, in Arabic, with the next action.
+   * Returned in order so the first line is the highest-priority blocker.
+   */
+  async collectCloseBlockers(
+    companyId: string,
+    fiscalYearId: string,
+    startDate: Date,
+    endDate: Date
+  ): Promise<string[]> {
+    const dateRange = { gte: startDate, lte: endDate };
+    const blockers: string[] = [];
+
+    const negativeBalances = await prisma.itemWarehouseBalance.findMany({
+      where: { companyId, quantityOnHand: { lt: 0 } },
+      select: {
+        quantityOnHand: true,
+        warehouse: { select: { arabicName: true, code: true } },
+        item: { select: { arabicName: true, code: true } },
+      },
+      take: 6,
+    });
+    if (negativeBalances.length > 0) {
+      const samples = negativeBalances
+        .map((row) => {
+          const warehouse = row.warehouse.arabicName || row.warehouse.code || 'مخزن';
+          const item = row.item.arabicName || row.item.code || 'صنف';
+          return `«${warehouse}» / «${item}» (${Number(row.quantityOnHand)})`;
+        })
+        .join('، ');
+      blockers.push(
+        `يوجد مخزن برصيد سالب (${samples}). سوِّ الجرد أو أصلح حركات المخزون حتى لا يبقى رصيد سالب ثم أعد الإغلاق.`
+      );
+    }
+
+    const [draftJe, draftInv] = await Promise.all([
+      prisma.journalEntry.count({
+        where: {
+          companyId,
+          fiscalYearId,
+          isCancelled: false,
+          deletedAt: null,
+          isPosted: false,
+          workflowStatus: 'DRAFT',
+        },
+      }),
+      prisma.invoice.count({
+        where: {
+          companyId,
+          fiscalYearId,
+          isCancelled: false,
+          isPosted: false,
+          workflowStatus: 'DRAFT',
+        },
+      }),
+    ]);
+    if (draftJe + draftInv > 0) {
+      const parts = [
+        draftInv > 0 ? `${draftInv} فاتورة مسودة` : null,
+        draftJe > 0 ? `${draftJe} قيد مسودة` : null,
+      ].filter(Boolean);
+      blockers.push(
+        `يوجد ${parts.join(' و')} لم تُحذف ولم تُرحَّل. احذف المسودات أو رحّلها من شاشاتها ثم أعد الإغلاق.`
+      );
+    }
+
+    const [unpostedJe, unpostedInv, unpostedCash] = await Promise.all([
+      prisma.journalEntry.count({
+        where: {
+          companyId,
+          fiscalYearId,
+          isCancelled: false,
+          deletedAt: null,
+          workflowStatus: { not: 'DRAFT' },
+          OR: [{ isPosted: false }, { postingStatus: 'UnPost' }],
+        },
+      }),
+      prisma.invoice.count({
+        where: {
+          companyId,
+          fiscalYearId,
+          isCancelled: false,
+          isPosted: false,
+          workflowStatus: { not: 'DRAFT' },
+        },
+      }),
+      prisma.cashTransaction.count({
+        where: {
+          companyId,
+          fiscalYearId,
+          isCancelled: false,
+          isPosted: false,
+          date: dateRange,
+        },
+      }),
+    ]);
+    if (unpostedJe + unpostedInv + unpostedCash > 0) {
+      const parts = [
+        unpostedInv > 0 ? `${unpostedInv} فاتورة` : null,
+        unpostedJe > 0 ? `${unpostedJe} قيد` : null,
+        unpostedCash > 0 ? `${unpostedCash} حركة خزينة` : null,
+      ].filter(Boolean);
+      blockers.push(
+        `يوجد ${parts.join(' و')} غير مرحلة. رحّلها من شاشاتها أو احذفها إن كانت غير لازمة ثم أعد الإغلاق.`
+      );
+    }
+
+    return blockers;
   }
 
   async closeFiscalYear(ctx: JournalPostingContext, fiscalYearId: string) {
@@ -121,7 +199,6 @@ export class YearEndClosingService {
       { isAdmin: ctx.isAdmin, actionLabel: 'close the fiscal year' }
     );
     const year = await this.validateBeforeClose(ctx.companyId, fiscalYearId);
-    const retainedEarningsAccountId = await this.resolveRetainedEarningsAccountId(ctx.companyId);
 
     type Row = {
       accountId: string;
@@ -181,8 +258,25 @@ export class YearEndClosingService {
     }
 
     if (closeLines.length === 0) {
-      throw new AppError(422, 'No P&L balances to close for this fiscal year');
+      const closed = await prisma.fiscalYear.update({
+        where: { id: fiscalYearId },
+        data: {
+          status: 'Close',
+          closedAt: new Date(),
+          closedBy: ctx.userId,
+          closingJournalEntryId: null,
+        },
+      });
+      return {
+        fiscalYearId,
+        closingJournalEntryId: null,
+        netProfit: 0,
+        retainedEarningsTransfer: 0,
+        closedAt: closed.closedAt,
+      };
     }
+
+    const retainedEarningsAccountId = await this.resolveRetainedEarningsAccountId(ctx.companyId);
 
     if (netToRetained > 0) {
       closeLines.push({
@@ -258,10 +352,7 @@ export class YearEndClosingService {
     });
     if (!year) throw new AppError(404, 'Fiscal year not found');
     if (year.status !== 'Close') {
-      throw new AppError(400, 'Fiscal year is not closed');
-    }
-    if (!year.closingJournalEntryId) {
-      throw new AppError(400, 'Fiscal year has no closing journal entry to reverse');
+      throw new AppError(400, 'السنة المالية ليست مغلقة');
     }
 
     const laterClosedYear = await prisma.fiscalYear.findFirst({
@@ -274,15 +365,17 @@ export class YearEndClosingService {
     if (laterClosedYear) {
       throw new AppError(
         400,
-        `Cannot reopen: fiscal year starting ${laterClosedYear.startDate.toISOString().slice(0, 10)} is already closed. Reopen later years first.`
+        `لا يمكن فتح هذه السنة قبل فتح السنة اللاحقة (${laterClosedYear.arabicName || laterClosedYear.legacyYearId}) أولاً.`
       );
     }
 
     return prisma.$transaction(async (tx) => {
-      await journalPostingService.reverseJournalEntryInTx(tx, ctx, year.closingJournalEntryId!, {
-        date: year.endDate,
-        reason: 'Year-end close reopened',
-      });
+      if (year.closingJournalEntryId) {
+        await journalPostingService.reverseJournalEntryInTx(tx, ctx, year.closingJournalEntryId, {
+          date: year.endDate,
+          reason: 'إلغاء قيد إقفال السنة المالية',
+        });
+      }
 
       return tx.fiscalYear.update({
         where: { id: fiscalYearId },

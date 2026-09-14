@@ -53,7 +53,7 @@ export function DatePickerWithHijri({
         disabled={disabled}
         value={value ?? ''}
         onChange={(e) => onChange(e.target.value)}
-        className={`${erpInputClass} ${error ? 'border-red-400 focus:ring-red-200' : ''} ${className ?? ''}`}
+        className={`${erpInputClass} ${error ? 'border-red-400 focus:ring-red-200' : ''} ${disabled ? 'cursor-not-allowed bg-[#F3F7FA] text-[#64748B]' : ''} ${className ?? ''}`}
       />
       {!hideHijri ? <HijriCaption value={value} /> : null}
     </div>

@@ -11,8 +11,17 @@ import {
 import { currencyService } from '../services/currency.service';
 import { logger } from '../../../shared/logger';
 import { AuthRequest } from '../../../shared/auth/types';
+import { AppError } from '../../../shared/middleware/error-handler';
 
 const router = Router();
+
+function sendError(res: Response, error: unknown, fallback: string) {
+  const status = error instanceof AppError ? error.statusCode : 500;
+  return void res.status(status).json({
+    status: 'error',
+    message: error instanceof Error ? error.message : fallback,
+  });
+}
 
 router.use(authenticate);
 router.use(setTenantContext);
@@ -54,12 +63,16 @@ router.get(
       });
     } catch (error) {
       logger.error({ error }, 'Error listing currencies');
-      return void res.status(500).json({
+      const status =
+        error instanceof Error && 'statusCode' in error
+          ? Number((error as { statusCode: number }).statusCode) || 500
+          : 500;
+      return void res.status(status).json({
         status: 'error',
         message:
           error instanceof Error
             ? error.message
-            : 'Failed to list currencies',
+            : 'تعذّر تحميل العملات',
       });
     }
   }
@@ -138,11 +151,7 @@ router.post(
       });
     } catch (error) {
       logger.error({ error, body: req.body }, 'Error creating currency');
-      return void res.status(500).json({
-        status: 'error',
-        message:
-          error instanceof Error ? error.message : 'Failed to create currency',
-      });
+      return sendError(res, error, 'تعذّر حفظ العملة');
     }
   }
 );
@@ -178,15 +187,7 @@ router.put(
       });
     } catch (error) {
       logger.error({ error, currencyId: req.params.id }, 'Error updating currency');
-      const status =
-        error instanceof Error && error.message === 'Currency not found'
-          ? 404
-          : 500;
-      return void res.status(status).json({
-        status: 'error',
-        message:
-          error instanceof Error ? error.message : 'Failed to update currency',
-      });
+      return sendError(res, error, 'تعذّر تحديث العملة');
     }
   }
 );
@@ -197,7 +198,7 @@ router.put(
  */
 router.delete(
   '/:id',
-  authorize({ resource: 'currency', action: 'delete' }),
+  authorize({ resource: 'currency', action: 'edit' }),
   async (req: AuthRequest, res: Response) => {
     try {
       const companyId = req.companyId || req.tenantId;
@@ -210,18 +211,13 @@ router.delete(
 
       await currencyService.deleteCurrency(companyId, req.params.id);
 
-      return void res.status(204).send();
+      return void res.json({
+        status: 'success',
+        message: 'تم حذف العملة',
+      });
     } catch (error) {
       logger.error({ error, currencyId: req.params.id }, 'Error deleting currency');
-      const status =
-        error instanceof Error && error.message === 'Currency not found'
-          ? 404
-          : 500;
-      return void res.status(status).json({
-        status: 'error',
-        message:
-          error instanceof Error ? error.message : 'Failed to delete currency',
-      });
+      return sendError(res, error, 'تعذّر حذف العملة');
     }
   }
 );

@@ -1,40 +1,51 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Coins } from 'lucide-react';
 import {
-  PageHeader,
   FormSectionCard,
   CompactFormField,
   AdvancedFieldsSection,
-  FormStickyFooter,
-  CrudButtons,
+  compactControlClass,
 } from '@/components/ui';
 import { DocumentBrowseDrawer } from '@/components/erp/DocumentBrowseDrawer';
+import { ErpDocumentLayout, ErpDocumentPageHeader } from '@/components/erp';
 import { CurrenciesListSection, type CurrencyRow } from '@/components/accounting/CurrenciesListSection';
-import { useInvalidateQuery } from '@/lib/hooks/useApi';
+import { CURRENCY_CATALOG, findCurrencyCatalog } from '@/lib/accounting/currency-catalog';
+import { useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
 import { apiClient } from '@/lib/api/client';
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
-
 type FormState = {
+  serial: string;
   code: string;
+  symbol: string;
   arabicName: string;
   englishName: string;
   exchangeRate: string;
 };
 
-const emptyForm = (): FormState => ({
-  code: '',
-  arabicName: '',
-  englishName: '',
-  exchangeRate: '',
-});
-
 function rateToInput(value: number | string | null | undefined): string {
   if (value == null || value === '') return '';
   return String(value);
 }
+
+function nextSerialFrom(rows: CurrencyRow[]): string {
+  const max = rows.reduce((acc, row) => {
+    const n = Number(row.serial);
+    return Number.isFinite(n) ? Math.max(acc, n) : acc;
+  }, 0);
+  return String(max + 1);
+}
+
+const emptyForm = (serial = '1'): FormState => ({
+  serial,
+  code: '',
+  symbol: '',
+  arabicName: '',
+  englishName: '',
+  exchangeRate: '',
+});
 
 export default function CurrenciesPage() {
   const invalidateQuery = useInvalidateQuery();
@@ -45,12 +56,35 @@ export default function CurrenciesPage() {
   const [saving, setSaving] = useState(false);
   const [showGuide, setShowGuide] = useState(false);
 
+  const { data: currenciesRes } = useApiQuery<CurrencyRow[]>(
+    ['currencies', { page: 1, pageSize: 200 }],
+    '/accounting/currencies',
+    { page: 1, limit: 200 },
+    { staleTime: 15_000 }
+  );
+  const currencies = useMemo(() => currenciesRes?.data ?? [], [currenciesRes?.data]);
+  const nextSerial = nextSerialFrom(currencies);
+
   const patch = (next: Partial<FormState>) => setForm((prev) => ({ ...prev, ...next }));
 
+  useEffect(() => {
+    if (selectedId || currenciesRes == null) return;
+    setForm((prev) => (prev.serial ? prev : { ...prev, serial: nextSerial }));
+  }, [currenciesRes, nextSerial, selectedId]);
+
+  const resetNew = () => {
+    setSelectedId(null);
+    setForm(emptyForm(nextSerial));
+    setError('');
+  };
+
   const hydrate = (row: CurrencyRow) => {
+    const catalog = findCurrencyCatalog(row.code || row.symbol || '');
     setSelectedId(row.id);
     setForm({
+      serial: row.serial != null ? String(row.serial) : '',
       code: row.code ?? '',
+      symbol: row.symbol || catalog?.symbol || '',
       arabicName: row.arabicName ?? '',
       englishName: row.englishName ?? '',
       exchangeRate: rateToInput(row.exchangeRate),
@@ -61,17 +95,29 @@ export default function CurrenciesPage() {
   };
 
   const handleNew = () => {
-    setSelectedId(null);
-    setForm(emptyForm());
-    setError('');
+    resetNew();
     setSuccess('');
+  };
+
+  const applyCatalog = (code: string) => {
+    const item = findCurrencyCatalog(code);
+    if (!item) {
+      patch({ code });
+      return;
+    }
+    patch({
+      code: item.code,
+      symbol: item.symbol,
+      arabicName: form.arabicName || item.arabicName,
+      englishName: form.englishName || item.englishName,
+    });
   };
 
   const handleSave = async () => {
     setError('');
     setSuccess('');
     if (!form.code.trim()) {
-      setError('يرجى إدخال رمز العملة');
+      setError('يرجى اختيار رمز العملة');
       return;
     }
     if (!form.arabicName.trim()) {
@@ -79,8 +125,11 @@ export default function CurrenciesPage() {
       return;
     }
 
+    const serialNumber = Number(form.serial);
     const body = {
+      serial: Number.isFinite(serialNumber) && serialNumber > 0 ? serialNumber : undefined,
       code: form.code.trim(),
+      symbol: form.symbol.trim() || undefined,
       arabicName: form.arabicName.trim(),
       englishName: form.englishName.trim() || undefined,
       exchangeRate: form.exchangeRate ? parseFloat(form.exchangeRate) : undefined,
@@ -89,15 +138,14 @@ export default function CurrenciesPage() {
     setSaving(true);
     try {
       if (selectedId) {
-        const res = await apiClient.put<CurrencyRow>(`/accounting/currencies/${selectedId}`, body);
-        if (res.data) hydrate(res.data);
+        await apiClient.put<CurrencyRow>(`/accounting/currencies/${selectedId}`, body);
         setSuccess('تم تحديث العملة');
       } else {
-        const res = await apiClient.post<CurrencyRow>('/accounting/currencies', body);
-        if (res.data) hydrate(res.data);
+        await apiClient.post<CurrencyRow>('/accounting/currencies', body);
         setSuccess('تم حفظ العملة');
       }
       invalidateQuery(['currencies']);
+      resetNew();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'حدث خطأ أثناء الحفظ');
     } finally {
@@ -105,27 +153,18 @@ export default function CurrenciesPage() {
     }
   };
 
-  const deleteCurrency = async (id: string) => {
-    setError('');
-    try {
-      await apiClient.delete(`/accounting/currencies/${id}`);
-      if (selectedId === id) handleNew();
-      setSuccess('تم حذف العملة');
-      invalidateQuery(['currencies']);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'تعذر الحذف');
-    }
-  };
-
   const handleDelete = async () => {
     if (!selectedId) return;
     if (!window.confirm('حذف العملة الحالية؟')) return;
-    await deleteCurrency(selectedId);
-  };
-
-  const handleDeleteFromGuide = async (row: CurrencyRow) => {
-    if (!window.confirm(`حذف العملة «${row.arabicName}»؟`)) return;
-    await deleteCurrency(row.id);
+    setError('');
+    try {
+      await apiClient.delete(`/accounting/currencies/${selectedId}`);
+      setSuccess('تم حذف العملة');
+      invalidateQuery(['currencies']);
+      resetNew();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'تعذر الحذف');
+    }
   };
 
   const advancedFilledCount = [form.englishName, form.exchangeRate].filter(
@@ -133,34 +172,64 @@ export default function CurrenciesPage() {
   ).length;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50 p-6" style={{ direction: 'rtl' }}>
+    <ErpDocumentLayout>
       {error ? <ErrorToast message={error} onClose={() => setError('')} /> : null}
       {success ? <SuccessToast message={success} onClose={() => setSuccess('')} /> : null}
 
-      <PageHeader
-        title="تعريف العملات"
+      <ErpDocumentPageHeader
         breadcrumbs={[
-          { label: 'الحسابات', href: '/accounting' },
+          { href: '/accounting', label: 'الحسابات' },
           { label: 'إنشاءات الحسابات' },
           { label: 'تعريف العملات' },
         ]}
-        actions={
-          <CrudButtons
-            onPrevious={() => setShowGuide(true)}
-            onAdd={handleNew}
-            onDelete={selectedId ? () => void handleDelete() : undefined}
-          />
-        }
+        title="تعريف العملات"
+        docNumber={form.serial || (selectedId ? 'تعديل' : 'جديد')}
+        statusTone="info"
+        statusLabel={selectedId ? 'تعديل' : 'جديد'}
+        saveLabel="حفظ"
+        onSaveDraft={() => void handleSave()}
+        savePending={saving}
+        canSave={!saving}
+        hideStandalonePost
+        moreMenuItems={[
+          { id: 'new', label: 'جديد', onClick: handleNew },
+          {
+            id: 'del',
+            label: 'حذف',
+            onClick: () => void handleDelete(),
+            disabled: !selectedId,
+            destructive: true,
+          },
+        ]}
+        onBrowseList={() => setShowGuide(true)}
+        browseListLabel="السابق"
+        currentId={selectedId}
       />
 
-      <FormSectionCard title="بيانات العملة" subtitle="الرمز والاسم العربي" icon={Coins}>
+      <FormSectionCard title="بيانات العملة" subtitle="المسلسل ورمز العملة والاسم" icon={Coins}>
         <CompactFormField
-          label="رمز العملة"
-          placeholder="إدخل رمز العملة"
-          value={form.code}
-          onChange={(e) => patch({ code: e.target.value })}
-          required
+          label="المسلسل"
+          placeholder="رقم المسلسل"
+          value={form.serial}
+          onChange={(e) => patch({ serial: e.target.value })}
         />
+        <div className="space-y-1.5">
+          <label className="text-xs font-semibold text-[#0A3D5E]">
+            رمز العملة <span className="text-red-500">*</span>
+          </label>
+          <select
+            className={compactControlClass}
+            value={form.code}
+            onChange={(e) => applyCatalog(e.target.value)}
+          >
+            <option value="">اختر رمز العملة</option>
+            {CURRENCY_CATALOG.map((item) => (
+              <option key={item.code} value={item.code}>
+                {item.symbol} — {item.arabicName} ({item.code})
+              </option>
+            ))}
+          </select>
+        </div>
         <CompactFormField
           label="الإسم العربي"
           placeholder="إدخل الإسم بالعربي"
@@ -196,21 +265,9 @@ export default function CurrenciesPage() {
         </div>
       </AdvancedFieldsSection>
 
-      <FormStickyFooter
-        onCancel={handleNew}
-        onSave={() => void handleSave()}
-        saveLoading={saving}
-        saveDisabled={saving}
-        status={selectedId ? 'تعديل' : 'مسودة'}
-      />
-
       <DocumentBrowseDrawer open={showGuide} onClose={() => setShowGuide(false)} title="دليل العملات">
-        <CurrenciesListSection
-          onSelect={hydrate}
-          onDelete={(row) => void handleDeleteFromGuide(row)}
-          selectedId={selectedId}
-        />
+        <CurrenciesListSection onSelect={hydrate} selectedId={selectedId} />
       </DocumentBrowseDrawer>
-    </div>
+    </ErpDocumentLayout>
   );
 }

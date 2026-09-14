@@ -7,44 +7,62 @@ import type { ExportColumnDef } from '@/lib/export/export-utils';
 
 export type CurrencyRow = {
   id: string;
+  serial?: number | string | null;
   code: string;
+  symbol?: string | null;
   arabicName: string;
   englishName?: string | null;
   exchangeRate?: number | string | null;
   isActive?: boolean;
 };
 
+function matchesSearch(row: CurrencyRow, search: string): boolean {
+  const q = search.trim().toLowerCase();
+  if (!q) return true;
+  const haystack = [
+    row.serial,
+    row.code,
+    row.symbol,
+    row.arabicName,
+    row.englishName,
+    row.exchangeRate,
+    row.isActive === false ? 'غير نشطة' : 'نشطة',
+  ]
+    .filter((v) => v != null && String(v).length > 0)
+    .join(' ')
+    .toLowerCase();
+  return haystack.includes(q);
+}
+
 export function CurrenciesListSection({
   onSelect,
-  onDelete,
   selectedId,
 }: {
   onSelect?: (row: CurrencyRow) => void;
-  onDelete?: (row: CurrencyRow) => void;
   selectedId?: string | null;
 }) {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [search, setSearch] = useState('');
 
-  const queryParams = useMemo(() => {
-    const p: Record<string, string | number | boolean> = { page, limit: pageSize };
-    if (search.trim().length >= 2) p.search = search.trim();
-    return p;
-  }, [page, pageSize, search]);
-
   const { data, isLoading } = useApiQuery<CurrencyRow[]>(
-    ['currencies', { page, search, pageSize }],
+    ['currencies', { page: 1, pageSize: 200 }],
     '/accounting/currencies',
-    queryParams,
+    { page: 1, limit: 200 },
     { staleTime: 15_000 }
   );
 
-  const rows = useMemo(() => data?.data ?? [], [data?.data]);
-  const total = data?.pagination?.total ?? data?.meta?.total ?? rows.length;
+  const allRows = useMemo(() => data?.data ?? [], [data?.data]);
+  const filtered = useMemo(
+    () => allRows.filter((row) => matchesSearch(row, search)),
+    [allRows, search]
+  );
+  const rows = filtered.slice((page - 1) * pageSize, page * pageSize);
 
   const exportColumns: ExportColumnDef<CurrencyRow>[] = [
+    { id: 'serial', header: 'المسلسل', getValue: (r) => String(r.serial ?? '') },
     { id: 'code', header: 'الرمز', accessor: 'code' },
+    { id: 'symbol', header: 'الرمز المختصر', getValue: (r) => r.symbol || '' },
     { id: 'arabicName', header: 'الاسم العربي', accessor: 'arabicName' },
     { id: 'englishName', header: 'الاسم الإنجليزي', getValue: (r) => r.englishName || '' },
     { id: 'rate', header: 'سعر الصرف', getValue: (r) => String(r.exchangeRate ?? '') },
@@ -53,7 +71,7 @@ export function CurrenciesListSection({
   return (
     <section className="space-y-4">
       <FilterToolbar
-        searchPlaceholder="بحث بالرمز أو اسم العملة…"
+        searchPlaceholder="بحث بأي عمود: المسلسل، الرمز، الاسم، سعر الصرف…"
         onSearchChange={(v) => {
           setPage(1);
           setSearch(v);
@@ -61,7 +79,7 @@ export function CurrenciesListSection({
         exportConfig={{
           fileName: 'currencies',
           columns: exportColumns as ExportColumnDef<Record<string, unknown>>[],
-          rows: rows as Record<string, unknown>[],
+          rows: filtered as Record<string, unknown>[],
         }}
       />
       <AppTable<CurrencyRow>
@@ -71,7 +89,9 @@ export function CurrenciesListSection({
         emptyTitle="لا توجد عملات"
         emptyDescription="أضف عملة جديدة من قائمة الإجراءات."
         columns={[
+          { id: 'serial', header: 'المسلسل', cell: (r) => r.serial ?? '—' },
           { id: 'code', header: 'الرمز', accessor: 'code' },
+          { id: 'symbol', header: 'الرمز', cell: (r) => r.symbol || '—' },
           { id: 'arabicName', header: 'الاسم العربي', accessor: 'arabicName' },
           { id: 'englishName', header: 'الإنجليزي', cell: (r) => r.englishName || '—' },
           {
@@ -96,32 +116,20 @@ export function CurrenciesListSection({
             header: '',
             align: 'center',
             cell: (r) => (
-              <div className="flex items-center justify-center gap-1">
-                <Button
-                  variant={selectedId === r.id ? 'primary' : 'ghost'}
-                  size="sm"
-                  onClick={() => onSelect?.(r)}
-                >
-                  فتح
-                </Button>
-                {onDelete ? (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="text-red-600 hover:bg-red-50 hover:text-red-700"
-                    onClick={() => onDelete(r)}
-                  >
-                    حذف
-                  </Button>
-                ) : null}
-              </div>
+              <Button
+                variant={selectedId === r.id ? 'primary' : 'ghost'}
+                size="sm"
+                onClick={() => onSelect?.(r)}
+              >
+                فتح
+              </Button>
             ),
           },
         ]}
         pagination={{
           page,
           pageSize,
-          totalItems: total,
+          totalItems: filtered.length,
           onPageChange: setPage,
           onPageSizeChange: (n) => {
             setPage(1);
