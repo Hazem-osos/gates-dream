@@ -41,7 +41,7 @@ export default function CostCentersGuidePage() {
   const { data, isLoading, refetch } = useApiQuery<CostCenterRow[]>(
     ['cost-centers', 'guide'],
     '/accounting/cost-centers',
-    { limit: 1000 },
+    { limit: 1000, isActive: true },
     { staleTime: 15_000 }
   );
 

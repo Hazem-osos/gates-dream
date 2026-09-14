@@ -1,4 +1,6 @@
+import { Prisma } from '@prisma/client';
 import prisma from '../../../shared/database/prisma';
+import { AppError } from '../../../shared/middleware/error-handler';
 import { logger } from '../../../shared/logger';
 
 export interface CreateCostCenterData {
@@ -108,9 +110,7 @@ export class CostCenterService {
         ];
       }
 
-      if (options.isActive !== undefined) {
-        where.isActive = options.isActive;
-      }
+      where.isActive = options.isActive !== undefined ? options.isActive : true;
 
       const [costCenters, total] = await Promise.all([
         prisma.costCenter.findMany({
@@ -187,29 +187,46 @@ export class CostCenterService {
   }
 
   /**
-   * Delete cost center (soft delete)
+   * Delete cost center. Unused rows are removed; referenced rows are hidden
+   * from the guide so the tree no longer shows a "deleted" center.
    */
   async deleteCostCenter(companyId: string, costCenterId: string) {
+    const costCenter = await prisma.costCenter.findFirst({
+      where: { id: costCenterId, companyId },
+      include: {
+        _count: { select: { children: { where: { isActive: true } } } },
+      },
+    });
+
+    if (!costCenter) {
+      throw new AppError(404, 'مركز التكلفة غير موجود');
+    }
+
+    if (costCenter._count.children > 0) {
+      throw new AppError(422, 'احذف المراكز الفرعية أولاً ثم احذف هذا المركز');
+    }
+
     try {
-      const costCenter = await prisma.costCenter.findFirst({
-        where: { id: costCenterId, companyId },
-      });
-
-      if (!costCenter) {
-        throw new Error('Cost center not found');
+      await prisma.costCenter.delete({ where: { id: costCenterId } });
+    } catch (error) {
+      const blocked =
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        (error.code === 'P2003' || error.code === 'P2014');
+      if (!blocked) {
+        logger.error({ error, companyId, costCenterId }, 'Error deleting cost center');
+        throw error;
       }
-
       await prisma.costCenter.update({
         where: { id: costCenterId },
-        data: { isActive: false },
+        data: {
+          isActive: false,
+          code: `${costCenter.code}__deleted__${costCenter.id.slice(0, 8)}`,
+        },
       });
-
-      logger.info({ companyId, costCenterId }, 'Cost center deleted');
-      return { success: true };
-    } catch (error) {
-      logger.error({ error, companyId, costCenterId }, 'Error deleting cost center');
-      throw error;
     }
+
+    logger.info({ companyId, costCenterId }, 'Cost center deleted');
+    return { success: true };
   }
 }
 

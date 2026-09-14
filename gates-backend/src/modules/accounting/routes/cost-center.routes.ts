@@ -10,6 +10,7 @@ import {
 } from '../schemas/cost-center.schema';
 import { costCenterService } from '../services/cost-center.service';
 import { logger } from '../../../shared/logger';
+import { AppError } from '../../../shared/middleware/error-handler';
 import { AuthRequest } from '../../../shared/auth/types';
 
 const router = Router();
@@ -214,14 +215,19 @@ router.delete(
 
       await costCenterService.deleteCostCenter(companyId, req.params.id);
 
-      return void res.status(204).send();
+      return void res.json({
+        status: 'success',
+        message: 'تم حذف مركز التكلفة',
+      });
     } catch (error) {
+      if (error instanceof AppError) {
+        return void res.status(error.statusCode).json({
+          status: 'error',
+          message: error.message,
+        });
+      }
       logger.error({ error }, 'Error deleting cost center');
-      const status =
-        error instanceof Error && error.message === 'Cost center not found'
-          ? 404
-          : 500;
-      return void res.status(status).json({
+      return void res.status(500).json({
         status: 'error',
         message:
           error instanceof Error

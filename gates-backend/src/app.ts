@@ -471,7 +471,7 @@ app.use('/api/v1/accounting', counterpartyOffsetRoutes);
 app.use('/api/v1/accounting/settings', accountingSettingsRoutes);
 app.use('/api/v1/accounting/accounts', cache({ ttl: 300 }), accountRoutes);
 app.use('/api/v1/accounting/chart-of-accounts', cache({ ttl: 300 }), chartOfAccountsAliasRouter);
-app.use('/api/v1/accounting/cost-centers', cache({ ttl: 300 }), costCenterRoutes);
+app.use('/api/v1/accounting/cost-centers', costCenterRoutes);
 app.use('/api/v1/accounting/customers', cache({ ttl: 300 }), customerRoutes);
 app.use('/api/v1/customers', customerInsightsRoutes);
 app.use('/api/v1/parties', cache({ ttl: 120 }), partiesRoutes);
