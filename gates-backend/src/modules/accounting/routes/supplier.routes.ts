@@ -10,6 +10,7 @@ import {
 } from '../schemas/supplier.schema';
 import { supplierService } from '../services/supplier.service';
 import { logger } from '../../../shared/logger';
+import { AppError } from '../../../shared/middleware/error-handler';
 import { AuthRequest } from '../../../shared/auth/types';
 import { traceAudit } from '../../../shared/middleware/trace-audit.middleware';
 
@@ -141,6 +142,12 @@ router.post(
         data: supplier,
       });
     } catch (error) {
+      if (error instanceof AppError) {
+        return void res.status(error.statusCode).json({
+          status: 'error',
+          message: error.message,
+        });
+      }
       logger.error({ error, body: req.body }, 'Error creating supplier');
       return void res.status(500).json({
         status: 'error',

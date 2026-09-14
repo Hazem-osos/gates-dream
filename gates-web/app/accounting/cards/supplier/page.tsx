@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Truck } from 'lucide-react';
 import TaxInfoOverlay from '@/components/TaxInfoOverlay';
 import { PartiesListSection } from '@/components/accounting/PartiesListSection';
@@ -13,7 +13,6 @@ import {
   compactControlClass,
 } from '@/components/ui';
 import { useApiQuery, useApiMutation, useInvalidateQuery } from '@/lib/hooks/useApi';
-import { useCompanyGlDefaults } from '@/lib/hooks/useCompanyGlDefaults';
 import { ClientMountGate } from '@/lib/hooks/useClientMounted';
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
@@ -77,22 +76,6 @@ export default function SupplierPage() {
     discountType: '',
   });
 
-  const { data: glDefaultsResponse } = useCompanyGlDefaults();
-  const glDefaults = glDefaultsResponse?.data;
-
-  useEffect(() => {
-    const apId = glDefaults?.apAccountId;
-    if (!apId) return;
-    setFormData((prev) => {
-      if (prev.mainAccountId && prev.accountId) return prev;
-      return {
-        ...prev,
-        mainAccountId: prev.mainAccountId || apId,
-        accountId: prev.accountId || apId,
-      };
-    });
-  }, [glDefaults?.apAccountId]);
-
   // Fetch accounts
   const { data: accountsResponse } = useApiQuery<Account[]>(
     ['accounts'],
@@ -117,6 +100,8 @@ export default function SupplierPage() {
       onSuccess: () => {
         setSuccess('تم حفظ المورد بنجاح');
         invalidateQuery(['suppliers']);
+        invalidateQuery(['accounts']);
+        invalidateQuery(['chart-of-accounts']);
         // Reset form
         setFormData({
           serial: '',

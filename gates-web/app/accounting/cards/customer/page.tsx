@@ -151,6 +151,8 @@ export default function CustomerPage() {
         if (created?.id) setSavedCustomerId(created.id);
         setSuccess('تم حفظ العميل بنجاح');
         invalidateQuery(['customers']);
+        invalidateQuery(['accounts']);
+        invalidateQuery(['chart-of-accounts']);
         // Reset form
         setFormData({
           serial: '',

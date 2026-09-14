@@ -469,7 +469,7 @@ app.use('/api/v1/accounting', counterpartyOffsetRoutes);
 
 // Accounting routes
 app.use('/api/v1/accounting/settings', accountingSettingsRoutes);
-app.use('/api/v1/accounting/accounts', cache({ ttl: 300 }), accountRoutes);
+app.use('/api/v1/accounting/accounts', accountRoutes);
 app.use('/api/v1/accounting/chart-of-accounts', cache({ ttl: 300 }), chartOfAccountsAliasRouter);
 app.use('/api/v1/accounting/cost-centers', costCenterRoutes);
 app.use('/api/v1/accounting/customers', cache({ ttl: 300 }), customerRoutes);

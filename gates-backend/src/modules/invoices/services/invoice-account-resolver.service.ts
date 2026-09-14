@@ -7,6 +7,7 @@ import {
 } from '../../accounting/settings/account-definition-map';
 import { companySettingService } from '../../platform/services/company-setting.service';
 import { customerLedgerAccountService } from '../../accounting/services/customer-ledger-account.service';
+import { supplierLedgerAccountService } from '../../accounting/services/party-ledger-account.service';
 import type { InvoiceKind, ResolvedPostingAccounts } from '../types/invoice-posting.types';
 
 export class InvoiceAccountResolverService {
@@ -82,15 +83,15 @@ export class InvoiceAccountResolverService {
         partyAccountId ??= this.pick(defs, ['arAccount', 'customerAccount', 'salesDebtorAccount']);
       }
     } else {
-      const supplier = params.supplierId
-        ? await prisma.supplier.findFirst({
-            where: { id: params.supplierId, companyId: params.companyId },
-            select: { mainAccountId: true, accountId: true },
-          })
-        : null;
-      partyAccountId =
-        supplier?.mainAccountId ?? supplier?.accountId ?? undefined;
-      partyAccountId ??= this.pick(defs, ['apAccount', 'supplierAccount', 'purchaseCreditorAccount']);
+      if (params.supplierId) {
+        partyAccountId = await supplierLedgerAccountService.ensureForSupplier({
+          companyId: params.companyId,
+          supplierId: params.supplierId,
+          branchId: params.branchId,
+        });
+      } else {
+        partyAccountId = this.pick(defs, ['apAccount', 'supplierAccount', 'purchaseCreditorAccount']);
+      }
     }
 
     const inventoryAccountIdRaw =

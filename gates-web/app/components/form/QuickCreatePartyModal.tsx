@@ -79,6 +79,8 @@ export function QuickCreatePartyModal({
             partyRow
           );
           invalidate(cacheKey);
+          invalidate(['accounts']);
+          invalidate(['chart-of-accounts']);
           onCreated(partyRow);
           onClose();
         }

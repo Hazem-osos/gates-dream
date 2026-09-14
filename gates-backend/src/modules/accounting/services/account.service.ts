@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import prisma from '../../../shared/database/prisma';
 import { logger } from '../../../shared/logger';
 import { Decimal } from '@prisma/client/runtime/library';
@@ -28,6 +29,8 @@ export interface CreateAccountData {
   warning?: string;
   budget?: number;
   currencyCode?: string;
+  /** Party cards may hang leaves under AR/AP control even if it has history. */
+  allowParentWithMovements?: boolean;
 }
 
 function resolveAccountClassification(data: {
@@ -47,6 +50,14 @@ function resolveAccountClassification(data: {
   const costCenterRequired =
     data.costCenterRequired ?? (requiresCostCenter ? 'إجباري' : 'اختياري');
   return { accountNature, accountSide, statementType, requiresCostCenter, costCenterRequired };
+}
+
+function accountLabel(account: { code: string; arabicName: string }): string {
+  return `«${account.code} — ${account.arabicName}»`;
+}
+
+function retiredAccountCode(code: string, accountId: string): string {
+  return `${code}__deleted__${accountId.replace(/-/g, '').slice(0, 8)}`;
 }
 
 export interface UpdateAccountData extends Partial<CreateAccountData> {
@@ -170,16 +181,111 @@ export class AccountService {
     return true;
   }
 
+  private async countAccountMovements(companyId: string, accountId: string): Promise<number> {
+    return prisma.journalEntryLine.count({
+      where: {
+        accountId,
+        journalEntry: {
+          companyId,
+          deletedAt: null,
+          isCancelled: false,
+        },
+      },
+    });
+  }
+
+  private async assertUniqueAccountCode(
+    companyId: string,
+    code: string,
+    exceptAccountId?: string
+  ) {
+    const clash = await prisma.account.findFirst({
+      where: {
+        companyId,
+        code,
+        deletedAt: null,
+        ...(exceptAccountId ? { id: { not: exceptAccountId } } : {}),
+      },
+      select: { id: true, arabicName: true },
+    });
+    if (clash) {
+      throw new AppError(
+        409,
+        `رقم الحساب «${code}» مستخدم على حساب آخر (${clash.arabicName}). الحل: غيّر الرقم أو اترك الترقيم التلقائي يقترح رقماً جديداً.`
+      );
+    }
+  }
+
+  /** Soft-deleted rows still occupy @@unique([companyId, code]). Free the number. */
+  private async vacateDeletedAccountCode(companyId: string, code: string) {
+    const leftovers = await prisma.account.findMany({
+      where: {
+        companyId,
+        code,
+        OR: [{ deletedAt: { not: null } }, { isActive: false }],
+      },
+      select: { id: true, code: true },
+    });
+
+    for (const row of leftovers) {
+      await prisma.account.update({
+        where: { id: row.id },
+        data: {
+          code: retiredAccountCode(row.code, row.id),
+          isActive: false,
+          deletedAt: new Date(),
+        },
+      });
+    }
+  }
+
+  /** A posting account with movements cannot become a parent. */
+  private async assertParentCanReceiveChild(
+    companyId: string,
+    parentId: string | undefined | null
+  ) {
+    if (!parentId) return;
+
+    const parent = await prisma.account.findFirst({
+      where: { id: parentId, companyId, deletedAt: null },
+      select: { id: true, code: true, arabicName: true },
+    });
+    if (!parent) {
+      throw new AppError(
+        400,
+        'الحساب الأب غير موجود. الحل: حدّث دليل الحسابات ثم اختر الحساب الأب من جديد.'
+      );
+    }
+
+    const movementCount = await this.countAccountMovements(companyId, parentId);
+    if (movementCount === 0) return;
+
+    throw new AppError(
+      409,
+      `لا يمكن إضافة حساب فرعي تحت ${accountLabel(parent)} لأن عليه ${movementCount} قيد/حركة. الحساب الذي عليه حركة يبقى تحليلياً ولا يتحول إلى أب. الحل: انقل حركاته من شاشة «نقل حركة حساب» إلى حساب فرعي جديد، أو أنشئ الحساب تحت أب آخر ليس عليه قيود.`
+    );
+  }
+
   async createAccount(companyId: string, data: CreateAccountData) {
     try {
+      if (!data.allowParentWithMovements) {
+        await this.assertParentCanReceiveChild(companyId, data.parentId);
+      }
+
       const classified = resolveAccountClassification(data);
       let code = data.code?.trim() ?? '';
       if (!code) {
         if (!(await this.isCoaAutoNumbering(companyId))) {
-          throw new AppError(400, 'رقم الحساب مطلوب — الترقيم يدوي في إعدادات شجرة الحسابات');
+          throw new AppError(
+            400,
+            'رقم الحساب مطلوب. الحل: فعّل الترقيم التلقائي من إعدادات الشجرة أو أدخل الرقم يدوياً.'
+          );
         }
         code = await this.suggestNextAccountCode(companyId, data.parentId);
       }
+
+      await this.assertUniqueAccountCode(companyId, code);
+      await this.vacateDeletedAccountCode(companyId, code);
 
       let defaultCostCenterId = data.defaultCostCenterId ?? null;
       if (defaultCostCenterId) {
@@ -187,7 +293,12 @@ export class AccountService {
           where: { id: defaultCostCenterId, companyId, isActive: true },
           select: { id: true },
         });
-        if (!cc) throw new AppError(400, 'مركز التكلفة غير موجود');
+        if (!cc) {
+          throw new AppError(
+            400,
+            'مركز التكلفة غير موجود. الحل: اختر مركزاً من الدليل أو اتركه فارغاً.'
+          );
+        }
       }
 
       const account = await prisma.account.create({
@@ -230,7 +341,9 @@ export class AccountService {
       await invalidateTenantCache(tenantCacheKeys.coaTree(companyId));
       return account;
     } catch (error) {
-      logger.error({ error, companyId, data }, 'Error creating account');
+      if (!(error instanceof AppError)) {
+        logger.error({ error, companyId, data }, 'Error creating account');
+      }
       throw error;
     }
   }
@@ -380,7 +493,15 @@ export class AccountService {
       });
 
       if (!existing) {
-        throw new Error('Account not found');
+        throw new AppError(404, 'الحساب غير موجود. الحل: حدّث دليل الحسابات ثم أعد المحاولة.');
+      }
+
+      if (data.parentId !== undefined && data.parentId !== existing.parentId) {
+        await this.assertParentCanReceiveChild(companyId, data.parentId);
+      }
+      if (data.code !== undefined && data.code.trim() && data.code !== existing.code) {
+        await this.assertUniqueAccountCode(companyId, data.code.trim(), accountId);
+        await this.vacateDeletedAccountCode(companyId, data.code.trim());
       }
 
       const updateData: any = {};
@@ -424,7 +545,12 @@ export class AccountService {
             where: { id: data.defaultCostCenterId, companyId, isActive: true },
             select: { id: true },
           });
-          if (!cc) throw new AppError(400, 'مركز التكلفة غير موجود');
+          if (!cc) {
+          throw new AppError(
+            400,
+            'مركز التكلفة غير موجود. الحل: اختر مركزاً من الدليل أو اتركه فارغاً.'
+          );
+        }
         }
         updateData.defaultCostCenterId = data.defaultCostCenterId || null;
       }
@@ -447,7 +573,9 @@ export class AccountService {
       await invalidateTenantCache(tenantCacheKeys.coaTree(companyId));
       return account;
     } catch (error) {
-      logger.error({ error, companyId, accountId, data }, 'Error updating account');
+      if (!(error instanceof AppError)) {
+        logger.error({ error, companyId, accountId, data }, 'Error updating account');
+      }
       throw error;
     }
   }
@@ -462,7 +590,7 @@ export class AccountService {
       });
 
       if (!account) {
-        throw new AppError(404, 'Account not found');
+        throw new AppError(404, 'الحساب غير موجود. الحل: حدّث دليل الحسابات ثم أعد المحاولة.');
       }
 
       const balanceMap = await this.getPostedBalanceMap(companyId);
@@ -474,7 +602,7 @@ export class AccountService {
       if (childrenCount > 0) {
         throw new AppError(
           400,
-          'لا يمكن حذف حساب له حسابات فرعية. احذف الحسابات الفرعية أولاً.'
+          `لا يمكن حذف ${accountLabel(account)} لأن تحته حسابات فرعية. الحل: احذف أو انقل الحسابات الفرعية أولاً ثم احذف هذا الحساب.`
         );
       }
 
@@ -493,19 +621,38 @@ export class AccountService {
       const netBalance = balanceMap.get(accountId) ?? 0;
 
       if (postedLineCount > 0 || Math.abs(netBalance) > 0.0001) {
-        throw new AppError(409, 'لا يمكن حذف حساب يحتوي على حركات مالية مسجلة');
+        throw new AppError(
+          409,
+          `لا يمكن حذف ${accountLabel(account)} لأن عليه حركات مالية. الحل: انقل الحركات من شاشة «نقل حركة حساب» أو ألغِ القيود أولاً ثم احذف.`
+        );
       }
 
-      await prisma.account.update({
-        where: { id: accountId },
-        data: { isActive: false, deletedAt: new Date() },
-      });
+      try {
+        await prisma.account.delete({ where: { id: accountId } });
+      } catch (error) {
+        const blocked =
+          error instanceof Prisma.PrismaClientKnownRequestError &&
+          (error.code === 'P2003' || error.code === 'P2014');
+        if (!blocked) {
+          throw error;
+        }
+        await prisma.account.update({
+          where: { id: accountId },
+          data: {
+            isActive: false,
+            deletedAt: new Date(),
+            code: retiredAccountCode(account.code, accountId),
+          },
+        });
+      }
 
       logger.info({ companyId, accountId }, 'Account deleted');
       await invalidateTenantCache(tenantCacheKeys.coaTree(companyId));
       return { success: true };
     } catch (error) {
-      logger.error({ error, companyId, accountId }, 'Error deleting account');
+      if (!(error instanceof AppError)) {
+        logger.error({ error, companyId, accountId }, 'Error deleting account');
+      }
       throw error;
     }
   }

@@ -121,6 +121,8 @@ export function CustomerQuickAddModal({ open, initialName, onClose, onCreated }:
         };
         prependCustomerListCache(queryClient, partyRow);
         invalidate(['customers']);
+        invalidate(['accounts']);
+        invalidate(['chart-of-accounts']);
         onCreated(partyRow);
         onClose();
       }

@@ -2,6 +2,7 @@ import prisma from '../../../shared/database/prisma';
 import { logger } from '../../../shared/logger';
 import { Decimal } from '@prisma/client/runtime/library';
 import { applyFullTextIds, findFullTextIds } from '../../../shared/database/fulltext-search';
+import { supplierLedgerAccountService } from './party-ledger-account.service';
 
 const SUPPLIER_LIST_SELECT = {
   id: true,
@@ -121,8 +122,32 @@ export class SupplierService {
         },
       });
 
+      try {
+        await supplierLedgerAccountService.ensureForSupplier({
+          companyId,
+          supplierId: supplier.id,
+          requestedAccountId: data.mainAccountId ?? data.accountId,
+        });
+      } catch (ensureError) {
+        await prisma.supplier.delete({ where: { id: supplier.id } }).catch(() => undefined);
+        throw ensureError;
+      }
+
+      const withLedger = await prisma.supplier.findFirst({
+        where: { id: supplier.id, companyId },
+        include: {
+          mainAccount: {
+            select: {
+              id: true,
+              code: true,
+              arabicName: true,
+            },
+          },
+        },
+      });
+
       logger.info({ companyId, supplierId: supplier.id }, 'Supplier created');
-      return supplier;
+      return withLedger ?? supplier;
     } catch (error) {
       logger.error({ error, companyId, data }, 'Error creating supplier');
       throw error;
@@ -281,8 +306,23 @@ export class SupplierService {
         },
       });
 
+      await supplierLedgerAccountService.ensureForSupplier({
+        companyId,
+        supplierId,
+        requestedAccountId: data.mainAccountId ?? data.accountId ?? supplier.mainAccountId,
+      });
+
+      const withLedger = await prisma.supplier.findFirst({
+        where: { id: supplierId, companyId },
+        include: {
+          mainAccount: {
+            select: { id: true, code: true, arabicName: true },
+          },
+        },
+      });
+
       logger.info({ companyId, supplierId }, 'Supplier updated');
-      return supplier;
+      return withLedger ?? supplier;
     } catch (error) {
       logger.error({ error, companyId, supplierId, data }, 'Error updating supplier');
       throw error;

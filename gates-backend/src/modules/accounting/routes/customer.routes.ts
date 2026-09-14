@@ -15,6 +15,7 @@ import {
 import { customerService } from '../services/customer.service';
 import { partyCreditService } from '../services/party-credit.service';
 import { logger } from '../../../shared/logger';
+import { AppError } from '../../../shared/middleware/error-handler';
 import { AuthRequest } from '../../../shared/auth/types';
 import { exportData } from '../../../shared/utils/export.service';
 import { getMasterCatalogEtag } from '../../../shared/services/master-catalog-version.service';
@@ -180,6 +181,12 @@ router.post(
         data: customer,
       });
     } catch (error) {
+      if (error instanceof AppError) {
+        return void res.status(error.statusCode).json({
+          status: 'error',
+          message: error.message,
+        });
+      }
       logger.error({ error }, 'Error creating customer');
       return void res.status(500).json({
         status: 'error',
