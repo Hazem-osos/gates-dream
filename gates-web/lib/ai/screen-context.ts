@@ -1,3 +1,5 @@
+import { resolveTabLabel } from '@/lib/navigation/tab-labels';
+
 export type AiClientContext = {
   currentPath: string;
   pageTitle: string;
@@ -7,6 +9,19 @@ export type AiClientContext = {
 };
 
 const SCREEN_TITLES: Record<string, string> = {
+  '/': 'لوحة التحكم',
+  '/dashboard': 'لوحة التحكم',
+  '/executive': 'لوحة الإدارة العليا',
+  '/accounting/settings/transactions/payment-voucher': 'إعدادات سند الصرف',
+  '/accounting/settings/transactions/receipt-voucher': 'إعدادات سند القبض',
+  '/accounting/settings/transactions/bank-discount': 'إعدادات إشعار الخصم',
+  '/accounting/settings/transactions/bank-addition': 'إعدادات إشعار الإضافة',
+  '/inventory/settings/transactions/sales-invoice': 'إعدادات فاتورة المبيعات',
+  '/inventory/settings/transactions/purchase-invoice': 'إعدادات فاتورة المشتريات',
+  '/inventory/settings/transactions/sales-return': 'إعدادات مردودات المبيعات',
+  '/inventory/settings/transactions/purchase-return': 'إعدادات مردودات المشتريات',
+  '/inventory/settings/transactions/stock-issue': 'إعدادات إذن الصرف',
+  '/inventory/settings/transactions/stock-receipt': 'إعدادات إذن الإضافة',
   '/growth': 'محرك النمو',
   '/growth/impact': 'أثر Gates',
   '/inventory/operations/sales-invoice': 'فاتورة مبيعات',
@@ -71,11 +86,22 @@ function lookupTitle(pathname: string): string | undefined {
   return match?.[1];
 }
 
+function looksLikeAppPath(value: string): boolean {
+  const trimmed = value.trim();
+  return !trimmed || trimmed.includes('/') || trimmed.startsWith('http');
+}
+
 export function resolveAiScreenContext(pathname: string): AiClientContext {
   const fromMap = lookupTitle(pathname);
+  const fromTabs = resolveTabLabel(pathname);
   const docTitle =
     typeof document !== 'undefined' ? document.title.replace(/\s*[|·\-].*$/, '').trim() : '';
-  const pageTitle = fromMap || docTitle || pathname;
+  const cleanDocTitle = looksLikeAppPath(docTitle) ? '' : docTitle;
+  const pageTitle =
+    (fromMap && !looksLikeAppPath(fromMap) ? fromMap : '') ||
+    (fromTabs && !looksLikeAppPath(fromTabs) ? fromTabs : '') ||
+    cleanDocTitle ||
+    'صفحة داخل النظام';
   return { currentPath: pathname, pageTitle };
 }
 

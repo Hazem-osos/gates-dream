@@ -73,7 +73,7 @@ function NavLinkRow({ link, active }: { link: FlatModuleNavLink; active: boolean
       {settingsHref ? (
         <PrefetchNavLink
           href={settingsHref}
-          aria-label="إعدادات الفاتورة"
+          aria-label="إعدادات الشاشة"
           className="absolute left-1 top-1/2 z-10 -translate-y-1/2 rounded-md p-1 text-slate-400 opacity-0 transition-opacity hover:text-[#0E79AA] group-hover:opacity-100"
           onClick={(e) => e.stopPropagation()}
           data-tour="settings-gear"

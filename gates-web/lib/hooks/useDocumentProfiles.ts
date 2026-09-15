@@ -35,6 +35,9 @@ export function useDocumentProfileBySlug(slug?: string | null) {
 
 export function useSidebarDocumentProfiles() {
   const query = useDocumentProfiles({ sidebarOnly: true });
-  const profiles = useMemo(() => query.data?.data ?? [], [query.data?.data]);
+  const profiles = useMemo(
+    () => (Array.isArray(query.data?.data) ? query.data.data : []),
+    [query.data?.data]
+  );
   return { ...query, profiles };
 }

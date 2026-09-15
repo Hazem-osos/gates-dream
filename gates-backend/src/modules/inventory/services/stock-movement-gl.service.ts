@@ -694,7 +694,15 @@ export class StockMovementGlService {
     if (!key) return null;
     const je = await tx.journalEntry.findUnique({ where: { activeSourceKey: key } });
     if (!je) return null;
-    return journalPostingService.reverseJournalEntryInTx(tx, ctx, je.id, { reason });
+    const reversed = await journalPostingService.reverseJournalEntryInTx(tx, ctx, je.id, { reason });
+    await journalPostingService.cascadeSourceJournalInTx(
+      tx,
+      ctx.companyId,
+      [je.id],
+      'unpost',
+      ctx.userId
+    );
+    return reversed;
   }
 }
 

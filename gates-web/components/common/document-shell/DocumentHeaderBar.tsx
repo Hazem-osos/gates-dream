@@ -29,6 +29,7 @@ type Props = {
   invoiceKind?: string;
   transactionKind?: string;
   fundType?: 'CASHBOX' | 'BANK_ACCOUNT';
+  entryType?: string;
   onNavigate?: (id: string) => void;
   standardActions?: Omit<DocumentActionMenuProps, 'extraItems'> & {
     extraItems?: DocumentActionExtraItem[];
@@ -67,6 +68,7 @@ export function DocumentHeaderBar(props: Props) {
       invoiceKind={props.invoiceKind}
       transactionKind={props.transactionKind}
       fundType={props.fundType}
+      entryType={props.entryType}
       onNavigate={props.onNavigate}
       standardActions={
         props.standardActions

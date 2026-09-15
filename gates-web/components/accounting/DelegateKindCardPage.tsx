@@ -4,12 +4,12 @@ import { useEffect, useMemo, useState } from 'react';
 import { Truck, UserRound } from 'lucide-react';
 import UserPermissionsBar from '@/components/UserPermissionsBar';
 import {
-  PageHeader,
   CompactFormField,
   AdvancedFieldsSection,
-  FormStickyFooter,
   FormSectionCard,
+  AppTable,
 } from '@/components/ui';
+import { DocumentBrowseDrawer, MasterCardShell } from '@/components/erp';
 import { useApiMutation, useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
@@ -91,6 +91,8 @@ export function DelegateKindCardPage({ kind }: { kind: DelegateKind }) {
   const invalidateQuery = useInvalidateQuery();
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [showGuide, setShowGuide] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [formData, setFormData] = useState<CardForm>(EMPTY);
   const KindIcon = kind === 'DISTRIBUTOR' ? Truck : UserRound;
 
@@ -118,6 +120,7 @@ export function DelegateKindCardPage({ kind }: { kind: DelegateKind }) {
         setSuccess(copy.success);
         invalidateQuery(listKey);
         invalidateQuery(['delegates']);
+        setSelectedId(null);
         setFormData(EMPTY);
       },
       onError: (err: ApiError) => {
@@ -166,6 +169,7 @@ export function DelegateKindCardPage({ kind }: { kind: DelegateKind }) {
   };
 
   const handleCancel = () => {
+    setSelectedId(null);
     setFormData(EMPTY);
     setError('');
     setSuccess('');
@@ -186,20 +190,23 @@ export function DelegateKindCardPage({ kind }: { kind: DelegateKind }) {
   ].filter((v) => String(v ?? '').trim().length > 0).length;
 
   return (
-    <div className="p-6" style={{ direction: 'rtl' }}>
-      <PageHeader
-        title={copy.title}
-        breadcrumbs={[
-          { label: 'الحسابات', href: '/accounting' },
-          { label: 'البطاقات' },
-          { label: copy.crumb },
-        ]}
-        onBrowseList={() =>
-          document.getElementById('card-records')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-        }
-        onAdd={handleCancel}
-      />
-
+    <MasterCardShell
+      title={copy.title}
+      breadcrumbs={[
+        { label: 'الحسابات', href: '/accounting' },
+        { label: 'البطاقات' },
+        { label: copy.crumb },
+      ]}
+      docNumber={formData.serial || (selectedId ? 'تعديل' : 'جديد')}
+      statusLabel={selectedId ? 'تعديل' : 'جديد'}
+      onSave={() => void handleSave()}
+      savePending={mutation.isPending}
+      canSave={!mutation.isPending}
+      onNew={handleCancel}
+      currentId={selectedId}
+      onBrowseList={() => setShowGuide(true)}
+      favoriteHref={kind === 'DISTRIBUTOR' ? '/accounting/cards/distributor' : '/accounting/cards/driver'}
+    >
       <div className="mb-4">
         <UserPermissionsBar />
       </div>
@@ -312,46 +319,34 @@ export function DelegateKindCardPage({ kind }: { kind: DelegateKind }) {
           </div>
         </AdvancedFieldsSection>
 
-        <FormStickyFooter
-          onCancel={handleCancel}
-          onSave={() => void handleSave()}
-          saveLoading={mutation.isPending}
-          saveDisabled={mutation.isPending}
-          status="مسودة"
-        />
       </form>
-
-      <div id="card-records" className="mt-6 overflow-x-auto rounded-xl border border-[#D6EAF3] bg-white">
-        <table className="min-w-full text-sm text-right">
-          <thead className="bg-[#F0F7FB] text-[#094C6B]">
-            <tr>
-              <th className="px-3 py-2 font-semibold">المسلسل</th>
-              <th className="px-3 py-2 font-semibold">الاسم</th>
-              <th className="px-3 py-2 font-semibold">الهاتف</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.length === 0 ? (
-              <tr>
-                <td colSpan={3} className="px-3 py-6 text-center text-slate-500">
-                  {copy.emptyList}
-                </td>
-              </tr>
-            ) : (
-              rows.map((row) => (
-                <tr key={row.id} className="border-t border-[#E6F0F7]">
-                  <td className="px-3 py-2">{row.serial || '—'}</td>
-                  <td className="px-3 py-2">{row.arabicName}</td>
-                  <td className="px-3 py-2">{row.mobile || row.phone1 || '—'}</td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
 
       {error ? <ErrorToast message={error} onClose={() => setError('')} /> : null}
       {success ? <SuccessToast message={success} onClose={() => setSuccess('')} /> : null}
-    </div>
+
+      <DocumentBrowseDrawer open={showGuide} onClose={() => setShowGuide(false)} title={`${copy.title} — السابق`}>
+        <AppTable<SavedRow>
+          data={rows}
+          getRowKey={(r) => r.id}
+          emptyTitle={copy.emptyList}
+          onRowClick={(row) => {
+            setSelectedId(row.id);
+            setFormData((prev) => ({
+              ...prev,
+              serial: row.serial || '',
+              arabicName: row.arabicName,
+              phone1: row.phone1 || '',
+              mobile: row.mobile || '',
+            }));
+            setShowGuide(false);
+          }}
+          columns={[
+            { id: 'serial', header: 'المسلسل', cell: (r) => r.serial || '—' },
+            { id: 'name', header: 'الاسم', accessor: 'arabicName' },
+            { id: 'phone', header: 'الهاتف', cell: (r) => r.mobile || r.phone1 || '—' },
+          ]}
+        />
+      </DocumentBrowseDrawer>
+    </MasterCardShell>
   );
 }

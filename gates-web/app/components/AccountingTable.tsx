@@ -92,8 +92,8 @@ const AccountingTable: React.FC<AccountingTableProps> = ({
   );
 
   return (
-    <div className={useVirtual ? 'overflow-x-auto max-h-[480px] overflow-y-auto' : 'overflow-x-auto'} ref={useVirtual ? parentRef : undefined}>
-      <table className="w-full border-separate border-spacing-y-2">
+    <div className={useVirtual ? 'erp-scroll-x overflow-x-scroll max-h-[480px] overflow-y-auto' : 'erp-scroll-x overflow-x-scroll'} ref={useVirtual ? parentRef : undefined}>
+      <table className="w-max min-w-full border-separate border-spacing-y-2">
         <thead>
           <tr>
             {columns.map((col) => (

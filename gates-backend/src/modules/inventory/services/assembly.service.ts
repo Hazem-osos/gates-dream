@@ -6,6 +6,7 @@ import { stockMovementService } from './stock-movement.service';
 import { itemCostService } from './item-cost.service';
 import { inventoryCostingService } from './inventory-costing.service';
 import { COSTING_MOVEMENT } from './inventory-costing-math';
+import { journalPostingService } from '../../accounting/services/journal-posting.service';
 import {
   stockMovementGlService,
   resolveStockGlAccounts,
@@ -688,12 +689,22 @@ export class AssemblyService {
         throw new Error('Cannot cancel posted assembly. Unpost it first.');
       }
 
-      const updated = await prisma.assembly.update({
-        where: { id: assemblyId },
-        data: {
-          isCancelled: true,
-          cancelledAt: new Date(),
-        },
+      const updated = await prisma.$transaction(async (tx) => {
+        await journalPostingService.cascadeSourceJournalInTx(
+          tx,
+          companyId,
+          [],
+          'cancel',
+          undefined,
+          { sourceId: assembly.id, sourceType: 'ASM', sourceNumber: assembly.serial ?? assembly.id.slice(0, 8) }
+        );
+        return tx.assembly.update({
+          where: { id: assemblyId },
+          data: {
+            isCancelled: true,
+            cancelledAt: new Date(),
+          },
+        });
       });
 
       logger.info({ companyId, assemblyId }, 'Assembly cancelled');

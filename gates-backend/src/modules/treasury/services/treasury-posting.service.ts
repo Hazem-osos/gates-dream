@@ -575,6 +575,13 @@ export class TreasuryPostingService {
           date: row.date,
           reason: `Cash transaction ${row.voucherNumber ?? row.id.slice(0, 8)} unposted`,
         });
+        await journalPostingService.cascadeSourceJournalInTx(
+          tx,
+          ctx.companyId,
+          [row.journalEntryId],
+          options?.cancel ? 'cancel' : 'unpost',
+          ctx.userId
+        );
       }
 
       await tx.cashTransaction.update({
@@ -583,7 +590,6 @@ export class TreasuryPostingService {
           isPosted: false,
           postedAt: null,
           postedBy: null,
-          journalEntryId: null,
           ...(options?.cancel ? { isCancelled: true } : {}),
         },
       });
@@ -595,7 +601,6 @@ export class TreasuryPostingService {
             isPosted: false,
             postedAt: null,
             postedBy: null,
-            journalEntryId: null,
             ...(options?.cancel ? { isCancelled: true } : {}),
           },
         });
@@ -607,12 +612,18 @@ export class TreasuryPostingService {
             isPosted: false,
             postedAt: null,
             postedBy: null,
-            journalEntryId: null,
             ...(options?.cancel ? { isCancelled: true } : {}),
           },
         });
       }
     } else if (options?.cancel) {
+      await journalPostingService.cascadeSourceJournalInTx(
+        tx,
+        ctx.companyId,
+        [row.journalEntryId],
+        'cancel',
+        ctx.userId
+      );
       await tx.cashTransaction.update({
         where: { id: cashTransactionId },
         data: { isCancelled: true },

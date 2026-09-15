@@ -1,5 +1,7 @@
 'use client';
 
+import { currencyDisplayLabel } from '@/lib/accounting/fx-base';
+
 type Props = {
   totalAmount: number;
   currencyCode?: string;
@@ -57,7 +59,7 @@ export function OrderStickyFooter({
           <div className="text-sm">
             <span className="text-muted-foreground">إجمالي الأمر: </span>
             <span className="text-lg font-bold text-slate-900">
-              {formatted} {currencyCode === 'EGP' ? 'ج.م' : currencyCode}
+              {formatted} {currencyDisplayLabel(currencyCode)}
             </span>
           </div>
         </div>

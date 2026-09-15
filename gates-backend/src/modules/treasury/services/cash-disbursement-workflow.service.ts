@@ -45,6 +45,20 @@ export class CashDisbursementWorkflowService {
       return 'AUTO';
     }
 
+    const documentType =
+      family === 'BP01'
+        ? 'PAYMENT_VOUCHER'
+        : family === 'BR01'
+          ? 'RECEIPT_VOUCHER'
+          : family === 'KP01'
+            ? 'BANK_DEBIT_ADVICE'
+            : 'BANK_CREDIT_ADVICE';
+    const txSettings = await prisma.transactionSettings.findUnique({
+      where: { companyId_documentType: { companyId, documentType } },
+      select: { autoPostOnSave: true },
+    });
+    if (txSettings?.autoPostOnSave) return 'AUTO';
+
     return 'MANUAL';
   }
 

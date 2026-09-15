@@ -226,6 +226,22 @@ export class JournalPostingService {
     });
 
     const isOpening = (data.entryType ?? '').toUpperCase() === 'OPENING_BALANCE';
+    if (isOpening) {
+      const existingOpening = await prisma.journalEntry.findFirst({
+        where: {
+          companyId: ctx.companyId,
+          entryType: 'OPENING_BALANCE',
+          isCancelled: false,
+        },
+        select: { id: true },
+      });
+      if (existingOpening) {
+        throw new AppError(
+          409,
+          'يوجد قيد افتتاحي بالفعل. احذفه أولاً حتى يمكن إنشاء قيد افتتاحي جديد.'
+        );
+      }
+    }
     const fiscalYearIdFromDate = await fiscalYearService.assertOpenForDate(
       ctx.companyId,
       data.date,
@@ -999,6 +1015,95 @@ export class JournalPostingService {
 
       return unposted;
     });
+  }
+
+  /**
+   * Source documents own their generated JE. Unpost/cancel on the source
+   * must move the linked journal to the same state.
+   */
+  async cascadeSourceJournalInTx(
+    tx: Prisma.TransactionClient,
+    companyId: string,
+    journalEntryIds: Array<string | null | undefined>,
+    action: 'unpost' | 'cancel',
+    userId?: string,
+    lookup?: { sourceId?: string; sourceType?: string; sourceNumber?: string }
+  ) {
+    const ids = new Set(journalEntryIds.filter((id): id is string => Boolean(id)));
+    if (lookup?.sourceId) {
+      const bySourceId = await tx.journalEntry.findMany({
+        where: { companyId, sourceId: lookup.sourceId, deletedAt: null, entryType: { not: 'REVERSAL' } },
+        select: { id: true },
+      });
+      for (const row of bySourceId) ids.add(row.id);
+    }
+    if (lookup?.sourceType && lookup.sourceNumber) {
+      const bySource = await tx.journalEntry.findMany({
+        where: {
+          companyId,
+          sourceType: lookup.sourceType,
+          sourceNumber: lookup.sourceNumber,
+          deletedAt: null,
+          entryType: { not: 'REVERSAL' },
+        },
+        select: { id: true },
+      });
+      for (const row of bySource) ids.add(row.id);
+    }
+    for (const journalEntryId of ids) {
+      const entry = await tx.journalEntry.findFirst({
+        where: { id: journalEntryId, companyId },
+        include: { lines: { orderBy: { lineOrder: 'asc' } } },
+      });
+      if (!entry || entry.deletedAt) continue;
+      if (action === 'cancel' && entry.isCancelled && !entry.isPosted) continue;
+      if (action === 'unpost' && !entry.isPosted && entry.postingStatus !== 'Post') continue;
+
+      const hasReversal = await tx.journalEntry.findFirst({
+        where: { reversalOfJournalEntryId: entry.id },
+        select: { id: true },
+      });
+
+      const posted = entry.isPosted || entry.postingStatus === 'Post';
+      if (posted && !hasReversal) {
+        await applyPostedJournalBalancesInTx(tx, {
+          companyId,
+          date: entry.date,
+          currencyCode: entry.currencyCode,
+          invert: true,
+          lines: entry.lines,
+        });
+      }
+
+      await tx.journalEntry.update({
+        where: { id: journalEntryId },
+        data: {
+          ...(posted
+            ? {
+                isPosted: false,
+                isApproved: false,
+                postingStatus: 'UnPost',
+                workflowStatus: action === 'cancel' ? 'DRAFT' : 'APPROVED',
+                postedAt: null,
+                postedBy: null,
+                activeSourceKey: null,
+              }
+            : {}),
+          ...(action === 'cancel' ? { isCancelled: true } : {}),
+        },
+      });
+
+      await documentAuditService.record(
+        {
+          companyId,
+          entityType: 'JOURNAL_ENTRY',
+          entityId: journalEntryId,
+          action: action === 'cancel' ? 'CANCELLED' : 'UNPOSTED',
+          userId,
+        },
+        tx
+      );
+    }
   }
 }
 

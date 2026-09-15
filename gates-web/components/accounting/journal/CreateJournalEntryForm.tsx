@@ -45,6 +45,8 @@ import { toHijriDate } from '@/lib/hijri-date';
 import { useDraftAutosave } from '@/lib/hooks/useDraftAutosave';
 import { onFieldErrors } from '@/lib/forms/on-field-errors';
 import { resolveJournalSourceKind, type JournalSourceType } from '@/lib/accounting/journal-source';
+import { pickCurrencyByCode, rateForCurrency, toBaseAmount } from '@/lib/accounting/fx-base';
+import { useCompanyBaseCurrency } from '@/lib/hooks/useCompanyBaseCurrency';
 
 const JournalEntriesListSection = dynamic(
   () =>
@@ -163,6 +165,7 @@ function CreateJournalEntryFormInner() {
   );
   const [loadedVersion, setLoadedVersion] = useState<number | undefined>(undefined);
   const skipUrlHydrateRef = useRef(false);
+  const skipHeaderFxSyncRef = useRef(false);
 
   useEffect(() => {
     const id = journalEntryIdFromUrl?.trim();
@@ -226,6 +229,7 @@ function CreateJournalEntryFormInner() {
 
   const { data: currenciesResponse, isLoading: currenciesLoading } = useCurrenciesQuery();
   const currencies = useMemo(() => currenciesResponse?.data || [], [currenciesResponse?.data]);
+  const { code: companyBaseCurrency } = useCompanyBaseCurrency();
 
   const { data: journalEntryResponse } = useApiQuery<JournalEntryDetail>(
     ['journal-entry', savedJournalEntryId],
@@ -250,6 +254,7 @@ function CreateJournalEntryFormInner() {
 
   useEffect(() => {
     if (!loadedJournalEntry || currencies.length === 0) return;
+    skipHeaderFxSyncRef.current = true;
     const currency =
       currencies.find((c) => c.code === loadedJournalEntry.currencyCode) ?? currencies[0];
     reset({
@@ -461,15 +466,33 @@ function CreateJournalEntryFormInner() {
 
   useEffect(() => {
     if (currencies.length > 0 && !headerCurrencyId) {
-      const defaultCurrency = currencies.find((c) => c.code === 'EGP') || currencies[0];
-      setValue('currencyId', defaultCurrency.id, { shouldDirty: false });
+      const defaultCurrency = pickCurrencyByCode(currencies, companyBaseCurrency);
+      if (defaultCurrency) setValue('currencyId', defaultCurrency.id, { shouldDirty: false });
     }
-  }, [currencies, headerCurrencyId, setValue]);
+  }, [companyBaseCurrency, currencies, headerCurrencyId, setValue]);
+
+  useEffect(() => {
+    if (!headerCurrencyId) return;
+    if (skipHeaderFxSyncRef.current) {
+      skipHeaderFxSyncRef.current = false;
+      return;
+    }
+    const lines = getValues('lines') ?? [];
+    if (!lines.length) return;
+    replace(
+      lines.map((line) => ({
+        ...line,
+        currencyId: headerCurrencyId,
+        exchangeRate: 1,
+      }))
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [headerCurrencyId]);
 
   const debitTotal =
-    watchedLines?.reduce((sum, line) => sum + (Number(line?.debit) || 0), 0) ?? 0;
+    watchedLines?.reduce((sum, line) => sum + toBaseAmount(line?.debit, line?.exchangeRate), 0) ?? 0;
   const creditTotal =
-    watchedLines?.reduce((sum, line) => sum + (Number(line?.credit) || 0), 0) ?? 0;
+    watchedLines?.reduce((sum, line) => sum + toBaseAmount(line?.credit, line?.exchangeRate), 0) ?? 0;
 
   const { data: accountsResponse } = useAccountsQuery();
   const accounts = useMemo(() => accountsResponse?.data ?? [], [accountsResponse?.data]);
@@ -478,8 +501,6 @@ function CreateJournalEntryFormInner() {
   const dateW = watch('date');
   const descriptionW = watch('description');
   const hijriDateW = watch('hijriDate');
-  const headerCurrencyCode = currencies.find((c) => c.id === headerCurrencyId)?.code ?? 'EGP';
-
   const draftSnapshot = useMemo<JournalDraftSnapshot>(
     () => ({
       date: dateW || '',
@@ -519,19 +540,18 @@ function CreateJournalEntryFormInner() {
   }, [dateW, getValues, setValue]);
 
   const journalPrintModel: JournalPrintModel = useMemo(() => {
-    const cur = currencies.find((c) => c.id === headerCurrencyId);
     return {
       voucherNumber: referenceNumberW || undefined,
       date: dateW ? new Date(dateW).toLocaleDateString('ar-EG') : '—',
       description: descriptionW || undefined,
-      currencyCode: cur?.code ?? 'EGP',
+      currencyCode: companyBaseCurrency,
       lines: (watchedLines ?? []).map((l) => {
         const acc = accounts.find((a) => a.id === l.accountId);
         return {
           accountLabel: acc ? `[${acc.code}] ${acc.arabicName}` : l.accountId || '—',
           description: l.description,
-          debit: Number(l.debit) || 0,
-          credit: Number(l.credit) || 0,
+          debit: toBaseAmount(l.debit, l.exchangeRate),
+          credit: toBaseAmount(l.credit, l.exchangeRate),
         };
       }),
       debitTotal,
@@ -543,8 +563,8 @@ function CreateJournalEntryFormInner() {
     referenceNumberW,
     dateW,
     descriptionW,
-    headerCurrencyId,
     currencies,
+    companyBaseCurrency,
     debitTotal,
     creditTotal,
   ]);
@@ -559,7 +579,7 @@ function CreateJournalEntryFormInner() {
     setError('');
     setSuccess('');
     const headerCurrency = currencies.find((c) => c.id === data.currencyId);
-    const currencyCode = headerCurrency?.code ?? 'EGP';
+    const currencyCode = headerCurrency?.code ?? companyBaseCurrency;
     const requestBody: JournalEntryApiBody = {
       date: new Date(data.date).toISOString(),
       hijriDate: data.hijriDate || toHijriDate(data.date) || undefined,
@@ -608,10 +628,13 @@ function CreateJournalEntryFormInner() {
     let debitSum = 0;
     let creditSum = 0;
     for (const line of lines) {
-      debitSum += Number(line?.debit) || 0;
-      creditSum += Number(line?.credit) || 0;
+      debitSum += toBaseAmount(line?.debit, line?.exchangeRate);
+      creditSum += toBaseAmount(line?.credit, line?.exchangeRate);
     }
-    const diff = debitSum - creditSum;
+    const header = currencies.find((c) => c.id === cur);
+    const headerRate = rateForCurrency(header?.code, companyBaseCurrency, header?.exchangeRate);
+    const diffBase = debitSum - creditSum;
+    const diff = headerRate > 0 ? diffBase / headerRate : diffBase;
     append({
       accountId: '',
       description: '',
@@ -624,7 +647,7 @@ function CreateJournalEntryFormInner() {
       invoiceId: null,
       invoiceNumber: null,
     });
-  }, [append, getValues]);
+  }, [append, companyBaseCurrency, currencies, getValues]);
 
   const applyRecurringTemplate = (template: RecurringTemplate) => {
     const cur = getValues('currencyId');
@@ -980,12 +1003,13 @@ function CreateJournalEntryFormInner() {
         debitTotal={debitTotal}
         creditTotal={creditTotal}
         journalEntryId={savedJournalEntryId}
+        currencyCode={companyBaseCurrency}
       />
 
       <JournalEntryStickyFooter
         debitTotal={debitTotal}
         creditTotal={creditTotal}
-        currencyCode={headerCurrencyCode}
+        currencyCode={companyBaseCurrency}
         sourceType={sourceKind}
         sourceId={sourceId}
         sourceNumber={sourceNumber}

@@ -3,6 +3,7 @@
 import { createPortal } from 'react-dom';
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
+import { useCompanyBaseCurrency } from '@/lib/hooks/useCompanyBaseCurrency';
 import { emptyPaymentLine, splitPaymentLineTotals, type PaymentVoucherLine } from '@/lib/treasury/payment-voucher-line';
 import { PaymentLinesTable, type PaymentLineCurrency } from './PaymentLinesTable';
 
@@ -29,12 +30,13 @@ export function OtherCreditPartiesModal({
   onClose,
   onApply,
 }: Props) {
+  const { label: companyBaseLabel } = useCompanyBaseCurrency();
   const [draft, setDraft] = useState<PaymentVoucherLine[]>(lines);
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => setMounted(true), []);
   useEffect(() => {
-    if (open) setDraft(lines.length ? lines : [emptyPaymentLine(baseCurrency, 'CREDIT')]);
+    if (open) setDraft(lines.length ? lines : [emptyPaymentLine(baseCurrency, 'CREDIT', '', 1)]);
   }, [open, lines, baseCurrency]);
 
   if (!open || !mounted) return null;
@@ -56,7 +58,7 @@ export function OtherCreditPartiesModal({
             gridId="credit-parties"
             lines={draft}
             onChange={setDraft}
-            onAddLine={() => setDraft((prev) => [...prev, emptyPaymentLine(baseCurrency, 'CREDIT')])}
+            onAddLine={() => setDraft((prev) => [...prev, emptyPaymentLine(baseCurrency, 'CREDIT', '', 1)])}
             disabled={disabled}
             accountLabelFor={accountLabelFor}
             currencies={currencies}
@@ -68,7 +70,7 @@ export function OtherCreditPartiesModal({
           <p className="text-sm">
             <span className="text-slate-500">إجمالي الأطراف الدائنة: </span>
             <span className="font-mono font-bold text-[#0A3D5E]">
-              {creditTotal.toLocaleString('ar-EG', { minimumFractionDigits: 2 })} ج.م
+              {creditTotal.toLocaleString('ar-EG', { minimumFractionDigits: 2 })} {companyBaseLabel}
             </span>
           </p>
           <div className="flex gap-2">

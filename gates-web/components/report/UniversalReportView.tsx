@@ -6,6 +6,8 @@ import { TableSkeleton } from '@/components/ui/TableSkeleton';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { ReportMetricCards } from '@/components/report/ReportMetricCards';
 import { ReportColumnPicker } from '@/components/report/ReportColumnPicker';
+import { ReportPageShell } from '@/components/erp/ReportPageHeader';
+import type { ReportBreadcrumb } from '@/lib/reports/reportPageBreadcrumbs';
 import {
   getReportColumnsForPath,
   getRowCellValue,
@@ -33,6 +35,7 @@ export type UniversalReportViewProps = {
   errorMessage?: string;
   exportFileName?: string;
   columnDefs?: ReportColumnDef[];
+  breadcrumbs?: ReportBreadcrumb[];
 };
 
 function ReportTable({
@@ -106,6 +109,7 @@ export function UniversalReportView({
   errorMessage,
   exportFileName,
   columnDefs,
+  breadcrumbs,
 }: UniversalReportViewProps) {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
@@ -174,8 +178,35 @@ export function UniversalReportView({
     await exportTableToExcel(file, exportCols, rows, 'التقرير');
   }, [exportFileName, reportKey, rows, visibleColumns]);
 
+  const headerActions = (
+    <div className="flex flex-wrap items-center gap-2">
+      <button
+        type="button"
+        onClick={handlePrint}
+        className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[#0E78AA] px-3 text-xs font-semibold text-white hover:bg-[#0c6894]"
+      >
+        طباعة
+      </button>
+      <button
+        type="button"
+        onClick={() => void handleExport()}
+        disabled={!rows.length}
+        className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#D6EAF3] bg-white px-3 text-xs font-semibold text-[#094C6B] hover:bg-[#F6FBFD] disabled:opacity-50"
+      >
+        تصدير Excel
+      </button>
+      <ReportColumnPicker
+        columns={pickableColumns}
+        visibleIds={visibleIds}
+        onToggle={setColumnVisible}
+        onSelectAll={selectAll}
+        onSelectRecommended={selectRecommended}
+      />
+    </div>
+  );
+
   return (
-    <div className="min-h-screen bg-[#F6FBFD] p-6" dir="rtl">
+    <ReportPageShell title={title} breadcrumbs={breadcrumbs} extraActions={headerActions} statusLabel="معاينة">
       <div id="report-print-root" className="w-full max-w-none">
         {mounted ? (
           <div className="report-print-header-brand report-print-only">
@@ -192,9 +223,8 @@ export function UniversalReportView({
           </div>
         ) : null}
 
-        <div className="no-print mb-4 space-y-3">
-          <h1 className="text-xl font-bold text-[#0E78AA] text-right">{title}</h1>
-          <div className="flex flex-wrap gap-2 justify-end">
+        {filterBadges.length ? (
+          <div className="no-print mb-3 flex flex-wrap gap-2 justify-start">
             {filterBadges.map((b, i) => (
               <span
                 key={i}
@@ -205,33 +235,7 @@ export function UniversalReportView({
               </span>
             ))}
           </div>
-          <div className="flex flex-wrap gap-2 justify-end">
-            <button
-              type="button"
-              onClick={handlePrint}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#0E78AA] text-white text-sm font-medium hover:bg-[#0c6894]"
-            >
-              <span aria-hidden>🖨️</span>
-              طباعة التقرير
-            </button>
-            <button
-              type="button"
-              onClick={() => void handleExport()}
-              disabled={!rows.length}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-slate-200 bg-white text-sm font-medium hover:bg-slate-50 disabled:opacity-50"
-            >
-              <span aria-hidden>📊</span>
-              تصدير Excel
-            </button>
-            <ReportColumnPicker
-              columns={pickableColumns}
-              visibleIds={visibleIds}
-              onToggle={setColumnVisible}
-              onSelectAll={selectAll}
-              onSelectRecommended={selectRecommended}
-            />
-          </div>
-        </div>
+        ) : null}
 
         {mounted ? (
           <div className="report-print-only text-center mb-4">
@@ -282,6 +286,6 @@ export function UniversalReportView({
           </div>
         ) : null}
       </div>
-    </div>
+    </ReportPageShell>
   );
 }

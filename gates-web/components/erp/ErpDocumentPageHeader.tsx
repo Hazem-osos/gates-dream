@@ -62,11 +62,16 @@ type Props = {
   /** Opens the previous-documents list on this same page (not reports). */
   onBrowseList?: () => void;
   browseListLabel?: string;
+  /** Reports and inquiry screens — never show السابق. */
+  hideBrowseList?: boolean;
+  /** Hide the trailing ⋯ menu when the screen has no document actions. */
+  hideActionMenu?: boolean;
   navEntity?: DocumentNavEntity;
   currentId?: string | null;
   invoiceKind?: string;
   transactionKind?: string;
   fundType?: 'CASHBOX' | 'BANK_ACCOUNT';
+  entryType?: string;
   onNavigate?: (id: string) => void;
   standardActions?: DocumentActionMenuProps;
   hideStandalonePost?: boolean;
@@ -122,11 +127,14 @@ export function ErpDocumentPageHeader({
   extraActions,
   onBrowseList,
   browseListLabel = 'السابق',
+  hideBrowseList = false,
+  hideActionMenu = false,
   navEntity,
   currentId,
   invoiceKind,
   transactionKind,
   fundType,
+  entryType,
   onNavigate,
   standardActions,
   hideStandalonePost,
@@ -215,7 +223,7 @@ export function ErpDocumentPageHeader({
 
         <div className={`${formActionPairClass} shrink-0`}>
           <div data-gates-page-header-actions className="contents" />
-          {onBrowseList ? (
+          {hideBrowseList ? null : onBrowseList ? (
             <DocumentPreviousBrowser
               onOpenList={onBrowseList}
               label={browseListLabel}
@@ -224,6 +232,7 @@ export function ErpDocumentPageHeader({
               invoiceKind={invoiceKind}
               transactionKind={transactionKind}
               fundType={fundType}
+              entryType={entryType}
               onNavigate={onNavigate}
             />
           ) : (
@@ -284,7 +293,7 @@ export function ErpDocumentPageHeader({
           {printMenuItems?.length ? (
             <SimpleDropdownMenu align="right" trigger={printTrigger} items={printMenuItems} />
           ) : null}
-          {actionMenu ? (
+          {hideActionMenu ? null : actionMenu ? (
             actionMenu
           ) : standardActions ? (
             <DocumentActionMenu {...standardActions} />

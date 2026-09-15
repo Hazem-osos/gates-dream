@@ -3,6 +3,7 @@ import { validate } from '../../../shared/middleware/validate';
 import { authorize } from '../../../shared/middleware/authorize.middleware';
 import { createSafeSchema, updateSafeSchema, safeQuerySchema } from '../schemas/safe.schema';
 import { safeService } from '../services/safe.service';
+import { ensureSafesFromChart } from '../services/cash-safe-sync';
 import { logger } from '../../../shared/logger';
 import { AuthRequest } from '../../../shared/auth/types';
 import { isAdminRequest } from '../../../shared/auth/roles.util';
@@ -29,6 +30,8 @@ router.get(
         });
       }
 
+      await ensureSafesFromChart(companyId);
+
       let allowedSafeIds: string[] | null | undefined;
       if (!isAdminRequest(req) && req.user?.sub) {
         allowedSafeIds = await bankBoxRightsService.listViewableSafeIds(
@@ -41,6 +44,7 @@ router.get(
         safeService.getSafes(companyId, {
           isActive: req.query.isActive as boolean | undefined,
           allowedSafeIds,
+          skipChartSync: true,
         }),
         companySettingsService.getCompanySettings(companyId).catch(() => null),
       ]);

@@ -9,6 +9,8 @@ export const documentBaseTypeSchema = z.enum([
   'STOCK_RECEIPT',
   'SALES_RETURN',
   'PURCHASE_RETURN',
+  'BANK_DEBIT_ADVICE',
+  'BANK_CREDIT_ADVICE',
 ]);
 
 export const documentProfileColumnKeySchema = z.enum([

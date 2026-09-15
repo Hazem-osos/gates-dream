@@ -1121,6 +1121,13 @@ export class InvoicePostingOrchestrator {
             reason: `Invoice ${sourceNum} unposted`,
           });
         }
+        await journalPostingService.cascadeSourceJournalInTx(
+          tx,
+          ctx.companyId,
+          [invoice.journalEntryId, invoice.costJournalEntryId],
+          'unpost',
+          ctx.userId
+        );
       }
 
       const totals = computeLineTotals(invoice);
@@ -1150,12 +1157,6 @@ export class InvoicePostingOrchestrator {
           paidAmount: new Decimal(0),
           remainingAmount: new Decimal(roundTo4(Number(invoice.netAmount))),
           paymentStatus: 'UNPAID',
-          // The original JE(s) stay posted forever (now reversed by contra
-          // entries) — clear the link since there is no longer a single
-          // "active" JE representing this invoice's current GL effect.
-          // post() always overwrites these on the next post.
-          journalEntryId: null,
-          costJournalEntryId: null,
           record: null,
         },
       });

@@ -26,6 +26,7 @@ import {
 } from './invoice-unit-conversion';
 import { replaceInvoiceInstallmentsInTx } from './invoice-installment.service';
 import { documentAuditService } from '../../accounting/services/document-audit.service';
+import { journalPostingService } from '../../accounting/services/journal-posting.service';
 import { documentSequenceService } from '../../platform/services/document-sequence.service';
 import { documentProfileService } from '../../document-profiles/services/document-profile.service';
 import {
@@ -999,6 +1000,14 @@ export class InvoiceM5Service {
     if (existing.isCancelled) return existing;
 
     const updated = await prisma.$transaction(async (tx) => {
+      await journalPostingService.cascadeSourceJournalInTx(
+        tx,
+        companyId,
+        [existing.journalEntryId, existing.costJournalEntryId],
+        'cancel',
+        userId,
+        { sourceId: existing.id, sourceNumber: existing.invoiceNumber ?? undefined }
+      );
       const row = await tx.invoice.update({
         where: { id },
         data: { isCancelled: true },
@@ -1229,7 +1238,7 @@ export class InvoiceM5Service {
         limit: opts.limit,
         direction: opts.direction,
         where,
-        orderBy: [{ date: 'desc' }, { id: 'desc' }],
+        orderBy: [{ invoiceNumber: 'asc' }, { id: 'asc' }],
         select,
       });
       const keysetLimit = clampKeysetLimit(opts.limit);
@@ -1253,7 +1262,7 @@ export class InvoiceM5Service {
         where,
         skip: (page - 1) * limit,
         take: limit,
-        orderBy: [{ date: 'desc' }, { id: 'desc' }],
+        orderBy: [{ invoiceNumber: 'asc' }, { id: 'asc' }],
         select,
       }),
       prisma.invoice.count({ where }),

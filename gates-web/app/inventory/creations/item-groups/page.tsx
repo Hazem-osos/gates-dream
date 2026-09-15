@@ -3,19 +3,16 @@
 import { useState } from 'react';
 import { Boxes } from 'lucide-react';
 import {
-  PageHeader,
-  Button,
   CompactFormField,
-  FormStickyFooter,
   FormSectionCard,
   compactControlClass,
 } from '@/components/ui';
+import { DocumentBrowseDrawer, MasterCardShell } from '@/components/erp';
 import { UserPermissions } from '@/components/ui/UserPermissions';
 import {
   ItemGroupsListSection,
   type ItemGroupRow,
 } from '@/components/inventory/ItemGroupsListSection';
-import { useRouter } from 'next/navigation';
 import { useApiQuery, useApiMutation, useInvalidateQuery } from '@/lib/hooks/useApi';
 import ErrorToast from '@/components/ErrorToast';
 import type { ApiError } from '@/lib/api/types';
@@ -46,11 +43,11 @@ const checkboxCls =
   'w-4 h-4 text-[#0E78AA] bg-white border border-[#0E78AA] rounded focus:ring-2 focus:ring-[#0E78AA]/20';
 
 export default function ItemGroupCardPage() {
-  const router = useRouter();
   const invalidateQuery = useInvalidateQuery();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [formData, setFormData] = useState<GroupForm>(emptyForm);
   const [error, setError] = useState('');
+  const [showGuide, setShowGuide] = useState(false);
 
   const { data: groupsResponse } = useApiQuery<ItemGroupRow[]>(
     ['item-categories', 'parents'],
@@ -134,26 +131,25 @@ export default function ItemGroupCardPage() {
   };
 
   return (
-    <div className="p-6 bg-gradient-to-br from-gray-50 to-blue-50 min-h-screen" style={{ direction: 'rtl' }}>
+    <MasterCardShell
+      title="بطاقة مجموعة أصناف"
+      breadcrumbs={[
+        { label: 'المخزون', href: '/inventory' },
+        { label: 'التعريفات' },
+        { label: 'مجموعة أصناف' },
+      ]}
+      docNumber={formData.code || (selectedId ? 'تعديل' : 'جديد')}
+      statusLabel={selectedId ? 'تعديل' : 'جديد'}
+      onSave={handleSave}
+      savePending={loading}
+      canSave={!loading}
+      onNew={handleNew}
+      currentId={selectedId}
+      onBrowseList={() => setShowGuide(true)}
+      favoriteHref="/inventory/creations/item-groups"
+    >
       {error && <ErrorToast message={error} onClose={() => setError('')} />}
 
-      <PageHeader
-        title="دليل الأصناف"
-        breadcrumbs={[
-          { label: 'المخزون', href: '/inventory' },
-          { label: 'التعريفات' },
-          { label: 'مجموعات الأصناف' },
-        ]}
-        actions={
-          <Button variant="primary" onClick={handleNew}>
-            مجموعة جديدة
-          </Button>
-        }
-      />
-
-      <ItemGroupsListSection onSelect={handleSelect} selectedId={selectedId} />
-
-      <PageHeader title="بطاقة مجموعة أصناف" className="mb-4" />
       <div className="mb-4 flex justify-between">
         <UserPermissions />
       </div>
@@ -237,13 +233,15 @@ export default function ItemGroupCardPage() {
         />
       </FormSectionCard>
 
-      <FormStickyFooter
-        onCancel={() => router.back()}
-        onSave={handleSave}
-        saveLoading={loading}
-        saveDisabled={loading}
-        status={selectedId ? 'تعديل' : 'مسودة'}
-      />
-    </div>
+      <DocumentBrowseDrawer open={showGuide} onClose={() => setShowGuide(false)} title="مجموعات الأصناف السابقة">
+        <ItemGroupsListSection
+          onSelect={(row) => {
+            handleSelect(row);
+            setShowGuide(false);
+          }}
+          selectedId={selectedId}
+        />
+      </DocumentBrowseDrawer>
+    </MasterCardShell>
   );
 }

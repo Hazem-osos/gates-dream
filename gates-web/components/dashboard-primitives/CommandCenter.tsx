@@ -2,6 +2,7 @@
 
 import type { ReactNode } from 'react';
 import { cn } from '@/lib/utils';
+import { useRegisterScreenChrome } from '@/components/erp/AppScreenChromeContext';
 import { DashboardHUD, type HudShortcut } from './DashboardHUD';
 import { DASH_PAGE, DASH_SHELL } from './tokens';
 
@@ -24,6 +25,8 @@ export function CommandCenter({
   onRefresh?: () => void;
   children: ReactNode;
 }) {
+  useRegisterScreenChrome();
+
   return (
     <div className={cn('gates-content-enter', DASH_PAGE)} dir="rtl">
       <div className={DASH_SHELL}>

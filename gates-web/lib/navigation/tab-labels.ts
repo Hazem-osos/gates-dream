@@ -11,6 +11,7 @@ import { electronicInvoicesModules } from '@/app/components/ElectronicInvoicesSi
 import { estsmar3akaryModules } from '@/app/components/SidebarEstsmar3akary';
 import { hrModules } from '@/app/components/hr/hr-sidebar.config';
 import { WORKSPACE_HUB_GROUPS } from '@/lib/navigation/workspace-hub-directory';
+import { contextFromSettingsSlug } from '@/lib/transaction-settings/types';
 
 type NavLike = {
   label: string;
@@ -29,6 +30,7 @@ const PATH_LABEL_EXACT: Record<string, string> = {
   '/growth/impact': 'أثر Gates',
   '/sales': 'المبيعات والعملاء',
   '/purchases': 'المشتريات والموردين',
+  '/inventory/guide': 'دليل المخازن',
   '/inventory/guide/items': 'دليل الأصناف',
   '/inventory/creations/item-card': 'بطاقة الصنف',
   '/accounting': 'الحسابات العامة',
@@ -55,6 +57,8 @@ const PATH_LABEL_EXACT: Record<string, string> = {
   '/inventory/settings/transactions/stock-receipt': 'إعدادات إذن الإضافة',
   '/accounting/settings/transactions/payment-voucher': 'إعدادات سند الصرف',
   '/accounting/settings/transactions/receipt-voucher': 'إعدادات سند القبض',
+  '/accounting/settings/transactions/bank-discount': 'إعدادات إشعار الخصم',
+  '/accounting/settings/transactions/bank-addition': 'إعدادات إشعار الإضافة',
   '/contracting': 'لوحة المقاولات',
   '/contracting/extracts': 'مستخلصات العقود',
   '/contracting/projects': 'مساحة المشروع التنفيذية',
@@ -171,6 +175,16 @@ function getHrefLabelIndex(): Map<string, string> {
   return hrefLabelIndex;
 }
 
+function settingsTitleFromPath(path: string): string | null {
+  const match = path.match(/\/settings\/transactions\/([^/]+)$/);
+  if (!match) return null;
+  return contextFromSettingsSlug(match[1])?.title ?? null;
+}
+
+function looksLikeAppPath(value: string): boolean {
+  return value.includes('/') || value.startsWith('http');
+}
+
 function matchByPrefix(path: string, index: Map<string, string>): string | null {
   const parts = path.split('/').filter(Boolean);
   for (let len = parts.length; len >= 1; len -= 1) {
@@ -192,11 +206,14 @@ export function resolveTabLabel(pathname: string | null | undefined): string {
   const path = normalizePath(pathname);
   const index = getHrefLabelIndex();
 
+  const settingsTitle = settingsTitleFromPath(path);
+  if (settingsTitle) return settingsTitle;
+
   const exact = index.get(path) ?? PATH_LABEL_EXACT[path];
-  if (exact) return exact;
+  if (exact && !looksLikeAppPath(exact)) return exact;
 
   const prefixLabel = matchByPrefix(path, index);
-  if (prefixLabel) return prefixLabel;
+  if (prefixLabel && !looksLikeAppPath(prefixLabel)) return prefixLabel;
 
   const lastSegment = path.split('/').filter(Boolean).pop() ?? '';
   if (SEGMENT_LABELS[lastSegment]) {
@@ -206,8 +223,10 @@ export function resolveTabLabel(pathname: string | null | undefined): string {
   if (/^[0-9a-f-]{8,}$/i.test(lastSegment)) {
     const parentParts = path.split('/').filter(Boolean).slice(0, -1);
     const parentPath = `/${parentParts.join('/')}`;
+    const parentSettings = settingsTitleFromPath(parentPath);
+    if (parentSettings) return `${parentSettings} — تفاصيل`;
     const parentLabel = index.get(parentPath) ?? PATH_LABEL_EXACT[parentPath];
-    if (parentLabel) return `${parentLabel} — تفاصيل`;
+    if (parentLabel && !looksLikeAppPath(parentLabel)) return `${parentLabel} — تفاصيل`;
   }
 
   return 'صفحة داخل النظام';

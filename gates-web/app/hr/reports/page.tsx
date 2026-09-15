@@ -2,8 +2,7 @@
 
 import Link from 'next/link';
 import { useBackendReachability } from '@/lib/hooks/useBackendReachability';
-import { HrPageChrome } from '@/components/hr/HrPageChrome';
-import { DASH_PANEL } from '@/components/dashboard-primitives';
+import { ReportPageShell } from '@/components/erp/ReportPageHeader';
 
 const REPORT_LINKS: { href: string; label: string }[] = [
   { href: '/hr/employee-data-report', label: 'تقرير بيانات الموظفين' },
@@ -27,8 +26,14 @@ export default function HrReportsHubPage() {
   useBackendReachability();
 
   return (
-    <HrPageChrome title="تقارير الموظفين" module="HR / REPORTS">
-      <div className={`${DASH_PANEL} overflow-hidden`}>
+    <ReportPageShell
+      title="تقارير الموظفين"
+      breadcrumbs={[
+        { label: 'الموارد البشرية', href: '/hr' },
+        { label: 'تقارير الموظفين' },
+      ]}
+    >
+      <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
         <ul className="divide-y divide-slate-100">
           {REPORT_LINKS.map((item) => (
             <li key={item.href}>
@@ -42,6 +47,6 @@ export default function HrReportsHubPage() {
           ))}
         </ul>
       </div>
-    </HrPageChrome>
+    </ReportPageShell>
   );
 }

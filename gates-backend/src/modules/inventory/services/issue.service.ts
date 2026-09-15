@@ -2,6 +2,7 @@
 import prisma from '../../../shared/database/prisma';
 import { logger } from '../../../shared/logger';
 import { stockMovementGlService, type StockGlPostingContext } from './stock-movement-gl.service';
+import { journalPostingService } from '../../accounting/services/journal-posting.service';
 import { stockMovementService } from './stock-movement.service';
 import { itemCostService } from './item-cost.service';
 import { scopedItemQuantityWhere } from '../utils/item-quantity-tenant';
@@ -294,7 +295,7 @@ export class IssueService {
               },
             },
           },
-          orderBy: { createdAt: 'desc' },
+          orderBy: [{ serial: 'asc' }, { createdAt: 'asc' }],
           skip: options?.skip || 0,
           take: options?.take || 50,
         }),
@@ -498,15 +499,25 @@ export class IssueService {
         throw new Error('Cannot cancel posted issue. Unpost it first.');
       }
 
-      const updateResult = await prisma.issue.updateMany({
-        where: { id: issueId, companyId, version: issue.version },
-        data: {
-          isCancelled: true,
-          cancelledAt: new Date(),
-          version: { increment: 1 },
-        },
+      await prisma.$transaction(async (tx) => {
+        await journalPostingService.cascadeSourceJournalInTx(
+          tx,
+          companyId,
+          [issue.journalEntryId],
+          'cancel',
+          undefined,
+          { sourceId: issue.id, sourceType: 'GI', sourceNumber: issue.serial ?? issue.id.slice(0, 8) }
+        );
+        const updateResult = await tx.issue.updateMany({
+          where: { id: issueId, companyId, version: issue.version },
+          data: {
+            isCancelled: true,
+            cancelledAt: new Date(),
+            version: { increment: 1 },
+          },
+        });
+        assertUpdateCount(updateResult.count);
       });
-      assertUpdateCount(updateResult.count);
 
       logger.info({ companyId, issueId }, 'Issue cancelled');
 

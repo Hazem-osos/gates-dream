@@ -1,7 +1,7 @@
 'use client';
 
 import { ChevronDown, ChevronLeft, Folder, FolderOpen, FileText, CornerDownLeft } from 'lucide-react';
-import type { CoaHierarchyAccount } from '@/lib/accounting/mapCoaToTreeNodes';
+import { isSystemCashPostingAccount, type CoaHierarchyAccount } from '@/lib/accounting/mapCoaToTreeNodes';
 import {
   depthLevelLabel,
   depthPaddingClass,
@@ -65,6 +65,7 @@ export function AccountTreeNode({
 }) {
   const hasChildren = Boolean(node.children?.length);
   const isFolder = hasChildren || node.type === 'HEADER' || node.isParent;
+  const lockBranching = isSystemCashPostingAccount(node);
   const childCount = node.children?.length ?? 0;
   const q = searchQuery.trim();
   const code = node.code;
@@ -164,14 +165,16 @@ export function AccountTreeNode({
       </span>
 
       <div className="opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity flex items-center gap-1 ms-auto pl-2 shrink-0 z-[1]">
-        <button
-          type="button"
-          title="إضافة حساب فرعي"
-          className="text-[11px] px-2 py-1 rounded-md bg-white border border-slate-200 text-[#0E79AA] hover:bg-[#0E79AA]/10 whitespace-nowrap shadow-sm"
-          onClick={() => onAddChild(node)}
-        >
-          + فرعي
-        </button>
+        {lockBranching ? null : (
+          <button
+            type="button"
+            title="إضافة حساب فرعي"
+            className="text-[11px] px-2 py-1 rounded-md bg-white border border-slate-200 text-[#0E79AA] hover:bg-[#0E79AA]/10 whitespace-nowrap shadow-sm"
+            onClick={() => onAddChild(node)}
+          >
+            + فرعي
+          </button>
+        )}
         <button type="button" title="تعديل" className="p-1.5 rounded-md hover:bg-slate-100" onClick={() => onEdit(node)}>
           ✏️
         </button>

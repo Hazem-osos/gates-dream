@@ -671,7 +671,7 @@ function FinalPurchaseInvoicePageInner() {
   );
 
   const { data: safesResponse } = useApiQuery<Array<{ id: string }>>(
-    ['accounting', 'safes', 'settlement'],
+    ['safes', 'settlement'],
     '/accounting/safes',
     { page: 1, limit: 50 }
   );

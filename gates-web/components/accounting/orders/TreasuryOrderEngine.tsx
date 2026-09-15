@@ -49,8 +49,15 @@ import type { ApiError } from '@/lib/api/types';
 import { toastVersionConflict } from '@/lib/feedback/toast';
 import { getTenantContext } from '@/lib/tenant/tenant-context-storage';
 import { useApiMutation, useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
+import {
+  invalidateTreasuryFundBalances,
+  useLiveFundBalance,
+  useSafesQuery,
+} from '@/lib/hooks/useMasterDataQueries';
 import { useCompanyPrintProfile } from '@/lib/hooks/useCompanyPrintProfile';
 import { useAccountingSettingsQuery } from '@/lib/hooks/useAccountingSettings';
+import { pickCurrencyByCode, rateForCurrency, treasuryBalanceInCurrency, withHeaderCurrency } from '@/lib/accounting/fx-base';
+import { useCompanyBaseCurrency } from '@/lib/hooks/useCompanyBaseCurrency';
 import {
   formatTreasuryBalanceLabel,
   isCashAmountOverBalance,
@@ -141,9 +148,9 @@ type CompanySettingsRow = {
   dateUsage?: 'gregorian' | 'hijri' | 'both' | null;
 };
 
-function defaultCurrencyId(currencies: Currency[]): string {
+function defaultCurrencyId(currencies: Currency[], companyBase = 'EGP'): string {
   if (!currencies.length) return '';
-  return (currencies.find((c) => c.code === 'EGP') || currencies[0]).id;
+  return pickCurrencyByCode(currencies, companyBase)?.id || currencies[0].id;
 }
 
 function emptyLine(currencyCode: string): VoucherGridLine {
@@ -215,6 +222,7 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
   );
 
   const skipUrlHydrateRef = useRef(false);
+  const skipHeaderFxSyncRef = useRef(false);
 
   useEffect(() => {
     const id = idFromUrl?.trim();
@@ -282,19 +290,18 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
   );
   const currencies = useMemo(() => currenciesResponse?.data || [], [currenciesResponse?.data]);
 
-  const { data: safesResponse } = useApiQuery<FundOption[]>(
-    ['safes'],
-    '/accounting/safes',
-    { isActive: true },
-    { enabled: isCashOrder || !isBank }
-  );
+  const { data: safesResponse } = useSafesQuery({ enabled: isCashOrder || !isBank });
   const { data: banksResponse } = useApiQuery<FundOption[]>(
     ['bank-accounts'],
     '/accounting/bank-accounts',
     { isActive: true },
-    { enabled: !isCashOrder && isBank }
+    { enabled: !isCashOrder && isBank, staleTime: 0, refetchOnMount: 'always' }
   );
   const funds = isCashOrder || !isBank ? safesResponse?.data || [] : banksResponse?.data || [];
+  const { data: liveFundResponse } = useLiveFundBalance({
+    kind: isBank ? 'bank' : 'safe',
+    id: fundId,
+  });
 
   const { data: suppliersResponse } = useApiQuery<Party[]>(
     ['suppliers'],
@@ -319,6 +326,7 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
   );
   const settings = settingsResponse?.data;
   const { data: accountingSettingsRes } = useAccountingSettingsQuery();
+  const { code: companyBaseCurrency } = useCompanyBaseCurrency();
   const preventCashOverdraft =
     accountingSettingsRes?.data?.controls?.preventCashOverdraft === true;
   const autoNumbering = settings?.autoNumbering !== false;
@@ -338,6 +346,7 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
         const message = `تم حفظ ${variant.title} بنجاح`;
         invalidateQuery(['treasury-cash-transactions']);
         invalidateQuery(['cash-order-detail']);
+        invalidateTreasuryFundBalances(invalidateQuery);
         resetForm();
         setSuccess(message);
       },
@@ -362,6 +371,7 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
         const message = `تم حفظ تعديلات ${variant.title}`;
         invalidateQuery(['treasury-cash-transactions']);
         invalidateQuery(['cash-order-detail']);
+        invalidateTreasuryFundBalances(invalidateQuery);
         resetForm();
         setSuccess(message);
       },
@@ -389,6 +399,7 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
         lastHydratedIdRef.current = null;
         invalidateQuery(['treasury-cash-transactions']);
         invalidateQuery(['cash-order-detail']);
+        invalidateTreasuryFundBalances(invalidateQuery);
         lockToView();
       },
       onError: (err: ApiError) => setError(err.message || 'تعذر إلغاء الأمر'),
@@ -405,6 +416,7 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
         setSuccess(res.message || variant.confirmLabel);
         invalidateQuery(['treasury-cash-transactions']);
         invalidateQuery(['cash-order-detail']);
+        invalidateTreasuryFundBalances(invalidateQuery);
         lockToView();
       },
       onError: (err: ApiError) => setError(err.message || 'تعذر تحديث حالة التنفيذ'),
@@ -415,6 +427,7 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
 
   const applyCashRow = useCallback(
     (row: CashTxRow, asTemplate = false) => {
+      skipHeaderFxSyncRef.current = true;
       setSavedOrderId(asTemplate ? null : row.id);
       setDocumentVersion(asTemplate ? 0 : typeof row.version === 'number' ? row.version : 0);
       setIsCancelled(asTemplate ? false : Boolean(row.isCancelled));
@@ -500,26 +513,46 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
 
   useEffect(() => {
     if (currencies.length > 0 && !currencyId) {
-      setValue('currencyId', defaultCurrencyId(currencies), { shouldValidate: false });
+      setValue('currencyId', defaultCurrencyId(currencies, companyBaseCurrency), { shouldValidate: false });
     }
-  }, [currencies, currencyId, setValue]);
+  }, [companyBaseCurrency, currencies, currencyId, setValue]);
+
+  const applyHeaderCurrencyToRows = useCallback((code: string) => {
+    if (!code) return;
+    setVoucherLines((prev) => prev.map((line) => withHeaderCurrency(line, code)));
+  }, []);
+
+  useEffect(() => {
+    const header = currencies.find((c) => c.id === currencyId);
+    if (!header?.code) return;
+    if (skipHeaderFxSyncRef.current) {
+      skipHeaderFxSyncRef.current = false;
+      return;
+    }
+    applyHeaderCurrencyToRows(header.code);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currencyId]);
 
   const selectedFund = fundId && funds.length > 0 ? funds.find((s) => s.id === fundId) : undefined;
   const fundGlCode = selectedFund?.glAccountCode || selectedFund?.glAccount?.code || '';
-  const balanceNum = selectedFund ? roundMoney2(parseDecimal(selectedFund.balance)) : 0;
+  const currency = currencies.find((c) => c.id === currencyId);
+  const headerCurrencyCode = currency?.code ?? companyBaseCurrency;
+  const headerFxRate = rateForCurrency(headerCurrencyCode, companyBaseCurrency, currency?.exchangeRate);
+  const storedBaseBalance = parseDecimal(
+    liveFundResponse?.data?.balance ?? selectedFund?.balance
+  );
+  const balanceNum = selectedFund
+    ? roundMoney2(treasuryBalanceInCurrency(storedBaseBalance, headerFxRate))
+    : 0;
   const balance = selectedFund
     ? balanceNum.toLocaleString('ar-EG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
     : '0';
-  const totalAmount = isCashOrder
-    ? voucherLines.reduce((sum, line) => sum + lineBaseAmount(line), 0)
-    : voucherLines.reduce((sum, line) => sum + (Number(line.amount) || 0), 0);
+  const totalAmount = voucherLines.reduce((sum, line) => sum + lineBaseAmount(line), 0);
   const overdraftWarning =
     variant.transactionKind === 'PAYMENT' &&
     preventCashOverdraft &&
     isCashAmountOverBalance(totalAmount, balanceNum);
   const { profile: companyProfile } = useCompanyPrintProfile();
-  const currency = currencies.find((c) => c.id === currencyId);
-  const headerCurrencyCode = currency?.code ?? 'EGP';
   const completed = executionStatus === 'COMPLETED';
   const locked = isReadOnly || completed || isCancelled || busy;
 
@@ -545,7 +578,7 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
       date: new Date().toISOString().split('T')[0],
       description: '',
       fundId: '',
-      currencyId: defaultCurrencyId(currencies),
+      currencyId: defaultCurrencyId(currencies, companyBaseCurrency),
       voucherNumber: '',
       hijriDate: toHijriDate(new Date().toISOString().split('T')[0]),
       fundKind: 'CASHBOX',
@@ -631,7 +664,9 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
   const addLine = () =>
     setVoucherLines((prev) => [
       ...prev,
-      isCashOrder ? emptyPaymentLine(headerCurrencyCode, orderEntrySide) : emptyLine(headerCurrencyCode),
+      isCashOrder
+        ? emptyPaymentLine(headerCurrencyCode, orderEntrySide, '', 1)
+        : { ...emptyLine(headerCurrencyCode), exchangeRate: 1 },
     ]);
   const accountLabelFor = (accountId: string) => {
     const account = accounts.find((a) => a.id === accountId);
@@ -658,7 +693,7 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
     return {
       accountLabel: acc ? `[${acc.code}] ${acc.arabicName}` : line.accountId,
       description: line.description,
-      amount: line.amount || 0,
+      amount: lineBaseAmount(line),
     };
   });
 
@@ -713,7 +748,7 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
               date={dateW ? new Date(dateW).toLocaleDateString('ar-EG') : '—'}
               description={descriptionW}
               safeName={selectedFund?.arabicName}
-              currencyCode={headerCurrencyCode}
+              currencyCode={companyBaseCurrency}
               lines={voucherPrintLines}
               totalAmount={totalAmount}
             />
@@ -734,6 +769,10 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
           voidLabel: 'إلغاء الأمر',
           duplicateLabel: 'تكرار',
           editLockedHint: 'الأمر مكتمل التنفيذ ولا يمكن تعديله',
+          voidLockedHint:
+            variant.orderType === 'PAYMENT_ORDER'
+              ? 'تم صرف الأمر ولا يمكن إلغاؤه'
+              : 'تم توريد الأمر ولا يمكن إلغاؤه',
           onEdit: () => {
             if (completed) {
               setError('الأمر مكتمل التنفيذ ولا يمكن تعديله');
@@ -743,7 +782,17 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
           },
           onPrint: triggerPrint,
           onDuplicate: handleDuplicate,
-          onVoid: () => cancelMutation.mutate({ expectedVersion: documentVersion }),
+          onVoid: () => {
+            if (completed) {
+              setError(
+                variant.orderType === 'PAYMENT_ORDER'
+                  ? 'تم صرف الأمر ولا يمكن إلغاؤه'
+                  : 'تم توريد الأمر ولا يمكن إلغاؤه'
+              );
+              return;
+            }
+            cancelMutation.mutate({ expectedVersion: documentVersion });
+          },
           voidPending: cancelMutation.isPending,
         }}
       />
@@ -796,7 +845,16 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
             <>
               <div>
                 <label className={erpLabelClass}>العملة</label>
-                <select className={erpInputClass} disabled={locked} {...register('currencyId')}>
+                <select
+                  className={erpInputClass}
+                  disabled={locked}
+                  {...register('currencyId', {
+                    onChange: (event) => {
+                      const header = currencies.find((c) => c.id === event.target.value);
+                      if (header?.code) applyHeaderCurrencyToRows(header.code);
+                    },
+                  })}
+                >
                   {currencies.map((c) => (
                     <option key={c.id} value={c.id}>
                       {c.arabicName || c.englishName || c.code}
@@ -816,6 +874,7 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
                       errorMessage={errors.fundId?.message}
                       executionStatus={executionStatus}
                       baseCurrency={headerCurrencyCode}
+                      displayBalance={balanceNum}
                     />
                   ) : (
                     <PaymentOrderHeader
@@ -827,6 +886,7 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
                       errorMessage={errors.fundId?.message}
                       executionStatus={executionStatus}
                       baseCurrency={headerCurrencyCode}
+                      displayBalance={balanceNum}
                     />
                   )}
                 </div>
@@ -927,6 +987,8 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
               onAddLine={addLine}
               disabled={locked}
               accountLabelFor={accountLabelFor}
+              currencies={currencies}
+              headerCurrencyCode={headerCurrencyCode}
             />
           )}
         </FormSectionCard>
@@ -936,7 +998,7 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
         isReceiptOrder ? (
           <ReceiptOrderStickyFooter
             totalAmount={totalAmount}
-            currencyCode={headerCurrencyCode}
+            currencyCode={companyBaseCurrency}
             executionStatus={executionStatus}
             executedAt={executedAt}
             executedByName={executedByName}
@@ -952,7 +1014,7 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
         ) : (
           <PaymentOrderStickyFooter
             totalAmount={totalAmount}
-            currencyCode={headerCurrencyCode}
+            currencyCode={companyBaseCurrency}
             executionStatus={executionStatus}
             executedAt={executedAt}
             executedByName={executedByName}
@@ -969,7 +1031,7 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
       ) : (
         <OrderStickyFooter
           totalAmount={totalAmount}
-          currencyCode={headerCurrencyCode}
+          currencyCode={companyBaseCurrency}
           createdAt={createdAt}
           createdByName={createdByName}
           onSave={onSave}

@@ -67,6 +67,10 @@ export function PaymentOrderReferenceInputs({
           onErrorRef.current('أمر الصرف غير موجود');
           return;
         }
+        if (order.executionStatus === 'COMPLETED') {
+          onErrorRef.current('تم صرف هذا الأمر بالفعل ولا يمكن تحميله مرة أخرى');
+          return;
+        }
         lastKeyRef.current = key;
         onLoadedRef.current(order, deptId);
       } catch (e) {

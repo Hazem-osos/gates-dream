@@ -103,6 +103,8 @@ router.get(
         isCancelled: req.query.isCancelled as boolean | undefined,
         includeLines: req.query.includeLines as boolean | undefined,
         entryType: req.query.entryType as string | undefined,
+        sortBy: req.query.sortBy as 'voucherNumber' | 'date' | 'createdAt' | undefined,
+        sortDir: req.query.sortDir as 'asc' | 'desc' | undefined,
         branchId: req.query.branchId as string | undefined,
         permittedBranchIds: await requestPermittedBranchIds(req),
       });

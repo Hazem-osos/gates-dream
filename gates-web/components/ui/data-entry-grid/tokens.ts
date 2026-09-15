@@ -1,5 +1,5 @@
 export const dataEntryGridWrapClass =
-  'min-w-0 w-full max-w-full border border-[#D6EAF3] rounded-xl overflow-hidden shadow-sm bg-white';
+  'min-w-0 w-full max-w-full border border-[#D6EAF3] rounded-xl overflow-x-scroll overflow-y-hidden shadow-sm bg-white';
 
 export const dataEntryGridHeadRowClass =
   'bg-[#0E78AA] text-[12px] font-semibold text-white';

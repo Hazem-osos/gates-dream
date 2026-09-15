@@ -1,5 +1,11 @@
 import prisma from '../../../shared/database/prisma';
 import { logger } from '../../../shared/logger';
+import {
+  createCashGlForNewSafe,
+  ensureSafesFromChart,
+  grantSafeToExistingRightHolders,
+  nextSafeCode,
+} from './cash-safe-sync';
 
 export interface CreateSafeData {
   code?: string;
@@ -22,8 +28,11 @@ export class SafeService {
    */
   async getSafes(
     companyId: string,
-    options?: { isActive?: boolean; allowedSafeIds?: string[] | null }
+    options?: { isActive?: boolean; allowedSafeIds?: string[] | null; skipChartSync?: boolean }
   ) {
+    if (!options?.skipChartSync) {
+      await ensureSafesFromChart(companyId);
+    }
     const where: any = { companyId };
     if (options?.isActive !== undefined) {
       where.isActive = options.isActive;
@@ -79,17 +88,27 @@ export class SafeService {
       }
     }
 
-    return prisma.safe.create({
+    const glAccountId = await createCashGlForNewSafe(companyId, data.arabicName);
+
+    const created = await prisma.safe.create({
       data: {
         companyId,
-        code: data.code,
+        code: data.code?.trim() || (await nextSafeCode(companyId)),
         arabicName: data.arabicName,
         englishName: data.englishName,
         currencyCode: data.currencyCode,
+        glAccountId,
         balance: 0,
         isActive: true,
       },
+      include: {
+        glAccount: {
+          select: { id: true, code: true, arabicName: true, englishName: true },
+        },
+      },
     });
+    await grantSafeToExistingRightHolders(companyId, created.id);
+    return created;
   }
 
   /**

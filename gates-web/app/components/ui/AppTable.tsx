@@ -43,6 +43,8 @@ export interface AppTableProps<T extends Record<string, unknown>> {
   onRowClick?: (row: T) => void;
   rowClassName?: (row: T) => string | undefined;
   virtualizeThreshold?: number;
+  defaultSort?: { id: string; dir: 'asc' | 'desc' };
+  onSortChange?: (sort: { id: string; dir: 'asc' | 'desc' }) => void;
 }
 
 function formatCellValue(value: unknown, numeric?: boolean): React.ReactNode {
@@ -65,28 +67,55 @@ function useClientMounted(): boolean {
 }
 
 function columnSortable<T extends Record<string, unknown>>(col: AppTableColumn<T>): boolean {
-  if (col.sortable === false || col.id === 'actions') return false;
+  if (col.sortable === false || /^(actions|action|ops|open)$/.test(col.id)) return false;
   if (col.sortable === true || col.sortValue || col.accessor) return true;
   return /serial|code|num|date|name|status|desc|total|amount/.test(col.id);
+}
+
+function parseSortable(value: unknown): string | number {
+  if (value == null || value === '') return '';
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (value instanceof Date) return value.getTime();
+  const str = String(value).trim();
+  if (/^\d{4}-\d{2}-\d{2}/.test(str)) {
+    const time = Date.parse(str);
+    if (!Number.isNaN(time)) return time;
+  }
+  const numeric = Number(str.replace(/,/g, ''));
+  if (str !== '' && Number.isFinite(numeric) && /^-?\d+(\.\d+)?$/.test(str.replace(/,/g, ''))) {
+    return numeric;
+  }
+  return str;
+}
+
+function inferredFieldValue<T extends Record<string, unknown>>(row: T, colId: string): unknown {
+  if (row[colId] != null && row[colId] !== '') return row[colId];
+  if (/num|serial|code|number/.test(colId)) {
+    return (
+      row.voucherNumber ??
+      row.legacyGlNum ??
+      row.serialNumber ??
+      row.serial ??
+      row.code ??
+      row.invoiceNumber ??
+      row.documentNumber ??
+      row.entryNumber ??
+      ''
+    );
+  }
+  if (/date/.test(colId)) {
+    return row.date ?? row.createdAt ?? row.openingDate ?? '';
+  }
+  return row[colId];
 }
 
 function columnSortValue<T extends Record<string, unknown>>(
   row: T,
   col: AppTableColumn<T>
 ): string | number {
-  if (col.sortValue) {
-    const value = col.sortValue(row);
-    if (value == null) return '';
-    return value;
-  }
-  if (col.accessor) {
-    const value = row[col.accessor];
-    if (typeof value === 'number') return value;
-    return String(value ?? '');
-  }
-  const fallback = row[col.id];
-  if (typeof fallback === 'number') return fallback;
-  return String(fallback ?? '');
+  if (col.sortValue) return parseSortable(col.sortValue(row));
+  if (col.accessor) return parseSortable(row[col.accessor]);
+  return parseSortable(inferredFieldValue(row, col.id));
 }
 
 export function AppTable<T extends Record<string, unknown>>({
@@ -106,17 +135,25 @@ export function AppTable<T extends Record<string, unknown>>({
   onRowClick,
   rowClassName,
   virtualizeThreshold = 40,
+  defaultSort,
+  onSortChange,
 }: AppTableProps<T>) {
   const mounted = useClientMounted();
   const defaultSortId =
+    defaultSort?.id ??
     columns.find((col) => /^(serial|code|num|number)$/.test(col.id) && columnSortable(col))?.id ??
     columns.find((col) => columnSortable(col))?.id ??
     null;
   const [sort, setSort] = React.useState<{ id: string; dir: 'asc' | 'desc' } | null>(
-    defaultSortId ? { id: defaultSortId, dir: 'asc' } : null
+    defaultSortId ? { id: defaultSortId, dir: defaultSort?.dir ?? 'asc' } : null
   );
+  const changeSort = (next: { id: string; dir: 'asc' | 'desc' }) => {
+    setSort(next);
+    onSortChange?.(next);
+  };
+  const serverPaged = Boolean(pagination || onSortChange);
   const sortedData = React.useMemo(() => {
-    if (!sort) return data;
+    if (serverPaged || !sort) return data;
     const col = columns.find((item) => item.id === sort.id);
     if (!col || !columnSortable(col)) return data;
     const copy = [...data];
@@ -130,7 +167,7 @@ export function AppTable<T extends Record<string, unknown>>({
       return sort.dir === 'asc' ? cmp : -cmp;
     });
     return copy;
-  }, [columns, data, sort]);
+  }, [columns, data, onSortChange, pagination, serverPaged, sort]);
   const showSkeleton = !mounted || Boolean(isLoading);
   const parentRef = React.useRef<HTMLDivElement>(null);
   const useVirtual = !showSkeleton && sortedData.length >= virtualizeThreshold;
@@ -205,9 +242,9 @@ export function AppTable<T extends Record<string, unknown>>({
             onClick={
               sortable
                 ? () =>
-                    setSort((prev) =>
-                      prev?.id === col.id
-                        ? { id: col.id, dir: prev.dir === 'asc' ? 'desc' : 'asc' }
+                    changeSort(
+                      sort?.id === col.id
+                        ? { id: col.id, dir: sort.dir === 'asc' ? 'desc' : 'asc' }
                         : { id: col.id, dir: 'asc' }
                     )
                 : undefined
@@ -307,7 +344,7 @@ export function AppTable<T extends Record<string, unknown>>({
   }
 
   return (
-    <div className={cn('flex min-w-0 w-full max-w-full flex-col gap-3', className)} dir="rtl">
+    <div className={cn('col-span-full flex min-w-0 w-full max-w-full flex-col gap-3', className)} dir="rtl">
       {exportFileName && resolvedExportColumns?.length ? (
         <div className="flex justify-end">
           <TableExportActions
@@ -320,11 +357,11 @@ export function AppTable<T extends Record<string, unknown>>({
       <div
         ref={useVirtual ? parentRef : undefined}
         className={cn(
-          'erp-scroll-x min-w-0 w-full max-w-full overflow-x-auto rounded-lg border border-[#D6EAF3] bg-white',
+          'erp-scroll-x min-w-0 w-full max-w-full overflow-x-scroll rounded-lg border border-[#D6EAF3] bg-white',
           useVirtual && 'max-h-[480px] overflow-y-auto'
         )}
       >
-        <table className="w-full min-w-[480px] border-collapse text-sm">
+        <table className="w-max min-w-full border-collapse text-sm">
           {header}
           {body}
         </table>

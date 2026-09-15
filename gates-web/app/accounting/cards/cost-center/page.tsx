@@ -4,14 +4,14 @@ import { useEffect, useState } from "react";
 import { Layers } from "lucide-react";
 import UserPermissionsBar from "@/components/UserPermissionsBar";
 import {
-  PageHeader,
   CompactFormField,
   AdvancedFieldsSection,
-  FormStickyFooter,
   FormSectionCard,
   compactControlClass,
   Switch,
+  AppTable,
 } from "@/components/ui";
+import { DocumentBrowseDrawer, MasterCardShell } from '@/components/erp';
 import { useApiQuery, useApiMutation, useInvalidateQuery } from "@/lib/hooks/useApi";
 import ErrorToast from "@/components/ErrorToast";
 import SuccessToast from "@/components/SuccessToast";
@@ -59,6 +59,8 @@ function CostCenterPage() {
   const [parentSearchTerm, setParentSearchTerm] = useState('');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [showGuide, setShowGuide] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   // Fetch parent cost centers
   const { data: costCentersResponse } = useApiQuery<CostCenter[]>(
@@ -154,6 +156,7 @@ function CostCenterPage() {
   const handleCancel = () => {
     setError('');
     setSuccess('');
+    setSelectedId(null);
     setFormData({ ...EMPTY_COST_CENTER_FORM });
     setCodeTouched(false);
   };
@@ -170,30 +173,33 @@ function CostCenterPage() {
   ].filter((v) => String(v ?? '').trim().length > 0).length;
 
   return (
-    <div className="p-6" style={{ direction: 'rtl' }}>
+    <MasterCardShell
+      title="بطاقة مركز تكلفة"
+      breadcrumbs={[
+        { label: 'الحسابات', href: '/accounting' },
+        { label: 'البطاقات' },
+        { label: 'مركز تكلفة' },
+      ]}
+      docNumber={formData.code || (selectedId ? 'تعديل' : 'جديد')}
+      statusLabel={selectedId ? 'تعديل' : 'جديد'}
+      onSave={() => void handleSave()}
+      savePending={loading}
+      canSave={!loading}
+      onNew={handleCancel}
+      currentId={selectedId}
+      onBrowseList={() => setShowGuide(true)}
+      extraActions={
+        <NumberingModeControl
+          kind="costCenters"
+          auto={costCenterAuto}
+          recordCount={costCenterCount}
+          settingKey="costCenterAutoNumbering"
+        />
+      }
+      favoriteHref="/accounting/cards/cost-center"
+    >
       {error && <ErrorToast message={error} onClose={() => setError('')} />}
       {success && <SuccessToast message={success} onClose={() => setSuccess('')} />}
-
-      <PageHeader
-        title="بطاقة مركز تكلفة"
-        breadcrumbs={[
-          { label: 'الحسابات', href: '/accounting' },
-          { label: 'البطاقات' },
-          { label: 'مركز تكلفة' },
-        ]}
-        actions={
-          <NumberingModeControl
-            kind="costCenters"
-            auto={costCenterAuto}
-            recordCount={costCenterCount}
-            settingKey="costCenterAutoNumbering"
-          />
-        }
-        onBrowseList={() =>
-          document.getElementById('card-records')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-        }
-        onAdd={handleCancel}
-      />
 
       <div className="mb-4">
         <UserPermissionsBar resource="cost-center" module="accounting" />
@@ -333,41 +339,30 @@ function CostCenterPage() {
           </div>
         </AdvancedFieldsSection>
 
-        <FormStickyFooter
-          onCancel={handleCancel}
-          onSave={handleSave}
-          saveLoading={loading}
-          status="مسودة"
-        />
       </form>
 
-      <section id="card-records" className="mt-6 overflow-x-auto rounded-xl border border-[#D6EAF3] bg-white">
-        <table className="min-w-full text-sm text-right">
-          <thead className="bg-[#F0F7FB] text-[#094C6B]">
-            <tr>
-              <th className="px-3 py-2 font-semibold">الكود</th>
-              <th className="px-3 py-2 font-semibold">الاسم</th>
-            </tr>
-          </thead>
-          <tbody>
-            {costCenters.length === 0 ? (
-              <tr>
-                <td colSpan={2} className="px-3 py-6 text-center text-slate-500">
-                  لا توجد مراكز تكلفة بعد
-                </td>
-              </tr>
-            ) : (
-              costCenters.map((cc) => (
-                <tr key={cc.id} className="border-t border-[#E6F0F7]">
-                  <td className="px-3 py-2">{cc.code}</td>
-                  <td className="px-3 py-2">{cc.arabicName}</td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </section>
-    </div>
+      <DocumentBrowseDrawer open={showGuide} onClose={() => setShowGuide(false)} title="مراكز التكلفة السابقة">
+        <AppTable<CostCenter>
+          data={costCenters}
+          getRowKey={(r) => r.id}
+          emptyTitle="لا توجد مراكز تكلفة بعد"
+          onRowClick={(cc) => {
+            setSelectedId(cc.id);
+            setFormData((prev) => ({
+              ...prev,
+              code: cc.code,
+              arabicName: cc.arabicName,
+              englishName: cc.englishName || '',
+            }));
+            setShowGuide(false);
+          }}
+          columns={[
+            { id: 'code', header: 'الكود', accessor: 'code' },
+            { id: 'name', header: 'الاسم', accessor: 'arabicName' },
+          ]}
+        />
+      </DocumentBrowseDrawer>
+    </MasterCardShell>
   );
 }
 

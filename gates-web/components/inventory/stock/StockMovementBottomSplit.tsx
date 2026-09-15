@@ -1,8 +1,7 @@
 'use client';
 
-import Link from 'next/link';
-import { ArrowUpLeft, FileText } from 'lucide-react';
 import { ErpDocumentBottomSplit } from '@/components/erp/ErpDocumentBottomSplit';
+import { GeneratedJournalTab } from '@/components/erp/GeneratedJournalTab';
 import { AuditActivityTab } from '@/components/erp/AuditActivityTab';
 import { formatInvoiceMoney } from '@/lib/invoices/computeInvoiceFinancialSummary';
 
@@ -31,23 +30,11 @@ export function StockMovementBottomSplit({
             <span>عدد الأسطر</span>
             <span className="font-medium tabular-nums">{lineCount}</span>
           </p>
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-medium text-muted-foreground">القيد المحاسبي:</span>
-            {journalEntryId ? (
-              <Link
-                href={`/accounting/operations/journal-entry?id=${encodeURIComponent(journalEntryId)}`}
-                title="عرض القيد المحاسبي المتولد"
-                className="inline-flex items-center gap-1.5 rounded-md border border-primary/20 bg-primary/10 px-2.5 py-1 font-mono text-xs font-semibold text-primary transition-colors hover:bg-primary/20"
-              >
-                <FileText className="h-3.5 w-3.5" />
-                <span>عرض القيد المحاسبي المتولد</span>
-                <ArrowUpLeft className="h-3 w-3" />
-              </Link>
-            ) : (
-              <span className="rounded border border-border bg-muted px-2 py-0.5 text-xs italic text-muted-foreground/80">
-                يتولد القيد آلياً فور الترحيل
-              </span>
-            )}
+          <div className="flex justify-start" dir="ltr">
+            <GeneratedJournalTab
+              journalEntryId={journalEntryId}
+              pendingLabel="يتولد القيد آلياً فور الترحيل"
+            />
           </div>
         </div>
       }

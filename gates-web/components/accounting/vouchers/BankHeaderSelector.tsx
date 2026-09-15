@@ -31,6 +31,7 @@ type Props = {
   error?: boolean;
   errorMessage?: string;
   baseCurrency?: string;
+  displayBalance?: number;
   tourId?: string;
 };
 
@@ -49,11 +50,12 @@ export function BankHeaderSelector({
   error,
   errorMessage,
   baseCurrency = 'EGP',
+  displayBalance,
   tourId = 'bank-debit-fund',
 }: Props) {
   const selected = banks.find((b) => b.id === value);
   const bankCode = selected?.code || selected?.glAccountCode || selected?.glAccount?.code || '';
-  const balance = Number(selected?.balance ?? 0);
+  const balance = Number(displayBalance ?? selected?.balance ?? 0);
   const [quickOpen, setQuickOpen] = useState(false);
 
   return (

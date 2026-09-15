@@ -6,7 +6,9 @@ export type TransactionDocumentType =
   | 'STOCK_ISSUE'
   | 'STOCK_RECEIPT'
   | 'SALES_RETURN'
-  | 'PURCHASE_RETURN';
+  | 'PURCHASE_RETURN'
+  | 'BANK_DEBIT_ADVICE'
+  | 'BANK_CREDIT_ADVICE';
 
 export type NumberingMode = 'AUTOMATIC' | 'MANUAL';
 export type SequenceMode = 'CONTINUOUS' | 'ANNUAL_RESET';
@@ -36,6 +38,10 @@ export type TransactionSettings = {
   showAllAccountsInCustomerField: boolean;
   defaultSalesAccountId: string | null;
   defaultPurchaseReturnAccountId: string | null;
+  defaultCashAccountId: string | null;
+  defaultBankGlAccountId: string | null;
+  defaultOffsetAccountId: string | null;
+  defaultChargesAccountId: string | null;
   defaultCostCenterId: string | null;
   defaultWarehouseId: string | null;
   pricingPolicy: PricingPolicy;
@@ -45,6 +51,10 @@ export type TransactionSettings = {
   enforceOriginalPrice: boolean;
   defaultSalesAccount?: NamedRef | null;
   defaultPurchaseReturnAccount?: NamedRef | null;
+  defaultCashAccount?: NamedRef | null;
+  defaultBankGlAccount?: NamedRef | null;
+  defaultOffsetAccount?: NamedRef | null;
+  defaultChargesAccount?: NamedRef | null;
   defaultCostCenter?: NamedRef | null;
   defaultWarehouse?: NamedRef | null;
 };
@@ -58,6 +68,8 @@ export const DOCUMENT_TYPE_SLUG: Record<string, TransactionDocumentType> = {
   'stock-receipt': 'STOCK_RECEIPT',
   'sales-return': 'SALES_RETURN',
   'purchase-return': 'PURCHASE_RETURN',
+  'bank-discount': 'BANK_DEBIT_ADVICE',
+  'bank-addition': 'BANK_CREDIT_ADVICE',
 };
 
 export const DOCUMENT_TYPE_TITLE: Record<TransactionDocumentType, string> = {
@@ -69,6 +81,8 @@ export const DOCUMENT_TYPE_TITLE: Record<TransactionDocumentType, string> = {
   STOCK_RECEIPT: 'إعدادات إذن الإضافة',
   SALES_RETURN: 'إعدادات مردودات المبيعات',
   PURCHASE_RETURN: 'إعدادات مردودات المشتريات',
+  BANK_DEBIT_ADVICE: 'إعدادات إشعار الخصم',
+  BANK_CREDIT_ADVICE: 'إعدادات إشعار الإضافة',
 };
 
 export type TransactionSettingsModule = 'inventory' | 'accounting';
@@ -159,7 +173,36 @@ export const TRANSACTION_SETTINGS_CONTEXT: Record<
     sourceHref: '/accounting/operations/treasury/receipt-voucher',
     sourceLabel: 'سند القبض',
   },
+  BANK_DEBIT_ADVICE: {
+    slug: 'bank-discount',
+    documentType: 'BANK_DEBIT_ADVICE',
+    title: DOCUMENT_TYPE_TITLE.BANK_DEBIT_ADVICE,
+    module: 'accounting',
+    moduleLabel: 'الحسابات العامة',
+    sourceHref: '/accounting/operations/banks/bank-discount',
+    sourceLabel: 'إشعار الخصم',
+  },
+  BANK_CREDIT_ADVICE: {
+    slug: 'bank-addition',
+    documentType: 'BANK_CREDIT_ADVICE',
+    title: DOCUMENT_TYPE_TITLE.BANK_CREDIT_ADVICE,
+    module: 'accounting',
+    moduleLabel: 'الحسابات العامة',
+    sourceHref: '/accounting/operations/banks/bank-addition',
+    sourceLabel: 'إشعار الإضافة',
+  },
 };
+
+export const TREASURY_DOCUMENT_TYPES: TransactionDocumentType[] = [
+  'PAYMENT_VOUCHER',
+  'RECEIPT_VOUCHER',
+  'BANK_DEBIT_ADVICE',
+  'BANK_CREDIT_ADVICE',
+];
+
+export function isTreasuryDocumentType(type: TransactionDocumentType): boolean {
+  return TREASURY_DOCUMENT_TYPES.includes(type);
+}
 
 export function settingsPageHref(documentType: TransactionDocumentType): string {
   const ctx = TRANSACTION_SETTINGS_CONTEXT[documentType];
@@ -184,6 +227,8 @@ export function settingsHrefForNav(href?: string): string | null {
   if (href.includes('/receipt-voucher') || href.includes('/cash-receipt')) {
     return settingsPageHref('RECEIPT_VOUCHER');
   }
+  if (href.includes('/bank-discount')) return settingsPageHref('BANK_DEBIT_ADVICE');
+  if (href.includes('/bank-addition')) return settingsPageHref('BANK_CREDIT_ADVICE');
   if (href.includes('/operations/issue')) return settingsPageHref('STOCK_ISSUE');
   if (href.includes('/operations/receipt') && href.includes('/inventory')) {
     return settingsPageHref('STOCK_RECEIPT');

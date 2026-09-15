@@ -95,7 +95,7 @@ export function MultiPaymentSplitterModal({
   const [error, setError] = useState('');
 
   const { data: safesRes } = useApiQuery<SafeRow[]>(
-    ['safes-split'],
+    ['safes', 'split'],
     '/accounting/safes',
     { limit: 200, isActive: true },
     { enabled: open }

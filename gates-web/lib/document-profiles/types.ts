@@ -6,7 +6,9 @@ export type DocumentBaseType =
   | 'STOCK_ISSUE'
   | 'STOCK_RECEIPT'
   | 'SALES_RETURN'
-  | 'PURCHASE_RETURN';
+  | 'PURCHASE_RETURN'
+  | 'BANK_DEBIT_ADVICE'
+  | 'BANK_CREDIT_ADVICE';
 
 export type DocumentProfileColumnKey =
   | 'colorAndSize'
@@ -47,6 +49,8 @@ export const DOCUMENT_BASE_TYPE_LABELS: Record<DocumentBaseType, string> = {
   STOCK_RECEIPT: 'سند إضافة مخزني',
   SALES_RETURN: 'مردود مبيعات',
   PURCHASE_RETURN: 'مردود مشتريات',
+  BANK_DEBIT_ADVICE: 'إشعار خصم بنكي',
+  BANK_CREDIT_ADVICE: 'إشعار إضافة بنكي',
 };
 
 export const DOCUMENT_PROFILE_COLUMN_OPTIONS: { id: DocumentProfileColumnKey; labelAr: string }[] = [
@@ -87,6 +91,10 @@ export function profileEntryHref(profile: Pick<DocumentProfile, 'baseType' | 'sl
       return `/inventory/operations/sales-returns?${q}`;
     case 'PURCHASE_RETURN':
       return `/inventory/operations/purchase-returns?${q}`;
+    case 'BANK_DEBIT_ADVICE':
+      return `/accounting/operations/banks/bank-discount?${q}`;
+    case 'BANK_CREDIT_ADVICE':
+      return `/accounting/operations/banks/bank-addition?${q}`;
     default:
       return `/inventory/operations/sales-invoice?${q}`;
   }

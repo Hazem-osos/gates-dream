@@ -2,6 +2,7 @@
 
 import { AlertTriangle, ArrowDownLeft, ArrowUpRight, CheckCircle2 } from 'lucide-react';
 import { formatMoneyAr } from '@/lib/formatMoney';
+import { currencyDisplayLabel } from '@/lib/accounting/fx-base';
 
 export type DebitCreditTotalsProps = {
   debit: number;
@@ -16,7 +17,7 @@ export type DebitCreditTotalsProps = {
 };
 
 function currencySuffix(code: string) {
-  return code === 'EGP' ? 'ج.م' : code;
+  return currencyDisplayLabel(code);
 }
 
 function amount(value: number, code: string) {

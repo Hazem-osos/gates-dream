@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { toBaseAmount } from '@/lib/accounting/fx-base';
 
 function preprocessMoney(val: unknown): number {
   if (val === '' || val === null || val === undefined) return 0;
@@ -65,8 +66,14 @@ export const journalEntrySchema = z
     lines: z.array(journalLineSchema).min(1, 'يرجى إضافة سطر واحد على الأقل'),
   })
   .superRefine((data, ctx) => {
-    const debitTotal = data.lines.reduce((sum, line) => sum + (Number(line.debit) || 0), 0);
-    const creditTotal = data.lines.reduce((sum, line) => sum + (Number(line.credit) || 0), 0);
+    const debitTotal = data.lines.reduce(
+      (sum, line) => sum + toBaseAmount(line.debit, line.exchangeRate),
+      0
+    );
+    const creditTotal = data.lines.reduce(
+      (sum, line) => sum + toBaseAmount(line.credit, line.exchangeRate),
+      0
+    );
     if (Math.abs(debitTotal - creditTotal) > 0.01) {
       ctx.addIssue({
         code: 'custom',

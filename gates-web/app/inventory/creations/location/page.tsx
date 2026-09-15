@@ -3,13 +3,12 @@
 import { useState } from 'react';
 import { MapPin } from 'lucide-react';
 import {
-  PageHeader,
   CompactFormField,
   AdvancedFieldsSection,
-  FormStickyFooter,
   FormSectionCard,
   compactControlClass,
 } from '@/components/ui';
+import { MasterCardShell } from '@/components/erp';
 import { useApiQuery, useApiMutation, useInvalidateQuery } from '@/lib/hooks/useApi';
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
@@ -98,17 +97,21 @@ export default function LocationPage() {
   const advancedFilledCount = [formData.englishName].filter((v) => String(v ?? '').trim().length > 0).length;
 
   return (
-    <div className="min-h-screen bg-white p-6" style={{ direction: 'rtl' }}>
-      <div className="mx-auto max-w-7xl">
-        <PageHeader
-          title="تعريف الموقع"
-          breadcrumbs={[
-            { label: 'المخزون', href: '/inventory' },
-            { label: 'التعريفات' },
-            { label: 'الموقع' },
-          ]}
-        />
-
+    <MasterCardShell
+      title="تعريف الموقع"
+      breadcrumbs={[
+        { label: 'المخزون', href: '/inventory' },
+        { label: 'التعريفات' },
+        { label: 'الموقع' },
+      ]}
+      docNumber={formData.code || 'جديد'}
+      statusLabel={formData.arabicName ? 'تعديل' : 'جديد'}
+      onSave={handleSave}
+      savePending={locationMutation.isPending}
+      canSave={!locationMutation.isPending}
+      onNew={handleCancel}
+      favoriteHref="/inventory/creations/location"
+    >
         <form className="w-full text-base">
           <FormSectionCard title="البيانات الأساسية" subtitle="الحقول اللازمة لتعريف الموقع" icon={MapPin}>
             <CompactFormField label="المخزن">
@@ -152,17 +155,10 @@ export default function LocationPage() {
             </div>
           </AdvancedFieldsSection>
 
-          <FormStickyFooter
-            onCancel={handleCancel}
-            onSave={handleSave}
-            saveLoading={locationMutation.isPending}
-            status="مسودة"
-          />
         </form>
 
         {error && <ErrorToast message={error} onClose={() => setError('')} />}
         {success && <SuccessToast message={success} onClose={() => setSuccess('')} />}
-      </div>
-    </div>
+    </MasterCardShell>
   );
 }

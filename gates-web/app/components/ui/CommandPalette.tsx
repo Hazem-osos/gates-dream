@@ -18,6 +18,12 @@ import { getRecentForPalette, useCommandRecent } from '@/lib/hooks/useCommandRec
 import { useInstantPrefetch } from '@/lib/hooks/useInstantPrefetch';
 import { GATES_AI_OPEN_EVENT } from '@/lib/hooks/useGatesAi';
 import { settingsHrefForNav } from '@/lib/transaction-settings/types';
+import { resolveTabLabel } from '@/lib/navigation/tab-labels';
+
+function displayPageLabel(href: string, stored?: string) {
+  if (stored && !stored.includes('/') && !stored.startsWith('http')) return stored;
+  return resolveTabLabel(href);
+}
 
 type CommandPaletteProps = {
   open: boolean;
@@ -236,11 +242,11 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
                   <Command.Item
                     key={f.href}
                     value={`fav ${f.href} ${f.label}`}
-                    onSelect={() => runNavigate(f.href, f.label, f.href)}
+                    onSelect={() => runNavigate(f.href, displayPageLabel(f.href, f.label), f.href)}
                     className={itemClass}
                     {...prefetchItemHandlers(f.href)}
                   >
-                    {f.label}
+                    {displayPageLabel(f.href, f.label)}
                   </Command.Item>
                 ))}
               </Command.Group>
@@ -252,11 +258,11 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
                   <Command.Item
                     key={r.id}
                     value={`recent ${r.id} ${r.label}`}
-                    onSelect={() => runNavigate(r.href, r.label, r.id)}
+                    onSelect={() => runNavigate(r.href, displayPageLabel(r.href, r.label), r.id)}
                     className={itemClass}
                     {...prefetchItemHandlers(r.href)}
                   >
-                    {r.label}
+                    {displayPageLabel(r.href, r.label)}
                   </Command.Item>
                 ))}
               </Command.Group>

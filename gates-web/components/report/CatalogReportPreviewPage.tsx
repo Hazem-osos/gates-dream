@@ -3,6 +3,7 @@
 import { usePathname } from 'next/navigation';
 import { UniversalReportViewer } from '@/components/report/UniversalReportViewer';
 import { getReportByUrlPath } from '@/lib/reports/reportCatalog';
+import { breadcrumbsForReportModule } from '@/lib/reports/reportPageBreadcrumbs';
 
 /**
  * Default export for report preview routes: resolves catalog entry from current pathname.
@@ -28,6 +29,7 @@ export default function CatalogReportPreviewPage() {
       reportKey={entry.reportKey}
       title={entry.titleAr}
       exportFileName={entry.reportKey}
+      breadcrumbs={breadcrumbsForReportModule(entry.module, entry.titleAr)}
     />
   );
 }

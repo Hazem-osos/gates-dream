@@ -5,6 +5,7 @@ import { logger } from '../../../shared/logger';
 import { inventoryCostingService } from './inventory-costing.service';
 import { COSTING_MOVEMENT } from './inventory-costing-math';
 import { stockMovementGlService, type StockGlPostingContext } from './stock-movement-gl.service';
+import { journalPostingService } from '../../accounting/services/journal-posting.service';
 import { assertStoreDocumentRight } from './store-document-rights';
 import { fiscalYearService } from '../../platform/services/fiscal-year.service';
 import { assertUpdateCount } from '../../../shared/concurrency/optimistic-lock';
@@ -589,15 +590,25 @@ export class AdjustmentService {
         throw new Error('Cannot cancel posted adjustment. Unpost it first.');
       }
 
-      const updateResult = await prisma.adjustment.updateMany({
-        where: { id: adjustmentId, companyId, version: adjustment.version },
-        data: {
-          isCancelled: true,
-          cancelledAt: new Date(),
-          version: { increment: 1 },
-        },
+      await prisma.$transaction(async (tx) => {
+        await journalPostingService.cascadeSourceJournalInTx(
+          tx,
+          companyId,
+          [adjustment.journalEntryId],
+          'cancel',
+          undefined,
+          { sourceId: adjustment.id, sourceType: 'ADJ', sourceNumber: adjustment.serial ?? adjustment.id.slice(0, 8) }
+        );
+        const updateResult = await tx.adjustment.updateMany({
+          where: { id: adjustmentId, companyId, version: adjustment.version },
+          data: {
+            isCancelled: true,
+            cancelledAt: new Date(),
+            version: { increment: 1 },
+          },
+        });
+        assertUpdateCount(updateResult.count);
       });
-      assertUpdateCount(updateResult.count);
 
       logger.info({ companyId, adjustmentId }, 'Adjustment cancelled');
 

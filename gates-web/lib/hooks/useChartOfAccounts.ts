@@ -46,6 +46,7 @@ function useCoaRefresh() {
     void invalidate(['coa-tree']);
     void invalidate(['accounts']);
     void invalidate(['coa-suggest-code']);
+    void invalidate(['safes']);
   };
 }
 

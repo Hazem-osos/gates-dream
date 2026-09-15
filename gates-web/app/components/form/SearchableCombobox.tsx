@@ -44,6 +44,8 @@ type SearchableComboboxProps = {
   onQueryChange?: (query: string) => void;
   /** Max options shown in the open list (selected value is always kept). */
   maxVisible?: number;
+  /** Pixel cap for the open list height. */
+  maxListHeight?: number;
 };
 
 const defaultInputCls = compactControlClass;
@@ -70,6 +72,7 @@ export function SearchableCombobox({
   clientSearchEntity,
   onQueryChange,
   maxVisible = 30,
+  maxListHeight = 288,
 }: SearchableComboboxProps) {
   const mounted = useClientMounted();
   const showLoading = mounted && Boolean(loading);
@@ -168,7 +171,7 @@ export function SearchableCombobox({
 
     const rect = el.getBoundingClientRect();
     const gap = 6;
-    const maxList = 288;
+    const maxList = maxListHeight;
     const spaceBelow = window.innerHeight - rect.bottom - gap;
     const spaceAbove = rect.top - gap;
 
@@ -203,7 +206,7 @@ export function SearchableCombobox({
     } else {
       setListFixedStyle(null);
     }
-  }, [open, menuPlacement, portaled]);
+  }, [open, menuPlacement, portaled, maxListHeight]);
 
   useLayoutEffect(() => {
     if (!open) {
@@ -343,7 +346,7 @@ export function SearchableCombobox({
               id={listId}
               role="listbox"
               style={portaled ? listFixedStyle ?? undefined : undefined}
-              className={`${portaled ? 'fixed' : 'absolute'} z-[10050] ${listPositionClass} max-h-72 min-w-[min(100%,28rem)] w-max max-w-[32rem] overflow-auto rounded-lg border border-[#D6EAF3] bg-white py-1 text-sm shadow-lg ${listClassName ?? ''}`}
+              className={`${portaled ? 'fixed' : 'absolute'} z-[10050] ${listPositionClass} max-h-[min(26rem,70vh)] min-w-[min(100%,28rem)] w-max max-w-[32rem] overflow-auto rounded-lg border border-[#D6EAF3] bg-white py-1 text-sm shadow-lg ${listClassName ?? ''}`}
             >
               {filtered.length === 0 && !showQuickCreate ? (
                 <li className="px-3 py-2 text-gray-500">{emptyMessage}</li>

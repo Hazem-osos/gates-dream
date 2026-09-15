@@ -1240,7 +1240,7 @@ function SalesInvoicePageInner() {
 
   // M5 settlement: posts a treasury cash transaction linked to the invoice.
   const { data: safesResponse } = useApiQuery<Array<{ id: string; arabicName?: string }>>(
-    ['accounting', 'safes', 'settlement'],
+    ['safes', 'settlement'],
     '/accounting/safes',
     { page: 1, limit: 50 }
   );

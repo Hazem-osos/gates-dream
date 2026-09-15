@@ -14,6 +14,7 @@ import { DocumentModeProvider, useDocumentMode } from '@/components/common/docum
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
 import { useApiMutation, useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
+import { useSafesQuery } from '@/lib/hooks/useMasterDataQueries';
 import { apiClient } from '@/lib/api/client';
 import { toHijriDate } from '@/lib/hijri-date';
 import type { ApiError } from '@/lib/api/types';
@@ -24,6 +25,8 @@ import {
 } from '@/lib/validation/accounting.schema';
 import { TemporaryReceiptHeader } from './TemporaryReceiptHeader';
 import { TemporaryReceiptStickyFooter } from './TemporaryReceiptStickyFooter';
+import { pickCurrencyByCode } from '@/lib/accounting/fx-base';
+import { useCompanyBaseCurrency } from '@/lib/hooks/useCompanyBaseCurrency';
 
 type Safe = { id: string; arabicName: string; englishName?: string };
 type Currency = { id: string; code: string; arabicName: string; englishName?: string };
@@ -46,9 +49,9 @@ function todayIso() {
   return new Date().toISOString().split('T')[0];
 }
 
-function defaultCurrencyId(currencies: Currency[]) {
+function defaultCurrencyId(currencies: Currency[], companyBase = 'EGP') {
   if (!currencies.length) return '';
-  return (currencies.find((c) => c.code === 'EGP') || currencies[0]).id;
+  return pickCurrencyByCode(currencies, companyBase)?.id || currencies[0].id;
 }
 
 function emptyForm(currencies: Currency[]): TreasuryTempReceiptFormInput {
@@ -73,7 +76,7 @@ function TemporaryReceiptFormInner() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
-  const { data: safesResponse } = useApiQuery<Safe[]>(['safes'], '/accounting/safes', { isActive: true });
+  const { data: safesResponse } = useSafesQuery();
   const safes = safesResponse?.data || [];
   const { data: currenciesResponse } = useApiQuery<Currency[]>(
     ['currencies'],
@@ -81,6 +84,7 @@ function TemporaryReceiptFormInner() {
     { limit: 100, isActive: true }
   );
   const currencies = useMemo(() => currenciesResponse?.data || [], [currenciesResponse?.data]);
+  const { code: companyBaseCurrency } = useCompanyBaseCurrency();
 
   const { data: browseResponse } = useApiQuery<TempReceiptRecord[]>(
     ['treasury-receipts', 'temp-browse'],
@@ -113,9 +117,9 @@ function TemporaryReceiptFormInner() {
 
   useEffect(() => {
     if (currencies.length > 0 && !currencyId) {
-      setValue('currencyId', defaultCurrencyId(currencies), { shouldValidate: false });
+      setValue('currencyId', defaultCurrencyId(currencies, companyBaseCurrency), { shouldValidate: false });
     }
-  }, [currencies, currencyId, setValue]);
+  }, [companyBaseCurrency, currencies, currencyId, setValue]);
 
   const selectedCurrency = currencies.find((c) => c.id === currencyId);
   const totalAmount = parseFloat(String(amountWatch || '').replace(/,/g, '')) || 0;

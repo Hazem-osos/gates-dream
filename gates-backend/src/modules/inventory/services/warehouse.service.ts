@@ -204,7 +204,11 @@ export class WarehouseService {
       const limit = options.limit || 50;
       const skip = (page - 1) * limit;
 
-      await this.collapseDuplicateWarehouses(companyId);
+      try {
+        await this.collapseDuplicateWarehouses(companyId);
+      } catch (error) {
+        logger.error({ error, companyId }, 'Warehouse dedupe skipped so the directory can still open');
+      }
 
       const where: any = {
         companyId,

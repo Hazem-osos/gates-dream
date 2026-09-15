@@ -18,9 +18,9 @@ export const formActionButtonClass =
 export const formActionPairClass = 'flex flex-wrap items-center justify-end gap-2';
 
 export const denseTableWrapClass =
-  'overflow-x-auto min-w-full rounded-lg border border-[#D6EAF3] bg-white';
+  'erp-scroll-x min-w-0 w-full max-w-full overflow-x-scroll rounded-lg border border-[#D6EAF3] bg-white';
 
-export const denseTableClass = 'w-full min-w-full border-collapse text-sm';
+export const denseTableClass = 'w-max min-w-full border-collapse text-sm';
 
 export const denseTheadClass = 'h-10 bg-[#0E78AA] text-white text-xs font-semibold tracking-wider sticky top-0 z-10';
 

@@ -2,6 +2,7 @@
 import prisma from '../../../shared/database/prisma';
 import { logger } from '../../../shared/logger';
 import { stockMovementGlService, type StockGlPostingContext } from './stock-movement-gl.service';
+import { journalPostingService } from '../../accounting/services/journal-posting.service';
 import { inventoryCostingService } from './inventory-costing.service';
 import { COSTING_MOVEMENT } from './inventory-costing-math';
 import { scopedItemQuantityWhere } from '../utils/item-quantity-tenant';
@@ -268,7 +269,7 @@ export class ReceiptService {
               },
             },
           },
-          orderBy: { createdAt: 'desc' },
+          orderBy: [{ serial: 'asc' }, { createdAt: 'asc' }],
           skip: options?.skip || 0,
           take: options?.take || 50,
         }),
@@ -476,15 +477,25 @@ export class ReceiptService {
         throw new Error('Cannot cancel posted receipt. Unpost it first.');
       }
 
-      const updateResult = await prisma.receipt.updateMany({
-        where: { id: receiptId, companyId, version: receipt.version },
-        data: {
-          isCancelled: true,
-          cancelledAt: new Date(),
-          version: { increment: 1 },
-        },
+      await prisma.$transaction(async (tx) => {
+        await journalPostingService.cascadeSourceJournalInTx(
+          tx,
+          companyId,
+          [receipt.journalEntryId],
+          'cancel',
+          undefined,
+          { sourceId: receipt.id, sourceType: 'GR', sourceNumber: receipt.serial ?? receipt.id.slice(0, 8) }
+        );
+        const updateResult = await tx.receipt.updateMany({
+          where: { id: receiptId, companyId, version: receipt.version },
+          data: {
+            isCancelled: true,
+            cancelledAt: new Date(),
+            version: { increment: 1 },
+          },
+        });
+        assertUpdateCount(updateResult.count);
       });
-      assertUpdateCount(updateResult.count);
 
       logger.info({ companyId, receiptId }, 'Receipt cancelled');
 

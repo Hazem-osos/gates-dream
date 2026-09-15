@@ -29,6 +29,7 @@ type Props = {
   error?: boolean;
   errorMessage?: string;
   baseCurrency?: string;
+  displayBalance?: number;
   tourId?: string;
 };
 
@@ -40,11 +41,12 @@ export function CashSafeHeaderSelector({
   error,
   errorMessage,
   baseCurrency = 'EGP',
+  displayBalance,
   tourId = 'payment-voucher-safe',
 }: Props) {
   const selected = safes.find((s) => s.id === value);
   const safeCode = selected?.code || selected?.glAccountCode || selected?.glAccount?.code || '';
-  const balance = Number(selected?.balance ?? 0);
+  const balance = Number(displayBalance ?? selected?.balance ?? 0);
   const [quickOpen, setQuickOpen] = useState(false);
 
   return (

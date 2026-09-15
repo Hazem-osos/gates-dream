@@ -22,9 +22,9 @@ export function ReturnStickyFooter({
   onCancel,
 }: Props) {
   return (
-    <div className="sticky bottom-0 z-30 mt-auto flex w-full flex-wrap items-center justify-between gap-3 border-t border-border/80 bg-background/95 px-6 py-3 shadow-lg backdrop-blur-md">
+    <div className="sticky bottom-0 z-30 mt-auto flex w-full flex-wrap items-center justify-between gap-3 border-t border-border/80 bg-background/95 px-6 py-3 shadow-lg backdrop-blur-md" dir="ltr">
       <JournalEntryBadge journalEntryId={journalEntryId} />
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3" dir="rtl">
         <div className="text-sm">
           الصافي:{' '}
           <span className="font-mono text-base font-bold text-emerald-600 dark:text-emerald-400">

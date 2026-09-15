@@ -6,6 +6,16 @@ import { useApiQuery } from '@/lib/hooks/useApi';
 import { queryKeys } from '@/lib/query/query-keys';
 import type { ExportColumnDef } from '@/lib/export/export-utils';
 
+export function asWarehouseRows(data: unknown): WarehouseRow[] {
+  if (Array.isArray(data)) return data as WarehouseRow[];
+  if (data && typeof data === 'object') {
+    const nested = (data as { warehouses?: unknown; data?: unknown }).warehouses
+      ?? (data as { data?: unknown }).data;
+    if (Array.isArray(nested)) return nested as WarehouseRow[];
+  }
+  return [];
+}
+
 export type WarehouseRow = {
   id: string;
   code?: string | null;
@@ -46,7 +56,7 @@ export function WarehousesListSection({
     { staleTime: 30_000 }
   );
 
-  const rows = data?.data ?? [];
+  const rows = asWarehouseRows(data?.data);
   const total = data?.pagination?.total ?? data?.meta?.total ?? rows.length;
 
   const exportColumns: ExportColumnDef<WarehouseRow>[] = [
@@ -78,6 +88,7 @@ export function WarehousesListSection({
         isLoading={isLoading}
         data={rows}
         getRowKey={(r) => r.id}
+        onRowClick={onSelect}
         emptyTitle="لا توجد مخازن"
         columns={[
           { id: 'code', header: 'المسلسل', cell: (r) => r.code || '—', sortValue: (r) => r.code || '' },

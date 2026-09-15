@@ -8,7 +8,16 @@ import {
   handleLineGridKeyDown,
   lineGridDataAttrs,
 } from '@/lib/keyboard/gridLineFocus';
+import { formatBaseAmount, lineFxRate, sameCurrencyCode, toBaseAmount } from '@/lib/accounting/fx-base';
+import { useCompanyBaseCurrency } from '@/lib/hooks/useCompanyBaseCurrency';
 import { VoucherAccountCombobox } from './VoucherAccountCombobox';
+
+export type VoucherLineCurrency = {
+  id: string;
+  code: string;
+  arabicName?: string;
+  exchangeRate?: number | string | null;
+};
 
 export type VoucherGridLine = {
   accountId: string;
@@ -26,7 +35,7 @@ export type VoucherGridLine = {
 };
 
 const GRID_ID = 'voucher-lines';
-const FIELD_ORDER = ['account', 'description', 'amount', 'costCenter'] as const;
+const FIELD_ORDER = ['account', 'description', 'amount', 'currency', 'rate', 'costCenter'] as const;
 
 type Props = {
   lines: VoucherGridLine[];
@@ -34,6 +43,8 @@ type Props = {
   onAddLine: () => void;
   disabled?: boolean;
   accountLabelFor?: (accountId: string) => string | undefined;
+  currencies?: VoucherLineCurrency[];
+  headerCurrencyCode?: string;
 };
 
 function formatAmountInput(value: number) {
@@ -50,14 +61,27 @@ export function VoucherLinesGrid({
   onAddLine,
   disabled,
   accountLabelFor,
+  currencies = [],
+  headerCurrencyCode,
 }: Props) {
+  const { code: companyBase, label: companyBaseLabel } = useCompanyBaseCurrency();
+  const headerCode = headerCurrencyCode || companyBase;
   const updateLine = (index: number, patch: Partial<VoucherGridLine>) => {
     onChange(lines.map((line, i) => (i === index ? { ...line, ...patch } : line)));
   };
 
   const removeLine = (index: number) => {
     if (lines.length <= 1) {
-      onChange([{ accountId: '', description: '', amount: 0, costCenterId: '' }]);
+      onChange([
+        {
+          accountId: '',
+          description: '',
+          amount: 0,
+          costCenterId: '',
+          currencyCode: headerCode,
+          exchangeRate: 1,
+        },
+      ]);
       return;
     }
     onChange(lines.filter((_, i) => i !== index));
@@ -98,6 +122,9 @@ export function VoucherLinesGrid({
         { id: 'account', label: 'الحساب / العميل / المورد', className: 'min-w-[240px]' },
         { id: 'description', label: 'البيان / ملاحظات السطر', className: 'min-w-[180px]' },
         { id: 'amount', label: 'المبلغ', className: 'w-36 min-w-[8rem]', align: 'center' },
+        { id: 'base', label: `المبلغ المعادل (${companyBaseLabel})`, className: 'w-32 min-w-[7rem]', align: 'center' },
+        { id: 'currency', label: 'العملة', className: 'w-24 min-w-[6rem]' },
+        { id: 'rate', label: 'سعر الصرف', className: 'w-24 min-w-[6rem]', align: 'center' },
         { id: 'costCenter', label: 'مركز التكلفة', className: 'w-44 min-w-[10rem]' },
         { id: 'action', label: 'إجراء', className: 'w-12 text-center', align: 'center' },
       ]}
@@ -105,7 +132,14 @@ export function VoucherLinesGrid({
       disabled={disabled}
       onAddRow={disabled ? undefined : onAddLine}
       renderCell={(index, columnId) => {
-        const line = lines[index] ?? { accountId: '', amount: 0, description: '', costCenterId: '' };
+        const line = lines[index] ?? {
+          accountId: '',
+          amount: 0,
+          description: '',
+          costCenterId: '',
+          currencyCode: headerCode,
+          exchangeRate: 1,
+        };
         if (columnId === '#') {
           return <span className="block text-center text-xs text-muted-foreground">{index + 1}</span>;
         }
@@ -137,6 +171,57 @@ export function VoucherLinesGrid({
               disabled={disabled}
               className={dataEntryGridInputClass}
               nativeSelectProps={keyHandlers(index, 'costCenter')}
+            />
+          );
+        }
+        if (columnId === 'base') {
+          return (
+            <span className="block text-end font-mono text-xs text-slate-600">
+              {formatBaseAmount(toBaseAmount(line.amount, line.exchangeRate))}
+            </span>
+          );
+        }
+        if (columnId === 'currency') {
+          return (
+            <select
+              className={dataEntryGridInputClass}
+              disabled={disabled}
+              value={line.currencyCode || headerCode}
+              onChange={(e) => {
+                const next = currencies.find((c) => c.code === e.target.value);
+                updateLine(index, {
+                  currencyCode: e.target.value,
+                  exchangeRate: lineFxRate({
+                    lineCurrencyCode: next?.code,
+                    headerCurrencyCode: headerCode,
+                    companyBaseCode: companyBase,
+                    catalogRate: next?.exchangeRate,
+                  }),
+                });
+              }}
+              {...keyHandlers(index, 'currency')}
+            >
+              {(currencies.length ? currencies : [{ id: 'base', code: companyBase }]).map((c) => (
+                <option key={c.id || c.code} value={c.code}>
+                  {c.code}
+                </option>
+              ))}
+            </select>
+          );
+        }
+        if (columnId === 'rate') {
+          const lineCode = line.currencyCode || headerCode;
+          const rateLocked =
+            sameCurrencyCode(lineCode, companyBase) || sameCurrencyCode(lineCode, headerCode);
+          return (
+            <input
+              type="number"
+              step="0.0001"
+              disabled={disabled || rateLocked}
+              value={rateLocked ? 1 : line.exchangeRate ?? 1}
+              onChange={(e) => updateLine(index, { exchangeRate: Number(e.target.value) || 1 })}
+              className={`${dataEntryGridInputClass} text-end font-mono`}
+              {...keyHandlers(index, 'rate')}
             />
           );
         }

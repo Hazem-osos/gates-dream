@@ -7,6 +7,8 @@ import { UniversalDataGrid } from '@/components/ui/data-entry-grid';
 import { dataEntryGridInputClass } from '@/components/ui/data-entry-grid/tokens';
 import { handleLineGridKeyDown, lineGridDataAttrs } from '@/lib/keyboard/gridLineFocus';
 import { useApiQuery } from '@/lib/hooks/useApi';
+import { lineFxRate, sameCurrencyCode } from '@/lib/accounting/fx-base';
+import { useCompanyBaseCurrency } from '@/lib/hooks/useCompanyBaseCurrency';
 import { lineBaseAmount, type PaymentVoucherLine } from '@/lib/treasury/payment-voucher-line';
 import { VoucherAccountCombobox } from './VoucherAccountCombobox';
 
@@ -51,12 +53,15 @@ export function PaymentLinesTable({
   disabled,
   accountLabelFor,
   currencies,
-  baseCurrency = 'EGP',
+  baseCurrency,
   showFx = true,
   accountColumnLabel = 'الحساب / المستفيد',
   invoiceKind = 'PURCHASE',
   partyEmptyHint,
 }: Props) {
+  const { code: companyBase, label: companyBaseLabel } = useCompanyBaseCurrency();
+  const headerCurrency = baseCurrency || companyBase || 'EGP';
+  const resolvedBase = headerCurrency;
   const fieldOrder = showFx
     ? ['account', 'description', 'amount', 'tied', 'currency', 'rate', 'costCenter']
     : ['account', 'description', 'amount', 'tied', 'costCenter'];
@@ -67,7 +72,18 @@ export function PaymentLinesTable({
 
   const removeLine = (index: number) => {
     if (lines.length <= 1) {
-      onChange([{ ...lines[0], accountId: '', description: '', amount: 0, invoiceId: null, isTiedToInvoice: false }]);
+      onChange([
+        {
+          ...lines[0],
+          accountId: '',
+          description: '',
+          amount: 0,
+          invoiceId: null,
+          isTiedToInvoice: false,
+          currencyCode: headerCurrency,
+          exchangeRate: 1,
+        },
+      ]);
       return;
     }
     onChange(lines.filter((_, i) => i !== index));
@@ -103,7 +119,7 @@ export function PaymentLinesTable({
     { id: 'account', label: accountColumnLabel, className: 'min-w-[220px]' },
     { id: 'description', label: 'البيان', className: 'min-w-[140px]' },
     { id: 'amount', label: 'المبلغ', className: 'w-32 min-w-[7rem]', align: 'center' as const },
-    { id: 'base', label: `المبلغ المعادل (${baseCurrency === 'EGP' ? 'ج.م' : baseCurrency})`, className: 'w-32 min-w-[7rem]', align: 'center' as const },
+    { id: 'base', label: `المبلغ المعادل (${companyBaseLabel})`, className: 'w-32 min-w-[7rem]', align: 'center' as const },
     { id: 'tied', label: 'مؤيد بفاتورة', className: 'w-40 min-w-[9rem]' },
     ...(showFx
       ? [
@@ -127,7 +143,7 @@ export function PaymentLinesTable({
           amount: 0,
           description: '',
           costCenterId: '',
-          currencyCode: baseCurrency,
+          currencyCode: resolvedBase,
           exchangeRate: 1,
         };
         if (columnId === '#') {
@@ -169,15 +185,22 @@ export function PaymentLinesTable({
             <select
               className={dataEntryGridInputClass}
               disabled={disabled}
-              value={line.currencyCode || baseCurrency}
+              value={line.currencyCode || resolvedBase}
               onChange={(e) => {
                 const next = currencies.find((c) => c.code === e.target.value);
-                const rate = next?.code === baseCurrency ? 1 : Number(next?.exchangeRate ?? 1) || 1;
-                updateLine(index, { currencyCode: e.target.value, exchangeRate: rate });
+                updateLine(index, {
+                  currencyCode: e.target.value,
+                  exchangeRate: lineFxRate({
+                    lineCurrencyCode: next?.code,
+                    headerCurrencyCode: headerCurrency,
+                    companyBaseCode: companyBase,
+                    catalogRate: next?.exchangeRate,
+                  }),
+                });
               }}
               {...keyHandlers(index, 'currency')}
             >
-              {(currencies.length ? currencies : [{ id: 'egp', code: baseCurrency }]).map((c) => (
+              {(currencies.length ? currencies : [{ id: 'egp', code: resolvedBase }]).map((c) => (
                 <option key={c.id || c.code} value={c.code}>
                   {c.code}
                 </option>
@@ -186,13 +209,15 @@ export function PaymentLinesTable({
           );
         }
         if (columnId === 'rate') {
-          const isBase = (line.currencyCode || baseCurrency) === baseCurrency;
+          const lineCode = line.currencyCode || headerCurrency;
+          const rateLocked =
+            sameCurrencyCode(lineCode, companyBase) || sameCurrencyCode(lineCode, headerCurrency);
           return (
             <input
               type="number"
               step="0.0001"
-              disabled={disabled || isBase}
-              value={isBase ? 1 : line.exchangeRate ?? 1}
+              disabled={disabled || rateLocked}
+              value={rateLocked ? 1 : line.exchangeRate ?? 1}
               onChange={(e) => updateLine(index, { exchangeRate: Number(e.target.value) || 1 })}
               className={`${dataEntryGridInputClass} text-end font-mono`}
               {...keyHandlers(index, 'rate')}

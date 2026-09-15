@@ -88,6 +88,7 @@ export function OpeningBalanceHeader({
         favoriteHref="/accounting/operations/basic-operations/opening-balance"
         favoriteLabel="الرصيد الافتتاحي"
         navEntity="journal-entry"
+        entryType="OPENING_BALANCE"
         currentId={currentId}
         onNavigate={onNavigate}
         standardActions={standardActions}

@@ -17,6 +17,7 @@ import {
   type SequenceMode,
   type TransactionDocumentType,
   type TransactionSettings,
+  isTreasuryDocumentType,
 } from '@/lib/transaction-settings/types';
 import {
   readSalesPrintPrefs,
@@ -102,6 +103,40 @@ export function TransactionSettingsForm({
   };
 
   const title = DOCUMENT_TYPE_TITLE[documentType];
+  const treasury = isTreasuryDocumentType(documentType);
+  const isBankAdvice = documentType === 'BANK_DEBIT_ADVICE' || documentType === 'BANK_CREDIT_ADVICE';
+  const isReceiptLike = documentType === 'RECEIPT_VOUCHER' || documentType === 'BANK_CREDIT_ADVICE';
+
+  const accountField = (
+    key: 'defaultCashAccountId' | 'defaultBankGlAccountId' | 'defaultOffsetAccountId' | 'defaultChargesAccountId',
+    refKey:
+      | 'defaultCashAccount'
+      | 'defaultBankGlAccount'
+      | 'defaultOffsetAccount'
+      | 'defaultChargesAccount',
+    label: string,
+    hint: string
+  ) => (
+    <div>
+      <label className="mb-1.5 block text-xs font-semibold text-[#0A3D5E]">{label}</label>
+      <AccountSelect
+        value={form[key] ?? ''}
+        onChange={(id) => patch(key, id || null)}
+        leafOnly
+        selectedAccount={
+          form[refKey]
+            ? {
+                id: form[refKey]!.id,
+                code: form[refKey]!.code ?? '',
+                arabicName: form[refKey]!.arabicName,
+              }
+            : null
+        }
+        placeholder="اختر من شجرة حسابات هذه الشركة"
+      />
+      <p className="mt-1 text-[11px] leading-4 text-slate-500">{hint}</p>
+    </div>
+  );
 
   return (
     <div className={compact ? 'space-y-4' : 'mx-auto max-w-4xl space-y-4'} dir="rtl">
@@ -115,7 +150,9 @@ export function TransactionSettingsForm({
               <h1 className="text-xl font-bold text-[#0A3D5E]">{title}</h1>
             </div>
             <p className="mt-1 text-sm text-slate-500">
-              سياسات الترقيم، الترحيل، التسعير، الضرائب، ومراكز التكلفة لهذا النوع من المستندات.
+              {treasury
+                ? 'حدّد من شجرة حسابات شركتك: الصندوق أو البنك، الحساب المقابل، ومصاريف العمولة. كل عميل يختار حساباته بنفسه.'
+                : 'سياسات الترقيم، الترحيل، التسعير، الضرائب، ومراكز التكلفة لهذا النوع من المستندات.'}
             </p>
           </div>
         )}
@@ -222,7 +259,11 @@ export function TransactionSettingsForm({
           checked={form.autoPostOnSave === true}
           onChange={(v) => patch('autoPostOnSave', v)}
           label="الترحيل التلقائي عند الحفظ"
-          hint="ترحيل الفاتورة وتثبيت أثرها فور الضغط على حفظ دون إبقائها مسودة."
+          hint={
+            treasury
+              ? 'ترحيل السند وتثبيت أثره على الصندوق أو البنك فور الحفظ.'
+              : 'ترحيل الفاتورة وتثبيت أثرها فور الضغط على حفظ دون إبقائها مسودة.'
+          }
         />
         <SwitchRow
           checked={form.autoPrintOnSave === true}
@@ -282,20 +323,69 @@ export function TransactionSettingsForm({
           checked={form.generateEntryOnSave !== false}
           onChange={(v) => patch('generateEntryOnSave', v)}
           label="توليد قيد يومية محاسبي تلقائياً"
-          hint="إنشاء قيود اليومية للعملاء والإيرادات والتكلفة تلقائياً مع الحركة."
+          hint="إنشاء قيود اليومية تلقائياً مع الحركة من الحسابات التي تختارها تحت."
         />
-        <SwitchRow
-          checked={form.affectStock !== false}
-          onChange={(v) => patch('affectStock', v)}
-          label="التأثير على أرصدة المخازن"
-          hint={
-            documentType === 'PURCHASE_RETURN'
-              ? 'خصم البضاعة من المخزن تلقائياً عند حفظ مردود المشتريات.'
-              : 'خصم الكميات من المخزن تلقائياً دون الحاجة لإذن صرف مخزني منفصل.'
-          }
-        />
+        {treasury ? null : (
+          <SwitchRow
+            checked={form.affectStock !== false}
+            onChange={(v) => patch('affectStock', v)}
+            label="التأثير على أرصدة المخازن"
+            hint={
+              documentType === 'PURCHASE_RETURN'
+                ? 'خصم البضاعة من المخزن تلقائياً عند حفظ مردود المشتريات.'
+                : 'خصم الكميات من المخزن تلقائياً دون الحاجة لإذن صرف مخزني منفصل.'
+            }
+          />
+        )}
       </Section>
 
+      {treasury ? (
+        <Section title="3. الحسابات من شجرة هذه الشركة">
+          <p className="text-xs leading-5 text-slate-500">
+            كل شركة ليها دليل حسابات مختلف. اختار أنت الحساب من شجرتك — النظام مش بيفترض كود ثابت.
+          </p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {isBankAdvice
+              ? accountField(
+                  'defaultBankGlAccountId',
+                  'defaultBankGlAccount',
+                  'حساب البنك (أصل)',
+                  'الحساب في الشجرة المربوط بحركة البنك على هذا الإشعار.'
+                )
+              : accountField(
+                  'defaultCashAccountId',
+                  'defaultCashAccount',
+                  'حساب الصندوق (أصل)',
+                  'حساب النقدية الذي يُستخدم في سند القبض أو الصرف إذا لم يُحدَّد صندوق آخر.'
+                )}
+            {accountField(
+              'defaultOffsetAccountId',
+              'defaultOffsetAccount',
+              isReceiptLike ? 'الحساب المقابل الافتراضي (عميل / إيراد)' : 'الحساب المقابل الافتراضي (مورد / مصروف)',
+              'أول سطر في السند يتفتح على هذا الحساب. تقدر تغيّره في كل حركة.'
+            )}
+            {accountField(
+              'defaultChargesAccountId',
+              'defaultChargesAccount',
+              documentType === 'BANK_CREDIT_ADVICE'
+                ? 'حساب إيراد الإضافة / العمولة'
+                : documentType === 'BANK_DEBIT_ADVICE'
+                  ? 'حساب مصروف الخصم / العمولة'
+                  : 'حساب مصروف أو عمولة إضافية',
+              'اختياري. لو الحركة فيها عمولة أو مصروف بنكي، يترحل من هنا.'
+            )}
+            <div>
+              <label className="mb-1.5 block text-xs font-semibold text-[#0A3D5E]">مركز التكلفة الافتراضي</label>
+              <CostCenterSelect
+                value={form.defaultCostCenterId ?? ''}
+                onChange={(id) => patch('defaultCostCenterId', id || null)}
+              />
+            </div>
+          </div>
+        </Section>
+      ) : null}
+
+      {treasury ? null : (
       <Section title="3. الرقابة والتحكم وحراسات الأسعار">
         <SwitchRow
           checked={form.allowItemPriceOverride !== false}
@@ -316,7 +406,9 @@ export function TransactionSettingsForm({
           hint="منع حفظ الفاتورة في حال تجاوز الكمية المباعة للرصيد الفعلي المتوفر بالمخزن."
         />
       </Section>
+      )}
 
+      {treasury ? null : (
       <Section title="4. الضرائب والخصومات">
         <SwitchRow
           checked={form.autoApplyVat !== false}
@@ -343,7 +435,9 @@ export function TransactionSettingsForm({
           hint="كل خصم يتم تطبيقه على صافي القيمة بعد احتساب الخصم السابق وليس على القيمة الإجمالية."
         />
       </Section>
+      )}
 
+      {treasury ? null : (
       <Section title="5. الحسابات ومراكز التكلفة الافتراضية وسياسة التسعير">
         <SwitchRow
           checked={form.showAllAccountsInCustomerField === true}
@@ -469,6 +563,7 @@ export function TransactionSettingsForm({
           </div>
         </div>
       </Section>
+      )}
     </div>
   );
 }

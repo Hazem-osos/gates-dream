@@ -9,6 +9,8 @@ export const transactionDocumentTypeSchema = z.enum([
   'STOCK_RECEIPT',
   'SALES_RETURN',
   'PURCHASE_RETURN',
+  'BANK_DEBIT_ADVICE',
+  'BANK_CREDIT_ADVICE',
 ]);
 
 export const numberingModeSchema = z.enum(['AUTOMATIC', 'MANUAL']);
@@ -41,6 +43,10 @@ export const updateTransactionSettingsSchema = z.object({
   showAllAccountsInCustomerField: z.boolean().optional(),
   defaultSalesAccountId: optionalUuid,
   defaultPurchaseReturnAccountId: optionalUuid,
+  defaultCashAccountId: optionalUuid,
+  defaultBankGlAccountId: optionalUuid,
+  defaultOffsetAccountId: optionalUuid,
+  defaultChargesAccountId: optionalUuid,
   defaultCostCenterId: optionalUuid,
   defaultWarehouseId: optionalUuid,
   pricingPolicy: pricingPolicySchema.optional(),

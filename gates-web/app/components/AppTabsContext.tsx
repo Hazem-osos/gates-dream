@@ -65,7 +65,10 @@ export function AppTabsProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (pathname) upsertTab(pathname);
+    if (!pathname) return;
+    upsertTab(pathname);
+    const label = resolveTabLabel(normalizeAppPath(pathname));
+    document.title = `${label} | GATES`;
   }, [pathname, upsertTab]);
 
   const value = useMemo(

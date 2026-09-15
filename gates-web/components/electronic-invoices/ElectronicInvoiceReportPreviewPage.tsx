@@ -6,6 +6,8 @@ import { useApiQuery } from '@/lib/hooks/useApi';
 import ErrorToast from '@/components/ErrorToast';
 import { TableSkeleton } from '@/components/ui/TableSkeleton';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { ReportPageShell } from '@/components/erp/ReportPageHeader';
+import { breadcrumbsForReportModule } from '@/lib/reports/reportPageBreadcrumbs';
 import {
   type ElectronicInvoiceApiRow,
   type ElectronicInvoiceReportKind,
@@ -62,19 +64,22 @@ export default function ElectronicInvoiceReportPreviewPage({ reportKind, title }
   const summaryTotal = apiResponse?.summary?.totalAmount;
 
   return (
-    <div className="p-4 min-h-screen bg-white" style={{ direction: 'rtl' }}>
-      {error ? <ErrorToast message={error} onClose={() => setError('')} /> : null}
-      <div className="flex items-center justify-between mb-4">
+    <ReportPageShell
+      title={title}
+      statusLabel="معاينة"
+      breadcrumbs={breadcrumbsForReportModule('electronic-invoices', title)}
+      extraActions={
         <button
           type="button"
           onClick={() => router.back()}
-          className="px-4 py-2 bg-[#0E78AA] text-white rounded-lg hover:bg-[#094C6B]"
+          className="inline-flex h-8 items-center rounded-lg border border-[#D6EAF3] bg-white px-3 text-xs font-semibold text-[#094C6B] hover:bg-[#F6FBFD]"
         >
           رجوع
         </button>
-        <h1 className="text-lg font-bold text-[#0E78AA]">{title}</h1>
-      </div>
-      <div className="mt-4 overflow-x-auto rounded-2xl border border-[#E6F0F7] bg-white shadow-md">
+      }
+    >
+      {error ? <ErrorToast message={error} onClose={() => setError('')} /> : null}
+      <div className="overflow-x-auto rounded-2xl border border-[#E6F0F7] bg-white shadow-md">
         {isLoading ? (
           <TableSkeleton columns={10} rows={8} />
         ) : rows.length === 0 ? (
@@ -119,6 +124,6 @@ export default function ElectronicInvoiceReportPreviewPage({ reportKind, title }
           })}
         </p>
       ) : null}
-    </div>
+    </ReportPageShell>
   );
 }

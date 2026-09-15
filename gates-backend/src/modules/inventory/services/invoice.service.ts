@@ -15,6 +15,7 @@ import {
 } from '../../invoices/services/invoice-document-type';
 import { applyFullTextIds, findFullTextIds } from '../../../shared/database/fulltext-search';
 import { assertUpdateCount } from '../../../shared/concurrency/optimistic-lock';
+import { journalPostingService } from '../../accounting/services/journal-posting.service';
 
 export interface InvoiceLineData {
   itemId: string;
@@ -949,9 +950,19 @@ async cancelInvoice(companyId: string, invoiceId: string) {
       );
     }
 
-    const updated = await prisma.invoice.update({
-      where: { id: invoiceId },
-      data: { isCancelled: true },
+    const updated = await prisma.$transaction(async (tx) => {
+      await journalPostingService.cascadeSourceJournalInTx(
+        tx,
+        companyId,
+        [invoice.journalEntryId, invoice.costJournalEntryId],
+        'cancel',
+        undefined,
+        { sourceId: invoice.id, sourceNumber: invoice.invoiceNumber ?? undefined }
+      );
+      return tx.invoice.update({
+        where: { id: invoiceId },
+        data: { isCancelled: true },
+      });
     });
 
     logger.info({ companyId, invoiceId }, 'Invoice cancelled');
@@ -1066,10 +1077,19 @@ async deleteInvoice(companyId: string, invoiceId: string) {
       throw new Error('Cannot delete a posted invoice');
     }
 
-    // Cancel the invoice instead of hard delete
-    await prisma.invoice.update({
-      where: { id: invoiceId },
-      data: { isCancelled: true },
+    await prisma.$transaction(async (tx) => {
+      await journalPostingService.cascadeSourceJournalInTx(
+        tx,
+        companyId,
+        [invoice.journalEntryId, invoice.costJournalEntryId],
+        'cancel',
+        undefined,
+        { sourceId: invoice.id, sourceNumber: invoice.invoiceNumber ?? undefined }
+      );
+      await tx.invoice.update({
+        where: { id: invoiceId },
+        data: { isCancelled: true },
+      });
     });
 
     logger.info({ companyId, invoiceId }, 'Invoice deleted');

@@ -11,11 +11,14 @@ import {
   lineGridDataAttrs,
 } from '@/lib/keyboard/gridLineFocus';
 import type { EditableJournalLine } from '@/components/accounting/EditableJournalLinesTable';
+import { formatBaseAmount, lineFxRate, sameCurrencyCode, toBaseAmount } from '@/lib/accounting/fx-base';
+import { useCompanyBaseCurrency } from '@/lib/hooks/useCompanyBaseCurrency';
 
 export type OpeningBalanceLineCurrency = {
   id: string;
   code: string;
   arabicName?: string;
+  exchangeRate?: number | string | null;
 };
 
 type Props = {
@@ -60,6 +63,7 @@ export function OpeningBalanceLinesTable({
   accountLabelFor,
 }: Props) {
   const fieldOrder = OPENING_BALANCE_LINE_FIELD_ORDER;
+  const { code: companyBase, label: companyBaseLabel } = useCompanyBaseCurrency();
 
   const updateLine = (index: number, patch: Partial<EditableJournalLine>) => {
     const current = lines[index] ?? emptyLine(defaultCurrencyId);
@@ -112,6 +116,8 @@ export function OpeningBalanceLinesTable({
     { id: 'description', label: 'البيان', className: 'min-w-[140px]' },
     { id: 'debit', label: 'مدين', className: 'w-28 min-w-[6.5rem]', align: 'center' as const },
     { id: 'credit', label: 'دائن', className: 'w-28 min-w-[6.5rem]', align: 'center' as const },
+    { id: 'debitBase', label: `مدين معادل (${companyBaseLabel})`, className: 'w-28 min-w-[6.5rem]', align: 'center' as const },
+    { id: 'creditBase', label: `دائن معادل (${companyBaseLabel})`, className: 'w-28 min-w-[6.5rem]', align: 'center' as const },
     { id: 'currency', label: 'العملة', className: 'w-24 min-w-[6rem]' },
     { id: 'rate', label: 'سعر الصرف', className: 'w-24 min-w-[6rem]', align: 'center' as const },
     { id: 'costCenter', label: 'مركز التكلفة', className: 'w-44 min-w-[10rem]' },
@@ -210,16 +216,42 @@ export function OpeningBalanceLinesTable({
             />
           );
         }
+        if (columnId === 'debitBase') {
+          return (
+            <span className="block text-end font-mono text-xs text-slate-600">
+              {formatBaseAmount(toBaseAmount(line.debit, line.exchangeRate))}
+            </span>
+          );
+        }
+        if (columnId === 'creditBase') {
+          return (
+            <span className="block text-end font-mono text-xs text-slate-600">
+              {formatBaseAmount(toBaseAmount(line.credit, line.exchangeRate))}
+            </span>
+          );
+        }
         if (columnId === 'currency') {
           return (
             <select
               className={dataEntryGridInputClass}
               disabled={disabled}
               value={line.currencyId || defaultCurrencyId || ''}
-              onChange={(e) => updateLine(index, { currencyId: e.target.value })}
+              onChange={(e) => {
+                const next = currencies.find((c) => c.id === e.target.value);
+                const headerCode = currencies.find((c) => c.id === defaultCurrencyId)?.code;
+                updateLine(index, {
+                  currencyId: e.target.value,
+                  exchangeRate: lineFxRate({
+                    lineCurrencyCode: next?.code,
+                    headerCurrencyCode: headerCode,
+                    companyBaseCode: companyBase,
+                    catalogRate: next?.exchangeRate,
+                  }),
+                });
+              }}
               {...keyHandlers(index, 'currency')}
             >
-              {(currencies.length ? currencies : [{ id: 'egp', code: 'EGP' }]).map((c) => (
+              {(currencies.length ? currencies : [{ id: 'egp', code: companyBase }]).map((c) => (
                 <option key={c.id || c.code} value={c.id}>
                   {c.code}
                 </option>
@@ -229,13 +261,16 @@ export function OpeningBalanceLinesTable({
         }
         if (columnId === 'rate') {
           const selected = currencies.find((c) => c.id === (line.currencyId || defaultCurrencyId));
-          const isBase = (selected?.code || 'EGP') === 'EGP';
+          const headerCode = currencies.find((c) => c.id === defaultCurrencyId)?.code;
+          const rateLocked =
+            sameCurrencyCode(selected?.code, companyBase) ||
+            sameCurrencyCode(selected?.code, headerCode);
           return (
             <input
               type="number"
               step="0.0001"
-              disabled={disabled || isBase}
-              value={isBase ? 1 : line.exchangeRate ?? 1}
+              disabled={disabled || rateLocked}
+              value={rateLocked ? 1 : line.exchangeRate ?? 1}
               onChange={(e) => updateLine(index, { exchangeRate: Number(e.target.value) || 1 })}
               className={`${dataEntryGridInputClass} h-9 text-xs text-end font-mono`}
               {...keyHandlers(index, 'rate')}

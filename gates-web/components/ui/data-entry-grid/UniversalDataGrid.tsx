@@ -40,9 +40,9 @@ export function UniversalDataGrid({
   const rows = Math.max(rowCount, 0);
 
   return (
-    <div className="min-w-0 w-full max-w-full space-y-1" dir="rtl">
+    <div className="col-span-full min-w-0 w-full max-w-full space-y-1" dir="rtl">
       <div className={dataEntryGridWrapClass}>
-        <div className="erp-scroll-x min-w-0 w-full max-w-full overflow-x-auto">
+        <div className="erp-scroll-x min-w-0 w-full max-w-full overflow-x-scroll">
           <table className="w-max min-w-full text-sm">
             <thead>
               <tr className={dataEntryGridHeadRowClass}>

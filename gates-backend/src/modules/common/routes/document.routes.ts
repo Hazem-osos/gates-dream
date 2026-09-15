@@ -18,6 +18,7 @@ const adjacentQuerySchema = z.object({
   invoiceKind: z.string().optional(),
   transactionKind: z.string().optional(),
   fundType: z.enum(['CASHBOX', 'BANK_ACCOUNT']).optional(),
+  entryType: z.string().max(40).optional(),
 });
 
 const convertSchema = z.object({
@@ -50,6 +51,7 @@ router.get(
         invoiceKind: req.query.invoiceKind as string | undefined,
         transactionKind: req.query.transactionKind as string | undefined,
         fundType: req.query.fundType as never,
+        entryType: req.query.entryType as string | undefined,
       });
       return void res.json({ status: 'success', data });
     } catch (e) {

@@ -139,12 +139,18 @@ export function useAccountsQuery(
 }
 
 export function useWarehousesQuery(limit = 200) {
-  return useApiQuery<WarehouseOption[]>(
+  const query = useApiQuery<WarehouseOption[]>(
     queryKeys.warehouses({ limit, isActive: true }),
     '/inventory/warehouses',
     { limit, isActive: true },
     { staleTime: staleTimes.masterMs, gcTime: staleTimes.masterGcMs }
   );
+  const data = Array.isArray(query.data?.data)
+    ? query.data
+    : query.data
+      ? { ...query.data, data: [] as WarehouseOption[] }
+      : query.data;
+  return { ...query, data };
 }
 
 export function useItemsQuery(limit = 200, search?: string) {
@@ -191,13 +197,68 @@ export function useCostCentersQuery(limit = 200) {
 
 export function useCurrenciesQuery(limit = 100) {
   return useApiQuery<
-    { id: string; code: string; arabicName: string; englishName?: string }[]
+    { id: string; code: string; arabicName: string; englishName?: string; exchangeRate?: number | string | null }[]
   >(
     queryKeys.currencies,
     '/accounting/currencies',
     { limit, isActive: true },
     { staleTime: staleTimes.masterMs, gcTime: staleTimes.masterGcMs }
   );
+}
+
+export type SafeOption = {
+  id: string;
+  arabicName?: string;
+  englishName?: string | null;
+  code?: string | null;
+  balance?: number | string;
+  glAccountCode?: string | null;
+  glAccount?: { id?: string; code?: string | null; arabicName?: string } | null;
+};
+
+export function useSafesQuery(params?: { isActive?: boolean; enabled?: boolean }) {
+  const queryParams = { isActive: params?.isActive ?? true };
+  return useApiQuery<SafeOption[]>(
+    queryKeys.safes(queryParams),
+    '/accounting/safes',
+    queryParams,
+    {
+      staleTime: 0,
+      gcTime: staleTimes.masterGcMs,
+      refetchOnMount: 'always',
+      enabled: params?.enabled !== false,
+    }
+  );
+}
+
+export type LiveFundBalance = { id: string; balance?: number | string | null };
+
+/** Always reads the current safe/bank balance from the database. */
+export function useLiveFundBalance(params: {
+  kind: 'safe' | 'bank';
+  id?: string | null;
+  enabled?: boolean;
+}) {
+  const id = params.id ?? '';
+  const enabled = Boolean(id) && params.enabled !== false;
+  return useApiQuery<LiveFundBalance>(
+    params.kind === 'safe' ? ['safe-live-balance', id] : ['bank-live-balance', id],
+    params.kind === 'safe' ? `/accounting/safes/${id}` : `/accounting/bank-accounts/${id}`,
+    undefined,
+    {
+      enabled,
+      staleTime: 0,
+      refetchOnMount: 'always',
+      refetchOnWindowFocus: true,
+    }
+  );
+}
+
+export function invalidateTreasuryFundBalances(invalidate: (key: readonly unknown[]) => void) {
+  invalidate(['safes']);
+  invalidate(['bank-accounts']);
+  invalidate(['safe-live-balance']);
+  invalidate(['bank-live-balance']);
 }
 
 export function useBranchesQuery(limit = 50) {

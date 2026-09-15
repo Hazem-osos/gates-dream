@@ -3,9 +3,11 @@
 import Link from 'next/link';
 import { ChevronLeft } from 'lucide-react';
 import { ErpDocumentLayout } from '@/components/erp/ErpDocumentLayout';
+import { useRegisterScreenChrome } from '@/components/erp/AppScreenChromeContext';
 import { TransactionSettingsForm } from '@/components/settings/transaction-settings/TransactionSettingsForm';
 import {
   TRANSACTION_SETTINGS_CONTEXT,
+  isTreasuryDocumentType,
   type TransactionDocumentType,
 } from '@/lib/transaction-settings/types';
 
@@ -15,6 +17,7 @@ export function TransactionSettingsScreen({
   documentType: TransactionDocumentType;
 }) {
   const ctx = TRANSACTION_SETTINGS_CONTEXT[documentType];
+  useRegisterScreenChrome();
 
   return (
     <ErpDocumentLayout>
@@ -37,7 +40,9 @@ export function TransactionSettingsScreen({
           <p className="text-xs font-semibold text-[#0E79AA]">إعدادات شاشة {ctx.sourceLabel}</p>
           <h1 className="mt-0.5 text-2xl font-bold text-[#0A3D5E]">{ctx.title}</h1>
           <p className="mt-1 text-sm text-slate-500">
-            هذه السياسات خاصة بوحدة {ctx.moduleLabel} وشاشة «{ctx.sourceLabel}» فقط.
+            {isTreasuryDocumentType(documentType)
+              ? `اختَر الحسابات من شجرة هذه الشركة فقط — الصندوق أو البنك، الحساب المقابل، والعمولة. كل عميل يحدّد شجرته بنفسه لشاشة «${ctx.sourceLabel}».`
+              : `هذه السياسات خاصة بوحدة ${ctx.moduleLabel} وشاشة «${ctx.sourceLabel}» فقط.`}
           </p>
         </div>
         <Link

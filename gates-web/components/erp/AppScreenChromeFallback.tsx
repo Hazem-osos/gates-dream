@@ -5,18 +5,28 @@ import { usePathname } from 'next/navigation';
 import { ErpDocumentPageHeader } from './ErpDocumentPageHeader';
 import { useScreenChromeCount } from './AppScreenChromeContext';
 import { resolveAiScreenContext } from '@/lib/ai/screen-context';
+import { resolveTabLabel } from '@/lib/navigation/tab-labels';
 
 export function AppScreenChromeFallback() {
   const count = useScreenChromeCount();
   const [settled, setSettled] = useState(false);
   const pathname = usePathname();
-  const title = resolveAiScreenContext(pathname ?? '').pageTitle || 'Gates Soft';
+  const title =
+    resolveTabLabel(pathname) ||
+    resolveAiScreenContext(pathname ?? '').pageTitle ||
+    'Gates Soft';
 
   useLayoutEffect(() => {
     setSettled(true);
   }, []);
 
   if (!settled || count > 0) return null;
+
+  const isReport =
+    Boolean(pathname) &&
+    (/\/reports(\/|$)/.test(pathname) ||
+      /\/account-reports(\/|$)/.test(pathname) ||
+      /report(\/|$)/i.test(pathname ?? ''));
 
   return (
     <ErpDocumentPageHeader
@@ -29,11 +39,17 @@ export function AppScreenChromeFallback() {
       favoriteLabel={title}
       registerChrome={false}
       hideStandalonePost
-      moreMenuItems={[
-        { id: 'add', label: 'جديد', onClick: () => {}, disabled: true },
-        { id: 'edit', label: 'تعديل', onClick: () => {}, disabled: true },
-        { id: 'delete', label: 'حذف', onClick: () => {}, disabled: true, destructive: true },
-      ]}
+      hideBrowseList={isReport}
+      hideActionMenu={isReport}
+      moreMenuItems={
+        isReport
+          ? undefined
+          : [
+              { id: 'add', label: 'جديد', onClick: () => {}, disabled: true },
+              { id: 'edit', label: 'تعديل', onClick: () => {}, disabled: true },
+              { id: 'delete', label: 'حذف', onClick: () => {}, disabled: true, destructive: true },
+            ]
+      }
     />
   );
 }

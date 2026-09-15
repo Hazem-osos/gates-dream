@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { Warehouse } from 'lucide-react';
 import {
   CompactFormField,
@@ -10,7 +11,7 @@ import {
 import { DocumentBrowseDrawer } from '@/components/erp/DocumentBrowseDrawer';
 import { ErpDocumentLayout, ErpDocumentPageHeader } from '@/components/erp';
 import { DocumentModeProvider, useDocumentMode } from '@/components/common/document-shell';
-import { WarehousesListSection, type WarehouseRow } from '@/components/inventory/WarehousesListSection';
+import { WarehousesListSection, asWarehouseRows, type WarehouseRow } from '@/components/inventory/WarehousesListSection';
 import { AccountSelect } from '@/components/form/AccountSelect';
 import { WarehouseSelect } from '@/components/form/WarehouseSelect';
 import { useApiMutation, useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
@@ -46,9 +47,11 @@ const emptyForm = (code = ''): WarehouseForm => ({
 });
 
 function StoresPageInner() {
+  const searchParams = useSearchParams();
+  const idFromUrl = searchParams.get('id');
   const { isReadOnly, unlockForEdit, lockToView, setMode } = useDocumentMode();
   const invalidateQuery = useInvalidateQuery();
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(idFromUrl);
   const [formData, setFormData] = useState<WarehouseForm>(emptyForm());
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -59,7 +62,7 @@ function StoresPageInner() {
     '/inventory/warehouses',
     { limit: 1000, isActive: true }
   );
-  const warehouses = useMemo(() => warehousesRes?.data ?? [], [warehousesRes?.data]);
+  const warehouses = useMemo(() => asWarehouseRows(warehousesRes?.data), [warehousesRes?.data]);
   const nextWarehouseCode = useMemo(
     () => nextNumericSerial(warehouses.map((row) => row.code)),
     [warehouses]
@@ -69,6 +72,26 @@ function StoresPageInner() {
     if (selectedId) return;
     setFormData((prev) => (prev.code === nextWarehouseCode ? prev : { ...prev, code: nextWarehouseCode }));
   }, [nextWarehouseCode, selectedId]);
+
+  useEffect(() => {
+    if (!idFromUrl) return;
+    const row = warehouses.find((item) => item.id === idFromUrl);
+    if (!row) return;
+    lockToView();
+    setSelectedId(row.id);
+    setFormData({
+      code: row.code ?? '',
+      arabicName: row.arabicName ?? '',
+      englishName: row.englishName ?? '',
+      storeType: row.storeType === 'SUB' ? 'SUB' : 'MAIN',
+      parentWarehouseId: row.parentWarehouseId ?? '',
+      inventoryAccountId: row.inventoryAccountId ?? '',
+      costAccountId: row.costAccountId ?? '',
+      giftAccountId: row.giftAccountId ?? '',
+      address: row.address ?? '',
+      keeperName: row.keeperName ?? '',
+    });
+  }, [idFromUrl, warehouses, lockToView]);
 
   const createMutation = useApiMutation<unknown, Record<string, unknown>>(
     '/inventory/warehouses',
@@ -288,7 +311,9 @@ function StoresPageInner() {
 export default function StoreCardPage() {
   return (
     <DocumentModeProvider initialMode="create">
-      <StoresPageInner />
+      <Suspense fallback={null}>
+        <StoresPageInner />
+      </Suspense>
     </DocumentModeProvider>
   );
 }

@@ -127,6 +127,8 @@ export class JournalEntryService {
       isCancelled?: boolean;
       includeLines?: boolean;
       entryType?: string;
+      sortBy?: 'voucherNumber' | 'date' | 'createdAt';
+      sortDir?: 'asc' | 'desc';
       branchId?: string;
       /**
        * Legacy `UserBranchesCond`: the branches this user may read, or `null`
@@ -173,10 +175,14 @@ export class JournalEntryService {
 
       if (options.entryType) {
         where.entryType = options.entryType;
+      } else {
+        where.NOT = { entryType: 'OPENING_BALANCE' };
       }
 
       const includeLines = options.includeLines === true;
-      const orderBy = [{ date: 'desc' as const }, { id: 'desc' as const }];
+      const sortDir = options.sortDir === 'desc' ? ('desc' as const) : ('asc' as const);
+      const sortField = options.sortBy === 'date' || options.sortBy === 'createdAt' ? options.sortBy : 'voucherNumber';
+      const orderBy = [{ [sortField]: sortDir }, { id: sortDir }];
       const lineInclude = {
         lines: {
           include: {

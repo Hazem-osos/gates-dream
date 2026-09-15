@@ -176,6 +176,14 @@ export class OpeningStockService {
         }
       }
 
+      const existingOpening = await prisma.openingStock.findFirst({
+        where: { companyId, isCancelled: false },
+        select: { id: true },
+      });
+      if (existingOpening) {
+        throw new Error('يوجد كشف بضاعة أول المدة بالفعل. احذفه أولاً حتى يمكن إنشاء كشف جديد.');
+      }
+
       // Use transaction to ensure atomicity
       const openingStock = await prisma.$transaction(async (tx) => {
         // Create opening stock record
@@ -656,6 +664,14 @@ export class OpeningStockService {
             'Opening stock cancelled'
           );
         }
+        await journalPostingService.cascadeSourceJournalInTx(
+          tx,
+          companyId,
+          [openingStock.journalEntryId],
+          'cancel',
+          glCtx?.userId,
+          { sourceId: openingStock.id, sourceType, sourceNumber }
+        );
 
         return tx.openingStock.update({
           where: { id: openingStockId },

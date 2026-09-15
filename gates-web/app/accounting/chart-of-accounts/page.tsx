@@ -7,7 +7,7 @@ import { useBackendReachability } from '@/lib/hooks/useBackendReachability';
 import { useCoaTreeQuery, useDeleteAccountMutation } from '@/lib/hooks/useChartOfAccounts';
 import { useAccountingSettingsQuery } from '@/lib/hooks/useAccountingSettings';
 import { useSeedDefaultCoa } from '@/lib/hooks/useSeedDefaultCoa';
-import type { CoaHierarchyAccount } from '@/lib/accounting/mapCoaToTreeNodes';
+import { isSystemCashPostingAccount, type CoaHierarchyAccount } from '@/lib/accounting/mapCoaToTreeNodes';
 import { AccountTree, type CoaNatureFilter } from '@/components/accounting/chart-of-accounts/AccountTree';
 import { CoaEmptyState } from '@/components/accounting/chart-of-accounts/CoaEmptyState';
 import { DynamicModalSkeleton } from '@/components/ui/DynamicChunkSkeleton';
@@ -127,6 +127,12 @@ export default function ChartOfAccountsPage() {
   );
 
   const openCreateChild = (parent: CoaHierarchyAccount) => {
+    if (isSystemCashPostingAccount(parent)) {
+      toast.error('الخزينة الرئيسية حساب حركة', {
+        description: 'ممنوع التفريع منها. أنشئ الخزينة الجديدة تحت «النقدية وما في حكمها».',
+      });
+      return;
+    }
     setModalMode('create');
     setEditNode(null);
     setParentNode(parent);

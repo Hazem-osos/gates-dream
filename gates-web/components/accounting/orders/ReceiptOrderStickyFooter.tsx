@@ -2,6 +2,7 @@
 
 import { Check } from 'lucide-react';
 import { Button } from '@/components/ui';
+import { currencyDisplayLabel } from '@/lib/accounting/fx-base';
 import { OrderStatusBadge, type OrderExecutionStatus } from '@/components/accounting/orders/OrderStatusBadge';
 
 type Props = {
@@ -24,7 +25,7 @@ function money(value: number, currencyCode: string) {
   return `${value.toLocaleString('ar-EG', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
-  })} ${currencyCode === 'EGP' ? 'ج.م' : currencyCode}`;
+  })} ${currencyDisplayLabel(currencyCode)}`;
 }
 
 export function ReceiptOrderStickyFooter({

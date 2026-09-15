@@ -84,7 +84,7 @@ export function PartiesListSection({ endpoint, queryKeyPrefix, emptyTitle, onSel
         emptyTitle={emptyTitle}
         emptyDescription="غيّر البحث أو أضف سجلاً جديداً من النموذج."
         columns={[
-          { id: 'code', header: 'الكود', cell: (r) => r.code || r.serial || '—' },
+          { id: 'code', header: 'الكود', cell: (r) => r.code || r.serial || '—', sortValue: (r) => r.code || r.serial || '' },
           { id: 'name', header: 'الاسم', cell: (r) => (
             <button
               type="button"

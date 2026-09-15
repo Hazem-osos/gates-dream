@@ -2,6 +2,7 @@
 import { usePathname, useRouter } from "next/navigation";
 import { IoClose } from "react-icons/io5";
 import { normalizeAppPath } from '@/lib/navigation/app-module-root';
+import { resolveTabLabel } from '@/lib/navigation/tab-labels';
 import { useAppTabs } from './AppTabsContext';
 
 export default function AppTabs() {
@@ -50,7 +51,7 @@ export default function AppTabs() {
                   : 'bg-white/70 text-[#094C6B] ring-1 ring-[#D6EAF3] hover:bg-white shadow-sm hover:shadow-md'}
             `}
           >
-            <span className="whitespace-nowrap font-medium">{tab.label}</span>
+            <span className="whitespace-nowrap font-medium">{resolveTabLabel(tab.path) || tab.label}</span>
             <IoClose
               className={`w-4 h-4 transition-colors ${isActive ? 'text-white/80 hover:text-white' : 'text-gray-400 hover:text-gray-600'}`}
               onClick={(e) => closeTab(tab.path, e)}

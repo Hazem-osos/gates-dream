@@ -52,6 +52,9 @@ router.get(
       search?: string;
       code?: string;
       number?: string;
+      sortBy?: string;
+      sortDir?: 'asc' | 'desc';
+      executionStatus?: 'PENDING' | 'COMPLETED' | 'CANCELLED';
     };
     const result = await cashTransactionService.list(companyId, q);
     return void res.json({ status: 'success', data: result.items, pagination: result.pagination });

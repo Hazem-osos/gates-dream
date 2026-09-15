@@ -3,13 +3,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Users } from 'lucide-react';
 import {
-  PageHeader,
-  Button,
   CompactFormField,
-  FormStickyFooter,
   FormSectionCard,
   AppTable,
 } from '@/components/ui';
+import { DocumentBrowseDrawer, MasterCardShell } from '@/components/erp';
 import UserPermissionsBar from '@/components/UserPermissionsBar';
 import { useApiQuery, useApiMutation, useInvalidateQuery } from '@/lib/hooks/useApi';
 import { apiClient } from '@/lib/api/client';
@@ -73,6 +71,7 @@ export function PartyGroupCardPage({ kind }: { kind: Kind }) {
   const [formData, setFormData] = useState(emptyForm);
   const [error, setError] = useState('');
   const [deleting, setDeleting] = useState(false);
+  const [showGuide, setShowGuide] = useState(false);
 
   const { data, isLoading } = useApiQuery<PartyGroupRow[]>(config.queryKey, config.api, {
     limit: 500,
@@ -162,47 +161,53 @@ export function PartyGroupCardPage({ kind }: { kind: Kind }) {
     }
   };
 
-  return (
-    <div className="p-6" style={{ direction: 'rtl' }}>
-      {error ? <ErrorToast message={error} onClose={() => setError('')} /> : null}
+  const groupTable = (
+    <AppTable<PartyGroupRow>
+      isLoading={isLoading}
+      data={rows}
+      getRowKey={(r) => r.id}
+      emptyTitle={config.emptyTitle}
+      onRowClick={(row) => {
+        handleSelect(row);
+        setShowGuide(false);
+      }}
+      rowClassName={(r) => (r.id === selectedId ? 'bg-sky-50' : undefined)}
+      columns={[
+        {
+          id: 'code',
+          header: 'الكود',
+          cell: (r) => r.code || r.legacyCode || '—',
+        },
+        { id: 'name', header: 'الاسم', accessor: 'arabicName' },
+        {
+          id: 'count',
+          header: config.countHeader,
+          cell: (r) => String(config.countOf(r)),
+        },
+      ]}
+    />
+  );
 
-      <PageHeader
-        title={config.title}
-        breadcrumbs={[...config.breadcrumbs]}
-        actions={
-          <Button variant="primary" onClick={handleNew}>
-            مجموعة جديدة
-          </Button>
-        }
-      />
+  return (
+    <MasterCardShell
+      title={config.title}
+      breadcrumbs={[...config.breadcrumbs]}
+      docNumber={formData.code || (selectedId ? 'تعديل' : 'جديد')}
+      statusLabel={selectedId ? 'تعديل' : 'جديد'}
+      onSave={handleSave}
+      savePending={loading}
+      canSave={!loading}
+      onNew={handleNew}
+      onDelete={() => void handleDelete()}
+      currentId={selectedId}
+      onBrowseList={() => setShowGuide(true)}
+      favoriteHref={kind === 'customer' ? '/accounting/cards/customer-group' : '/accounting/cards/supplier-group'}
+    >
+      {error ? <ErrorToast message={error} onClose={() => setError('')} /> : null}
 
       <div className="mb-4">
         <UserPermissionsBar resource={config.resource} module="accounting" />
       </div>
-
-      <section className="mb-6">
-        <AppTable<PartyGroupRow>
-          isLoading={isLoading}
-          data={rows}
-          getRowKey={(r) => r.id}
-          emptyTitle={config.emptyTitle}
-          onRowClick={handleSelect}
-          rowClassName={(r) => (r.id === selectedId ? 'bg-sky-50' : undefined)}
-          columns={[
-            {
-              id: 'code',
-              header: 'الكود',
-              cell: (r) => r.code || r.legacyCode || '—',
-            },
-            { id: 'name', header: 'الاسم', accessor: 'arabicName' },
-            {
-              id: 'count',
-              header: config.countHeader,
-              cell: (r) => String(config.countOf(r)),
-            },
-          ]}
-        />
-      </section>
 
       <FormSectionCard
         title="البيانات الأساسية"
@@ -230,20 +235,13 @@ export function PartyGroupCardPage({ kind }: { kind: Kind }) {
         />
       </FormSectionCard>
 
-      <FormStickyFooter
-        onCancel={handleNew}
-        onSave={handleSave}
-        saveLoading={loading}
-        saveDisabled={loading}
-        status={selectedId ? 'تعديل' : 'جديد'}
-        extraActions={
-          selectedId ? (
-            <Button variant="danger" onClick={() => void handleDelete()} disabled={loading}>
-              حذف
-            </Button>
-          ) : null
-        }
-      />
-    </div>
+      <DocumentBrowseDrawer
+        open={showGuide}
+        onClose={() => setShowGuide(false)}
+        title={kind === 'customer' ? 'مجموعات العملاء السابقة' : 'مجموعات الموردين السابقة'}
+      >
+        {groupTable}
+      </DocumentBrowseDrawer>
+    </MasterCardShell>
   );
 }

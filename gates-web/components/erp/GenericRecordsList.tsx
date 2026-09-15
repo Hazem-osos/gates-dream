@@ -54,9 +54,11 @@ export function GenericRecordsList({
   const { canView } = useResourcePermissions();
   const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
   const [search, setSearch] = useState('');
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  const pageSize = 10;
+  const [sortBy, setSortBy] = useState('number');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
 
   const extraKey = JSON.stringify(extraParams ?? {});
   const queryParams = useMemo(() => {
@@ -69,15 +71,17 @@ export function GenericRecordsList({
       p.limit = pageSize;
     }
     if (search.trim().length >= 2) p.search = search.trim();
+    p.sortBy = sortBy;
+    p.sortDir = sortDir;
     const parsed = extraParams ?? {};
     for (const [k, v] of Object.entries(parsed)) {
       if (v !== undefined && v !== '') p[k] = v;
     }
     return p;
-  }, [page, paging, extraParams, search]);
+  }, [page, pageSize, paging, extraParams, search, sortBy, sortDir]);
 
   const { data, isLoading } = useApiQuery<GenericRecordRow[]>(
-    [listKey, page, extraKey, search],
+    [listKey, page, pageSize, extraKey, search, sortBy, sortDir],
     apiPath,
     queryParams,
     { staleTime: 20_000, enabled: canView }
@@ -135,6 +139,8 @@ export function GenericRecordsList({
               id: col.id,
               header: col.header,
               cell: (row: GenericRecordRow) => col.getValue(row),
+              sortValue: (row: GenericRecordRow) =>
+                /date/.test(col.id) ? Date.parse(String(row.date ?? row.createdAt ?? '')) || 0 : col.getValue(row),
             })),
           ...(hasCallerStatus && !resolveStatus
             ? []
@@ -212,25 +218,23 @@ export function GenericRecordsList({
         rowClassName={(row) =>
           selectedId === row.id ? 'bg-sky-50 even:bg-sky-50 hover:bg-sky-100' : undefined
         }
+        defaultSort={{ id: columns[0]?.id ?? 'num', dir: 'asc' }}
+        onSortChange={(next) => {
+          setPage(1);
+          setSortBy(/date/.test(next.id) ? 'date' : /amount|total/.test(next.id) ? 'amount' : 'number');
+          setSortDir(next.dir);
+        }}
+        pagination={{
+          page,
+          pageSize,
+          totalItems: total,
+          onPageChange: setPage,
+          onPageSizeChange: (n) => {
+            setPage(1);
+            setPageSize(n);
+          },
+        }}
       />
-      {total > pageSize ? (
-        <div className="flex justify-end gap-2 text-sm">
-          <Button size="sm" variant="outline" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
-            الأحدث
-          </Button>
-          <span className="self-center text-slate-500">
-            {page} / {Math.max(1, Math.ceil(total / pageSize))}
-          </span>
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={page * pageSize >= total}
-            onClick={() => setPage((p) => p + 1)}
-          >
-            التالي
-          </Button>
-        </div>
-      ) : null}
     </div>
   );
 }

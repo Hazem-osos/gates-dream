@@ -82,6 +82,9 @@ export const listCashTransactionsQuerySchema = z.object({
   search: z.string().max(80).optional(),
   code: z.string().max(40).optional(),
   number: z.string().max(40).optional(),
+  sortBy: z.enum(['number', 'voucherNumber', 'date', 'amount']).optional(),
+  sortDir: z.enum(['asc', 'desc']).optional(),
+  executionStatus: z.enum(['PENDING', 'COMPLETED', 'CANCELLED']).optional(),
 });
 
 export const createInwardChequeSchema = z.object({

@@ -110,12 +110,14 @@ export function StockDocumentsListSection({
             id: 'serial',
             header: 'المسلسل',
             cell: (r: DocRow) => r.serialNumber || r.serial || r.id,
+            sortValue: (r: DocRow) => r.serialNumber || r.serial || r.id,
           },
           {
             id: 'date',
             header: 'التاريخ',
             cell: (r: DocRow) =>
               r.date ? new Date(r.date).toLocaleDateString('ar-EG') : '—',
+            sortValue: (r: DocRow) => (r.date ? Date.parse(String(r.date)) : 0),
           },
           { id: 'from', header: 'من مخزن', cell: (r: DocRow) => r.fromWarehouse?.arabicName || '—' },
           { id: 'to', header: 'إلى مخزن', cell: (r: DocRow) => r.toWarehouse?.arabicName || '—' },
@@ -143,12 +145,14 @@ export function StockDocumentsListSection({
             id: 'serial',
             header: 'المسلسل',
             cell: (r: DocRow) => r.serialNumber || r.serial || r.id,
+            sortValue: (r: DocRow) => r.serialNumber || r.serial || r.id,
           },
           {
             id: 'date',
             header: 'التاريخ',
             cell: (r: DocRow) =>
               r.date ? new Date(r.date).toLocaleDateString('ar-EG') : '—',
+            sortValue: (r: DocRow) => (r.date ? Date.parse(String(r.date)) : 0),
           },
           {
             id: 'wh',
@@ -240,6 +244,7 @@ export function StockDocumentsListSection({
           selectedId === r.id ? 'bg-sky-50 even:bg-sky-50 hover:bg-sky-100' : undefined
         }
         columns={columns}
+        defaultSort={{ id: 'serial', dir: 'asc' }}
         pagination={{
           page,
           pageSize,

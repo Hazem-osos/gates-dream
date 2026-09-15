@@ -26,6 +26,8 @@ export type DocumentActionMenuProps = {
   isCancelled?: boolean;
   onNew?: () => void;
   newLabel?: string;
+  newDisabled?: boolean;
+  newHint?: string;
   onEdit?: () => void;
   onPost?: () => void;
   onUnpost?: () => void;
@@ -50,6 +52,7 @@ export type DocumentActionMenuProps = {
   restoreLabel?: string;
   duplicateLabel?: string;
   editLockedHint?: string;
+  voidLockedHint?: string;
 };
 
 export function DocumentActionMenu({
@@ -58,6 +61,8 @@ export function DocumentActionMenu({
   isCancelled = false,
   onNew,
   newLabel,
+  newDisabled,
+  newHint,
   onEdit,
   onPost,
   onUnpost,
@@ -81,6 +86,7 @@ export function DocumentActionMenu({
   restoreLabel,
   duplicateLabel,
   editLockedHint,
+  voidLockedHint,
 }: DocumentActionMenuProps) {
   const mode = useOptionalDocumentMode();
   const isReadOnly = mode?.isReadOnly ?? false;
@@ -121,7 +127,10 @@ export function DocumentActionMenu({
     {
       id: 'new',
       label: newLabel ?? 'جديد',
-      disabled: false,
+      disabled: Boolean(newDisabled),
+      hint: newDisabled
+        ? newHint ?? 'احذف المستند الحالي أولاً حتى يمكن إنشاء مستند جديد'
+        : undefined,
       onClick: startNewDocument,
     },
     {
@@ -219,7 +228,13 @@ export function DocumentActionMenu({
         voidPending
           ? 'جاري الإلغاء…'
           : voidLabel ?? (hidePostActions ? 'إلغاء' : 'إلغاء / حذف المستند'),
-      disabled: !hasDocument || isCancelled || !onVoid || voidPending,
+      disabled: !hasDocument || isCancelled || isPosted || !onVoid || voidPending,
+      hint: isPosted
+        ? voidLockedHint ??
+          (hidePostActions
+            ? 'المستند مكتمل ولا يمكن إلغاؤه'
+            : 'المستند مرحل. فك الترحيل أولاً ثم ألغه')
+        : undefined,
       destructive: true,
       onClick: () => setConfirm('void'),
     },

@@ -7,6 +7,7 @@ import { resolveHijriDate } from '../../../shared/utils/hijri-date';
 import { documentSequenceService } from '../../platform/services/document-sequence.service';
 import { assertCashOverdraftAllowed } from './treasury-overdraft';
 import { splitVoucherLineTotals } from '../types/vouchers.dto';
+import { journalPostingService } from '../../accounting/services/journal-posting.service';
 
 export interface CreateCashTransactionLineInput {
   accountId: string;
@@ -150,6 +151,13 @@ export class CashTransactionService {
         number: input.receiptOrderNumber,
       });
       input.sourceOrderId = order.id;
+    }
+
+    const isVoucherDoc = (input.documentRole ?? 'VOUCHER') !== 'ORDER';
+    if (isVoucherDoc && input.sourceOrderId) {
+      await this.assertSourceOrderAvailable(tx, companyId, input.sourceOrderId, {
+        transactionKind: input.transactionKind,
+      });
     }
 
     const allocations = input.allocations ?? [];
@@ -357,6 +365,10 @@ export class CashTransactionService {
       }
     }
 
+    if (isVoucherDoc && input.sourceOrderId) {
+      await this.markSourceOrderCompleted(tx, companyId, input.sourceOrderId, userId);
+    }
+
     return this.decorateOrder(
       await tx.cashTransaction.findFirstOrThrow({
         where: { id: created.id, companyId },
@@ -381,11 +393,11 @@ export class CashTransactionService {
       if (existing.isCancelled) {
         throw new AppError(422, 'لا يمكن تعديل سند ملغى');
       }
-      if (
-        existing.documentRole === 'ORDER' &&
-        existing.executionStatus === 'COMPLETED'
-      ) {
-        throw new AppError(422, 'لا يمكن تعديل أمر مكتمل التنفيذ');
+      if (existing.documentRole === 'ORDER') {
+        const linkedVoucher = await this.findActiveVoucherForOrder(tx, companyId, id);
+        if (existing.executionStatus === 'COMPLETED' || linkedVoucher) {
+          throw new AppError(422, 'لا يمكن تعديل أمر مكتمل التنفيذ');
+        }
       }
 
       const lines = input.lines ?? [];
@@ -424,6 +436,16 @@ export class CashTransactionService {
         input.bankReference = input.referenceNumber;
       }
 
+      const isVoucherDoc = existing.documentRole !== 'ORDER';
+      const nextSourceOrderId = isVoucherDoc ? input.sourceOrderId ?? null : existing.sourceOrderId;
+      const prevSourceOrderId = existing.sourceOrderId ?? null;
+      if (isVoucherDoc && nextSourceOrderId) {
+        await this.assertSourceOrderAvailable(tx, companyId, nextSourceOrderId, {
+          transactionKind: input.transactionKind,
+          excludeVoucherId: id,
+        });
+      }
+
       const allocations = input.allocations ?? [];
       if (allocations.length) {
         await this.assertAllocations(tx, companyId, input, allocations);
@@ -452,7 +474,7 @@ export class CashTransactionService {
           exchangeRate: input.exchangeRate != null ? new Decimal(input.exchangeRate) : null,
           isRecurring: input.isRecurring ?? existing.isRecurring,
           departmentId: input.departmentId ?? null,
-          sourceOrderId: input.sourceOrderId ?? null,
+          sourceOrderId: nextSourceOrderId,
           bankReference: input.bankReference ?? null,
           valueDate: input.valueDate ?? null,
           version: { increment: 1 },
@@ -550,6 +572,15 @@ export class CashTransactionService {
         }
       }
 
+      if (isVoucherDoc) {
+        if (prevSourceOrderId && prevSourceOrderId !== nextSourceOrderId) {
+          await this.releaseSourceOrderIfUnused(tx, companyId, prevSourceOrderId, id);
+        }
+        if (nextSourceOrderId) {
+          await this.markSourceOrderCompleted(tx, companyId, nextSourceOrderId, userId);
+        }
+      }
+
       return this.decorateOrder(
         await tx.cashTransaction.findFirstOrThrow({
           where: { id, companyId },
@@ -613,6 +644,17 @@ export class CashTransactionService {
     if (!row) {
       throw new AppError(404, 'Cash transaction not found');
     }
+    if (row.documentRole === 'ORDER' && row.executionStatus === 'PENDING' && !row.isCancelled) {
+      const linked = await this.findActiveVoucherForOrder(prisma, companyId, id);
+      if (linked) {
+        await this.markSourceOrderCompleted(prisma, companyId, id);
+        return this.decorateOrder({
+          ...row,
+          executionStatus: 'COMPLETED' as const,
+          executedAt: new Date(),
+        });
+      }
+    }
     return this.decorateOrder(row);
   }
 
@@ -632,6 +674,9 @@ export class CashTransactionService {
       search?: string;
       code?: string;
       number?: string;
+      sortBy?: string;
+      sortDir?: 'asc' | 'desc';
+      executionStatus?: 'PENDING' | 'COMPLETED' | 'CANCELLED';
     }
   ) {
     const page = options?.page ?? 1;
@@ -644,6 +689,7 @@ export class CashTransactionService {
     if (options?.transactionKind) where.transactionKind = options.transactionKind;
     if (options?.documentRole) where.documentRole = options.documentRole;
     if (options?.departmentId) where.departmentId = options.departmentId;
+    if (options?.executionStatus) where.executionStatus = options.executionStatus;
     const search = options?.search?.trim() || options?.voucherNumber?.trim();
     const code = options?.code?.trim();
     const number = options?.number?.trim();
@@ -669,7 +715,12 @@ export class CashTransactionService {
         where,
         skip,
         take: limit,
-        orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
+        orderBy:
+          options?.sortBy === 'date'
+            ? [{ date: options.sortDir === 'desc' ? 'desc' : 'asc' }, { voucherNumber: 'asc' }]
+            : options?.sortBy === 'amount'
+              ? [{ amount: options.sortDir === 'desc' ? 'desc' : 'asc' }, { voucherNumber: 'asc' }]
+              : [{ voucherNumber: options.sortDir === 'desc' ? 'desc' : 'asc' }, { createdAt: 'asc' }],
         include: {
           lines: { orderBy: { lineOrder: 'asc' } },
           journalEntry: { select: { id: true, voucherNumber: true } },
@@ -678,8 +729,40 @@ export class CashTransactionService {
       prisma.cashTransaction.count({ where }),
     ]);
 
+    const pendingOrderIds = items
+      .filter(
+        (row) =>
+          row.documentRole === 'ORDER' &&
+          row.executionStatus === 'PENDING' &&
+          !row.isCancelled
+      )
+      .map((row) => row.id);
+    const linkedIds = pendingOrderIds.length
+      ? new Set(
+          (
+            await prisma.cashTransaction.findMany({
+              where: {
+                companyId,
+                sourceOrderId: { in: pendingOrderIds },
+                isCancelled: false,
+              },
+              select: { sourceOrderId: true },
+            })
+          )
+            .map((row) => row.sourceOrderId)
+            .filter((id): id is string => Boolean(id))
+        )
+      : new Set<string>();
+
+    const decorated = items.map((row) =>
+      linkedIds.has(row.id) ? { ...row, executionStatus: 'COMPLETED' as const } : row
+    );
+
     return {
-      items,
+      items:
+        options?.executionStatus === 'PENDING'
+          ? decorated.filter((row) => row.executionStatus === 'PENDING')
+          : decorated,
       pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
     };
   }
@@ -688,7 +771,7 @@ export class CashTransactionService {
     await prisma.$transaction(async (tx) => {
       const row = await tx.cashTransaction.findFirst({
         where: { id, companyId, isPosted: false },
-        select: { id: true, treasuryPaymentId: true, treasuryReceiptId: true },
+        select: { id: true, treasuryPaymentId: true, treasuryReceiptId: true, sourceOrderId: true },
       });
       if (!row) return;
       await tx.exchangeRateHistory.deleteMany({ where: { companyId, sourceId: id } });
@@ -701,6 +784,9 @@ export class CashTransactionService {
       if (row.treasuryReceiptId) {
         await tx.treasuryReceipt.delete({ where: { id: row.treasuryReceiptId } }).catch(() => undefined);
       }
+      if (row.sourceOrderId) {
+        await this.releaseSourceOrderIfUnused(tx, companyId, row.sourceOrderId);
+      }
     });
   }
 
@@ -708,21 +794,48 @@ export class CashTransactionService {
     const row = await prisma.cashTransaction.findFirst({ where: { id, companyId } });
     if (!row) throw new AppError(404, 'Cash transaction not found');
     if (row.isPosted) throw new AppError(422, 'لا يمكن إلغاء سند مرحّل — فك الترحيل أولاً');
+    if (row.documentRole === 'ORDER') {
+      const linkedVoucher = await prisma.cashTransaction.findFirst({
+        where: { companyId, sourceOrderId: id, isCancelled: false },
+        select: { id: true },
+      });
+      if (row.executionStatus === 'COMPLETED' || linkedVoucher) {
+        throw new AppError(
+          422,
+          row.transactionKind === 'RECEIPT'
+            ? 'لا يمكن إلغاء أمر تم توريده'
+            : 'لا يمكن إلغاء أمر تم صرفه'
+        );
+      }
+    }
     assertExpectedVersion(row.version, expectedVersion);
-    const updateResult = await prisma.cashTransaction.updateMany({
-      where: {
-        id,
+    await prisma.$transaction(async (tx) => {
+      await journalPostingService.cascadeSourceJournalInTx(
+        tx,
         companyId,
-        version: expectedVersion ?? row.version,
-      },
-      data: {
-        isCancelled: true,
-        executionStatus: 'CANCELLED',
-        workflowStatus: 'DRAFT',
-        version: { increment: 1 },
-      },
+        [row.journalEntryId],
+        'cancel',
+        undefined,
+        { sourceId: row.id, sourceNumber: row.voucherNumber ?? undefined }
+      );
+      const updateResult = await tx.cashTransaction.updateMany({
+        where: {
+          id,
+          companyId,
+          version: expectedVersion ?? row.version,
+        },
+        data: {
+          isCancelled: true,
+          executionStatus: 'CANCELLED',
+          workflowStatus: 'DRAFT',
+          version: { increment: 1 },
+        },
+      });
+      assertUpdateCount(updateResult.count);
+      if (row.documentRole !== 'ORDER' && row.sourceOrderId) {
+        await this.releaseSourceOrderIfUnused(tx, companyId, row.sourceOrderId);
+      }
     });
-    assertUpdateCount(updateResult.count);
     return this.decorateOrder(await prisma.cashTransaction.findFirstOrThrow({ where: { id, companyId } }));
   }
 
@@ -742,6 +855,20 @@ export class CashTransactionService {
     }
     if (row.isCancelled || row.executionStatus === 'CANCELLED') {
       throw new AppError(422, 'لا يمكن تنفيذ أمر ملغى');
+    }
+    if (row.executionStatus === 'COMPLETED') {
+      const linked = await prisma.cashTransaction.findFirst({
+        where: { companyId, sourceOrderId: id, isCancelled: false },
+        select: { id: true },
+      });
+      if (linked) {
+        throw new AppError(
+          422,
+          expectedKind === 'RECEIPT'
+            ? 'لا يمكن إرجاع أمر تم تحميله على سند توريد'
+            : 'لا يمكن إرجاع أمر تم تحميله على سند صرف'
+        );
+      }
     }
 
     const nextStatus = row.executionStatus === 'COMPLETED' ? 'PENDING' : 'COMPLETED';
@@ -805,7 +932,7 @@ export class CashTransactionService {
         include,
         orderBy: { createdAt: 'desc' },
       });
-      if (byDepartment) return this.decorateOrder(byDepartment);
+      if (byDepartment) return this.decorateLoadedOrder(byDepartment);
     }
 
     const tokens = [
@@ -831,7 +958,144 @@ export class CashTransactionService {
     if (!found) {
       throw new AppError(404, isReceipt ? 'أمر التوريد غير موجود' : 'أمر الصرف غير موجود');
     }
-    return this.decorateOrder(found);
+    return this.decorateLoadedOrder(found);
+  }
+
+  private async decorateLoadedOrder<
+    T extends {
+      id: string;
+      companyId: string;
+      executionStatus?: string | null;
+      isCancelled?: boolean;
+      createdBy?: string | null;
+      executedBy?: string | null;
+    },
+  >(row: T) {
+    if (row.executionStatus === 'PENDING' && !row.isCancelled) {
+      const linked = await this.findActiveVoucherForOrder(prisma, row.companyId, row.id);
+      if (linked) {
+        await this.markSourceOrderCompleted(prisma, row.companyId, row.id);
+        return this.decorateOrder({ ...row, executionStatus: 'COMPLETED' as const, executedAt: new Date() });
+      }
+    }
+    return this.decorateOrder(row);
+  }
+
+  private async findActiveVoucherForOrder(
+    db: Prisma.TransactionClient | typeof prisma,
+    companyId: string,
+    orderId: string
+  ) {
+    return db.cashTransaction.findFirst({
+      where: { companyId, sourceOrderId: orderId, isCancelled: false },
+      select: { id: true },
+    });
+  }
+
+  private async assertSourceOrderAvailable(
+    tx: Prisma.TransactionClient,
+    companyId: string,
+    orderId: string,
+    opts: { transactionKind: 'PAYMENT' | 'RECEIPT'; excludeVoucherId?: string }
+  ) {
+    const order = await tx.cashTransaction.findFirst({
+      where: { id: orderId, companyId },
+      select: {
+        id: true,
+        documentRole: true,
+        transactionKind: true,
+        isCancelled: true,
+        executionStatus: true,
+        voucherNumber: true,
+      },
+    });
+    if (!order || order.documentRole !== 'ORDER') {
+      throw new AppError(422, opts.transactionKind === 'RECEIPT' ? 'أمر التوريد غير موجود' : 'أمر الصرف غير موجود');
+    }
+    if (order.transactionKind !== opts.transactionKind) {
+      throw new AppError(422, 'نوع الأمر لا يطابق السند');
+    }
+    if (order.isCancelled || order.executionStatus === 'CANCELLED') {
+      throw new AppError(
+        422,
+        opts.transactionKind === 'RECEIPT' ? 'لا يمكن تحميل أمر توريد ملغى' : 'لا يمكن تحميل أمر صرف ملغى'
+      );
+    }
+
+    const alreadyOnThisVoucher = opts.excludeVoucherId
+      ? await tx.cashTransaction.findFirst({
+          where: {
+            id: opts.excludeVoucherId,
+            companyId,
+            sourceOrderId: orderId,
+            isCancelled: false,
+          },
+          select: { id: true },
+        })
+      : null;
+    if (alreadyOnThisVoucher) return;
+
+    const otherVoucher = await tx.cashTransaction.findFirst({
+      where: {
+        companyId,
+        sourceOrderId: orderId,
+        isCancelled: false,
+        ...(opts.excludeVoucherId ? { id: { not: opts.excludeVoucherId } } : {}),
+      },
+      select: { id: true },
+    });
+    if (order.executionStatus === 'COMPLETED' || otherVoucher) {
+      throw new AppError(
+        422,
+        opts.transactionKind === 'RECEIPT'
+          ? 'تم توريد هذا الأمر بالفعل ولا يمكن تحميله مرة أخرى'
+          : 'تم صرف هذا الأمر بالفعل ولا يمكن تحميله مرة أخرى'
+      );
+    }
+  }
+
+  private async markSourceOrderCompleted(
+    tx: Prisma.TransactionClient | typeof prisma,
+    companyId: string,
+    orderId: string,
+    userId?: string
+  ) {
+    await tx.cashTransaction.updateMany({
+      where: { id: orderId, companyId, documentRole: 'ORDER', isCancelled: false },
+      data: {
+        executionStatus: 'COMPLETED',
+        executedAt: new Date(),
+        executedBy: userId ?? null,
+        version: { increment: 1 },
+      },
+    });
+  }
+
+  private async releaseSourceOrderIfUnused(
+    tx: Prisma.TransactionClient,
+    companyId: string,
+    orderId: string,
+    excludeVoucherId?: string
+  ) {
+    const other = await tx.cashTransaction.findFirst({
+      where: {
+        companyId,
+        sourceOrderId: orderId,
+        isCancelled: false,
+        ...(excludeVoucherId ? { id: { not: excludeVoucherId } } : {}),
+      },
+      select: { id: true },
+    });
+    if (other) return;
+    await tx.cashTransaction.updateMany({
+      where: { id: orderId, companyId, documentRole: 'ORDER', executionStatus: 'COMPLETED' },
+      data: {
+        executionStatus: 'PENDING',
+        executedAt: null,
+        executedBy: null,
+        version: { increment: 1 },
+      },
+    });
   }
 
   private async decorateOrder<T extends { createdBy?: string | null; executedBy?: string | null }>(

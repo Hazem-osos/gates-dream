@@ -14,6 +14,7 @@ import { extractReportPayload } from '@/lib/reportEngine/extractReportPayload';
 import { buildReportFilterBadges } from '@/lib/reportEngine/reportFilterBadges';
 import { UniversalReportView } from '@/components/report/UniversalReportView';
 import type { ReportColumnDef } from '@/lib/reportEngine/reportColumns';
+import type { ReportBreadcrumb } from '@/lib/reports/reportPageBreadcrumbs';
 
 const PARAM_KEYS = [
   'page',
@@ -66,6 +67,7 @@ export type UniversalReportViewerProps = {
   title: string;
   columnDefs?: ReportColumnDef[];
   exportFileName?: string;
+  breadcrumbs?: ReportBreadcrumb[];
 };
 
 /**
@@ -77,6 +79,7 @@ export function UniversalReportViewer({
   title,
   columnDefs,
   exportFileName,
+  breadcrumbs,
 }: UniversalReportViewerProps) {
   const searchParams = useSearchParams();
   // Static preview pages hydrate with empty searchParams first. Fetching in
@@ -138,6 +141,7 @@ export function UniversalReportViewer({
         isError
         errorMessage="لا يوجد مسار API لهذا التقرير في الخادم حالياً."
         columnDefs={columnDefs}
+        breadcrumbs={breadcrumbs}
       />
     );
   }
@@ -155,6 +159,7 @@ export function UniversalReportViewer({
       errorMessage={error?.message}
       exportFileName={exportFileName}
       columnDefs={columnDefs}
+      breadcrumbs={breadcrumbs}
     />
   );
 }

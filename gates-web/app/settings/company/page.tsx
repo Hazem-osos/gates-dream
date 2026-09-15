@@ -160,7 +160,7 @@ export default function CompanySettingsPage() {
     companyOnlyQuery
   );
   const { data: safesRes } = useApiQuery<SafeRow[]>(
-    ['safes-list'],
+    ['safes', 'list'],
     '/accounting/safes',
     { limit: 200 },
     companyOnlyQuery
@@ -232,7 +232,7 @@ export default function CompanySettingsPage() {
         invalidate(['company-branches']);
         invalidate(['company-fiscal-years']);
         invalidate(['warehouses-list']);
-        invalidate(['safes-list']);
+        invalidate(['safes']);
       },
       onError: (e) => setError(e.message),
     }

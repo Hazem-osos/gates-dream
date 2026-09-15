@@ -1,6 +1,8 @@
 export * from './erpUiTokens';
 export { ErpDocumentLayout } from './ErpDocumentLayout';
 export { ErpDocumentPageHeader, type ErpHeaderMenuItem } from './ErpDocumentPageHeader';
+export { MasterCardPageHeader, MasterCardShell } from './MasterCardPageHeader';
+export { ReportPageHeader, ReportPageShell } from './ReportPageHeader';
 export { AppScreenToolbar, AppScreenToolbarButtons } from './AppScreenToolbar';
 export { AppScreenChromeProvider } from './AppScreenChromeContext';
 export { AppScreenChromeFallback } from './AppScreenChromeFallback';
@@ -10,6 +12,7 @@ export { GenericRecordsList } from './GenericRecordsList';
 export { ErpFormHeaderCard, ErpFieldError } from './ErpFormHeaderCard';
 export { FinancialSummaryCard, type FinancialSummaryRow } from './FinancialSummaryCard';
 export { ErpDocumentBottomSplit, type ErpBottomTab } from './ErpDocumentBottomSplit';
+export { GeneratedJournalTab } from './GeneratedJournalTab';
 export { LiveJournalPreviewTable } from './LiveJournalPreviewTable';
 export { AuditActivityTab } from './AuditActivityTab';
 export { RequiredDot } from './RequiredDot';

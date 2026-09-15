@@ -9,6 +9,8 @@ import {
   type InvoiceExtraRow,
 } from '@/lib/invoices/invoice-adjustments';
 import { erpInputClass, erpLabelClass } from '@/components/erp/erpUiTokens';
+import { formatBaseAmount, rateForCurrency, toBaseAmount } from '@/lib/accounting/fx-base';
+import { useCompanyBaseCurrency } from '@/lib/hooks/useCompanyBaseCurrency';
 
 type Currency = { id: string; code: string; arabicName: string; exchangeRate?: number | string | null };
 
@@ -61,6 +63,7 @@ export function InvoiceExtrasPanel({
   disabled = false,
   count = 0,
 }: Props) {
+  const { code: companyBase, label: companyBaseLabel } = useCompanyBaseCurrency();
   const patch = (index: number, next: Partial<InvoiceExtraRow>) => {
     onChange(rows.map((row, i) => (i === index ? { ...row, ...next } : row)));
   };
@@ -101,6 +104,7 @@ export function InvoiceExtrasPanel({
                 <th className="px-2 py-2 text-right whitespace-nowrap">نسبة أو قيمة الإضافة</th>
                 <th className="px-2 py-2 text-right whitespace-nowrap">العملة</th>
                 <th className="px-2 py-2 text-right whitespace-nowrap">سعر الصرف</th>
+                <th className="px-2 py-2 text-right whitespace-nowrap">المعادل ({companyBaseLabel})</th>
                 <th className="px-2 py-2 text-right whitespace-nowrap">الشرح</th>
                 <th className="px-2 py-2 text-right whitespace-nowrap">مركز التكلفة</th>
                 <th className="px-2 py-2 text-right whitespace-nowrap">الحساب المقابل</th>
@@ -175,8 +179,10 @@ export function InvoiceExtrasPanel({
                       onChange={(e) => {
                         const code = e.target.value;
                         const picked = currencies.find((c) => c.code === code);
-                        const rate = picked?.exchangeRate != null ? Number(picked.exchangeRate) : 1;
-                        patch(index, { currency: code, exchangeRate: rate > 0 ? rate : 1 });
+                        patch(index, {
+                          currency: code,
+                          exchangeRate: rateForCurrency(code, companyBase, picked?.exchangeRate),
+                        });
                       }}
                     >
                       {(currencies.length ? currencies : [{ id: 'egp', code: 'EGP', arabicName: 'جنيه' }]).map((c) => (
@@ -193,11 +199,19 @@ export function InvoiceExtrasPanel({
                       step="0.0001"
                       className={compactInput}
                       value={row.exchangeRate}
-                      disabled={disabled}
+                      disabled={disabled || row.currency === companyBase}
                       onChange={(e) =>
                         patch(index, { exchangeRate: e.target.value === '' ? '' : Number(e.target.value) })
                       }
                     />
+                  </td>
+                  <td className="px-2 py-2 w-28 text-end font-mono text-xs text-slate-600">
+                    {formatBaseAmount(
+                      toBaseAmount(
+                        Number(row.additionValue || 0) || Number(row.discountValue || 0),
+                        row.exchangeRate
+                      )
+                    )}
                   </td>
                   <td className="px-2 py-2 min-w-[9rem]">
                     <input

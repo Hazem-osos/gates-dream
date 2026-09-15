@@ -18,6 +18,19 @@ export type CoaHierarchyAccount = {
   children?: CoaHierarchyAccount[];
 };
 
+/** Default company cash box — posting leaf, never a parent. */
+export function isSystemCashPostingAccount(node: {
+  code?: string | null;
+  arabicName?: string | null;
+  nameAr?: string | null;
+  children?: unknown[] | null;
+}): boolean {
+  const code = String(node.code ?? '').trim();
+  if (code === '1111') return true;
+  const name = `${node.arabicName ?? ''} ${node.nameAr ?? ''}`;
+  return name.includes('الخزينة الرئيسية') && !node.children?.length;
+}
+
 function displayName(acc: CoaHierarchyAccount): string {
   return acc.nameAr ?? acc.arabicName;
 }

@@ -27,6 +27,7 @@ type Props = {
   invoiceKind?: string;
   transactionKind?: string;
   fundType?: 'CASHBOX' | 'BANK_ACCOUNT';
+  entryType?: string;
   onNavigate?: (id: string) => void;
 };
 
@@ -38,10 +39,11 @@ export function DocumentPreviousBrowser({
   invoiceKind,
   transactionKind,
   fundType,
+  entryType,
   onNavigate,
 }: Props) {
   const { data } = useApiQuery<DocumentAdjacentResult>(
-    ['document-adjacent', entity, currentId, invoiceKind, transactionKind, fundType],
+    ['document-adjacent', entity, currentId, invoiceKind, transactionKind, fundType, entryType],
     '/documents/navigation/adjacent',
     {
       entity,
@@ -49,6 +51,7 @@ export function DocumentPreviousBrowser({
       invoiceKind,
       transactionKind,
       fundType,
+      entryType,
     },
     { enabled: Boolean(entity && currentId) }
   );

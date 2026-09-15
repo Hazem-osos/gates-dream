@@ -248,11 +248,12 @@ export function InventoryInvoicesListSection({
             selectedInvoiceId === r.id ? 'bg-sky-50 even:bg-sky-50 hover:bg-sky-100' : undefined
           }
           columns={[
-            { id: 'num', header: 'الرقم', cell: (r) => r.invoiceNumber || r.id },
+            { id: 'num', header: 'الرقم', cell: (r) => r.invoiceNumber || r.id, sortValue: (r) => r.invoiceNumber || r.id },
             {
               id: 'date',
               header: 'التاريخ',
               cell: (r) => (r.date ? new Date(r.date).toLocaleDateString('ar-EG') : '—'),
+              sortValue: (r) => (r.date ? Date.parse(String(r.date)) : 0),
             },
             { id: 'party', header: partyColumnHeader, cell: (r) => getPartyName(r) },
             {
@@ -310,6 +311,7 @@ export function InventoryInvoicesListSection({
               ),
             },
           ]}
+          defaultSort={{ id: 'num', dir: 'asc' }}
           pagination={{
             page,
             pageSize,
@@ -430,12 +432,14 @@ export function InventoryInvoicesListSection({
             id: 'num',
             header: 'رقم الفاتورة',
             cell: (r) => r.invoiceNumber || r.id,
+            sortValue: (r) => r.invoiceNumber || r.id,
           },
           {
             id: 'date',
             header: 'التاريخ',
             cell: (r) =>
               r.date ? new Date(r.date).toLocaleDateString('ar-EG') : '—',
+            sortValue: (r) => (r.date ? Date.parse(String(r.date)) : 0),
           },
           {
             id: 'party',
@@ -496,6 +500,7 @@ export function InventoryInvoicesListSection({
             ),
           },
         ]}
+        defaultSort={{ id: 'num', dir: 'asc' }}
         pagination={{
           page,
           pageSize,

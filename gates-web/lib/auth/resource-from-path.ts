@@ -21,6 +21,7 @@ const PATH_RESOURCE: Array<{ prefix: string; resource: string; module?: string }
   { prefix: '/inventory/creations/order-limit-items', resource: 'item', module: 'inventory' },
   { prefix: '/inventory/creations/representatives', resource: 'delegate', module: 'accounting' },
   { prefix: '/inventory/guide/items', resource: 'item', module: 'inventory' },
+  { prefix: '/inventory/guide', resource: 'warehouse', module: 'inventory' },
   { prefix: '/growth', resource: 'report', module: 'analytics' },
   { prefix: '/inventory/operations/sales-invoice', resource: 'invoice', module: 'inventory' },
   { prefix: '/inventory/operations/final-purchase-invoice', resource: 'invoice', module: 'inventory' },

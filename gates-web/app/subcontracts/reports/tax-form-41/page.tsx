@@ -4,9 +4,10 @@ import { useMemo, useState } from 'react';
 import { Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/EmptyState';
-import { PageHeader } from '@/components/ui/PageHeader';
 import { TableSkeleton } from '@/components/ui/TableSkeleton';
-import { SubcontractCard, SubcontractPageShell } from '@/components/subcontracts/SubcontractPageShell';
+import { SubcontractCard } from '@/components/subcontracts/SubcontractPageShell';
+import { ReportPageShell } from '@/components/erp/ReportPageHeader';
+import { breadcrumbsForReportModule } from '@/lib/reports/reportPageBreadcrumbs';
 import { useApiQuery } from '@/lib/hooks/useApi';
 import { queryKeys, staleTimes } from '@/lib/query/query-keys';
 import { downloadTaxForm41 } from '@/lib/subcontracts/download-form-41';
@@ -64,16 +65,32 @@ export default function TaxForm41ReportPage() {
   };
 
   return (
-    <SubcontractPageShell>
-      <PageHeader
-        title="نموذج 41 — خصم ضريبة الأرباح التجارية"
-        description="تجميع ربع سنوي للمستخلصات المرحلة وفق صيغة مصلحة الضرائب المصرية."
-        breadcrumbs={[
-          { label: 'مقاولو الباطن', href: '/subcontracts' },
-          { label: 'نموذج 41' },
-        ]}
-      />
-
+    <ReportPageShell
+      title="نموذج 41 — خصم ضريبة الأرباح التجارية"
+      breadcrumbs={breadcrumbsForReportModule('subcontracts', 'نموذج 41')}
+      extraActions={
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            variant="secondary"
+            iconStart={<Download className="h-4 w-4" />}
+            isLoading={exporting === 'CSV'}
+            onClick={() => void onExport('CSV')}
+          >
+            تصدير CSV
+          </Button>
+          <Button
+            iconStart={<Download className="h-4 w-4" />}
+            isLoading={exporting === 'EXCEL'}
+            onClick={() => void onExport('EXCEL')}
+          >
+            تصدير Excel
+          </Button>
+        </div>
+      }
+    >
+      <p className="mb-3 text-sm text-slate-600 text-right">
+        تجميع ربع سنوي للمستخلصات المرحلة وفق صيغة مصلحة الضرائب المصرية.
+      </p>
       <SubcontractCard>
         <div className="mb-4 flex flex-wrap items-end gap-3">
           <label className="text-sm">
@@ -104,21 +121,6 @@ export default function TaxForm41ReportPage() {
               ))}
             </select>
           </label>
-          <Button
-            variant="secondary"
-            iconStart={<Download className="h-4 w-4" />}
-            isLoading={exporting === 'CSV'}
-            onClick={() => void onExport('CSV')}
-          >
-            تصدير CSV (صيغة ETA)
-          </Button>
-          <Button
-            iconStart={<Download className="h-4 w-4" />}
-            isLoading={exporting === 'EXCEL'}
-            onClick={() => void onExport('EXCEL')}
-          >
-            تصدير Excel (.xlsx)
-          </Button>
         </div>
 
         {isLoading ? (
@@ -167,6 +169,6 @@ export default function TaxForm41ReportPage() {
           </div>
         )}
       </SubcontractCard>
-    </SubcontractPageShell>
+    </ReportPageShell>
   );
 }

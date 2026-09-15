@@ -860,6 +860,10 @@ model Account {
   invoiceAdjustmentOffsetAccounts InvoiceAdjustment[]   @relation("AdjustmentOffsetAccount")
   transactionSettingsSales            TransactionSettings[]  @relation("SettingsSalesAccount")
   transactionSettingsPurchaseReturns  TransactionSettings[]  @relation("SettingsPurchaseReturnAccount")
+  transactionSettingsCash             TransactionSettings[]  @relation("SettingsCashAccount")
+  transactionSettingsBankGl           TransactionSettings[]  @relation("SettingsBankGlAccount")
+  transactionSettingsOffset           TransactionSettings[]  @relation("SettingsOffsetAccount")
+  transactionSettingsCharges          TransactionSettings[]  @relation("SettingsChargesAccount")
   warehouseInventoryAccounts Warehouse[] @relation("WarehouseInventoryAccount")
   warehouseCostAccounts      Warehouse[] @relation("WarehouseCostAccount")
   warehouseGiftAccounts      Warehouse[] @relation("WarehouseGiftAccount")
@@ -4014,6 +4018,8 @@ enum DocumentBaseType {
   STOCK_RECEIPT
   SALES_RETURN
   PURCHASE_RETURN
+  BANK_DEBIT_ADVICE
+  BANK_CREDIT_ADVICE
 }
 
 enum NumberingMode {
@@ -4111,6 +4117,18 @@ model TransactionSettings {
   defaultPurchaseReturnAccountId String?
   defaultPurchaseReturnAccount   Account? @relation("SettingsPurchaseReturnAccount", fields: [defaultPurchaseReturnAccountId], references: [id])
 
+  defaultCashAccountId String?
+  defaultCashAccount   Account? @relation("SettingsCashAccount", fields: [defaultCashAccountId], references: [id])
+
+  defaultBankGlAccountId String?
+  defaultBankGlAccount   Account? @relation("SettingsBankGlAccount", fields: [defaultBankGlAccountId], references: [id])
+
+  defaultOffsetAccountId String?
+  defaultOffsetAccount   Account? @relation("SettingsOffsetAccount", fields: [defaultOffsetAccountId], references: [id])
+
+  defaultChargesAccountId String?
+  defaultChargesAccount   Account? @relation("SettingsChargesAccount", fields: [defaultChargesAccountId], references: [id])
+
   defaultCostCenterId String?
   defaultCostCenter   CostCenter? @relation(fields: [defaultCostCenterId], references: [id])
 
@@ -4134,6 +4152,10 @@ model TransactionSettings {
   @@unique([companyId, documentType])
   @@index([defaultSalesAccountId])
   @@index([defaultPurchaseReturnAccountId])
+  @@index([defaultCashAccountId])
+  @@index([defaultBankGlAccountId])
+  @@index([defaultOffsetAccountId])
+  @@index([defaultChargesAccountId])
   @@index([defaultCostCenterId])
   @@index([defaultWarehouseId])
   @@map("transaction_settings")

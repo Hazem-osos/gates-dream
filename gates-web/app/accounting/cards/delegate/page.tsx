@@ -4,13 +4,13 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { User } from 'lucide-react';
 import Image from 'next/image';
 import {
-  PageHeader,
   CompactFormField,
   AdvancedFieldsSection,
-  FormStickyFooter,
   FormSectionCard,
   compactControlClass,
+  AppTable,
 } from '@/components/ui';
+import { DocumentBrowseDrawer, MasterCardShell } from '@/components/erp';
 import { useApiQuery, useApiMutation, useInvalidateQuery } from '@/lib/hooks/useApi';
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
@@ -56,6 +56,8 @@ export default function DelegatePage() {
   
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [showGuide, setShowGuide] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const [formData, setFormData] = useState(EMPTY_FORM);
 
@@ -67,11 +69,9 @@ export default function DelegatePage() {
   );
   const priceLists = priceListsResponse?.data || [];
 
-  const { data: delegatesResponse } = useApiQuery<{ serial?: string; code?: string }[]>(
-    ['delegates'],
-    '/accounting/delegates',
-    { limit: 1000, isActive: true }
-  );
+  const { data: delegatesResponse } = useApiQuery<
+    { id: string; serial?: string; code?: string; arabicName?: string }[]
+  >(['delegates'], '/accounting/delegates', { limit: 1000, isActive: true });
   const nextDelegateCode = useMemo(
     () => nextNumericSerial((delegatesResponse?.data ?? []).flatMap((row) => [row.serial, row.code])),
     [delegatesResponse?.data]
@@ -92,6 +92,7 @@ export default function DelegatePage() {
         setSuccess('تم حفظ المندوب بنجاح');
         invalidateQuery(['delegates']);
         // Reset form
+        setSelectedId(null);
         setFormData(EMPTY_FORM);
       },
       onError: (error: ApiError) => {
@@ -139,6 +140,7 @@ export default function DelegatePage() {
   };
 
   const handleCancel = () => {
+    setSelectedId(null);
     setFormData(EMPTY_FORM);
     setError('');
     setSuccess('');
@@ -168,17 +170,23 @@ export default function DelegatePage() {
   ].filter((v) => String(v ?? '').trim().length > 0).length;
 
   return (
-    <div className="p-6" style={{ direction: 'rtl' }}>
-      <PageHeader
-        title="بطاقة مندوب"
-        breadcrumbs={[
-          { label: 'الحسابات', href: '/accounting' },
-          { label: 'البطاقات' },
-          { label: 'مندوب' },
-        ]}
-        onAdd={handleCancel}
-      />
-
+    <MasterCardShell
+      title="بطاقة مندوب"
+      breadcrumbs={[
+        { label: 'الحسابات', href: '/accounting' },
+        { label: 'البطاقات' },
+        { label: 'مندوب' },
+      ]}
+      docNumber={formData.serial || (selectedId ? 'تعديل' : 'جديد')}
+      statusLabel={selectedId ? 'تعديل' : 'جديد'}
+      onSave={() => void handleSave()}
+      savePending={delegateMutation.isPending}
+      canSave={!delegateMutation.isPending}
+      onNew={handleCancel}
+      currentId={selectedId}
+      onBrowseList={() => setShowGuide(true)}
+      favoriteHref="/accounting/cards/delegate"
+    >
       <form className="w-full text-base">
         <FormSectionCard title="البيانات الأساسية" subtitle="الحقول اللازمة لتعريف المندوب" icon={User}>
           <CompactFormField
@@ -369,16 +377,32 @@ export default function DelegatePage() {
           </div>
         </AdvancedFieldsSection>
 
-        <FormStickyFooter
-          onCancel={handleCancel}
-          onSave={handleSave}
-          saveLoading={delegateMutation.isPending}
-          status="مسودة"
-        />
       </form>
 
       {error && <ErrorToast message={error} onClose={() => setError('')} />}
       {success && <SuccessToast message={success} onClose={() => setSuccess('')} />}
-    </div>
+
+      <DocumentBrowseDrawer open={showGuide} onClose={() => setShowGuide(false)} title="المندوبون السابقون">
+        <AppTable
+          data={delegatesResponse?.data ?? []}
+          getRowKey={(r) => r.id}
+          emptyTitle="لا يوجد مندوبون"
+          onRowClick={(row) => {
+            setSelectedId(row.id);
+            setFormData((prev) => ({
+              ...prev,
+              serial: row.serial || row.code || '',
+              code: row.code || row.serial || '',
+              arabicName: row.arabicName || '',
+            }));
+            setShowGuide(false);
+          }}
+          columns={[
+            { id: 'code', header: 'المسلسل', cell: (r) => r.serial || r.code || '—' },
+            { id: 'name', header: 'الاسم', cell: (r) => r.arabicName || '—' },
+          ]}
+        />
+      </DocumentBrowseDrawer>
+    </MasterCardShell>
   );
 }

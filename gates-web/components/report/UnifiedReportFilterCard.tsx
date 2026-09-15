@@ -17,7 +17,7 @@ export type UnifiedReportFilterCardProps = {
   toolbarExtra?: ReactNode;
   /** @default 'wide' — 4 columns on xl */
   layout?: 'wide' | 'compact';
-  /** When false, title/subtitle render only via ReportFilterPageShell PageHeader */
+  /** When false, title/subtitle render only via ReportFilterPageShell */
   showTitle?: boolean;
 };
 
@@ -37,8 +37,8 @@ export function UnifiedReportFilterCard({
 }: UnifiedReportFilterCardProps) {
   const gridClass =
     layout === 'compact'
-      ? 'grid grid-cols-1 sm:grid-cols-2 gap-3'
-      : 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3';
+      ? 'grid grid-cols-1 gap-3 sm:grid-cols-2'
+      : 'grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3';
 
   return (
     <div className={cn('w-full max-w-none', showTitle ? 'my-4 md:my-6' : 'mb-4 md:mb-6')} dir="rtl">

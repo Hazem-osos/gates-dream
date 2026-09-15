@@ -14,6 +14,7 @@ type AdjacentInput = {
   invoiceKind?: string;
   transactionKind?: string;
   fundType?: 'CASHBOX' | 'BANK_ACCOUNT';
+  entryType?: string;
 };
 
 export type AdjacentResult = {
@@ -94,27 +95,30 @@ export async function getAdjacentDocument(
   }
 
   if (entity === 'journal-entry') {
-    const where = { companyId };
+    const where = {
+      companyId,
+      ...(input.entryType ? { entryType: input.entryType } : { NOT: { entryType: 'OPENING_BALANCE' } }),
+    };
     return resolveAdjacent({
       findCurrent: () =>
         prisma.journalEntry.findFirst({
-          where: { id: currentId, companyId },
+          where: { id: currentId, ...where },
           select: { id: true, date: true },
         }),
       countAll: () => prisma.journalEntry.count({ where }),
       findOlder: (current) =>
         prisma.journalEntry.findFirst({
-          where: { companyId, ...olderWhere(current) },
+          where: { ...where, ...olderWhere(current) },
           orderBy: [{ date: 'desc' }, { id: 'desc' }],
           select: { id: true },
         }),
       findNewer: (current) =>
         prisma.journalEntry.findFirst({
-          where: { companyId, ...newerWhere(current) },
+          where: { ...where, ...newerWhere(current) },
           orderBy: [{ date: 'asc' }, { id: 'asc' }],
           select: { id: true },
         }),
-      countNewer: (current) => prisma.journalEntry.count({ where: { companyId, ...newerWhere(current) } }),
+      countNewer: (current) => prisma.journalEntry.count({ where: { ...where, ...newerWhere(current) } }),
     });
   }
 

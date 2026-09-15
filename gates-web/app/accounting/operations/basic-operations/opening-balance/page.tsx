@@ -17,6 +17,7 @@ import {
 import { OpeningBalanceHeader } from '@/components/accounting/opening-balance/OpeningBalanceHeader';
 import { OpeningBalanceLinesTable } from '@/components/accounting/opening-balance/OpeningBalanceLinesTable';
 import { OpeningBalanceFooter } from '@/components/accounting/opening-balance/OpeningBalanceFooter';
+import { JournalEntryBottomSplit } from '@/components/accounting/journal/JournalEntryBottomSplit';
 import { useApiMutation, useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
 import { useAccountsQuery, useCurrenciesQuery } from '@/lib/hooks/useMasterDataQueries';
 import ErrorToast from '@/components/ErrorToast';
@@ -38,6 +39,8 @@ import { printOperationalDocument } from '@/lib/print/printOperationalDocument';
 import type { JournalPrintModel } from '@/lib/print/types';
 import { DynamicChunkSkeleton } from '@/components/ui/DynamicChunkSkeleton';
 import { onFieldErrors } from '@/lib/forms/on-field-errors';
+import { pickCurrencyByCode, toBaseAmount } from '@/lib/accounting/fx-base';
+import { useCompanyBaseCurrency } from '@/lib/hooks/useCompanyBaseCurrency';
 
 const JournalEntriesListSection = dynamic(
   () =>
@@ -161,7 +164,8 @@ function OpeningBalancePageInner() {
 
   const { data: currenciesResponse } = useCurrenciesQuery();
   const currencies = currenciesResponse?.data ?? [];
-  const defaultCurrency = currencies.find((c) => c.code === 'EGP') ?? currencies[0];
+  const { code: companyBaseCurrency } = useCompanyBaseCurrency();
+  const defaultCurrency = pickCurrencyByCode(currencies, companyBaseCurrency);
   const { data: accountsResponse } = useAccountsQuery(undefined, 400, { leafOnly: true });
   const accounts = accountsResponse?.data ?? [];
 
@@ -170,6 +174,7 @@ function OpeningBalancePageInner() {
     '/accounting/opening-balance'
   );
   const openingMeta = openingMetaResponse?.data;
+  const existingOpeningId = openingMeta?.journalEntryId ?? null;
   const lockedDate = openingMeta?.openingDate || dateW;
   const lockedHijri = openingMeta?.hijriDate || toHijriDate(lockedDate);
 
@@ -241,8 +246,8 @@ function OpeningBalancePageInner() {
   }, [loadedJournalEntry, reset, defaultCurrency?.id, openingMeta?.openingDate, openingMeta?.hijriDate]);
 
   const totals = useMemo(() => {
-    const debit = lines.reduce((s, l) => s + (Number(l.debit) || 0), 0);
-    const credit = lines.reduce((s, l) => s + (Number(l.credit) || 0), 0);
+    const debit = lines.reduce((s, l) => s + toBaseAmount(l.debit, l.exchangeRate), 0);
+    const credit = lines.reduce((s, l) => s + toBaseAmount(l.credit, l.exchangeRate), 0);
     return { debit, credit, diff: debit - credit };
   }, [lines]);
 
@@ -255,25 +260,31 @@ function OpeningBalancePageInner() {
     [router]
   );
 
+  useEffect(() => {
+    if (savedJournalEntryId || journalEntryIdFromUrl) return;
+    if (skipUrlHydrateRef.current) return;
+    if (existingOpeningId) openEntry(existingOpeningId);
+  }, [existingOpeningId, journalEntryIdFromUrl, openEntry, savedJournalEntryId]);
+
   const journalPrintModel: JournalPrintModel = useMemo(
     () => ({
       voucherNumber: entryNumberW || undefined,
       date: lockedDate ? new Date(lockedDate).toLocaleDateString('ar-EG') : '—',
       description: descriptionW || undefined,
-      currencyCode: defaultCurrency?.code ?? 'EGP',
+      currencyCode: companyBaseCurrency,
       lines: lines.map((l) => {
         const acc = accounts.find((a) => a.id === l.accountId);
         return {
           accountLabel: acc ? `[${acc.code}] ${acc.arabicName}` : l.accountId || '—',
           description: l.description,
-          debit: Number(l.debit) || 0,
-          credit: Number(l.credit) || 0,
+          debit: toBaseAmount(l.debit, l.exchangeRate),
+          credit: toBaseAmount(l.credit, l.exchangeRate),
         };
       }),
       debitTotal: totals.debit,
       creditTotal: totals.credit,
     }),
-    [accounts, lockedDate, defaultCurrency?.code, descriptionW, entryNumberW, lines, totals.credit, totals.debit]
+    [accounts, lockedDate, companyBaseCurrency, descriptionW, entryNumberW, lines, totals.credit, totals.debit]
   );
 
   const journalMutation = useApiMutation<JournalEntryDetail, Record<string, unknown>>(
@@ -284,19 +295,20 @@ function OpeningBalancePageInner() {
       onSuccess: (res) => {
         const id = res?.data?.id;
         invalidateQuery(['journal-entries']);
+        invalidateQuery(['opening-balance-meta']);
+        if (id) openEntry(id);
         if (postAfterSaveRef.current && id) {
           postAfterSaveRef.current = false;
           apiClient
             .post(`/accounting/journal-entries/${id}/post`, {})
             .then(() => {
               invalidateQuery(['journal-entries']);
-              startNewEntry();
+              invalidateQuery(['opening-balance-meta']);
               setSuccess('تم ترحيل قيد الرصيد الافتتاحي');
             })
             .catch((err: ApiError) => setError(err.message || 'حدث خطأ أثناء الترحيل'));
           return;
         }
-        startNewEntry();
         setSuccess('تم حفظ الرصيد الافتتاحي كمسودة');
       },
       onError: (err: ApiError) => setError(err.message || 'حدث خطأ أثناء الحفظ'),
@@ -312,7 +324,7 @@ function OpeningBalancePageInner() {
       successMessage: 'تم حفظ تعديلات الرصيد الافتتاحي',
       onSuccess: () => {
         invalidateQuery(['journal-entries']);
-        startNewEntry();
+        invalidateQuery(['opening-balance-meta']);
         setSuccess('تم حفظ تعديلات الرصيد الافتتاحي');
       },
       onError: (err: ApiError) => setError(err.message || 'حدث خطأ أثناء التحديث'),
@@ -353,7 +365,7 @@ function OpeningBalancePageInner() {
   );
 
   const buildRequestBody = (values: OpeningBalanceHeaderInput) => {
-    const currencyCode = defaultCurrency?.code ?? 'EGP';
+    const currencyCode = defaultCurrency?.code ?? companyBaseCurrency;
     const dateIso = openingMeta?.openingDate || values.date || todayIso();
     return {
       date: new Date(`${dateIso}T00:00:00.000Z`).toISOString(),
@@ -371,6 +383,8 @@ function OpeningBalancePageInner() {
         credit: line.credit || 0,
         lineOrder: index + 1,
         exchangeRate: line.exchangeRate || 1,
+        debitBase: toBaseAmount(line.debit, line.exchangeRate),
+        creditBase: toBaseAmount(line.credit, line.exchangeRate),
         costCenterId: line.costCenterId || undefined,
       })),
     };
@@ -384,8 +398,8 @@ function OpeningBalancePageInner() {
       setError('أدخل سطرين على الأقل (مدين ودائن) ثم احفظ');
       return false;
     }
-    const debit = filled.reduce((sum, line) => sum + (Number(line.debit) || 0), 0);
-    const credit = filled.reduce((sum, line) => sum + (Number(line.credit) || 0), 0);
+    const debit = filled.reduce((sum, line) => sum + toBaseAmount(line.debit, line.exchangeRate), 0);
+    const credit = filled.reduce((sum, line) => sum + toBaseAmount(line.credit, line.exchangeRate), 0);
     if (Math.abs(debit - credit) > 0.01) {
       setError(
         `القيد غير متزن: إجمالي المدين ${debit.toLocaleString('ar-EG')} لا يساوي إجمالي الدائن ${credit.toLocaleString('ar-EG')}`
@@ -440,6 +454,10 @@ function OpeningBalancePageInner() {
   };
 
   const startNewEntry = () => {
+    if (existingOpeningId) {
+      setError('يوجد قيد افتتاحي بالفعل. احذفه من السابق أولاً حتى يمكن إنشاء قيد جديد.');
+      return;
+    }
     const dateIso = openingMeta?.openingDate || todayIso();
     reset({
       isPosted: false,
@@ -613,10 +631,12 @@ function OpeningBalancePageInner() {
               })),
             });
           },
-          onDuplicate: handleDuplicate,
+          onDuplicate: existingOpeningId ? undefined : handleDuplicate,
           postPending: postJournalMutation.isPending,
           onNew: startNewEntry,
           newLabel: 'جديد',
+          newDisabled: Boolean(existingOpeningId),
+          newHint: 'يوجد قيد افتتاحي بالفعل. احذفه من السابق أولاً حتى يمكن إنشاء قيد جديد.',
         }}
         openingDate={lockedDate}
         hijriDate={lockedHijri}
@@ -662,9 +682,19 @@ function OpeningBalancePageInner() {
         </div>
       </DocumentFormLock>
 
+      <JournalEntryBottomSplit
+        debitTotal={totals.debit}
+        creditTotal={totals.credit}
+        journalEntryId={savedJournalEntryId}
+        currencyCode={companyBaseCurrency}
+      />
+
       <OpeningBalanceFooter
         debitTotal={totals.debit}
         creditTotal={totals.credit}
+        currencyCode={companyBaseCurrency}
+        journalEntryId={savedJournalEntryId}
+        journalNumber={loadedJournalEntry?.voucherNumber}
         onSaveDraft={() => void handleSubmit(onSave, onFieldErrors(setError))()}
         onPost={handlePost}
         onCancel={onCancel}

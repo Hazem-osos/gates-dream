@@ -293,7 +293,7 @@ export class CustomerService {
           where,
           skip,
           take: limit,
-          orderBy: [{ arabicName: 'asc' }],
+          orderBy: [{ code: 'asc' }, { serial: 'asc' }, { arabicName: 'asc' }],
           select: CUSTOMER_LIST_SELECT,
         }),
         prisma.customer.count({ where }),

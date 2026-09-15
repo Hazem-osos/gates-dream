@@ -176,7 +176,7 @@ export default function CreateUserGroupsPage() {
   const companyBranches = useMemo(() => branchesRes?.data ?? [], [branchesRes?.data]);
 
   const { data: safesRes } = useApiQuery<NamedRow[]>(
-    ['safes-for-rights'],
+    ['safes', 'rights'],
     '/accounting/safes',
     { isActive: true },
     { enabled: Boolean(companyId) && activeSection === 'bank-permissions' }

@@ -25,8 +25,8 @@ export const listSourceDocumentsQuerySchema = z.object({
     return Number.isFinite(n) && n > 0 ? n : 1;
   }),
   limit: z.string().optional().transform((v) => {
-    const n = v ? parseInt(v, 10) : 20;
-    return Math.min(Math.max(Number.isFinite(n) ? n : 20, 1), 50);
+    const n = v ? parseInt(v, 10) : 100;
+    return Math.min(Math.max(Number.isFinite(n) ? n : 100, 1), 200);
   }),
 });
 

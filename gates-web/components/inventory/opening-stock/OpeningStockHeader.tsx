@@ -27,6 +27,7 @@ type Props = {
   onExportExcel: () => void;
   onClearAll: () => void;
   onNew?: () => void;
+  newDisabled?: boolean;
   onVoid?: () => void;
   isCancelled?: boolean;
 };
@@ -53,6 +54,7 @@ export function OpeningStockHeader({
   onExportExcel,
   onClearAll,
   onNew,
+  newDisabled,
   onVoid,
   isCancelled,
 }: Props) {
@@ -96,6 +98,8 @@ export function OpeningStockHeader({
           isCancelled: Boolean(isCancelled),
           onNew,
           newLabel: 'جديد',
+          newDisabled,
+          newHint: 'يوجد كشف بضاعة أول المدة بالفعل. احذفه أولاً حتى يمكن إنشاء كشف جديد.',
           onEdit,
           onPost,
           onUnpost,

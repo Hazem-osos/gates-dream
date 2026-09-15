@@ -153,6 +153,12 @@ function OpeningStockFormInner() {
     { limit: 1000, isActive: true }
   );
   const catalogItems = useMemo(() => itemsResponse?.data ?? [], [itemsResponse?.data]);
+  const { data: existingOpeningRes } = useApiQuery<OpeningStockRecord[]>(
+    ['opening-stock-browse', 'singleton'],
+    '/inventory/opening-stock',
+    { skip: 0, take: 1, isCancelled: false }
+  );
+  const existingOpeningStockId = existingOpeningRes?.data?.[0]?.id ?? null;
 
   const {
     handleSubmit,
@@ -284,7 +290,8 @@ function OpeningStockFormInner() {
     void handleSubmit(async () => {
       const id = await persistDraft();
       if (!id) return;
-      resetNew();
+      invalidateQuery(['opening-stock-browse']);
+      await loadRecord(id);
       setSuccess('تم حفظ بضاعة أول المدة كمسودة');
     }, onFieldErrors(setError))();
   };
@@ -409,6 +416,7 @@ function OpeningStockFormInner() {
     try {
       await apiClient.post(`/inventory/opening-stock/${selectedId}/cancel`);
       invalidateQuery(['opening-stock']);
+      invalidateQuery(['opening-stock-browse']);
       setLoaded((prev) => (prev ? { ...prev, isCancelled: true } : prev));
       lockToView();
       setSuccess('تم إلغاء كشف بضاعة أول المدة');
@@ -420,6 +428,10 @@ function OpeningStockFormInner() {
   };
 
   const resetNew = () => {
+    if (existingOpeningStockId && !isCancelled) {
+      setError('يوجد كشف بضاعة أول المدة بالفعل. احذفه أولاً حتى يمكن إنشاء كشف جديد.');
+      return;
+    }
     reset({ date: todayIso(), description: '', warehouseId: defaultWarehouseId });
     setLines([emptyOpeningStockLine(defaultWarehouseId)]);
     setSelectedId(null);
@@ -519,6 +531,11 @@ function OpeningStockFormInner() {
     }
   };
 
+  useEffect(() => {
+    if (selectedId || !existingOpeningStockId) return;
+    void loadRecord(existingOpeningStockId);
+  }, [existingOpeningStockId, selectedId]);
+
   const saving = createMutation.isPending || lifecyclePending;
 
   return (
@@ -546,6 +563,7 @@ function OpeningStockFormInner() {
           onExportExcel={() => void handleExportExcel()}
           onClearAll={handleClearAll}
           onNew={resetNew}
+          newDisabled={Boolean(existingOpeningStockId && !isCancelled)}
           onVoid={() => void handleVoid()}
           isCancelled={isCancelled}
         />

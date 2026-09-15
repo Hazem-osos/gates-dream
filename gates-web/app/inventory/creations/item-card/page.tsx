@@ -5,14 +5,13 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { ImagePlus, Package, Plus, Trash2, Upload, X } from 'lucide-react';
 import {
-  PageHeader,
   Button,
   CompactFormField,
   FormStickyFooter,
   FormSectionCard,
   compactControlClass,
-  CrudButtons,
 } from '@/components/ui';
+import { ErpDocumentLayout, MasterCardPageHeader } from '@/components/erp';
 import { itemCardFormSchema } from '@/lib/validation/inventory.schema';
 import { useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
 import { apiClient } from '@/lib/api/client';
@@ -531,43 +530,45 @@ export default function ItemCardPage() {
   const activeHint = TABS.find((tab) => tab.id === activeTab)?.hint ?? '';
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50 p-6" style={{ direction: 'rtl' }}>
+    <ErpDocumentLayout>
       {error && <ErrorToast message={error} onClose={() => setError('')} />}
       {success && <SuccessToast message={success} onClose={() => setSuccess('')} />}
 
-      <PageHeader
+      <MasterCardPageHeader
         title="بطاقة الصنف"
         breadcrumbs={[
           { label: 'المخزون', href: '/inventory' },
           { label: 'التعريفات' },
           { label: 'بطاقة الصنف' },
         ]}
-        actions={
-          <div className="flex flex-wrap items-center gap-2">
-            <NumberingModeControl
-              kind="items"
-              auto={itemAuto}
-              recordCount={itemRecordCount}
-              settingKey="itemAutoNumbering"
-            />
-          <CrudButtons
-            onPrevious={() => router.push('/inventory/guide/items')}
-            previousLabel="الدليل"
-            onAdd={startNewItem}
-            extraItems={[
-              {
-                id: 'archive',
-                label: 'أرشفة',
-                onClick: () => void handleArchive(),
-                disabled: !activeItemId,
-                destructive: true,
-              },
-              { id: 'find-item', label: 'بحث عن الصنف', onClick: () => setShowFinder(true) },
-              { id: 'barcode', label: 'طباعة باركود', onClick: () => setShowPrint(true) },
-            ]}
+        docNumber={formData.serial || (activeItemId ? 'تعديل' : 'جديد')}
+        statusLabel={formData.inactiveItem ? 'مؤرشف' : activeItemId ? 'تعديل' : 'جديد'}
+        onSave={() => void handleSave()}
+        savePending={loading}
+        canSave={!loading}
+        onNew={startNewItem}
+        currentId={activeItemId}
+        onBrowseList={() => setShowFinder(true)}
+        extraActions={
+          <NumberingModeControl
+            kind="items"
+            auto={itemAuto}
+            recordCount={itemRecordCount}
+            settingKey="itemAutoNumbering"
           />
-          </div>
         }
+        moreMenuItems={[
+          {
+            id: 'archive',
+            label: 'أرشفة',
+            onClick: () => void handleArchive(),
+            disabled: !activeItemId,
+            destructive: true,
+          },
+          { id: 'barcode', label: 'طباعة باركود', onClick: () => setShowPrint(true) },
+          { id: 'guide', label: 'دليل الأصناف', onClick: () => router.push('/inventory/guide/items') },
+        ]}
+        favoriteHref="/inventory/creations/item-card"
       />
 
       <FormSectionCard
@@ -1293,6 +1294,6 @@ export default function ItemCardPage() {
           setSuccess('تم فتح الصنف');
         }}
       />
-    </div>
+    </ErpDocumentLayout>
   );
 }

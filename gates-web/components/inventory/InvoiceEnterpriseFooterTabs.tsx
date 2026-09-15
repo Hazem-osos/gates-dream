@@ -30,8 +30,8 @@ type Props = {
 };
 
 const tabs = [
-  { id: 'financial', label: 'الملخص المالي والضرائب' },
   { id: 'gl', label: 'معاينة القيد المحاسبي' },
+  { id: 'financial', label: 'الملخص المالي والضرائب' },
   { id: 'stock', label: 'الأثر المخزني' },
   { id: 'audit', label: 'سجل الحركات' },
 ] as const;
@@ -56,8 +56,8 @@ export function InvoiceEnterpriseFooterTabs({
   const stockRows = lines.filter((l) => (Number(l.quantity) || 0) > 0 && l.itemId);
 
   return (
-    <div className="mt-6 rounded-xl border border-[#E6F0F7] bg-white shadow-sm overflow-hidden" dir="rtl">
-      <div className="flex flex-wrap gap-1 border-b border-[#E6F0F7] bg-[#F6FBFD] p-2">
+    <div className="mt-6 overflow-hidden rounded-xl border border-[#E6F0F7] bg-white shadow-sm" dir="rtl">
+      <div className="flex flex-wrap items-center gap-1 border-b border-[#E6F0F7] bg-[#F6FBFD] p-2" dir="ltr">
         {tabs.map((t) => (
           <button
             key={t.id}

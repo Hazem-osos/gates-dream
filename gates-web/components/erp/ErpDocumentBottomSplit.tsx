@@ -56,37 +56,48 @@ export function ErpDocumentBottomSplit({
     if (onActiveTabChange) onActiveTabChange(id);
     if (!isControlled) setInternalTab(id);
   };
+  const journalTab = allTabs.find((t) => t.id === 'gl');
+  const otherTabs = allTabs.filter((t) => t.id !== 'gl');
   const active = allTabs.find((t) => t.id === tab) ?? allTabs[0];
 
-  return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
-      <FinancialSummaryCard
-        rows={financialRows}
-        netAmount={netAmount}
-        netLabel={netLabel}
-        showTafqeet={showTafqeet}
-        footer={financialFooter}
-      />
+  const tabButton = (t: ErpBottomTab) => (
+    <button
+      key={t.id}
+      type="button"
+      onClick={() => setTab(t.id)}
+      className={`px-3 py-1.5 text-xs sm:text-sm rounded-full transition-colors ${
+        tab === t.id
+          ? 'bg-[#0E78AA] text-white font-semibold shadow-sm'
+          : 'text-slate-600 hover:bg-white hover:text-slate-900'
+      }`}
+    >
+      {t.label}
+    </button>
+  );
 
-      <Card className="border-slate-200 shadow-sm rounded-xl overflow-hidden min-h-[240px] flex flex-col">
-        <div className="flex flex-wrap gap-1.5 border-b border-[#E8F1F6] bg-white p-2">
-          {allTabs.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              onClick={() => setTab(t.id)}
-              className={`px-3 py-1.5 text-xs sm:text-sm rounded-full transition-colors ${
-                tab === t.id
-                  ? 'bg-[#0E78AA] text-white font-semibold shadow-sm'
-                  : 'text-slate-600 hover:bg-white hover:text-slate-900'
-              }`}
-            >
-              {t.label}
-            </button>
-          ))}
+  return (
+    <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2" dir="ltr">
+      <Card className="flex min-h-[240px] flex-col overflow-hidden rounded-xl border-slate-200 shadow-sm">
+        <div className="flex flex-wrap items-center gap-1.5 border-b border-[#E8F1F6] bg-white p-2">
+          {journalTab ? tabButton(journalTab) : null}
+          <div className="flex flex-1 flex-wrap justify-end gap-1.5" dir="rtl">
+            {otherTabs.map(tabButton)}
+          </div>
         </div>
-        <CardContent className="p-3 flex-1 overflow-auto max-h-[300px] text-sm">{active?.content}</CardContent>
+        <CardContent className="max-h-[300px] flex-1 overflow-auto p-3 text-sm" dir="rtl">
+          {active?.content}
+        </CardContent>
       </Card>
+
+      <div dir="rtl">
+        <FinancialSummaryCard
+          rows={financialRows}
+          netAmount={netAmount}
+          netLabel={netLabel}
+          showTafqeet={showTafqeet}
+          footer={financialFooter}
+        />
+      </div>
     </div>
   );
 }

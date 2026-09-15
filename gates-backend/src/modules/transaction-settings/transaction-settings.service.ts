@@ -25,9 +25,15 @@ export function invoiceKindToDocumentType(
   return null;
 }
 
+const accountPick = { select: { id: true, code: true, arabicName: true } };
+
 const settingsInclude = {
-  defaultSalesAccount: { select: { id: true, code: true, arabicName: true } },
-  defaultPurchaseReturnAccount: { select: { id: true, code: true, arabicName: true } },
+  defaultSalesAccount: accountPick,
+  defaultPurchaseReturnAccount: accountPick,
+  defaultCashAccount: accountPick,
+  defaultBankGlAccount: accountPick,
+  defaultOffsetAccount: accountPick,
+  defaultChargesAccount: accountPick,
   defaultCostCenter: { select: { id: true, code: true, arabicName: true } },
   defaultWarehouse: { select: { id: true, code: true, arabicName: true } },
 } satisfies Prisma.TransactionSettingsInclude;
@@ -35,6 +41,10 @@ const settingsInclude = {
 export type TransactionSettingsDto = TransactionSettings & {
   defaultSalesAccount: { id: string; code: string; arabicName: string } | null;
   defaultPurchaseReturnAccount: { id: string; code: string; arabicName: string } | null;
+  defaultCashAccount: { id: string; code: string; arabicName: string } | null;
+  defaultBankGlAccount: { id: string; code: string; arabicName: string } | null;
+  defaultOffsetAccount: { id: string; code: string; arabicName: string } | null;
+  defaultChargesAccount: { id: string; code: string; arabicName: string } | null;
   defaultCostCenter: { id: string; code: string; arabicName: string } | null;
   defaultWarehouse: { id: string; code: string | null; arabicName: string } | null;
 };
@@ -127,6 +137,19 @@ export class TransactionSettingsService {
         select: { id: true },
       });
       if (!account) throw new AppError(422, 'حساب مردودات المشتريات الافتراضي غير موجود');
+    }
+    for (const [id, label] of [
+      [patch.defaultCashAccountId, 'حساب الصندوق الافتراضي'],
+      [patch.defaultBankGlAccountId, 'حساب البنك الافتراضي'],
+      [patch.defaultOffsetAccountId, 'الحساب المقابل الافتراضي'],
+      [patch.defaultChargesAccountId, 'حساب المصروف أو العمولة'],
+    ] as const) {
+      if (!id) continue;
+      const account = await prisma.account.findFirst({
+        where: { id, companyId, deletedAt: null },
+        select: { id: true },
+      });
+      if (!account) throw new AppError(422, `${label} غير موجود في شجرة حسابات هذه الشركة`);
     }
     if (patch.defaultCostCenterId) {
       const center = await prisma.costCenter.findFirst({

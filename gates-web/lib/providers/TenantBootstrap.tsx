@@ -14,7 +14,8 @@ const AUTH_ROUTES = ['/login', '/register', '/forgot-password', '/logout'];
  */
 export function TenantBootstrap({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const onAuthRoute = AUTH_ROUTES.some((p) => pathname === p || pathname?.startsWith(`${p}/`));
+  const onAuthRoute =
+    pathname === '/' || AUTH_ROUTES.some((p) => pathname === p || pathname?.startsWith(`${p}/`));
 
   useEffect(() => {
     let cancelled = false;

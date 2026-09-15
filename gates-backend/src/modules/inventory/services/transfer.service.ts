@@ -6,6 +6,7 @@ import { stockMovementService } from './stock-movement.service';
 import { inventoryCostingService } from './inventory-costing.service';
 import { COSTING_MOVEMENT } from './inventory-costing-math';
 import { stockMovementGlService, type StockGlPostingContext } from './stock-movement-gl.service';
+import { journalPostingService } from '../../accounting/services/journal-posting.service';
 import { assertStoreDocumentRight } from './store-document-rights';
 import { fiscalYearService } from '../../platform/services/fiscal-year.service';
 import { sortForStockLocking, stockLockSortKey } from '../utils/stock-lock-order.util';
@@ -384,7 +385,7 @@ export class TransferService {
               },
             },
           },
-          orderBy: { createdAt: 'desc' },
+          orderBy: [{ serial: 'asc' }, { createdAt: 'asc' }],
           skip: options?.skip || 0,
           take: options?.take || 50,
         }),
@@ -657,15 +658,25 @@ export class TransferService {
         throw new Error('Cannot cancel posted transfer. Unpost it first.');
       }
 
-      const updateResult = await prisma.transfer.updateMany({
-        where: { id: transferId, companyId, version: transfer.version },
-        data: {
-          isCancelled: true,
-          cancelledAt: new Date(),
-          version: { increment: 1 },
-        },
+      await prisma.$transaction(async (tx) => {
+        await journalPostingService.cascadeSourceJournalInTx(
+          tx,
+          companyId,
+          [transfer.journalEntryId],
+          'cancel',
+          undefined,
+          { sourceId: transfer.id, sourceType: 'STK', sourceNumber: transfer.serial ?? transfer.id.slice(0, 8) }
+        );
+        const updateResult = await tx.transfer.updateMany({
+          where: { id: transferId, companyId, version: transfer.version },
+          data: {
+            isCancelled: true,
+            cancelledAt: new Date(),
+            version: { increment: 1 },
+          },
+        });
+        assertUpdateCount(updateResult.count);
       });
-      assertUpdateCount(updateResult.count);
 
       logger.info({ companyId, transferId }, 'Transfer cancelled');
 

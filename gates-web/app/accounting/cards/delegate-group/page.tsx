@@ -1,15 +1,15 @@
 'use client';
-import { useBackendReachability } from '@/lib/hooks/useBackendReachability';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import { useBackendReachability } from '@/lib/hooks/useBackendReachability';
+import { useEffect, useMemo, useState } from 'react';
 import { Users } from 'lucide-react';
 import {
-  PageHeader,
   CompactFormField,
   AdvancedFieldsSection,
-  FormStickyFooter,
   FormSectionCard,
+  AppTable,
 } from '@/components/ui';
+import { DocumentBrowseDrawer, MasterCardShell } from '@/components/erp';
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
 import { nextNumericSerial } from '@/lib/masters/nextNumericSerial';
@@ -20,30 +20,37 @@ const EMPTY_FORM = {
   englishName: '',
 };
 
+type StoredGroup = typeof EMPTY_FORM;
+
+function readStoredGroups(): StoredGroup[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = window.localStorage.getItem('gates:delegate-groups');
+    return raw ? (JSON.parse(raw) as StoredGroup[]) : [];
+  } catch {
+    return [];
+  }
+}
+
 export default function DelegateGroupPage() {
   useBackendReachability();
   const [formData, setFormData] = useState(EMPTY_FORM);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [saving, setSaving] = useState(false);
+  const [showGuide, setShowGuide] = useState(false);
   const storedSerials = useMemo(() => {
-    if (typeof window === 'undefined') return [];
-    try {
-      const raw = window.localStorage.getItem('gates:delegate-groups');
-      const rows = raw ? (JSON.parse(raw) as Array<{ serial?: string }>) : [];
-      return rows.map((row) => row.serial);
-    } catch {
-      return [];
-    }
+    return readStoredGroups().map((row) => row.serial);
   }, [success]);
   const nextSerial = nextNumericSerial(storedSerials);
+  const rows = useMemo(() => readStoredGroups(), [success, saving]);
 
   useEffect(() => {
     setFormData((prev) => (prev.serial ? prev : { ...prev, serial: nextSerial }));
   }, [nextSerial]);
 
-  const handleCancel = () => {
-    setFormData(EMPTY_FORM);
+  const handleNew = () => {
+    setFormData({ ...EMPTY_FORM, serial: nextSerial });
     setError('');
     setSuccess('');
   };
@@ -58,8 +65,7 @@ export default function DelegateGroupPage() {
     setSaving(true);
     try {
       const key = 'gates:delegate-groups';
-      const raw = window.localStorage.getItem(key);
-      const existing = raw ? (JSON.parse(raw) as Array<typeof EMPTY_FORM>) : [];
+      const existing = readStoredGroups();
       const next = [
         ...existing.filter((row) => row.serial !== formData.serial || !formData.serial),
         { ...formData },
@@ -73,27 +79,38 @@ export default function DelegateGroupPage() {
     }
   };
 
+  const handleDelete = () => {
+    if (!formData.serial) return;
+    const next = readStoredGroups().filter((row) => row.serial !== formData.serial);
+    window.localStorage.setItem('gates:delegate-groups', JSON.stringify(next));
+    handleNew();
+    setSuccess('تم حذف المجموعة');
+  };
+
   const advancedFilledCount = [formData.englishName].filter((v) => String(v ?? '').trim().length > 0).length;
 
   return (
-    <div className="p-6" style={{ direction: 'rtl' }}>
-      <PageHeader
-        title="بطاقة مجموعة مندوبين"
-        breadcrumbs={[
-          { label: 'الحسابات', href: '/accounting' },
-          { label: 'البطاقات' },
-          { label: 'مجموعة مندوبين' },
-        ]}
-      />
-
+    <MasterCardShell
+      title="بطاقة مجموعة مندوبين"
+      breadcrumbs={[
+        { label: 'الحسابات', href: '/accounting' },
+        { label: 'البطاقات' },
+        { label: 'مجموعة مندوبين' },
+      ]}
+      docNumber={formData.serial || 'جديد'}
+      statusLabel={formData.arabicName ? 'تعديل' : 'جديد'}
+      onSave={handleSave}
+      savePending={saving}
+      canSave={!saving}
+      onNew={handleNew}
+      onDelete={handleDelete}
+      currentId={formData.serial || null}
+      onBrowseList={() => setShowGuide(true)}
+      favoriteHref="/accounting/cards/delegate-group"
+    >
       <form className="w-full text-base">
         <FormSectionCard title="البيانات الأساسية" subtitle="الحقول اللازمة لتعريف مجموعة المندوبين" icon={Users}>
-          <CompactFormField
-            label="المسلسل"
-            value={formData.serial}
-            disabled
-            placeholder="تلقائي"
-          />
+          <CompactFormField label="المسلسل" value={formData.serial} disabled placeholder="تلقائي" />
           <CompactFormField
             label="الإسم العربي"
             value={formData.arabicName}
@@ -112,17 +129,30 @@ export default function DelegateGroupPage() {
             />
           </div>
         </AdvancedFieldsSection>
-
-        <FormStickyFooter
-          onCancel={handleCancel}
-          onSave={handleSave}
-          saveLoading={saving}
-          status={success ? 'محفوظ' : 'مسودة'}
-        />
       </form>
 
       {error ? <ErrorToast message={error} onClose={() => setError('')} /> : null}
       {success ? <SuccessToast message={success} onClose={() => setSuccess('')} /> : null}
-    </div>
+
+      <DocumentBrowseDrawer
+        open={showGuide}
+        onClose={() => setShowGuide(false)}
+        title="مجموعات المندوبين السابقة"
+      >
+        <AppTable<StoredGroup>
+          data={rows}
+          getRowKey={(r) => r.serial || r.arabicName}
+          emptyTitle="لا توجد مجموعات محفوظة"
+          onRowClick={(row) => {
+            setFormData(row);
+            setShowGuide(false);
+          }}
+          columns={[
+            { id: 'serial', header: 'المسلسل', accessor: 'serial' },
+            { id: 'name', header: 'الاسم', accessor: 'arabicName' },
+          ]}
+        />
+      </DocumentBrowseDrawer>
+    </MasterCardShell>
   );
 }

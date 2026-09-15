@@ -4,14 +4,14 @@ import { useEffect, useState } from "react";
 import { Landmark } from "lucide-react";
 import UserPermissionsBar from "@/components/UserPermissionsBar";
 import {
-  PageHeader,
   CompactFormField,
   AdvancedFieldsSection,
-  FormStickyFooter,
   FormSectionCard,
   compactControlClass,
   Switch,
+  AppTable,
 } from "@/components/ui";
+import { DocumentBrowseDrawer, MasterCardShell } from '@/components/erp';
 import { useApiQuery, useApiMutation, useInvalidateQuery } from "@/lib/hooks/useApi";
 import ErrorToast from "@/components/ErrorToast";
 import SuccessToast from "@/components/SuccessToast";
@@ -66,6 +66,8 @@ function InputDesign() {
 
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [showGuide, setShowGuide] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   useEffect(() => {
     const suggested = suggestRes?.data?.code;
@@ -141,6 +143,7 @@ function InputDesign() {
   };
 
   const handleCancel = () => {
+    setSelectedId(null);
     setFormData({ ...EMPTY_ACCOUNT_FORM });
     setError('');
   };
@@ -157,28 +160,31 @@ function InputDesign() {
   ].filter((v) => String(v ?? '').trim().length > 0).length;
 
   return (
-    <div className="p-6" style={{ direction: 'rtl' }}>
-      <PageHeader
-        title="دليل الحسابات"
-        breadcrumbs={[
-          { label: 'الحسابات', href: '/accounting' },
-          { label: 'البطاقات' },
-          { label: 'حساب' },
-        ]}
-        actions={
-          <NumberingModeControl
-            kind="accounts"
-            auto={autoNumbering}
-            recordCount={accountRecordCount}
-            settingKey="coaAutoNumbering"
-          />
-        }
-        onBrowseList={() =>
-          document.getElementById('card-records')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-        }
-        onAdd={handleCancel}
-      />
-
+    <MasterCardShell
+      title="بطاقة حساب"
+      breadcrumbs={[
+        { label: 'الحسابات', href: '/accounting' },
+        { label: 'البطاقات' },
+        { label: 'حساب' },
+      ]}
+      docNumber={formData.code || (selectedId ? 'تعديل' : 'جديد')}
+      statusLabel={selectedId ? 'تعديل' : 'جديد'}
+      onSave={() => void handleSave()}
+      savePending={accountMutation.isPending}
+      canSave={!accountMutation.isPending}
+      onNew={handleCancel}
+      currentId={selectedId}
+      onBrowseList={() => setShowGuide(true)}
+      extraActions={
+        <NumberingModeControl
+          kind="accounts"
+          auto={autoNumbering}
+          recordCount={accountRecordCount}
+          settingKey="coaAutoNumbering"
+        />
+      }
+      favoriteHref="/accounting/cards/account"
+    >
       <div className="mb-4">
         <UserPermissionsBar resource="account" module="accounting" />
       </div>
@@ -490,46 +496,36 @@ function InputDesign() {
           </div>
         </AdvancedFieldsSection>
 
-        <FormStickyFooter
-          onCancel={handleCancel}
-          onSave={handleSave}
-          saveLoading={accountMutation.isPending}
-          status="مسودة"
-        />
       </form>
-
-      <section id="card-records" className="mt-6 overflow-x-auto rounded-xl border border-[#D6EAF3] bg-white">
-        <table className="min-w-full text-sm text-right">
-          <thead className="bg-[#F0F7FB] text-[#094C6B]">
-            <tr>
-              <th className="px-3 py-2 font-semibold">الكود</th>
-              <th className="px-3 py-2 font-semibold">الاسم</th>
-              <th className="px-3 py-2 font-semibold">الجهة</th>
-            </tr>
-          </thead>
-          <tbody>
-            {accounts.length === 0 ? (
-              <tr>
-                <td colSpan={3} className="px-3 py-6 text-center text-slate-500">
-                  لا توجد حسابات بعد
-                </td>
-              </tr>
-            ) : (
-              accounts.map((account) => (
-                <tr key={account.id} className="border-t border-[#E6F0F7]">
-                  <td className="px-3 py-2">{account.code}</td>
-                  <td className="px-3 py-2">{account.arabicName}</td>
-                  <td className="px-3 py-2">{account.accountSide || '—'}</td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </section>
 
       {error && <ErrorToast message={error} onClose={() => setError('')} />}
       {success && <SuccessToast message={success} onClose={() => setSuccess('')} />}
-    </div>
+
+      <DocumentBrowseDrawer open={showGuide} onClose={() => setShowGuide(false)} title="الحسابات السابقة">
+        <AppTable<Account>
+          data={accounts}
+          getRowKey={(r) => r.id}
+          emptyTitle="لا توجد حسابات بعد"
+          onRowClick={(account) => {
+            setSelectedId(account.id);
+            setFormData((prev) => ({
+              ...prev,
+              code: account.code,
+              arabicName: account.arabicName,
+              englishName: account.englishName || '',
+              accountSide: account.accountSide || '',
+              accountNature: account.accountNature || prev.accountNature,
+            }));
+            setShowGuide(false);
+          }}
+          columns={[
+            { id: 'code', header: 'الكود', accessor: 'code' },
+            { id: 'name', header: 'الاسم', accessor: 'arabicName' },
+            { id: 'side', header: 'الجهة', cell: (r) => r.accountSide || '—' },
+          ]}
+        />
+      </DocumentBrowseDrawer>
+    </MasterCardShell>
   );
 }
 

@@ -13,6 +13,10 @@ import {
   findHierarchySubtree,
   type AccountHierarchyNode,
 } from '../utils/build-account-hierarchy';
+import {
+  assertNotCashPostingParent,
+  ensureSafeForCashAccount,
+} from './cash-safe-sync';
 
 export interface CreateAccountData {
   code: string;
@@ -257,6 +261,8 @@ export class AccountService {
       );
     }
 
+    await assertNotCashPostingParent(companyId, parentId, parent);
+
     const movementCount = await this.countAccountMovements(companyId, parentId);
     if (movementCount === 0) return;
 
@@ -357,6 +363,12 @@ export class AccountService {
 
       logger.info({ companyId, accountId: account.id }, 'Account created');
       await invalidateTenantCache(tenantCacheKeys.coaTree(companyId));
+      await ensureSafeForCashAccount(companyId, {
+        id: account.id,
+        code: account.code,
+        arabicName: account.arabicName,
+        parentCode: account.parent?.code ?? null,
+      });
       return account;
     } catch (error) {
       if (!(error instanceof AppError)) {

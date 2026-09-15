@@ -226,7 +226,7 @@ export function PurchaseInvoiceFormHeader(props: Props) {
           onHydrate={onSourceHydrate}
         />
       ) : null}
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
       <div>
         <label className={erpLabelClass}>رقم فاتورة المورد</label>
         <input

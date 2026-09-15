@@ -49,7 +49,7 @@ export function InvoiceSourceDocumentControl({
   const { data: docsRes, isFetching } = useApiQuery<SourceDocumentListItem[]>(
     ['invoice-source-documents', selectedType, search],
     '/invoices/sources/documents',
-    { type: selectedType, search: search || undefined, page: 1, limit: 20 },
+    { type: selectedType, search: search || undefined, page: 1, limit: 200 },
     { enabled: Boolean(selectedType) && !disabled }
   );
 
@@ -112,7 +112,7 @@ export function InvoiceSourceDocumentControl({
             ))}
           </select>
         </div>
-        <div className="w-[12.5rem] min-w-0">
+        <div className="w-[16rem] min-w-0">
           <label className={sectionNumberLabelClass}>الرقم</label>
           <SearchableCombobox
             value={sourceId}
@@ -125,7 +125,10 @@ export function InvoiceSourceDocumentControl({
             placeholder={selectedType ? 'بحث برقم أو اسم…' : 'اختر القسم أولاً'}
             emptyMessage="لا توجد مستندات مطابقة"
             onQueryChange={setSearch}
-            maxVisible={20}
+            maxVisible={200}
+            maxListHeight={420}
+            portaled
+            menuPlacement="auto"
           />
         </div>
       </DocumentSectionNumberPair>

@@ -4,7 +4,8 @@ import type { ReactNode } from 'react';
 import { HijriCaption } from '@/components/ui/DatePickerWithHijri';
 import ErrorToast from '@/components/ErrorToast';
 import { compactControlClass, compactLabelClass } from '@/components/ui/forms/formTokens';
-import { PageHeader, type PageHeaderProps } from '@/components/ui';
+import { ReportPageShell } from '@/components/erp/ReportPageHeader';
+import type { ReportBreadcrumb } from '@/lib/reports/reportPageBreadcrumbs';
 import { PartySelect } from '@/app/components/form/PartySelect';
 import { WarehouseSelect } from '@/app/components/form/WarehouseSelect';
 import { ItemSelect } from '@/app/components/form/ItemSelect';
@@ -25,28 +26,34 @@ export function ReportFilterPageShell({
   children: ReactNode;
   error?: string;
   onClearError?: () => void;
-  /** App-standard page header (blue underline) — same as inventory cards & operations */
+  /** Invoice-style header — no السابق on reports. */
   title?: string;
   description?: string;
-  breadcrumbs?: PageHeaderProps['breadcrumbs'];
+  breadcrumbs?: ReportBreadcrumb[];
   headerActions?: ReactNode;
 }) {
-  return (
-    <div className="bg-slate-50/80 dark:bg-slate-950 py-4 md:py-6 px-4 md:px-6" dir="rtl">
+  const body = (
+    <>
       {error ? <ErrorToast message={error} onClose={() => onClearError?.()} /> : null}
-      <div className="w-full max-w-none">
-        {title ? (
-          <PageHeader
-            title={title}
-            description={description}
-            breadcrumbs={breadcrumbs}
-            actions={headerActions}
-            className="mb-4 md:mb-5"
-          />
-        ) : null}
-        {children}
+      {description ? (
+        <p className="mb-3 text-sm text-slate-600 dark:text-slate-400 text-right">{description}</p>
+      ) : null}
+      {children}
+    </>
+  );
+
+  if (!title) {
+    return (
+      <div className="erp-contain isolate content-start min-h-0 bg-white p-3" dir="rtl">
+        {body}
       </div>
-    </div>
+    );
+  }
+
+  return (
+    <ReportPageShell title={title} breadcrumbs={breadcrumbs} extraActions={headerActions}>
+      {body}
+    </ReportPageShell>
   );
 }
 

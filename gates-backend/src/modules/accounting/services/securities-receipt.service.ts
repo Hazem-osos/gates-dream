@@ -509,12 +509,22 @@ export class SecuritiesReceiptService {
       throw new Error('Securities receipt is already cancelled');
     }
 
-    return prisma.securitiesReceipt.update({
-      where: { id: receiptId },
-      data: {
-        isCancelled: true,
-        cancelledAt: new Date(),
-      },
+    return prisma.$transaction(async (tx) => {
+      await journalPostingService.cascadeSourceJournalInTx(
+        tx,
+        companyId,
+        [receipt.journalEntryId],
+        'cancel',
+        undefined,
+        { sourceId: receipt.id, sourceNumber: receipt.receiptNumber ?? receipt.serial ?? undefined }
+      );
+      return tx.securitiesReceipt.update({
+        where: { id: receiptId },
+        data: {
+          isCancelled: true,
+          cancelledAt: new Date(),
+        },
+      });
     });
   }
 

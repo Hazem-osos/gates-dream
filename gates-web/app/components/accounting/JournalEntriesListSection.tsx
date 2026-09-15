@@ -57,10 +57,12 @@ export function JournalEntriesListSection({
   const [statusFilter, setStatusFilter] = useState<'all' | 'posted' | 'draft' | 'cancelled'>('all');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
+  const [sortBy, setSortBy] = useState<'voucherNumber' | 'date'>('voucherNumber');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
 
   const filterKey = useMemo(
-    () => ({ statusFilter, search, startDate, endDate, entryType }),
-    [statusFilter, search, startDate, endDate, entryType]
+    () => ({ statusFilter, search, startDate, endDate, entryType, sortBy, sortDir }),
+    [statusFilter, search, startDate, endDate, entryType, sortBy, sortDir]
   );
 
   const queryParams = useMemo(() => {
@@ -82,8 +84,10 @@ export function JournalEntriesListSection({
       p.isCancelled = true;
     }
     if (entryType) p.entryType = entryType;
+    p.sortBy = sortBy;
+    p.sortDir = sortDir;
     return p;
-  }, [page, pageSize, search, startDate, endDate, statusFilter, entryType]);
+  }, [page, pageSize, search, startDate, endDate, statusFilter, entryType, sortBy, sortDir]);
 
   const { data, isLoading } = useApiQuery<JournalEntryRow[]>(
     queryKeys.journalEntries(page, filterKey),
@@ -183,16 +187,24 @@ export function JournalEntriesListSection({
           }
           router.push(`${hrefBase}?id=${r.id}`);
         }}
+        defaultSort={{ id: 'num', dir: 'asc' }}
+        onSortChange={(next) => {
+          setPage(1);
+          setSortBy(next.id === 'date' ? 'date' : 'voucherNumber');
+          setSortDir(next.dir);
+        }}
         columns={[
           {
             id: 'num',
             header: 'رقم',
             cell: (r) => r.voucherNumber || r.legacyGlNum || '—',
+            sortValue: (r) => r.voucherNumber || r.legacyGlNum || '',
           },
           {
             id: 'date',
             header: 'التاريخ',
             cell: (r) => (r.date ? new Date(r.date).toLocaleDateString('ar-EG') : '—'),
+            sortValue: (r) => (r.date ? Date.parse(String(r.date)) : 0),
           },
           { id: 'desc', header: 'الشرح', accessor: 'description' },
           {
@@ -277,6 +289,7 @@ export function JournalEntriesListSection({
                         await deleteDraftDocument('/accounting/journal-entries', r.id);
                         toast.success('تم حذف القيد');
                         await queryClient.invalidateQueries({ queryKey: ['journal-entries'] });
+                        await queryClient.invalidateQueries({ queryKey: ['opening-balance-meta'] });
                       } catch (error) {
                         toast.error(error instanceof Error ? error.message : 'تعذر حذف القيد');
                       } finally {

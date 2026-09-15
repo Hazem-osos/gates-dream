@@ -20,6 +20,7 @@ type Props = {
   errorMessage?: string;
   executionStatus: OrderExecutionStatus;
   baseCurrency?: string;
+  displayBalance?: number;
 };
 
 export function PaymentOrderHeader({
@@ -31,9 +32,10 @@ export function PaymentOrderHeader({
   errorMessage,
   executionStatus,
   baseCurrency = 'EGP',
+  displayBalance,
 }: Props) {
   const selected = safes.find((s) => s.id === value);
-  const balance = Number(selected?.balance ?? 0);
+  const balance = Number(displayBalance ?? selected?.balance ?? 0);
 
   return (
     <div className="flex flex-wrap items-end gap-3">

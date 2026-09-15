@@ -472,12 +472,22 @@ export class SecuritiesPaymentService {
       throw new Error('Securities payment is already cancelled');
     }
 
-    return prisma.securitiesPayment.update({
-      where: { id: paymentId },
-      data: {
-        isCancelled: true,
-        cancelledAt: new Date(),
-      },
+    return prisma.$transaction(async (tx) => {
+      await journalPostingService.cascadeSourceJournalInTx(
+        tx,
+        companyId,
+        [payment.journalEntryId],
+        'cancel',
+        undefined,
+        { sourceId: payment.id, sourceNumber: payment.paymentNumber ?? payment.serial ?? undefined }
+      );
+      return tx.securitiesPayment.update({
+        where: { id: paymentId },
+        data: {
+          isCancelled: true,
+          cancelledAt: new Date(),
+        },
+      });
     });
   }
 

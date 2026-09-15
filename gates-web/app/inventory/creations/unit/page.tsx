@@ -3,13 +3,12 @@
 import { useState } from 'react';
 import { Ruler } from 'lucide-react';
 import {
-  PageHeader,
   CompactFormField,
   AdvancedFieldsSection,
-  FormStickyFooter,
   FormSectionCard,
 } from '@/components/ui';
 import { UnitsListSection } from '@/components/inventory/UnitsListSection';
+import { DocumentBrowseDrawer, MasterCardShell } from '@/components/erp';
 import { useApiMutation, useInvalidateQuery } from '@/lib/hooks/useApi';
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
@@ -19,6 +18,7 @@ export default function UnitPage() {
   const invalidateQuery = useInvalidateQuery();
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [showGuide, setShowGuide] = useState(false);
   const [formData, setFormData] = useState({
     code: '',
     arabicName: '',
@@ -75,21 +75,22 @@ export default function UnitPage() {
   const advancedFilledCount = [formData.englishName].filter((v) => String(v ?? '').trim().length > 0).length;
 
   return (
-    <div className="min-h-screen bg-white p-6" style={{ direction: 'rtl' }}>
-      <div className="mx-auto max-w-7xl">
-        <PageHeader
-          title="وحدات القياس"
-          breadcrumbs={[
-            { label: 'المخزون', href: '/inventory' },
-            { label: 'التعريفات' },
-            { label: 'الوحدات' },
-          ]}
-        />
-
-        <UnitsListSection />
-
-        <PageHeader title="تعريف الوحدة" className="mb-4" />
-
+    <MasterCardShell
+      title="تعريف الوحدة"
+      breadcrumbs={[
+        { label: 'المخزون', href: '/inventory' },
+        { label: 'التعريفات' },
+        { label: 'الوحدات' },
+      ]}
+      docNumber={formData.code || 'جديد'}
+      statusLabel={formData.arabicName ? 'تعديل' : 'جديد'}
+      onSave={handleSave}
+      savePending={unitMutation.isPending}
+      canSave={!unitMutation.isPending}
+      onNew={handleCancel}
+      onBrowseList={() => setShowGuide(true)}
+      favoriteHref="/inventory/creations/unit"
+    >
         <FormSectionCard title="البيانات الأساسية" subtitle="الحقول اللازمة لتعريف الوحدة" icon={Ruler}>
           <CompactFormField
             label="الكود"
@@ -117,16 +118,12 @@ export default function UnitPage() {
           </div>
         </AdvancedFieldsSection>
 
-        <FormStickyFooter
-          onCancel={handleCancel}
-          onSave={handleSave}
-          saveLoading={unitMutation.isPending}
-          status="مسودة"
-        />
-
         {error && <ErrorToast message={error} onClose={() => setError('')} />}
         {success && <SuccessToast message={success} onClose={() => setSuccess('')} />}
-      </div>
-    </div>
+
+        <DocumentBrowseDrawer open={showGuide} onClose={() => setShowGuide(false)} title="الوحدات السابقة">
+          <UnitsListSection />
+        </DocumentBrowseDrawer>
+    </MasterCardShell>
   );
 }

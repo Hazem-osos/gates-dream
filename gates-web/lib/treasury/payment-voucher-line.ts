@@ -18,14 +18,15 @@ export type PaymentVoucherLine = {
 export function emptyPaymentLine(
   currencyCode: string,
   entrySide: PaymentVoucherEntrySide = 'DEBIT',
-  costCenterId = ''
+  costCenterId = '',
+  exchangeRate = 1
 ): PaymentVoucherLine {
   return {
     accountId: '',
     description: '',
     amount: 0,
     currencyCode,
-    exchangeRate: 1,
+    exchangeRate,
     costCenterId,
     entrySide,
     isTiedToInvoice: false,

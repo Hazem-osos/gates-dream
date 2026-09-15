@@ -64,7 +64,7 @@ export default function InvoiceInstallmentsTrackerPage() {
     params
   );
   const { data: safesResponse } = useApiQuery<Array<{ id: string; arabicName?: string; code?: string | null }>>(
-    ['accounting', 'safes', 'installment-tracker'],
+    ['safes', 'installment-tracker'],
     '/accounting/safes'
   );
   const rows = trackerResponse?.data ?? [];

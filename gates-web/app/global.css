@@ -66,21 +66,22 @@ html.gates-privacy-mode .gates-sensitive {
 }
 
 .erp-scroll-x {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
+  display: block;
   width: 100%;
   max-width: 100%;
   min-width: 0;
-  overflow-x: auto;
+  overflow-x: scroll;
   overscroll-behavior-x: contain;
+  scrollbar-gutter: stable;
   scrollbar-width: thin;
-  scrollbar-color: #8ebfd6 transparent;
+  scrollbar-color: #8ebfd6 #eef6fb;
 }
+
 .erp-scroll-x::-webkit-scrollbar {
-  height: 6px;
+  height: 10px;
 }
 .erp-scroll-x::-webkit-scrollbar-track {
-  background: transparent;
+  background: #eef6fb;
 }
 .erp-scroll-x::-webkit-scrollbar-thumb {
   background: #8ebfd6;
@@ -90,22 +91,63 @@ html.gates-privacy-mode .gates-sensitive {
   background: #0E78AA;
 }
 
-/* Horizontal scrollbar specific styles */
-.overflow-x-auto::-webkit-scrollbar {
-  height: 8px;
+/*
+ * ERP laptops/PCs: tables must never collapse into the grid.
+ * Any table (or its wrapper) keeps a full-width scroller.
+ */
+.gates-erp-root table {
+  width: max-content;
+  min-width: 100%;
+  max-width: none;
 }
 
-.overflow-x-auto::-webkit-scrollbar-track {
+.gates-erp-root thead th,
+.gates-erp-root tbody td {
+  white-space: nowrap;
+}
+
+.gates-erp-root :is(.erp-scroll-x, .overflow-x-auto, .overflow-x-scroll) {
+  overflow-x: scroll !important;
+  max-width: 100%;
+  min-width: 0;
+  -webkit-overflow-scrolling: touch;
+}
+
+.gates-erp-root :has(> table):not(.erp-scroll-x):not(.overflow-x-auto):not(.overflow-x-scroll) {
+  overflow-x: scroll;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.gates-erp-root .grid > :has(table),
+.gates-erp-root .grid > :has(.erp-scroll-x),
+.gates-erp-root .grid > :has(.overflow-x-auto),
+.gates-erp-root .grid > table {
+  grid-column: 1 / -1;
+  min-width: 0;
+  max-width: 100%;
+}
+
+/* Horizontal scrollbar specific styles */
+.overflow-x-auto::-webkit-scrollbar,
+.overflow-x-scroll::-webkit-scrollbar {
+  height: 10px;
+}
+
+.overflow-x-auto::-webkit-scrollbar-track,
+.overflow-x-scroll::-webkit-scrollbar-track {
   background: #dbeafe;
   border-radius: 4px;
 }
 
-.overflow-x-auto::-webkit-scrollbar-thumb {
+.overflow-x-auto::-webkit-scrollbar-thumb,
+.overflow-x-scroll::-webkit-scrollbar-thumb {
   background: #93c5fd;
   border-radius: 4px;
 }
 
-.overflow-x-auto::-webkit-scrollbar-thumb:hover {
+.overflow-x-auto::-webkit-scrollbar-thumb:hover,
+.overflow-x-scroll::-webkit-scrollbar-thumb:hover {
   background: #60a5fa;
 }
 /* Global CSS Reset and Base Styles */

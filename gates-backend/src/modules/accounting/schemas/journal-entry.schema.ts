@@ -157,6 +157,8 @@ export const journalEntryQuerySchema = z.object({
   isCancelled: optionalQueryBool,
   includeLines: optionalQueryBool,
   entryType: z.string().max(30).optional(),
+  sortBy: z.enum(['voucherNumber', 'date', 'createdAt']).optional(),
+  sortDir: z.enum(['asc', 'desc']).optional(),
 });
 
 export type CreateJournalEntryInput = z.infer<typeof createJournalEntrySchema>;

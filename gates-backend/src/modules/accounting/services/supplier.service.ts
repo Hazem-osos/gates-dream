@@ -257,7 +257,7 @@ export class SupplierService {
           where,
           skip,
           take: limit,
-          orderBy: [{ arabicName: 'asc' }],
+          orderBy: [{ code: 'asc' }, { serial: 'asc' }, { arabicName: 'asc' }],
           select: SUPPLIER_LIST_SELECT,
         }),
         prisma.supplier.count({ where }),

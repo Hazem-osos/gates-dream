@@ -4,6 +4,7 @@ import { scopedItemQuantityWhere } from '../utils/item-quantity-tenant';
 import { logger } from '../../../shared/logger';
 import { stockMovementService } from './stock-movement.service';
 import { itemCostService } from './item-cost.service';
+import { journalPostingService } from '../../accounting/services/journal-posting.service';
 import {
   stockMovementGlService,
   resolveStockGlAccounts,
@@ -702,12 +703,26 @@ export class DisassemblyService {
         throw new Error('Cannot cancel posted disassembly. Unpost it first.');
       }
 
-      const updated = await prisma.disassembly.update({
-        where: { id: disassemblyId },
-        data: {
-          isCancelled: true,
-          cancelledAt: new Date(),
-        },
+      const updated = await prisma.$transaction(async (tx) => {
+        await journalPostingService.cascadeSourceJournalInTx(
+          tx,
+          companyId,
+          [],
+          'cancel',
+          undefined,
+          {
+            sourceId: disassembly.id,
+            sourceType: 'DSM',
+            sourceNumber: disassembly.serial ?? disassembly.id.slice(0, 8),
+          }
+        );
+        return tx.disassembly.update({
+          where: { id: disassemblyId },
+          data: {
+            isCancelled: true,
+            cancelledAt: new Date(),
+          },
+        });
       });
 
       logger.info({ companyId, disassemblyId }, 'Disassembly cancelled');
