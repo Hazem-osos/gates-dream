@@ -155,7 +155,7 @@ export function MostakhlasInvoiceEditor({
         <div className="grid grid-cols-1 gap-3 rounded-2xl border border-[#D6EAF3] bg-white p-4 sm:grid-cols-3">
           <label className="text-sm">
             <span className="mb-1 block font-medium">رقم التسلسل</span>
-            <Input readOnly value={`${subcontract.subcontractNumber}-${String(sequence).padStart(3, '0')}`} />
+            <Input readOnly value={`${subcontract.subcontractNumber}-${String(sequence).padStart(5, '0')}`} />
           </label>
           <label className="text-sm">
             <span className="mb-1 block font-medium">بداية الفترة</span>

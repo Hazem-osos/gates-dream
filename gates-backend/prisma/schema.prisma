@@ -8510,6 +8510,8 @@ model DocumentLayoutConfig {
   companyId String
   branchId  String?
 
+  name         String               @default("تخطيط") @db.VarChar(120)
+  isDefault    Boolean              @default(false)
   documentType DocumentLayoutType   @default(ALL)
   layoutPreset DocumentLayoutPreset @default(LIGHT)
   tableStyle   DocumentTableStyle   @default(LIGHT)
@@ -8553,8 +8555,8 @@ model DocumentLayoutConfig {
   company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
   branch  Branch? @relation(fields: [branchId], references: [id], onDelete: Cascade)
 
-  @@unique([companyId, branchId, documentType])
   @@index([companyId, documentType])
+  @@index([companyId, isDefault])
   @@map("document_layout_configs")
 }
 

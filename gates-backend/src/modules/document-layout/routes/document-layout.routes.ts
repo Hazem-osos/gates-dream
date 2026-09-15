@@ -139,6 +139,27 @@ router.get(
   }
 );
 
+router.post(
+  '/',
+  authorize({ resource: 'document-layout', action: 'edit' }),
+  validate({ body: documentLayoutConfigUpsertSchema }),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const companyId = req.companyId ?? req.tenantId;
+      if (!companyId) throw new AppError(400, 'Company ID is required');
+      const { id: _ignored, ...body } = req.body as { id?: string };
+      const data = await documentLayoutService.upsert(companyId, body);
+      return void res.json({ status: 'success', data });
+    } catch (e) {
+      const status = e instanceof AppError ? e.statusCode : 500;
+      return void res.status(status).json({
+        status: 'error',
+        message: e instanceof Error ? e.message : 'Failed to save document layout config',
+      });
+    }
+  }
+);
+
 router.put(
   '/',
   authorize({ resource: 'document-layout', action: 'edit' }),

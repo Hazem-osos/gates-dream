@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const createAccountSchema = z.object({
+const accountFields = {
   code: z.string().trim().optional().or(z.literal('')),
   arabicName: z.string().min(1, 'Arabic name is required'),
   englishName: z.string().optional(),
@@ -15,9 +15,21 @@ export const createAccountSchema = z.object({
   warning: z.enum(['مدين', 'دائن', 'بدون']).optional().nullable(),
   budget: z.number().nonnegative().optional().nullable(),
   currencyCode: z.string().optional().nullable(),
+};
+
+export const createAccountSchema = z.object(accountFields).superRefine((value, ctx) => {
+  const hasParent = Boolean(value.parentId);
+  const hasSide = Boolean(value.accountSide) || Boolean(value.accountNature);
+  if (!hasParent && !hasSide) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['accountSide'],
+      message: 'جهة الحساب مطلوبة للحساب الرئيسي (مدين أو دائن).',
+    });
+  }
 });
 
-export const updateAccountSchema = createAccountSchema.partial().extend({
+export const updateAccountSchema = z.object(accountFields).partial().extend({
   isActive: z.boolean().optional(),
 });
 

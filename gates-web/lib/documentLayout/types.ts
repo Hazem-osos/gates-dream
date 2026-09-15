@@ -55,6 +55,8 @@ export interface DocumentLayoutConfig {
   id?: string | null;
   companyId?: string;
   branchId?: string | null;
+  name?: string;
+  isDefault?: boolean;
   documentType: DocumentLayoutType;
   layoutPreset: DocumentLayoutPreset;
   tableStyle: DocumentTableStyle;

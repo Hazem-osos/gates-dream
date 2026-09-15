@@ -62,5 +62,5 @@ export async function nextProfileInvoiceNumber(
     data: { nextNumber: { increment: 1 } },
   });
   const used = Math.max(1, updated.nextNumber - 1);
-  return `${updated.prefix ?? ''}${String(used).padStart(4, '0')}`;
+  return `${updated.prefix ?? ''}${String(used).padStart(5, '0')}`;
 }

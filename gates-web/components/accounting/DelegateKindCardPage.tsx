@@ -194,6 +194,10 @@ export function DelegateKindCardPage({ kind }: { kind: DelegateKind }) {
           { label: 'البطاقات' },
           { label: copy.crumb },
         ]}
+        onBrowseList={() =>
+          document.getElementById('card-records')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        }
+        onAdd={handleCancel}
       />
 
       <div className="mb-4">
@@ -317,7 +321,7 @@ export function DelegateKindCardPage({ kind }: { kind: DelegateKind }) {
         />
       </form>
 
-      <div className="mt-6 overflow-x-auto rounded-xl border border-[#D6EAF3] bg-white">
+      <div id="card-records" className="mt-6 overflow-x-auto rounded-xl border border-[#D6EAF3] bg-white">
         <table className="min-w-full text-sm text-right">
           <thead className="bg-[#F0F7FB] text-[#094C6B]">
             <tr>

@@ -4,6 +4,7 @@ import { logger } from '../../../shared/logger';
 import { AppError } from '../../../shared/middleware/error-handler';
 import { yearEndClosingService } from '../../operations/services/year-end-closing.service';
 import type { JournalPostingContext } from './journal-posting.service';
+import { nextNumericCode } from '../../../shared/utils/next-numeric-code';
 
 export interface CreatePeriodData {
   code?: string;
@@ -12,21 +13,9 @@ export interface CreatePeriodData {
   endDate: Date;
 }
 
-/** Sequential period serials: 001, 002, … — never the period name. */
+/** Sequential period serials: 00001, 00002, … — never the period name or a year id. */
 export function nextPeriodSerial(codes: Array<string | null | undefined>): string {
-  const used = new Set(codes.map((code) => String(code ?? '').trim()).filter(Boolean));
-  let n = 1;
-  for (const code of used) {
-    if (/^\d{1,3}$/.test(code)) {
-      n = Math.max(n, Number.parseInt(code, 10) + 1);
-    }
-  }
-  let serial = String(n).padStart(3, '0');
-  while (used.has(serial) || used.has(String(Number(serial)))) {
-    n += 1;
-    serial = String(n).padStart(3, '0');
-  }
-  return serial;
+  return nextNumericCode(codes, { excludeYears: true });
 }
 
 export interface UpdatePeriodData extends Partial<CreatePeriodData> {
@@ -49,42 +38,128 @@ function dateLabel(value: Date): string {
 }
 
 export class PeriodService {
+  private matchesPeriodYear(
+    period: { code: string; startDate: Date; endDate: Date },
+    year: { legacyYearId: string; startDate: Date; endDate: Date }
+  ) {
+    return (
+      period.code === year.legacyYearId ||
+      (dateLabel(period.startDate) === dateLabel(year.startDate) &&
+        dateLabel(period.endDate) === dateLabel(year.endDate))
+    );
+  }
+
+  /** Hard-remove a fiscal year so its code can be reused. Detach Restrict FKs first. */
+  private async hardDeleteFiscalYear(yearId: string) {
+    await prisma.$transaction(async (tx) => {
+      await tx.fiscalPeriod.deleteMany({ where: { fiscalYearId: yearId } });
+      await tx.documentSequence.deleteMany({ where: { fiscalYearId: yearId } });
+      await tx.taxDeclaration.updateMany({
+        where: { fiscalYearId: yearId },
+        data: { fiscalYearId: null },
+      });
+      await tx.taxPeriod.deleteMany({ where: { fiscalYearId: yearId } });
+      await tx.journalEntry.updateMany({
+        where: { fiscalYearId: yearId },
+        data: { fiscalYearId: null },
+      });
+      await tx.invoice.updateMany({ where: { fiscalYearId: yearId }, data: { fiscalYearId: null } });
+      await tx.treasuryReceipt.updateMany({
+        where: { fiscalYearId: yearId },
+        data: { fiscalYearId: null },
+      });
+      await tx.treasuryPayment.updateMany({
+        where: { fiscalYearId: yearId },
+        data: { fiscalYearId: null },
+      });
+      await tx.cashTransaction.updateMany({
+        where: { fiscalYearId: yearId },
+        data: { fiscalYearId: null },
+      });
+      await tx.cheque.updateMany({ where: { fiscalYearId: yearId }, data: { fiscalYearId: null } });
+      await tx.posShift.updateMany({ where: { fiscalYearId: yearId }, data: { fiscalYearId: null } });
+      await tx.letterOfCredit.updateMany({
+        where: { fiscalYearId: yearId },
+        data: { fiscalYearId: null },
+      });
+      await tx.guaranteeLetter.updateMany({
+        where: { fiscalYearId: yearId },
+        data: { fiscalYearId: null },
+      });
+      await tx.payrollRun.updateMany({
+        where: { fiscalYearId: yearId },
+        data: { fiscalYearId: null },
+      });
+      await tx.productionOrder.updateMany({
+        where: { fiscalYearId: yearId },
+        data: { fiscalYearId: null },
+      });
+      await tx.counterpartyOffset.updateMany({
+        where: { fiscalYearId: yearId },
+        data: { fiscalYearId: null },
+      });
+      await tx.fiscalYear.delete({ where: { id: yearId } });
+    });
+  }
+
+  /** Wipe leftover inactive / renamed-deleted periods and orphan fiscal years. */
+  async purgeDeletedPeriodArtifacts(companyId: string) {
+    await prisma.period.deleteMany({
+      where: {
+        companyId,
+        OR: [{ isActive: false }, { code: { contains: '__del__' } }],
+      },
+    });
+
+    const [years, periods] = await Promise.all([
+      prisma.fiscalYear.findMany({
+        where: { companyId },
+        select: { id: true, legacyYearId: true, isActive: true, startDate: true, endDate: true },
+      }),
+      prisma.period.findMany({
+        where: { companyId, isActive: true },
+        select: { code: true, startDate: true, endDate: true },
+      }),
+    ]);
+
+    for (const year of years) {
+      const leftover =
+        !year.isActive ||
+        year.legacyYearId.includes('__del__') ||
+        !periods.some((period) => this.matchesPeriodYear(period, year));
+      if (!leftover) continue;
+      try {
+        await this.hardDeleteFiscalYear(year.id);
+      } catch (error) {
+        logger.warn({ companyId, yearId: year.id, error }, 'Could not purge leftover fiscal year');
+      }
+    }
+  }
+
   async syncPeriodsFromFiscalYears(companyId: string) {
     const years = await prisma.fiscalYear.findMany({
-      where: { companyId, isActive: true },
+      where: {
+        companyId,
+        isActive: true,
+        NOT: { legacyYearId: { contains: '__del__' } },
+      },
       orderBy: { startDate: 'asc' },
     });
     if (years.length === 0) return;
 
-    const periods = await prisma.period.findMany({ where: { companyId } });
+    const periods = await prisma.period.findMany({
+      where: { companyId, isActive: true },
+    });
     for (const year of years) {
-      const match = periods.find(
-        (period) =>
-          period.code === year.legacyYearId ||
-          (dateLabel(period.startDate) === dateLabel(year.startDate) &&
-            dateLabel(period.endDate) === dateLabel(year.endDate))
-      );
+      const match = periods.find((period) => this.matchesPeriodYear(period, year));
+      if (!match) continue;
       const closed = year.status === 'Close';
-      if (!match) {
-        const created = await prisma.period.create({
-          data: {
-            companyId,
-            code: year.legacyYearId.slice(0, 50),
-            name: year.arabicName?.trim() || `السنة المالية ${year.legacyYearId}`,
-            startDate: year.startDate,
-            endDate: year.endDate,
-            isClosed: closed,
-            isActive: true,
-          },
-        });
-        periods.push(created);
-      } else if (match.isClosed !== closed || match.isActive === false) {
+      if (match.isClosed !== closed) {
         await prisma.period.update({
           where: { id: match.id },
-          data: { isClosed: closed, isActive: true },
+          data: { isClosed: closed },
         });
         match.isClosed = closed;
-        match.isActive = true;
       }
     }
   }
@@ -98,10 +173,16 @@ export class PeriodService {
 
   async allocateNextSerial(companyId: string): Promise<string> {
     const rows = await prisma.period.findMany({
-      where: { companyId },
+      where: { companyId, isActive: true },
       select: { code: true },
     });
     return nextPeriodSerial(rows.map((row) => row.code));
+  }
+
+  private async vacateInactivePeriodCode(companyId: string, code: string) {
+    await prisma.period.deleteMany({
+      where: { companyId, isActive: false, code },
+    });
   }
 
   async nextStartDate(companyId: string, exceptPeriodId?: string): Promise<Date | null> {
@@ -224,7 +305,9 @@ export class PeriodService {
       );
     }
 
+    await this.purgeDeletedPeriodArtifacts(companyId);
     const code = data.code?.trim() || (await this.allocateNextSerial(companyId));
+    await this.vacateInactivePeriodCode(companyId, code);
 
     const existingCode = await prisma.period.findFirst({
       where: { companyId, code },
@@ -298,6 +381,7 @@ export class PeriodService {
       isClosed?: boolean;
     }
   ) {
+    await this.purgeDeletedPeriodArtifacts(companyId);
     await this.syncPeriodsFromFiscalYears(companyId);
 
     const page = options.page || 1;
@@ -458,25 +542,17 @@ export class PeriodService {
       },
     });
     if (year) {
-      const yearMovements = await this.countMovements(companyId, year.startDate, year.endDate);
-      if (yearMovements.total === 0 && year.status !== 'Close') {
-        await prisma.fiscalPeriod.deleteMany({ where: { fiscalYearId: year.id } });
-        await prisma.documentSequence.deleteMany({ where: { fiscalYearId: year.id } });
-        try {
-          await prisma.fiscalYear.delete({ where: { id: year.id } });
-        } catch (error) {
-          const blocked =
-            error instanceof Prisma.PrismaClientKnownRequestError &&
-            (error.code === 'P2003' || error.code === 'P2014');
-          if (!blocked) throw error;
-          await prisma.fiscalYear.update({
-            where: { id: year.id },
-            data: {
-              isActive: false,
-              legacyYearId: `${year.legacyYearId}__del__${year.id.slice(0, 8)}`.slice(0, 20),
-            },
-          });
-        }
+      try {
+        await this.hardDeleteFiscalYear(year.id);
+      } catch (error) {
+        const blocked =
+          error instanceof Prisma.PrismaClientKnownRequestError &&
+          (error.code === 'P2003' || error.code === 'P2014');
+        if (!blocked) throw error;
+        throw new AppError(
+          422,
+          'لا يمكن حذف السنة المالية نهائيًا لأنها مرتبطة ببيانات أخرى. احذف الارتباطات أولاً.'
+        );
       }
     }
 

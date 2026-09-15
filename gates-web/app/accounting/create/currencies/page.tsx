@@ -17,6 +17,7 @@ import { useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
 import { apiClient } from '@/lib/api/client';
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
+import { nextNumericSerial } from '@/lib/masters/nextNumericSerial';
 type FormState = {
   serial: string;
   code: string;
@@ -32,14 +33,10 @@ function rateToInput(value: number | string | null | undefined): string {
 }
 
 function nextSerialFrom(rows: CurrencyRow[]): string {
-  const max = rows.reduce((acc, row) => {
-    const n = Number(row.serial);
-    return Number.isFinite(n) ? Math.max(acc, n) : acc;
-  }, 0);
-  return String(max + 1);
+  return nextNumericSerial(rows.map((row) => row.serial));
 }
 
-const emptyForm = (serial = '1'): FormState => ({
+const emptyForm = (serial = '00001'): FormState => ({
   serial,
   code: '',
   symbol: '',

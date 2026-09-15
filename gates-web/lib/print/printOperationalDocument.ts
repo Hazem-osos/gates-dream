@@ -1,5 +1,5 @@
 import { toast } from '@/lib/feedback/toast';
-import { resolveDocumentLayout } from '@/lib/documentLayout/useResolvedDocumentLayout';
+import { pickSavedDocumentLayout } from '@/lib/documentLayout/pickSavedDocumentLayout';
 import { generateDocumentHtml } from '@/lib/documentLayout/templateEngine';
 import { preloadDocumentFonts } from '@/lib/documentLayout/usePrintDocument';
 import { buildQrDataUrl, buildQrPayload } from '@/lib/documentLayout/qr';
@@ -87,9 +87,10 @@ function showFirstPrintHint() {
   });
 }
 
-async function printTaxInvoice(data: TaxInvoiceMock): Promise<void> {
+async function printTaxInvoice(data: TaxInvoiceMock, chosen?: DocumentLayoutConfig): Promise<void> {
   try {
-    const config = await resolveDocumentLayout('TAX_INVOICE');
+    const config = chosen ?? (await pickSavedDocumentLayout('TAX_INVOICE'));
+    if (!config) return;
     showFirstPrintHint();
     const merged: TaxInvoiceMock = {
       ...data,
@@ -109,8 +110,9 @@ async function printTaxInvoice(data: TaxInvoiceMock): Promise<void> {
 }
 
 export async function printOperationalDocument(input: OperationalPrintInput): Promise<void> {
-  const config = await resolveDocumentLayout('TAX_INVOICE');
-  await printTaxInvoice(toTaxInvoice(input, config));
+  const config = await pickSavedDocumentLayout('TAX_INVOICE');
+  if (!config) return;
+  await printTaxInvoice(toTaxInvoice(input, config), config);
 }
 
 export async function printInvoiceDocument(

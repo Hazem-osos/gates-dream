@@ -60,7 +60,7 @@ export class SubcontractInvoiceCommandService {
       const invoiceNumber =
         dto.invoiceNumber ??
         existing?.invoiceNumber ??
-        `${subcontract.subcontractNumber}-${String(sequenceNumber).padStart(3, '0')}`;
+        `${subcontract.subcontractNumber}-${String(sequenceNumber).padStart(5, '0')}`;
 
       const header = this.headerFromCalculation(calculated, {
         companyId,

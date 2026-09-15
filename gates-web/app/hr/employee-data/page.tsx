@@ -179,7 +179,7 @@ export default function EmployeeDataPage() {
             error={errors.employeeName?.message}
             {...register('employeeName')}
           />
-          <CompactFormField label="القسم" error={errors.departmentId?.message}>
+          <CompactFormField label="القسم" required error={errors.departmentId?.message}>
             <select
               className={compactControlClass}
               disabled={departmentsLoading}
@@ -196,9 +196,27 @@ export default function EmployeeDataPage() {
           </CompactFormField>
           <CompactFormField
             label="تاريخ الالتحاق بالعمل"
+            required
             type="date"
             error={errors.joinDate?.message}
             {...register('joinDate')}
+          />
+          <CompactFormField
+            label="رقم الهوية / الرقم المدني"
+            required
+            inputMode="numeric"
+            autoComplete="off"
+            placeholder="إدخل رقم الهوية"
+            error={errors.nationalId?.message}
+            {...register('nationalId')}
+          />
+          <CompactFormField
+            label="الراتب الأساسي"
+            required
+            inputMode="decimal"
+            placeholder="0.00"
+            error={errors.basicSalary?.message}
+            {...register('basicSalary')}
           />
         </FormSectionCard>
 
@@ -247,14 +265,6 @@ export default function EmployeeDataPage() {
                   <input type="text" className={compactControlClass} placeholder="بحث مستخدم" />
                 </div>
               </CompactFormField>
-              <CompactFormField
-                label="رقم الهوية / الرقم المدني"
-                inputMode="numeric"
-                autoComplete="off"
-                placeholder="إدخل رقم الهوية"
-                error={errors.nationalId?.message}
-                {...register('nationalId')}
-              />
             </div>
           )}
 
@@ -262,6 +272,7 @@ export default function EmployeeDataPage() {
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
               <CompactFormField
                 label="الراتب الأساسي"
+                required
                 inputMode="decimal"
                 placeholder="0.00"
                 error={errors.basicSalary?.message}
@@ -474,7 +485,16 @@ export default function EmployeeDataPage() {
 
         <div className="mt-4 flex justify-end rounded-xl border border-[#E6F0F7] bg-white px-4 py-3 shadow-sm">
           <ActionButtons
-            onSave={() => void handleSubmit(onValidSubmit)()}
+            onSave={() =>
+              void handleSubmit(onValidSubmit, (errs) => {
+                const first = Object.values(errs)[0];
+                setError(
+                  first && typeof first === 'object' && 'message' in first && first.message
+                    ? String(first.message)
+                    : 'أكمل الحد الأدنى لبيانات الموظف: الاسم، القسم، تاريخ الالتحاق، رقم الهوية، والراتب.'
+                );
+              })()
+            }
             onCancel={handleCancel}
             saveText={employeeMutation.isPending ? 'جاري الحفظ...' : 'حفظ'}
           />

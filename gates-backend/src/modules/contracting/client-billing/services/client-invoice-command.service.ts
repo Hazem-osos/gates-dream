@@ -65,7 +65,7 @@ export class ClientInvoiceCommandService {
       const invoiceNumber =
         dto.invoiceNumber ??
         existing?.invoiceNumber ??
-        `${contract.contractNumber}-${String(sequenceNumber).padStart(3, '0')}`;
+        `${contract.contractNumber}-${String(sequenceNumber).padStart(5, '0')}`;
 
       const header = this.headerFromCalculation(calculated, {
         companyId,

@@ -18,16 +18,21 @@ export const createEmployeeSchema = z.object({
   insurancePolicyNumber: z.string().optional(),
   socialInsurance: z.string().optional(),
   /** Master data: employment & compensation (stored on Employee). */
-  joinDate: z.string().optional().nullable(),
+  joinDate: z.string().min(1, 'تاريخ الالتحاق مطلوب'),
   basicSalary: z.preprocess(
     (v) => (v === '' || v === null || v === undefined ? undefined : Number(v)),
-    z.number().positive().optional()
+    z
+      .number({
+        required_error: 'الراتب الأساسي مطلوب',
+        invalid_type_error: 'الراتب الأساسي مطلوب',
+      })
+      .positive('الراتب الأساسي يجب أن يكون أكبر من صفر')
   ),
-  departmentId: z.string().uuid().optional().nullable(),
+  departmentId: z.string().uuid({ message: 'يجب اختيار القسم' }),
   advanceAccountId: z.string().uuid().optional().nullable(),
   // Identity Document Fields
   fingerprintNumber: z.string().optional(),
-  identityNumber: z.string().optional(),
+  identityNumber: z.string().trim().min(8, 'رقم الهوية مطلوب'),
   identityIssueDate: z.string().datetime().optional().nullable().or(z.date().nullable()),
   identityIssueDateHijri: z.string().optional(),
   identityExpiryDate: z.string().datetime().optional().nullable().or(z.date().nullable()),

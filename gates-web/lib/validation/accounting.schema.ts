@@ -495,22 +495,32 @@ export const securitiesMultiCollectionFormSchema = z.object({
 export type SecuritiesMultiCollectionFormInput = z.infer<typeof securitiesMultiCollectionFormSchema>;
 
 /** بطاقة الحساب — طبيعة الحساب + التقرير الختامي + إلزام مركز التكلفة. */
-export const accountCardFormSchema = z.object({
-  code: z.string().trim().optional(),
-  arabicName: z.string().trim().min(1, 'يرجى إدخال الإسم العربي'),
-  englishName: z.string().optional(),
-  accountType: z.string().optional(),
-  parentId: z.string().optional(),
-  accountSide: z.enum(['مدين', 'دائن', '']).optional(),
-  accountNature: z.enum(['DEBIT', 'CREDIT']),
-  statementType: z.enum(['BALANCE_SHEET', 'INCOME_STATEMENT']),
-  costCenterRequired: z.enum(['إجباري', 'اختياري', 'بدون', '']).optional(),
-  defaultCostCenterId: z.string().optional(),
-  requiresCostCenter: z.boolean(),
-  warning: z.enum(['مدين', 'دائن', 'بدون', '']).optional(),
-  budget: z.string().optional(),
-  currencyCode: z.string().optional(),
-});
+export const accountCardFormSchema = z
+  .object({
+    code: z.string().trim().optional(),
+    arabicName: z.string().trim().min(1, 'يرجى إدخال الإسم العربي'),
+    englishName: z.string().optional(),
+    accountType: z.string().optional(),
+    parentId: z.string().optional(),
+    accountSide: z.enum(['مدين', 'دائن', '']).optional(),
+    accountNature: z.enum(['DEBIT', 'CREDIT']),
+    statementType: z.enum(['BALANCE_SHEET', 'INCOME_STATEMENT']),
+    costCenterRequired: z.enum(['إجباري', 'اختياري', 'بدون', '']).optional(),
+    defaultCostCenterId: z.string().optional(),
+    requiresCostCenter: z.boolean(),
+    warning: z.enum(['مدين', 'دائن', 'بدون', '']).optional(),
+    budget: z.string().optional(),
+    currencyCode: z.string().optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (!value.parentId?.trim() && !value.accountSide) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['accountSide'],
+        message: 'جهة الحساب مطلوبة للحساب الرئيسي (مدين أو دائن).',
+      });
+    }
+  });
 
 export type AccountCardFormInput = z.infer<typeof accountCardFormSchema>;
 
@@ -528,3 +538,32 @@ export const costCenterCardFormSchema = z.object({
 });
 
 export type CostCenterCardFormInput = z.infer<typeof costCenterCardFormSchema>;
+
+/** بطاقة عميل — الاسم + وسيلة اتصال على الأقل. */
+export const customerCardFormSchema = z
+  .object({
+    arabicName: z.string().trim().min(1, 'يرجى إدخال الإسم العربي'),
+    phone1: z.string().optional(),
+    mobile: z.string().optional(),
+    taxData: z.boolean().optional(),
+    taxAuthority: z.string().optional(),
+    taxAuthorityName: z.string().optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (!value.phone1?.trim() && !value.mobile?.trim()) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['phone1'],
+        message: 'أدخل رقم هاتف أو موبايل على الأقل.',
+      });
+    }
+    if (value.taxData && !value.taxAuthority?.trim() && !value.taxAuthorityName?.trim()) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['taxAuthority'],
+        message: 'بيانات الضرائب مطلوبة بعد تفعيل الرقم الضريبي.',
+      });
+    }
+  });
+
+export type CustomerCardFormInput = z.infer<typeof customerCardFormSchema>;

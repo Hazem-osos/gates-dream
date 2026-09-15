@@ -43,22 +43,30 @@ function matchesSearch(row: PeriodRow, search: string): boolean {
 export function PeriodsListSection({
   onSelect,
   selectedId,
+  rows: rowsProp,
+  isLoading: loadingProp,
 }: {
   onSelect?: (row: PeriodRow) => void;
   selectedId?: string | null;
+  rows?: PeriodRow[];
+  isLoading?: boolean;
 }) {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [search, setSearch] = useState('');
 
-  const { data, isLoading } = useApiQuery<PeriodRow[]>(
+  const { data, isLoading: queryLoading } = useApiQuery<PeriodRow[]>(
     ['periods', { page: 1, pageSize: 200 }],
     '/accounting/periods',
     { page: 1, limit: 200 },
-    { staleTime: 15_000 }
+    { staleTime: 0, refetchOnMount: 'always', enabled: rowsProp == null }
   );
 
-  const allRows = useMemo(() => data?.data ?? [], [data?.data]);
+  const allRows = useMemo(
+    () => rowsProp ?? data?.data ?? [],
+    [data?.data, rowsProp]
+  );
+  const isLoading = loadingProp ?? queryLoading;
   const filtered = useMemo(
     () => allRows.filter((row) => matchesSearch(row, search)),
     [allRows, search]

@@ -8,10 +8,11 @@ import { PeriodsListSection, type PeriodRow } from '@/components/accounting/Peri
 import { DocumentBrowseDrawer } from '@/components/erp/DocumentBrowseDrawer';
 import { ErpDocumentLayout, ErpDocumentPageHeader } from '@/components/erp';
 import { DocumentModeProvider, useDocumentMode } from '@/components/common/document-shell';
-import { useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
+import { useApiQuery } from '@/lib/hooks/useApi';
 import { apiClient } from '@/lib/api/client';
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
+import { nextNumericSerial } from '@/lib/masters/nextNumericSerial';
 
 type FormState = {
   code: string;
@@ -46,19 +47,7 @@ function toApiDate(value: string): string {
 }
 
 function nextPeriodSerial(codes: Array<string | null | undefined>): string {
-  const used = new Set(codes.map((code) => String(code ?? '').trim()).filter(Boolean));
-  let n = 1;
-  for (const code of used) {
-    if (/^\d{1,3}$/.test(code)) {
-      n = Math.max(n, Number.parseInt(code, 10) + 1);
-    }
-  }
-  let serial = String(n).padStart(3, '0');
-  while (used.has(serial) || used.has(String(Number(serial)))) {
-    n += 1;
-    serial = String(n).padStart(3, '0');
-  }
-  return serial;
+  return nextNumericSerial(codes, { excludeYears: true });
 }
 
 const emptyForm = (startDate = todayIso(), code = ''): FormState => ({
@@ -71,7 +60,6 @@ const emptyForm = (startDate = todayIso(), code = ''): FormState => ({
 
 function AccountingPeriodsPageInner() {
   const { isReadOnly, unlockForEdit, lockToView, setMode } = useDocumentMode();
-  const invalidateQuery = useInvalidateQuery();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
   const [error, setError] = useState('');
@@ -81,11 +69,11 @@ function AccountingPeriodsPageInner() {
   const [opening, setOpening] = useState(false);
   const [showGuide, setShowGuide] = useState(false);
 
-  const { data: periodsRes } = useApiQuery<PeriodRow[]>(
+  const { data: periodsRes, refetch: refetchPeriods, isFetching: periodsFetching } = useApiQuery<PeriodRow[]>(
     ['periods', { page: 1, pageSize: 200 }],
     '/accounting/periods',
     { page: 1, limit: 200 },
-    { staleTime: 15_000 }
+    { staleTime: 0, refetchOnMount: 'always' }
   );
 
   const periods = useMemo(() => periodsRes?.data ?? [], [periodsRes?.data]);
@@ -114,11 +102,10 @@ function AccountingPeriodsPageInner() {
     setForm((prev) => {
       const startDate = prev.startDate === nextStartDate ? prev.startDate : nextStartDate;
       const endDate = prev.endDate || nextStartDate;
-      const code = prev.code.trim() || nextSerial;
-      if (prev.startDate === startDate && prev.endDate === endDate && prev.code === code) {
+      if (prev.startDate === startDate && prev.endDate === endDate && prev.code === nextSerial) {
         return prev;
       }
-      return { ...prev, startDate, endDate, code };
+      return { ...prev, startDate, endDate, code: nextSerial };
     });
   }, [nextSerial, nextStartDate, periodsRes, selectedId]);
 
@@ -185,7 +172,7 @@ function AccountingPeriodsPageInner() {
         await apiClient.post<PeriodRow>('/accounting/periods', body);
         setSuccess('تم حفظ الفترة المحاسبية');
       }
-      invalidateQuery(['periods']);
+      await refetchPeriods();
       resetNew(
         addDaysIso(form.endDate, 1),
         nextPeriodSerial([...periods.map((row) => row.code), serial])
@@ -204,8 +191,11 @@ function AccountingPeriodsPageInner() {
     try {
       await apiClient.delete(`/accounting/periods/${selectedId}`);
       setSuccess('تم حذف الفترة');
-      invalidateQuery(['periods']);
-      resetNew(nextStartDate);
+      await refetchPeriods();
+      resetNew(
+        nextStartDate,
+        nextPeriodSerial(periods.filter((row) => row.id !== selectedId).map((row) => row.code))
+      );
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'تعذر الحذف');
     }
@@ -219,7 +209,7 @@ function AccountingPeriodsPageInner() {
       const res = await apiClient.post<PeriodRow>(`/accounting/periods/${selectedId}/close`);
       if (res.data) hydrate(res.data);
       setSuccess('تم إغلاق الفترة وترحيل قيد الإقفال');
-      invalidateQuery(['periods']);
+      await refetchPeriods();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'تعذر إغلاق الفترة');
     } finally {
@@ -235,7 +225,7 @@ function AccountingPeriodsPageInner() {
       const res = await apiClient.post<PeriodRow>(`/accounting/periods/${selectedId}/reopen`);
       if (res.data) hydrate(res.data);
       setSuccess('تم فتح الفترة وإلغاء قيد الإقفال');
-      invalidateQuery(['periods']);
+      await refetchPeriods();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'تعذر فتح الفترة');
     } finally {
@@ -284,7 +274,10 @@ function AccountingPeriodsPageInner() {
             destructive: true,
           },
         ]}
-        onBrowseList={() => setShowGuide(true)}
+        onBrowseList={() => {
+          setShowGuide(true);
+          void refetchPeriods();
+        }}
         browseListLabel="السابق"
         currentId={selectedId}
       />
@@ -363,7 +356,12 @@ function AccountingPeriodsPageInner() {
         onClose={() => setShowGuide(false)}
         title="دليل الفترات المحاسبية"
       >
-        <PeriodsListSection onSelect={hydrate} selectedId={selectedId} />
+        <PeriodsListSection
+          onSelect={hydrate}
+          selectedId={selectedId}
+          rows={periods}
+          isLoading={periodsFetching && periods.length === 0}
+        />
       </DocumentBrowseDrawer>
     </ErpDocumentLayout>
   );

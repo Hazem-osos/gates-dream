@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils';
 import { usePageFavorites } from '@/lib/hooks/usePageFavorites';
 import { useRegisterScreenChrome } from '@/components/erp/AppScreenChromeContext';
 import { ScreenHelpButton } from '@/components/ai/ScreenHelpButton';
+import { CrudButtons, type CrudMenuItem } from '@/components/ui/CrudButtons';
 
 export interface PageHeaderProps {
   title: string;
@@ -17,6 +18,12 @@ export interface PageHeaderProps {
   favoriteHref?: string;
   favoriteLabel?: string;
   statusBadge?: React.ReactNode;
+  onBrowseList?: () => void;
+  browseListLabel?: string;
+  onAdd?: () => void;
+  onEdit?: () => void;
+  onDelete?: () => void;
+  menuItems?: CrudMenuItem[];
 }
 
 export function PageHeader({
@@ -28,6 +35,12 @@ export function PageHeader({
   favoriteHref,
   favoriteLabel,
   statusBadge,
+  onBrowseList,
+  browseListLabel,
+  onAdd,
+  onEdit,
+  onDelete,
+  menuItems,
 }: PageHeaderProps) {
   const pathname = usePathname();
   const favHref = favoriteHref ?? pathname ?? '';
@@ -94,6 +107,14 @@ export function PageHeader({
         <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
           <ScreenHelpButton screenTitle={title} />
           {actions}
+          <CrudButtons
+            onPrevious={onBrowseList}
+            previousLabel={browseListLabel}
+            onAdd={onAdd}
+            onEdit={onEdit}
+            onDelete={onDelete}
+            items={menuItems}
+          />
           <div data-gates-page-header-actions className="contents" />
         </div>
       </div>

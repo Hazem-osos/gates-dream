@@ -12,7 +12,7 @@ import { CLIENT_INVOICE_LABEL } from '@/lib/contracting/labels';
 import { CLIENT_INVOICE_STEPS, type ClientContractDetail, type ClientInvoice, type OwnerBoqItem } from '@/lib/contracting/types';
 import { formatEgp } from '@/lib/subcontracts/money';
 import { usePrintDocument } from '@/lib/documentLayout/usePrintDocument';
-import { resolveDocumentLayout } from '@/lib/documentLayout/useResolvedDocumentLayout';
+import { pickSavedDocumentLayout } from '@/lib/documentLayout/pickSavedDocumentLayout';
 
 export function ClientInvoiceStepper({
   contract,
@@ -48,7 +48,8 @@ export function ClientInvoiceStepper({
   });
 
   const printExtract = async () => {
-    const config = await resolveDocumentLayout('CONTRACTOR_INVOICE');
+    const config = await pickSavedDocumentLayout('CONTRACTOR_INVOICE');
+    if (!config) return;
     await printDocument(clientInvoiceToPreview(contract, invoice, boqItems), config);
   };
 

@@ -29,7 +29,10 @@ export const periodQuerySchema = z.object({
     .string()
     .optional()
     .transform((val) => (val === undefined ? undefined : val === 'true')),
-  isClosed: z.string().optional().transform((val) => val === 'true'),
+  isClosed: z
+    .string()
+    .optional()
+    .transform((val) => (val === undefined ? undefined : val === 'true')),
 });
 
 export type CreatePeriodInput = z.infer<typeof createPeriodSchema>;

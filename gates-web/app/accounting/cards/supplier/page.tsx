@@ -52,7 +52,6 @@ export default function SupplierPage() {
     taxData: false,
     taxAuthority: '',
     taxAuthorityName: '',
-    barcode: '',
     phone1: '',
     phone2: '',
     mobile: '',
@@ -141,7 +140,6 @@ export default function SupplierPage() {
           taxData: false,
           taxAuthority: '',
           taxAuthorityName: '',
-          barcode: '',
           phone1: '',
           phone2: '',
           mobile: '',
@@ -208,7 +206,6 @@ export default function SupplierPage() {
         taxData: formData.taxData,
         taxAuthority: formData.taxAuthority || undefined,
         taxAuthorityName: formData.taxAuthorityName || undefined,
-        barcode: formData.barcode || undefined,
         phone1: formData.phone1 || undefined,
         phone2: formData.phone2 || undefined,
         mobile: formData.mobile || undefined,
@@ -250,7 +247,6 @@ export default function SupplierPage() {
       taxData: false,
       taxAuthority: '',
       taxAuthorityName: '',
-      barcode: '',
       phone1: '',
       phone2: '',
       mobile: '',
@@ -288,7 +284,6 @@ export default function SupplierPage() {
     formData.accountId,
     formData.email,
     formData.website,
-    formData.barcode,
     formData.phone2,
     formData.mobile,
     formData.fax,
@@ -314,6 +309,10 @@ export default function SupplierPage() {
           { label: 'البطاقات' },
           { label: 'مورد' },
         ]}
+        onBrowseList={() =>
+          document.getElementById('card-records')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        }
+        onAdd={handleCancel}
       />
 
       <ClientMountGate
@@ -453,12 +452,6 @@ export default function SupplierPage() {
                 value={formData.nationality}
                 onChange={(e) => setFormData((prev) => ({ ...prev, nationality: e.target.value }))}
                 placeholder="إدخل الجنسية"
-              />
-              <CompactFormField
-                label="رقم الباركود"
-                value={formData.barcode}
-                onChange={(e) => setFormData((prev) => ({ ...prev, barcode: e.target.value }))}
-                placeholder="إدخل رقم الباركود"
               />
               <CompactFormField
                 label="رقم الهاتف 2"
@@ -635,11 +628,13 @@ export default function SupplierPage() {
       </ClientMountGate>
       {showTaxInfo && <TaxInfoOverlay isOpen={showTaxInfo} onClose={handleCloseTaxInfo} />}
 
-      <PartiesListSection
-        endpoint="/accounting/suppliers"
-        queryKeyPrefix="suppliers"
-        emptyTitle="لا يوجد موردون"
-      />
+      <div id="card-records">
+        <PartiesListSection
+          endpoint="/accounting/suppliers"
+          queryKeyPrefix="suppliers"
+          emptyTitle="لا يوجد موردون"
+        />
+      </div>
 
       {/* Toast Notifications */}
       {error && <ErrorToast message={error} onClose={() => setError('')} />}

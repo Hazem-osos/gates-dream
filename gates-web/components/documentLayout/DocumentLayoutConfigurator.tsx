@@ -40,6 +40,12 @@ export function DocumentLayoutConfigurator({
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#E6F0F7] bg-[#F6FBFD] px-4 py-3">
         <div className="flex items-center gap-3">
           <span className="text-sm font-bold text-[#094C6B]">مصمم تخطيط المستندات</span>
+          <input
+            value={config.name ?? ''}
+            onChange={(e) => onChange({ name: e.target.value })}
+            placeholder="اسم الشكل"
+            className="w-44 rounded-lg border border-[#D6EAF3] bg-white px-3 py-1.5 text-xs font-medium text-[#094C6B]"
+          />
           <select
             value={documentType}
             onChange={(e) => onDocumentTypeChange(e.target.value as DocumentLayoutType)}

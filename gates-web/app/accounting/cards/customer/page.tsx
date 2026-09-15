@@ -19,6 +19,7 @@ import { PartiesListSection, type PartyRow } from '@/app/components/accounting/P
 import { MasterEntitySideDrawer } from '@/components/masters/MasterEntitySideDrawer';
 import type { ApiError } from '@/lib/api/types';
 import { PRICE_TIER_LABELS, type PriceTier } from '@/lib/inventory/pricing-engine';
+import { customerCardFormSchema } from '@/lib/validation/accounting.schema';
 import dynamic from 'next/dynamic';
 import { DynamicModalSkeleton } from '@/components/ui/DynamicChunkSkeleton';
 import { getTenantContext } from '@/lib/tenant/tenant-context-storage';
@@ -233,8 +234,9 @@ export default function CustomerPage() {
   };
 
   const handleSave = async () => {
-    if (!formData.arabicName) {
-      setError('يرجى إدخال الإسم العربي');
+    const parsed = customerCardFormSchema.safeParse(formData);
+    if (!parsed.success) {
+      setError(parsed.error.issues[0]?.message || 'يرجى مراجعة بيانات العميل');
       return;
     }
 
@@ -361,6 +363,10 @@ export default function CustomerPage() {
           { label: 'البطاقات' },
           { label: 'عميل' },
         ]}
+        onBrowseList={() =>
+          document.getElementById('card-records')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        }
+        onAdd={handleCancel}
       />
 
       <ClientMountGate
@@ -396,9 +402,10 @@ export default function CustomerPage() {
             />
             <CompactFormField
               label="رقم الهاتف 1"
+              required
               value={formData.phone1}
               onChange={(e) => setFormData((prev) => ({ ...prev, phone1: e.target.value }))}
-              placeholder="إدخل رقم الهاتف"
+              placeholder="إدخل رقم الهاتف أو الموبايل"
             />
             <CompactFormField label="مجموعة العميل">
               <select
@@ -538,6 +545,23 @@ export default function CustomerPage() {
                   <span className="text-xs text-slate-600">تفعيل البيانات الضريبية</span>
                 </label>
               </CompactFormField>
+              {isTaxInfoChecked ? (
+                <>
+                  <CompactFormField
+                    label="مأمورية الضرائب"
+                    required
+                    value={formData.taxAuthority}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, taxAuthority: e.target.value }))}
+                    placeholder="إدخل المأمورية أو الرقم الضريبي"
+                  />
+                  <CompactFormField
+                    label="اسم المأمورية"
+                    value={formData.taxAuthorityName}
+                    onChange={(e) => setFormData((prev) => ({ ...prev, taxAuthorityName: e.target.value }))}
+                    placeholder="اسم المأمورية"
+                  />
+                </>
+              ) : null}
               <CompactFormField
                 label="حساب العميل"
                 hint="يُترك فارغاً ليُنشأ حساب خاص بهذا العميل تحت حساب العملاء"
@@ -747,13 +771,15 @@ export default function CustomerPage() {
       </ClientMountGate>
       {showTaxInfo && <TaxInfoOverlay isOpen={showTaxInfo} onClose={handleCloseTaxInfo} />}
 
-      <PartiesListSection
-        endpoint="/accounting/customers"
-        queryKeyPrefix="customers"
-        emptyTitle="لا يوجد عملاء"
-        selectedRowId={partyDrawer?.id ?? null}
-        onRowActivate={(row) => setPartyDrawer(row)}
-      />
+      <div id="card-records">
+        <PartiesListSection
+          endpoint="/accounting/customers"
+          queryKeyPrefix="customers"
+          emptyTitle="لا يوجد عملاء"
+          selectedRowId={partyDrawer?.id ?? null}
+          onRowActivate={(row) => setPartyDrawer(row)}
+        />
+      </div>
 
       <MasterEntitySideDrawer
         open={!!partyDrawer}

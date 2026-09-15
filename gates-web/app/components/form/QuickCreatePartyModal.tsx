@@ -97,10 +97,15 @@ export function QuickCreatePartyModal({
       setError('الاسم مطلوب');
       return;
     }
+    if (kind === 'CUSTOMER' && !mobile.trim()) {
+      setError('رقم الموبايل مطلوب');
+      return;
+    }
     const body: Record<string, unknown> = {
       arabicName: name.trim(),
       mobile: mobile.trim() || undefined,
       taxAuthority: taxId.trim() || undefined,
+      taxData: Boolean(taxId.trim()),
     };
     if (openingBalance.trim()) {
       const n = Number(openingBalance);
@@ -133,7 +138,12 @@ export function QuickCreatePartyModal({
             onChange={(e) => setName(e.target.value)}
             autoFocus
           />
-          <CompactFormField label="الموبايل" value={mobile} onChange={(e) => setMobile(e.target.value)} />
+          <CompactFormField
+            label="الموبايل"
+            required={kind === 'CUSTOMER'}
+            value={mobile}
+            onChange={(e) => setMobile(e.target.value)}
+          />
           <CompactFormField
             label="الرقم الضريبي (اختياري)"
             value={taxId}

@@ -89,6 +89,9 @@ const documentTypeInput = z
   });
 
 export const documentLayoutConfigUpsertSchema = z.object({
+  id: z.string().uuid().optional(),
+  name: z.string().trim().min(1).max(120).default('تخطيط'),
+  isDefault: z.boolean().optional(),
   branchId: z.string().uuid().optional().nullable(),
   documentType: documentTypeInput.default('ALL'),
   layoutPreset: z.enum(DOCUMENT_LAYOUT_PRESETS).default('LIGHT'),
@@ -101,7 +104,7 @@ export const documentLayoutConfigUpsertSchema = z.object({
   marginSize: z.enum(DOCUMENT_MARGIN_SIZES).default('NORMAL_15MM'),
   logoUrl: z.string().max(2_000_000).optional().nullable(),
   logoPosition: z.enum(DOCUMENT_LOGO_POSITIONS).default('LEFT'),
-  logoWidth: z.number().int().min(40).max(400).default(150),
+  logoWidth: z.coerce.number().int().min(40).max(400).default(150),
   companyNameAr: z.string().trim().max(200).optional().nullable(),
   companyNameEn: z.string().trim().max(200).optional().nullable(),
   taxId: z.string().trim().max(60).optional().nullable(),

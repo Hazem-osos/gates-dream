@@ -7,6 +7,8 @@ import type { DocumentLayoutConfig } from './types';
  * as the "Reset to defaults" target.
  */
 export const DEFAULT_DOCUMENT_LAYOUT_CONFIG: DocumentLayoutConfig = {
+  name: 'تخطيط جديد',
+  isDefault: false,
   documentType: 'ALL',
   layoutPreset: 'LIGHT',
   tableStyle: 'LIGHT',

@@ -189,6 +189,10 @@ function CostCenterPage() {
             settingKey="costCenterAutoNumbering"
           />
         }
+        onBrowseList={() =>
+          document.getElementById('card-records')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        }
+        onAdd={handleCancel}
       />
 
       <div className="mb-4">
@@ -198,6 +202,7 @@ function CostCenterPage() {
         <FormSectionCard title="البيانات الأساسية" subtitle="الحقول اللازمة لتعريف مركز التكلفة" icon={Layers}>
           <CompactFormField
             label="رقم مركز التكلفة"
+            required={!costCenterAuto}
             value={formData.code}
             disabled={costCenterAuto}
             onChange={(e) => {
@@ -208,11 +213,12 @@ function CostCenterPage() {
           />
           <CompactFormField
             label="إسم المركز"
+            required
             value={formData.arabicName}
             onChange={(e) => setFormData({ ...formData, arabicName: e.target.value })}
             placeholder="إدخل الإسم بالعربي"
           />
-          <CompactFormField label="م/ رئيسي">
+          <CompactFormField label="م/ رئيسي (اختياري)">
             <div className="relative">
               <input
                 type="text"
@@ -334,6 +340,33 @@ function CostCenterPage() {
           status="مسودة"
         />
       </form>
+
+      <section id="card-records" className="mt-6 overflow-x-auto rounded-xl border border-[#D6EAF3] bg-white">
+        <table className="min-w-full text-sm text-right">
+          <thead className="bg-[#F0F7FB] text-[#094C6B]">
+            <tr>
+              <th className="px-3 py-2 font-semibold">الكود</th>
+              <th className="px-3 py-2 font-semibold">الاسم</th>
+            </tr>
+          </thead>
+          <tbody>
+            {costCenters.length === 0 ? (
+              <tr>
+                <td colSpan={2} className="px-3 py-6 text-center text-slate-500">
+                  لا توجد مراكز تكلفة بعد
+                </td>
+              </tr>
+            ) : (
+              costCenters.map((cc) => (
+                <tr key={cc.id} className="border-t border-[#E6F0F7]">
+                  <td className="px-3 py-2">{cc.code}</td>
+                  <td className="px-3 py-2">{cc.arabicName}</td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </section>
     </div>
   );
 }

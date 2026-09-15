@@ -18,7 +18,7 @@ import {
 } from '@/lib/subcontracts/types';
 import { INVOICE_LABEL } from './SubcontractStatusBadge';
 import { usePrintDocument } from '@/lib/documentLayout/usePrintDocument';
-import { resolveDocumentLayout } from '@/lib/documentLayout/useResolvedDocumentLayout';
+import { pickSavedDocumentLayout } from '@/lib/documentLayout/pickSavedDocumentLayout';
 import { debitNoteApiToPreview, subcontractInvoiceToPreview, type ContractorDebitNoteApi } from '@/lib/documentLayout/fromDomain';
 
 const STEP_META: Record<(typeof APPROVAL_STEPS)[number], { label: string; sub: string }> = {
@@ -71,7 +71,8 @@ export function InvoiceApprovalStepper({
   });
 
   const printMostakhlas = async () => {
-    const config = await resolveDocumentLayout('CONTRACTOR_INVOICE');
+    const config = await pickSavedDocumentLayout('CONTRACTOR_INVOICE');
+    if (!config) return;
     const data = subcontractInvoiceToPreview(subcontract, invoice);
     await printDocument(data, config);
   };
@@ -88,7 +89,8 @@ export function InvoiceApprovalStepper({
     const notes = await Promise.all(
       ids.map((query) => apiClient.get<ContractorDebitNoteApi>('/subcontracts/reports/debit-note', query))
     );
-    const config = await resolveDocumentLayout('DEBIT_NOTE');
+    const config = await pickSavedDocumentLayout('DEBIT_NOTE');
+    if (!config) return;
     const items = notes.map((res) => ({
       data: debitNoteApiToPreview(res.data ?? {}, {
         companyNameAr: config.companyNameAr,

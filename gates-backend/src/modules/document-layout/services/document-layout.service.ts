@@ -11,6 +11,8 @@ import type { Prisma } from '@prisma/client';
  * a new field.
  */
 export const DOCUMENT_LAYOUT_DEFAULTS = {
+  name: 'تخطيط',
+  isDefault: false,
   documentType: 'ALL' as const,
   layoutPreset: 'LIGHT' as const,
   tableStyle: 'LIGHT' as const,
@@ -46,7 +48,7 @@ export class DocumentLayoutService {
 
     return prisma.documentLayoutConfig.findMany({
       where,
-      orderBy: [{ documentType: 'asc' }, { branchId: 'asc' }],
+      orderBy: [{ isDefault: 'desc' }, { updatedAt: 'desc' }],
     });
   }
 
@@ -73,18 +75,34 @@ export class DocumentLayoutService {
 
     for (const candidate of candidates) {
       const found = await prisma.documentLayoutConfig.findFirst({
-        where: { companyId, branchId: candidate.branchId, documentType: candidate.documentType as never },
+        where: {
+          companyId,
+          branchId: candidate.branchId,
+          documentType: candidate.documentType as never,
+          isDefault: true,
+        },
+        orderBy: { updatedAt: 'desc' },
       });
       if (found) return found;
+      const latest = await prisma.documentLayoutConfig.findFirst({
+        where: {
+          companyId,
+          branchId: candidate.branchId,
+          documentType: candidate.documentType as never,
+        },
+        orderBy: { updatedAt: 'desc' },
+      });
+      if (latest) return latest;
     }
 
     return { ...DOCUMENT_LAYOUT_DEFAULTS, id: null, companyId, branchId: branchId ?? null };
   }
 
-  /** Upsert by the (companyId, branchId, documentType) natural key. */
+  /** Create a new named shape, or update the existing id. Never overwrites another shape. */
   async upsert(companyId: string, data: DocumentLayoutConfigUpsertInput) {
     const branchId = data.branchId ?? null;
     const documentType = data.documentType ?? 'ALL';
+    const name = data.name?.trim() || 'تخطيط';
 
     if (branchId) {
       const branch = await prisma.branch.findFirst({ where: { id: branchId, companyId } });
@@ -92,6 +110,7 @@ export class DocumentLayoutService {
     }
 
     const payload = {
+      name,
       layoutPreset: data.layoutPreset,
       tableStyle: data.tableStyle,
       fontFamily: data.fontFamily,
@@ -117,22 +136,48 @@ export class DocumentLayoutService {
       columnSettings: (data.columnSettings ?? undefined) as Prisma.InputJsonValue | undefined,
     };
 
-    // Not using the composite-unique `upsert` shortcut here: Prisma's generated
-    // `WhereUniqueInput` for a compound key that includes a nullable field
-    // (`branchId`) does not accept `null` in that position, and MySQL itself
-    // treats NULL as distinct for uniqueness purposes anyway — so we do the
-    // find-then-write manually against the plain (non-unique) filter instead.
-    const existing = await prisma.documentLayoutConfig.findFirst({
-      where: { companyId, branchId, documentType: documentType as never },
+    const siblingCount = await prisma.documentLayoutConfig.count({
+      where: { companyId, documentType: documentType as never },
+    });
+    const makeDefault = data.isDefault === true || siblingCount === 0;
+
+    if (data.id) {
+      const existing = await prisma.documentLayoutConfig.findFirst({
+        where: { id: data.id, companyId },
+      });
+      if (!existing) throw new AppError(404, 'Document layout config not found');
+      if (makeDefault) {
+        await prisma.documentLayoutConfig.updateMany({
+          where: { companyId, documentType: documentType as never, NOT: { id: existing.id } },
+          data: { isDefault: false },
+        });
+      }
+      const config = await prisma.documentLayoutConfig.update({
+        where: { id: existing.id },
+        data: { ...payload, isDefault: makeDefault || existing.isDefault },
+      });
+      logger.info({ companyId, id: config.id, name }, 'Document layout config updated');
+      return config;
+    }
+
+    if (makeDefault) {
+      await prisma.documentLayoutConfig.updateMany({
+        where: { companyId, documentType: documentType as never },
+        data: { isDefault: false },
+      });
+    }
+
+    const config = await prisma.documentLayoutConfig.create({
+      data: {
+        companyId,
+        branchId,
+        documentType: documentType as never,
+        isDefault: makeDefault,
+        ...payload,
+      },
     });
 
-    const config = existing
-      ? await prisma.documentLayoutConfig.update({ where: { id: existing.id }, data: payload })
-      : await prisma.documentLayoutConfig.create({
-          data: { companyId, branchId, documentType: documentType as never, ...payload },
-        });
-
-    logger.info({ companyId, branchId, documentType, id: config.id }, 'Document layout config saved');
+    logger.info({ companyId, branchId, documentType, id: config.id, name }, 'Document layout config created');
     return config;
   }
 

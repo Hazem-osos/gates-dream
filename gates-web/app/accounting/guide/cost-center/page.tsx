@@ -118,6 +118,10 @@ export default function CostCentersGuidePage() {
       toast.error('أدخل اسم المركز');
       return;
     }
+    if (!costCenterAuto && modalMode === 'create' && !form.code.trim()) {
+      toast.error('رقم المركز مطلوب — الترقيم يدوي');
+      return;
+    }
     setSaving(true);
     try {
       const body = {
@@ -246,6 +250,7 @@ export default function CostCentersGuidePage() {
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <CompactFormField
             label="رقم مركز التكلفة"
+            required={!costCenterAuto}
             value={form.code}
             onChange={(e) => setForm((f) => ({ ...f, code: e.target.value }))}
             disabled={costCenterAuto && modalMode === 'create'}

@@ -44,6 +44,8 @@ interface Account {
   code: string;
   arabicName: string;
   englishName?: string;
+  accountSide?: 'مدين' | 'دائن' | null;
+  accountNature?: 'DEBIT' | 'CREDIT' | null;
 }
 
 interface Currency {
@@ -171,6 +173,10 @@ function InputDesign() {
             settingKey="coaAutoNumbering"
           />
         }
+        onBrowseList={() =>
+          document.getElementById('card-records')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        }
+        onAdd={handleCancel}
       />
 
       <div className="mb-4">
@@ -228,7 +234,22 @@ function InputDesign() {
             <select
               className={compactControlClass}
               value={formData.parentId}
-              onChange={(e) => setFormData((prev) => ({ ...prev, parentId: e.target.value }))}
+              onChange={(e) => {
+                const parentId = e.target.value;
+                const parent = accounts.find((account) => account.id === parentId);
+                const inheritedSide =
+                  parent?.accountSide ||
+                  (parent?.accountNature === 'CREDIT' ? 'دائن' : parent?.accountNature === 'DEBIT' ? 'مدين' : '');
+                setFormData((prev) => {
+                  const nextSide = prev.accountSide || inheritedSide;
+                  return {
+                    ...prev,
+                    parentId,
+                    accountSide: nextSide,
+                    accountNature: nextSide === 'دائن' ? 'CREDIT' : 'DEBIT',
+                  };
+                });
+              }}
             >
               <option value="">اختر الحساب الرئيسي</option>
               {accounts.map((account) => (
@@ -257,7 +278,7 @@ function InputDesign() {
               emptyLabel="غير مربوط"
             />
           </CompactFormField>
-          <CompactFormField label="جهة الحساب" className="sm:col-span-2">
+          <CompactFormField label="جهة الحساب" required className="sm:col-span-2">
             <div className="flex flex-wrap gap-2">
               {[
                 { value: 'مدين', label: 'مدين' },
@@ -476,6 +497,35 @@ function InputDesign() {
           status="مسودة"
         />
       </form>
+
+      <section id="card-records" className="mt-6 overflow-x-auto rounded-xl border border-[#D6EAF3] bg-white">
+        <table className="min-w-full text-sm text-right">
+          <thead className="bg-[#F0F7FB] text-[#094C6B]">
+            <tr>
+              <th className="px-3 py-2 font-semibold">الكود</th>
+              <th className="px-3 py-2 font-semibold">الاسم</th>
+              <th className="px-3 py-2 font-semibold">الجهة</th>
+            </tr>
+          </thead>
+          <tbody>
+            {accounts.length === 0 ? (
+              <tr>
+                <td colSpan={3} className="px-3 py-6 text-center text-slate-500">
+                  لا توجد حسابات بعد
+                </td>
+              </tr>
+            ) : (
+              accounts.map((account) => (
+                <tr key={account.id} className="border-t border-[#E6F0F7]">
+                  <td className="px-3 py-2">{account.code}</td>
+                  <td className="px-3 py-2">{account.arabicName}</td>
+                  <td className="px-3 py-2">{account.accountSide || '—'}</td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </section>
 
       {error && <ErrorToast message={error} onClose={() => setError('')} />}
       {success && <SuccessToast message={success} onClose={() => setSuccess('')} />}

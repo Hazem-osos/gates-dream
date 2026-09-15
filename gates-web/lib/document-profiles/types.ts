@@ -93,5 +93,5 @@ export function profileEntryHref(profile: Pick<DocumentProfile, 'baseType' | 'sl
 }
 
 export function previewProfileNumber(profile: Pick<DocumentProfile, 'prefix' | 'nextNumber'>) {
-  return `${profile.prefix ?? ''}${String(profile.nextNumber ?? 1).padStart(4, '0')}`;
+  return `${profile.prefix ?? ''}${String(profile.nextNumber ?? 1).padStart(5, '0')}`;
 }

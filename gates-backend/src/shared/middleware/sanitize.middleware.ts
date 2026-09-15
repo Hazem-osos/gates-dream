@@ -80,19 +80,28 @@ function isAiApiRequest(req: Request): boolean {
   return /\/api\/v1\/ai(?:\/|$)/.test(url);
 }
 
+function isDocumentLayoutApiRequest(req: Request): boolean {
+  const url = String(req.originalUrl || req.path || '').split('?')[0];
+  return /\/api\/v1\/document-layouts?(?:-configs)?(?:\/|$)/.test(url);
+}
+
+function shouldSkipInputGuard(req: Request): boolean {
+  return isAiApiRequest(req) || isDocumentLayoutApiRequest(req);
+}
+
 export const preventSQLInjection = (
   req: Request,
   res: Response,
   next: NextFunction
 ) => {
-  if (isAiApiRequest(req)) return next();
+  if (shouldSkipInputGuard(req)) return next();
 
   // Enhanced SQL injection patterns
   const sqlPatterns = [
     // SQL keywords in suspicious contexts
     /(\b(SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|EXEC|EXECUTE|TRUNCATE|MERGE)\b)/gi,
-    // SQL comment patterns
-    /(--|#|\/\*|\*\/|;)/g,
+    // SQL comment patterns (`#` alone matches hex colors like #0E78AA — do not flag it)
+    /(--|\/\*|\*\/|;)/g,
     // Union-based injection
     /(UNION\s+(ALL\s+)?SELECT)/gi,
     // Boolean-based injection
@@ -219,7 +228,7 @@ export const preventSQLInjection = (
  * Checks for XSS patterns
  */
 export const preventXSS = (req: Request, res: Response, next: NextFunction) => {
-  if (isAiApiRequest(req)) return next();
+  if (shouldSkipInputGuard(req)) return next();
 
   const xssPatterns = [
     /<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi,

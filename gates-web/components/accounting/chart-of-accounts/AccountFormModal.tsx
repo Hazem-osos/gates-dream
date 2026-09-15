@@ -81,10 +81,13 @@ export function AccountFormModal({
         budget: (initial as { budget?: number | null }).budget ?? null,
       });
     } else {
+      const inheritedSide =
+        parentAccount?.nature === 'CREDIT' ? 'دائن' : parentAccount?.nature === 'DEBIT' ? 'مدين' : null;
       setForm({
         ...emptyForm,
         parentId: parentAccount?.id ?? null,
         accountType: parentAccount?.accountType ?? '',
+        accountSide: inheritedSide,
       });
       void refetchSuggest();
     }
@@ -106,6 +109,10 @@ export function AccountFormModal({
     }
     if (!autoNumbering && !form.code.trim()) {
       onError('رقم الحساب مطلوب — الترقيم يدوي');
+      return;
+    }
+    if (!form.parentId && !form.accountSide) {
+      onError('جهة الحساب مطلوبة للحساب الرئيسي (مدين أو دائن)');
       return;
     }
     try {
@@ -158,6 +165,7 @@ export function AccountFormModal({
           >
             <CompactFormField
               label={autoNumbering ? 'رقم الحساب' : 'رقم الحساب'}
+              required={!autoNumbering}
               value={form.code}
               readOnly={autoNumbering}
               disabled={autoNumbering}
@@ -202,7 +210,7 @@ export function AccountFormModal({
             <CompactFormField label="الحساب الأب">
               <input className={compactControlClass} value={parentLabel} readOnly />
             </CompactFormField>
-            <CompactFormField label="طبيعة الحساب">
+            <CompactFormField label="جهة الحساب" required={!form.parentId}>
               <select
                 className={compactControlClass}
                 value={form.accountSide ?? ''}
@@ -213,7 +221,7 @@ export function AccountFormModal({
                   }))
                 }
               >
-                <option value="">افتراضي حسب النوع</option>
+                <option value="">{form.parentId ? 'تورث من الحساب الأب' : 'اختر جهة الحساب'}</option>
                 <option value="مدين">مدين</option>
                 <option value="دائن">دائن</option>
               </select>

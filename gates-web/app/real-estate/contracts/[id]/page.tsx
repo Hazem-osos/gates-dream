@@ -13,7 +13,7 @@ import { queryKeys, staleTimes } from '@/lib/query/query-keys';
 import { formatDateAr, formatEgp, toMoney } from '@/lib/real-estate/format';
 import type { UnitContract, UnitContractListItem, UnitInstallment, InstallmentType } from '@/lib/real-estate/types';
 import { usePrintDocument } from '@/lib/documentLayout/usePrintDocument';
-import { resolveDocumentLayout } from '@/lib/documentLayout/useResolvedDocumentLayout';
+import { pickSavedDocumentLayout } from '@/lib/documentLayout/pickSavedDocumentLayout';
 import { realEstateReceiptToPreview } from '@/lib/documentLayout/fromDomain';
 import { lazyNamedModal } from '@/components/ui/lazyModal';
 
@@ -171,7 +171,8 @@ export default function ContractWorkspacePage() {
               onSettle={setSettleRow}
               onPrintReceipt={(row) => {
                 void (async () => {
-                  const config = await resolveDocumentLayout('REAL_ESTATE_RECEIPT');
+                  const config = await pickSavedDocumentLayout('REAL_ESTATE_RECEIPT');
+                  if (!config) return;
                   await printDocument(
                     realEstateReceiptToPreview(contract, row, {
                       amountPaidNow: toMoney(row.paidAmount),

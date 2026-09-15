@@ -272,7 +272,25 @@ export class AccountService {
         await this.assertParentCanReceiveChild(companyId, data.parentId);
       }
 
-      const classified = resolveAccountClassification(data);
+      let inheritNature: 'DEBIT' | 'CREDIT' | undefined;
+      let inheritSide: string | undefined;
+      let inheritStatement: 'BALANCE_SHEET' | 'INCOME_STATEMENT' | undefined;
+      if (data.parentId && !data.accountNature && !data.accountSide) {
+        const parent = await prisma.account.findFirst({
+          where: { id: data.parentId, companyId, deletedAt: null },
+          select: { accountNature: true, accountSide: true, statementType: true },
+        });
+        inheritNature = parent?.accountNature ?? undefined;
+        inheritSide = parent?.accountSide ?? undefined;
+        inheritStatement = parent?.statementType ?? undefined;
+      }
+
+      const classified = resolveAccountClassification({
+        ...data,
+        accountNature: data.accountNature ?? inheritNature,
+        accountSide: data.accountSide ?? inheritSide,
+        statementType: data.statementType ?? inheritStatement,
+      });
       let code = data.code?.trim() ?? '';
       if (!code) {
         if (!(await this.isCoaAutoNumbering(companyId))) {

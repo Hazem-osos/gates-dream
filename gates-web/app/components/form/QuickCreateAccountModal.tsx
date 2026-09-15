@@ -27,6 +27,7 @@ export function QuickCreateAccountModal({ open, initialName, onClose, onCreated 
   const queryClient = useQueryClient();
   const [name, setName] = useState(initialName);
   const [code, setCode] = useState('');
+  const [accountSide, setAccountSide] = useState<'مدين' | 'دائن' | ''>('');
   const [codeTouched, setCodeTouched] = useState(false);
   const [error, setError] = useState('');
 
@@ -37,6 +38,7 @@ export function QuickCreateAccountModal({ open, initialName, onClose, onCreated 
   useEffect(() => {
     if (!open) return;
     setName(initialName);
+    setAccountSide('');
     setCodeTouched(false);
     setError('');
   }, [open, initialName]);
@@ -78,9 +80,15 @@ export function QuickCreateAccountModal({ open, initialName, onClose, onCreated 
       setError('كود الحساب مطلوب — الترقيم يدوي');
       return;
     }
+    if (!accountSide) {
+      setError('جهة الحساب مطلوبة (مدين أو دائن)');
+      return;
+    }
     mutation.mutate({
       arabicName: name.trim(),
       code: code.trim() || undefined,
+      accountSide,
+      accountNature: accountSide === 'دائن' ? 'CREDIT' : 'DEBIT',
     });
   };
 
@@ -113,6 +121,29 @@ export function QuickCreateAccountModal({ open, initialName, onClose, onCreated 
             setCode(e.target.value);
           }}
         />
+        <CompactFormField label="جهة الحساب" required>
+          <div className="flex flex-wrap gap-2">
+            {(['مدين', 'دائن'] as const).map((side) => (
+              <label
+                key={side}
+                className={`${
+                  accountSide === side
+                    ? 'bg-[#0E78AA] text-white border-[#0E78AA]'
+                    : 'bg-white text-[#0A3D5E] border-[#D6EAF3]'
+                } inline-flex cursor-pointer items-center rounded-full border px-3 py-1.5 text-xs font-semibold`}
+              >
+                <input
+                  type="radio"
+                  name="quickAccountSide"
+                  className="sr-only"
+                  checked={accountSide === side}
+                  onChange={() => setAccountSide(side)}
+                />
+                {side}
+              </label>
+            ))}
+          </div>
+        </CompactFormField>
       </FormSectionCard>
     </QuickCreateDialog>
   );

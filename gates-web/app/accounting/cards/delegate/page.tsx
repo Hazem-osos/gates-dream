@@ -176,6 +176,7 @@ export default function DelegatePage() {
           { label: 'البطاقات' },
           { label: 'مندوب' },
         ]}
+        onAdd={handleCancel}
       />
 
       <form className="w-full text-base">

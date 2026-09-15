@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const createCustomerSchema = z.object({
+const customerFields = {
   serial: z.string().optional(),
   code: z.string().optional(),
   arabicName: z.string().min(1, 'Arabic name is required'),
@@ -53,9 +53,31 @@ export const createCustomerSchema = z.object({
   employeeId: z.string().uuid().optional().nullable(),
   followUpDate: z.coerce.date().optional().nullable(),
   followUpDateHijri: z.string().optional(),
-});
+};
 
-export const updateCustomerSchema = createCustomerSchema.partial().extend({
+function refineCustomerMinimum(
+  value: { phone1?: string; mobile?: string; taxData?: boolean; taxAuthority?: string; taxAuthorityName?: string },
+  ctx: z.RefinementCtx
+) {
+  if (!value.phone1?.trim() && !value.mobile?.trim()) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['phone1'],
+      message: 'أدخل رقم هاتف أو موبايل على الأقل.',
+    });
+  }
+  if (value.taxData && !value.taxAuthority?.trim() && !value.taxAuthorityName?.trim()) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['taxAuthority'],
+      message: 'بيانات الضرائب مطلوبة بعد تفعيل الرقم الضريبي.',
+    });
+  }
+}
+
+export const createCustomerSchema = z.object(customerFields).superRefine(refineCustomerMinimum);
+
+export const updateCustomerSchema = z.object(customerFields).partial().extend({
   isActive: z.boolean().optional(),
   balance: z.number().optional(),
 });

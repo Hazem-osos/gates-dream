@@ -147,6 +147,12 @@ export function CustomerQuickAddModal({ open, initialName, onClose, onCreated }:
       toast.error(msg);
       return;
     }
+    if (!form.mobile.trim()) {
+      const msg = 'رقم الموبايل مطلوب';
+      setError(msg);
+      toast.error(msg);
+      return;
+    }
     const body: Record<string, unknown> = {
       arabicName: form.arabicName.trim(),
       englishName: form.englishName.trim() || undefined,
@@ -154,6 +160,7 @@ export function CustomerQuickAddModal({ open, initialName, onClose, onCreated }:
       how: form.how,
       mobile: form.mobile.trim() || undefined,
       taxAuthority: form.taxAuthority.trim() || undefined,
+      taxData: Boolean(form.taxAuthority.trim()),
       mainAccountId: form.mainAccountId || undefined,
       priceTier: form.priceTier || undefined,
       currencyCode: form.currencyCode || undefined,
@@ -225,7 +232,12 @@ export function CustomerQuickAddModal({ open, initialName, onClose, onCreated }:
               <option value="exempt">معفى</option>
             </select>
           </CompactFormField>
-          <CompactFormField label="الموبايل" value={form.mobile} onChange={(e) => set('mobile', e.target.value)} />
+          <CompactFormField
+            label="الموبايل"
+            required
+            value={form.mobile}
+            onChange={(e) => set('mobile', e.target.value)}
+          />
           <CompactFormField
             label="الجهة الضريبية"
             value={form.taxAuthority}
