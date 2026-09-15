@@ -165,7 +165,7 @@ export function ErpDocumentPageHeader({
   }, [currentId, statusLabel, statusTone, title]);
 
   return (
-    <header className={`sticky top-0 z-40 -mx-3 px-3 bg-white/95 backdrop-blur-md border-b border-[#E6F0F7] shadow-sm rounded-lg overflow-visible ${compact ? 'py-1.5 mb-1' : 'py-2.5 mb-2'}`} data-tour="document-header" data-tour-legacy="erp-page-header">
+    <header className={`sticky top-0 z-40 isolate -mx-3 px-3 bg-white border-b border-[#E6F0F7] shadow-sm rounded-lg overflow-visible ${compact ? 'py-1.5 mb-1' : 'py-2.5 mb-2'}`} data-tour="document-header" data-tour-legacy="erp-page-header">
       {registerChrome ? <RegisterScreenChrome /> : null}
       <div className={`flex flex-wrap justify-between gap-2 ${compact ? 'items-center' : 'items-start'}`}>
         <div className={`min-w-0 ${compact ? '' : 'space-y-0.5'}`}>

@@ -135,7 +135,6 @@ export function VoucherLinesGrid({
               value={line.costCenterId || ''}
               onChange={(id) => updateLine(index, { costCenterId: id })}
               disabled={disabled}
-              emptyLabel="اختياري"
               className={dataEntryGridInputClass}
               nativeSelectProps={keyHandlers(index, 'costCenter')}
             />

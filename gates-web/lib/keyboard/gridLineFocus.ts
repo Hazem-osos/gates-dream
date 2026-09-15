@@ -59,6 +59,7 @@ export function handleLineGridKeyDown(
 
   if (e.key !== 'Enter' && e.key !== 'Tab') return;
   if (e.key === 'Tab' && e.shiftKey) return;
+  if (e.key === 'Enter' && target.getAttribute('role') === 'combobox') return;
 
   const idx = opts.fieldOrder.indexOf(field);
   if (idx === -1) return;

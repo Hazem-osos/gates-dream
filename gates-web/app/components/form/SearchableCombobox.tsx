@@ -256,36 +256,57 @@ export function SearchableCombobox({
             if (!next.trim()) onChange('');
           }}
           onFocus={() => setOpen(true)}
-          onKeyDown={(e) => {
-            onInputKeyDown?.(e);
-            if (e.defaultPrevented) return;
+          {...(() => {
+            const { onKeyDown: inputKeyDown, ...restInputProps } = inputProps ?? {};
+            return {
+              ...restInputProps,
+              onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => {
+                if (e.key === 'Tab') {
+                  setOpen(false);
+                  onInputKeyDown?.(e);
+                  inputKeyDown?.(e);
+                  return;
+                }
 
-            if (e.key === 'ArrowDown') {
-              e.preventDefault();
-              setOpen(true);
-              setActiveIndex((i) => Math.min(i + 1, listCount - 1));
-              return;
-            }
-            if (e.key === 'ArrowUp') {
-              e.preventDefault();
-              setActiveIndex((i) => Math.max(i - 1, 0));
-              return;
-            }
-            if (e.key === 'Escape') {
-              setOpen(false);
-              return;
-            }
-            if (e.key === 'Enter' && open) {
-              e.preventDefault();
-              if (showQuickCreate && activeIndex === filtered.length) {
-                handleQuickCreate();
-                return;
-              }
-              const opt = filtered[activeIndex];
-              if (opt) pick(opt.value);
-            }
-          }}
-          {...inputProps}
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  if (open) {
+                    if (showQuickCreate && activeIndex === filtered.length) {
+                      handleQuickCreate();
+                      return;
+                    }
+                    const opt = filtered[activeIndex];
+                    if (opt) pick(opt.value);
+                    else setOpen(true);
+                  } else {
+                    setOpen(true);
+                  }
+                  return;
+                }
+
+                if (e.key === 'ArrowDown') {
+                  e.preventDefault();
+                  setOpen(true);
+                  setActiveIndex((i) => Math.min(i + 1, listCount - 1));
+                  return;
+                }
+                if (e.key === 'ArrowUp') {
+                  e.preventDefault();
+                  setActiveIndex((i) => Math.max(i - 1, 0));
+                  return;
+                }
+                if (e.key === 'Escape') {
+                  setOpen(false);
+                  return;
+                }
+
+                onInputKeyDown?.(e);
+                if (e.defaultPrevented) return;
+                inputKeyDown?.(e);
+              },
+            };
+          })()}
         />
         {onQuickCreate && !disabled ? (
           <button

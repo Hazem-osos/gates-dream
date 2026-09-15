@@ -71,6 +71,9 @@ export type CostCenterOption = {
   code?: string | null;
   arabicName: string;
   englishName?: string | null;
+  parentId?: string | null;
+  children?: { id: string }[] | null;
+  _count?: { children?: number };
 };
 
 export function formatAccountLabel(a: Pick<AccountOption, 'code' | 'arabicName'>) {

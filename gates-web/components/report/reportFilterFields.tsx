@@ -378,6 +378,7 @@ export function ReportFilterCostCenterSelect({
         value={value}
         onChange={onChange}
         className={reportFilterInputClass}
+        allowEmpty
         emptyLabel={emptyLabel}
       />
     </ReportFilterField>

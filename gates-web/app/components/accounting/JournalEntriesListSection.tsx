@@ -115,7 +115,7 @@ export function JournalEntriesListSection({
     {
       id: 'status',
       header: 'الحالة',
-      getValue: (r) => (r.isCancelled ? 'ملغي' : r.isPosted ? 'مرحّل' : 'مسودة'),
+      getValue: (r) => (r.isCancelled ? 'ملغي' : r.isPosted ? 'مرحّل' : 'غير مرحل'),
     },
   ];
 
@@ -164,7 +164,7 @@ export function JournalEntriesListSection({
         >
           <option value="all">كل الحالات</option>
           <option value="posted">مرحّل فقط</option>
-          <option value="draft">مسودة فقط</option>
+          <option value="draft">غير مرحل فقط</option>
           <option value="cancelled">ملغي فقط</option>
         </select>
       </FilterToolbar>
@@ -212,7 +212,7 @@ export function JournalEntriesListSection({
               <StatusBadge
                 compact
                 variant={r.isCancelled ? 'danger' : r.isPosted ? 'success' : 'warning'}
-                label={r.isCancelled ? 'ملغي' : r.isPosted ? 'مرحّل' : 'مسودة'}
+                label={r.isCancelled ? 'ملغي' : r.isPosted ? 'مرحّل' : 'غير مرحل'}
               />
             ),
           },
@@ -265,20 +265,20 @@ export function JournalEntriesListSection({
                     disabled={deletingId === r.id}
                     onClick={async (e) => {
                       e.stopPropagation();
-                      if (!window.confirm('حذف هذه المسودة؟')) return;
+                      if (!window.confirm('حذف هذا القيد غير المرحّل؟')) return;
                       setDeletingId(r.id);
                       try {
                         await deleteDraftDocument('/accounting/journal-entries', r.id);
-                        toast.success('تم حذف المسودة');
+                        toast.success('تم حذف القيد');
                         await queryClient.invalidateQueries({ queryKey: ['journal-entries'] });
                       } catch (error) {
-                        toast.error(error instanceof Error ? error.message : 'تعذر حذف المسودة');
+                        toast.error(error instanceof Error ? error.message : 'تعذر حذف القيد');
                       } finally {
                         setDeletingId(null);
                       }
                     }}
                   >
-                    حذف المسودة
+                    حذف
                   </Button>
                 ) : null}
               </div>

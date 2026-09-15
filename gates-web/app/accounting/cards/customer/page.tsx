@@ -4,19 +4,18 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { User } from 'lucide-react';
 import TaxInfoOverlay from '@/components/TaxInfoOverlay';
 import {
-  PageHeader,
   CompactFormField,
   AdvancedFieldsSection,
-  FormStickyFooter,
   FormSectionCard,
   compactControlClass,
 } from '@/components/ui';
+import { DocumentBrowseDrawer } from '@/components/erp/DocumentBrowseDrawer';
+import { ErpDocumentLayout, ErpDocumentPageHeader } from '@/components/erp';
 import { useApiQuery, useApiMutation, useInvalidateQuery } from '@/lib/hooks/useApi';
 import { ClientMountGate } from '@/lib/hooks/useClientMounted';
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
 import { PartiesListSection, type PartyRow } from '@/app/components/accounting/PartiesListSection';
-import { MasterEntitySideDrawer } from '@/components/masters/MasterEntitySideDrawer';
 import type { ApiError } from '@/lib/api/types';
 import { PRICE_TIER_LABELS, type PriceTier } from '@/lib/inventory/pricing-engine';
 import { customerCardFormSchema } from '@/lib/validation/accounting.schema';
@@ -354,19 +353,51 @@ export default function CustomerPage() {
     formData.priceTier !== 'RETAIL' ? formData.priceTier : '',
   ].filter((v) => String(v ?? '').trim().length > 0).length;
 
+  const [showGuide, setShowGuide] = useState(false);
+
   return (
-    <div className="p-6" style={{ direction: 'rtl' }} data-print-root="">
-      <PageHeader
-        title="بطاقة عميل"
+    <ErpDocumentLayout>
+      <ErpDocumentPageHeader
+        compact
+        lockWhenPosted={false}
         breadcrumbs={[
-          { label: 'الحسابات', href: '/accounting' },
+          { href: '/accounting', label: 'الحسابات' },
           { label: 'البطاقات' },
           { label: 'عميل' },
         ]}
-        onBrowseList={() =>
-          document.getElementById('card-records')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        title="بطاقة عميل"
+        docNumber={formData.serial || (partyDrawer?.id ? 'تعديل' : 'جديد')}
+        statusTone="info"
+        statusLabel={partyDrawer?.id ? 'تعديل' : 'جديد'}
+        saveLabel="حفظ"
+        onSaveDraft={() => void handleSave()}
+        savePending={customerMutation.isPending}
+        canSave={!customerMutation.isPending}
+        hideStandalonePost
+        moreMenuItems={[{ id: 'new', label: 'جديد', onClick: handleCancel }]}
+        extraActions={
+          <>
+            <button
+              type="button"
+              className="text-[#2A63D0] hover:underline flex items-center gap-1 bg-transparent border-0 px-2 text-xs font-semibold"
+              onClick={() => void printPageContent('بطاقة عميل')}
+            >
+              طباعة
+            </button>
+            {formData.linkedSupplierId && (savedCustomerId || partyDrawer?.id) ? (
+              <button
+                type="button"
+                className="text-[#0E79AA] hover:underline flex items-center gap-1 bg-transparent border-0 px-2 text-xs font-semibold"
+                onClick={() => setOffsetOpen(true)}
+              >
+                مقاصة AR/AP
+              </button>
+            ) : null}
+          </>
         }
-        onAdd={handleCancel}
+        onBrowseList={() => setShowGuide(true)}
+        browseListLabel="السابق"
+        currentId={partyDrawer?.id ?? savedCustomerId}
       />
 
       <ClientMountGate
@@ -741,74 +772,22 @@ export default function CustomerPage() {
             </div>
           </AdvancedFieldsSection>
 
-          <FormStickyFooter
-            onCancel={handleCancel}
-            onSave={handleSave}
-            saveLoading={customerMutation.isPending}
-            status={savedCustomerId ? 'عميل محفوظ' : 'مسودة'}
-            extraActions={
-              <>
-                <button
-                  type="button"
-                  className="text-[#2A63D0] hover:underline flex items-center gap-1 bg-transparent border-0 cursor-pointer p-0 font-inherit"
-                  onClick={() => void printPageContent('بطاقة عميل')}
-                >
-                  <img src="/print.svg" alt="طباعة" className="w-5 h-5" /> طباعة
-                </button>
-                {formData.linkedSupplierId && (savedCustomerId || partyDrawer?.id) ? (
-                  <button
-                    type="button"
-                    className="text-[#0E79AA] hover:underline flex items-center gap-1 bg-transparent border-0 cursor-pointer p-0 font-inherit"
-                    onClick={() => setOffsetOpen(true)}
-                  >
-                    مقاصة AR/AP
-                  </button>
-                ) : null}
-              </>
-            }
-          />
         </form>
       </ClientMountGate>
       {showTaxInfo && <TaxInfoOverlay isOpen={showTaxInfo} onClose={handleCloseTaxInfo} />}
 
-      <div id="card-records">
+      <DocumentBrowseDrawer open={showGuide} onClose={() => setShowGuide(false)} title="العملاء السابقون">
         <PartiesListSection
           endpoint="/accounting/customers"
           queryKeyPrefix="customers"
           emptyTitle="لا يوجد عملاء"
           selectedRowId={partyDrawer?.id ?? null}
-          onRowActivate={(row) => setPartyDrawer(row)}
+          onRowActivate={(row) => {
+            setPartyDrawer(row);
+            setShowGuide(false);
+          }}
         />
-      </div>
-
-      <MasterEntitySideDrawer
-        open={!!partyDrawer}
-        onClose={() => setPartyDrawer(null)}
-        title={partyDrawer?.arabicName ?? ''}
-        subtitle="بطاقة عميل — تحرير سريع دون مغادرة الصفحة"
-      >
-        {partyDrawer ? (
-          <div className="space-y-3 text-sm">
-            <p>
-              <span className="text-slate-500">الكود: </span>
-              {partyDrawer.code || partyDrawer.serial || '—'}
-            </p>
-            <p>
-              <span className="text-slate-500">الهاتف: </span>
-              {partyDrawer.phone1 || '—'}
-            </p>
-            <p>
-              <span className="text-slate-500">الرصيد: </span>
-              {partyDrawer.balance != null
-                ? Number(partyDrawer.balance).toLocaleString('ar-EG')
-                : '—'}
-            </p>
-            <p className="text-slate-600 pt-2">
-              عدّل البيانات الكاملة في النموذج أعلاه بعد تحميل العميل، أو استخدم تقارير الذمم لكشف الحركة.
-            </p>
-          </div>
-        ) : null}
-      </MasterEntitySideDrawer>
+      </DocumentBrowseDrawer>
 
       {offsetOpen && tenantCtx.fiscalYearId && (savedCustomerId || partyDrawer?.id) ? (
         <CounterpartyOffsetModal
@@ -823,6 +802,6 @@ export default function CustomerPage() {
       {/* Toast Notifications */}
       {error && <ErrorToast message={error} onClose={() => setError('')} />}
       {success && <SuccessToast message={success} onClose={() => setSuccess('')} />}
-    </div>
+    </ErpDocumentLayout>
   );
 } 

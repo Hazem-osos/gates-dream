@@ -77,8 +77,12 @@ export function PartiesListSection({ endpoint, queryKeyPrefix, emptyTitle, onSel
         isLoading={isLoading}
         data={rows}
         getRowKey={(r) => r.id}
+        onRowClick={(row) => {
+          onRowActivate?.(row);
+          onSelect?.(row.id);
+        }}
         emptyTitle={emptyTitle}
-        emptyDescription="غيّر البحث أو أضف سجلاً جديداً من النموذج أعلاه."
+        emptyDescription="غيّر البحث أو أضف سجلاً جديداً من النموذج."
         columns={[
           { id: 'code', header: 'الكود', cell: (r) => r.code || r.serial || '—' },
           { id: 'name', header: 'الاسم', cell: (r) => (

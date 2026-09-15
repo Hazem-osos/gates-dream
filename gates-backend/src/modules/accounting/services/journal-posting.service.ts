@@ -207,7 +207,7 @@ export class JournalPostingService {
           sourceId: data.sourceId,
           sourceNumber: data.sourceNumber,
           sourceKind,
-          workflowStatus: 'DRAFT',
+          workflowStatus: 'APPROVED',
           createdBy: ctx.userId,
         },
       });
@@ -831,7 +831,7 @@ export class JournalPostingService {
           isPosted: false,
           isApproved: false,
           postingStatus: 'UnPost',
-          workflowStatus: 'DRAFT',
+          workflowStatus: 'APPROVED',
           postedAt: null,
           postedBy: null,
           activeSourceKey: null,

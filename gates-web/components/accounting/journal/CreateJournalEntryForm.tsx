@@ -279,6 +279,7 @@ function CreateJournalEntryFormInner() {
         if (id) {
           setSavedJournalEntryId(id);
           setIsPosted(false);
+          setVoucherStatus('غير مرحل');
           router.replace(`/accounting/operations/journal-entry?id=${id}`, { scroll: false });
         }
         setSuccess('تم حفظ القيد بنجاح');
@@ -337,7 +338,7 @@ function CreateJournalEntryFormInner() {
       onSuccess: () => {
         setIsPosted(false);
         setIsApproved(false);
-        setVoucherStatus('مسودة');
+        setVoucherStatus('غير مرحل');
         setSuccess('تم فك ترحيل القيد');
         unlockForEdit();
         invalidateQuery(['journal-entries']);
@@ -406,7 +407,7 @@ function CreateJournalEntryFormInner() {
         if (message.includes('تم استعادة القيد كمسودة')) {
           setIsCancelled(false);
           setIsPosted(false);
-          setVoucherStatus('مسودة');
+          setVoucherStatus('غير مرحل');
           unlockForEdit();
           invalidateQuery(['journal-entries']);
           invalidateQuery(['journal-entry', savedJournalEntryId]);
@@ -669,7 +670,9 @@ function CreateJournalEntryFormInner() {
         title="قيد يومية"
         docNumber={referenceNumberW || voucherStatus}
         statusTone={isCancelled ? 'danger' : isPosted ? 'success' : 'warning'}
-        statusLabel={isCancelled ? 'ملغي' : isPosted ? 'مرحّل' : 'مسودة'}
+        statusLabel={
+          isCancelled ? 'ملغي' : isPosted ? 'مرحّل' : savedJournalEntryId ? 'غير مرحل' : 'مسودة'
+        }
         saveLabel="حفظ"
         onSaveDraft={() => void handleSubmit(onValidSubmit, onFieldErrors(setError))()}
         onPost={handlePost}
@@ -684,7 +687,7 @@ function CreateJournalEntryFormInner() {
             onPrintLayout={() =>
               printOperationalDocument({
                 title: 'قيد يومية',
-                documentNo: journalPrintModel.voucherNumber || 'مسودة',
+                documentNo: journalPrintModel.voucherNumber || (savedJournalEntryId ? 'غير مرحل' : 'جديد'),
                 documentDate: dateW || new Date().toISOString().slice(0, 10),
                 sellerName: companyProfile?.nameAr,
                 buyerName: journalPrintModel.description,
@@ -711,7 +714,8 @@ function CreateJournalEntryFormInner() {
           hasDocument: Boolean(savedJournalEntryId) || Boolean(watchedLines?.length),
           isPosted,
           isCancelled,
-          hidePostActions: true,
+          onPost: handlePost,
+          postPending: postJournalMutation.isPending,
           onNew: startNewEntry,
           newLabel: 'جديد',
           onEdit: () => {

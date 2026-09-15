@@ -3,20 +3,21 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Truck } from 'lucide-react';
 import TaxInfoOverlay from '@/components/TaxInfoOverlay';
-import { PartiesListSection } from '@/components/accounting/PartiesListSection';
+import { PartiesListSection, type PartyRow } from '@/app/components/accounting/PartiesListSection';
 import {
-  PageHeader,
   CompactFormField,
   AdvancedFieldsSection,
-  FormStickyFooter,
   FormSectionCard,
   compactControlClass,
 } from '@/components/ui';
-import { useApiQuery, useApiMutation, useInvalidateQuery } from '@/lib/hooks/useApi';
+import { DocumentBrowseDrawer } from '@/components/erp/DocumentBrowseDrawer';
+import { ErpDocumentLayout, ErpDocumentPageHeader } from '@/components/erp';
+import { DocumentModeProvider, useDocumentMode } from '@/components/common/document-shell';
+import { useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
 import { ClientMountGate } from '@/lib/hooks/useClientMounted';
+import { apiClient } from '@/lib/api/client';
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
-import type { ApiError } from '@/lib/api/types';
 import { nextNumericSerial } from '@/lib/masters/nextNumericSerial';
 
 interface Account {
@@ -33,13 +34,54 @@ interface Currency {
   englishName?: string;
 }
 
-export default function SupplierPage() {
+type SupplierRecord = {
+  id: string;
+  serial?: string | null;
+  code?: string | null;
+  arabicName?: string | null;
+  englishName?: string | null;
+  supplierType?: string | null;
+  how?: string | null;
+  nationality?: string | null;
+  taxData?: boolean | null;
+  taxAuthority?: string | null;
+  taxAuthorityName?: string | null;
+  phone1?: string | null;
+  phone2?: string | null;
+  mobile?: string | null;
+  fax?: string | null;
+  email?: string | null;
+  website?: string | null;
+  country?: string | null;
+  city?: string | null;
+  area?: string | null;
+  street?: string | null;
+  postalCode?: string | null;
+  poBox?: string | null;
+  mainAccountId?: string | null;
+  accountId?: string | null;
+  transactionType?: string | null;
+  warning?: string | null;
+  estimatedBudget?: number | string | null;
+  currencyCode?: string | null;
+  fileNumber?: string | null;
+  registrationNumber?: string | null;
+  financier?: string | null;
+  discountType?: string | null;
+  supplierCategoryId?: string | null;
+};
+
+function SupplierPageInner() {
+  const { isReadOnly, unlockForEdit, lockToView, setMode } = useDocumentMode();
   const invalidateQuery = useInvalidateQuery();
-  
+
   const [showTaxInfo, setShowTaxInfo] = useState(false);
   const [isTaxInfoChecked, setIsTaxInfoChecked] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [showGuide, setShowGuide] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   const [formData, setFormData] = useState({
     serial: '',
@@ -118,59 +160,41 @@ export default function SupplierPage() {
     );
   }, [nextPartyCode]);
 
-  // Supplier mutation
-  const supplierMutation = useApiMutation<unknown, Record<string, unknown>>(
-    '/accounting/suppliers',
-    'POST',
-    {
-      onSuccess: () => {
-        setSuccess('تم حفظ المورد بنجاح');
-        invalidateQuery(['suppliers']);
-        invalidateQuery(['accounts']);
-        invalidateQuery(['chart-of-accounts']);
-        // Reset form
-        setFormData({
-          serial: '',
-          code: '',
-          arabicName: '',
-          englishName: '',
-          supplierType: 'company',
-          how: 'local',
-          nationality: '',
-          taxData: false,
-          taxAuthority: '',
-          taxAuthorityName: '',
-          phone1: '',
-          phone2: '',
-          mobile: '',
-          fax: '',
-          email: '',
-          website: '',
-          country: '',
-          city: '',
-          area: '',
-          street: '',
-          postalCode: '',
-          poBox: '',
-          mainAccountId: '',
-          accountId: '',
-          transactionType: '',
-          warning: '',
-          estimatedBudget: '',
-          currencyCode: '',
-          fileNumber: '',
-          registrationNumber: '',
-          financier: '',
-          discountType: '',
-          supplierCategoryId: '',
-        });
-        setIsTaxInfoChecked(false);
-      },
-      onError: (error: ApiError) => {
-        setError(error.message || 'حدث خطأ أثناء الحفظ');
-      },
-    }
-  );
+  const blankForm = (serial = nextPartyCode) => ({
+    serial,
+    code: serial,
+    arabicName: '',
+    englishName: '',
+    supplierType: 'company' as const,
+    how: 'local' as const,
+    nationality: '',
+    taxData: false,
+    taxAuthority: '',
+    taxAuthorityName: '',
+    phone1: '',
+    phone2: '',
+    mobile: '',
+    fax: '',
+    email: '',
+    website: '',
+    country: '',
+    city: '',
+    area: '',
+    street: '',
+    postalCode: '',
+    poBox: '',
+    mainAccountId: '',
+    accountId: '',
+    transactionType: '',
+    warning: '' as const,
+    estimatedBudget: '',
+    currencyCode: '',
+    fileNumber: '',
+    registrationNumber: '',
+    financier: '',
+    discountType: '',
+    supplierCategoryId: '',
+  });
 
   const handleTaxInfoCheckboxChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setIsTaxInfoChecked(e.target.checked);
@@ -188,91 +212,147 @@ export default function SupplierPage() {
     }
   };
 
+  const payload = () => ({
+    serial: formData.serial || undefined,
+    code: formData.code || undefined,
+    arabicName: formData.arabicName,
+    englishName: formData.englishName || undefined,
+    supplierType: formData.supplierType,
+    how: formData.how,
+    nationality: formData.nationality || undefined,
+    taxData: formData.taxData,
+    taxAuthority: formData.taxAuthority || undefined,
+    taxAuthorityName: formData.taxAuthorityName || undefined,
+    phone1: formData.phone1 || undefined,
+    phone2: formData.phone2 || undefined,
+    mobile: formData.mobile || undefined,
+    fax: formData.fax || undefined,
+    email: formData.email || undefined,
+    website: formData.website || undefined,
+    country: formData.country || undefined,
+    city: formData.city || undefined,
+    area: formData.area || undefined,
+    street: formData.street || undefined,
+    postalCode: formData.postalCode || undefined,
+    poBox: formData.poBox || undefined,
+    mainAccountId: formData.mainAccountId || undefined,
+    accountId: formData.accountId || undefined,
+    transactionType: formData.transactionType || undefined,
+    warning: formData.warning || undefined,
+    estimatedBudget: formData.estimatedBudget ? parseFloat(formData.estimatedBudget) : undefined,
+    currencyCode: formData.currencyCode || undefined,
+    fileNumber: formData.fileNumber || undefined,
+    registrationNumber: formData.registrationNumber || undefined,
+    financier: formData.financier || undefined,
+    discountType: formData.discountType || undefined,
+    supplierCategoryId: formData.supplierCategoryId || undefined,
+  });
+
+  const hydrate = (row: SupplierRecord) => {
+    lockToView();
+    setSelectedId(row.id);
+    setFormData({
+      serial: row.serial || row.code || '',
+      code: row.code || row.serial || '',
+      arabicName: row.arabicName ?? '',
+      englishName: row.englishName ?? '',
+      supplierType: row.supplierType === 'individual' ? 'individual' : 'company',
+      how: row.how === 'export' || row.how === 'exempt' ? row.how : 'local',
+      nationality: row.nationality ?? '',
+      taxData: Boolean(row.taxData),
+      taxAuthority: row.taxAuthority ?? '',
+      taxAuthorityName: row.taxAuthorityName ?? '',
+      phone1: row.phone1 ?? '',
+      phone2: row.phone2 ?? '',
+      mobile: row.mobile ?? '',
+      fax: row.fax ?? '',
+      email: row.email ?? '',
+      website: row.website ?? '',
+      country: row.country ?? '',
+      city: row.city ?? '',
+      area: row.area ?? '',
+      street: row.street ?? '',
+      postalCode: row.postalCode ?? '',
+      poBox: row.poBox ?? '',
+      mainAccountId: row.mainAccountId ?? '',
+      accountId: row.accountId ?? '',
+      transactionType: row.transactionType ?? '',
+      warning: row.warning === 'debtor' || row.warning === 'creditor' ? row.warning : '',
+      estimatedBudget: row.estimatedBudget != null ? String(row.estimatedBudget) : '',
+      currencyCode: row.currencyCode ?? '',
+      fileNumber: row.fileNumber ?? '',
+      registrationNumber: row.registrationNumber ?? '',
+      financier: row.financier ?? '',
+      discountType: row.discountType ?? '',
+      supplierCategoryId: row.supplierCategoryId ?? '',
+    });
+    setIsTaxInfoChecked(Boolean(row.taxData));
+    setError('');
+    setSuccess('');
+    setShowGuide(false);
+  };
+
+  const openFromList = async (row: PartyRow) => {
+    try {
+      const res = await apiClient.get<SupplierRecord>(`/accounting/suppliers/${row.id}`);
+      if (res.data) hydrate(res.data);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'تعذر فتح المورد');
+    }
+  };
+
   const handleSave = async () => {
     if (!formData.arabicName) {
       setError('يرجى إدخال الإسم العربي');
       return;
     }
 
+    setSaving(true);
+    setError('');
     try {
-      await supplierMutation.mutateAsync({
-        serial: formData.serial || undefined,
-        code: formData.code || undefined,
-        arabicName: formData.arabicName,
-        englishName: formData.englishName || undefined,
-        supplierType: formData.supplierType,
-        how: formData.how,
-        nationality: formData.nationality || undefined,
-        taxData: formData.taxData,
-        taxAuthority: formData.taxAuthority || undefined,
-        taxAuthorityName: formData.taxAuthorityName || undefined,
-        phone1: formData.phone1 || undefined,
-        phone2: formData.phone2 || undefined,
-        mobile: formData.mobile || undefined,
-        fax: formData.fax || undefined,
-        email: formData.email || undefined,
-        website: formData.website || undefined,
-        country: formData.country || undefined,
-        city: formData.city || undefined,
-        area: formData.area || undefined,
-        street: formData.street || undefined,
-        postalCode: formData.postalCode || undefined,
-        poBox: formData.poBox || undefined,
-        mainAccountId: formData.mainAccountId || undefined,
-        accountId: formData.accountId || undefined,
-        transactionType: formData.transactionType || undefined,
-        warning: formData.warning || undefined,
-        estimatedBudget: formData.estimatedBudget ? parseFloat(formData.estimatedBudget) : undefined,
-        currencyCode: formData.currencyCode || undefined,
-        fileNumber: formData.fileNumber || undefined,
-        registrationNumber: formData.registrationNumber || undefined,
-        financier: formData.financier || undefined,
-        discountType: formData.discountType || undefined,
-        supplierCategoryId: formData.supplierCategoryId || undefined,
-      });
+      if (selectedId) {
+        const res = await apiClient.put<SupplierRecord>(`/accounting/suppliers/${selectedId}`, payload());
+        if (res.data) hydrate(res.data);
+        setSuccess('تم تحديث المورد');
+      } else {
+        await apiClient.post('/accounting/suppliers', payload());
+        setSuccess('تم حفظ المورد بنجاح');
+        setFormData(blankForm());
+        setIsTaxInfoChecked(false);
+        setSelectedId(null);
+        setMode('create');
+      }
+      invalidateQuery(['suppliers']);
+      invalidateQuery(['accounts']);
+      invalidateQuery(['chart-of-accounts']);
     } catch (error: unknown) {
       setError(error instanceof Error ? error.message : 'حدث خطأ أثناء الحفظ');
+    } finally {
+      setSaving(false);
     }
   };
 
-  const handleCancel = () => {
-    setFormData({
-      serial: '',
-      code: '',
-      arabicName: '',
-      englishName: '',
-      supplierType: 'company',
-      how: 'local',
-      nationality: '',
-      taxData: false,
-      taxAuthority: '',
-      taxAuthorityName: '',
-      phone1: '',
-      phone2: '',
-      mobile: '',
-      fax: '',
-      email: '',
-      website: '',
-      country: '',
-      city: '',
-      area: '',
-      street: '',
-      postalCode: '',
-      poBox: '',
-      mainAccountId: '',
-      accountId: '',
-      transactionType: '',
-      warning: '',
-      estimatedBudget: '',
-      currencyCode: '',
-      fileNumber: '',
-      registrationNumber: '',
-      financier: '',
-      discountType: '',
-      supplierCategoryId: '',
-    });
+  const handleNew = () => {
+    setSelectedId(null);
+    setFormData(blankForm());
     setIsTaxInfoChecked(false);
     setError('');
+    setSuccess('');
+    setMode('create');
+  };
+
+  const handleDelete = async () => {
+    if (!selectedId) return;
+    if (!window.confirm('حذف بطاقة المورد الحالية؟')) return;
+    setError('');
+    try {
+      await apiClient.delete(`/accounting/suppliers/${selectedId}`);
+      setSuccess('تم حذف المورد');
+      invalidateQuery(['suppliers']);
+      handleNew();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'تعذر الحذف');
+    }
   };
 
   const advancedFilledCount = [
@@ -301,18 +381,45 @@ export default function SupplierPage() {
   ].filter((v) => String(v ?? '').trim().length > 0).length;
 
   return (
-    <div className="p-6" style={{ direction: 'rtl' }}>
-      <PageHeader
-        title="بطاقة مورد"
+    <ErpDocumentLayout>
+      {error ? <ErrorToast message={error} onClose={() => setError('')} /> : null}
+      {success ? <SuccessToast message={success} onClose={() => setSuccess('')} /> : null}
+
+      <ErpDocumentPageHeader
+        compact
+        lockWhenPosted={false}
         breadcrumbs={[
-          { label: 'الحسابات', href: '/accounting' },
+          { href: '/accounting', label: 'الحسابات' },
           { label: 'البطاقات' },
           { label: 'مورد' },
         ]}
-        onBrowseList={() =>
-          document.getElementById('card-records')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-        }
-        onAdd={handleCancel}
+        title="بطاقة مورد"
+        docNumber={formData.serial || (selectedId ? 'تعديل' : 'جديد')}
+        statusTone={selectedId ? (isReadOnly ? 'neutral' : 'info') : 'info'}
+        statusLabel={selectedId ? (isReadOnly ? 'عرض' : 'تعديل') : 'جديد'}
+        saveLabel="حفظ"
+        onSaveDraft={() => void handleSave()}
+        savePending={saving}
+        canSave={!isReadOnly && !saving}
+        hideStandalonePost
+        onEdit={() => {
+          if (!selectedId) return;
+          unlockForEdit();
+        }}
+        editDisabled={!selectedId}
+        moreMenuItems={[
+          { id: 'new', label: 'جديد', onClick: handleNew },
+          {
+            id: 'del',
+            label: 'حذف',
+            onClick: () => void handleDelete(),
+            disabled: !selectedId,
+            destructive: true,
+          },
+        ]}
+        onBrowseList={() => setShowGuide(true)}
+        browseListLabel="السابق"
+        currentId={selectedId}
       />
 
       <ClientMountGate
@@ -326,6 +433,7 @@ export default function SupplierPage() {
         }
       >
         <form autoComplete="off" data-1p-ignore data-lpignore="true">
+          <fieldset disabled={isReadOnly} className="min-w-0 border-0 p-0">
           <FormSectionCard title="البيانات الأساسية" subtitle="الحقول اللازمة لتعريف المورد" icon={Truck}>
             <CompactFormField
               label="المسلسل"
@@ -618,27 +726,28 @@ export default function SupplierPage() {
             </div>
           </AdvancedFieldsSection>
 
-          <FormStickyFooter
-            onCancel={handleCancel}
-            onSave={handleSave}
-            saveLoading={supplierMutation.isPending}
-            status="مسودة"
-          />
+          </fieldset>
         </form>
       </ClientMountGate>
       {showTaxInfo && <TaxInfoOverlay isOpen={showTaxInfo} onClose={handleCloseTaxInfo} />}
 
-      <div id="card-records">
+      <DocumentBrowseDrawer open={showGuide} onClose={() => setShowGuide(false)} title="الموردون السابقون">
         <PartiesListSection
           endpoint="/accounting/suppliers"
           queryKeyPrefix="suppliers"
           emptyTitle="لا يوجد موردون"
+          selectedRowId={selectedId}
+          onRowActivate={(row) => void openFromList(row)}
         />
-      </div>
+      </DocumentBrowseDrawer>
+    </ErpDocumentLayout>
+  );
+}
 
-      {/* Toast Notifications */}
-      {error && <ErrorToast message={error} onClose={() => setError('')} />}
-      {success && <SuccessToast message={success} onClose={() => setSuccess('')} />}
-    </div>
+export default function SupplierPage() {
+  return (
+    <DocumentModeProvider initialMode="create">
+      <SupplierPageInner />
+    </DocumentModeProvider>
   );
 }

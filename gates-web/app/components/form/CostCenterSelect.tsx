@@ -18,13 +18,19 @@ function costCenterLabel(cc: { code?: string | null; arabicName: string }) {
   return cc.code ? `[${cc.code}] ${cc.arabicName}` : cc.arabicName;
 }
 
+function isLeafCostCenter(cc: CostCenterOption, all: CostCenterOption[]) {
+  if (cc._count?.children != null) return cc._count.children === 0;
+  if (Array.isArray(cc.children)) return cc.children.length === 0;
+  return !all.some((other) => other.parentId === cc.id);
+}
+
 function CostCenterSelectInner({
   value,
   onChange,
   disabled,
   className,
-  allowEmpty = true,
-  emptyLabel = '—',
+  allowEmpty = false,
+  emptyLabel = 'مركز تكلفة',
   nativeSelectProps,
   enableQuickCreate = true,
 }: {
@@ -52,7 +58,10 @@ function CostCenterSelectInner({
   }, [pinned, rows]);
 
   const options = useMemo(() => {
-    const list = merged.map((cc) => ({
+    const leaves = merged.filter(
+      (cc) => isLeafCostCenter(cc, merged) || cc.id === value
+    );
+    const list = leaves.map((cc) => ({
       value: cc.id,
       label: costCenterLabel(cc),
       searchText: `${cc.code ?? ''} ${cc.arabicName} ${cc.englishName ?? ''}`,
@@ -61,7 +70,7 @@ function CostCenterSelectInner({
       return [{ value: '', label: emptyLabel, searchText: '' }, ...list];
     }
     return list;
-  }, [allowEmpty, emptyLabel, merged]);
+  }, [allowEmpty, emptyLabel, merged, value]);
 
   const valueLabel = useMemo(() => {
     if (!value) return undefined;

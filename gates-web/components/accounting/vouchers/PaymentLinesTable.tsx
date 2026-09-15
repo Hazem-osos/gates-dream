@@ -76,7 +76,7 @@ export function PaymentLinesTable({
   const keyHandlers = (index: number, field: string) => ({
     ...lineGridDataAttrs(gridId, index, field),
     onKeyDown: (e: React.KeyboardEvent<HTMLElement>) => {
-      if (e.key === 'Enter' && (field === 'costCenter' || field === 'description') && !e.shiftKey) {
+      if (e.key === 'Enter' && field === 'description' && !e.shiftKey) {
         e.preventDefault();
         onAddLine();
         window.setTimeout(() => {
@@ -247,7 +247,6 @@ export function PaymentLinesTable({
               value={line.costCenterId || ''}
               onChange={(id) => updateLine(index, { costCenterId: id })}
               disabled={disabled}
-              emptyLabel="اختياري"
               className={dataEntryGridInputClass}
               nativeSelectProps={keyHandlers(index, 'costCenter')}
             />

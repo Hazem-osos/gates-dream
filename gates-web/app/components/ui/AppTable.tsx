@@ -179,12 +179,12 @@ export function AppTable<T extends Record<string, unknown>>({
               key={getRowKey(row, vRow.index)}
               tabIndex={0}
               className={cn(
-                'table w-full table-fixed absolute left-0 h-10 border-b border-[#E8F1F6] hover:bg-[#E8F4FA] transition-colors',
+                'table w-full table-fixed absolute inset-inline-start-0 h-10 border-b border-[#E8F1F6] hover:bg-[#E8F4FA] transition-colors',
                 vRow.index % 2 === 1 && 'bg-[#F3F9FC]',
                 onRowClick && 'cursor-pointer',
                 rowClassName?.(row)
               )}
-              style={{ transform: `translateY(${vRow.start}px)` }}
+              style={{ top: vRow.start }}
               onMouseEnter={() => onRowIntent?.(row)}
               onFocus={() => onRowIntent?.(row)}
               onClick={() => onRowClick?.(row)}

@@ -92,18 +92,6 @@ export function JournalLinesTable({
   const keyHandlers = (index: number, field: string) => ({
     ...lineGridDataAttrs(gridId, index, field),
     onKeyDown: (e: React.KeyboardEvent<HTMLElement>) => {
-      if (e.key === 'Enter' && (field === 'costCenter' || field === 'description') && !e.shiftKey) {
-        e.preventDefault();
-        onAddLine();
-        window.setTimeout(() => {
-          document
-            .querySelector<HTMLElement>(
-              `[data-line-grid="${gridId}"][data-line-index="${index + 1}"][data-line-field="account"]`
-            )
-            ?.focus();
-        }, 50);
-        return;
-      }
       handleLineGridKeyDown(e, {
         gridId,
         lineIndex: index,
@@ -273,7 +261,6 @@ export function JournalLinesTable({
               value={line.costCenterId || ''}
               onChange={(id) => updateLine(index, { costCenterId: id })}
               disabled={disabled}
-              emptyLabel="اختياري"
               className={dataEntryGridInputClass}
               nativeSelectProps={keyHandlers(index, 'costCenter')}
             />
