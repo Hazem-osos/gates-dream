@@ -69,7 +69,45 @@ function warehouseCardFields(data: CreateWarehouseData) {
   };
 }
 
+function warehouseDedupeKey(row: { code?: string | null; arabicName: string }) {
+  return `${String(row.code ?? '').trim().toLowerCase()}|${row.arabicName.trim().toLowerCase()}`;
+}
+
 export class WarehouseService {
+  private async collapseDuplicateWarehouses(companyId: string) {
+    const rows = await prisma.warehouse.findMany({
+      where: { companyId, isActive: true },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true, code: true, arabicName: true },
+    });
+    const keepByKey = new Map<string, string>();
+    const duplicates: string[] = [];
+    for (const row of rows) {
+      const key = warehouseDedupeKey(row);
+      const keepId = keepByKey.get(key);
+      if (!keepId) {
+        keepByKey.set(key, row.id);
+        continue;
+      }
+      duplicates.push(row.id);
+    }
+    if (duplicates.length === 0) return;
+    await prisma.warehouse.updateMany({
+      where: { companyId, id: { in: duplicates } },
+      data: { isActive: false },
+    });
+    for (const duplicateId of duplicates) {
+      const row = rows.find((item) => item.id === duplicateId);
+      if (!row) continue;
+      const keepId = keepByKey.get(warehouseDedupeKey(row));
+      if (!keepId) continue;
+      await prisma.branch.updateMany({
+        where: { defaultWarehouseId: duplicateId },
+        data: { defaultWarehouseId: keepId },
+      });
+    }
+  }
+
   /**
    * Create a new warehouse
    */
@@ -166,6 +204,8 @@ export class WarehouseService {
       const limit = options.limit || 50;
       const skip = (page - 1) * limit;
 
+      await this.collapseDuplicateWarehouses(companyId);
+
       const where: any = {
         companyId,
       };
@@ -191,7 +231,7 @@ export class WarehouseService {
           where,
           skip,
           take: limit,
-          orderBy: [{ arabicName: 'asc' }],
+          orderBy: [{ code: 'asc' }, { arabicName: 'asc' }],
           include: {
             branch: {
               select: {

@@ -32,12 +32,34 @@ const DEFAULT_SYMBOLS: Record<string, string> = {
 
 export class CurrencyService {
   private async nextSerial(companyId: string): Promise<number> {
+    const [latest, count] = await Promise.all([
+      prisma.currency.findFirst({
+        where: { companyId, serial: { not: null } },
+        orderBy: { serial: 'desc' },
+        select: { serial: true },
+      }),
+      prisma.currency.count({ where: { companyId } }),
+    ]);
+    return Math.max(latest?.serial ?? 0, count) + 1;
+  }
+
+  private async backfillMissingSerials(companyId: string): Promise<void> {
+    const missing = await prisma.currency.findMany({
+      where: { companyId, serial: null },
+      orderBy: [{ createdAt: 'asc' }, { code: 'asc' }],
+      select: { id: true },
+    });
+    if (missing.length === 0) return;
     const latest = await prisma.currency.findFirst({
       where: { companyId, serial: { not: null } },
       orderBy: { serial: 'desc' },
       select: { serial: true },
     });
-    return (latest?.serial ?? 0) + 1;
+    let next = (latest?.serial ?? 0) + 1;
+    for (const row of missing) {
+      await prisma.currency.update({ where: { id: row.id }, data: { serial: next } });
+      next += 1;
+    }
   }
 
   private async assertUnused(companyId: string, currencyId: string, code: string, action: string) {
@@ -122,6 +144,7 @@ export class CurrencyService {
     const page = options.page || 1;
     const limit = options.limit || 50;
     const skip = (page - 1) * limit;
+    await this.backfillMissingSerials(companyId);
     const search = options.search?.trim();
 
     const where: {

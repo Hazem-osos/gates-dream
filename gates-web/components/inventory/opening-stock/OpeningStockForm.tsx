@@ -182,6 +182,7 @@ function OpeningStockFormInner() {
   }, [warehouseId, warehouses, setValue]);
 
   const isPosted = Boolean(loaded?.isPosted);
+  const isCancelled = Boolean(loaded?.isCancelled);
   const hasDocument = Boolean(selectedId || loaded?.id);
   const gridLocked = isReadOnly || isPosted;
 
@@ -259,7 +260,6 @@ function OpeningStockFormInner() {
     setError('');
     const payload = {
       description: values.description?.trim() || 'بضاعة أول المدة',
-      serial: `OS-${(values.date || todayIso()).slice(0, 4)}`,
       date: new Date(`${values.date || todayIso()}T12:00:00`).toISOString(),
       lines: validLines.map((line) => ({
         itemId: line.itemId,
@@ -402,6 +402,23 @@ function OpeningStockFormInner() {
     }
   };
 
+  const handleVoid = async () => {
+    if (!selectedId) return;
+    if (!window.confirm('هل تريد إلغاء كشف بضاعة أول المدة؟')) return;
+    setLifecyclePending(true);
+    try {
+      await apiClient.post(`/inventory/opening-stock/${selectedId}/cancel`);
+      invalidateQuery(['opening-stock']);
+      setLoaded((prev) => (prev ? { ...prev, isCancelled: true } : prev));
+      lockToView();
+      setSuccess('تم إلغاء كشف بضاعة أول المدة');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'تعذر إلغاء الكشف');
+    } finally {
+      setLifecyclePending(false);
+    }
+  };
+
   const resetNew = () => {
     reset({ date: todayIso(), description: '', warehouseId: defaultWarehouseId });
     setLines([emptyOpeningStockLine(defaultWarehouseId)]);
@@ -528,6 +545,9 @@ function OpeningStockFormInner() {
           onPrint={handlePrint}
           onExportExcel={() => void handleExportExcel()}
           onClearAll={handleClearAll}
+          onNew={resetNew}
+          onVoid={() => void handleVoid()}
+          isCancelled={isCancelled}
         />
 
         <div className="mb-3 grid grid-cols-1 gap-3 md:grid-cols-3">

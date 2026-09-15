@@ -64,15 +64,16 @@ router.post(
       const status =
         error instanceof Error &&
         (error.message.includes('not found') ||
+          error.message.includes('غير موجود') ||
           error.message.includes('do not belong'))
-          ? 404
+          ? 400
           : 500;
       return void res.status(status).json({
         status: 'error',
         message:
           error instanceof Error
             ? error.message
-            : 'Failed to create opening stock',
+            : 'تعذر حفظ بضاعة أول المدة',
       });
     }
   }
@@ -103,6 +104,7 @@ router.get(
         isCancelled: req.query.isCancelled as boolean | undefined,
         fromDate: req.query.fromDate as string | undefined,
         toDate: req.query.toDate as string | undefined,
+        search: req.query.search as string | undefined,
         skip: req.query.skip as number | undefined,
         take: req.query.take as number | undefined,
       });
@@ -121,9 +123,9 @@ router.get(
       return void res.status(500).json({
         status: 'error',
         message:
-          error instanceof Error
+          error instanceof Error && error.message
             ? error.message
-            : 'Failed to list opening stock',
+            : 'تعذر تحميل كشوف بضاعة أول المدة',
       });
     }
   }

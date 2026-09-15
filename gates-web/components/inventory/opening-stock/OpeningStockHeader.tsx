@@ -4,7 +4,6 @@ import { Download } from 'lucide-react';
 import { DocumentHeaderBar } from '@/components/common/document-shell/DocumentHeaderBar';
 import { DatePickerWithHijri } from '@/components/ui/DatePickerWithHijri';
 import { Button } from '@/components/ui';
-import { OpeningStockActionMenu } from './OpeningStockActionMenu';
 
 type Props = {
   docNumber?: string;
@@ -27,6 +26,9 @@ type Props = {
   onPrint: () => void;
   onExportExcel: () => void;
   onClearAll: () => void;
+  onNew?: () => void;
+  onVoid?: () => void;
+  isCancelled?: boolean;
 };
 
 export function OpeningStockHeader({
@@ -50,6 +52,9 @@ export function OpeningStockHeader({
   onPrint,
   onExportExcel,
   onClearAll,
+  onNew,
+  onVoid,
+  isCancelled,
 }: Props) {
   return (
     <>
@@ -85,20 +90,30 @@ export function OpeningStockHeader({
             تحميل كافة الأصناف
           </Button>
         }
-        actionMenu={
-          <OpeningStockActionMenu
-            hasDocument={hasDocument}
-            canPost={canPost ?? hasDocument}
-            isPosted={isPosted}
-            isReadOnly={isReadOnly}
-            onPost={onPost}
-            onUnpost={onUnpost}
-            onEdit={onEdit}
-            onPrint={onPrint}
-            onExportExcel={onExportExcel}
-            onClearAll={onClearAll}
-          />
-        }
+        standardActions={{
+          hasDocument,
+          isPosted,
+          isCancelled: Boolean(isCancelled),
+          onNew,
+          newLabel: 'جديد',
+          onEdit,
+          onPost,
+          onUnpost,
+          onPrint,
+          printLabel: 'طباعة كشف بضاعة أول المدة',
+          onVoid,
+          voidLabel: 'إلغاء الكشف',
+          extraItems: [
+            { id: 'excel', label: 'تصدير إلى إكسيل', onClick: onExportExcel },
+            {
+              id: 'clear',
+              label: 'تفريغ محتويات الجدول',
+              onClick: onClearAll,
+              disabled: isReadOnly || isPosted,
+              destructive: true,
+            },
+          ],
+        }}
       />
       <div className="mb-3 max-w-xs rounded-xl border border-border/80 bg-card p-3 shadow-sm">
         <DatePickerWithHijri

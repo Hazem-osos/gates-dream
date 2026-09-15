@@ -21,6 +21,8 @@ export type AppTableColumn<T> = {
   numeric?: boolean;
   className?: string;
   headerClassName?: string;
+  sortable?: boolean;
+  sortValue?: (row: T) => string | number | null | undefined;
 };
 
 export interface AppTableProps<T extends Record<string, unknown>> {
@@ -62,6 +64,31 @@ function useClientMounted(): boolean {
   return mounted;
 }
 
+function columnSortable<T extends Record<string, unknown>>(col: AppTableColumn<T>): boolean {
+  if (col.sortable === false || col.id === 'actions') return false;
+  if (col.sortable === true || col.sortValue || col.accessor) return true;
+  return /serial|code|num|date|name|status|desc|total|amount/.test(col.id);
+}
+
+function columnSortValue<T extends Record<string, unknown>>(
+  row: T,
+  col: AppTableColumn<T>
+): string | number {
+  if (col.sortValue) {
+    const value = col.sortValue(row);
+    if (value == null) return '';
+    return value;
+  }
+  if (col.accessor) {
+    const value = row[col.accessor];
+    if (typeof value === 'number') return value;
+    return String(value ?? '');
+  }
+  const fallback = row[col.id];
+  if (typeof fallback === 'number') return fallback;
+  return String(fallback ?? '');
+}
+
 export function AppTable<T extends Record<string, unknown>>({
   columns,
   data,
@@ -81,12 +108,35 @@ export function AppTable<T extends Record<string, unknown>>({
   virtualizeThreshold = 40,
 }: AppTableProps<T>) {
   const mounted = useClientMounted();
+  const defaultSortId =
+    columns.find((col) => /^(serial|code|num|number)$/.test(col.id) && columnSortable(col))?.id ??
+    columns.find((col) => columnSortable(col))?.id ??
+    null;
+  const [sort, setSort] = React.useState<{ id: string; dir: 'asc' | 'desc' } | null>(
+    defaultSortId ? { id: defaultSortId, dir: 'asc' } : null
+  );
+  const sortedData = React.useMemo(() => {
+    if (!sort) return data;
+    const col = columns.find((item) => item.id === sort.id);
+    if (!col || !columnSortable(col)) return data;
+    const copy = [...data];
+    copy.sort((a, b) => {
+      const av = columnSortValue(a, col);
+      const bv = columnSortValue(b, col);
+      const cmp =
+        typeof av === 'number' && typeof bv === 'number'
+          ? av - bv
+          : String(av).localeCompare(String(bv), 'ar', { numeric: true, sensitivity: 'base' });
+      return sort.dir === 'asc' ? cmp : -cmp;
+    });
+    return copy;
+  }, [columns, data, sort]);
   const showSkeleton = !mounted || Boolean(isLoading);
   const parentRef = React.useRef<HTMLDivElement>(null);
-  const useVirtual = !showSkeleton && data.length >= virtualizeThreshold;
+  const useVirtual = !showSkeleton && sortedData.length >= virtualizeThreshold;
 
   const virtualizer = useVirtualizer({
-    count: data.length,
+    count: sortedData.length,
     getScrollElement: () => parentRef.current,
     estimateSize: () => 44,
     overscan: 8,
@@ -136,27 +186,50 @@ export function AppTable<T extends Record<string, unknown>>({
       )}
     >
       <tr>
-        {columns.map((col) => (
+        {columns.map((col) => {
+          const sortable = columnSortable(col);
+          const active = sort?.id === col.id;
+          return (
           <th
             key={col.id}
+            aria-sort={active ? (sort?.dir === 'asc' ? 'ascending' : 'descending') : 'none'}
             className={cn(
               'px-3 text-xs font-semibold tracking-wider whitespace-nowrap border-e border-white/20 last:border-e-0',
               col.align === 'end' && 'text-left',
               col.align === 'center' && 'text-center',
               col.align !== 'end' && col.align !== 'center' && 'text-right',
               col.numeric && 'min-w-[100px] tabular-nums',
+              sortable && 'cursor-pointer select-none hover:bg-white/10',
               col.headerClassName
             )}
+            onClick={
+              sortable
+                ? () =>
+                    setSort((prev) =>
+                      prev?.id === col.id
+                        ? { id: col.id, dir: prev.dir === 'asc' ? 'desc' : 'asc' }
+                        : { id: col.id, dir: 'asc' }
+                    )
+                : undefined
+            }
           >
-            {col.header}
+            <span className="inline-flex items-center gap-1">
+              {col.header}
+              {sortable ? (
+                <span className={cn('text-[10px]', active ? 'text-white' : 'text-white/50')}>
+                  {active ? (sort?.dir === 'asc' ? '↑' : '↓') : '↕'}
+                </span>
+              ) : null}
+            </span>
           </th>
-        ))}
+          );
+        })}
       </tr>
     </thead>
   );
 
   let body: React.ReactNode;
-  if (data.length === 0) {
+  if (sortedData.length === 0) {
     body = (
       <tbody>
         <tr>
@@ -173,7 +246,7 @@ export function AppTable<T extends Record<string, unknown>>({
         style={{ height: virtualizer.getTotalSize() }}
       >
         {virtualizer.getVirtualItems().map((vRow) => {
-          const row = data[vRow.index];
+          const row = sortedData[vRow.index];
           return (
             <tr
               key={getRowKey(row, vRow.index)}
@@ -205,7 +278,7 @@ export function AppTable<T extends Record<string, unknown>>({
   } else {
     body = (
       <tbody>
-        {data.map((row, rowIndex) => (
+        {sortedData.map((row, rowIndex) => (
           <tr
             key={getRowKey(row, rowIndex)}
             tabIndex={0}
@@ -240,7 +313,7 @@ export function AppTable<T extends Record<string, unknown>>({
           <TableExportActions
             fileName={exportFileName}
             columns={resolvedExportColumns}
-            data={data}
+            data={sortedData}
           />
         </div>
       ) : null}

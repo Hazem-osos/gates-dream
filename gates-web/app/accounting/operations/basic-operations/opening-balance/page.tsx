@@ -362,7 +362,9 @@ function OpeningBalancePageInner() {
       voucherNumber: values.entryNumber || undefined,
       currencyCode,
       entryType: OPENING_ENTRY_TYPE,
-      lines: lines.map((line, index) => ({
+      lines: lines
+        .filter((line) => line.accountId || Number(line.debit) || Number(line.credit))
+        .map((line, index) => ({
         accountId: line.accountId,
         description: line.description || undefined,
         debit: line.debit || 0,
@@ -375,20 +377,27 @@ function OpeningBalancePageInner() {
   };
 
   const validateLines = () => {
-    if (lines.length < 2) {
+    const filled = lines.filter(
+      (line) => line.accountId || Number(line.debit) || Number(line.credit)
+    );
+    if (filled.length < 2) {
       setError('أدخل سطرين على الأقل (مدين ودائن) ثم احفظ');
       return false;
     }
-    for (let i = 0; i < lines.length; i += 1) {
-      const parsed = journalLineSchema.safeParse(lines[i]);
+    const debit = filled.reduce((sum, line) => sum + (Number(line.debit) || 0), 0);
+    const credit = filled.reduce((sum, line) => sum + (Number(line.credit) || 0), 0);
+    if (Math.abs(debit - credit) > 0.01) {
+      setError(
+        `القيد غير متزن: إجمالي المدين ${debit.toLocaleString('ar-EG')} لا يساوي إجمالي الدائن ${credit.toLocaleString('ar-EG')}`
+      );
+      return false;
+    }
+    for (let i = 0; i < filled.length; i += 1) {
+      const parsed = journalLineSchema.safeParse(filled[i]);
       if (!parsed.success) {
         setError(`سطر ${i + 1}: ${parsed.error.issues[0]?.message || 'بيانات غير مكتملة'}`);
         return false;
       }
-    }
-    if (Math.abs(totals.diff) > 0.01) {
-      setError('يجب أن يتساوى إجمالي المدين مع إجمالي الدائن قبل الحفظ');
-      return false;
     }
     return true;
   };
@@ -626,7 +635,8 @@ function OpeningBalancePageInner() {
         <JournalEntriesListSection
           entryType={OPENING_ENTRY_TYPE}
           hrefBase={OPENING_HREF}
-          onSelectEntry={() => {
+          onSelectEntry={(id) => {
+            openEntry(id);
             lockToView();
             setShowList(false);
           }}

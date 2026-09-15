@@ -91,7 +91,7 @@ export class JournalPostingService {
     if (!isBalanced && !options.allowUnbalanced) {
       throw new AppError(
         422,
-        `Journal entry is not balanced at 4 decimals (debit ${debitBase}, credit ${creditBase})`
+        `القيد غير متزن: إجمالي المدين ${debitBase} لا يساوي إجمالي الدائن ${creditBase}`
       );
     }
     return { isBalanced };
@@ -225,11 +225,13 @@ export class JournalPostingService {
       allowUnbalanced: saveUnbalanced,
     });
 
+    const isOpening = (data.entryType ?? '').toUpperCase() === 'OPENING_BALANCE';
     const fiscalYearIdFromDate = await fiscalYearService.assertOpenForDate(
       ctx.companyId,
-      data.date
+      data.date,
+      { allowOpeningDocument: isOpening }
     );
-    if (ctx.fiscalYearId && ctx.fiscalYearId !== fiscalYearIdFromDate) {
+    if (ctx.fiscalYearId && ctx.fiscalYearId !== fiscalYearIdFromDate && !isOpening) {
       throw new AppError(422, 'Document date is outside the header fiscal year');
     }
     const fiscalYearId = fiscalYearIdFromDate;
@@ -386,7 +388,9 @@ export class JournalPostingService {
     // year/period lock entirely (the open-year guard only ran for manual GL
     // entries via createJournalEntry). Every document-driven posting must be
     // rejected once its *document date* falls in a closed year or period.
-    await fiscalYearService.assertOpenForDate(ctx.companyId, data.date);
+    await fiscalYearService.assertOpenForDate(ctx.companyId, data.date, {
+      allowOpeningDocument: (data.entryType ?? '').toUpperCase() === 'OPENING_BALANCE',
+    });
 
     const headerRate = data.exchangeRate ?? 1;
     const lineInputs = data.lines.map((l) => ({
@@ -647,7 +651,10 @@ export class JournalPostingService {
     assertExpectedVersion(existing.version, data.expectedVersion);
 
     const entryDate = data.date ?? existing.date;
-    await fiscalYearService.assertOpenForDate(ctx.companyId, entryDate);
+    const isOpeningUpdate = (data.entryType ?? existing.entryType ?? '').toUpperCase() === 'OPENING_BALANCE';
+    await fiscalYearService.assertOpenForDate(ctx.companyId, entryDate, {
+      allowOpeningDocument: isOpeningUpdate,
+    });
 
     const saveUnbalanced = await companySettingService.getFlag(
       ctx.companyId,
@@ -819,13 +826,15 @@ export class JournalPostingService {
         throw new AppError(400, 'Journal entry document is not open for posting');
       }
       if (!entry.isBalanced) {
-        throw new AppError(422, 'Cannot post an unbalanced journal entry');
+        throw new AppError(422, 'لا يمكن ترحيل قيد غير متزن. ساوِ إجمالي المدين مع إجمالي الدائن ثم أعد الحفظ.');
       }
       if (entry.isCancelled) {
         throw new AppError(400, 'Cannot post a cancelled journal entry');
       }
 
-      await fiscalYearService.assertOpenForDate(ctx.companyId, entry.date);
+      await fiscalYearService.assertOpenForDate(ctx.companyId, entry.date, {
+        allowOpeningDocument: (entry.entryType ?? '').toUpperCase() === 'OPENING_BALANCE',
+      });
 
       const { debitBase, creditBase } = this.computeBaseTotals(
         entry.lines.map((l) => ({
@@ -951,7 +960,9 @@ export class JournalPostingService {
         );
       }
 
-      await fiscalYearService.assertOpenForDate(ctx.companyId, entry.date);
+      await fiscalYearService.assertOpenForDate(ctx.companyId, entry.date, {
+        allowOpeningDocument: (entry.entryType ?? '').toUpperCase() === 'OPENING_BALANCE',
+      });
 
       await applyPostedJournalBalancesInTx(tx, {
         companyId: ctx.companyId,

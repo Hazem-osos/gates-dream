@@ -80,8 +80,14 @@ export function WarehousesListSection({
         getRowKey={(r) => r.id}
         emptyTitle="لا توجد مخازن"
         columns={[
-          { id: 'code', header: 'الرقم', cell: (r) => r.code || '—' },
+          { id: 'code', header: 'المسلسل', cell: (r) => r.code || '—', sortValue: (r) => r.code || '' },
           { id: 'name', header: 'اسم المخزن', accessor: 'arabicName' },
+          {
+            id: 'type',
+            header: 'النوع',
+            cell: (r) => (r.storeType === 'SUB' ? 'فرعي' : 'رئيسي'),
+            sortValue: (r) => r.storeType || 'MAIN',
+          },
           {
             id: 'status',
             header: 'الحالة',
@@ -93,6 +99,7 @@ export function WarehousesListSection({
                 label={r.isActive !== false ? 'نشط' : 'موقوف'}
               />
             ),
+            sortValue: (r) => (r.isActive !== false ? 1 : 0),
           },
           {
             id: 'actions',

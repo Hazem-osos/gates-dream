@@ -172,6 +172,25 @@ const RULES: Rule[] = [
     ar: 'لا يمكن ترحيل مستند ملغى.',
   },
   {
+    test: /not balanced|unbalanced journal/i,
+    ar: 'القيد غير متزن. ساوِ إجمالي المدين مع إجمالي الدائن ثم احفظ.',
+  },
+  {
+    test: /does not fall within|no fiscal year|outside the header fiscal year/i,
+    ar: 'التاريخ المحدد لا يقع ضمن سنة مالية مفتوحة. للقيد الافتتاحي وبضاعة أول المدة يُقبل تاريخ بداية المدة أو اليوم السابق لها.',
+  },
+  {
+    test: /failed to (create|list|get|update|delete) opening stock/i,
+    ar: (m) =>
+      m[1] === 'list'
+        ? 'تعذر تحميل كشوف بضاعة أول المدة. حدّث الصفحة ثم أعد المحاولة.'
+        : 'تعذر حفظ بضاعة أول المدة. راجع الأصناف والمخزن ثم أعد المحاولة.',
+  },
+  {
+    test: /failed to list warehouses/i,
+    ar: 'تعذر تحميل دليل المخازن. حدّث الصفحة ثم أعد المحاولة.',
+  },
+  {
     test: /غير\s*مرح|unposted|not posted/i,
     ar: (m, raw) =>
       /يوجد|فاتورة|قيد|خزين/.test(raw)

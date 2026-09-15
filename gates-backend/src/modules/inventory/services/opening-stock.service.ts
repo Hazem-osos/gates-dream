@@ -18,6 +18,24 @@ import type { JournalEntryLineData } from '../../accounting/types/journal-entry.
 
 const SOURCE_TYPE = 'OB';
 
+function nextOpeningSerial(existing: Array<string | null | undefined>, year: number): string {
+  const prefix = `OS-${year}-`;
+  let max = 0;
+  for (const value of existing) {
+    const raw = String(value ?? '').trim();
+    if (!raw) continue;
+    if (raw === `OS-${year}`) {
+      max = Math.max(max, 1);
+      continue;
+    }
+    if (raw.startsWith(prefix)) {
+      const n = Number.parseInt(raw.slice(prefix.length), 10);
+      if (Number.isFinite(n)) max = Math.max(max, n);
+    }
+  }
+  return `${prefix}${String(max + 1).padStart(4, '0')}`;
+}
+
 export interface OpeningStockLine {
   itemId: string;
   warehouseId: string;
@@ -142,7 +160,7 @@ export class OpeningStockService {
       });
 
       if (items.length !== itemIds.length) {
-        throw new Error('One or more items not found or do not belong to company');
+        throw new Error('صنف أو أكثر غير موجود أو لا يتبع الشركة');
       }
 
       if (warehouseIds.length > 0) {
@@ -154,19 +172,29 @@ export class OpeningStockService {
         });
 
         if (warehouses.length !== warehouseIds.length) {
-          throw new Error('One or more warehouses not found or do not belong to company');
+          throw new Error('مخزن أو أكثر غير موجود أو لا يتبع الشركة');
         }
       }
 
       // Use transaction to ensure atomicity
       const openingStock = await prisma.$transaction(async (tx) => {
         // Create opening stock record
+        const year = new Date(data.date).getFullYear();
+        const usedSerials = await tx.openingStock.findMany({
+          where: { companyId, serial: { not: null } },
+          select: { serial: true },
+        });
+        const serial =
+          data.serial && !usedSerials.some((row) => row.serial === data.serial)
+            ? data.serial
+            : nextOpeningSerial(usedSerials.map((row) => row.serial), year);
+
         const record = await tx.openingStock.create({
           data: {
             companyId,
             branchId: data.branchId || null,
             description: data.description || null,
-            serial: data.serial || null,
+            serial,
             date: new Date(data.date),
             isPosted: false,
             isApproved: false,
@@ -181,12 +209,11 @@ export class OpeningStockService {
         // at create time (not post time) to preserve this document's
         // existing behaviour of taking immediate effect.
         const sourceType = SOURCE_TYPE;
-        const sourceNumber = data.serial ?? record.id.slice(0, 8);
+        const sourceNumber = serial;
         const sourceYearId = String(new Date(data.date).getFullYear());
 
         // Create opening stock lines and update item quantities
         const lines = [];
-        const accountValues = new Map<string, number>();
         for (const lineData of data.lines) {
           // Create opening stock line
           const line = await tx.openingStockLine.create({
@@ -218,28 +245,6 @@ export class OpeningStockService {
             transactionDate: new Date(data.date),
           });
 
-          const item = await tx.item.findUnique({
-            where: { id: lineData.itemId },
-            select: { mainAccountId: true },
-          });
-          const value = roundTo4(Number(lineData.quantity) * Number(lineData.unitPrice));
-          if (item?.mainAccountId && value !== 0) {
-            accountValues.set(
-              item.mainAccountId,
-              roundTo4((accountValues.get(item.mainAccountId) ?? 0) + value)
-            );
-          }
-        }
-
-        if (glCtx) {
-          await this.postOpeningBalanceGlInTx(tx, glCtx, {
-            openingStockId: record.id,
-            date: new Date(data.date),
-            description: data.description,
-            sourceNumber,
-            sourceYearId,
-            accountValues,
-          });
         }
 
         return {
@@ -326,6 +331,7 @@ export class OpeningStockService {
       isCancelled?: boolean;
       fromDate?: string;
       toDate?: string;
+      search?: string;
       skip?: number;
       take?: number;
     }
@@ -351,6 +357,13 @@ export class OpeningStockService {
         where.isCancelled = options.isCancelled;
       }
 
+      if (options?.search?.trim()) {
+        where.OR = [
+          { serial: { contains: options.search.trim() } },
+          { description: { contains: options.search.trim() } },
+        ];
+      }
+
       if (options?.fromDate || options?.toDate) {
         where.date = {};
         if (options.fromDate) {
@@ -366,27 +379,14 @@ export class OpeningStockService {
           where,
           include: {
             lines: {
-              include: {
-                item: {
-                  select: {
-                    id: true,
-                    code: true,
-                    serial: true,
-                    arabicName: true,
-                  },
-                },
-                warehouse: {
-                  select: {
-                    id: true,
-                    code: true,
-                    arabicName: true,
-                  },
-                },
+              select: {
+                id: true,
+                warehouseId: true,
               },
-              take: 5, // Limit lines in list view
+              take: 1,
             },
           },
-          orderBy: { createdAt: 'desc' },
+          orderBy: [{ serial: 'asc' }, { createdAt: 'desc' }],
           skip: options?.skip || 0,
           take: options?.take || 50,
         }),
@@ -437,7 +437,36 @@ export class OpeningStockService {
         throw new Error('Opening stock is already posted');
       }
 
-      await fiscalYearService.assertOpenForDate(companyId, openingStock.date);
+      await fiscalYearService.assertOpenForDate(companyId, openingStock.date, {
+        allowOpeningDocument: true,
+      });
+
+      if (glCtx) {
+        const accountValues = new Map<string, number>();
+        for (const line of openingStock.lines) {
+          const item = await prisma.item.findUnique({
+            where: { id: line.itemId },
+            select: { mainAccountId: true },
+          });
+          const value = roundTo4(Number(line.quantity) * Number(line.unitPrice));
+          if (item?.mainAccountId && value !== 0) {
+            accountValues.set(
+              item.mainAccountId,
+              roundTo4((accountValues.get(item.mainAccountId) ?? 0) + value)
+            );
+          }
+        }
+        await prisma.$transaction(async (tx) => {
+          await this.postOpeningBalanceGlInTx(tx, glCtx, {
+            openingStockId,
+            date: openingStock.date,
+            description: openingStock.description,
+            sourceNumber: openingStock.serial ?? openingStock.id.slice(0, 8),
+            sourceYearId: String(openingStock.date.getFullYear()),
+            accountValues,
+          });
+        });
+      }
 
       // Update to posted
       const updated = await prisma.openingStock.update({
@@ -482,7 +511,9 @@ export class OpeningStockService {
         throw new Error('Opening stock is not posted');
       }
 
-      await fiscalYearService.assertOpenForDate(companyId, openingStock.date);
+      await fiscalYearService.assertOpenForDate(companyId, openingStock.date, {
+        allowOpeningDocument: true,
+      });
 
       const sourceType = SOURCE_TYPE;
       const sourceNumber = openingStock.serial ?? openingStock.id.slice(0, 8);

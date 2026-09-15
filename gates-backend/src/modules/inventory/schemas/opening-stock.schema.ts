@@ -17,15 +17,30 @@ export const createOpeningStockSchema = z.object({
   lines: z.array(openingStockLineSchema).min(1, 'At least one line is required'),
 });
 
+const optionalBool = z
+  .union([z.boolean(), z.string()])
+  .optional()
+  .transform((val) => (val === undefined ? undefined : val === true || val === 'true'));
+
+const optionalInt = z
+  .union([z.number(), z.string()])
+  .optional()
+  .transform((val) => {
+    if (val === undefined || val === '') return undefined;
+    const n = typeof val === 'number' ? val : Number.parseInt(val, 10);
+    return Number.isFinite(n) ? n : undefined;
+  });
+
 export const openingStockQuerySchema = z.object({
   branchId: z.string().uuid().optional(),
-  isPosted: z.string().transform((val) => val === 'true').optional(),
-  isApproved: z.string().transform((val) => val === 'true').optional(),
-  isCancelled: z.string().transform((val) => val === 'true').optional(),
-  fromDate: z.string().datetime().optional(),
-  toDate: z.string().datetime().optional(),
-  skip: z.string().transform((val) => parseInt(val, 10)).optional(),
-  take: z.string().transform((val) => parseInt(val, 10)).optional(),
+  isPosted: optionalBool,
+  isApproved: optionalBool,
+  isCancelled: optionalBool,
+  fromDate: z.string().optional(),
+  toDate: z.string().optional(),
+  search: z.string().optional(),
+  skip: optionalInt,
+  take: optionalInt,
 });
 
 export type CreateOpeningStockInput = z.infer<typeof createOpeningStockSchema>;

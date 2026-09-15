@@ -89,7 +89,7 @@ export function CurrenciesListSection({
         emptyTitle="لا توجد عملات"
         emptyDescription="أضف عملة جديدة من قائمة الإجراءات."
         columns={[
-          { id: 'serial', header: 'المسلسل', cell: (r) => r.serial ?? '—' },
+          { id: 'serial', header: 'المسلسل', cell: (r) => r.serial ?? '—', sortValue: (r) => Number(r.serial) || 0 },
           { id: 'code', header: 'الرمز', accessor: 'code' },
           { id: 'symbol', header: 'الرمز', cell: (r) => r.symbol || '—' },
           { id: 'arabicName', header: 'الاسم العربي', accessor: 'arabicName' },

@@ -12,9 +12,28 @@ export type FiscalPeriodResolution =
   | { kind: 'invalid' }
   | { kind: 'closed'; fiscalYearId: string; legacyYearId: string };
 
+export type AssertOpenOptions = {
+  /** Opening journal / opening stock may sit on FY start or the day before. */
+  allowOpeningDocument?: boolean;
+};
+
+function toIsoDate(date: Date): string {
+  return date.toISOString().slice(0, 10);
+}
+
+function dayBefore(date: Date): Date {
+  const next = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+  next.setUTCDate(next.getUTCDate() - 1);
+  return next;
+}
+
 export class FiscalYearService {
-  async resolveForDate(companyId: string, date: Date): Promise<FiscalPeriodResolution> {
-    const year = await prisma.fiscalYear.findFirst({
+  async resolveForDate(
+    companyId: string,
+    date: Date,
+    options?: AssertOpenOptions
+  ): Promise<FiscalPeriodResolution> {
+    let year = await prisma.fiscalYear.findFirst({
       where: {
         companyId,
         isActive: true,
@@ -23,6 +42,20 @@ export class FiscalYearService {
       },
       orderBy: { startDate: 'desc' },
     });
+
+    if (!year && options?.allowOpeningDocument) {
+      const following = await prisma.fiscalYear.findFirst({
+        where: {
+          companyId,
+          isActive: true,
+          startDate: { gt: date },
+        },
+        orderBy: { startDate: 'asc' },
+      });
+      if (following && toIsoDate(dayBefore(following.startDate)) === toIsoDate(date)) {
+        year = following;
+      }
+    }
 
     if (!year) {
       return { kind: 'invalid' };
@@ -43,13 +76,20 @@ export class FiscalYearService {
     };
   }
 
-  async assertOpenForDate(companyId: string, date: Date): Promise<string> {
-    const resolution = await this.resolveForDate(companyId, date);
+  async assertOpenForDate(
+    companyId: string,
+    date: Date,
+    options?: AssertOpenOptions
+  ): Promise<string> {
+    const resolution = await this.resolveForDate(companyId, date, options);
     if (resolution.kind === 'invalid') {
       throw new AppError(422, NO_FISCAL_YEAR_FOR_DATE_MESSAGE);
     }
     if (resolution.kind === 'closed') {
       throw new AppError(422, FISCAL_YEAR_CLOSED_FOR_DATE_MESSAGE);
+    }
+    if (options?.allowOpeningDocument) {
+      return resolution.fiscalYearId;
     }
     await this.assertNotBeforeLockDate(companyId, date);
     await this.assertPeriodOpenForDate(companyId, date);

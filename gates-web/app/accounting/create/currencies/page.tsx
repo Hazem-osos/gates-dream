@@ -33,10 +33,10 @@ function rateToInput(value: number | string | null | undefined): string {
 }
 
 function nextSerialFrom(rows: CurrencyRow[]): string {
-  return nextNumericSerial(rows.map((row) => row.serial));
+  return nextNumericSerial([...rows.map((row) => row.serial), rows.length]);
 }
 
-const emptyForm = (serial = '00001'): FormState => ({
+const emptyForm = (serial = ''): FormState => ({
   serial,
   code: '',
   symbol: '',
@@ -68,7 +68,7 @@ function CurrenciesPageInner() {
 
   useEffect(() => {
     if (selectedId || currenciesRes == null) return;
-    setForm((prev) => (prev.serial ? prev : { ...prev, serial: nextSerial }));
+    setForm((prev) => (prev.serial === nextSerial ? prev : { ...prev, serial: nextSerial }));
   }, [currenciesRes, nextSerial, selectedId]);
 
   const resetNew = () => {
