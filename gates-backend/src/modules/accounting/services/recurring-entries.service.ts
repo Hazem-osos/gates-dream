@@ -106,6 +106,121 @@ export class RecurringEntriesService {
       data: { lastGeneratedAt: new Date() },
     });
   }
+
+  /**
+   * Checking «سند دوري» on a journal voucher must also persist a template
+   * so it appears under «استدعاء قيد دوري». Re-saving updates the same
+   * template when `sourceId` already points at one.
+   */
+  async upsertFromJournal(
+    companyId: string,
+    journal: {
+      id: string;
+      sourceId?: string | null;
+      description?: string | null;
+      voucherNumber?: string | null;
+      date: Date;
+      lines: Array<{
+        accountId: string;
+        costCenterId?: string | null;
+        description?: string | null;
+        debit: number;
+        credit: number;
+      }>;
+    }
+  ): Promise<{ id: string; templateNameAr: string }> {
+    const lines = journal.lines.filter((line) => {
+      const debit = Number(line.debit) || 0;
+      const credit = Number(line.credit) || 0;
+      return Boolean(line.accountId) && (debit > 0) !== (credit > 0);
+    });
+    if (lines.length < 2) {
+      throw new AppError(
+        400,
+        'القيد الدوري يحتاج سطرين على الأقل (مدين ودائن) حتى يظهر في قائمة القيود الدورية.'
+      );
+    }
+
+    const accountIds = [...new Set(lines.map((line) => line.accountId))];
+    const accounts = await prisma.account.findMany({
+      where: { id: { in: accountIds }, companyId },
+      select: { id: true },
+    });
+    if (accounts.length !== accountIds.length) {
+      throw new AppError(400, 'أحد حسابات القيد الدوري غير موجود في الشركة');
+    }
+
+    const baseName = (
+      journal.description?.trim() ||
+      journal.voucherNumber?.trim() ||
+      `قيد دوري ${journal.date.toISOString().slice(0, 10)}`
+    ).slice(0, 180);
+
+    const existing = journal.sourceId
+      ? await prisma.recurringJournalEntry.findFirst({
+          where: { id: journal.sourceId, companyId },
+        })
+      : null;
+
+    const templateNameAr = existing
+      ? (journal.description?.trim() || existing.templateNameAr).slice(0, 191)
+      : await this.uniqueTemplateName(companyId, baseName);
+
+    const lineRows = lines.map((line) => ({
+      accountId: line.accountId,
+      costCenterId: line.costCenterId || null,
+      description: line.description?.trim() || null,
+      debit: new Decimal(line.debit || 0),
+      credit: new Decimal(line.credit || 0),
+    }));
+    const totalAmount = lineTotal(lines);
+
+    if (existing) {
+      await prisma.$transaction(async (tx) => {
+        await tx.recurringJournalLine.deleteMany({
+          where: { recurringEntryId: existing.id },
+        });
+        await tx.recurringJournalEntry.update({
+          where: { id: existing.id },
+          data: {
+            templateNameAr,
+            notes: journal.description?.trim() || existing.notes,
+            totalAmount,
+            isActive: true,
+            lines: { create: lineRows },
+          },
+        });
+      });
+      return { id: existing.id, templateNameAr };
+    }
+
+    const created = await prisma.recurringJournalEntry.create({
+      data: {
+        companyId,
+        templateNameAr,
+        frequency: RecurringFrequency.MONTHLY,
+        notes: journal.description?.trim() || null,
+        totalAmount,
+        isActive: true,
+        lines: { create: lineRows },
+      },
+    });
+    logger.info(
+      { companyId, recurringEntryId: created.id, journalEntryId: journal.id },
+      'Recurring journal template created from cyclic voucher'
+    );
+    return { id: created.id, templateNameAr };
+  }
+
+  private async uniqueTemplateName(companyId: string, baseName: string): Promise<string> {
+    const clash = await prisma.recurringJournalEntry.findFirst({
+      where: { companyId, templateNameAr: baseName },
+      select: { id: true },
+    });
+    if (!clash) return baseName;
+    const suffix = ` (${Date.now().toString().slice(-6)})`;
+    return `${baseName.slice(0, 191 - suffix.length)}${suffix}`;
+  }
 }
 
 export const recurringEntriesService = new RecurringEntriesService();

@@ -1,4 +1,4 @@
-import { Router, Response } from 'express';
+import { Router, Response, NextFunction } from 'express';
 import { validate } from '../../../shared/middleware/validate';
 import { authenticate } from '../../../shared/middleware/auth.middleware';
 import { authorize } from '../../../shared/middleware/authorize.middleware';
@@ -11,6 +11,7 @@ import { transferService } from '../services/transfer.service';
 import { logger } from '../../../shared/logger';
 import { AuthRequest } from '../../../shared/auth/types';
 import { buildStockGlPostingContext } from '../services/stock-gl-posting-context';
+import { resolveStockListPaging } from '../utils/stock-list-query';
 
 const router = Router();
 
@@ -87,7 +88,7 @@ router.get(
   '/',
   authorize({ resource: 'invoice', action: 'view' }),
   validate({ query: transferQuerySchema }),
-  async (req: AuthRequest, res: Response) => {
+  async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const companyId = req.companyId || req.tenantId;
       if (!companyId) {
@@ -97,17 +98,35 @@ router.get(
         });
       }
 
+      const query = req.query as unknown as {
+        branchId?: string;
+        fromWarehouseId?: string;
+        toWarehouseId?: string;
+        isPosted?: boolean;
+        isApproved?: boolean;
+        isCancelled?: boolean;
+        fromDate?: string;
+        toDate?: string;
+        search?: string;
+        page?: number;
+        limit?: number;
+        skip?: number;
+        take?: number;
+      };
+      const { skip, take } = resolveStockListPaging(query);
+
       const result = await transferService.listTransfers(companyId, {
-        branchId: req.query.branchId as string | undefined,
-        fromWarehouseId: req.query.fromWarehouseId as string | undefined,
-        toWarehouseId: req.query.toWarehouseId as string | undefined,
-        isPosted: req.query.isPosted as boolean | undefined,
-        isApproved: req.query.isApproved as boolean | undefined,
-        isCancelled: req.query.isCancelled as boolean | undefined,
-        fromDate: req.query.fromDate as string | undefined,
-        toDate: req.query.toDate as string | undefined,
-        skip: req.query.skip as number | undefined,
-        take: req.query.take as number | undefined,
+        branchId: query.branchId,
+        fromWarehouseId: query.fromWarehouseId,
+        toWarehouseId: query.toWarehouseId,
+        isPosted: query.isPosted,
+        isApproved: query.isApproved,
+        isCancelled: query.isCancelled,
+        fromDate: query.fromDate,
+        toDate: query.toDate,
+        search: query.search,
+        skip,
+        take,
       });
 
       return void res.json({
@@ -120,14 +139,7 @@ router.get(
         },
       });
     } catch (error) {
-      logger.error({ error }, 'Error listing transfers');
-      return void res.status(500).json({
-        status: 'error',
-        message:
-          error instanceof Error
-            ? error.message
-            : 'Failed to list transfers',
-      });
+      next(error);
     }
   }
 );

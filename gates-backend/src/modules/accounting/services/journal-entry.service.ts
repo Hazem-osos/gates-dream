@@ -57,7 +57,9 @@ export class JournalEntryService {
       const locked = await openingBalanceService.applyLockedDate(companyId, data);
       return await journalPostingService.createJournalEntry(ctx, locked);
     } catch (error) {
-      logger.error({ error, companyId, data }, 'Error creating journal entry');
+      if (!(error instanceof AppError) || error.statusCode >= 500) {
+        logger.error({ error, companyId, data }, 'Error creating journal entry');
+      }
       throw error;
     }
   }
@@ -317,10 +319,12 @@ export class JournalEntryService {
         locked
       );
     } catch (error) {
-      logger.error(
-        { error, companyId, journalEntryId, data },
-        'Error updating journal entry'
-      );
+      if (!(error instanceof AppError) || error.statusCode >= 500) {
+        logger.error(
+          { error, companyId, journalEntryId, data },
+          'Error updating journal entry'
+        );
+      }
       throw error;
     }
   }
@@ -435,25 +439,34 @@ export class JournalEntryService {
       });
 
       if (!journalEntry) {
-        throw new Error('Journal entry not found');
+        throw new AppError(404, 'القيد غير موجود');
       }
 
       if (!journalEntry.isApproved) {
-        throw new Error('Journal entry is not approved');
+        return journalEntry;
+      }
+
+      if (journalEntry.isPosted) {
+        throw new AppError(
+          400,
+          'القيد مرحّل. فك الترحيل أولاً من قائمة (...) ثم ألغِ الاعتماد.'
+        );
       }
 
       const updated = await prisma.journalEntry.update({
         where: { id: journalEntryId },
-        data: { isApproved: false, workflowStatus: journalEntry.isPosted ? journalEntry.workflowStatus : 'DRAFT' },
+        data: { isApproved: false },
       });
 
       logger.info({ companyId, journalEntryId }, 'Journal entry unapproved');
       return updated;
     } catch (error) {
-      logger.error(
-        { error, companyId, journalEntryId },
-        'Error unapproving journal entry'
-      );
+      if (!(error instanceof AppError) || error.statusCode >= 500) {
+        logger.error(
+          { error, companyId, journalEntryId },
+          'Error unapproving journal entry'
+        );
+      }
       throw error;
     }
   }

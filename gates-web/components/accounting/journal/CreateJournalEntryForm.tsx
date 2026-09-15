@@ -95,6 +95,7 @@ type JournalEntryDetail = {
   isCyclic?: boolean;
   isRecurring?: boolean;
   isPosted?: boolean;
+  postingStatus?: string | null;
   isCancelled?: boolean;
   isApproved?: boolean;
   currencyCode?: string;
@@ -142,7 +143,7 @@ function CreateJournalEntryFormInner() {
   const journalEntryIdFromUrl = searchParams.get('id');
 
   const [showList, setShowList] = useState(false);
-  const [isCyclic, setIsCyclic] = useState(true);
+  const [isCyclic, setIsCyclic] = useState(false);
   const [isPosted, setIsPosted] = useState(false);
   const [isCancelled, setIsCancelled] = useState(false);
   const [isApproved, setIsApproved] = useState(false);
@@ -254,12 +255,14 @@ function CreateJournalEntryFormInner() {
         invoiceNumber: line.invoiceNumber ?? null,
       })),
     });
-    setIsCyclic(loadedJournalEntry.isCyclic ?? true);
-    setIsPosted(loadedJournalEntry.isPosted ?? false);
+    setIsCyclic(Boolean(loadedJournalEntry.isCyclic || loadedJournalEntry.isRecurring));
+    const posted =
+      Boolean(loadedJournalEntry.isPosted) || loadedJournalEntry.postingStatus === 'Post';
+    setIsPosted(posted);
     setIsCancelled(loadedJournalEntry.isCancelled ?? false);
     setIsApproved(loadedJournalEntry.isApproved ?? false);
     setVoucherStatus(
-      loadedJournalEntry.isCancelled ? 'ملغي' : loadedJournalEntry.isPosted ? 'مرحل' : 'غير مرحل'
+      loadedJournalEntry.isCancelled ? 'ملغي' : posted ? 'مرحل' : 'غير مرحل'
     );
     setLoadedVersion(loadedJournalEntry.version);
     setSourceKind(
@@ -282,8 +285,9 @@ function CreateJournalEntryFormInner() {
           setVoucherStatus('غير مرحل');
           router.replace(`/accounting/operations/journal-entry?id=${id}`, { scroll: false });
         }
-        setSuccess('تم حفظ القيد بنجاح');
+        setSuccess(isCyclic ? 'تم حفظ القيد وإضافته للقيود الدورية' : 'تم حفظ القيد بنجاح');
         invalidateQuery(['journal-entries']);
+        invalidateQuery(['recurring-journal-entries']);
         if (id) invalidateQuery(['journal-entry', id]);
       },
       onError: (error: ApiError) => {
@@ -297,9 +301,10 @@ function CreateJournalEntryFormInner() {
     'PUT',
     {
       onSuccess: () => {
-        setSuccess('تم حفظ التعديلات بنجاح');
+        setSuccess(isCyclic ? 'تم حفظ التعديلات وتحديث القيد الدوري' : 'تم حفظ التعديلات بنجاح');
         invalidateQuery(['journal-entries']);
         invalidateQuery(['journal-entry', savedJournalEntryId]);
+        invalidateQuery(['recurring-journal-entries']);
       },
       onError: (error: ApiError) => {
         if (error.code === '409') {
@@ -510,7 +515,7 @@ function CreateJournalEntryFormInner() {
       description: data.description.trim(),
       voucherNumber: data.referenceNumber || undefined,
       isCyclic,
-      isRecurring: sourceKind === 'RECURRING_TEMPLATE',
+      isRecurring: isCyclic || sourceKind === 'RECURRING_TEMPLATE',
       sourceType: sourceKind,
       sourceId: sourceId || undefined,
       sourceNumber: sourceNumber || undefined,
@@ -611,6 +616,7 @@ function CreateJournalEntryFormInner() {
     setSourceKind('MANUAL');
     setSourceId(null);
     setSourceNumber(null);
+    setIsCyclic(false);
     setSavedJournalEntryId(null);
     setLoadedVersion(undefined);
     setIsPosted(false);
@@ -730,7 +736,9 @@ function CreateJournalEntryFormInner() {
             unlockForEdit();
           },
           isApproved,
-          onUnapprove: () => unapproveJournalMutation.mutate({}),
+          onUnapprove: isApproved
+            ? () => unapproveJournalMutation.mutate({})
+            : undefined,
           onUnpost: () => unpostJournalMutation.mutate({}),
           unpostPending: unpostJournalMutation.isPending,
           onPrint: triggerPrint,

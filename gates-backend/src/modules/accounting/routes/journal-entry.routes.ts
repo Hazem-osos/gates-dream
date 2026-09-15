@@ -226,8 +226,10 @@ router.post(
         data: journalEntry,
       });
     } catch (error) {
-      logger.error({ error, body: req.body }, 'Error creating journal entry');
-      return sendRouteError(res, error, 'Failed to create journal entry');
+      if (!(error instanceof AppError) || error.statusCode >= 500) {
+        logger.error({ error, body: req.body }, 'Error creating journal entry');
+      }
+      return sendRouteError(res, error, 'تعذّر حفظ القيد');
     }
   }
 );
@@ -272,18 +274,7 @@ router.put(
         data: journalEntry,
       });
     } catch (error) {
-      logger.error({ error, journalEntryId: req.params.id }, 'Error updating journal entry');
-      const status =
-        error instanceof Error &&
-        (error.message === 'Journal entry not found' ||
-          error.message.includes('Cannot update'))
-          ? 400
-          : 500;
-      return void res.status(status).json({
-        status: 'error',
-        message:
-          error instanceof Error ? error.message : 'Failed to update journal entry',
-      });
+      return void sendRouteError(res, error, 'تعذّر تحديث القيد');
     }
   }
 );
@@ -444,21 +435,7 @@ router.post(
         data: journalEntry,
       });
     } catch (error) {
-      logger.error({ error }, 'Error unapproving journal entry');
-      const status =
-        error instanceof Error &&
-        (error.message === 'Journal entry not found' ||
-          error.message.includes('not approved') ||
-          error.message.includes('Cannot'))
-          ? 400
-          : 500;
-      return void res.status(status).json({
-        status: 'error',
-        message:
-          error instanceof Error
-            ? error.message
-            : 'Failed to unapprove journal entry',
-      });
+      return void sendRouteError(res, error, 'تعذّر إلغاء اعتماد القيد');
     }
   }
 );

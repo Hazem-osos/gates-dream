@@ -313,6 +313,7 @@ export class TransferService {
       isCancelled?: boolean;
       fromDate?: string;
       toDate?: string;
+      search?: string;
       skip?: number;
       take?: number;
     }
@@ -356,6 +357,14 @@ export class TransferService {
         }
       }
 
+      if (options?.search?.trim()) {
+        const q = options.search.trim();
+        where.OR = [
+          { serial: { contains: q } },
+          { description: { contains: q } },
+        ];
+      }
+
       const [transfers, total] = await Promise.all([
         prisma.transfer.findMany({
           where,
@@ -373,18 +382,6 @@ export class TransferService {
                 code: true,
                 arabicName: true,
               },
-            },
-            lines: {
-              include: {
-                item: {
-                  select: {
-                    id: true,
-                    serial: true,
-                    arabicName: true,
-                  },
-                },
-              },
-              take: 5, // Limit lines in list view
             },
           },
           orderBy: { createdAt: 'desc' },

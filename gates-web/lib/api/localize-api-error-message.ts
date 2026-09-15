@@ -74,6 +74,10 @@ const EXACT: Record<string, string> = {
   'invoice must be posted before collecting payment': 'يجب ترحيل الفاتورة قبل التحصيل',
   'invoice must be posted before approval': 'يجب ترحيل الفاتورة قبل الاعتماد',
   'cannot unapprove a posted journal entry': 'تم إلغاء الاعتماد — يمكنك فك الترحيل الآن',
+  'cannot update a posted journal entry':
+    'القيد مرحّل ولا يمكن تعديله. فك الترحيل أولاً من قائمة (...).',
+  'cannot update a cancelled journal entry': 'القيد ملغي ولا يمكن تعديله',
+  'journal entry is deleted': 'القيد محذوف',
   'journal entry is not approved': 'القيد غير معتمد',
   'journal entry is not cancelled': 'القيد ليس ملغياً',
   'cannot post a cancelled journal entry': 'لا يمكن ترحيل قيد ملغي',

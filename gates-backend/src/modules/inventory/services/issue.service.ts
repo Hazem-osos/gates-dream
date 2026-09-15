@@ -234,6 +234,7 @@ export class IssueService {
       isCancelled?: boolean;
       fromDate?: string;
       toDate?: string;
+      search?: string;
       skip?: number;
       take?: number;
     }
@@ -273,6 +274,14 @@ export class IssueService {
         }
       }
 
+      if (options?.search?.trim()) {
+        const q = options.search.trim();
+        where.OR = [
+          { serial: { contains: q } },
+          { description: { contains: q } },
+        ];
+      }
+
       const [issues, total] = await Promise.all([
         prisma.issue.findMany({
           where,
@@ -283,19 +292,6 @@ export class IssueService {
                 code: true,
                 arabicName: true,
               },
-            },
-            lines: {
-              include: {
-                item: {
-                  select: {
-                    id: true,
-                    code: true,
-                    serial: true,
-                    arabicName: true,
-                  },
-                },
-              },
-              take: 5, // Limit lines in list view
             },
           },
           orderBy: { createdAt: 'desc' },

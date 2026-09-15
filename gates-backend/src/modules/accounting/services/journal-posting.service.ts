@@ -131,6 +131,48 @@ export class JournalPostingService {
     };
   }
 
+  private async syncCyclicRecurringTemplate(
+    companyId: string,
+    journalEntryId: string,
+    input: {
+      sourceId?: string | null;
+      description?: string | null;
+      voucherNumber?: string | null;
+      date: Date;
+      lines: JournalEntryLineData[];
+    }
+  ) {
+    const template = await recurringEntriesService.upsertFromJournal(companyId, {
+      id: journalEntryId,
+      sourceId: input.sourceId,
+      description: input.description,
+      voucherNumber: input.voucherNumber,
+      date: input.date,
+      lines: input.lines.map((line) => ({
+        accountId: line.accountId,
+        costCenterId: line.costCenterId,
+        description: line.description,
+        debit: Number(line.debit) || 0,
+        credit: Number(line.credit) || 0,
+      })),
+    });
+
+    await prisma.journalEntry.update({
+      where: { id: journalEntryId },
+      data: {
+        isCyclic: true,
+        isRecurring: true,
+        sourceId: template.id,
+        sourceNumber: template.templateNameAr,
+      },
+    });
+
+    return prisma.journalEntry.findUnique({
+      where: { id: journalEntryId },
+      include: this.journalInclude(),
+    });
+  }
+
   async createJournalEntry(
     ctx: JournalPostingContext,
     data: CreateJournalEntryData & { entryType?: string; exchangeRate?: number }
@@ -238,6 +280,15 @@ export class JournalPostingService {
       });
     });
 
+    if (data.isCyclic) {
+      return this.syncCyclicRecurringTemplate(ctx.companyId, entry!.id, {
+        sourceId: data.sourceId ?? entry?.sourceId,
+        description: data.description,
+        voucherNumber: data.voucherNumber ?? entry?.voucherNumber,
+        date: data.date,
+        lines,
+      });
+    }
     if (sourceKind === JournalSourceType.RECURRING_TEMPLATE && data.sourceId) {
       await recurringEntriesService.markGenerated(ctx.companyId, data.sourceId);
     }
@@ -527,10 +578,13 @@ export class JournalPostingService {
       throw new AppError(400, 'Journal entry is deleted');
     }
     if (existing.postingStatus === 'Post' || existing.isPosted) {
-      throw new AppError(400, 'Cannot update a posted journal entry');
+      throw new AppError(
+        400,
+        'القيد مرحّل ولا يمكن تعديله. فك الترحيل أولاً من قائمة (...).'
+      );
     }
     if (existing.isCancelled) {
-      throw new AppError(400, 'Cannot update a cancelled journal entry');
+      throw new AppError(400, 'القيد ملغي ولا يمكن تعديله');
     }
     // M14 fix (Item 40): if the client tells us which version it edited,
     // reject the edit outright when the DB has already moved past that —
@@ -646,6 +700,31 @@ export class JournalPostingService {
         where: { id: journalEntryId },
         include: this.journalInclude(),
       });
+    });
+
+    const cyclic = data.isCyclic ?? existing.isCyclic;
+    if (!cyclic) return updated;
+
+    const lineSource =
+      data.lines ??
+      (await prisma.journalEntryLine.findMany({
+        where: { journalEntryId },
+        orderBy: { lineOrder: 'asc' },
+      }));
+
+    return this.syncCyclicRecurringTemplate(ctx.companyId, journalEntryId, {
+      sourceId: data.sourceId ?? existing.sourceId,
+      description: data.description ?? existing.description,
+      voucherNumber: data.voucherNumber ?? existing.voucherNumber,
+      date: data.date ?? existing.date,
+      lines: lineSource.map((line, index) => ({
+        accountId: line.accountId,
+        costCenterId: line.costCenterId,
+        description: line.description,
+        debit: Number(line.debit) || 0,
+        credit: Number(line.credit) || 0,
+        lineOrder: 'lineOrder' in line ? Number(line.lineOrder) || index + 1 : index + 1,
+      })),
     });
   }
 

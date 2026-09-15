@@ -22,7 +22,8 @@ export function toHijriDate(date: Date | string | number): string {
       year: 'numeric',
     });
 
-    return `${formatter.format(gDate)} هـ`;
+    const formatted = formatter.format(gDate).replace(/\s*هـ+\s*$/u, '').trim();
+    return formatted ? `${formatted} هـ` : '';
   } catch {
     return '';
   }

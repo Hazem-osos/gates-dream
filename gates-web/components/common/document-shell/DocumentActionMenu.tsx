@@ -146,7 +146,11 @@ export function DocumentActionMenu({
           {
             id: 'unapprove',
             label: 'إلغاء الاعتماد',
-            disabled: !hasDocument || isCancelled,
+            disabled: !hasDocument || isCancelled || !isApproved,
+            hint:
+              !isApproved && !isCancelled
+                ? 'القيد غير معتمد'
+                : undefined,
             onClick: () => onUnapprove(),
           },
         ]

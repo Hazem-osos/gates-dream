@@ -208,6 +208,7 @@ export class ReceiptService {
       isCancelled?: boolean;
       fromDate?: string;
       toDate?: string;
+      search?: string;
       skip?: number;
       take?: number;
     }
@@ -247,6 +248,14 @@ export class ReceiptService {
         }
       }
 
+      if (options?.search?.trim()) {
+        const q = options.search.trim();
+        where.OR = [
+          { serial: { contains: q } },
+          { description: { contains: q } },
+        ];
+      }
+
       const [receipts, total] = await Promise.all([
         prisma.receipt.findMany({
           where,
@@ -257,19 +266,6 @@ export class ReceiptService {
                 code: true,
                 arabicName: true,
               },
-            },
-            lines: {
-              include: {
-                item: {
-                  select: {
-                    id: true,
-                    code: true,
-                    serial: true,
-                    arabicName: true,
-                  },
-                },
-              },
-              take: 5, // Limit lines in list view
             },
           },
           orderBy: { createdAt: 'desc' },
