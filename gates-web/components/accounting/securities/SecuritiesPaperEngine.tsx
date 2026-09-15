@@ -272,14 +272,11 @@ export function SecuritiesPaperEngine({ kind }: Props) {
 
   const createMutation = useApiMutation<SecuritiesPaperRecord, Record<string, unknown>>(apiPath, 'POST', {
     showSuccessToast: false,
-    onSuccess: (res) => {
-      setSuccess(kind === 'payment' ? 'تم حفظ ورقة المدفوعات بنجاح' : 'تم حفظ ورقة المقبوضات بنجاح');
+    onSuccess: () => {
+      const message = kind === 'payment' ? 'تم حفظ ورقة المدفوعات بنجاح' : 'تم حفظ ورقة المقبوضات بنجاح';
       invalidateQuery([listKey]);
-      const created = res.data;
-      if (created?.id) {
-        setSelectedId(created.id);
-        setLoaded(created);
-      }
+      resetNew();
+      setSuccess(message);
     },
     onError: (err: ApiError) => setError(err.message || 'حدث خطأ أثناء الحفظ'),
   });

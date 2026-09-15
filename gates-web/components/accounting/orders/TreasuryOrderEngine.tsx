@@ -214,8 +214,14 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
     [pathname, router]
   );
 
+  const skipUrlHydrateRef = useRef(false);
+
   useEffect(() => {
     const id = idFromUrl?.trim();
+    if (skipUrlHydrateRef.current) {
+      if (!id) skipUrlHydrateRef.current = false;
+      return;
+    }
     if (id && id !== savedOrderId) {
       setSavedOrderId(id);
     }
@@ -328,16 +334,12 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
     '/treasury/cash-transactions',
     'POST',
     {
-      onSuccess: (res: { data?: CashTxRow }) => {
-        const row = res?.data;
-        if (row?.id) {
-          applyCashRow(row);
-          lastHydratedIdRef.current = row.id;
-          router.replace(`${pathname}?id=${row.id}`, { scroll: false });
-        }
-        setSuccess(`تم حفظ ${variant.title} بنجاح`);
+      onSuccess: () => {
+        const message = `تم حفظ ${variant.title} بنجاح`;
         invalidateQuery(['treasury-cash-transactions']);
         invalidateQuery(['cash-order-detail']);
+        resetForm();
+        setSuccess(message);
       },
       onError: (err: ApiError) => {
         if (err.code === '409') {
@@ -356,15 +358,12 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
     savedOrderId ? `/treasury/cash-transactions/${savedOrderId}` : '/treasury/cash-transactions',
     'PATCH',
     {
-      onSuccess: (res: { data?: CashTxRow }) => {
-        const row = res?.data;
-        if (row?.id) {
-          applyCashRow(row);
-          lastHydratedIdRef.current = row.id;
-        }
-        setSuccess(`تم حفظ تعديلات ${variant.title}`);
+      onSuccess: () => {
+        const message = `تم حفظ تعديلات ${variant.title}`;
         invalidateQuery(['treasury-cash-transactions']);
         invalidateQuery(['cash-order-detail']);
+        resetForm();
+        setSuccess(message);
       },
       onError: (err: ApiError) => {
         if (err.code === '409') {
@@ -561,6 +560,7 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
     setExecutedByName(null);
     setMode('create');
     lastHydratedIdRef.current = null;
+    skipUrlHydrateRef.current = true;
     openOrder(null);
     setError('');
     setSuccess('');

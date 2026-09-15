@@ -268,8 +268,14 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
     [pathname, router]
   );
 
+  const skipUrlHydrateRef = useRef(false);
+
   useEffect(() => {
     const id = idFromUrl?.trim();
+    if (skipUrlHydrateRef.current) {
+      if (!id) skipUrlHydrateRef.current = false;
+      return;
+    }
     if (id && id !== savedVoucherId) {
       setSavedVoucherId(id);
     }
@@ -447,22 +453,14 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
     {
       onSuccess: (res: { data?: CashTxRow }) => {
         const row = res?.data;
-        if (row?.id) {
-          setSavedVoucherId(row.id);
-          setDocumentVersion(typeof row.version === 'number' ? row.version : 1);
-          setIsPosted(Boolean(row.isPosted));
-          setJournalEntryId(row.journalEntryId ?? row.journalEntry?.id ?? null);
-          setJournalNumber(row.journalEntry?.voucherNumber ?? null);
-          setIsEditing(false);
-          lastHydratedIdRef.current = row.id;
-          if (row.isPosted) lockToView();
-          else setMode('edit');
-          router.replace(`${pathname}?id=${row.id}`, { scroll: false });
-        }
-        setSuccess(row?.isPosted ? `تم حفظ وترحيل ${variant.title} تلقائياً` : `تم حفظ ${variant.title} بنجاح`);
+        const message = row?.isPosted
+          ? `تم حفظ وترحيل ${variant.title} تلقائياً`
+          : `تم حفظ ${variant.title} بنجاح`;
         invalidateQuery(['treasury-cash-transactions']);
         invalidateQuery(['cash-voucher-detail']);
         dispatchAcademyTrigger('API_SUCCESS', variant.academyTrigger);
+        resetForm();
+        setSuccess(message);
       },
       onError: (err: ApiError) => {
         if (err.code === '409') {
@@ -481,22 +479,13 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
     savedVoucherId ? `/treasury/cash-transactions/${savedVoucherId}` : '/treasury/cash-transactions',
     'PATCH',
     {
-      onSuccess: (res: { data?: CashTxRow }) => {
-        const row = res?.data;
-        if (row?.id) {
-          setDocumentVersion(typeof row.version === 'number' ? row.version : documentVersion + 1);
-          setIsPosted(Boolean(row.isPosted));
-          setJournalEntryId(row.journalEntryId ?? row.journalEntry?.id ?? journalEntryId);
-          setJournalNumber(row.journalEntry?.voucherNumber ?? journalNumber);
-          setIsEditing(false);
-          lastHydratedIdRef.current = row.id;
-          if (row.isPosted) lockToView();
-          else setMode('edit');
-        }
-        setSuccess(`تم حفظ تعديلات ${variant.title} بنجاح`);
+      onSuccess: () => {
+        const message = `تم حفظ تعديلات ${variant.title} بنجاح`;
         invalidateQuery(['treasury-cash-transactions']);
         invalidateQuery(['cash-voucher-detail']);
         dispatchAcademyTrigger('API_SUCCESS', variant.academyTrigger);
+        resetForm();
+        setSuccess(message);
       },
       onError: (err: ApiError) => {
         if (err.code === '409') {
@@ -847,6 +836,7 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
     setIsEditing(true);
     setMode('create');
     lastHydratedIdRef.current = null;
+    skipUrlHydrateRef.current = true;
     openVoucher(null);
     setJournalEntryId(null);
     setJournalNumber(null);

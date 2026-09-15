@@ -156,13 +156,10 @@ function AssemblyPageInner() {
     'POST',
     {
       showSuccessToast: false,
-      onSuccess: (res) => {
-        setSuccess('تم حفظ أمر التجميع');
+      onSuccess: () => {
         invalidateQuery(['assemblies']);
-        if (res.data?.id) {
-          setSelectedId(res.data.id);
-          window.history.replaceState(null, '', `?id=${res.data.id}`);
-        }
+        resetNew();
+        setSuccess('تم حفظ أمر التجميع');
       },
       onError: (err: ApiError) => setError(err.message || 'تعذر حفظ أمر التجميع'),
     }
@@ -174,9 +171,9 @@ function AssemblyPageInner() {
     {
       showSuccessToast: false,
       onSuccess: () => {
-        setSuccess('تم تحديث أمر التجميع');
         invalidateQuery(['assemblies']);
-        invalidateQuery(['assembly', selectedId ?? '']);
+        resetNew();
+        setSuccess('تم تحديث أمر التجميع');
       },
       onError: (err: ApiError) => setError(err.message || 'تعذر تحديث أمر التجميع'),
     }

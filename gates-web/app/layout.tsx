@@ -12,6 +12,7 @@ import SidebarEstsmar3akary from "./components/SidebarEstsmar3akary";
 import { useState, useEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
 import AppTabs from "./components/AppTabs";
+import { AppTabsProvider } from "./components/AppTabsContext";
 import ExtractsSidebar from "./components/ExtractsSidebar";
 import ManufacturingSidebar from "./components/ManufacturingSidebar";
 import ExportImportSidebar from "./components/ExportImportSidebar";
@@ -130,6 +131,7 @@ export default function RootLayout({
             <ProductTourProvider>
               <AppScreenChromeProvider>
               <VipOnboardingRoot />
+              <AppTabsProvider>
               <div className="flex h-screen bg-white">
                 <AppSidebarShell navExpanded={navExpanded} shellRef={sidebarRef}>
                   {sidebar}
@@ -153,6 +155,7 @@ export default function RootLayout({
                   </main>
                 </div>
               </div>
+              </AppTabsProvider>
               </AppScreenChromeProvider>
             </ProductTourProvider>
           </Suspense>

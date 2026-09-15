@@ -33,6 +33,17 @@ import {
 import { recurringEntriesService } from './recurring-entries.service';
 import { JournalSourceType } from '@prisma/client';
 
+function journalNumberKeys(value: string | null | undefined): string[] {
+  const trimmed = value?.trim();
+  if (!trimmed) return [];
+  const keys = new Set([trimmed]);
+  if (/^\d+$/.test(trimmed)) {
+    keys.add(trimmed.replace(/^0+/, '') || '0');
+    keys.add(trimmed.padStart(8, '0').slice(-8));
+  }
+  return [...keys];
+}
+
 export interface JournalPostingContext {
   companyId: string;
   branchId: string;
@@ -117,6 +128,28 @@ export class JournalPostingService {
             : null,
       };
     });
+  }
+
+  private async assertJournalNumberFree(
+    companyId: string,
+    number: string | null | undefined,
+    excludeId?: string
+  ) {
+    const keys = journalNumberKeys(number);
+    if (keys.length === 0) return;
+
+    const clash = await prisma.journalEntry.findFirst({
+      where: {
+        companyId,
+        deletedAt: null,
+        ...(excludeId ? { NOT: { id: excludeId } } : {}),
+        OR: [{ voucherNumber: { in: keys } }, { legacyGlNum: { in: keys } }],
+      },
+      select: { id: true },
+    });
+    if (clash) {
+      throw new AppError(409, 'رقم السند مستخدم من قبل. غيّر الرقم ثم احفظ.');
+    }
   }
 
   private journalInclude() {
@@ -207,16 +240,22 @@ export class JournalPostingService {
       data.lines
     );
 
-    // This is the manual GL voucher screen's path, so a company on manual
-    // numbering supplies the number itself via `voucherNumber`.
-    const legacyGlNum = await documentSequenceService.nextGlNumber(
+    const requestedNumber = data.voucherNumber?.trim() || undefined;
+    await this.assertJournalNumberFree(ctx.companyId, requestedNumber);
+    let legacyGlNum = await documentSequenceService.nextGlNumber(
       {
         companyId: ctx.companyId,
         branchId: ctx.branchId,
         fiscalYearId,
       },
-      data.voucherNumber
+      requestedNumber,
+      { forceAutomatic: !requestedNumber }
     );
+    if (requestedNumber && legacyGlNum === requestedNumber && /^\d+$/.test(requestedNumber)) {
+      legacyGlNum = requestedNumber.padStart(8, '0').slice(-8);
+      await this.assertJournalNumberFree(ctx.companyId, legacyGlNum);
+    }
+    const persistedNumber = requestedNumber ?? legacyGlNum;
 
     const sourceKind = resolveJournalSourceKind(data.sourceType, data.sourceKind);
     const sourceType = persistJournalSourceType(data.sourceType, sourceKind);
@@ -230,7 +269,7 @@ export class JournalPostingService {
           branchId: ctx.branchId,
           fiscalYearId,
           legacyGlNum,
-          voucherNumber: data.voucherNumber,
+          voucherNumber: persistedNumber,
           date: data.date,
           hijriDate: resolveHijriDate(data.date, data.hijriDate),
           description: data.description,
@@ -585,6 +624,13 @@ export class JournalPostingService {
     }
     if (existing.isCancelled) {
       throw new AppError(400, 'القيد ملغي ولا يمكن تعديله');
+    }
+    if (data.voucherNumber !== undefined) {
+      const nextNumber = data.voucherNumber?.trim() || undefined;
+      data.voucherNumber = nextNumber;
+      if (nextNumber) {
+        await this.assertJournalNumberFree(ctx.companyId, nextNumber, journalEntryId);
+      }
     }
     // M14 fix (Item 40): if the client tells us which version it edited,
     // reject the edit outright when the DB has already moved past that —

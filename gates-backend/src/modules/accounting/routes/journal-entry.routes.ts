@@ -11,6 +11,7 @@ import {
   journalEntryQuerySchema,
 } from '../schemas/journal-entry.schema';
 import { journalEntryService } from '../services/journal-entry.service';
+import { documentSequenceService } from '../../platform/services/document-sequence.service';
 import { logger } from '../../../shared/logger';
 import { AuthRequest } from '../../../shared/auth/types';
 import { isAdminRequest } from '../../../shared/auth/roles.util';
@@ -133,6 +134,46 @@ router.get(
             ? error.message
             : 'Failed to list journal entries',
       });
+    }
+  }
+);
+
+/**
+ * GET /api/v1/accounting/journal-entries/next-number
+ * Preview the next GL serial without consuming it.
+ */
+router.get(
+  '/next-number',
+  authorize({ resource: 'journal-entry', action: 'view' }),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const companyId = req.companyId || req.tenantId;
+      const branchId = req.branchId;
+      if (!companyId) {
+        return void res.status(400).json({
+          status: 'error',
+          message: 'Company ID is required',
+        });
+      }
+      if (!branchId) {
+        return void res.status(400).json({
+          status: 'error',
+          message: 'Branch context is required (X-Branch-Id or token branch_id)',
+        });
+      }
+
+      const preview = await documentSequenceService.peekNextGlNumber({
+        companyId,
+        branchId,
+        fiscalYearId: req.fiscalYearId,
+      });
+
+      return void res.json({
+        status: 'success',
+        data: preview,
+      });
+    } catch (error) {
+      return sendRouteError(res, error, 'Failed to preview journal number');
     }
   }
 );

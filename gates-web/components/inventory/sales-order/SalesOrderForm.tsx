@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Receipt } from 'lucide-react';
 import { Button } from '@/components/ui';
@@ -145,8 +145,14 @@ export function SalesOrderForm() {
   );
   const items = itemsResponse?.data ?? [];
 
+  const skipUrlHydrateRef = useRef(false);
+
   useEffect(() => {
     const id = orderIdFromUrl?.trim();
+    if (skipUrlHydrateRef.current) {
+      if (!id) skipUrlHydrateRef.current = false;
+      return;
+    }
     if (id && id !== selectedId) setSelectedId(id);
   }, [orderIdFromUrl, selectedId]);
 
@@ -204,10 +210,10 @@ export function SalesOrderForm() {
 
   const saveMutation = useApiMutation<OrderRecord, Record<string, unknown>>('/invoices', 'POST', {
     showSuccessToast: false,
-    onSuccess: (res) => {
-      setSuccess('تم حفظ أمر البيع');
+    onSuccess: () => {
       invalidateQuery(['invoices']);
-      if (res.data?.id) setSelectedId(res.data.id);
+      resetNew();
+      setSuccess('تم حفظ أمر البيع');
     },
     onError: (err: ApiError) => setError(err.message || 'تعذر حفظ أمر البيع'),
   });
@@ -218,9 +224,9 @@ export function SalesOrderForm() {
     {
       showSuccessToast: false,
       onSuccess: () => {
-        setSuccess('تم تحديث أمر البيع');
         invalidateQuery(['invoices']);
-        invalidateQuery(['invoice', selectedId ?? '']);
+        resetNew();
+        setSuccess('تم تحديث أمر البيع');
       },
       onError: (err: ApiError) => setError(err.message || 'تعذر تحديث أمر البيع'),
     }
@@ -319,6 +325,7 @@ export function SalesOrderForm() {
   };
 
   const resetNew = () => {
+    skipUrlHydrateRef.current = true;
     setSelectedId(null);
     setOrderNumber('');
     setDescription('');
@@ -328,6 +335,11 @@ export function SalesOrderForm() {
     setLines([emptyCommercialLine()]);
     setError('');
     setSuccess('');
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete('orderId');
+    params.delete('invoiceId');
+    const qs = params.toString();
+    router.replace(qs ? `?${qs}` : window.location.pathname, { scroll: false });
   };
 
   const money = (n: number) => n.toLocaleString('ar-EG', { minimumFractionDigits: 2 });

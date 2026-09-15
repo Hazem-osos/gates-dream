@@ -290,7 +290,7 @@ export function SubNavigationSidebar({
         <SidebarUserCard variant="collapsed" />
         <nav className="mt-4 flex flex-col items-center gap-3">
           {topLinks.map((link) => (
-            <Link
+            <PrefetchNavLink
               key={link.href}
               href={link.href}
               title={link.label}
@@ -302,7 +302,7 @@ export function SubNavigationSidebar({
               )}
             >
               {meta.emoji}
-            </Link>
+            </PrefetchNavLink>
           ))}
         </nav>
         <div className="mb-2">

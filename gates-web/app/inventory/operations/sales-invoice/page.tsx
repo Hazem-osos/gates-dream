@@ -450,8 +450,14 @@ function SalesInvoicePageInner() {
     }
   }, [companySettingsRes?.data?.pricingCalculationBasis, getValues, selectedInvoiceId, setValue]);
 
+  const skipUrlHydrateRef = useRef(false);
+
   useEffect(() => {
     const id = invoiceIdFromUrl?.trim();
+    if (skipUrlHydrateRef.current) {
+      if (!id) skipUrlHydrateRef.current = false;
+      return;
+    }
     if (id && id !== selectedInvoiceId) {
       setSelectedInvoiceId(id);
     }
@@ -1088,7 +1094,8 @@ function SalesInvoicePageInner() {
   // Invoice create mutation
   const afterSaveReset = useCallback(() => {
     const cur = getValues('currencyId');
-    setSelectedInvoiceId(null);
+    skipUrlHydrateRef.current = true;
+    openInvoice(null);
     reset({
       ...emptySalesInvoiceDefaults(),
       currencyId: cur || '',
@@ -1100,7 +1107,7 @@ function SalesInvoicePageInner() {
     setInvoiceExtras([]);
     setExtrasOpen(false);
     setInternalNotes([]);
-  }, [getValues, reset]);
+  }, [getValues, openInvoice, reset]);
 
   const resolveInvoiceNumber = useCallback(() => {
     return (
@@ -1119,17 +1126,12 @@ function SalesInvoicePageInner() {
         const num =
           res?.data?.invoiceNumber?.trim() || getValues('invoiceNumber')?.trim() || 'مسودة جديدة';
         toast.success('تم حفظ المسودة', {
-          description: `فاتورة مسودة رقم ${num} جاهزة للتعديل في أي وقت.`,
+          description: `تم حفظ فاتورة رقم ${num}. الصفحة جاهزة لفاتورة جديدة.`,
         });
         clearDraft();
         invalidateQuery(['invoices']);
-        const newId = res?.data?.id;
         if (txSettings?.autoPrintOnSave) {
           dispatchAutoPrintAfterSave();
-        }
-        if (newId) {
-          setSelectedInvoiceId(newId);
-          return;
         }
         afterSaveReset();
       },
@@ -1148,13 +1150,13 @@ function SalesInvoicePageInner() {
       onSuccess: () => {
         const num = resolveInvoiceNumber();
         toast.success('تم حفظ المسودة', {
-          description: `فاتورة مسودة رقم ${num} جاهزة للتعديل في أي وقت.`,
+          description: `تم حفظ فاتورة رقم ${num}. الصفحة جاهزة لفاتورة جديدة.`,
         });
         invalidateQuery(['invoices']);
-        invalidateQuery(['invoice', selectedInvoiceId]);
         if (txSettings?.autoPrintOnSave) {
           dispatchAutoPrintAfterSave();
         }
+        afterSaveReset();
       },
       onError: (error: ApiError) => {
         if (error.code === '409') {
@@ -1552,8 +1554,9 @@ function SalesInvoicePageInner() {
 
   // Handle new invoice
   const handleNew = () => {
-    setSelectedInvoiceId(null);
     const cur = getValues('currencyId');
+    skipUrlHydrateRef.current = true;
+    openInvoice(null);
     reset({
       ...emptySalesInvoiceDefaults(),
       currencyId: cur || '',

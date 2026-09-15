@@ -193,11 +193,9 @@ export default function ReceiptPage() {
     'POST',
     {
       onSuccess: () => {
-        setSuccess('تم حفظ الإضافة بنجاح');
         invalidateQuery(['receipts']);
-        setSelectedReceiptId(null);
-        setReceiptLines([]);
-        reset(emptyReceiptFormDefaults());
+        handleNew();
+        setSuccess('تم حفظ الإضافة بنجاح');
       },
       onError: (error: ApiError) => {
         setError(error.message || 'حدث خطأ أثناء الحفظ');
@@ -211,9 +209,9 @@ export default function ReceiptPage() {
     'PUT',
     {
       onSuccess: () => {
-        setSuccess('تم تحديث الإضافة بنجاح');
         invalidateQuery(['receipts']);
-        invalidateQuery(['receipt', selectedReceiptId]);
+        handleNew();
+        setSuccess('تم تحديث الإضافة بنجاح');
       },
       onError: (error: ApiError) => {
         setError(error.message || 'حدث خطأ أثناء التحديث');

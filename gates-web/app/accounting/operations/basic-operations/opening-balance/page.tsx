@@ -173,8 +173,14 @@ function OpeningBalancePageInner() {
   const lockedDate = openingMeta?.openingDate || dateW;
   const lockedHijri = openingMeta?.hijriDate || toHijriDate(lockedDate);
 
+  const skipUrlHydrateRef = useRef(false);
+
   useEffect(() => {
     const id = journalEntryIdFromUrl?.trim();
+    if (skipUrlHydrateRef.current) {
+      if (!id) skipUrlHydrateRef.current = false;
+      return;
+    }
     if (id && id !== savedJournalEntryId) setSavedJournalEntryId(id);
   }, [journalEntryIdFromUrl, savedJournalEntryId]);
 
@@ -277,25 +283,21 @@ function OpeningBalancePageInner() {
       successMessage: 'تم حفظ الرصيد الافتتاحي كمسودة',
       onSuccess: (res) => {
         const id = res?.data?.id;
-        if (id) {
-          setSavedJournalEntryId(id);
-          openEntry(id);
-        }
-        setIsPosted(false);
-        setSuccess('تم حفظ الرصيد الافتتاحي كمسودة');
         invalidateQuery(['journal-entries']);
         if (postAfterSaveRef.current && id) {
           postAfterSaveRef.current = false;
           apiClient
             .post(`/accounting/journal-entries/${id}/post`, {})
             .then(() => {
-              setIsPosted(true);
-              setSuccess('تم ترحيل قيد الرصيد الافتتاحي');
               invalidateQuery(['journal-entries']);
-              lockToView();
+              startNewEntry();
+              setSuccess('تم ترحيل قيد الرصيد الافتتاحي');
             })
             .catch((err: ApiError) => setError(err.message || 'حدث خطأ أثناء الترحيل'));
+          return;
         }
+        startNewEntry();
+        setSuccess('تم حفظ الرصيد الافتتاحي كمسودة');
       },
       onError: (err: ApiError) => setError(err.message || 'حدث خطأ أثناء الحفظ'),
     }
@@ -309,9 +311,9 @@ function OpeningBalancePageInner() {
     {
       successMessage: 'تم حفظ تعديلات الرصيد الافتتاحي',
       onSuccess: () => {
-        setSuccess('تم حفظ تعديلات الرصيد الافتتاحي');
         invalidateQuery(['journal-entries']);
-        invalidateQuery(['journal-entry', savedJournalEntryId]);
+        startNewEntry();
+        setSuccess('تم حفظ تعديلات الرصيد الافتتاحي');
       },
       onError: (err: ApiError) => setError(err.message || 'حدث خطأ أثناء التحديث'),
     }
@@ -443,6 +445,7 @@ function OpeningBalancePageInner() {
     setLoadedVersion(undefined);
     setError('');
     setSuccess('');
+    skipUrlHydrateRef.current = true;
     openEntry(null);
     setMode('create');
   };

@@ -241,6 +241,7 @@ export function SearchableCombobox({
           aria-expanded={open}
           aria-controls={listId}
           aria-autocomplete="list"
+          autoComplete="off"
           disabled={Boolean(disabled) || showLoading}
           placeholder={showLoading ? 'جاري التحميل…' : placeholder}
           className={`${className ?? defaultInputCls} ${onQuickCreate ? 'pe-16' : 'pe-9'} ${error ? 'border-red-400' : ''} ${

@@ -202,11 +202,9 @@ function TransferPageInner() {
     'POST',
     {
       onSuccess: () => {
-        setSuccess('تم حفظ النقل المخزني بنجاح');
         invalidateQuery(['transfers']);
-        setSelectedTransferId(null);
-        setTransferLines([]);
-        reset(emptyTransferFormDefaults());
+        handleNew();
+        setSuccess('تم حفظ النقل المخزني بنجاح');
       },
       onError: (error: ApiError) => {
         setError(error.message || 'حدث خطأ أثناء الحفظ');
@@ -220,9 +218,9 @@ function TransferPageInner() {
     'PUT',
     {
       onSuccess: () => {
-        setSuccess('تم تحديث النقل المخزني بنجاح');
         invalidateQuery(['transfers']);
-        invalidateQuery(['transfer', selectedTransferId]);
+        handleNew();
+        setSuccess('تم تحديث النقل المخزني بنجاح');
       },
       onError: (error: ApiError) => {
         setError(error.message || 'حدث خطأ أثناء التحديث');
@@ -312,7 +310,7 @@ function TransferPageInner() {
 
   // Handle new transfer
   const handleNew = () => {
-    setSelectedTransferId(null);
+    openTransfer(null);
     setTransferLines([]);
     setError('');
     setSuccess('');

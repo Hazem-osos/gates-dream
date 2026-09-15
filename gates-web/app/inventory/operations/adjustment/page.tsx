@@ -216,11 +216,9 @@ export default function AdjustmentPage() {
     'POST',
     {
       onSuccess: () => {
-        setSuccess('تم حفظ التسوية بنجاح');
         invalidateQuery(['adjustments']);
-        setSelectedAdjustmentId(null);
-        setAdjustmentLines([]);
-        reset(emptyAdjustmentFormDefaults());
+        handleNew();
+        setSuccess('تم حفظ التسوية بنجاح');
       },
       onError: (error: ApiError) => {
         setError(error.message || 'حدث خطأ أثناء الحفظ');
@@ -234,9 +232,9 @@ export default function AdjustmentPage() {
     'PUT',
     {
       onSuccess: () => {
-        setSuccess('تم تحديث التسوية بنجاح');
         invalidateQuery(['adjustments']);
-        invalidateQuery(['adjustment', selectedAdjustmentId]);
+        handleNew();
+        setSuccess('تم تحديث التسوية بنجاح');
       },
       onError: (error: ApiError) => {
         setError(error.message || 'حدث خطأ أثناء التحديث');

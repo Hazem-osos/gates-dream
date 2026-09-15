@@ -277,23 +277,15 @@ function OpeningStockFormInner() {
     }
     clearDraft();
     invalidateQuery(['opening-stock']);
-    applyRecord({
-      ...created,
-      lines: validLines.map((line) => ({
-        itemId: line.itemId,
-        warehouseId: line.warehouseId,
-        quantity: line.quantity,
-        unitPrice: line.unitCost,
-        item: { code: line.itemCode, arabicName: line.itemName },
-      })),
-    });
-    setSuccess('تم حفظ بضاعة أول المدة كمسودة');
     return created.id;
   };
 
   const onSave = () => {
     void handleSubmit(async () => {
-      await persistDraft();
+      const id = await persistDraft();
+      if (!id) return;
+      resetNew();
+      setSuccess('تم حفظ بضاعة أول المدة كمسودة');
     }, onFieldErrors(setError))();
   };
 

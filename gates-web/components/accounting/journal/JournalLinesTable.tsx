@@ -166,6 +166,7 @@ export function JournalLinesTable({
             <input
               type="text"
               inputMode="decimal"
+              autoComplete="off"
               disabled={disabled}
               value={formatAmountInput(Number(line.debit) || 0)}
               onChange={(e) => {
@@ -188,6 +189,7 @@ export function JournalLinesTable({
             <input
               type="text"
               inputMode="decimal"
+              autoComplete="off"
               disabled={disabled}
               value={formatAmountInput(Number(line.credit) || 0)}
               onChange={(e) => {
@@ -246,6 +248,7 @@ export function JournalLinesTable({
           return (
             <input
               type="text"
+              autoComplete="off"
               disabled={disabled}
               value={line.description || ''}
               onChange={(e) => updateLine(index, { description: e.target.value })}

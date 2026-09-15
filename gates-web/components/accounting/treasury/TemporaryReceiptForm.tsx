@@ -145,13 +145,10 @@ function TemporaryReceiptFormInner() {
     'POST',
     {
       showSuccessToast: false,
-      onSuccess: (res) => {
-        setSuccess('تم حفظ الإيصال المؤقت بنجاح');
+      onSuccess: () => {
         invalidateQuery(['treasury-receipts']);
-        const created = res.data;
-        if (created?.id) {
-          applyRecord(created);
-        }
+        resetNew();
+        setSuccess('تم حفظ الإيصال المؤقت بنجاح');
       },
       onError: (err: ApiError) => setError(err.message || 'حدث خطأ أثناء الحفظ'),
     }
@@ -162,10 +159,10 @@ function TemporaryReceiptFormInner() {
     'PUT',
     {
       showSuccessToast: false,
-      onSuccess: (res) => {
-        setSuccess('تم تحديث الإيصال المؤقت بنجاح');
+      onSuccess: () => {
         invalidateQuery(['treasury-receipts']);
-        if (res.data?.id) applyRecord(res.data);
+        resetNew();
+        setSuccess('تم تحديث الإيصال المؤقت بنجاح');
       },
       onError: (err: ApiError) => setError(err.message || 'حدث خطأ أثناء التحديث'),
     }

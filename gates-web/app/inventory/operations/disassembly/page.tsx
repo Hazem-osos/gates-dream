@@ -164,13 +164,10 @@ function DisassemblyPageInner() {
     'POST',
     {
       showSuccessToast: false,
-      onSuccess: (res) => {
-        setSuccess('تم حفظ أمر التفكيك');
+      onSuccess: () => {
         invalidateQuery(['disassemblies']);
-        if (res.data?.id) {
-          setSelectedId(res.data.id);
-          window.history.replaceState(null, '', `?id=${res.data.id}`);
-        }
+        resetNew();
+        setSuccess('تم حفظ أمر التفكيك');
       },
       onError: (err: ApiError) => setError(err.message || 'تعذر حفظ أمر التفكيك'),
     }
@@ -182,9 +179,9 @@ function DisassemblyPageInner() {
     {
       showSuccessToast: false,
       onSuccess: () => {
-        setSuccess('تم تحديث أمر التفكيك');
         invalidateQuery(['disassemblies']);
-        invalidateQuery(['disassembly', selectedId ?? '']);
+        resetNew();
+        setSuccess('تم تحديث أمر التفكيك');
       },
       onError: (err: ApiError) => setError(err.message || 'تعذر تحديث أمر التفكيك'),
     }

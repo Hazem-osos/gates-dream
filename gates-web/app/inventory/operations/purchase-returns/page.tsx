@@ -291,10 +291,10 @@ export default function PurchaseReturnsPage() {
 
   const createMutation = useApiMutation<{ id?: string }, Record<string, unknown>>('/invoices', 'POST', {
     showSuccessToast: false,
-    onSuccess: (res) => {
-      setSuccess('تم حفظ مردود المشتريات');
+    onSuccess: () => {
       invalidateQuery(['invoices']);
-      if (res?.data?.id) setSelectedReturnId(res.data.id);
+      resetForm();
+      setSuccess('تم حفظ مردود المشتريات');
     },
     onError: (error: ApiError) => setError(error.message || 'فشل الحفظ'),
   });
@@ -305,8 +305,9 @@ export default function PurchaseReturnsPage() {
     {
       showSuccessToast: false,
       onSuccess: () => {
-        setSuccess('تم تحديث المردود');
         invalidateQuery(['invoices']);
+        resetForm();
+        setSuccess('تم تحديث المردود');
       },
       onError: (error: ApiError) => {
         if (error.code === '409') {

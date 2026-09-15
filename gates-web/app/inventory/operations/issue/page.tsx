@@ -249,11 +249,9 @@ function IssuePageInner() {
     'POST',
     {
       onSuccess: () => {
-        setSuccess('تم حفظ الصرف بنجاح');
         invalidateQuery(['issues']);
-        setSelectedIssueId(null);
-        setIssueLines([]);
-        reset(emptyIssueFormDefaults());
+        handleNew();
+        setSuccess('تم حفظ الصرف بنجاح');
       },
       onError: (error: ApiError) => {
         setError(error.message || 'حدث خطأ أثناء الحفظ');
@@ -267,9 +265,9 @@ function IssuePageInner() {
     'PUT',
     {
       onSuccess: () => {
-        setSuccess('تم تحديث الصرف بنجاح');
         invalidateQuery(['issues']);
-        invalidateQuery(['issue', selectedIssueId]);
+        handleNew();
+        setSuccess('تم تحديث الصرف بنجاح');
       },
       onError: (error: ApiError) => {
         setError(error.message || 'حدث خطأ أثناء التحديث');
@@ -359,7 +357,7 @@ function IssuePageInner() {
 
   // Handle new receipt
   const handleNew = () => {
-    setSelectedIssueId(null);
+    openIssue(null);
     setIssueLines([]);
     setError('');
     setSuccess('');

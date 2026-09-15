@@ -535,18 +535,18 @@ function FinalPurchaseInvoicePageInner() {
   }, [warehouseId]);
 
   const handleNew = useCallback(() => {
-        setSelectedInvoiceId(null);
-        setInvoiceNumber('');
+    openInvoice(null);
+    setInvoiceNumber('');
     setSupplierRef('');
-        setDescription('');
-        setInvoiceLines([]);
-        setSourceType('');
-        setSourceId('');
-        setSourceNumber('');
-        setSupplierId('');
-        setWarehouseId('');
-        setCostCenterId('');
-        setDelegateId('');
+    setDescription('');
+    setInvoiceLines([]);
+    setSourceType('');
+    setSourceId('');
+    setSourceNumber('');
+    setSupplierId('');
+    setWarehouseId('');
+    setCostCenterId('');
+    setDelegateId('');
     setError('');
     setSuccess('');
     setIsPosted(false);
@@ -560,7 +560,7 @@ function FinalPurchaseInvoicePageInner() {
       parsePricingCalculationBasis(companySettingsRes?.data?.pricingCalculationBasis)
     );
     clearDraft();
-  }, [clearDraft, companySettingsRes?.data?.pricingCalculationBasis]);
+  }, [clearDraft, companySettingsRes?.data?.pricingCalculationBasis, openInvoice]);
 
   const handleRestoreDraft = () => {
     const payload = acceptRestore() as PurchaseInvoiceDraft | null;
@@ -586,10 +586,10 @@ function FinalPurchaseInvoicePageInner() {
 
   const invoiceMutation = useApiMutation<unknown, Record<string, unknown>>('/invoices', 'POST', {
     onSuccess: () => {
-      setSuccess('تم حفظ فاتورة المشتريات بنجاح');
       clearDraft();
       invalidateQuery(['invoices']);
       handleNew();
+      setSuccess('تم حفظ فاتورة المشتريات بنجاح');
     },
     onError: (err) => setError(err.message || 'حدث خطأ أثناء الحفظ'),
   });
@@ -599,9 +599,9 @@ function FinalPurchaseInvoicePageInner() {
     'PUT',
     {
       onSuccess: () => {
-        setSuccess('تم تحديث فاتورة المشتريات بنجاح');
         invalidateQuery(['invoices']);
-        invalidateQuery(['invoice', selectedInvoiceId]);
+        handleNew();
+        setSuccess('تم تحديث فاتورة المشتريات بنجاح');
       },
       onError: (err) => {
         if (err.code === '409') {

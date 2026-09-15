@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { ArrowRightLeft, Receipt } from 'lucide-react';
 import { Button } from '@/components/ui';
@@ -125,8 +125,14 @@ export function PriceQuoteForm() {
   );
   const delegates = delegatesResponse?.data ?? [];
 
+  const skipUrlHydrateRef = useRef(false);
+
   useEffect(() => {
     const id = quoteIdFromUrl?.trim();
+    if (skipUrlHydrateRef.current) {
+      if (!id) skipUrlHydrateRef.current = false;
+      return;
+    }
     if (id && id !== selectedId) setSelectedId(id);
   }, [quoteIdFromUrl, selectedId]);
 
@@ -184,10 +190,10 @@ export function PriceQuoteForm() {
 
   const saveMutation = useApiMutation<QuoteRecord, Record<string, unknown>>('/inventory/price-quotes', 'POST', {
     showSuccessToast: false,
-    onSuccess: (res) => {
-      setSuccess('تم حفظ عرض السعر');
+    onSuccess: () => {
       invalidateQuery(['price-quotes']);
-      if (res.data?.id) setSelectedId(res.data.id);
+      resetNew();
+      setSuccess('تم حفظ عرض السعر');
     },
     onError: (err: ApiError) => setError(err.message || 'تعذر حفظ عرض السعر'),
   });
@@ -271,6 +277,7 @@ export function PriceQuoteForm() {
   };
 
   const resetNew = () => {
+    skipUrlHydrateRef.current = true;
     setSelectedId(null);
     setQuoteNumber('');
     setDescription('');
@@ -280,6 +287,11 @@ export function PriceQuoteForm() {
     setLines([emptyCommercialLine()]);
     setError('');
     setSuccess('');
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete('quoteId');
+    params.delete('id');
+    const qs = params.toString();
+    router.replace(qs ? `?${qs}` : window.location.pathname, { scroll: false });
   };
 
   const money = (n: number) => n.toLocaleString('ar-EG', { minimumFractionDigits: 2 });

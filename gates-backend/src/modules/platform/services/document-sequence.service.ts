@@ -389,14 +389,42 @@ export class DocumentSequenceService {
     );
   }
 
+  /** Preview the next GL serial without consuming the sequence. */
+  async peekNextGlNumber(ctx: {
+    companyId: string;
+    branchId: string;
+    fiscalYearId?: string | null;
+  }): Promise<{ automatic: boolean; number: string }> {
+    const policy = await this.resolveGlPolicy(ctx.companyId);
+    const fiscalYearId = policy.continuous ? null : (ctx.fiscalYearId ?? null);
+    const seq = await prisma.documentSequence.findFirst({
+      where: {
+        companyId: ctx.companyId,
+        branchId: ctx.branchId,
+        fiscalYearId,
+        docType: 'GL',
+      },
+      select: { lastNumber: true, padding: true },
+    });
+    const padding = seq?.padding ?? 8;
+    const next = seq ? Number(seq.lastNumber) + 1 : policy.startNumber;
+    return {
+      automatic: policy.automatic,
+      number: String(next).padStart(padding, '0'),
+    };
+  }
+
   /** GL-family convenience wrapper used by every posting path. */
   async nextGlNumberInTx(
     tx: Prisma.TransactionClient,
     ctx: { companyId: string; branchId: string; fiscalYearId?: string | null },
-    manualNumber?: string | null
+    manualNumber?: string | null,
+    options?: { forceAutomatic?: boolean }
   ): Promise<string> {
     const policy = await this.resolveGlPolicy(ctx.companyId);
-    if (!policy.automatic) return this.manualGlNumberOrThrow(manualNumber);
+    if (!policy.automatic && !options?.forceAutomatic) {
+      return this.manualGlNumberOrThrow(manualNumber);
+    }
 
     return this.nextNumberInTx(tx, {
       companyId: ctx.companyId,
@@ -415,10 +443,13 @@ export class DocumentSequenceService {
       branchId: string;
       fiscalYearId?: string | null;
     },
-    manualNumber?: string | null
+    manualNumber?: string | null,
+    options?: { forceAutomatic?: boolean }
   ): Promise<string> {
     const policy = await this.resolveGlPolicy(ctx.companyId);
-    if (!policy.automatic) return this.manualGlNumberOrThrow(manualNumber);
+    if (!policy.automatic && !options?.forceAutomatic) {
+      return this.manualGlNumberOrThrow(manualNumber);
+    }
 
     return this.nextNumber({
       companyId: ctx.companyId,

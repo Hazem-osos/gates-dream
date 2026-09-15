@@ -240,6 +240,10 @@ const RULES: Rule[] = [
     ar: 'يوجد سجل بنفس هذه البيانات. الحل: غيّر الرقم أو الاسم المكرر ثم احفظ.',
   },
   {
+    test: /رقم السند مستخدم|voucher number already exists|legacyglnum/i,
+    ar: 'رقم السند مستخدم من قبل. غيّر الرقم ثم احفظ.',
+  },
+  {
     test: /failed to create account|failed to update account|failed to delete account/i,
     ar: 'تعذّر حفظ الحساب. الحل: راجع الحساب الأب والحركات المرتبطة به.',
   },

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { ClipboardList } from 'lucide-react';
 import { useForm, useFieldArray, type Resolver } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -92,6 +92,7 @@ type JournalEntryDetail = {
   hijriDate?: string | null;
   description?: string | null;
   voucherNumber?: string | null;
+  legacyGlNum?: string | null;
   isCyclic?: boolean;
   isRecurring?: boolean;
   isPosted?: boolean;
@@ -158,9 +159,14 @@ function CreateJournalEntryFormInner() {
     () => journalEntryIdFromUrl?.trim() || null
   );
   const [loadedVersion, setLoadedVersion] = useState<number | undefined>(undefined);
+  const skipUrlHydrateRef = useRef(false);
 
   useEffect(() => {
     const id = journalEntryIdFromUrl?.trim();
+    if (skipUrlHydrateRef.current) {
+      if (!id) skipUrlHydrateRef.current = false;
+      return;
+    }
     if (id && id !== savedJournalEntryId) {
       setSavedJournalEntryId(id);
     }
@@ -225,6 +231,19 @@ function CreateJournalEntryFormInner() {
   );
   const loadedJournalEntry = journalEntryResponse?.data;
 
+  const { data: nextNumberResponse } = useApiQuery<{ automatic: boolean; number: string }>(
+    ['journal-entry-next-number'],
+    '/accounting/journal-entries/next-number',
+    undefined,
+    { enabled: !savedJournalEntryId, staleTime: 0 }
+  );
+  const nextJournalNumber = nextNumberResponse?.data?.number ?? '';
+
+  useEffect(() => {
+    if (savedJournalEntryId || !nextJournalNumber) return;
+    setValue('referenceNumber', nextJournalNumber, { shouldDirty: false, shouldValidate: false });
+  }, [nextJournalNumber, savedJournalEntryId, setValue]);
+
   useEffect(() => {
     if (!loadedJournalEntry || currencies.length === 0) return;
     const currency =
@@ -233,7 +252,7 @@ function CreateJournalEntryFormInner() {
       date: loadedJournalEntry.date
         ? new Date(loadedJournalEntry.date).toISOString().split('T')[0]
         : '',
-      referenceNumber: loadedJournalEntry.voucherNumber || '',
+      referenceNumber: loadedJournalEntry.voucherNumber || loadedJournalEntry.legacyGlNum || '',
       hijriDate: loadedJournalEntry.hijriDate || '',
       description: loadedJournalEntry.description || '',
       currencyId: currency?.id || '',
@@ -277,18 +296,13 @@ function CreateJournalEntryFormInner() {
     '/accounting/journal-entries',
     'POST',
     {
-      onSuccess: (res) => {
-        const id = (res as { data?: { id?: string } })?.data?.id;
-        if (id) {
-          setSavedJournalEntryId(id);
-          setIsPosted(false);
-          setVoucherStatus('غير مرحل');
-          router.replace(`/accounting/operations/journal-entry?id=${id}`, { scroll: false });
-        }
-        setSuccess(isCyclic ? 'تم حفظ القيد وإضافته للقيود الدورية' : 'تم حفظ القيد بنجاح');
+      onSuccess: () => {
+        const message = isCyclic ? 'تم حفظ القيد وإضافته للقيود الدورية' : 'تم حفظ القيد بنجاح';
         invalidateQuery(['journal-entries']);
         invalidateQuery(['recurring-journal-entries']);
-        if (id) invalidateQuery(['journal-entry', id]);
+        invalidateQuery(['journal-entry-next-number']);
+        startNewEntry();
+        setSuccess(message);
       },
       onError: (error: ApiError) => {
         setError(error.message || 'حدث خطأ أثناء الحفظ');
@@ -301,10 +315,12 @@ function CreateJournalEntryFormInner() {
     'PUT',
     {
       onSuccess: () => {
-        setSuccess(isCyclic ? 'تم حفظ التعديلات وتحديث القيد الدوري' : 'تم حفظ التعديلات بنجاح');
+        const message = isCyclic ? 'تم حفظ التعديلات وتحديث القيد الدوري' : 'تم حفظ التعديلات بنجاح';
         invalidateQuery(['journal-entries']);
-        invalidateQuery(['journal-entry', savedJournalEntryId]);
         invalidateQuery(['recurring-journal-entries']);
+        invalidateQuery(['journal-entry-next-number']);
+        startNewEntry();
+        setSuccess(message);
       },
       onError: (error: ApiError) => {
         if (error.code === '409') {
@@ -513,7 +529,6 @@ function CreateJournalEntryFormInner() {
       date: new Date(data.date).toISOString(),
       hijriDate: data.hijriDate || toHijriDate(data.date) || undefined,
       description: data.description.trim(),
-      voucherNumber: data.referenceNumber || undefined,
       isCyclic,
       isRecurring: isCyclic || sourceKind === 'RECURRING_TEMPLATE',
       sourceType: sourceKind,
@@ -626,6 +641,7 @@ function CreateJournalEntryFormInner() {
     setError('');
     setSuccess('');
     setMode('create');
+    skipUrlHydrateRef.current = true;
     if (journalEntryIdFromUrl) {
       router.replace('/accounting/operations/journal-entry');
     }
@@ -784,11 +800,15 @@ function CreateJournalEntryFormInner() {
               <label className={erpLabelClass}>رقم السند</label>
               <input
                 type="text"
-                className={`${erpInputClass} ${errors.referenceNumber ? inputErrorClass : ''}`}
-                placeholder="إدخل رقم السند"
-                {...register('referenceNumber')}
+                autoComplete="off"
+                data-1p-ignore="true"
+                data-lpignore="true"
+                readOnly
+                disabled
+                className={`${erpInputClass} cursor-not-allowed bg-[#F3F7FA] text-[#64748B]`}
+                placeholder="تلقائي"
+                value={referenceNumberW || nextJournalNumber}
               />
-              <FieldError message={errors.referenceNumber?.message} />
             </div>
             <div>
               <DatePickerWithHijri
@@ -810,6 +830,9 @@ function CreateJournalEntryFormInner() {
               <label className={erpLabelClass}>الشرح</label>
               <input
                 type="text"
+                autoComplete="off"
+                data-1p-ignore="true"
+                data-lpignore="true"
                 className={`${erpInputClass} ${errors.description ? inputErrorClass : ''}`}
                 placeholder="إدخل الشرح"
                 {...register('description')}
