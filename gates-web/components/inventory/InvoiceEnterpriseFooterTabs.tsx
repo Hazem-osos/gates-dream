@@ -96,6 +96,7 @@ export function InvoiceEnterpriseFooterTabs({
           <InvoiceJournalEntryLinesTable
             journalEntryId={journalEntryId}
             title="معاينة القيد المحاسبي"
+            compact
           />
         ) : null}
 

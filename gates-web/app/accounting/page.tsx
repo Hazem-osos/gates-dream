@@ -74,8 +74,8 @@ export default function TreasuryCommand() {
       }
       shortcuts={[
         { key: 'F2', label: 'قيد', href: '/accounting/operations/journal-entry' },
-        { key: 'F4', label: 'قبض', href: '/accounting/operations/treasury/cash-receipt' },
-        { key: 'F6', label: 'صرف', href: '/accounting/operations/treasury/cash-payment' },
+        { key: 'F4', label: 'قبض', href: '/accounting/operations/treasury/receipt-voucher' },
+        { key: 'F6', label: 'صرف', href: '/accounting/operations/treasury/payment-voucher' },
       ]}
     >
       <MetricBar

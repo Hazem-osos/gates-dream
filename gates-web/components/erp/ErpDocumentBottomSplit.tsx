@@ -43,7 +43,7 @@ export function ErpDocumentBottomSplit({
         {
           id: 'gl',
           label: 'معاينة القيد المحاسبي',
-          content: <LiveJournalPreviewTable journalEntryId={journalEntryId} title="" />,
+          content: <LiveJournalPreviewTable journalEntryId={journalEntryId} title="" compact />,
         },
         ...tabs.filter((t) => t.id !== 'gl'),
       ]
@@ -76,20 +76,20 @@ export function ErpDocumentBottomSplit({
   );
 
   return (
-    <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2" dir="ltr">
-      <Card className="flex min-h-[240px] flex-col overflow-hidden rounded-xl border-slate-200 shadow-sm">
+    <div className="erp-keep-cols mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2" dir="ltr">
+      <Card className="flex min-h-[220px] min-w-0 max-w-full flex-col overflow-hidden rounded-xl border-slate-200 shadow-sm">
         <div className="flex flex-wrap items-center gap-1.5 border-b border-[#E8F1F6] bg-white p-2">
           {journalTab ? tabButton(journalTab) : null}
           <div className="flex flex-1 flex-wrap justify-end gap-1.5" dir="rtl">
             {otherTabs.map(tabButton)}
           </div>
         </div>
-        <CardContent className="max-h-[300px] flex-1 overflow-auto p-3 text-sm" dir="rtl">
+        <CardContent className="max-h-[240px] min-w-0 flex-1 overflow-auto p-2 text-sm" dir="rtl">
           {active?.content}
         </CardContent>
       </Card>
 
-      <div dir="rtl">
+      <div className="min-w-0" dir="rtl">
         <FinancialSummaryCard
           rows={financialRows}
           netAmount={netAmount}

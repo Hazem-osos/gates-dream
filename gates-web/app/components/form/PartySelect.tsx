@@ -1,6 +1,6 @@
 'use client';
 
-import { memo, useCallback, useEffect, useMemo, useState, type ComponentType } from 'react';
+import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import {
   useAccountsQuery,
   useCustomersQuery,
@@ -12,29 +12,16 @@ import {
 import { SearchableCombobox } from '@/app/components/form/SearchableCombobox';
 import { PartyHoverCard } from '@/components/parties/PartyHoverCard';
 import { CustomerBalanceInspector } from '@/components/parties/CustomerBalanceInspector';
-import { lazyNamedModal } from '@/components/ui/lazyModal';
 import { compactControlClass } from '@/components/ui/forms/formTokens';
 import { apiClient } from '@/lib/api/client';
 import { toast } from '@/lib/feedback/toast';
-
-const QuickCreatePartyModal = lazyNamedModal(
-  () => import('@/app/components/form/QuickCreatePartyModal'),
-  'QuickCreatePartyModal',
-  'جاري تحميل إضافة طرف…'
-);
+import { useOpenQuickCreateTab } from '@/lib/quick-create/useQuickCreateTab';
 
 const selectCls = compactControlClass;
 
 function partyLabel(p: { code?: string | null; arabicName: string }) {
   return p.code ? `[${p.code}] ${p.arabicName}` : p.arabicName;
 }
-
-type QuickCreateModalComponent = ComponentType<{
-  open: boolean;
-  initialName: string;
-  onClose: () => void;
-  onCreated: (party: PartyOption) => void;
-}>;
 
 function PartySelectInner({
   kind,
@@ -46,7 +33,6 @@ function PartySelectInner({
   emptyLabel,
   enableQuickCreate = true,
   seedParty,
-  quickCreateModal,
   includeAllAccounts = false,
 }: {
   kind: 'CUSTOMER' | 'SUPPLIER';
@@ -61,14 +47,8 @@ function PartySelectInner({
   includeAllAccounts?: boolean;
   /** When the party is not in the cached list yet (e.g. after loading an invoice). */
   seedParty?: PartyOption | null;
-  /**
-   * Sales Invoice Enterprise Redesign: lets a specific caller (the
-   * sales-invoice header) swap in a richer quick-add modal without touching
-   * every other `CustomerSelect`/`SupplierSelect` usage across the app
-   * (reports, treasury vouchers, etc.), which intentionally keep the
-   * simpler default `QuickCreatePartyModal`.
-   */
-  quickCreateModal?: QuickCreateModalComponent;
+  /** Kept for callers; plus now opens a tab instead of a modal. */
+  quickCreateModal?: unknown;
 }) {
   const [search, setSearch] = useState('');
   const customerQ = useCustomersQuery(PICKER_PAGE_SIZE, search, kind === 'CUSTOMER');
@@ -80,10 +60,18 @@ function PartySelectInner({
   const q = kind === 'CUSTOMER' ? customerQ : supplierQ;
   const rows = q.data?.data ?? [];
   const defaultEmpty = kind === 'CUSTOMER' ? 'اختر العميل' : 'اختر المورد';
-  const [quickOpen, setQuickOpen] = useState(false);
-  const [quickName, setQuickName] = useState('');
   /** Keeps label visible until React Query list includes the new party. */
   const [pinnedParty, setPinnedParty] = useState<PartyOption | null>(null);
+  const openQuickCreate = useOpenQuickCreateTab(kind === 'CUSTOMER' ? 'customer' : 'supplier', (entity) => {
+    const party: PartyOption = {
+      id: entity.id,
+      arabicName: entity.arabicName || entity.label,
+      code: entity.code ?? null,
+      accountId: entity.accountId ?? undefined,
+    };
+    setPinnedParty(party);
+    onChange(party.id);
+  });
 
   useEffect(() => {
     if (!value) {
@@ -137,7 +125,6 @@ function PartySelectInner({
   }, []);
 
   const quickLabel = '+ إضافة سريع';
-  const QuickCreateModal = quickCreateModal;
 
   return (
     <>
@@ -172,43 +159,12 @@ function PartySelectInner({
         error={q.isError}
         emptyMessage={q.isError ? 'تعذر تحميل البيانات' : 'لا توجد نتائج'}
         quickCreateLabel={enableQuickCreate ? quickLabel : undefined}
-        onQuickCreate={
-          enableQuickCreate
-            ? (query) => {
-                setQuickName(query);
-                setQuickOpen(true);
-              }
-            : undefined
-        }
+        onQuickCreate={enableQuickCreate ? (query) => openQuickCreate(query) : undefined}
         valueLabel={displayValueLabel}
         onQueryChange={handleQueryChange}
         maxVisible={PICKER_PAGE_SIZE}
         clientSearchEntity={kind === 'CUSTOMER' ? 'customers' : 'suppliers'}
       />
-      {enableQuickCreate && quickOpen ? (
-        QuickCreateModal ? (
-          <QuickCreateModal
-            open
-            initialName={quickName}
-            onClose={() => setQuickOpen(false)}
-            onCreated={(party) => {
-              setPinnedParty(party);
-              onChange(party.id);
-            }}
-          />
-        ) : (
-          <QuickCreatePartyModal
-            open
-            kind={kind}
-            initialName={quickName}
-            onClose={() => setQuickOpen(false)}
-            onCreated={(party) => {
-              setPinnedParty(party);
-              onChange(party.id);
-            }}
-          />
-        )
-      ) : null}
       {value && enableQuickCreate ? (
         <div className="mt-1.5 text-[11px] text-slate-600">
           <PartyHoverCard

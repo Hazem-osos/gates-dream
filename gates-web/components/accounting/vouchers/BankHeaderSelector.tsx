@@ -1,15 +1,8 @@
 'use client';
 
-import { useState } from 'react';
 import { Plus } from 'lucide-react';
 import { erpInputClass, erpInputErrorClass, erpLabelClass } from '@/components/erp/erpUiTokens';
-import { lazyNamedModal } from '@/components/ui/lazyModal';
-
-const QuickCreateBankAccountModal = lazyNamedModal(
-  () => import('@/app/components/form/QuickCreateBankAccountModal'),
-  'QuickCreateBankAccountModal',
-  'جاري تحميل إضافة حساب بنكي…'
-);
+import { useOpenQuickCreateTab } from '@/lib/quick-create/useQuickCreateTab';
 
 export type BankAccountOption = {
   id: string;
@@ -54,9 +47,8 @@ export function BankHeaderSelector({
   tourId = 'bank-debit-fund',
 }: Props) {
   const selected = banks.find((b) => b.id === value);
-  const bankCode = selected?.code || selected?.glAccountCode || selected?.glAccount?.code || '';
   const balance = Number(displayBalance ?? selected?.balance ?? 0);
-  const [quickOpen, setQuickOpen] = useState(false);
+  const openQuickCreate = useOpenQuickCreateTab('bank-account', (entity) => onChange(entity.id));
 
   return (
     <div className="flex flex-wrap items-end gap-3" data-tour-id={tourId}>
@@ -82,7 +74,7 @@ export function BankHeaderSelector({
               title="إضافة حساب بنكي جديد"
               aria-label="إضافة حساب بنكي جديد"
               className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] text-[#0E78AA] hover:bg-[#EEF7FB]"
-              onClick={() => setQuickOpen(true)}
+              onClick={() => openQuickCreate()}
             >
               <Plus className="h-4 w-4" />
             </button>
@@ -94,7 +86,7 @@ export function BankHeaderSelector({
         <label className="mb-1.5 block text-xs font-medium text-slate-500">كود البنك</label>
         <input
           type="text"
-          value={bankCode}
+          value={selected?.code || selected?.glAccountCode || selected?.glAccount?.code || ''}
           readOnly
           className="h-9 w-full rounded-md border border-[#D6EAF3] bg-[#F6FBFD] px-2 text-center font-mono text-xs text-[#094C6B]"
           placeholder="---"
@@ -109,14 +101,6 @@ export function BankHeaderSelector({
           </span>
         </div>
       </div>
-      {quickOpen ? (
-        <QuickCreateBankAccountModal
-          open
-          currencyCode={baseCurrency}
-          onClose={() => setQuickOpen(false)}
-          onCreated={(bankAccount) => onChange(bankAccount.id)}
-        />
-      ) : null}
     </div>
   );
 }

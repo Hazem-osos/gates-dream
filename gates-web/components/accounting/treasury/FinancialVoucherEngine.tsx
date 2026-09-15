@@ -211,6 +211,12 @@ function emptyLine(
   return emptyPaymentLine(currencyCode, entrySide, costCenterId, exchangeRate);
 }
 
+function applyDefaultCostCenter<T extends { costCenterId?: string }>(rows: T[], costCenterId: string): T[] {
+  return rows.map((line, index) =>
+    index === 0 || !line.costCenterId ? { ...line, costCenterId } : line
+  );
+}
+
 function settingsDocumentTypeForVariant(
   variantId: FinancialVoucherVariantId
 ): 'PAYMENT_VOUCHER' | 'RECEIPT_VOUCHER' | 'BANK_DEBIT_ADVICE' | 'BANK_CREDIT_ADVICE' {
@@ -627,11 +633,18 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
   }, [dateW, showHijri, setValue]);
 
   const skipHeaderFxSyncRef = useRef(false);
-  const applyHeaderCurrencyToRows = useCallback((code: string) => {
-    if (!code) return;
-    setVoucherLines((prev) => prev.map((line) => withHeaderCurrency(line, code)));
-    setCreditLines((prev) => prev.map((line) => withHeaderCurrency(line, code)));
-  }, []);
+  const applyHeaderCurrencyToRows = useCallback(
+    (code: string, catalogRate?: number | string | null) => {
+      if (!code) return;
+      setVoucherLines((prev) =>
+        prev.map((line) => withHeaderCurrency(line, code, catalogRate, companyBaseCurrency))
+      );
+      setCreditLines((prev) =>
+        prev.map((line) => withHeaderCurrency(line, code, catalogRate, companyBaseCurrency))
+      );
+    },
+    [companyBaseCurrency]
+  );
 
   useEffect(() => {
     const header = currencies.find((c) => c.id === currencyId);
@@ -640,7 +653,7 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
       skipHeaderFxSyncRef.current = false;
       return;
     }
-    applyHeaderCurrencyToRows(header.code);
+    applyHeaderCurrencyToRows(header.code, header.exchangeRate);
     // Header pick only — don't re-run when the currencies catalog refetches.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currencyId]);
@@ -708,7 +721,11 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
           description: row.description ?? '',
           amount: Number(row.amount) || 0,
           currencyCode: row.currencyCode,
-          exchangeRate: 1,
+          exchangeRate: rateForCurrency(
+            row.currencyCode,
+            companyBaseCurrency,
+            currencies.find((c) => c.code === row.currencyCode)?.exchangeRate
+          ),
           costCenterId: '',
           partyId: headerPartyId || undefined,
           partyKind: headerPartyKind,
@@ -758,7 +775,11 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
           description: order.description ?? '',
           amount: Number(order.amount),
           currencyCode: order.currencyCode,
-          exchangeRate: 1,
+          exchangeRate: rateForCurrency(
+            order.currencyCode,
+            companyBaseCurrency,
+            currencies.find((c) => c.code === order.currencyCode)?.exchangeRate
+          ),
           partyId: headerPartyId || undefined,
           partyKind: headerPartyKind,
           entrySide: mainEntrySide,
@@ -787,7 +808,6 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
   }, [savedVoucherId, selectedVoucherResponse]);
 
   const selectedFund = fundId && funds.length > 0 ? funds.find((s) => s.id === fundId) : undefined;
-  const fundGlCode = selectedFund?.glAccountCode || selectedFund?.glAccount?.code || '';
   const currency = currencies.find((c) => c.id === currencyId);
   const headerCurrencyCode = currency?.code ?? companyBaseCurrency;
   const headerFxRate = rateForCurrency(headerCurrencyCode, companyBaseCurrency, currency?.exchangeRate);
@@ -837,15 +857,17 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
       if (prev.length !== 1 || !first) {
         return [
           {
-            ...emptyLine(headerCurrencyCode, mainEntrySide, costCenter, 1),
+            ...emptyLine(headerCurrencyCode, mainEntrySide, costCenter, headerFxRate),
             accountId: offsetAccountId,
           },
         ];
       }
-      if (first.accountId || Number(first.amount) > 0 || first.description) return prev;
+      if (first.accountId || Number(first.amount) > 0 || first.description) {
+        return applyDefaultCostCenter(prev, costCenter);
+      }
       return [
         {
-          ...emptyLine(headerCurrencyCode, mainEntrySide, costCenter, 1),
+          ...emptyLine(headerCurrencyCode, mainEntrySide, costCenter, headerFxRate),
           accountId: offsetAccountId,
         },
       ];
@@ -1061,7 +1083,7 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
   const addVoucherLine = () => {
     setVoucherLines((prev) => [
       ...prev,
-      emptyLine(headerCurrencyCode, mainEntrySide, defaultCostCenterId, 1),
+      emptyLine(headerCurrencyCode, mainEntrySide, defaultCostCenterId, headerFxRate),
     ]);
   };
 
@@ -1254,7 +1276,7 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
                 {...register('currencyId', {
                   onChange: (event) => {
                     const header = currencies.find((c) => c.id === event.target.value);
-                    if (header?.code) applyHeaderCurrencyToRows(header.code);
+                    if (header?.code) applyHeaderCurrencyToRows(header.code, header.exchangeRate);
                   },
                 })}
               >
@@ -1297,13 +1319,6 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
               <div data-tour-id={variant.tourSafe}>
                 <label className={erpLabelClass}>{variant.fundLabel}</label>
                 <div className="flex gap-2">
-                  <input
-                    type="text"
-                    className={`${erpInputClass} w-28 shrink-0 font-mono`}
-                    value={fundGlCode}
-                    readOnly
-                    placeholder="كود الحساب"
-                  />
                   <select
                     className={`${erpInputClass} ${errors.fundId ? erpInputErrorClass : ''}`}
                     disabled={locked}
@@ -1313,11 +1328,7 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
                     {funds.map((fund) => (
                       <option key={fund.id} value={fund.id}>
                         {formatTreasuryBalanceLabel(
-                          `${
-                            fund.glAccountCode || fund.glAccount?.code
-                              ? `[${fund.glAccountCode || fund.glAccount?.code}] `
-                              : ''
-                          }${fund.arabicName || fund.englishName || fund.id}`,
+                          fund.arabicName || fund.englishName || fund.id,
                           fund.balance
                         )}
                       </option>
@@ -1389,8 +1400,13 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
                   </label>
                   <CostCenterSelect
                     value={defaultCostCenterId}
-                    onChange={setDefaultCostCenterId}
+                    onChange={(id) => {
+                      setDefaultCostCenterId(id);
+                      setVoucherLines((prev) => applyDefaultCostCenter(prev, id));
+                      setCreditLines((prev) => applyDefaultCostCenter(prev, id));
+                    }}
                     disabled={locked}
+                    allowEmpty
                     emptyLabel="بدون"
                   />
                 </div>
@@ -1408,10 +1424,14 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
                 <button
                   type="button"
                   className={advancedActionClass}
-                  disabled={!settlementPartyId}
                   onClick={() => setShowPaymentsModal(true)}
                 >
                   توزيع السدادات على الفواتير
+                  {allocations.length > 0 ? (
+                    <span className="inline-flex min-w-[1.15rem] items-center justify-center rounded-full bg-[#0E78AA]/15 px-1 text-[10px] text-[#094C6B]">
+                      {allocations.length}
+                    </span>
+                  ) : null}
                 </button>
                 <button type="button" className={advancedActionClass} onClick={() => setShowRecurringModal(true)}>
                   سند دوري
@@ -1433,17 +1453,14 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
           <button
             type="button"
             className={advancedActionClass}
-            disabled={!settlementPartyId}
-            title={
-              !settlementPartyId
-                ? isPayable
-                  ? 'حدّد حساب المورد/الدائن أولاً'
-                  : 'حدّد حساب العميل/المدين أولاً'
-                : undefined
-            }
             onClick={() => setShowPaymentsModal(true)}
           >
             توزيع السدادات على الفواتير
+            {allocations.length > 0 ? (
+              <span className="inline-flex min-w-[1.15rem] items-center justify-center rounded-full bg-[#0E78AA]/15 px-1 text-[10px] text-[#094C6B]">
+                {allocations.length}
+              </span>
+            ) : null}
           </button>
           <button type="button" className={advancedActionClass} onClick={() => setShowRecurringModal(true)}>
             سند دوري
@@ -1550,6 +1567,7 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
               disabled={locked}
               accountLabelFor={accountLabelFor}
               currencies={currencies}
+              showFx={showFxColumns}
             />
           )}
         </FormSectionCard>
@@ -1648,9 +1666,27 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
         onClose={() => setShowPaymentsModal(false)}
         side={variant.allocationSide}
         partyId={settlementPartyId}
-        receiptTotal={totalAmount}
-        draftMode
+        cashTransactionId={savedVoucherId}
+        isPosted={isPosted}
+        receiptTotal={isModernVoucher ? mainTotal : totalAmount}
+        draftMode={!isPosted}
         onApplyDraft={setAllocations}
+        onPartyChange={(partyId) => {
+          const party = parties.find((row) => row.id === partyId);
+          const partyKind = isPayable ? 'SUPPLIER' : 'CUSTOMER';
+          setVoucherLines((rows) =>
+            rows.map((line, index) =>
+              index === 0
+                ? {
+                    ...line,
+                    partyId: partyId || undefined,
+                    partyKind: partyId ? partyKind : undefined,
+                    accountId: party?.accountId || line.accountId,
+                  }
+                : line
+            )
+          );
+        }}
         onError={setError}
         onSuccess={setSuccess}
       />

@@ -51,7 +51,6 @@ export function ReceiptOrderHeader({
           {safes.map((safe) => (
             <option key={safe.id} value={safe.id}>
               {safe.arabicName || safe.englishName || safe.id}
-              {safe.code ? ` (${safe.code})` : ''}
             </option>
           ))}
         </select>

@@ -4,6 +4,8 @@ import { Plus, Trash2 } from 'lucide-react';
 import { AccountSelect } from '@/app/components/form/AccountSelect';
 import { CostCenterSelect } from '@/app/components/form/CostCenterSelect';
 import { Button, IconButton, compactControlClass } from '@/components/ui';
+import { isFxRateLocked, rateForCurrency } from '@/lib/accounting/fx-base';
+import { useCompanyBaseCurrency } from '@/lib/hooks/useCompanyBaseCurrency';
 
 export type EditableJournalLine = {
   accountId: string;
@@ -19,6 +21,7 @@ export type CurrencyOption = {
   id: string;
   code: string;
   arabicName: string;
+  exchangeRate?: number | string | null;
 };
 
 type Props = {
@@ -29,14 +32,14 @@ type Props = {
   disabled?: boolean;
 };
 
-export function emptyJournalLine(currencyId?: string): EditableJournalLine {
+export function emptyJournalLine(currencyId?: string, exchangeRate = 1): EditableJournalLine {
   return {
     accountId: '',
     description: '',
     debit: 0,
     credit: 0,
     currencyId,
-    exchangeRate: 1,
+    exchangeRate,
     costCenterId: '',
   };
 }
@@ -48,6 +51,10 @@ export function EditableJournalLinesTable({
   defaultCurrencyId,
   disabled,
 }: Props) {
+  const { code: companyBase } = useCompanyBaseCurrency();
+  const headerCurrency = currencies.find((c) => c.id === defaultCurrencyId);
+  const headerRate = rateForCurrency(headerCurrency?.code, companyBase, headerCurrency?.exchangeRate);
+
   const updateLine = (index: number, patch: Partial<EditableJournalLine>) => {
     const next = [...lines];
     next[index] = { ...next[index], ...patch };
@@ -55,7 +62,7 @@ export function EditableJournalLinesTable({
   };
 
   const addLine = () => {
-    onChange([...lines, emptyJournalLine(defaultCurrencyId)]);
+    onChange([...lines, emptyJournalLine(defaultCurrencyId, headerRate)]);
   };
 
   const removeLine = (index: number) => {
@@ -144,7 +151,13 @@ export function EditableJournalLinesTable({
                       className={compactControlClass}
                       value={line.currencyId || defaultCurrencyId || ''}
                       disabled={disabled || currencies.length === 0}
-                      onChange={(e) => updateLine(index, { currencyId: e.target.value })}
+                      onChange={(e) => {
+                        const next = currencies.find((c) => c.id === e.target.value);
+                        updateLine(index, {
+                          currencyId: e.target.value,
+                          exchangeRate: rateForCurrency(next?.code, companyBase, next?.exchangeRate),
+                        });
+                      }}
                     >
                       {currencies.length === 0 ? <option value="">—</option> : null}
                       {currencies.map((c) => (
@@ -160,8 +173,21 @@ export function EditableJournalLinesTable({
                       min={0}
                       step="0.0001"
                       className={`${compactControlClass} text-center`}
-                      value={line.exchangeRate || ''}
-                      disabled={disabled}
+                      value={
+                        isFxRateLocked(
+                          currencies.find((c) => c.id === (line.currencyId || defaultCurrencyId))?.code,
+                          companyBase
+                        )
+                          ? 1
+                          : line.exchangeRate || ''
+                      }
+                      disabled={
+                        disabled ||
+                        isFxRateLocked(
+                          currencies.find((c) => c.id === (line.currencyId || defaultCurrencyId))?.code,
+                          companyBase
+                        )
+                      }
                       onChange={(e) => updateLine(index, { exchangeRate: parseFloat(e.target.value) || 1 })}
                     />
                   </td>

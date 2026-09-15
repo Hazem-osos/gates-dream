@@ -85,7 +85,7 @@ export default function SalesCommand() {
         { key: 'F2', label: 'فاتورة', href: '/inventory/operations/sales-invoice' },
         { key: 'F4', label: 'عرض سعر', href: '/inventory/operations/price-quote' },
         { key: 'F5', label: 'أمر بيع', href: '/inventory/operations/sales-order' },
-        { key: 'F6', label: 'قبض', href: '/accounting/operations/treasury/cash-receipt' },
+        { key: 'F6', label: 'قبض', href: '/accounting/operations/treasury/receipt-voucher' },
       ]}
     >
       <MetricBar

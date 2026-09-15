@@ -112,7 +112,7 @@ export default function LiveExecutiveDashboard({ title }: { title?: string }) {
               id: 'tr',
               title: 'حركات خزينة معلّقة',
               amount: String(kpis?.pendingDocuments.unpostedTreasuryTransactions ?? 0),
-              href: '/accounting/operations/treasury/cash-receipt',
+              href: '/accounting/operations/treasury',
               tone: 'info',
             },
           ]}

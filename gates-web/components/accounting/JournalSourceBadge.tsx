@@ -72,7 +72,7 @@ type Props = {
 export function JournalSourceBadge({ sourceType, sourceKind, sourceId, sourceNumber }: Props) {
   const kind = resolveJournalSourceKind(sourceType, sourceKind);
   const config = SOURCE_CONFIG[kind] || SOURCE_CONFIG.MANUAL;
-  const href = journalSourceHref(kind, sourceId);
+  const href = journalSourceHref(kind, sourceId, sourceType);
 
   return (
     <div className="inline-flex items-center gap-1.5">

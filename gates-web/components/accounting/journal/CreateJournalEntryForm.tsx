@@ -155,6 +155,7 @@ function CreateJournalEntryFormInner() {
   const [isApproved, setIsApproved] = useState(false);
   const [voucherStatus, setVoucherStatus] = useState('غير مرحل');
   const [showRecurringPicker, setShowRecurringPicker] = useState(false);
+  const [showFxColumns, setShowFxColumns] = useState(true);
   const [sourceKind, setSourceKind] = useState<JournalSourceType>('MANUAL');
   const [sourceId, setSourceId] = useState<string | null>(null);
   const [sourceNumber, setSourceNumber] = useState<string | null>(null);
@@ -477,13 +478,15 @@ function CreateJournalEntryFormInner() {
       skipHeaderFxSyncRef.current = false;
       return;
     }
+    const header = currencies.find((c) => c.id === headerCurrencyId);
+    const headerRate = rateForCurrency(header?.code, companyBaseCurrency, header?.exchangeRate);
     const lines = getValues('lines') ?? [];
     if (!lines.length) return;
     replace(
       lines.map((line) => ({
         ...line,
         currencyId: headerCurrencyId,
-        exchangeRate: 1,
+        exchangeRate: headerRate,
       }))
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -641,7 +644,7 @@ function CreateJournalEntryFormInner() {
       debit: diff < -0.005 ? Math.round(Math.abs(diff) * 100) / 100 : 0,
       credit: diff > 0.005 ? Math.round(diff * 100) / 100 : 0,
       currencyId: cur || undefined,
-      exchangeRate: 1,
+      exchangeRate: headerRate,
       costCenterId: '',
       isTiedToInvoice: false,
       invoiceId: null,
@@ -651,6 +654,8 @@ function CreateJournalEntryFormInner() {
 
   const applyRecurringTemplate = (template: RecurringTemplate) => {
     const cur = getValues('currencyId');
+    const header = currencies.find((c) => c.id === cur);
+    const headerRate = rateForCurrency(header?.code, companyBaseCurrency, header?.exchangeRate);
     replace(
       (template.lines ?? []).map((line) => ({
         accountId: line.accountId,
@@ -658,7 +663,7 @@ function CreateJournalEntryFormInner() {
         debit: Number(line.debit) || 0,
         credit: Number(line.credit) || 0,
         currencyId: cur || undefined,
-        exchangeRate: 1,
+        exchangeRate: headerRate,
         costCenterId: line.costCenterId || '',
         isTiedToInvoice: false,
         invoiceId: null,
@@ -974,6 +979,15 @@ function CreateJournalEntryFormInner() {
               />
               سند دوري
             </label>
+            <label className="inline-flex items-center gap-2 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                checked={showFxColumns}
+                onChange={(e) => setShowFxColumns(e.target.checked)}
+                className="rounded border-slate-300"
+              />
+              إظهار أعمدة العملة وسعر الصرف
+            </label>
           </div>
         }
       />
@@ -991,6 +1005,7 @@ function CreateJournalEntryFormInner() {
           disabled={isReadOnly || isPosted || isCancelled}
           currencies={currencies}
           defaultCurrencyId={headerCurrencyId}
+          showFx={showFxColumns}
           accountLabelFor={(accountId) => {
             const acc = accounts.find((a) => a.id === accountId);
             return acc ? `[${acc.code}] ${acc.arabicName}` : undefined;

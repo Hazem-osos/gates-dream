@@ -19,6 +19,8 @@ import type { ApiError } from '@/lib/api/types';
 import { costCenterCardFormSchema } from '@/lib/validation/accounting.schema';
 import { NumberingModeControl } from '@/components/accounting/NumberingModeControl';
 import { useAccountingSettingsQuery } from '@/lib/hooks/useAccountingSettings';
+import { entityLabel } from '@/lib/quick-create/catalog';
+import { useQuickCreateHost } from '@/lib/quick-create/useQuickCreateTab';
 
 const EMPTY_COST_CENTER_FORM = {
   code: '',
@@ -48,6 +50,7 @@ interface Currency {
 
 function CostCenterPage() {
   const invalidateQuery = useInvalidateQuery();
+  const quickCreate = useQuickCreateHost('cost-center');
   const { data: settingsRes } = useAccountingSettingsQuery();
   const costCenterAuto = settingsRes?.data?.general?.costCenterAutoNumbering !== false;
   const costCenterCount = settingsRes?.data?.general?.numberingRecordCounts?.costCenters ?? 0;
@@ -61,6 +64,11 @@ function CostCenterPage() {
   const [success, setSuccess] = useState('');
   const [showGuide, setShowGuide] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!quickCreate.prefillName) return;
+    setFormData((prev) => (prev.arabicName ? prev : { ...prev, arabicName: quickCreate.prefillName }));
+  }, [quickCreate.prefillName]);
 
   // Fetch parent cost centers
   const { data: costCentersResponse } = useApiQuery<CostCenter[]>(
@@ -96,7 +104,16 @@ function CostCenterPage() {
     '/accounting/cost-centers',
     'POST',
     {
-      onSuccess: () => {
+      onSuccess: (res) => {
+        const created = res?.data as { id?: string; arabicName?: string; code?: string } | undefined;
+        if (created?.id) {
+          quickCreate.complete({
+            id: created.id,
+            label: entityLabel(created.code, created.arabicName),
+            arabicName: created.arabicName,
+            code: created.code,
+          });
+        }
         setSuccess('تم حفظ مركز التكلفة بنجاح');
         invalidateQuery(['cost-centers']);
         // Reset form

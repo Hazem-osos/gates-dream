@@ -27,6 +27,7 @@ import { VipOnboardingRoot } from '@/components/onboarding/VipOnboardingRoot';
 import { NavigationProgressBar } from '@/components/feedback/NavigationProgressBar';
 import { AutoHijriDateCaption } from '@/components/ui/AutoHijriDateCaption';
 import { AppScreenChromeFallback, AppScreenChromeProvider } from '@/components/erp';
+import { TabPageCache } from '@/components/erp/TabPageCache';
 
 export function ErpApp({ children }: { children: ReactNode }) {
   const [rightSidebarOpen, setRightSidebarOpen] = useState(false);
@@ -128,7 +129,7 @@ export function ErpApp({ children }: { children: ReactNode }) {
                           </div>
                           <main className="erp-contain min-w-0 flex-1 overflow-x-hidden overflow-y-auto bg-white">
                             <AppScreenChromeFallback />
-                            {children}
+                            <TabPageCache>{children}</TabPageCache>
                           </main>
                         </div>
                       </div>

@@ -3,14 +3,8 @@
 import { memo, useMemo, useState, type SelectHTMLAttributes } from 'react';
 import { useWarehousesQuery, type WarehouseOption } from '@/lib/hooks/useMasterDataQueries';
 import { SearchableCombobox } from '@/app/components/form/SearchableCombobox';
-import { lazyNamedModal } from '@/components/ui/lazyModal';
 import { compactControlClass } from '@/components/ui/forms/formTokens';
-
-const QuickCreateWarehouseModal = lazyNamedModal(
-  () => import('@/app/components/form/QuickCreateWarehouseModal'),
-  'QuickCreateWarehouseModal',
-  'جاري تحميل إضافة مخزن…'
-);
+import { useOpenQuickCreateTab } from '@/lib/quick-create/useQuickCreateTab';
 
 const selectCls = compactControlClass;
 
@@ -40,9 +34,16 @@ function WarehouseSelectInner({
 }) {
   const { data, isLoading, isError } = useWarehousesQuery();
   const rows = data?.data ?? [];
-  const [quickOpen, setQuickOpen] = useState(false);
-  const [quickName, setQuickName] = useState('');
   const [pinned, setPinned] = useState<WarehouseOption | null>(null);
+  const openQuickCreate = useOpenQuickCreateTab('warehouse', (entity) => {
+    const row = {
+      id: entity.id,
+      arabicName: entity.arabicName || entity.label,
+      code: entity.code ?? null,
+    } as WarehouseOption;
+    setPinned(row);
+    onChange(row.id);
+  });
 
   const merged = useMemo(() => {
     if (pinned && !rows.some((w) => w.id === pinned.id)) {
@@ -85,14 +86,7 @@ function WarehouseSelectInner({
         portaled
         menuPlacement="auto"
         quickCreateLabel={enableQuickCreate ? '+ إضافة سريع' : undefined}
-        onQuickCreate={
-          enableQuickCreate
-            ? (query) => {
-                setQuickName(query);
-                setQuickOpen(true);
-              }
-            : undefined
-        }
+        onQuickCreate={enableQuickCreate ? (query) => openQuickCreate(query) : undefined}
         inputProps={{
           'aria-label': nativeSelectProps?.['aria-label'],
           title: nativeSelectProps?.title,
@@ -106,17 +100,6 @@ function WarehouseSelectInner({
             | undefined,
         }}
       />
-      {enableQuickCreate && quickOpen ? (
-        <QuickCreateWarehouseModal
-          open
-          initialName={quickName}
-          onClose={() => setQuickOpen(false)}
-          onCreated={(warehouse) => {
-            setPinned(warehouse);
-            onChange(warehouse.id);
-          }}
-        />
-      ) : null}
     </>
   );
 }

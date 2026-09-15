@@ -21,6 +21,8 @@ import {
   erpLabelClass,
 } from '@/components/erp';
 import { useClientMounted } from '@/lib/hooks/useClientMounted';
+import { isFxRateLocked, rateForCurrency } from '@/lib/accounting/fx-base';
+import { useCompanyBaseCurrency } from '@/lib/hooks/useCompanyBaseCurrency';
 import { InvoiceSourceDocumentControl } from '@/components/invoices/InvoiceSourceDocumentControl';
 import type { SourceHydratePayload } from '@/lib/invoices/sourceDocument';
 
@@ -109,18 +111,21 @@ export function SalesInvoiceFormHeader({
   includeAllAccounts = false,
 }: Props) {
   const mounted = useClientMounted();
+  const { code: companyBase } = useCompanyBaseCurrency();
   const delegatesBusy = mounted && Boolean(delegatesLoading);
   const currenciesBusy = mounted && Boolean(currenciesLoading);
   const err = (has?: boolean) => (showValidationErrors && has ? erpInputErrorClass : '');
 
   const handleCurrencyChange = (currencyId: string) => {
     const picked = currencies.find((c) => c.id === currencyId);
-    const rate = picked?.exchangeRate != null ? Number(picked.exchangeRate) : null;
-    if (rate && rate > 0) {
-      setValue('exchangeRate', rate, { shouldDirty: true });
-    }
+    setValue('exchangeRate', rateForCurrency(picked?.code, companyBase, picked?.exchangeRate), {
+      shouldDirty: true,
+    });
   };
 
+  const currencyIdW = useWatch({ control, name: 'currencyId' });
+  const selectedHeaderCurrency = currencies.find((c) => c.id === currencyIdW);
+  const headerRateLocked = isFxRateLocked(selectedHeaderCurrency?.code, companyBase);
   const sourceType = useWatch({ control, name: 'sourceType' });
   const sourceId = useWatch({ control, name: 'sourceId' });
   const sourceNumber = useWatch({ control, name: 'sourceNumber' });
@@ -400,9 +405,14 @@ export function SalesInvoiceFormHeader({
           min="0"
           className={erpInputClass}
           placeholder="1.0000"
+          disabled={headerRateLocked}
           {...register('exchangeRate', { valueAsNumber: true })}
         />
-        <p className="mt-1 text-[11px] text-slate-400">يُعبّأ تلقائياً من سعر العملة، وقابل للتعديل</p>
+        <p className="mt-1 text-[11px] text-slate-400">
+          {headerRateLocked
+            ? 'العملة الأساسية — سعر الصرف 1'
+            : 'يُعبّأ تلقائياً مقابل الجنيه، وقابل للتعديل'}
+        </p>
       </div>
       <label className="flex items-end gap-2 pb-2 text-sm text-slate-700 cursor-pointer">
         <input

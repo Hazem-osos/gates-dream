@@ -1,15 +1,8 @@
 'use client';
 
-import { useState } from 'react';
 import { Plus } from 'lucide-react';
 import { erpInputClass, erpInputErrorClass, erpLabelClass } from '@/components/erp/erpUiTokens';
-import { lazyNamedModal } from '@/components/ui/lazyModal';
-
-const QuickCreateSafeModal = lazyNamedModal(
-  () => import('@/app/components/form/QuickCreateSafeModal'),
-  'QuickCreateSafeModal',
-  'جاري تحميل إضافة خزنة…'
-);
+import { useOpenQuickCreateTab } from '@/lib/quick-create/useQuickCreateTab';
 
 export type CashSafeOption = {
   id: string;
@@ -45,9 +38,8 @@ export function CashSafeHeaderSelector({
   tourId = 'payment-voucher-safe',
 }: Props) {
   const selected = safes.find((s) => s.id === value);
-  const safeCode = selected?.code || selected?.glAccountCode || selected?.glAccount?.code || '';
   const balance = Number(displayBalance ?? selected?.balance ?? 0);
-  const [quickOpen, setQuickOpen] = useState(false);
+  const openQuickCreate = useOpenQuickCreateTab('safe', (entity) => onChange(entity.id));
 
   return (
     <div className="flex flex-wrap items-end gap-3" data-tour-id={tourId}>
@@ -73,7 +65,7 @@ export function CashSafeHeaderSelector({
               title="إضافة خزنة جديدة"
               aria-label="إضافة خزنة جديدة"
               className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] text-[#0E78AA] hover:bg-[#EEF7FB]"
-              onClick={() => setQuickOpen(true)}
+              onClick={() => openQuickCreate()}
             >
               <Plus className="h-4 w-4" />
             </button>
@@ -85,7 +77,7 @@ export function CashSafeHeaderSelector({
         <label className="mb-1.5 block text-xs font-medium text-slate-500">كود الخزنة</label>
         <input
           type="text"
-          value={safeCode}
+          value={selected?.code || selected?.glAccountCode || selected?.glAccount?.code || ''}
           readOnly
           className="h-9 w-full rounded-md border border-[#D6EAF3] bg-[#F6FBFD] px-2 text-center font-mono text-xs text-[#094C6B]"
           placeholder="---"
@@ -100,14 +92,6 @@ export function CashSafeHeaderSelector({
           </span>
         </div>
       </div>
-      {quickOpen ? (
-        <QuickCreateSafeModal
-          open
-          currencyCode={baseCurrency}
-          onClose={() => setQuickOpen(false)}
-          onCreated={(safe) => onChange(safe.id)}
-        />
-      ) : null}
     </div>
   );
 }

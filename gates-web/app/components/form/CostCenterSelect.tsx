@@ -3,14 +3,8 @@
 import { memo, useMemo, useState } from 'react';
 import { useCostCentersQuery, type CostCenterOption } from '@/lib/hooks/useMasterDataQueries';
 import { SearchableCombobox } from '@/app/components/form/SearchableCombobox';
-import { lazyNamedModal } from '@/components/ui/lazyModal';
 import { compactControlClass } from '@/components/ui/forms/formTokens';
-
-const QuickCreateCostCenterModal = lazyNamedModal(
-  () => import('@/app/components/form/QuickCreateCostCenterModal'),
-  'QuickCreateCostCenterModal',
-  'جاري تحميل إضافة مركز تكلفة…'
-);
+import { useOpenQuickCreateTab } from '@/lib/quick-create/useQuickCreateTab';
 
 const selectCls = compactControlClass;
 
@@ -46,9 +40,16 @@ function CostCenterSelectInner({
 }) {
   const { data, isLoading, isError } = useCostCentersQuery();
   const rows = data?.data ?? [];
-  const [quickOpen, setQuickOpen] = useState(false);
-  const [quickName, setQuickName] = useState('');
   const [pinned, setPinned] = useState<CostCenterOption | null>(null);
+  const openQuickCreate = useOpenQuickCreateTab('cost-center', (entity) => {
+    const row = {
+      id: entity.id,
+      arabicName: entity.arabicName || entity.label,
+      code: entity.code ?? null,
+    } as CostCenterOption;
+    setPinned(row);
+    onChange(row.id);
+  });
 
   const merged = useMemo(() => {
     if (pinned && !rows.some((cc) => cc.id === pinned.id)) {
@@ -94,14 +95,7 @@ function CostCenterSelectInner({
         portaled
         menuPlacement="auto"
         quickCreateLabel={enableQuickCreate ? '+ إضافة سريع' : undefined}
-        onQuickCreate={
-          enableQuickCreate
-            ? (query) => {
-                setQuickName(query);
-                setQuickOpen(true);
-              }
-            : undefined
-        }
+        onQuickCreate={enableQuickCreate ? (query) => openQuickCreate(query) : undefined}
         inputProps={{
           'aria-label': nativeSelectProps?.['aria-label'],
           title: nativeSelectProps?.title,
@@ -115,17 +109,6 @@ function CostCenterSelectInner({
             | undefined,
         }}
       />
-      {enableQuickCreate && quickOpen ? (
-        <QuickCreateCostCenterModal
-          open
-          initialName={quickName}
-          onClose={() => setQuickOpen(false)}
-          onCreated={(costCenter) => {
-            setPinned(costCenter);
-            onChange(costCenter.id);
-          }}
-        />
-      ) : null}
     </>
   );
 }

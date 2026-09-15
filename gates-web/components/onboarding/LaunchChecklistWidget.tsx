@@ -94,7 +94,7 @@ export function LaunchChecklistWidget() {
           <span>{checklist.recordedFirstReceipt ? '✅' : '⬜'} تسجيل أول سند قبض نقدية</span>
           {!checklist.recordedFirstReceipt && (
             <Link
-              href="/accounting/operations/treasury/cash-receipt"
+              href="/accounting/operations/treasury/receipt-voucher"
               className="rounded-lg bg-[#0E79AA] px-3 py-1.5 text-xs font-bold text-white"
             >
               + تسجيل سند

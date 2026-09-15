@@ -8,7 +8,13 @@ import {
   handleLineGridKeyDown,
   lineGridDataAttrs,
 } from '@/lib/keyboard/gridLineFocus';
-import { formatBaseAmount, lineFxRate, sameCurrencyCode, toBaseAmount } from '@/lib/accounting/fx-base';
+import {
+  formatBaseAmount,
+  isFxRateLocked,
+  lineFxRate,
+  rateForCurrency,
+  toBaseAmount,
+} from '@/lib/accounting/fx-base';
 import { useCompanyBaseCurrency } from '@/lib/hooks/useCompanyBaseCurrency';
 import { VoucherAccountCombobox } from './VoucherAccountCombobox';
 
@@ -35,7 +41,6 @@ export type VoucherGridLine = {
 };
 
 const GRID_ID = 'voucher-lines';
-const FIELD_ORDER = ['account', 'description', 'amount', 'currency', 'rate', 'costCenter'] as const;
 
 type Props = {
   lines: VoucherGridLine[];
@@ -45,6 +50,7 @@ type Props = {
   accountLabelFor?: (accountId: string) => string | undefined;
   currencies?: VoucherLineCurrency[];
   headerCurrencyCode?: string;
+  showFx?: boolean;
 };
 
 function formatAmountInput(value: number) {
@@ -63,9 +69,18 @@ export function VoucherLinesGrid({
   accountLabelFor,
   currencies = [],
   headerCurrencyCode,
+  showFx = true,
 }: Props) {
   const { code: companyBase, label: companyBaseLabel } = useCompanyBaseCurrency();
   const headerCode = headerCurrencyCode || companyBase;
+  const fieldOrder = showFx
+    ? ['account', 'description', 'amount', 'currency', 'rate', 'costCenter']
+    : ['account', 'description', 'amount', 'costCenter'];
+  const headerRate = rateForCurrency(
+    headerCode,
+    companyBase,
+    currencies.find((c) => c.code === headerCode)?.exchangeRate
+  );
   const updateLine = (index: number, patch: Partial<VoucherGridLine>) => {
     onChange(lines.map((line, i) => (i === index ? { ...line, ...patch } : line)));
   };
@@ -79,7 +94,7 @@ export function VoucherLinesGrid({
           amount: 0,
           costCenterId: '',
           currencyCode: headerCode,
-          exchangeRate: 1,
+          exchangeRate: headerRate,
         },
       ]);
       return;
@@ -108,7 +123,7 @@ export function VoucherLinesGrid({
       handleLineGridKeyDown(e, {
         gridId: GRID_ID,
         lineIndex: index,
-        fieldOrder: FIELD_ORDER,
+        fieldOrder,
         onAppendLine: onAddLine,
         onRemoveLine: removeLine,
       });
@@ -122,9 +137,13 @@ export function VoucherLinesGrid({
         { id: 'account', label: 'الحساب / العميل / المورد', className: 'min-w-[240px]' },
         { id: 'description', label: 'البيان / ملاحظات السطر', className: 'min-w-[180px]' },
         { id: 'amount', label: 'المبلغ', className: 'w-36 min-w-[8rem]', align: 'center' },
-        { id: 'base', label: `المبلغ المعادل (${companyBaseLabel})`, className: 'w-32 min-w-[7rem]', align: 'center' },
-        { id: 'currency', label: 'العملة', className: 'w-24 min-w-[6rem]' },
-        { id: 'rate', label: 'سعر الصرف', className: 'w-24 min-w-[6rem]', align: 'center' },
+        ...(showFx
+          ? [
+              { id: 'base', label: `المبلغ المعادل (${companyBaseLabel})`, className: 'w-32 min-w-[7rem]', align: 'center' as const },
+              { id: 'currency', label: 'العملة', className: 'w-24 min-w-[6rem]' },
+              { id: 'rate', label: 'سعر الصرف', className: 'w-24 min-w-[6rem]', align: 'center' as const },
+            ]
+          : []),
         { id: 'costCenter', label: 'مركز التكلفة', className: 'w-44 min-w-[10rem]' },
         { id: 'action', label: 'إجراء', className: 'w-12 text-center', align: 'center' },
       ]}
@@ -138,7 +157,7 @@ export function VoucherLinesGrid({
           description: '',
           costCenterId: '',
           currencyCode: headerCode,
-          exchangeRate: 1,
+          exchangeRate: headerRate,
         };
         if (columnId === '#') {
           return <span className="block text-center text-xs text-muted-foreground">{index + 1}</span>;
@@ -211,8 +230,7 @@ export function VoucherLinesGrid({
         }
         if (columnId === 'rate') {
           const lineCode = line.currencyCode || headerCode;
-          const rateLocked =
-            sameCurrencyCode(lineCode, companyBase) || sameCurrencyCode(lineCode, headerCode);
+          const rateLocked = isFxRateLocked(lineCode, companyBase);
           return (
             <input
               type="number"

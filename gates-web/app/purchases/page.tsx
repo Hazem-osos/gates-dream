@@ -70,7 +70,7 @@ export default function PurchasesCommand() {
       shortcuts={[
         { key: 'F2', label: 'فاتورة شراء', href: '/inventory/operations/final-purchase-invoice' },
         { key: 'F4', label: 'أمر توريد', href: '/inventory/operations/purchase-order' },
-        { key: 'F6', label: 'سداد', href: '/accounting/operations/treasury/cash-payment' },
+        { key: 'F6', label: 'سداد', href: '/accounting/operations/treasury/payment-voucher' },
       ]}
     >
       <MetricBar

@@ -19,6 +19,8 @@ import { apiClient } from '@/lib/api/client';
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
 import { nextNumericSerial } from '@/lib/masters/nextNumericSerial';
+import { entityLabel } from '@/lib/quick-create/catalog';
+import { useQuickCreateHost } from '@/lib/quick-create/useQuickCreateTab';
 
 interface Account {
   id: string;
@@ -74,6 +76,7 @@ type SupplierRecord = {
 function SupplierPageInner() {
   const { isReadOnly, unlockForEdit, lockToView, setMode } = useDocumentMode();
   const invalidateQuery = useInvalidateQuery();
+  const quickCreate = useQuickCreateHost('supplier');
 
   const [showTaxInfo, setShowTaxInfo] = useState(false);
   const [isTaxInfoChecked, setIsTaxInfoChecked] = useState(false);
@@ -118,6 +121,11 @@ function SupplierPageInner() {
     discountType: '',
     supplierCategoryId: '',
   });
+
+  useEffect(() => {
+    if (!quickCreate.prefillName) return;
+    setFormData((prev) => (prev.arabicName ? prev : { ...prev, arabicName: quickCreate.prefillName }));
+  }, [quickCreate.prefillName]);
 
   // Fetch accounts
   const { data: accountsResponse } = useApiQuery<Account[]>(
@@ -315,7 +323,17 @@ function SupplierPageInner() {
         if (res.data) hydrate(res.data);
         setSuccess('تم تحديث المورد');
       } else {
-        await apiClient.post('/accounting/suppliers', payload());
+        const createdRes = await apiClient.post<SupplierRecord>('/accounting/suppliers', payload());
+        const created = createdRes.data;
+        if (created?.id) {
+          quickCreate.complete({
+            id: created.id,
+            label: entityLabel(created.code, created.arabicName),
+            arabicName: created.arabicName,
+            code: created.code,
+            accountId: created.accountId,
+          });
+        }
         setSuccess('تم حفظ المورد بنجاح');
         setFormData(blankForm());
         setIsTaxInfoChecked(false);

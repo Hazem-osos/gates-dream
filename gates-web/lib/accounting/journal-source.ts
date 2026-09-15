@@ -26,6 +26,15 @@ const AUTO_GL_TO_KIND: Record<string, JournalSourceType> = {
   CKC: 'CHEQUE_ENDORSEMENT',
   CKB: 'CHEQUE_ENDORSEMENT',
   CKE: 'CHEQUE_ENDORSEMENT',
+  GI: 'STOCK_TRANSACTION',
+  GR: 'STOCK_TRANSACTION',
+  TRF: 'STOCK_TRANSACTION',
+  STK: 'STOCK_TRANSACTION',
+  ADJ: 'STOCK_TRANSACTION',
+  OB: 'STOCK_TRANSACTION',
+  OPEN: 'STOCK_TRANSACTION',
+  ASM: 'STOCK_TRANSACTION',
+  DSM: 'STOCK_TRANSACTION',
 };
 
 const KIND_SET = new Set<string>(JOURNAL_SOURCE_TYPES);
@@ -40,9 +49,59 @@ export function resolveJournalSourceKind(
   return 'MANUAL';
 }
 
+export function hrefForCashTransaction(row: {
+  id: string;
+  documentRole?: string | null;
+  transactionKind?: string | null;
+  safeId?: string | null;
+  bankAccountId?: string | null;
+}): string {
+  const q = encodeURIComponent(row.id);
+  const isOrder = (row.documentRole || '').toUpperCase() === 'ORDER';
+  const isReceipt = (row.transactionKind || '').toUpperCase() === 'RECEIPT';
+  const isBank = Boolean(row.bankAccountId);
+
+  if (isOrder) {
+    return isReceipt
+      ? `/accounting/orders/receipt-order?id=${q}`
+      : `/accounting/orders/payment-order?id=${q}`;
+  }
+  if (isBank) {
+    return isReceipt
+      ? `/accounting/operations/banks/bank-addition?id=${q}`
+      : `/accounting/operations/banks/bank-discount?id=${q}`;
+  }
+  return isReceipt
+    ? `/accounting/operations/treasury/receipt-voucher?id=${q}`
+    : `/accounting/operations/treasury/payment-voucher?id=${q}`;
+}
+
+function stockSourceHref(sourceType: string | null | undefined, sourceId: string): string {
+  const q = encodeURIComponent(sourceId);
+  switch ((sourceType || '').toUpperCase()) {
+    case 'GI':
+      return `/inventory/operations/issue?id=${q}`;
+    case 'GR':
+      return `/inventory/operations/receipt?id=${q}`;
+    case 'TRF':
+    case 'STK':
+      return `/inventory/operations/transfer?id=${q}`;
+    case 'OB':
+    case 'OPEN':
+      return `/inventory/operations/opening-stock?id=${q}`;
+    case 'ASM':
+      return `/inventory/operations/assembly?id=${q}`;
+    case 'DSM':
+      return `/inventory/operations/disassembly?id=${q}`;
+    default:
+      return `/inventory/operations/adjustment?id=${q}`;
+  }
+}
+
 export function journalSourceHref(
   sourceKind: JournalSourceType,
-  sourceId?: string | null
+  sourceId?: string | null,
+  sourceType?: string | null
 ): string | null {
   if (!sourceId) return null;
   const q = encodeURIComponent(sourceId);
@@ -56,11 +115,10 @@ export function journalSourceHref(
     case 'PURCHASE_RETURN':
       return `/inventory/operations/purchase-returns?invoiceId=${q}`;
     case 'PAYMENT_VOUCHER':
-      return `/accounting/operations/treasury/cash-payment?id=${q}`;
     case 'RECEIPT_VOUCHER':
-      return `/accounting/operations/treasury/cash-receipt?id=${q}`;
+      return `/accounting/operations/treasury/open?id=${q}`;
     case 'STOCK_TRANSACTION':
-      return `/inventory/operations/adjustment?id=${q}`;
+      return stockSourceHref(sourceType, sourceId);
     case 'CHEQUE_ENDORSEMENT':
       return `/accounting/operations/securities`;
     default:

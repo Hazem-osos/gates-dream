@@ -2,8 +2,6 @@
 
 import { useCallback, useMemo, useState } from 'react';
 import { SearchableCombobox } from '@/app/components/form/SearchableCombobox';
-import { QuickCreateKindChooser } from '@/app/components/form/QuickCreateDialog';
-import { lazyNamedModal } from '@/components/ui/lazyModal';
 import {
   formatAccountLabel,
   isPostableLeafAccount,
@@ -14,17 +12,7 @@ import {
   type AccountOption,
   type PartyOption,
 } from '@/lib/hooks/useMasterDataQueries';
-
-const QuickCreateAccountModal = lazyNamedModal(
-  () => import('@/app/components/form/QuickCreateAccountModal'),
-  'QuickCreateAccountModal',
-  'جاري تحميل إضافة حساب…'
-);
-const QuickCreatePartyModal = lazyNamedModal(
-  () => import('@/app/components/form/QuickCreatePartyModal'),
-  'QuickCreatePartyModal',
-  'جاري تحميل إضافة طرف…'
-);
+import { useOpenQuickCreateTab } from '@/lib/quick-create/useQuickCreateTab';
 
 export type VoucherAccountPick =
   | { kind: 'ACCOUNT'; accountId: string }
@@ -60,10 +48,11 @@ export function VoucherAccountCombobox({
   onPick,
 }: Props) {
   const [search, setSearch] = useState('');
-  const [chooserOpen, setChooserOpen] = useState(false);
-  const [createKind, setCreateKind] = useState<'ACCOUNT' | 'CUSTOMER' | 'SUPPLIER' | null>(null);
-  const [quickName, setQuickName] = useState('');
   const [pinnedLabel, setPinnedLabel] = useState<string | undefined>(undefined);
+  const openAccountTab = useOpenQuickCreateTab('account', (entity) => {
+    setPinnedLabel(`حساب · ${entity.label}`);
+    onPick({ kind: 'ACCOUNT', accountId: entity.id });
+  });
   const accountsQ = useAccountsQuery(search, PICKER_PAGE_SIZE, { leafOnly: true });
   const customersQ = useCustomersQuery(PICKER_PAGE_SIZE, search, true);
   const suppliersQ = useSuppliersQuery(PICKER_PAGE_SIZE, search, true);
@@ -155,53 +144,8 @@ export function VoucherAccountCombobox({
         inputProps={inputProps}
         onInputKeyDown={onInputKeyDown}
         quickCreateLabel="+ إضافة سريع"
-        onQuickCreate={(query) => {
-          setQuickName(query);
-          setChooserOpen(true);
-        }}
+        onQuickCreate={(query) => openAccountTab(query)}
       />
-      <QuickCreateKindChooser
-        open={chooserOpen}
-        title="إضافة جديد"
-        options={[
-          { id: 'ACCOUNT', label: 'حساب' },
-          { id: 'CUSTOMER', label: 'عميل' },
-          { id: 'SUPPLIER', label: 'مورد' },
-        ]}
-        onClose={() => setChooserOpen(false)}
-        onPick={(id) => {
-          setChooserOpen(false);
-          setCreateKind(id as 'ACCOUNT' | 'CUSTOMER' | 'SUPPLIER');
-        }}
-      />
-      {createKind === 'ACCOUNT' ? (
-        <QuickCreateAccountModal
-          open
-          initialName={quickName}
-          onClose={() => setCreateKind(null)}
-          onCreated={(account) => {
-            setPinnedLabel(`حساب · ${formatAccountLabel(account)}`);
-            onPick({ kind: 'ACCOUNT', accountId: account.id });
-          }}
-        />
-      ) : null}
-      {createKind === 'CUSTOMER' || createKind === 'SUPPLIER' ? (
-        <QuickCreatePartyModal
-          open
-          kind={createKind}
-          initialName={quickName}
-          onClose={() => setCreateKind(null)}
-          onCreated={(party) => {
-            const prefix = createKind === 'CUSTOMER' ? 'عميل' : 'مورد';
-            setPinnedLabel(`${prefix} · ${partyLabel(party)}`);
-            onPick({
-              kind: createKind,
-              partyId: party.id,
-              accountId: party.accountId || '',
-            });
-          }}
-        />
-      ) : null}
     </>
   );
 }

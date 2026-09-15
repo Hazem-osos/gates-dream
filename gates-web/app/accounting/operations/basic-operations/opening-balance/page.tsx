@@ -130,6 +130,7 @@ function OpeningBalancePageInner() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [showList, setShowList] = useState(false);
+  const [showFxColumns, setShowFxColumns] = useState(true);
   const [isSyncingInventory, setIsSyncingInventory] = useState(false);
   const [savedJournalEntryId, setSavedJournalEntryId] = useState<string | null>(
     () => journalEntryIdFromUrl?.trim() || null
@@ -667,12 +668,22 @@ function OpeningBalancePageInner() {
 
       <DocumentFormLock>
         <div className="mt-3">
+          <label className="mb-2 inline-flex items-center gap-2 text-sm text-slate-700">
+            <input
+              type="checkbox"
+              checked={showFxColumns}
+              onChange={(e) => setShowFxColumns(e.target.checked)}
+              className="rounded border-slate-300"
+            />
+            إظهار أعمدة العملة وسعر الصرف
+          </label>
           <OpeningBalanceLinesTable
             lines={lines}
             onChange={setLines}
             onAddLine={() => setLines((prev) => [...prev, emptyJournalLine(defaultCurrency?.id)])}
             currencies={currencies}
             defaultCurrencyId={defaultCurrency?.id}
+            showFx={showFxColumns}
             disabled={isReadOnly || isPosted}
             accountLabelFor={(accountId) => {
               const acc = accounts.find((a) => a.id === accountId);

@@ -1,6 +1,6 @@
 'use client';
 
-import { memo, useCallback, useMemo, useState, type ComponentType } from 'react';
+import { memo, useCallback, useMemo, useState } from 'react';
 import {
   formatItemLabel,
   useItemsQuery,
@@ -10,16 +10,10 @@ import {
 import { SearchableCombobox } from '@/app/components/form/SearchableCombobox';
 import type { QuickCreatedItem } from '@/app/components/form/QuickCreateItemModal';
 import { useBarcodeScanner } from '@/lib/keyboard/useBarcodeScanner';
-import { lazyNamedModal } from '@/components/ui/lazyModal';
 import { compactControlClass } from '@/components/ui/forms/formTokens';
 import { toast } from '@/lib/feedback/toast';
 import { findItemByBarcode } from '@/lib/inventory/findItemByBarcode';
-
-const QuickCreateItemModal = lazyNamedModal(
-  () => import('@/app/components/form/QuickCreateItemModal'),
-  'QuickCreateItemModal',
-  'جاري تحميل إضافة صنف…'
-);
+import { useOpenQuickCreateTab } from '@/lib/quick-create/useQuickCreateTab';
 
 const selectCls = compactControlClass;
 
@@ -31,14 +25,6 @@ function itemSalePrice(item: ItemOption): number | null {
   }
   return null;
 }
-
-type QuickCreateItemModalComponent = ComponentType<{
-  open: boolean;
-  initialName: string;
-  initialCode?: string;
-  onClose: () => void;
-  onCreated: (item: QuickCreatedItem) => void;
-}>;
 
 function ItemSelectInner({
   value,
@@ -53,7 +39,6 @@ function ItemSelectInner({
   onInputKeyDown,
   menuPlacement = 'top',
   portaled = true,
-  quickCreateModal,
 }: {
   value: string;
   onChange: (id: string) => void;
@@ -69,20 +54,13 @@ function ItemSelectInner({
   onInputKeyDown?: (e: React.KeyboardEvent<HTMLInputElement>) => void;
   menuPlacement?: 'bottom' | 'top' | 'auto';
   portaled?: boolean;
-  /**
-   * Sales Invoice Enterprise Redesign: lets the sales-invoice line grid swap
-   * in the richer `ItemQuickAddModal` (category + GL auto-assign + tax
-   * profile) without touching every other `ItemSelect` usage across the app,
-   * which intentionally keep the simpler default `QuickCreateItemModal`.
-   */
-  quickCreateModal?: QuickCreateItemModalComponent;
+  /** Kept for callers; plus now opens a tab instead of a modal. */
+  quickCreateModal?: unknown;
 }) {
   const [search, setSearch] = useState('');
   const { data, isLoading, isError } = useItemsQuery(PICKER_PAGE_SIZE, search);
   const items = data?.data ?? [];
   const [pinnedItem, setPinnedItem] = useState<ItemOption | QuickCreatedItem | null>(null);
-  const [quickOpen, setQuickOpen] = useState(false);
-  const [quickSeed, setQuickSeed] = useState({ name: '', code: '' });
 
   const mergedItems = useMemo(() => {
     if (pinnedItem && !items.some((it) => it.id === pinnedItem.id)) {
@@ -130,6 +108,17 @@ function ItemSelectInner({
   const handleQueryChange = useCallback((q: string) => {
     setSearch(q);
   }, []);
+
+  const openQuickCreate = useOpenQuickCreateTab('item', (entity) => {
+    const item = {
+      id: entity.id,
+      arabicName: entity.arabicName || entity.label,
+      code: entity.code ?? undefined,
+    } as ItemOption;
+    setPinnedItem(item);
+    onChange(item.id);
+    onItemResolved?.(item);
+  });
 
   const valueLabel = useMemo(() => {
     if (!value) return undefined;
@@ -183,14 +172,7 @@ function ItemSelectInner({
         error={isError}
         emptyMessage={isError ? 'تعذر تحميل الأصناف' : 'لا يوجد صنف مطابق'}
         quickCreateLabel={enableQuickCreate ? '+ إضافة سريع' : undefined}
-        onQuickCreate={
-          enableQuickCreate
-            ? (q) => {
-                setQuickSeed({ name: q, code: q });
-                setQuickOpen(true);
-              }
-            : undefined
-        }
+        onQuickCreate={enableQuickCreate ? (q) => openQuickCreate(q) : undefined}
         inputProps={{
           ...inputProps,
           onKeyDown: (e) => {
@@ -201,23 +183,6 @@ function ItemSelectInner({
         onInputKeyDown={undefined}
         clientSearchEntity="items"
       />
-      {enableQuickCreate && quickOpen ? (
-        (() => {
-          const QuickCreateModal = quickCreateModal ?? QuickCreateItemModal;
-          return (
-            <QuickCreateModal
-              open
-              initialName={quickSeed.name}
-              initialCode={quickSeed.code}
-              onClose={() => setQuickOpen(false)}
-              onCreated={(item) => {
-                handleChange(item.id);
-                onItemResolved?.(item);
-              }}
-            />
-          );
-        })()
-      ) : null}
     </>
   );
 }

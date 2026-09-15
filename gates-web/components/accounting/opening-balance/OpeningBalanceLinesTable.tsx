@@ -11,7 +11,7 @@ import {
   lineGridDataAttrs,
 } from '@/lib/keyboard/gridLineFocus';
 import type { EditableJournalLine } from '@/components/accounting/EditableJournalLinesTable';
-import { formatBaseAmount, lineFxRate, sameCurrencyCode, toBaseAmount } from '@/lib/accounting/fx-base';
+import { formatBaseAmount, isFxRateLocked, lineFxRate, rateForCurrency, toBaseAmount } from '@/lib/accounting/fx-base';
 import { useCompanyBaseCurrency } from '@/lib/hooks/useCompanyBaseCurrency';
 
 export type OpeningBalanceLineCurrency = {
@@ -30,16 +30,17 @@ type Props = {
   currencies?: OpeningBalanceLineCurrency[];
   defaultCurrencyId?: string;
   accountLabelFor?: (accountId: string) => string | undefined;
+  showFx?: boolean;
 };
 
-function emptyLine(currencyId?: string): EditableJournalLine {
+function emptyLine(currencyId?: string, exchangeRate = 1): EditableJournalLine {
   return {
     accountId: '',
     description: '',
     debit: 0,
     credit: 0,
     currencyId,
-    exchangeRate: 1,
+    exchangeRate,
     costCenterId: '',
   };
 }
@@ -61,15 +62,21 @@ export function OpeningBalanceLinesTable({
   currencies = [],
   defaultCurrencyId,
   accountLabelFor,
+  showFx = true,
 }: Props) {
-  const fieldOrder = OPENING_BALANCE_LINE_FIELD_ORDER;
+  const fieldOrder = showFx
+    ? [...OPENING_BALANCE_LINE_FIELD_ORDER]
+    : OPENING_BALANCE_LINE_FIELD_ORDER.filter((field) => field !== 'currency' && field !== 'rate');
   const { code: companyBase, label: companyBaseLabel } = useCompanyBaseCurrency();
+  const headerCurrency = currencies.find((c) => c.id === defaultCurrencyId);
+  const headerRate = rateForCurrency(headerCurrency?.code, companyBase, headerCurrency?.exchangeRate);
+  const blankLine = () => emptyLine(defaultCurrencyId, headerRate);
 
   const updateLine = (index: number, patch: Partial<EditableJournalLine>) => {
-    const current = lines[index] ?? emptyLine(defaultCurrencyId);
+    const current = lines[index] ?? blankLine();
     const next = lines.length ? [...lines] : [];
     if (!lines[index]) {
-      while (next.length < index) next.push(emptyLine(defaultCurrencyId));
+      while (next.length < index) next.push(blankLine());
       next.push({ ...current, ...patch });
     } else {
       next[index] = { ...current, ...patch };
@@ -79,7 +86,7 @@ export function OpeningBalanceLinesTable({
 
   const removeLine = (index: number) => {
     if (lines.length <= 1) {
-      onChange([emptyLine(defaultCurrencyId)]);
+      onChange([blankLine()]);
       return;
     }
     onChange(lines.filter((_, i) => i !== index));
@@ -116,10 +123,14 @@ export function OpeningBalanceLinesTable({
     { id: 'description', label: 'البيان', className: 'min-w-[140px]' },
     { id: 'debit', label: 'مدين', className: 'w-28 min-w-[6.5rem]', align: 'center' as const },
     { id: 'credit', label: 'دائن', className: 'w-28 min-w-[6.5rem]', align: 'center' as const },
-    { id: 'debitBase', label: `مدين معادل (${companyBaseLabel})`, className: 'w-28 min-w-[6.5rem]', align: 'center' as const },
-    { id: 'creditBase', label: `دائن معادل (${companyBaseLabel})`, className: 'w-28 min-w-[6.5rem]', align: 'center' as const },
-    { id: 'currency', label: 'العملة', className: 'w-24 min-w-[6rem]' },
-    { id: 'rate', label: 'سعر الصرف', className: 'w-24 min-w-[6rem]', align: 'center' as const },
+    ...(showFx
+      ? [
+          { id: 'debitBase', label: `مدين معادل (${companyBaseLabel})`, className: 'w-28 min-w-[6.5rem]', align: 'center' as const },
+          { id: 'creditBase', label: `دائن معادل (${companyBaseLabel})`, className: 'w-28 min-w-[6.5rem]', align: 'center' as const },
+          { id: 'currency', label: 'العملة', className: 'w-24 min-w-[6rem]' },
+          { id: 'rate', label: 'سعر الصرف', className: 'w-24 min-w-[6rem]', align: 'center' as const },
+        ]
+      : []),
     { id: 'costCenter', label: 'مركز التكلفة', className: 'w-44 min-w-[10rem]' },
     { id: 'action', label: 'إجراء', className: 'w-12 text-center', align: 'center' as const },
   ];
@@ -132,7 +143,7 @@ export function OpeningBalanceLinesTable({
       onAddRow={disabled ? undefined : onAddLine}
       addLabel="إضافة طرف جديد (Enter)"
       renderCell={(index, columnId) => {
-        const line = lines[index] ?? emptyLine(defaultCurrencyId);
+        const line = lines[index] ?? blankLine();
         if (columnId === '#') {
           return (
             <span className="block text-center font-mono text-xs text-muted-foreground">{index + 1}</span>
@@ -261,10 +272,7 @@ export function OpeningBalanceLinesTable({
         }
         if (columnId === 'rate') {
           const selected = currencies.find((c) => c.id === (line.currencyId || defaultCurrencyId));
-          const headerCode = currencies.find((c) => c.id === defaultCurrencyId)?.code;
-          const rateLocked =
-            sameCurrencyCode(selected?.code, companyBase) ||
-            sameCurrencyCode(selected?.code, headerCode);
+          const rateLocked = isFxRateLocked(selected?.code, companyBase);
           return (
             <input
               type="number"

@@ -11,7 +11,6 @@ import { useApiQuery } from '@/lib/hooks/useApi';
 
 export type VoucherSourceSection =
   | 'CASH_PAYMENT_ORDER'
-  | 'BANK_PAYMENT_ORDER'
   | 'CASH_RECEIPT_ORDER'
   | 'BANK_RECEIPT_ORDER';
 
@@ -30,7 +29,6 @@ const SECTION_OPTIONS: Array<{
   fundType: 'CASHBOX' | 'BANK_ACCOUNT';
 }> = [
   { value: 'CASH_PAYMENT_ORDER', label: 'أمر صرف نقدية', kind: 'PAYMENT', fundType: 'CASHBOX' },
-  { value: 'BANK_PAYMENT_ORDER', label: 'أمر صرف بنكي', kind: 'PAYMENT', fundType: 'BANK_ACCOUNT' },
   { value: 'CASH_RECEIPT_ORDER', label: 'أمر توريد نقدية', kind: 'RECEIPT', fundType: 'CASHBOX' },
   { value: 'BANK_RECEIPT_ORDER', label: 'أمر توريد بنكي', kind: 'RECEIPT', fundType: 'BANK_ACCOUNT' },
 ];
@@ -44,7 +42,7 @@ function defaultSection(
   fundType: 'CASHBOX' | 'BANK_ACCOUNT'
 ): VoucherSourceSection {
   if (kind === 'PAYMENT') {
-    return fundType === 'BANK_ACCOUNT' ? 'BANK_PAYMENT_ORDER' : 'CASH_PAYMENT_ORDER';
+    return 'CASH_PAYMENT_ORDER';
   }
   return fundType === 'BANK_ACCOUNT' ? 'BANK_RECEIPT_ORDER' : 'CASH_RECEIPT_ORDER';
 }

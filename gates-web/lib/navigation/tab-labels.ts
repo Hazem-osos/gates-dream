@@ -36,6 +36,8 @@ const PATH_LABEL_EXACT: Record<string, string> = {
   '/accounting': 'الحسابات العامة',
   '/accounting/cards/customer-group': 'مجموعة العميل',
   '/accounting/cards/supplier-group': 'مجموعة المورد',
+  '/accounting/cards/safe': 'بطاقة خزنة',
+  '/accounting/cards/bank-account': 'بطاقة حساب بنكي',
   '/accounting-settings': 'الإعدادات المحاسبية',
   '/extracts': 'المستخلصات',
   '/hr': 'الموارد البشرية',

@@ -53,6 +53,7 @@ function defaultBankValues(): BankVoucherUiFormInput {
 export default function BankVoucherDraftPage({ title, logTag }: { title: string; logTag: string }) {
   const router = useRouter();
   const [showPaymentsModal, setShowPaymentsModal] = useState(false);
+  const [allocations, setAllocations] = useState<{ invoiceId: string; allocatedAmount: number }[]>([]);
   const [lines, setLines] = useState<EditableJournalLine[]>([]);
 
   const {
@@ -133,6 +134,7 @@ export default function BankVoucherDraftPage({ title, logTag }: { title: string;
             onClick={() => setShowPaymentsModal(true)}
           >
             توزيع السدادات على الفواتير
+            {allocations.length > 0 ? ` (${allocations.length})` : ''}
           </button>
           <button type="button" className="h-9 rounded-lg border border-[#D6EAF3] bg-white px-4 text-xs font-bold text-[#094C6B]">
             حالة الإعتمادات
@@ -322,7 +324,14 @@ export default function BankVoucherDraftPage({ title, logTag }: { title: string;
           />
         }
       />
-      <PaymentsDistributionModal isOpen={showPaymentsModal} onClose={() => setShowPaymentsModal(false)} />
+      <PaymentsDistributionModal
+        isOpen={showPaymentsModal}
+        onClose={() => setShowPaymentsModal(false)}
+        side={title.includes('قبض') || title.includes('إضافة') ? 'receivable' : 'payable'}
+        receiptTotal={lineTotals.debit || lineTotals.credit}
+        draftMode
+        onApplyDraft={setAllocations}
+      />
     </div>
   );
 }

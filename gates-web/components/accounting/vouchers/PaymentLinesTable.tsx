@@ -7,7 +7,7 @@ import { UniversalDataGrid } from '@/components/ui/data-entry-grid';
 import { dataEntryGridInputClass } from '@/components/ui/data-entry-grid/tokens';
 import { handleLineGridKeyDown, lineGridDataAttrs } from '@/lib/keyboard/gridLineFocus';
 import { useApiQuery } from '@/lib/hooks/useApi';
-import { lineFxRate, sameCurrencyCode } from '@/lib/accounting/fx-base';
+import { isFxRateLocked, lineFxRate, rateForCurrency } from '@/lib/accounting/fx-base';
 import { useCompanyBaseCurrency } from '@/lib/hooks/useCompanyBaseCurrency';
 import { lineBaseAmount, type PaymentVoucherLine } from '@/lib/treasury/payment-voucher-line';
 import { VoucherAccountCombobox } from './VoucherAccountCombobox';
@@ -81,7 +81,11 @@ export function PaymentLinesTable({
           invoiceId: null,
           isTiedToInvoice: false,
           currencyCode: headerCurrency,
-          exchangeRate: 1,
+          exchangeRate: rateForCurrency(
+            headerCurrency,
+            companyBase,
+            currencies.find((c) => c.code === headerCurrency)?.exchangeRate
+          ),
         },
       ]);
       return;
@@ -119,10 +123,10 @@ export function PaymentLinesTable({
     { id: 'account', label: accountColumnLabel, className: 'min-w-[220px]' },
     { id: 'description', label: 'البيان', className: 'min-w-[140px]' },
     { id: 'amount', label: 'المبلغ', className: 'w-32 min-w-[7rem]', align: 'center' as const },
-    { id: 'base', label: `المبلغ المعادل (${companyBaseLabel})`, className: 'w-32 min-w-[7rem]', align: 'center' as const },
     { id: 'tied', label: 'مؤيد بفاتورة', className: 'w-40 min-w-[9rem]' },
     ...(showFx
       ? [
+          { id: 'base', label: `المبلغ المعادل (${companyBaseLabel})`, className: 'w-32 min-w-[7rem]', align: 'center' as const },
           { id: 'currency', label: 'العملة', className: 'w-24 min-w-[6rem]' },
           { id: 'rate', label: 'سعر الصرف', className: 'w-24 min-w-[6rem]', align: 'center' as const },
         ]
@@ -144,7 +148,11 @@ export function PaymentLinesTable({
           description: '',
           costCenterId: '',
           currencyCode: resolvedBase,
-          exchangeRate: 1,
+          exchangeRate: rateForCurrency(
+            resolvedBase,
+            companyBase,
+            currencies.find((c) => c.code === resolvedBase)?.exchangeRate
+          ),
         };
         if (columnId === '#') {
           return <span className="block text-center text-xs text-muted-foreground">{index + 1}</span>;
@@ -210,8 +218,7 @@ export function PaymentLinesTable({
         }
         if (columnId === 'rate') {
           const lineCode = line.currencyCode || headerCurrency;
-          const rateLocked =
-            sameCurrencyCode(lineCode, companyBase) || sameCurrencyCode(lineCode, headerCurrency);
+          const rateLocked = isFxRateLocked(lineCode, companyBase);
           return (
             <input
               type="number"

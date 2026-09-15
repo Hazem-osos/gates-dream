@@ -59,16 +59,17 @@ export function sameCurrencyCode(
 
 export function withHeaderCurrency<T extends { currencyCode?: string; exchangeRate?: number }>(
   line: T,
-  headerCurrencyCode: string
+  headerCurrencyCode: string,
+  catalogRate?: number | string | null,
+  companyBaseCode?: string | null
 ): T {
   return {
     ...line,
     currencyCode: headerCurrencyCode,
-    exchangeRate: 1,
+    exchangeRate: rateForCurrency(headerCurrencyCode, companyBaseCode, catalogRate),
   };
 }
 
-/** Line FX: 1 when it matches the header or company base; otherwise the catalog rate. */
 /** Safe/bank `balance` is stored in company base. Show it in the document currency. */
 export function treasuryBalanceInCurrency(
   storedBase?: number | string | null,
@@ -80,14 +81,19 @@ export function treasuryBalanceInCurrency(
   return base / rate;
 }
 
+/** Rate vs company base. Header currency no longer forces 1 — dollar uses its catalog pound rate. */
 export function lineFxRate(params: {
   lineCurrencyCode?: string | null;
   headerCurrencyCode?: string | null;
   companyBaseCode?: string | null;
   catalogRate?: number | string | null;
 }): number {
-  const line = (params.lineCurrencyCode || '').trim().toUpperCase();
-  if (!line) return 1;
-  if (sameCurrencyCode(line, params.headerCurrencyCode)) return 1;
-  return rateForCurrency(line, params.companyBaseCode, params.catalogRate);
+  return rateForCurrency(params.lineCurrencyCode, params.companyBaseCode, params.catalogRate);
+}
+
+export function isFxRateLocked(
+  currencyCode: string | null | undefined,
+  companyBaseCode: string | null | undefined
+): boolean {
+  return !currencyCode || isCompanyBaseCurrency(currencyCode, companyBaseCode);
 }

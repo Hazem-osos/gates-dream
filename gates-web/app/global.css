@@ -119,10 +119,10 @@ html.gates-privacy-mode .gates-sensitive {
   min-width: 0;
 }
 
-.gates-erp-root .grid > :has(table),
-.gates-erp-root .grid > :has(.erp-scroll-x),
-.gates-erp-root .grid > :has(.overflow-x-auto),
-.gates-erp-root .grid > table {
+.gates-erp-root .grid:not(.erp-keep-cols) > :has(table),
+.gates-erp-root .grid:not(.erp-keep-cols) > :has(.erp-scroll-x),
+.gates-erp-root .grid:not(.erp-keep-cols) > :has(.overflow-x-auto),
+.gates-erp-root .grid:not(.erp-keep-cols) > table {
   grid-column: 1 / -1;
   min-width: 0;
   max-width: 100%;

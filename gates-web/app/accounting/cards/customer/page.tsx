@@ -24,6 +24,8 @@ import { DynamicModalSkeleton } from '@/components/ui/DynamicChunkSkeleton';
 import { getTenantContext } from '@/lib/tenant/tenant-context-storage';
 import { printPageContent } from '@/lib/print/printHtml';
 import { nextNumericSerial } from '@/lib/masters/nextNumericSerial';
+import { entityLabel } from '@/lib/quick-create/catalog';
+import { useQuickCreateHost } from '@/lib/quick-create/useQuickCreateTab';
 
 const CounterpartyOffsetModal = dynamic(
   () =>
@@ -56,6 +58,7 @@ interface Currency {
 
 export default function CustomerPage() {
   const invalidateQuery = useInvalidateQuery();
+  const quickCreate = useQuickCreateHost('customer');
   
   const [showTaxInfo, setShowTaxInfo] = useState(false);
   const [isTaxInfoChecked, setIsTaxInfoChecked] = useState(false);
@@ -158,14 +161,33 @@ export default function CustomerPage() {
     );
   }, [nextPartyCode]);
 
+  useEffect(() => {
+    if (!quickCreate.prefillName) return;
+    setFormData((prev) => (prev.arabicName ? prev : { ...prev, arabicName: quickCreate.prefillName }));
+  }, [quickCreate.prefillName]);
+
   // Customer mutation
   const customerMutation = useApiMutation<unknown, Record<string, unknown>>(
     '/accounting/customers',
     'POST',
     {
       onSuccess: (res) => {
-        const created = res?.data as { id?: string } | undefined;
-        if (created?.id) setSavedCustomerId(created.id);
+        const created = res?.data as {
+          id?: string;
+          arabicName?: string;
+          code?: string | null;
+          accountId?: string | null;
+        } | undefined;
+        if (created?.id) {
+          setSavedCustomerId(created.id);
+          quickCreate.complete({
+            id: created.id,
+            label: entityLabel(created.code, created.arabicName),
+            arabicName: created.arabicName,
+            code: created.code,
+            accountId: created.accountId,
+          });
+        }
         setSuccess('تم حفظ العميل بنجاح');
         invalidateQuery(['customers']);
         invalidateQuery(['accounts']);

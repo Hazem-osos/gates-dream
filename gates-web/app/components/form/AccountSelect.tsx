@@ -9,14 +9,8 @@ import {
   type AccountOption,
 } from '@/lib/hooks/useMasterDataQueries';
 import { SearchableCombobox } from '@/app/components/form/SearchableCombobox';
-import { lazyNamedModal } from '@/components/ui/lazyModal';
 import { compactControlClass } from '@/components/ui/forms/formTokens';
-
-const QuickCreateAccountModal = lazyNamedModal(
-  () => import('@/app/components/form/QuickCreateAccountModal'),
-  'QuickCreateAccountModal',
-  'جاري تحميل إضافة حساب…'
-);
+import { useOpenQuickCreateTab } from '@/lib/quick-create/useQuickCreateTab';
 
 const selectCls = compactControlClass;
 
@@ -49,8 +43,6 @@ function AccountSelectInner({
   enableQuickCreate?: boolean;
 }) {
   const [search, setSearch] = useState('');
-  const [quickOpen, setQuickOpen] = useState(false);
-  const [quickName, setQuickName] = useState('');
   const [pinnedAccount, setPinnedAccount] = useState<{
     id: string;
     code: string;
@@ -97,6 +89,15 @@ function AccountSelectInner({
     setSearch(q);
   }, []);
 
+  const openQuickCreate = useOpenQuickCreateTab('account', (entity) => {
+    setPinnedAccount({
+      id: entity.id,
+      code: String(entity.code ?? ''),
+      arabicName: entity.arabicName || entity.label,
+    });
+    onChange(entity.id);
+  });
+
   return (
     <>
       <SearchableCombobox
@@ -115,14 +116,7 @@ function AccountSelectInner({
         portaled
         menuPlacement="auto"
         quickCreateLabel={enableQuickCreate ? '+ إضافة سريع' : undefined}
-        onQuickCreate={
-          enableQuickCreate
-            ? (query) => {
-                setQuickName(query);
-                setQuickOpen(true);
-              }
-            : undefined
-        }
+        onQuickCreate={enableQuickCreate ? (query) => openQuickCreate(query) : undefined}
         inputProps={{
           'aria-label': nativeSelectProps?.['aria-label'],
           title: nativeSelectProps?.title,
@@ -136,17 +130,6 @@ function AccountSelectInner({
             | undefined,
         }}
       />
-      {enableQuickCreate && quickOpen ? (
-        <QuickCreateAccountModal
-          open
-          initialName={quickName}
-          onClose={() => setQuickOpen(false)}
-          onCreated={(account) => {
-            setPinnedAccount(account);
-            onChange(account.id);
-          }}
-        />
-      ) : null}
     </>
   );
 }

@@ -21,6 +21,8 @@ import { CostCenterSelect } from '@/app/components/form/CostCenterSelect';
 import { useAccountingSettingsQuery } from '@/lib/hooks/useAccountingSettings';
 import { useSuggestAccountCode } from '@/lib/hooks/useChartOfAccounts';
 import { NumberingModeControl } from '@/components/accounting/NumberingModeControl';
+import { entityLabel } from '@/lib/quick-create/catalog';
+import { useQuickCreateHost } from '@/lib/quick-create/useQuickCreateTab';
 
 const EMPTY_ACCOUNT_FORM = {
   code: '',
@@ -57,6 +59,7 @@ interface Currency {
 
 function InputDesign() {
   const invalidateQuery = useInvalidateQuery();
+  const quickCreate = useQuickCreateHost('account');
   
   const [formData, setFormData] = useState({ ...EMPTY_ACCOUNT_FORM });
   const { data: settingsRes } = useAccountingSettingsQuery();
@@ -74,6 +77,11 @@ function InputDesign() {
     if (!suggested || !autoNumbering) return;
     setFormData((prev) => (prev.code === suggested ? prev : { ...prev, code: suggested }));
   }, [autoNumbering, suggestRes?.data?.code]);
+
+  useEffect(() => {
+    if (!quickCreate.prefillName) return;
+    setFormData((prev) => (prev.arabicName ? prev : { ...prev, arabicName: quickCreate.prefillName }));
+  }, [quickCreate.prefillName]);
 
   // Fetch parent accounts
   const { data: accountsResponse } = useApiQuery<Account[]>(
@@ -96,7 +104,16 @@ function InputDesign() {
     '/accounting/accounts',
     'POST',
     {
-      onSuccess: () => {
+      onSuccess: (res) => {
+        const created = res?.data as { id?: string; arabicName?: string; code?: string } | undefined;
+        if (created?.id) {
+          quickCreate.complete({
+            id: created.id,
+            label: entityLabel(created.code, created.arabicName),
+            arabicName: created.arabicName,
+            code: created.code,
+          });
+        }
         setSuccess('تم حفظ الحساب بنجاح');
         invalidateQuery(['accounts']);
         // Reset form

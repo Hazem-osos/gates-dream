@@ -19,6 +19,8 @@ import { nextNumericSerial } from '@/lib/masters/nextNumericSerial';
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
 import type { ApiError } from '@/lib/api/types';
+import { entityLabel } from '@/lib/quick-create/catalog';
+import { useQuickCreateHost } from '@/lib/quick-create/useQuickCreateTab';
 
 type WarehouseForm = {
   code: string;
@@ -51,6 +53,7 @@ function StoresPageInner() {
   const idFromUrl = searchParams.get('id');
   const { isReadOnly, unlockForEdit, lockToView, setMode } = useDocumentMode();
   const invalidateQuery = useInvalidateQuery();
+  const quickCreate = useQuickCreateHost('warehouse');
   const [selectedId, setSelectedId] = useState<string | null>(idFromUrl);
   const [formData, setFormData] = useState<WarehouseForm>(emptyForm());
   const [error, setError] = useState('');
@@ -72,6 +75,11 @@ function StoresPageInner() {
     if (selectedId) return;
     setFormData((prev) => (prev.code === nextWarehouseCode ? prev : { ...prev, code: nextWarehouseCode }));
   }, [nextWarehouseCode, selectedId]);
+
+  useEffect(() => {
+    if (!quickCreate.prefillName || selectedId) return;
+    setFormData((prev) => (prev.arabicName ? prev : { ...prev, arabicName: quickCreate.prefillName }));
+  }, [quickCreate.prefillName, selectedId]);
 
   useEffect(() => {
     if (!idFromUrl) return;
@@ -97,7 +105,16 @@ function StoresPageInner() {
     '/inventory/warehouses',
     'POST',
     {
-      onSuccess: () => {
+      onSuccess: (res) => {
+        const created = res?.data as { id?: string; arabicName?: string; code?: string | null } | undefined;
+        if (created?.id) {
+          quickCreate.complete({
+            id: created.id,
+            label: entityLabel(created.code, created.arabicName),
+            arabicName: created.arabicName,
+            code: created.code,
+          });
+        }
         invalidateQuery(['warehouses']);
         resetNew();
         setSuccess('تم حفظ المخزن');

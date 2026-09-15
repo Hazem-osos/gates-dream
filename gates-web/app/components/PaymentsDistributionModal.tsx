@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { ActionButtons, Button, FormSectionCard, compactControlClass } from '@/components/ui';
+import { CustomerSelect, SupplierSelect } from '@/app/components/form/PartySelect';
 import { useApiMutation, useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
 import { parseDecimal } from '@/lib/money/parseDecimal';
 
@@ -41,6 +42,7 @@ interface PaymentsDistributionModalProps {
   /** Collect allocations on the voucher before save (no reconcile API). */
   draftMode?: boolean;
   onApplyDraft?: (allocations: { invoiceId: string; allocatedAmount: number }[]) => void;
+  onPartyChange?: (partyId: string) => void;
 }
 
 function formatDate(iso: string) {
@@ -64,12 +66,20 @@ export default function PaymentsDistributionModal({
   onSuccess,
   draftMode = false,
   onApplyDraft,
+  onPartyChange,
 }: PaymentsDistributionModalProps) {
   const invalidateQuery = useInvalidateQuery();
   const [rows, setRows] = useState<AllocationRow[]>([]);
+  const [localPartyId, setLocalPartyId] = useState('');
 
-  const effectiveCustomerId = customerId ?? (side === 'receivable' ? partyId : null);
-  const effectiveSupplierId = side === 'payable' ? partyId ?? null : null;
+  useEffect(() => {
+    if (!isOpen) return;
+    setLocalPartyId(partyId || customerId || '');
+  }, [isOpen, partyId, customerId]);
+
+  const effectivePartyId = localPartyId || partyId || customerId || '';
+  const effectiveCustomerId = side === 'receivable' ? effectivePartyId || null : null;
+  const effectiveSupplierId = side === 'payable' ? effectivePartyId || null : null;
 
   const queryParams = useMemo(() => {
     const p: Record<string, string> = { side };
@@ -82,7 +92,7 @@ export default function PaymentsDistributionModal({
     ['reconcile-open-invoices', side, effectiveCustomerId ?? effectiveSupplierId ?? 'all'],
     '/accounting/reconcile/open-invoices',
     queryParams,
-    { enabled: isOpen && !!(effectiveCustomerId || effectiveSupplierId) }
+    { enabled: isOpen }
   );
 
   const reconcileMutation = useApiMutation<
@@ -133,15 +143,23 @@ export default function PaymentsDistributionModal({
   };
 
   const applySelectedToReceiptTotal = () => {
-    let left = receiptTotal;
+    let left = receiptTotal > 0 ? receiptTotal : Number.POSITIVE_INFINITY;
     setRows((prev) =>
       prev.map((r) => {
+        if (!Number.isFinite(left)) {
+          return { ...r, selected: true, payAmount: String(r.remainingAmount) };
+        }
         if (left <= 0) return { ...r, selected: false, payAmount: '' };
         const pay = Math.min(r.remainingAmount, left);
         left -= pay;
         return { ...r, selected: pay > 0, payAmount: pay > 0 ? String(pay) : '' };
       })
     );
+  };
+
+  const handlePartyPick = (id: string) => {
+    setLocalPartyId(id);
+    onPartyChange?.(id);
   };
 
   const handleSave = async () => {
@@ -193,8 +211,8 @@ export default function PaymentsDistributionModal({
   };
 
   const handleAutoFifo = async () => {
-    if (!cashTransactionId || !isPosted) {
-      onError?.('احفظ وارحّل سند القبض أولاً');
+    if (draftMode || !cashTransactionId || !isPosted) {
+      applySelectedToReceiptTotal();
       return;
     }
     try {
@@ -216,16 +234,34 @@ export default function PaymentsDistributionModal({
         <div className="flex max-h-[90vh] w-full max-w-4xl flex-col overflow-visible rounded-2xl border border-[#E6F0F7] bg-white shadow-2xl">
           <div className="shrink-0 border-b border-[#E6F0F7] bg-white p-5 text-center">
             <h2 className="text-lg font-bold text-[#0A3D5E]">توزيع السدادات على الفواتير</h2>
-            {!effectiveCustomerId && !effectiveSupplierId && (
-              <p className="mt-2 text-sm text-amber-700">حدّد العميل/المورد لعرض الفواتير المفتوحة</p>
-            )}
+            <p className="mt-1 text-xs text-[#5A7A8A]">
+              {side === 'payable' ? 'اختر المورد أو وزّع على كل فواتير المشتريات المفتوحة' : 'اختر العميل أو وزّع على كل فواتير المبيعات المفتوحة'}
+            </p>
           </div>
 
           <div className="flex-1 overflow-y-auto p-5 pt-4">
             <FormSectionCard className="mb-0" bodyClassName="grid-cols-1 sm:grid-cols-1 lg:grid-cols-1">
+              <div className="mb-3">
+                <label className="mb-1 block text-xs font-semibold text-[#094C6B]">
+                  {side === 'payable' ? 'المورد' : 'العميل'}
+                </label>
+                {side === 'payable' ? (
+                  <SupplierSelect
+                    value={localPartyId}
+                    onChange={handlePartyPick}
+                    emptyLabel="كل الموردين"
+                  />
+                ) : (
+                  <CustomerSelect
+                    value={localPartyId}
+                    onChange={handlePartyPick}
+                    emptyLabel="كل العملاء"
+                  />
+                )}
+              </div>
               {isLoading && <p className="text-center text-gray-600">جاري تحميل الفواتير...</p>}
-              {!isLoading && (effectiveCustomerId || effectiveSupplierId) && rows.length === 0 && (
-                <p className="text-center text-gray-600">لا توجد فواتير مفتوحة لهذا العميل</p>
+              {!isLoading && rows.length === 0 && (
+                <p className="text-center text-gray-600">لا توجد فواتير مفتوحة</p>
               )}
               {rows.length > 0 && (
                 <div className="overflow-x-auto rounded-xl border border-[#E6F0F7] bg-white shadow-sm">
@@ -301,7 +337,7 @@ export default function PaymentsDistributionModal({
                   size="sm"
                   variant="secondary"
                   onClick={applySelectedToReceiptTotal}
-                  disabled={!receiptTotal}
+                  disabled={rows.length === 0}
                 >
                   ملء حسب مبلغ السند ({receiptTotal.toLocaleString('ar-EG')})
                 </Button>
@@ -310,7 +346,7 @@ export default function PaymentsDistributionModal({
                   size="sm"
                   variant="secondary"
                   onClick={() => void handleAutoFifo()}
-                  disabled={fifoMutation.isPending}
+                  disabled={fifoMutation.isPending || rows.length === 0}
                 >
                   توزيع تلقائي (FIFO)
                 </Button>

@@ -29,6 +29,8 @@ import { ItemFinderModal } from '@/components/inventory/ItemFinderModal';
 import { NumberingModeControl } from '@/components/accounting/NumberingModeControl';
 import { useAccountingSettingsQuery } from '@/lib/hooks/useAccountingSettings';
 import { nextNumericSerial } from '@/lib/masters/nextNumericSerial';
+import { entityLabel } from '@/lib/quick-create/catalog';
+import { useQuickCreateHost } from '@/lib/quick-create/useQuickCreateTab';
 import {
   applyItemToForm,
   assemblyRowsTotal,
@@ -235,6 +237,7 @@ function TabPanel({ title, hint, children }: { title: string; hint: string; chil
 export default function ItemCardPage() {
   const invalidateQuery = useInvalidateQuery();
   const router = useRouter();
+  const quickCreate = useQuickCreateHost('item');
   const [activeTab, setActiveTab] = useState('general');
   useItemCardTourPrepare(setActiveTab);
   const [itemType, setItemType] = useState('normal');
@@ -288,6 +291,11 @@ export default function ItemCardPage() {
     if (!itemAuto || activeItemId) return;
     setFormData((prev) => (prev.serial ? prev : { ...prev, serial: nextItemSerial }));
   }, [activeItemId, itemAuto, nextItemSerial]);
+
+  useEffect(() => {
+    if (!quickCreate.prefillName || activeItemId) return;
+    setFormData((prev) => (prev.arabicName ? prev : { ...prev, arabicName: quickCreate.prefillName }));
+  }, [activeItemId, quickCreate.prefillName]);
 
   const unitRows = itemDetail?.units ?? [];
   const [factorBusyId, setFactorBusyId] = useState<string | null>(null);
@@ -374,7 +382,16 @@ export default function ItemCardPage() {
     if (id) {
       setSavedItemId(id);
       hydratedIdRef.current = id;
-      router.replace(`/inventory/creations/item-card?id=${id}`);
+      if (quickCreate.isQuickCreate) {
+        quickCreate.complete({
+          id,
+          label: entityLabel(saved?.code ?? formData.serial, saved?.arabicName ?? formData.arabicName),
+          arabicName: saved?.arabicName ?? formData.arabicName,
+          code: saved?.code ?? formData.serial,
+        });
+      } else {
+        router.replace(`/inventory/creations/item-card?id=${id}`);
+      }
     }
     setSuccess('تم حفظ الصنف');
     invalidateQuery(['items']);
