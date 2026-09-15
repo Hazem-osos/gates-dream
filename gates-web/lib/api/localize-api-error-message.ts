@@ -6,15 +6,19 @@ type Rule = {
 };
 
 const EXACT: Record<string, string> = {
-  'validation error': 'يرجى التحقق من الحقول المدخلة',
+  'validation error': 'بعض الحقول غير صحيحة. الحل: راجع الحقول المعلّمة ثم أعد الحفظ.',
   'company id is required': 'معرّف الشركة مطلوب',
   'company context is required': 'يجب اختيار الشركة',
   'branch context is required for posting (send x-branch-id)': 'يجب اختيار الفرع قبل الترحيل',
   'authentication required': 'يجب تسجيل الدخول',
-  'insufficient permissions': 'لا تملك صلاحية لهذه العملية',
-  'an internal server error occurred': 'حدث خطأ داخلي في الخادم',
-  'an error occurred while processing your request': 'حدث خطأ أثناء معالجة الطلب',
-  'a database error occurred.': 'حدث خطأ في قاعدة البيانات',
+  'insufficient permissions':
+    'لا تملك صلاحية لهذه العملية. الحل: اطلب من المدير إضافة الصلاحية لمجموعتك.',
+  'an internal server error occurred':
+    'حدث خطأ غير متوقع. الحل: حدّث الصفحة وأعد المحاولة.',
+  'an error occurred while processing your request':
+    'حدث خطأ أثناء تنفيذ العملية. الحل: حدّث الصفحة وأعد المحاولة.',
+  'a database error occurred.':
+    'تعذّر حفظ البيانات. الحل: راجع الحقول وأعد المحاولة.',
   'failed to parse response': 'تعذّر قراءة استجابة الخادم',
   'request failed': 'فشل الطلب',
   'http 304: not modified': 'تعذّر تحديث البيانات المخزّنة — حدّث الصفحة.',
@@ -71,6 +75,10 @@ const EXACT: Record<string, string> = {
   'invoice must be posted before approval': 'يجب ترحيل الفاتورة قبل الاعتماد',
   'cannot unapprove a posted journal entry': 'تم إلغاء الاعتماد — يمكنك فك الترحيل الآن',
   'journal entry is not approved': 'القيد غير معتمد',
+  'journal entry is not cancelled': 'القيد ليس ملغياً',
+  'cannot post a cancelled journal entry': 'لا يمكن ترحيل قيد ملغي',
+  'journal entry cannot be posted in current workflow state':
+    'لا يمكن ترحيل القيد في حالته الحالية',
   'invoice is not approved': 'الفاتورة غير معتمدة',
   'line quantity must be greater than 0': 'كمية السطر يجب أن تكون أكبر من صفر',
   'base quantity must be greater than 0': 'الكمية الأساسية يجب أن تكون أكبر من صفر',
@@ -79,14 +87,29 @@ const EXACT: Record<string, string> = {
     'حساب المخزون غير مضبوط في إعدادات الشركة',
   'stock issue expense account is not configured in company settings':
     'حساب مصروف الصرف غير مضبوط في إعدادات الشركة',
-  'operation failed: a related record does not exist.': 'تعذّرت العملية — سجل مرتبط غير موجود',
-  'invalid data: a required relation is missing.': 'بيانات غير صالحة — علاقة مطلوبة ناقصة',
+  'operation failed: a related record does not exist.':
+    'تعذّر الحفظ لأن بياناً مرتبطاً غير موجود. الحل: تأكد أن الحساب أو الصنف أو المخزن المختار ما زال موجوداً.',
+  'invalid data: a required relation is missing.':
+    'بيانات غير مكتملة — علاقة مطلوبة ناقصة. الحل: أكمل الحقول المرتبطة ثم احفظ.',
   'from date and to date are required': 'يرجى اختيار تاريخ البداية والنهاية',
   'failed to get sales report': 'تعذّر تحميل تقرير المبيعات',
   'failed to list delegates': 'تعذّر تحميل قائمة المندوبين',
+  'failed to create delegate': 'تعذّر حفظ المندوب. الحل: راجع الرمز والاسم ثم أعد المحاولة.',
+  'failed to update delegate': 'تعذّر حفظ المندوب. الحل: راجع الرمز والاسم ثم أعد المحاولة.',
+  'failed to delete delegate': 'تعذّر حذف المندوب. الحل: حدّث الدليل ثم أعد المحاولة.',
+  'delegate not found': 'المندوب غير موجود. الحل: حدّث الدليل ثم أعد المحاولة.',
+  'failed to list cost centers': 'تعذّر تحميل دليل مراكز التكلفة',
+  'failed to create cost center':
+    'تعذّر حفظ مركز التكلفة. الحل: راجع المركز الأب والحركات المرتبطة به.',
+  'failed to update cost center':
+    'تعذّر حفظ مركز التكلفة. الحل: راجع المركز الأب والحركات المرتبطة به.',
+  'failed to delete cost center':
+    'تعذّر حذف مركز التكلفة. الحل: انقل الحركات من شاشة «نقل حركة مركز التكلفة» أو احذف المراكز الفرعية أولاً.',
+  'cost center not found': 'مركز التكلفة غير موجود. الحل: حدّث الدليل ثم أعد المحاولة.',
   'failed to list currencies': 'تعذّر تحميل قائمة العملات',
   'request timeout': 'انتهت مهلة الطلب — حاول مرة أخرى.',
-  'internal server error': 'حدث خطأ داخلي في الخادم.',
+  'internal server error':
+    'حدث خطأ غير متوقع. الحل: حدّث الصفحة وأعد المحاولة.',
   'socket hang up': 'انقطع الاتصال بالخادم. تأكد أن gates-backend شغال ثم حدّث الصفحة.',
   'econnreset': 'انقطع الاتصال بالخادم. تأكد أن gates-backend شغال ثم حدّث الصفحة.',
   'econnrefused': 'تعذّر الاتصال بالخادم — شغّل gates-backend على المنفذ 3001 ثم حدّث الصفحة.',
@@ -166,11 +189,11 @@ const RULES: Rule[] = [
   },
   {
     test: /a record with this .+ already exists/i,
-    ar: 'يوجد سجل بنفس البيانات مسبقاً.',
+    ar: 'يوجد سجل بنفس الرقم أو الاسم. الحل: غيّر القيمة المكررة ثم احفظ.',
   },
   {
     test: /fiscal year is closed|closed for this document date/i,
-    ar: 'السنة المالية مغلقة — لا يمكن تنفيذ العملية.',
+    ar: 'السنة المالية مغلقة. الحل: افتح الفترة من شاشة الفترات المحاسبية أو غيّر تاريخ المستند لفترة مفتوحة.',
   },
   {
     test: /not licensed for this tenant|subscription is not active/i,
@@ -202,11 +225,27 @@ const RULES: Rule[] = [
   },
   {
     test: /http 50[234]|bad gateway|service unavailable|gateway timeout/i,
-    ar: 'الخادم غير متاح حالياً — تأكد أن gates-backend شغال على المنفذ 3001.',
+    ar: 'الخادم غير متاح حالياً. الحل: تأكد أن gates-backend شغال على المنفذ 3001 ثم حدّث الصفحة.',
   },
   {
     test: /http 500|internal server error/i,
-    ar: 'حدث خطأ داخلي في الخادم.',
+    ar: 'حدث خطأ غير متوقع. الحل: حدّث الصفحة وأعد المحاولة.',
+  },
+  {
+    test: /unique constraint|already exists/i,
+    ar: 'يوجد سجل بنفس هذه البيانات. الحل: غيّر الرقم أو الاسم المكرر ثم احفظ.',
+  },
+  {
+    test: /failed to create account|failed to update account|failed to delete account/i,
+    ar: 'تعذّر حفظ الحساب. الحل: راجع الحساب الأب والحركات المرتبطة به.',
+  },
+  {
+    test: /failed to create cost center|failed to update cost center|failed to delete cost center/i,
+    ar: 'تعذّر حفظ مركز التكلفة. الحل: راجع المركز الأب والحركات المرتبطة به، أو انقل الحركة من شاشة «نقل حركة مركز التكلفة».',
+  },
+  {
+    test: /failed to create delegate|failed to update delegate|failed to delete delegate/i,
+    ar: 'تعذّر حفظ المندوب. الحل: راجع الرمز والاسم ثم أعد المحاولة.',
   },
   {
     test: /^http 404|cannot get /i,
@@ -237,6 +276,8 @@ const RULES: Rule[] = [
         warehouse: 'المخزن',
         company: 'الشركة',
         account: 'الحساب',
+        'cost center': 'مركز التكلفة',
+        delegate: 'المندوب',
         record: 'السجل',
       };
       const arEntity = map[entity] ?? 'السجل';
@@ -302,7 +343,7 @@ export function localizeApiErrorMessage(message: string, httpStatus?: number): s
   if (mapped) return mapped;
 
   if (looksLikeEnglishUserMessage(raw)) {
-    return 'تعذّر تنفيذ العملية. راجع البيانات أو تواصل مع الدعم إذا استمر الخطأ.';
+    return 'تعذّر تنفيذ العملية. الحل: راجع البيانات المدخلة وأعد المحاولة. لو تكرر الخطأ بعد التصحيح حدّث الصفحة.';
   }
 
   return raw;

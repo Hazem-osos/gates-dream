@@ -18,6 +18,8 @@ import {
   getAppModulePath,
 } from '@/lib/navigation/app-modules';
 import { useInstantPrefetch } from '@/lib/hooks/useInstantPrefetch';
+import { triggerScreenHelp } from '@/lib/ai/ask-screen-help';
+import { resolveAiScreenContext } from '@/lib/ai/screen-context';
 
 interface NavbarProps {
   rightSidebarOpen?: boolean;
@@ -256,6 +258,21 @@ export default function Navbar({ rightSidebarOpen = false, setRightSidebarOpen, 
                     />
                   </>
                 )}
+              </button>
+              <button
+                type="button"
+                className="inline-flex h-10 items-center gap-1.5 rounded-lg bg-white/15 px-2.5 text-[11px] font-semibold text-white transition hover:bg-white/25"
+                onClick={() => {
+                  setShowNotifications(false);
+                  setShowSettingsSidebar(false);
+                  closeAcademy();
+                  triggerScreenHelp(resolveAiScreenContext(pathname ?? '').pageTitle);
+                }}
+                data-screen-help
+                title="دليل هذه الشاشة"
+              >
+                <Sparkles className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">دليل الشاشة</span>
               </button>
               <button
                 type="button"

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { User } from 'lucide-react';
 import TaxInfoOverlay from '@/components/TaxInfoOverlay';
 import {
@@ -23,6 +23,7 @@ import dynamic from 'next/dynamic';
 import { DynamicModalSkeleton } from '@/components/ui/DynamicChunkSkeleton';
 import { getTenantContext } from '@/lib/tenant/tenant-context-storage';
 import { printPageContent } from '@/lib/print/printHtml';
+import { nextNumericSerial } from '@/lib/masters/nextNumericSerial';
 
 const CounterpartyOffsetModal = dynamic(
   () =>
@@ -140,6 +141,22 @@ export default function CustomerPage() {
     { id: string; code?: string; arabicName: string }[]
   >(['suppliers'], '/accounting/suppliers', { limit: 500, isActive: true });
   const suppliers = suppliersResponse?.data || [];
+
+  const { data: customersResponse } = useApiQuery<{ serial?: string; code?: string }[]>(
+    ['customers'],
+    '/accounting/customers',
+    { limit: 1000, isActive: true }
+  );
+  const nextPartyCode = useMemo(
+    () => nextNumericSerial((customersResponse?.data ?? []).flatMap((row) => [row.serial, row.code])),
+    [customersResponse?.data]
+  );
+
+  useEffect(() => {
+    setFormData((prev) =>
+      prev.serial || prev.code ? prev : { ...prev, serial: nextPartyCode, code: nextPartyCode }
+    );
+  }, [nextPartyCode]);
 
   // Customer mutation
   const customerMutation = useApiMutation<unknown, Record<string, unknown>>(
@@ -361,14 +378,14 @@ export default function CustomerPage() {
             <CompactFormField
               label="المسلسل"
               value={formData.serial}
-              onChange={(e) => setFormData((prev) => ({ ...prev, serial: e.target.value }))}
-              placeholder="إدخل رقم المسلسل"
+              disabled
+              placeholder="تلقائي"
             />
             <CompactFormField
               label="الكود"
               value={formData.code}
-              onChange={(e) => setFormData((prev) => ({ ...prev, code: e.target.value }))}
-              placeholder="إدخل الكود"
+              disabled
+              placeholder="تلقائي"
             />
             <CompactFormField
               label="الإسم العربي"

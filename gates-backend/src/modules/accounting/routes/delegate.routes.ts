@@ -1,4 +1,4 @@
-import { Router, Response } from 'express';
+import { Router, Response, NextFunction } from 'express';
 import { validate } from '../../../shared/middleware/validate';
 import { authenticate } from '../../../shared/middleware/auth.middleware';
 import { authorize } from '../../../shared/middleware/authorize.middleware';
@@ -10,6 +10,7 @@ import {
 } from '../schemas/delegate.schema';
 import { delegateService } from '../services/delegate.service';
 import { logger } from '../../../shared/logger';
+import { AppError } from '../../../shared/middleware/error-handler';
 import { AuthRequest } from '../../../shared/auth/types';
 
 const router = Router();
@@ -73,13 +74,13 @@ router.get(
 router.get(
   '/:id',
   authorize({ resource: 'delegate', action: 'view' }),
-  async (req: AuthRequest, res: Response) => {
+  async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const companyId = req.companyId || req.tenantId;
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -93,16 +94,10 @@ router.get(
         data: delegate,
       });
     } catch (error) {
-      logger.error({ error }, 'Error getting delegate');
-      const status =
-        error instanceof Error && error.message === 'Delegate not found'
-          ? 404
-          : 500;
-      return void res.status(status).json({
-        status: 'error',
-        message:
-          error instanceof Error ? error.message : 'Failed to get delegate',
-      });
+      if (!(error instanceof AppError) || error.statusCode >= 500) {
+        logger.error({ error }, 'Error getting delegate');
+      }
+      return next(error);
     }
   }
 );
@@ -115,13 +110,13 @@ router.post(
   '/',
   authorize({ resource: 'delegate', action: 'edit' }),
   validate({ body: createDelegateSchema }),
-  async (req: AuthRequest, res: Response) => {
+  async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const companyId = req.companyId || req.tenantId;
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -134,16 +129,14 @@ router.post(
 
       return void res.status(201).json({
         status: 'success',
-        message: 'Delegate created successfully',
+        message: 'تم حفظ المندوب',
         data: delegate,
       });
     } catch (error) {
-      logger.error({ error, body: req.body }, 'Error creating delegate');
-      return void res.status(500).json({
-        status: 'error',
-        message:
-          error instanceof Error ? error.message : 'Failed to create delegate',
-      });
+      if (!(error instanceof AppError) || error.statusCode >= 500) {
+        logger.error({ error, body: req.body }, 'Error creating delegate');
+      }
+      return next(error);
     }
   }
 );
@@ -156,13 +149,13 @@ router.put(
   '/:id',
   authorize({ resource: 'delegate', action: 'edit' }),
   validate({ body: updateDelegateSchema }),
-  async (req: AuthRequest, res: Response) => {
+  async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const companyId = req.companyId || req.tenantId;
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -174,20 +167,14 @@ router.put(
 
       return void res.json({
         status: 'success',
-        message: 'Delegate updated successfully',
+        message: 'تم تحديث المندوب',
         data: delegate,
       });
     } catch (error) {
-      logger.error({ error, delegateId: req.params.id }, 'Error updating delegate');
-      const status =
-        error instanceof Error && error.message === 'Delegate not found'
-          ? 404
-          : 500;
-      return void res.status(status).json({
-        status: 'error',
-        message:
-          error instanceof Error ? error.message : 'Failed to update delegate',
-      });
+      if (!(error instanceof AppError) || error.statusCode >= 500) {
+        logger.error({ error, delegateId: req.params.id }, 'Error updating delegate');
+      }
+      return next(error);
     }
   }
 );
@@ -199,13 +186,13 @@ router.put(
 router.delete(
   '/:id',
   authorize({ resource: 'delegate', action: 'delete' }),
-  async (req: AuthRequest, res: Response) => {
+  async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const companyId = req.companyId || req.tenantId;
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -213,16 +200,10 @@ router.delete(
 
       return void res.status(204).send();
     } catch (error) {
-      logger.error({ error, delegateId: req.params.id }, 'Error deleting delegate');
-      const status =
-        error instanceof Error && error.message === 'Delegate not found'
-          ? 404
-          : 500;
-      return void res.status(status).json({
-        status: 'error',
-        message:
-          error instanceof Error ? error.message : 'Failed to delete delegate',
-      });
+      if (!(error instanceof AppError) || error.statusCode >= 500) {
+        logger.error({ error, delegateId: req.params.id }, 'Error deleting delegate');
+      }
+      return next(error);
     }
   }
 );

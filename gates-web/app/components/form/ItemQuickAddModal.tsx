@@ -17,6 +17,8 @@ import type { ItemOption } from '@/lib/hooks/useMasterDataQueries';
 import { AccountSelect } from '@/app/components/form/AccountSelect';
 import { toast } from '@/lib/feedback/toast';
 import type { QuickCreatedItem } from '@/app/components/form/QuickCreateItemModal';
+import { useAccountingSettingsQuery } from '@/lib/hooks/useAccountingSettings';
+import { nextNumericSerial } from '@/lib/masters/nextNumericSerial';
 
 type ItemQuickAddModalProps = {
   open: boolean;
@@ -92,6 +94,8 @@ export function ItemQuickAddModal({
   const [form, setForm] = useState<FormState>(() => emptyForm(initialName, initialCode));
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  const { data: settingsRes } = useAccountingSettingsQuery();
+  const itemAuto = settingsRes?.data?.general?.itemAutoNumbering !== false;
 
   useEffect(() => {
     if (open) {
@@ -115,6 +119,19 @@ export function ItemQuickAddModal({
     { enabled: open }
   );
   const units = unitsResponse?.data ?? [];
+
+  const { data: itemsSerialRes } = useApiQuery<{ serial?: string | null }[]>(
+    ['items', 'serials'],
+    '/inventory/items',
+    { limit: 500, isActive: true },
+    { enabled: open && itemAuto && !initialCode }
+  );
+  const nextItemSerial = nextNumericSerial((itemsSerialRes?.data ?? []).map((row) => row.serial));
+
+  useEffect(() => {
+    if (!open || !itemAuto || initialCode) return;
+    setForm((prev) => (prev.serial ? prev : { ...prev, serial: nextItemSerial }));
+  }, [initialCode, itemAuto, nextItemSerial, open]);
 
   useEffect(() => {
     if (open && units.length > 0 && !form.unitId) {
@@ -279,7 +296,13 @@ export function ItemQuickAddModal({
             value={form.englishName}
             onChange={(e) => set('englishName', e.target.value)}
           />
-          <CompactFormField label="الكود" value={form.serial} onChange={(e) => set('serial', e.target.value)} />
+          <CompactFormField
+            label="الكود"
+            value={form.serial}
+            disabled={itemAuto}
+            onChange={(e) => set('serial', e.target.value)}
+            placeholder={itemAuto ? 'تلقائي' : 'أدخل الكود'}
+          />
           <CompactFormField label="الباركود" value={form.barcode} onChange={(e) => set('barcode', e.target.value)} />
           <CompactFormField label="التصنيف" className="sm:col-span-2 lg:col-span-2">
             <select

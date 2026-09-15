@@ -3,6 +3,7 @@ import { logger } from '../../../shared/logger';
 import { Decimal } from '@prisma/client/runtime/library';
 import { applyFullTextIds, findFullTextIds } from '../../../shared/database/fulltext-search';
 import { supplierLedgerAccountService } from './party-ledger-account.service';
+import { nextNumericCode } from '../../../shared/utils/next-numeric-code';
 
 const SUPPLIER_LIST_SELECT = {
   id: true,
@@ -71,13 +72,23 @@ export class SupplierService {
   /**
    * Create a new supplier
    */
+  private async nextSupplierCode(companyId: string): Promise<string> {
+    const rows = await prisma.supplier.findMany({
+      where: { companyId },
+      select: { serial: true, code: true },
+    });
+    return nextNumericCode(rows.flatMap((row) => [row.serial, row.code]));
+  }
+
   async createSupplier(companyId: string, data: CreateSupplierData) {
     try {
+      const serial = await this.nextSupplierCode(companyId);
+      const code = serial;
       const supplier = await prisma.supplier.create({
         data: {
           companyId,
-          serial: data.serial,
-          code: data.code,
+          serial,
+          code,
           arabicName: data.arabicName,
           englishName: data.englishName,
           supplierType: data.supplierType,

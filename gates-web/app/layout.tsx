@@ -28,6 +28,7 @@ import { ProductTourProvider } from '@/components/onboarding/ProductTourProvider
 import { VipOnboardingRoot } from '@/components/onboarding/VipOnboardingRoot';
 import { NavigationProgressBar } from '@/components/feedback/NavigationProgressBar';
 import { AutoHijriDateCaption } from '@/components/ui/AutoHijriDateCaption';
+import { AppScreenChromeFallback, AppScreenChromeProvider } from '@/components/erp';
 
 const geist = Geist({
   subsets: ["latin"],
@@ -93,23 +94,28 @@ export default function RootLayout({
   const navExpanded = rightSidebarOpen;
   const mainOffset = mainContentOffsetStyle(navExpanded);
 
-  const mainChrome = (
-    <>
-      <Navbar
-        rightSidebarOpen={rightSidebarOpen}
-        setRightSidebarOpen={setRightSidebarOpen}
-        showMenuRow={showMenuRow}
-        setShowMenuRow={setShowMenuRow}
-      />
-      <div style={{ marginTop: showMenuRow ? 80 : 0, transition: 'margin-top 0.3s' }}>
-        <AppTabs />
-      </div>
-      <main className="erp-contain min-w-0 flex-1 overflow-x-hidden overflow-y-auto bg-white">{children}</main>
-    </>
+  const sidebar = isManufacturing ? (
+    <ManufacturingSidebar collapsed={!navExpanded} />
+  ) : isInventory ? (
+    <InventorySidebar collapsed={!navExpanded} />
+  ) : isImportExport ? (
+    <ExportImportSidebar collapsed={!navExpanded} />
+  ) : isElectronicInvoices ? (
+    <ElectronicInvoicesSidebar collapsed={!navExpanded} />
+  ) : pathname?.startsWith('/extracts') ||
+    pathname?.startsWith('/subcontracts') ||
+    pathname?.startsWith('/contracting') ? (
+    <ExtractsSidebar collapsed={!navExpanded} />
+  ) : isHR ? (
+    <HRSidebar collapsed={!navExpanded} />
+  ) : isRealEstate ? (
+    <SidebarEstsmar3akary collapsed={!navExpanded} />
+  ) : (
+    <Sidebar collapsed={!navExpanded} />
   );
 
   return (
-    <html lang="en" dir="rtl" suppressHydrationWarning>
+    <html lang="ar" dir="rtl" suppressHydrationWarning>
       <body className={`${geist.variable} antialiased`} suppressHydrationWarning>
         <QueryProvider>
         <NavigationProgressBar />
@@ -122,48 +128,32 @@ export default function RootLayout({
         ) : (
           <Suspense fallback={null}>
             <ProductTourProvider>
+              <AppScreenChromeProvider>
               <VipOnboardingRoot />
-              {(isManufacturing || isImportExport || isElectronicInvoices || isInventory) ? (
-                <div className="flex h-screen bg-white">
-                  <AppSidebarShell navExpanded={navExpanded} shellRef={sidebarRef}>
-                    {isManufacturing ? (
-                      <ManufacturingSidebar collapsed={!navExpanded} />
-                    ) : isInventory ? (
-                      <InventorySidebar collapsed={!navExpanded} />
-                    ) : isImportExport ? (
-                      <ExportImportSidebar collapsed={!navExpanded} />
-                    ) : (
-                      <ElectronicInvoicesSidebar collapsed={!navExpanded} />
-                    )}
-                  </AppSidebarShell>
-                  <div
-                    className="relative flex min-w-0 w-full max-w-full flex-1 flex-col overflow-x-hidden overflow-y-hidden transition-[padding,width] duration-300 ease-out"
-                    style={mainOffset}
-                  >
-                    {mainChrome}
+              <div className="flex h-screen bg-white">
+                <AppSidebarShell navExpanded={navExpanded} shellRef={sidebarRef}>
+                  {sidebar}
+                </AppSidebarShell>
+                <div
+                  className="relative flex min-w-0 w-full max-w-full flex-1 flex-col overflow-x-hidden overflow-y-hidden transition-[padding,width] duration-300 ease-out"
+                  style={mainOffset}
+                >
+                  <Navbar
+                    rightSidebarOpen={rightSidebarOpen}
+                    setRightSidebarOpen={setRightSidebarOpen}
+                    showMenuRow={showMenuRow}
+                    setShowMenuRow={setShowMenuRow}
+                  />
+                  <div style={{ marginTop: showMenuRow ? 80 : 0, transition: 'margin-top 0.3s' }}>
+                    <AppTabs />
                   </div>
+                  <main className="erp-contain min-w-0 flex-1 overflow-x-hidden overflow-y-auto bg-white">
+                    <AppScreenChromeFallback />
+                    {children}
+                  </main>
                 </div>
-              ) : (
-                <div className="flex h-screen bg-white">
-                  <AppSidebarShell navExpanded={navExpanded} shellRef={sidebarRef}>
-                    {pathname?.startsWith('/extracts') || pathname?.startsWith('/subcontracts') || pathname?.startsWith('/contracting') ? (
-                      <ExtractsSidebar collapsed={!navExpanded} />
-                    ) : isHR ? (
-                      <HRSidebar collapsed={!navExpanded} />
-                    ) : isRealEstate ? (
-                      <SidebarEstsmar3akary collapsed={!navExpanded} />
-                    ) : (
-                      <Sidebar collapsed={!navExpanded} />
-                    )}
-                  </AppSidebarShell>
-                  <div
-                    className="relative flex min-w-0 w-full max-w-full flex-1 flex-col overflow-x-hidden overflow-y-hidden transition-[padding,width] duration-300 ease-out"
-                    style={mainOffset}
-                  >
-                    {mainChrome}
-                  </div>
-                </div>
-              )}
+              </div>
+              </AppScreenChromeProvider>
             </ProductTourProvider>
           </Suspense>
         )}

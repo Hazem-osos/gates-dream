@@ -131,6 +131,8 @@ export function mapFacadeToForm(facade: AccountingSettingsFacade): AccountingSet
     lockPostingBeforeDate: g.lockPostingBeforeDate ?? '',
     autoNumbering: g.autoNumbering ?? true,
     coaAutoNumbering: g.coaAutoNumbering !== false,
+    costCenterAutoNumbering: g.costCenterAutoNumbering !== false,
+    itemAutoNumbering: g.itemAutoNumbering !== false,
     costMethod: 'average',
     pricingCalculationBasis:
       g.pricingCalculationBasis === 'BASE_UNIT_QTY' ? 'BASE_UNIT_QTY' : 'SELECTED_UNIT_QTY',
@@ -186,6 +188,8 @@ export function formToPutPayload(form: AccountingSettingsFormState): AccountingS
       lockPostingBeforeDate: form.lockPostingBeforeDate || null,
       autoNumbering: form.autoNumbering,
       coaAutoNumbering: form.coaAutoNumbering !== false,
+      costCenterAutoNumbering: form.costCenterAutoNumbering !== false,
+      itemAutoNumbering: form.itemAutoNumbering !== false,
       costMethod: 'average',
       pricingCalculationBasis: form.pricingCalculationBasis,
       backupPath: form.backupPath || null,

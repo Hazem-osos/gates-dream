@@ -5,13 +5,14 @@ import dynamic from 'next/dynamic';
 import { PageHeader, FilterToolbar, Button } from '@/app/components/ui';
 import { useBackendReachability } from '@/lib/hooks/useBackendReachability';
 import { useCoaTreeQuery, useDeleteAccountMutation } from '@/lib/hooks/useChartOfAccounts';
-import { useAccountingSettingsMutation, useAccountingSettingsQuery } from '@/lib/hooks/useAccountingSettings';
+import { useAccountingSettingsQuery } from '@/lib/hooks/useAccountingSettings';
 import { useSeedDefaultCoa } from '@/lib/hooks/useSeedDefaultCoa';
 import type { CoaHierarchyAccount } from '@/lib/accounting/mapCoaToTreeNodes';
 import { AccountTree, type CoaNatureFilter } from '@/components/accounting/chart-of-accounts/AccountTree';
 import { CoaEmptyState } from '@/components/accounting/chart-of-accounts/CoaEmptyState';
 import { DynamicModalSkeleton } from '@/components/ui/DynamicChunkSkeleton';
 import { toast } from '@/lib/feedback/toast';
+import { NumberingModeControl } from '@/components/accounting/NumberingModeControl';
 
 const AccountFormModal = dynamic(
   () =>
@@ -61,8 +62,8 @@ export default function ChartOfAccountsPage() {
   useBackendReachability();
   const { data, isLoading, refetch } = useCoaTreeQuery();
   const { data: settingsRes } = useAccountingSettingsQuery();
-  const settingsMut = useAccountingSettingsMutation();
   const coaAutoNumbering = settingsRes?.data?.general?.coaAutoNumbering !== false;
+  const accountRecordCount = settingsRes?.data?.general?.numberingRecordCounts?.accounts ?? 0;
   const deleteMut = useDeleteAccountMutation();
   const [search, setSearch] = useState('');
   const [industry, setIndustry] = useState('general');
@@ -200,21 +201,12 @@ export default function ChartOfAccountsPage() {
           <Button type="button" variant="secondary" size="sm" onClick={openCreateRoot}>
             + إضافة حساب رئيسي جديد
           </Button>
-          <div className="flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-700">
-            <span>ترقيم الحسابات</span>
-            <select
-              className="rounded-md border border-slate-200 bg-white px-2 py-0.5 text-xs text-[#0A3D5E]"
-              value={coaAutoNumbering ? 'auto' : 'manual'}
-              disabled={settingsMut.isPending}
-              onChange={(e) => {
-                const next = e.target.value === 'auto';
-                settingsMut.mutate({ general: { coaAutoNumbering: next } });
-              }}
-            >
-              <option value="auto">تلقائي</option>
-              <option value="manual">يدوي</option>
-            </select>
-          </div>
+          <NumberingModeControl
+            kind="accounts"
+            auto={coaAutoNumbering}
+            recordCount={accountRecordCount}
+            settingKey="coaAutoNumbering"
+          />
           <div className="flex flex-wrap gap-1 mr-auto">
                 {NATURE_FILTERS.map((f) => (
                   <button
@@ -268,7 +260,7 @@ export default function ChartOfAccountsPage() {
             toast.success('تم حفظ الحساب');
             void refetch();
           }}
-          onError={(msg) => toast.error(msg)}
+          onError={(msg) => toast.error('تعذّر حفظ الحساب', { description: msg })}
         />
       ) : null}
 

@@ -1,7 +1,6 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Users } from 'lucide-react';
 import { PageHeader, FilterToolbar, Button, CompactFormField, compactControlClass } from '@/components/ui';
 import { MasterGuideTree } from '@/components/accounting/guide/MasterGuideTree';
 import { GuideEntityModal } from '@/components/accounting/guide/GuideEntityModal';
@@ -48,9 +47,8 @@ const ROLE_FOLDERS: { id: DelegateRow['role']; code: string; name: string }[] = 
 ];
 
 function roleFromFolder(node?: GuideTreeNode): FormState['role'] {
-  if (!node) return 'DELEGATE';
-  if (node.id === 'role:DISTRIBUTOR') return 'DISTRIBUTOR';
-  if (node.id === 'role:DRIVER') return 'DRIVER';
+  const key = node?.groupKey || node?.id.replace(/^role:/, '');
+  if (key === 'DISTRIBUTOR' || key === 'DRIVER') return key;
   return 'DELEGATE';
 }
 
@@ -85,6 +83,7 @@ export default function RepresentativesGuidePage() {
           code: r.code || r.serial || '—',
           name: r.arabicName,
           subtitle: r.mobile || r.phone1 || undefined,
+          groupKey: role,
         }));
 
     return groupAsFolders(
@@ -92,8 +91,10 @@ export default function RepresentativesGuidePage() {
         id: `role:${folder.id}`,
         code: folder.code,
         name: folder.name,
+        groupKey: folder.id as string,
         children: leavesByRole(folder.id as string),
-      }))
+      })),
+      { keepEmpty: true }
     );
   }, [rows]);
 
@@ -146,7 +147,9 @@ export default function RepresentativesGuidePage() {
       void refetch();
       setModalOpen(false);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'تعذر الحفظ');
+      toast.error('تعذّر حفظ المندوب', {
+        description: e instanceof Error ? e.message : 'راجع الرمز والاسم ثم أعد المحاولة.',
+      });
     } finally {
       setSaving(false);
     }
@@ -160,11 +163,11 @@ export default function RepresentativesGuidePage() {
       invalidate(['delegates']);
       void refetch();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'تعذر الحذف');
+      toast.error('تعذّر حذف المندوب', {
+        description: e instanceof Error ? e.message : 'حدّث الدليل ثم أعد المحاولة.',
+      });
     }
   };
-
-  const isEmpty = !isLoading && rows.length === 0;
 
   return (
     <div className="coa-page min-h-full bg-white text-slate-900" dir="rtl" style={{ colorScheme: 'light' }}>
@@ -185,49 +188,37 @@ export default function RepresentativesGuidePage() {
         }
       />
 
-      {isEmpty ? (
-        <div className="mt-8 rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-6 py-16 text-center">
-          <Users className="mx-auto mb-3 h-8 w-8 text-[#0E79AA]" />
-          <p className="text-lg font-semibold text-slate-800">لا يوجد مندوبون بعد</p>
-          <p className="mt-1 text-sm text-slate-500">أضف أول مندوب ليظهر الدليل بنفس أسلوب شجرة الحسابات.</p>
-          <Button type="button" className="mt-4" onClick={() => openCreate()}>
-            إضافة مندوب
+      <div className="mt-2">
+        <FilterToolbar searchPlaceholder="بحث بالرمز أو الاسم أو الهاتف…" onSearchChange={setSearch} />
+      </div>
+      <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-5 text-slate-900 shadow-sm">
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          <Button type="button" variant="ghost" size="sm" onClick={() => setExpandToken((t) => t + 1)}>
+            ⊞ توسيع الكل
+          </Button>
+          <Button type="button" variant="ghost" size="sm" onClick={() => setCollapseToken((t) => t + 1)}>
+            ⊟ طي الكل
+          </Button>
+          <Button type="button" variant="secondary" size="sm" onClick={() => openCreate()}>
+            + إضافة مندوب
           </Button>
         </div>
-      ) : (
-        <>
-          <div className="mt-2">
-            <FilterToolbar searchPlaceholder="بحث بالرمز أو الاسم أو الهاتف…" onSearchChange={setSearch} />
-          </div>
-          <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-5 text-slate-900 shadow-sm">
-            <div className="mb-4 flex flex-wrap items-center gap-2">
-              <Button type="button" variant="ghost" size="sm" onClick={() => setExpandToken((t) => t + 1)}>
-                ⊞ توسيع الكل
-              </Button>
-              <Button type="button" variant="ghost" size="sm" onClick={() => setCollapseToken((t) => t + 1)}>
-                ⊟ طي الكل
-              </Button>
-              <Button type="button" variant="secondary" size="sm" onClick={() => openCreate()}>
-                + إضافة مندوب
-              </Button>
-            </div>
-            {isLoading ? (
-              <p className="text-slate-600">جاري تحميل الدليل…</p>
-            ) : (
-              <MasterGuideTree
-                nodes={tree}
-                search={search}
-                expandAllToken={expandToken}
-                collapseAllToken={collapseToken}
-                childNoun="مندوب"
-                onAddChild={openCreate}
-                onEdit={openEdit}
-                onDelete={(n) => void handleDelete(n)}
-              />
-            )}
-          </div>
-        </>
-      )}
+        {isLoading ? (
+          <p className="text-slate-600">جاري تحميل الدليل…</p>
+        ) : (
+          <MasterGuideTree
+            nodes={tree}
+            search={search}
+            expandAllToken={expandToken}
+            collapseAllToken={collapseToken}
+            childNoun="مندوب"
+            onAddChild={openCreate}
+            canAddChild={(n) => Boolean(n.folder || n.synthetic)}
+            onEdit={openEdit}
+            onDelete={(n) => void handleDelete(n)}
+          />
+        )}
+      </div>
 
       <GuideEntityModal
         open={modalOpen}

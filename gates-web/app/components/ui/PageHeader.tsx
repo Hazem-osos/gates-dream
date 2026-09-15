@@ -6,6 +6,7 @@ import { ChevronLeft, Star } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { usePageFavorites } from '@/lib/hooks/usePageFavorites';
 import { useRegisterScreenChrome } from '@/components/erp/AppScreenChromeContext';
+import { ScreenHelpButton } from '@/components/ai/ScreenHelpButton';
 
 export interface PageHeaderProps {
   title: string;
@@ -91,6 +92,7 @@ export function PageHeader({
         </div>
 
         <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+          <ScreenHelpButton screenTitle={title} />
           {actions}
           <div data-gates-page-header-actions className="contents" />
         </div>

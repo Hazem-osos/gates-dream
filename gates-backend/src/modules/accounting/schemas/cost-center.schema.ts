@@ -4,7 +4,6 @@ export const createCostCenterSchema = z.object({
   code: z.string().trim().optional(),
   arabicName: z.string().min(1, 'Arabic name is required'),
   englishName: z.string().optional(),
-  centerType: z.string().optional().nullable(),
   parentId: z.string().uuid().optional().nullable(),
   quantityBudget: z.number().nonnegative().optional().nullable(),
   warning: z.enum(['مدين', 'دائن', 'بدون']).optional().nullable(),

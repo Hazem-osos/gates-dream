@@ -4,6 +4,7 @@ import { logger } from '../../../shared/logger';
 import { Decimal } from '@prisma/client/runtime/library';
 import { AppError } from '../../../shared/middleware/error-handler';
 import { applyFullTextIds, findFullTextIds } from '../../../shared/database/fulltext-search';
+import { advancedFlag, nextNumericCode } from '../../../shared/utils/next-numeric-code';
 
 function decimalOp(
   op?: 'none' | 'eq' | 'gt' | 'lt' | 'between',
@@ -141,8 +142,31 @@ export class ItemService {
   /**
    * Create a new item
    */
+  private async isItemAutoNumbering(companyId: string): Promise<boolean> {
+    const settings = await prisma.companySettings.findUnique({
+      where: { companyId },
+      select: { advancedSettings: true },
+    });
+    return advancedFlag(settings?.advancedSettings, 'itemAutoNumbering');
+  }
+
+  private async suggestNextItemSerial(companyId: string): Promise<string> {
+    const rows = await prisma.item.findMany({
+      where: { companyId, isActive: true },
+      select: { serial: true },
+    });
+    return nextNumericCode(rows.map((row) => row.serial));
+  }
+
   async createItem(companyId: string, data: CreateItemData) {
     try {
+      const auto = await this.isItemAutoNumbering(companyId);
+      let serial = data.serial?.trim() ?? '';
+      if (auto) {
+        serial = await this.suggestNextItemSerial(companyId);
+      } else if (!serial) {
+        throw new AppError(400, 'رقم الصنف مطلوب — الترقيم يدوي.');
+      }
       // Sales Invoice Enterprise Redesign: "auto-assign GL accounts by
       // category" — when a category is selected, snapshot its defaults onto
       // any of mainAccountId/salesAccountId/cogsAccountId the caller left
@@ -170,7 +194,7 @@ export class ItemService {
       const item = await prisma.item.create({
         data: {
           companyId,
-          serial: data.serial,
+          serial,
           arabicName: data.arabicName,
           englishName: data.englishName,
           mainAccountId,

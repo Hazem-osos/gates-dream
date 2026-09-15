@@ -95,6 +95,7 @@ type JournalEntryDetail = {
   isCyclic?: boolean;
   isRecurring?: boolean;
   isPosted?: boolean;
+  isCancelled?: boolean;
   isApproved?: boolean;
   currencyCode?: string;
   version?: number;
@@ -143,6 +144,7 @@ function CreateJournalEntryFormInner() {
   const [showList, setShowList] = useState(false);
   const [isCyclic, setIsCyclic] = useState(true);
   const [isPosted, setIsPosted] = useState(false);
+  const [isCancelled, setIsCancelled] = useState(false);
   const [isApproved, setIsApproved] = useState(false);
   const [voucherStatus, setVoucherStatus] = useState('غير مرحل');
   const [showRecurringPicker, setShowRecurringPicker] = useState(false);
@@ -168,9 +170,9 @@ function CreateJournalEntryFormInner() {
       setMode('create');
       return;
     }
-    if (isPosted) lockToView();
+    if (isPosted || isCancelled) lockToView();
     else if (savedJournalEntryId && mode === 'create') setMode('edit');
-  }, [isPosted, lockToView, mode, savedJournalEntryId, setMode]);
+  }, [isCancelled, isPosted, lockToView, mode, savedJournalEntryId, setMode]);
 
   const openJournal = useCallback(
     (id: string | null) => {
@@ -254,8 +256,11 @@ function CreateJournalEntryFormInner() {
     });
     setIsCyclic(loadedJournalEntry.isCyclic ?? true);
     setIsPosted(loadedJournalEntry.isPosted ?? false);
+    setIsCancelled(loadedJournalEntry.isCancelled ?? false);
     setIsApproved(loadedJournalEntry.isApproved ?? false);
-    setVoucherStatus(loadedJournalEntry.isPosted ? 'مرحل' : 'غير مرحل');
+    setVoucherStatus(
+      loadedJournalEntry.isCancelled ? 'ملغي' : loadedJournalEntry.isPosted ? 'مرحل' : 'غير مرحل'
+    );
     setLoadedVersion(loadedJournalEntry.version);
     setSourceKind(
       resolveJournalSourceKind(loadedJournalEntry.sourceType, loadedJournalEntry.sourceKind)
@@ -367,12 +372,46 @@ function CreateJournalEntryFormInner() {
     'POST',
     {
       onSuccess: () => {
-        setSuccess('تم إلغاء القيد');
+        setIsCancelled(true);
+        setVoucherStatus('ملغي');
+        setSuccess('تم إلغاء القيد. القيد ما زال موجوداً بحالة ملغي.');
         invalidateQuery(['journal-entries']);
+        invalidateQuery(['journal-entry', savedJournalEntryId]);
         lockToView();
       },
       onError: (error: ApiError) => {
         setError(error.message || 'تعذر إلغاء القيد');
+      },
+    }
+  );
+
+  const restoreJournalMutation = useApiMutation<unknown, Record<string, never>>(
+    savedJournalEntryId
+      ? `/accounting/journal-entries/${savedJournalEntryId}/restore`
+      : '/accounting/journal-entries',
+    'POST',
+    {
+      onSuccess: () => {
+        setIsCancelled(false);
+        setIsPosted(true);
+        setIsApproved(true);
+        setVoucherStatus('مرحل');
+        setSuccess('تم استعادة القيد وترحيله');
+        invalidateQuery(['journal-entries']);
+        invalidateQuery(['journal-entry', savedJournalEntryId]);
+        lockToView();
+      },
+      onError: (error: ApiError) => {
+        const message = error.message || 'تعذر استعادة القيد';
+        if (message.includes('تم استعادة القيد كمسودة')) {
+          setIsCancelled(false);
+          setIsPosted(false);
+          setVoucherStatus('مسودة');
+          unlockForEdit();
+          invalidateQuery(['journal-entries']);
+          invalidateQuery(['journal-entry', savedJournalEntryId]);
+        }
+        setError(message);
       },
     }
   );
@@ -382,7 +421,8 @@ function CreateJournalEntryFormInner() {
     loading ||
     postJournalMutation.isPending ||
     unpostJournalMutation.isPending ||
-    cancelJournalMutation.isPending;
+    cancelJournalMutation.isPending ||
+    restoreJournalMutation.isPending;
 
   useEffect(() => {
     if (savedJournalEntryId) return;
@@ -573,6 +613,7 @@ function CreateJournalEntryFormInner() {
     setSavedJournalEntryId(null);
     setLoadedVersion(undefined);
     setIsPosted(false);
+    setIsCancelled(false);
     setIsApproved(false);
     setVoucherStatus('غير مرحل');
     setError('');
@@ -587,6 +628,7 @@ function CreateJournalEntryFormInner() {
     setSavedJournalEntryId(null);
     setLoadedVersion(undefined);
     setIsPosted(false);
+    setIsCancelled(false);
     setIsApproved(false);
     setVoucherStatus('غير مرحل');
     setSourceKind('MANUAL');
@@ -626,15 +668,15 @@ function CreateJournalEntryFormInner() {
         ]}
         title="قيد يومية"
         docNumber={referenceNumberW || voucherStatus}
-        statusTone={isPosted ? 'success' : 'warning'}
-        statusLabel={isPosted ? 'مرحّل' : 'مسودة'}
+        statusTone={isCancelled ? 'danger' : isPosted ? 'success' : 'warning'}
+        statusLabel={isCancelled ? 'ملغي' : isPosted ? 'مرحّل' : 'مسودة'}
         saveLabel="حفظ"
         onSaveDraft={() => void handleSubmit(onValidSubmit, onFieldErrors(setError))()}
         onPost={handlePost}
         savePending={financialBusy}
         postPending={postJournalMutation.isPending}
-        canSave={!isReadOnly && !isPosted && !financialBusy}
-        canPost={!!savedJournalEntryId && !isPosted && !financialBusy}
+        canSave={!isReadOnly && !isPosted && !isCancelled && !financialBusy}
+        canPost={!!savedJournalEntryId && !isPosted && !isCancelled && !financialBusy}
         printTrigger={
           <PrintDocumentButton
             label="طباعة"
@@ -668,10 +710,15 @@ function CreateJournalEntryFormInner() {
         standardActions={{
           hasDocument: Boolean(savedJournalEntryId) || Boolean(watchedLines?.length),
           isPosted,
+          isCancelled,
           hidePostActions: true,
           onNew: startNewEntry,
           newLabel: 'جديد',
           onEdit: () => {
+            if (isCancelled) {
+              setError('القيد ملغي ولا يمكن تعديله');
+              return;
+            }
             if (isPosted) {
               setError('فك الترحيل أولاً من قائمة (...) حتى يمكن التعديل');
               return;
@@ -689,6 +736,9 @@ function CreateJournalEntryFormInner() {
           onVoid: () => cancelJournalMutation.mutate({}),
           voidLabel: 'إلغاء القيد',
           voidPending: cancelJournalMutation.isPending,
+          onRestore: () => restoreJournalMutation.mutate({}),
+          restoreLabel: 'استعادة القيد',
+          restorePending: restoreJournalMutation.isPending,
         }}
       />
 
@@ -779,7 +829,7 @@ function CreateJournalEntryFormInner() {
               variant="outline"
               size="sm"
               className="gap-1.5"
-              disabled={isReadOnly || isPosted}
+              disabled={isReadOnly || isPosted || isCancelled}
               onClick={() => setShowRecurringPicker(true)}
             >
               <ClipboardList className="h-4 w-4" aria-hidden />
@@ -790,6 +840,7 @@ function CreateJournalEntryFormInner() {
                 type="checkbox"
                 checked={isCyclic}
                 onChange={(e) => setIsCyclic(e.target.checked)}
+                disabled={isReadOnly || isPosted || isCancelled}
                 className="rounded border-slate-300"
               />
               سند دوري
@@ -808,7 +859,7 @@ function CreateJournalEntryFormInner() {
           lines={watchedLines ?? []}
           onChange={(next) => replace(next)}
           onAddLine={appendLine}
-          disabled={isReadOnly || isPosted}
+          disabled={isReadOnly || isPosted || isCancelled}
           currencies={currencies}
           defaultCurrencyId={headerCurrencyId}
           accountLabelFor={(accountId) => {
@@ -837,8 +888,8 @@ function CreateJournalEntryFormInner() {
         onCancel={startNewEntry}
         savePending={financialBusy}
         postPending={postJournalMutation.isPending}
-        canSave={!isReadOnly && !isPosted && !financialBusy}
-        canPost={!isPosted && !financialBusy}
+        canSave={!isReadOnly && !isPosted && !isCancelled && !financialBusy}
+        canPost={!isPosted && !isCancelled && !financialBusy}
         postRequiresSave={!savedJournalEntryId}
       />
 

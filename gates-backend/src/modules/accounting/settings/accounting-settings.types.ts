@@ -22,6 +22,13 @@ export type AccountingSettingsGeneral = {
   lockPostingBeforeDate: string | null;
   autoNumbering: boolean;
   coaAutoNumbering: boolean;
+  costCenterAutoNumbering: boolean;
+  itemAutoNumbering: boolean;
+  numberingRecordCounts: {
+    accounts: number;
+    costCenters: number;
+    items: number;
+  };
   costMethod: string | null;
   pricingCalculationBasis: string;
   backupPath: string | null;

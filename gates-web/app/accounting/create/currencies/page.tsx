@@ -183,7 +183,6 @@ function CurrenciesPageInner() {
       <ErpDocumentPageHeader
         compact
         lockWhenPosted={false}
-        registerChrome={false}
         breadcrumbs={[
           { href: '/accounting', label: 'الحسابات' },
           { label: 'إنشاءات الحسابات' },
@@ -227,9 +226,9 @@ function CurrenciesPageInner() {
       >
         <CompactFormField
           label="المسلسل"
-          placeholder="رقم المسلسل"
+          placeholder="تلقائي"
           value={form.serial}
-          onChange={(e) => patch({ serial: e.target.value })}
+          disabled
         />
         <CompactFormField label="رمز العملة" required>
           <select

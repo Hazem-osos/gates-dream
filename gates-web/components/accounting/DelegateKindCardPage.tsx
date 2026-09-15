@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Truck, UserRound } from 'lucide-react';
 import UserPermissionsBar from '@/components/UserPermissionsBar';
 import {
@@ -14,6 +14,7 @@ import { useApiMutation, useApiQuery, useInvalidateQuery } from '@/lib/hooks/use
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
 import type { ApiError } from '@/lib/api/types';
+import { nextNumericSerial } from '@/lib/masters/nextNumericSerial';
 
 export type DelegateKind = 'DISTRIBUTOR' | 'DRIVER';
 
@@ -100,6 +101,14 @@ export function DelegateKindCardPage({ kind }: { kind: DelegateKind }) {
     role: kind,
   });
   const rows = listResponse?.data ?? [];
+  const nextSerial = useMemo(
+    () => nextNumericSerial(rows.map((row) => row.serial)),
+    [rows]
+  );
+
+  useEffect(() => {
+    setFormData((prev) => (prev.serial ? prev : { ...prev, serial: nextSerial }));
+  }, [nextSerial]);
 
   const mutation = useApiMutation<unknown, Record<string, unknown>>(
     '/accounting/delegates',
@@ -201,8 +210,8 @@ export function DelegateKindCardPage({ kind }: { kind: DelegateKind }) {
           <CompactFormField
             label="المسلسل"
             value={formData.serial}
-            onChange={(e) => patch('serial', e.target.value)}
-            placeholder="إدخل رقم المسلسل"
+            disabled
+            placeholder="تلقائي"
           />
           <CompactFormField
             label="الإسم العربي"

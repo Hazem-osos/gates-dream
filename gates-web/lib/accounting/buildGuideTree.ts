@@ -5,6 +5,7 @@ export type GuideTreeNode = {
   subtitle?: string;
   folder?: boolean;
   synthetic?: boolean;
+  groupKey?: string;
   children?: GuideTreeNode[];
 };
 
@@ -37,16 +38,18 @@ export function buildParentTree<T extends { id: string; parentId?: string | null
 }
 
 export function groupAsFolders(
-  groups: { id: string; code: string; name: string; children: GuideTreeNode[] }[]
+  groups: { id: string; code: string; name: string; groupKey?: string; children: GuideTreeNode[] }[],
+  options?: { keepEmpty?: boolean }
 ): GuideTreeNode[] {
   return groups
-    .filter((g) => g.children.length > 0)
+    .filter((g) => options?.keepEmpty || g.children.length > 0)
     .map((g) => ({
       id: g.id,
       code: g.code,
       name: g.name,
       folder: true,
       synthetic: true,
+      groupKey: g.groupKey,
       children: g.children,
     }));
 }

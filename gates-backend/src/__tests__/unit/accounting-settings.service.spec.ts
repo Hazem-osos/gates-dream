@@ -104,6 +104,10 @@ function createDb(accounts: AccountRow[]): {
       upsert: jest.fn(),
     },
     account: {
+      count: jest.fn(async ({ where }: { where: { companyId?: string } }) =>
+        accounts.filter((account) => !where.companyId || account.companyId === where.companyId)
+          .length
+      ),
       findMany: jest.fn(
         async ({ where }: { where: { id?: { in: string[] }; companyId?: string } }) => {
           const ids = where.id?.in ?? [];
@@ -114,6 +118,16 @@ function createDb(accounts: AccountRow[]): {
           });
         }
       ),
+    },
+    costCenter: {
+      count: jest.fn(async () => 0),
+      findMany: jest.fn(async () => []),
+    },
+    item: {
+      count: jest.fn(async () => 0),
+      findMany: jest.fn(async () => []),
+      delete: jest.fn(),
+      update: jest.fn(),
     },
     $transaction: async (fn) => fn(db),
   };

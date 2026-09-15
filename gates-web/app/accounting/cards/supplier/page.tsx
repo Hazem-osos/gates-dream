@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Truck } from 'lucide-react';
 import TaxInfoOverlay from '@/components/TaxInfoOverlay';
 import { PartiesListSection } from '@/components/accounting/PartiesListSection';
@@ -17,6 +17,7 @@ import { ClientMountGate } from '@/lib/hooks/useClientMounted';
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
 import type { ApiError } from '@/lib/api/types';
+import { nextNumericSerial } from '@/lib/masters/nextNumericSerial';
 
 interface Account {
   id: string;
@@ -100,6 +101,23 @@ export default function SupplierPage() {
     isActive: true,
   });
   const supplierCategories = categoriesResponse?.data || [];
+
+  const { data: suppliersListResponse } = useApiQuery<{ serial?: string; code?: string }[]>(
+    ['suppliers'],
+    '/accounting/suppliers',
+    { limit: 1000, isActive: true }
+  );
+  const nextPartyCode = useMemo(
+    () =>
+      nextNumericSerial((suppliersListResponse?.data ?? []).flatMap((row) => [row.serial, row.code])),
+    [suppliersListResponse?.data]
+  );
+
+  useEffect(() => {
+    setFormData((prev) =>
+      prev.serial || prev.code ? prev : { ...prev, serial: nextPartyCode, code: nextPartyCode }
+    );
+  }, [nextPartyCode]);
 
   // Supplier mutation
   const supplierMutation = useApiMutation<unknown, Record<string, unknown>>(
@@ -313,14 +331,14 @@ export default function SupplierPage() {
             <CompactFormField
               label="المسلسل"
               value={formData.serial}
-              onChange={(e) => setFormData((prev) => ({ ...prev, serial: e.target.value }))}
-              placeholder="إدخل رقم المسلسل"
+              disabled
+              placeholder="تلقائي"
             />
             <CompactFormField
               label="الكود"
               value={formData.code}
-              onChange={(e) => setFormData((prev) => ({ ...prev, code: e.target.value }))}
-              placeholder="إدخل الكود"
+              disabled
+              placeholder="تلقائي"
             />
             <CompactFormField
               label="الإسم العربي"

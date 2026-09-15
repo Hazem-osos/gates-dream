@@ -1,8 +1,10 @@
 import { Prisma } from '@prisma/client';
 import prisma from '../../../shared/database/prisma';
 import { logger } from '../../../shared/logger';
+import { AppError } from '../../../shared/middleware/error-handler';
 import { Decimal } from '@prisma/client/runtime/library';
 import type { CreateDelegateInput, UpdateDelegateInput } from '../schemas/delegate.schema';
+import { nextNumericCode } from '../../../shared/utils/next-numeric-code';
 
 export type DelegateRole = 'DELEGATE' | 'DISTRIBUTOR' | 'DRIVER';
 
@@ -18,14 +20,49 @@ async function writeRole(id: string, role: DelegateRole) {
 }
 
 export class DelegateService {
+  private async assertUniqueDelegateCode(
+    companyId: string,
+    code: string | undefined | null,
+    exceptId?: string
+  ) {
+    const value = code?.trim();
+    if (!value) return;
+    const clash = await prisma.delegate.findFirst({
+      where: {
+        companyId,
+        isActive: true,
+        OR: [{ code: value }, { serial: value }],
+        ...(exceptId ? { id: { not: exceptId } } : {}),
+      },
+      select: { id: true, arabicName: true },
+    });
+    if (clash) {
+      throw new AppError(
+        409,
+        `الرمز «${value}» مستخدم على «${clash.arabicName}». الحل: غيّر الرمز أو المسلسل ثم احفظ.`
+      );
+    }
+  }
+
+  private async nextDelegateCode(companyId: string): Promise<string> {
+    const rows = await prisma.delegate.findMany({
+      where: { companyId },
+      select: { serial: true, code: true },
+    });
+    return nextNumericCode(rows.flatMap((row) => [row.serial, row.code]));
+  }
+
   async createDelegate(companyId: string, data: CreateDelegateInput) {
     try {
+      const serial = await this.nextDelegateCode(companyId);
+      const code = serial;
+      await this.assertUniqueDelegateCode(companyId, code);
       const role = data.role ?? 'DELEGATE';
       const delegate = await prisma.delegate.create({
         data: {
           companyId,
-          serial: data.serial,
-          code: data.code,
+          serial,
+          code,
           arabicName: data.arabicName,
           englishName: data.englishName,
           nationality: data.nationality,
@@ -55,7 +92,9 @@ export class DelegateService {
       logger.info({ companyId, delegateId: delegate.id, role }, 'Delegate created');
       return { ...delegate, role };
     } catch (error) {
-      logger.error({ error, companyId, data }, 'Error creating delegate');
+      if (!(error instanceof AppError)) {
+        logger.error({ error, companyId, data }, 'Error creating delegate');
+      }
       throw error;
     }
   }
@@ -64,7 +103,9 @@ export class DelegateService {
     const delegate = await prisma.delegate.findFirst({
       where: { id: delegateId, companyId },
     });
-    if (!delegate) throw new Error('Delegate not found');
+    if (!delegate) {
+      throw new AppError(404, 'المندوب غير موجود. الحل: حدّث الدليل ثم أعد المحاولة.');
+    }
     return delegate;
   }
 
@@ -122,10 +163,14 @@ export class DelegateService {
   }
 
   async updateDelegate(companyId: string, delegateId: string, data: UpdateDelegateInput) {
+    try {
     const existing = await prisma.delegate.findFirst({
       where: { id: delegateId, companyId },
     });
-    if (!existing) throw new Error('Delegate not found');
+    if (!existing) {
+      throw new AppError(404, 'المندوب غير موجود. الحل: حدّث الدليل ثم أعد المحاولة.');
+    }
+    await this.assertUniqueDelegateCode(companyId, data.code ?? data.serial, delegateId);
 
     const { role, ...rest } = data;
     const delegate = await prisma.delegate.update({
@@ -165,13 +210,21 @@ export class DelegateService {
     if (role) await writeRole(delegateId, role);
     logger.info({ companyId, delegateId }, 'Delegate updated');
     return role ? { ...delegate, role } : delegate;
+    } catch (error) {
+      if (!(error instanceof AppError)) {
+        logger.error({ error, companyId, delegateId, data }, 'Error updating delegate');
+      }
+      throw error;
+    }
   }
 
   async deleteDelegate(companyId: string, delegateId: string) {
     const delegate = await prisma.delegate.findFirst({
       where: { id: delegateId, companyId },
     });
-    if (!delegate) throw new Error('Delegate not found');
+    if (!delegate) {
+      throw new AppError(404, 'المندوب غير موجود. الحل: حدّث الدليل ثم أعد المحاولة.');
+    }
 
     await prisma.delegate.update({
       where: { id: delegateId },

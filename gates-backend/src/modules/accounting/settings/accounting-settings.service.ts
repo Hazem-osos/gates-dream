@@ -102,9 +102,11 @@ export type AccountingSettingsDb = {
     }) => Promise<unknown>;
   };
   account: {
+    count: (args: { where: Record<string, unknown> }) => Promise<number>;
     findMany: (args: {
       where: Record<string, unknown>;
       select?: Record<string, unknown>;
+      orderBy?: Record<string, unknown>;
     }) => Promise<
       Array<{
         id: string;
@@ -114,6 +116,27 @@ export type AccountingSettingsDb = {
         _count?: { children: number };
       }>
     >;
+  };
+  costCenter: {
+    count: (args: { where: Record<string, unknown> }) => Promise<number>;
+    findMany: (args: {
+      where: Record<string, unknown>;
+      select?: Record<string, unknown>;
+      orderBy?: Record<string, unknown>;
+    }) => Promise<Array<{ id: string }>>;
+  };
+  item: {
+    count: (args: { where: Record<string, unknown> }) => Promise<number>;
+    findMany: (args: {
+      where: Record<string, unknown>;
+      select?: Record<string, unknown>;
+      orderBy?: Record<string, unknown>;
+    }) => Promise<Array<{ id: string; serial?: string | null }>>;
+    delete: (args: { where: { id: string } }) => Promise<unknown>;
+    update: (args: {
+      where: { id: string };
+      data: Record<string, unknown>;
+    }) => Promise<unknown>;
   };
 };
 
@@ -239,6 +262,9 @@ export class AccountingSettingsService {
         lockPostingBeforeDate: settings.lockPostingBeforeDate,
         autoNumbering: settings.autoNumbering ?? true,
         coaAutoNumbering: advanced.coaAutoNumbering !== false,
+        costCenterAutoNumbering: advanced.costCenterAutoNumbering !== false,
+        itemAutoNumbering: advanced.itemAutoNumbering !== false,
+        numberingRecordCounts: await this.numberingRecordCounts(companyId),
         costMethod: settings.costMethod,
         pricingCalculationBasis: settings.pricingCalculationBasis ?? 'SELECTED_UNIT_QTY',
         backupPath: settings.backupPath,
@@ -312,7 +338,31 @@ export class AccountingSettingsService {
       const defs = asAccountDefs(current.accountDefinitions);
       const advanced = asAdvancedSettings(current.advancedSettings);
       if (input.general?.coaAutoNumbering !== undefined) {
+        await this.assertNumberingSwitch(
+          actor.companyId,
+          'accounts',
+          input.general.coaAutoNumbering,
+          advanced.coaAutoNumbering !== false
+        );
         advanced.coaAutoNumbering = input.general.coaAutoNumbering;
+      }
+      if (input.general?.costCenterAutoNumbering !== undefined) {
+        await this.assertNumberingSwitch(
+          actor.companyId,
+          'costCenters',
+          input.general.costCenterAutoNumbering,
+          advanced.costCenterAutoNumbering !== false
+        );
+        advanced.costCenterAutoNumbering = input.general.costCenterAutoNumbering;
+      }
+      if (input.general?.itemAutoNumbering !== undefined) {
+        await this.assertNumberingSwitch(
+          actor.companyId,
+          'items',
+          input.general.itemAutoNumbering,
+          advanced.itemAutoNumbering !== false
+        );
+        advanced.itemAutoNumbering = input.general.itemAutoNumbering;
       }
 
       if (input.accounts) {
@@ -554,6 +604,92 @@ export class AccountingSettingsService {
         preventSellingBelowCost: false,
       },
     });
+  }
+
+  private async numberingRecordCounts(companyId: string) {
+    const [accounts, costCenters, items] = await Promise.all([
+      this.ports.db.account.count({ where: { companyId, deletedAt: null } }),
+      this.ports.db.costCenter.count({ where: { companyId, isActive: true } }),
+      this.ports.db.item.count({ where: { companyId, isActive: true } }),
+    ]);
+    return { accounts, costCenters, items };
+  }
+
+  private async assertNumberingSwitch(
+    companyId: string,
+    kind: 'accounts' | 'costCenters' | 'items',
+    next: boolean,
+    current: boolean
+  ) {
+    if (next === current) return;
+    const counts = await this.numberingRecordCounts(companyId);
+    const count = counts[kind];
+    if (count > 0) {
+      throw new AppError(
+        409,
+        `لا يمكن تغيير الترقيم بعد حفظ ${count} سجل. احذف السجلات أولاً ثم غيّر الوضع.`
+      );
+    }
+  }
+
+  async resetNumberingRecords(
+    companyId: string,
+    kind: 'accounts' | 'costCenters' | 'items'
+  ) {
+    let deleted = 0;
+    let remaining = 0;
+    if (kind === 'accounts') {
+      const rows = await this.ports.db.account.findMany({
+        where: { companyId, deletedAt: null },
+        select: { id: true },
+        orderBy: { code: 'desc' },
+      });
+      for (const row of rows) {
+        try {
+          const { accountService } = await import('../services/account.service');
+          await accountService.deleteAccount(companyId, row.id);
+          deleted += 1;
+        } catch {
+          remaining += 1;
+        }
+      }
+    } else if (kind === 'costCenters') {
+      const rows = await this.ports.db.costCenter.findMany({
+        where: { companyId, isActive: true },
+        select: { id: true },
+        orderBy: { code: 'desc' },
+      });
+      const { costCenterService } = await import('../services/cost-center.service');
+      for (const row of rows) {
+        try {
+          await costCenterService.deleteCostCenter(companyId, row.id);
+          deleted += 1;
+        } catch {
+          remaining += 1;
+        }
+      }
+    } else {
+      const rows = await this.ports.db.item.findMany({
+        where: { companyId, isActive: true },
+        select: { id: true, serial: true },
+      });
+      for (const row of rows) {
+        try {
+          await this.ports.db.item.delete({ where: { id: row.id } });
+          deleted += 1;
+        } catch {
+          await this.ports.db.item.update({
+            where: { id: row.id },
+            data: {
+              isActive: false,
+              serial: row.serial ? `${row.serial}__del__${row.id.slice(0, 8)}` : row.serial,
+            },
+          });
+          deleted += 1;
+        }
+      }
+    }
+    return { deleted, remaining, counts: await this.numberingRecordCounts(companyId) };
   }
 
   private contractingWrite(input: NonNullable<UpdateAccountingSettingsInput['contracting']>) {

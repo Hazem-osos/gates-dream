@@ -17,10 +17,11 @@ import ErrorToast from "@/components/ErrorToast";
 import SuccessToast from "@/components/SuccessToast";
 import type { ApiError } from '@/lib/api/types';
 import { costCenterCardFormSchema } from '@/lib/validation/accounting.schema';
+import { NumberingModeControl } from '@/components/accounting/NumberingModeControl';
+import { useAccountingSettingsQuery } from '@/lib/hooks/useAccountingSettings';
 
 const EMPTY_COST_CENTER_FORM = {
   code: '',
-  centerType: '',
   arabicName: '',
   englishName: '',
   parentId: '',
@@ -47,6 +48,9 @@ interface Currency {
 
 function CostCenterPage() {
   const invalidateQuery = useInvalidateQuery();
+  const { data: settingsRes } = useAccountingSettingsQuery();
+  const costCenterAuto = settingsRes?.data?.general?.costCenterAutoNumbering !== false;
+  const costCenterCount = settingsRes?.data?.general?.numberingRecordCounts?.costCenters ?? 0;
   
   const [formData, setFormData] = useState({ ...EMPTY_COST_CENTER_FORM });
   const [codeTouched, setCodeTouched] = useState(false);
@@ -67,14 +71,15 @@ function CostCenterPage() {
   const { data: nextCodeResponse } = useApiQuery<{ code?: string }>(
     ['cost-centers', 'next-code', formData.parentId || 'root'],
     '/accounting/cost-centers/next-code',
-    formData.parentId ? { parentId: formData.parentId } : undefined
+    formData.parentId ? { parentId: formData.parentId } : undefined,
+    { enabled: costCenterAuto }
   );
 
   useEffect(() => {
     const suggested = nextCodeResponse?.data?.code;
-    if (!suggested || codeTouched) return;
+    if (!suggested || codeTouched || !costCenterAuto) return;
     setFormData((prev) => (prev.code === suggested ? prev : { ...prev, code: suggested }));
-  }, [codeTouched, nextCodeResponse?.data?.code]);
+  }, [codeTouched, costCenterAuto, nextCodeResponse?.data?.code]);
 
   // Fetch currencies
   const { data: currenciesResponse } = useApiQuery<Currency[]>(
@@ -126,12 +131,15 @@ function CostCenterPage() {
       setError(parsed.error.issues[0]?.message || 'يرجى مراجعة بيانات مركز التكلفة');
       return;
     }
+    if (!costCenterAuto && !formData.code.trim()) {
+      setError('رقم المركز مطلوب — الترقيم يدوي');
+      return;
+    }
 
     const requestBody = {
       code: formData.code.trim() || undefined,
       arabicName: formData.arabicName,
       englishName: formData.englishName || undefined,
-      centerType: formData.centerType || undefined,
       parentId: formData.parentId || undefined,
       quantityBudget: formData.quantityBudget ? parseFloat(formData.quantityBudget) : undefined,
       warning: formData.warning || undefined,
@@ -173,6 +181,14 @@ function CostCenterPage() {
           { label: 'البطاقات' },
           { label: 'مركز تكلفة' },
         ]}
+        actions={
+          <NumberingModeControl
+            kind="costCenters"
+            auto={costCenterAuto}
+            recordCount={costCenterCount}
+            settingKey="costCenterAutoNumbering"
+          />
+        }
       />
 
       <div className="mb-4">
@@ -183,11 +199,12 @@ function CostCenterPage() {
           <CompactFormField
             label="رقم مركز التكلفة"
             value={formData.code}
+            disabled={costCenterAuto}
             onChange={(e) => {
               setCodeTouched(true);
               setFormData({ ...formData, code: e.target.value });
             }}
-            placeholder="تلقائي أو أدخل يدوياً"
+            placeholder={costCenterAuto ? 'تلقائي' : 'أدخل الرقم'}
           />
           <CompactFormField
             label="إسم المركز"
@@ -234,18 +251,6 @@ function CostCenterPage() {
                 </div>
               )}
             </div>
-          </CompactFormField>
-          <CompactFormField label="نوع المركز">
-            <select
-              className={compactControlClass}
-              value={formData.centerType}
-              onChange={(e) => setFormData({ ...formData, centerType: e.target.value })}
-            >
-              <option value="">اختر النوع</option>
-              <option value="توفير">توفير</option>
-              <option value="إنتاج">إنتاج</option>
-              <option value="خدمة">خدمة</option>
-            </select>
           </CompactFormField>
         </FormSectionCard>
 

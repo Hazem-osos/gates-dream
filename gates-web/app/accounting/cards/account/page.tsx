@@ -20,6 +20,7 @@ import { accountCardFormSchema } from '@/lib/validation/accounting.schema';
 import { CostCenterSelect } from '@/app/components/form/CostCenterSelect';
 import { useAccountingSettingsQuery } from '@/lib/hooks/useAccountingSettings';
 import { useSuggestAccountCode } from '@/lib/hooks/useChartOfAccounts';
+import { NumberingModeControl } from '@/components/accounting/NumberingModeControl';
 
 const EMPTY_ACCOUNT_FORM = {
   code: '',
@@ -58,6 +59,7 @@ function InputDesign() {
   const [formData, setFormData] = useState({ ...EMPTY_ACCOUNT_FORM });
   const { data: settingsRes } = useAccountingSettingsQuery();
   const autoNumbering = settingsRes?.data?.general?.coaAutoNumbering !== false;
+  const accountRecordCount = settingsRes?.data?.general?.numberingRecordCounts?.accounts ?? 0;
   const { data: suggestRes } = useSuggestAccountCode(formData.parentId || null, true);
 
   const [error, setError] = useState('');
@@ -161,6 +163,14 @@ function InputDesign() {
           { label: 'البطاقات' },
           { label: 'حساب' },
         ]}
+        actions={
+          <NumberingModeControl
+            kind="accounts"
+            auto={autoNumbering}
+            recordCount={accountRecordCount}
+            settingKey="coaAutoNumbering"
+          />
+        }
       />
 
       <div className="mb-4">

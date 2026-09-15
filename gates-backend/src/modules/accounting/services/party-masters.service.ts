@@ -1,6 +1,7 @@
 import prisma from '../../../shared/database/prisma';
 import { Prisma } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
+import { nextNumericCode } from '../../../shared/utils/next-numeric-code';
 
 async function assertAccount(companyId: string, accountId: string | null | undefined) {
   if (!accountId) return;
@@ -205,7 +206,14 @@ export class CustomerCategoryService {
     data: { legacyCode: string; arabicName: string; englishName?: string }
   ) {
     try {
-      const row = await prisma.customerCategory.create({ data: { companyId, ...data } });
+      const existing = await prisma.customerCategory.findMany({
+        where: { companyId, isActive: true },
+        select: { legacyCode: true },
+      });
+      const legacyCode = nextNumericCode(existing.map((row) => row.legacyCode));
+      const row = await prisma.customerCategory.create({
+        data: { companyId, legacyCode, arabicName: data.arabicName, englishName: data.englishName },
+      });
       return mapCategory(row);
     } catch (e) {
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
@@ -247,7 +255,14 @@ export class SupplierCategoryService {
     data: { legacyCode: string; arabicName: string; englishName?: string }
   ) {
     try {
-      const row = await prisma.supplierCategory.create({ data: { companyId, ...data } });
+      const existing = await prisma.supplierCategory.findMany({
+        where: { companyId, isActive: true },
+        select: { legacyCode: true },
+      });
+      const legacyCode = nextNumericCode(existing.map((row) => row.legacyCode));
+      const row = await prisma.supplierCategory.create({
+        data: { companyId, legacyCode, arabicName: data.arabicName, englishName: data.englishName },
+      });
       return mapCategory(row);
     } catch (e) {
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {

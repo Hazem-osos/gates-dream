@@ -1,4 +1,4 @@
-import { Router, Response } from 'express';
+import { Router, Response, NextFunction } from 'express';
 import { validate } from '../../../shared/middleware/validate';
 import { authenticate } from '../../../shared/middleware/auth.middleware';
 import { authorize } from '../../../shared/middleware/authorize.middleware';
@@ -296,13 +296,13 @@ router.post(
   '/',
   authorize({ resource: 'account', action: 'edit' }),
   validate({ body: createAccountSchema }),
-  async (req: AuthRequest, res: Response) => {
+  async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const companyId = req.companyId || req.tenantId;
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -312,16 +312,14 @@ router.post(
 
       return void res.status(201).json({
         status: 'success',
-        message: 'Account created successfully',
+        message: 'تم حفظ الحساب',
         data: account,
       });
     } catch (error) {
-      logger.error({ error, body: req.body }, 'Error creating account');
-      return void res.status(500).json({
-        status: 'error',
-        message:
-          error instanceof Error ? error.message : 'Failed to create account',
-      });
+      if (!(error instanceof AppError) || error.statusCode >= 500) {
+        logger.error({ error, body: req.body }, 'Error creating account');
+      }
+      return next(error);
     }
   }
 );
@@ -334,13 +332,13 @@ router.put(
   '/:id',
   authorize({ resource: 'account', action: 'edit' }),
   validate({ body: updateAccountSchema }),
-  async (req: AuthRequest, res: Response) => {
+  async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const companyId = req.companyId || req.tenantId;
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -352,20 +350,14 @@ router.put(
 
       return void res.json({
         status: 'success',
-        message: 'Account updated successfully',
+        message: 'تم تحديث الحساب',
         data: account,
       });
     } catch (error) {
-      logger.error({ error, accountId: req.params.id }, 'Error updating account');
-      const status =
-        error instanceof Error && error.message === 'Account not found'
-          ? 404
-          : 500;
-      return void res.status(status).json({
-        status: 'error',
-        message:
-          error instanceof Error ? error.message : 'Failed to update account',
-      });
+      if (!(error instanceof AppError) || error.statusCode >= 500) {
+        logger.error({ error, accountId: req.params.id }, 'Error updating account');
+      }
+      return next(error);
     }
   }
 );
@@ -377,13 +369,13 @@ router.put(
 router.delete(
   '/:id',
   authorize({ resource: 'account', action: 'delete' }),
-  async (req: AuthRequest, res: Response) => {
+  async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const companyId = req.companyId || req.tenantId;
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -391,18 +383,10 @@ router.delete(
 
       return void res.status(204).send();
     } catch (error) {
-      logger.error({ error, accountId: req.params.id }, 'Error deleting account');
-      const status =
-        error instanceof AppError
-          ? error.statusCode
-          : error instanceof Error && error.message === 'Account not found'
-            ? 404
-            : 500;
-      return void res.status(status).json({
-        status: 'error',
-        message:
-          error instanceof Error ? error.message : 'Failed to delete account',
-      });
+      if (!(error instanceof AppError) || error.statusCode >= 500) {
+        logger.error({ error, accountId: req.params.id }, 'Error deleting account');
+      }
+      return next(error);
     }
   }
 );

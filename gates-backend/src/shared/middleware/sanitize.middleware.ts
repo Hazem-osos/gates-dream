@@ -75,11 +75,18 @@ export const sanitize = (req: Request, res: Response, next: NextFunction) => {
  * Enhanced validation with better pattern detection and alerting
  * Note: Prisma provides parameterized queries, but this adds an extra layer of defense
  */
+function isAiApiRequest(req: Request): boolean {
+  const url = String(req.originalUrl || req.path || '').split('?')[0];
+  return /\/api\/v1\/ai(?:\/|$)/.test(url);
+}
+
 export const preventSQLInjection = (
   req: Request,
   res: Response,
   next: NextFunction
 ) => {
+  if (isAiApiRequest(req)) return next();
+
   // Enhanced SQL injection patterns
   const sqlPatterns = [
     // SQL keywords in suspicious contexts
@@ -212,6 +219,8 @@ export const preventSQLInjection = (
  * Checks for XSS patterns
  */
 export const preventXSS = (req: Request, res: Response, next: NextFunction) => {
+  if (isAiApiRequest(req)) return next();
+
   const xssPatterns = [
     /<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi,
     /javascript:/gi,

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Warehouse } from 'lucide-react';
 import {
   PageHeader,
@@ -15,7 +15,8 @@ import { WarehousesListSection, type WarehouseRow } from '@/components/inventory
 import { AccountSelect } from '@/components/form/AccountSelect';
 import { WarehouseSelect } from '@/components/form/WarehouseSelect';
 import { useRouter } from 'next/navigation';
-import { useApiMutation, useInvalidateQuery } from '@/lib/hooks/useApi';
+import { useApiMutation, useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
+import { nextNumericSerial } from '@/lib/masters/nextNumericSerial';
 import ErrorToast from '@/components/ErrorToast';
 import type { ApiError } from '@/lib/api/types';
 
@@ -52,6 +53,21 @@ export default function StoreCardPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [formData, setFormData] = useState<WarehouseForm>(emptyForm);
   const [error, setError] = useState('');
+
+  const { data: warehousesRes } = useApiQuery<{ code?: string | null }[]>(
+    ['warehouses'],
+    '/inventory/warehouses',
+    { limit: 1000, isActive: true }
+  );
+  const nextWarehouseCode = useMemo(
+    () => nextNumericSerial((warehousesRes?.data ?? []).map((row) => row.code)),
+    [warehousesRes?.data]
+  );
+
+  useEffect(() => {
+    if (selectedId) return;
+    setFormData((prev) => (prev.code ? prev : { ...prev, code: nextWarehouseCode }));
+  }, [nextWarehouseCode, selectedId]);
 
   const createMutation = useApiMutation<unknown, Record<string, unknown>>(
     '/inventory/warehouses',
@@ -166,8 +182,8 @@ export default function StoreCardPage() {
         <CompactFormField
           label="رقم المخزن"
           value={formData.code}
-          onChange={(e) => patch({ code: e.target.value })}
-          placeholder="إدخل رقم المخزن"
+          disabled
+          placeholder="تلقائي"
         />
         <CompactFormField
           label="اسم المخزن"

@@ -9,7 +9,13 @@ import { AiSupportHandoff } from './AiSupportHandoff';
 import { AiWelcomeHero } from './AiWelcomeHero';
 import { InsightBriefingCard } from './InsightBriefingCard';
 
-export function AiChatDrawer() {
+export function AiChatDrawer({
+  onPointerEnter,
+  onPointerLeave,
+}: {
+  onPointerEnter?: () => void;
+  onPointerLeave?: () => void;
+} = {}) {
   const {
     open,
     setOpen,
@@ -65,6 +71,9 @@ export function AiChatDrawer() {
       role="dialog"
       aria-modal="false"
       aria-labelledby="gates-intelligence-title"
+      data-gates-ai-drawer
+      onMouseEnter={onPointerEnter}
+      onMouseLeave={onPointerLeave}
       className={`pointer-events-auto fixed bottom-3 left-3 top-[4.6rem] z-[80] flex w-[min(100vw-1.5rem,380px)] flex-col overflow-hidden rounded-2xl border border-slate-200/80 bg-slate-50 shadow-[0_24px_60px_-24px_rgba(15,23,42,0.45)] transition-all duration-300 ease-out ${
         entered ? 'translate-x-0 opacity-100' : '-translate-x-4 opacity-0'
       }`}

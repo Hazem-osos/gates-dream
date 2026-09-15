@@ -519,7 +519,6 @@ export const costCenterCardFormSchema = z.object({
   code: z.string().optional(),
   arabicName: z.string().trim().min(1, 'يرجى إدخال الإسم العربي'),
   englishName: z.string().optional(),
-  centerType: z.string().optional(),
   parentId: z.string().optional(),
   quantityBudget: z.string().optional(),
   warning: z.enum(['مدين', 'دائن', 'بدون', '']).optional(),

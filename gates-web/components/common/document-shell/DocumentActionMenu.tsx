@@ -35,16 +35,19 @@ export type DocumentActionMenuProps = {
   onThermalPrint?: () => void;
   onDuplicate?: () => void;
   onVoid?: () => void;
+  onRestore?: () => void;
   extraItems?: DocumentActionExtraItem[];
   whatsAppShare?: WhatsAppInvoicePayload | null;
   postPending?: boolean;
   unpostPending?: boolean;
   duplicatePending?: boolean;
   voidPending?: boolean;
+  restorePending?: boolean;
   /** Voucher screens: hide ترحيل / إلغاء الترحيل — posting is automatic on save. */
   hidePostActions?: boolean;
   printLabel?: string;
   voidLabel?: string;
+  restoreLabel?: string;
   duplicateLabel?: string;
   editLockedHint?: string;
 };
@@ -64,15 +67,18 @@ export function DocumentActionMenu({
   onThermalPrint,
   onDuplicate,
   onVoid,
+  onRestore,
   extraItems = [],
   whatsAppShare,
   postPending,
   unpostPending,
   duplicatePending,
   voidPending,
+  restorePending,
   hidePostActions = false,
   printLabel,
   voidLabel,
+  restoreLabel,
   duplicateLabel,
   editLockedHint,
 }: DocumentActionMenuProps) {
@@ -87,7 +93,7 @@ export function DocumentActionMenu({
     }
     router.replace(pathname);
   };
-  const [confirm, setConfirm] = useState<'unpost' | 'void' | null>(null);
+  const [confirm, setConfirm] = useState<'unpost' | 'void' | 'restore' | null>(null);
   const [phoneDialogOpen, setPhoneDialogOpen] = useState(false);
   const [manualPhone, setManualPhone] = useState('');
 
@@ -102,12 +108,14 @@ export function DocumentActionMenu({
   };
 
   const editDisabled = !hasDocument || isCancelled || isPosted || !onEdit;
-  const editHint = isPosted
-    ? editLockedHint ??
-      (hidePostActions
-        ? 'المستند مرحل ومثبت محاسبياً ولا يمكن تعديله'
-        : 'المستند مرحل ومثبت محاسبياً. فك الترحيل أولاً من قائمة (...)')
-    : undefined;
+  const editHint = isCancelled
+    ? 'المستند ملغي ولا يمكن تعديله'
+    : isPosted
+      ? editLockedHint ??
+        (hidePostActions
+          ? 'المستند مرحل ومثبت محاسبياً ولا يمكن تعديله'
+          : 'المستند مرحل ومثبت محاسبياً. فك الترحيل أولاً من قائمة (...)')
+      : undefined;
 
   const items = [
     {
@@ -191,6 +199,16 @@ export function DocumentActionMenu({
       onClick: () => onDuplicate?.(),
     },
     ...extraItems,
+    ...(isCancelled && onRestore
+      ? [
+          {
+            id: 'restore',
+            label: restorePending ? 'جاري الاستعادة…' : restoreLabel ?? 'استعادة القيد',
+            disabled: !hasDocument || restorePending,
+            onClick: () => setConfirm('restore'),
+          },
+        ]
+      : []),
     {
       id: 'void',
       label:
@@ -258,12 +276,18 @@ export function DocumentActionMenu({
         <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/40 px-4" dir="rtl">
           <div className="w-full max-w-md rounded-2xl border border-[#D6EAF3] bg-white p-5 shadow-xl">
             <h2 className="text-base font-bold text-[#0A3D5E]">
-              {confirm === 'unpost' ? 'فك ترحيل المستند' : 'إلغاء المستند'}
+              {confirm === 'unpost'
+                ? 'فك ترحيل المستند'
+                : confirm === 'restore'
+                  ? 'استعادة المستند'
+                  : 'إلغاء المستند'}
             </h2>
             <p className="mt-2 text-sm leading-6 text-slate-600">
               {confirm === 'unpost'
                 ? 'سيتم فك الترحيل وإعادة المستند إلى مسودة حتى يمكن تعديله أو حذفه. هل تريد المتابعة؟'
-                : 'سيتم إلغاء / حذف هذا المستند. هذا الإجراء لا يمكن التراجع عنه بسهولة. هل تريد المتابعة؟'}
+                : confirm === 'restore'
+                  ? 'سيتم استعادة القيد الملغي وترحيله من جديد. هل تريد المتابعة؟'
+                  : 'سيتم إلغاء هذا المستند مع الإبقاء عليه بحالة ملغي. يمكن استعادته لاحقاً. هل تريد المتابعة؟'}
             </p>
             <div className="mt-5 flex items-center justify-end gap-2">
               <button
@@ -277,6 +301,7 @@ export function DocumentActionMenu({
                 type="button"
                 onClick={() => {
                   if (confirm === 'unpost') onUnpost?.();
+                  else if (confirm === 'restore') onRestore?.();
                   else onVoid?.();
                   setConfirm(null);
                 }}

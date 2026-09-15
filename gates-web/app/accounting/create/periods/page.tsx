@@ -45,8 +45,24 @@ function toApiDate(value: string): string {
   return new Date(`${value}T00:00:00.000Z`).toISOString();
 }
 
-const emptyForm = (startDate = todayIso()): FormState => ({
-  code: '',
+function nextPeriodSerial(codes: Array<string | null | undefined>): string {
+  const used = new Set(codes.map((code) => String(code ?? '').trim()).filter(Boolean));
+  let n = 1;
+  for (const code of used) {
+    if (/^\d{1,3}$/.test(code)) {
+      n = Math.max(n, Number.parseInt(code, 10) + 1);
+    }
+  }
+  let serial = String(n).padStart(3, '0');
+  while (used.has(serial) || used.has(String(Number(serial)))) {
+    n += 1;
+    serial = String(n).padStart(3, '0');
+  }
+  return serial;
+}
+
+const emptyForm = (startDate = todayIso(), code = ''): FormState => ({
+  code,
   name: '',
   startDate,
   endDate: startDate,
@@ -83,20 +99,34 @@ function AccountingPeriodsPageInner() {
         )
       : todayIso());
   const otherCount = periods.filter((row) => row.id !== selectedId).length;
-  const startDateLocked = otherCount > 0;
+  const latestPeriodId = [...periods].sort((a, b) =>
+    toInputDate(b.endDate).localeCompare(toInputDate(a.endDate))
+  )[0]?.id;
+  const isLatestSelected = !selectedId || selectedId === latestPeriodId;
+  const startDateLocked = selectedId ? !isLatestSelected || otherCount > 0 : otherCount > 0;
+  const endDateLocked = Boolean(selectedId && !isLatestSelected);
+  const nextSerial =
+    (periodsRes as { nextSerial?: string } | undefined)?.nextSerial ||
+    nextPeriodSerial(periods.map((row) => row.code));
 
   useEffect(() => {
     if (selectedId || periodsRes == null) return;
-    setForm((prev) =>
-      prev.startDate === nextStartDate ? prev : { ...prev, startDate: nextStartDate, endDate: prev.endDate || nextStartDate }
-    );
-  }, [nextStartDate, periodsRes, selectedId]);
+    setForm((prev) => {
+      const startDate = prev.startDate === nextStartDate ? prev.startDate : nextStartDate;
+      const endDate = prev.endDate || nextStartDate;
+      const code = prev.code.trim() || nextSerial;
+      if (prev.startDate === startDate && prev.endDate === endDate && prev.code === code) {
+        return prev;
+      }
+      return { ...prev, startDate, endDate, code };
+    });
+  }, [nextSerial, nextStartDate, periodsRes, selectedId]);
 
   const patch = (next: Partial<FormState>) => setForm((prev) => ({ ...prev, ...next }));
 
-  const resetNew = (start = nextStartDate) => {
+  const resetNew = (start = nextStartDate, code = nextSerial) => {
     setSelectedId(null);
-    setForm(emptyForm(start));
+    setForm(emptyForm(start, code));
     setError('');
     setMode('create');
   };
@@ -138,8 +168,9 @@ function AccountingPeriodsPageInner() {
       return;
     }
 
+    const serial = form.code.trim() || (!selectedId ? nextSerial : '');
     const body = {
-      code: form.code.trim() || form.name.trim(),
+      ...(serial ? { code: serial } : {}),
       name: form.name.trim(),
       startDate: toApiDate(startDate),
       endDate: toApiDate(form.endDate),
@@ -155,7 +186,10 @@ function AccountingPeriodsPageInner() {
         setSuccess('تم حفظ الفترة المحاسبية');
       }
       invalidateQuery(['periods']);
-      resetNew(addDaysIso(form.endDate, 1));
+      resetNew(
+        addDaysIso(form.endDate, 1),
+        nextPeriodSerial([...periods.map((row) => row.code), serial])
+      );
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'حدث خطأ أثناء الحفظ');
     } finally {
@@ -217,7 +251,6 @@ function AccountingPeriodsPageInner() {
       <ErpDocumentPageHeader
         compact
         lockWhenPosted={false}
-        registerChrome={false}
         breadcrumbs={[
           { href: '/accounting', label: 'الحسابات' },
           { label: 'إنشاءات الحسابات' },
@@ -297,10 +330,9 @@ function AccountingPeriodsPageInner() {
 
         <CompactFormField
           label="المسلسل"
-          placeholder="إدخل رقم المسلسل"
+          placeholder="تلقائي"
           value={form.code}
-          disabled={isReadOnly}
-          onChange={(e) => patch({ code: e.target.value })}
+          disabled
         />
         <CompactFormField
           label="الاسم"
@@ -321,7 +353,7 @@ function AccountingPeriodsPageInner() {
           label="إلى تاريخ"
           required
           value={form.endDate}
-          disabled={isReadOnly}
+          disabled={endDateLocked || isReadOnly}
           onChange={(value) => patch({ endDate: value })}
         />
       </FormSectionCard>

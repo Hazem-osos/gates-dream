@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Users } from 'lucide-react';
 import {
   PageHeader,
@@ -15,6 +15,7 @@ import { useApiQuery, useApiMutation, useInvalidateQuery } from '@/lib/hooks/use
 import { apiClient } from '@/lib/api/client';
 import ErrorToast from '@/components/ErrorToast';
 import type { ApiError } from '@/lib/api/types';
+import { nextNumericSerial } from '@/lib/masters/nextNumericSerial';
 
 export type PartyGroupRow = {
   id: string;
@@ -78,6 +79,15 @@ export function PartyGroupCardPage({ kind }: { kind: Kind }) {
     isActive: true,
   });
   const rows = data?.data ?? [];
+  const nextCode = useMemo(
+    () => nextNumericSerial(rows.map((row) => row.code || row.legacyCode)),
+    [rows]
+  );
+
+  useEffect(() => {
+    if (selectedId) return;
+    setFormData((prev) => (prev.code ? prev : { ...prev, code: nextCode }));
+  }, [nextCode, selectedId]);
 
   const createMutation = useApiMutation<unknown, Record<string, unknown>>(config.api, 'POST', {
     onSuccess: () => {
@@ -107,10 +117,6 @@ export function PartyGroupCardPage({ kind }: { kind: Kind }) {
 
   const handleSave = () => {
     setError('');
-    if (!formData.code.trim()) {
-      setError('كود المجموعة مطلوب');
-      return;
-    }
     if (!formData.arabicName.trim()) {
       setError('اسم المجموعة مطلوب');
       return;
@@ -205,10 +211,9 @@ export function PartyGroupCardPage({ kind }: { kind: Kind }) {
       >
         <CompactFormField
           label="كود المجموعة"
-          required
           value={formData.code}
-          onChange={(e) => setFormData((prev) => ({ ...prev, code: e.target.value }))}
-          placeholder="01"
+          disabled
+          placeholder="تلقائي"
         />
         <CompactFormField
           label="اسم المجموعة"

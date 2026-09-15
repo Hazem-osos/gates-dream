@@ -6,6 +6,7 @@ import { syncCustomerSupplierLink } from '../utils/party-link.util';
 import type { PriceTier } from '@prisma/client';
 import { applyFullTextIds, findFullTextIds } from '../../../shared/database/fulltext-search';
 import { customerLedgerAccountService } from './customer-ledger-account.service';
+import { nextNumericCode } from '../../../shared/utils/next-numeric-code';
 
 /** Lean projection for dropdowns / list screens (avoids joining mainAccount). */
 const CUSTOMER_LIST_SELECT = {
@@ -82,8 +83,18 @@ export class CustomerService {
   /**
    * Create a new customer
    */
+  private async nextCustomerCode(companyId: string): Promise<string> {
+    const rows = await prisma.customer.findMany({
+      where: { companyId, deletedAt: null },
+      select: { serial: true, code: true },
+    });
+    return nextNumericCode(rows.flatMap((row) => [row.serial, row.code]));
+  }
+
   async createCustomer(companyId: string, data: CreateCustomerData) {
     try {
+      const serial = await this.nextCustomerCode(companyId);
+      const code = serial;
       if (data.mainAccountId) {
         const account = await prisma.account.findFirst({
           where: { id: data.mainAccountId, companyId, deletedAt: null },
@@ -96,8 +107,8 @@ export class CustomerService {
       const customer = await prisma.customer.create({
         data: {
           companyId,
-          serial: data.serial,
-          code: data.code,
+          serial,
+          code,
           arabicName: data.arabicName,
           englishName: data.englishName,
           customerType: data.customerType,

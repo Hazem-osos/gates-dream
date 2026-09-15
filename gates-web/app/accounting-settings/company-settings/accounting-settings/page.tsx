@@ -32,6 +32,7 @@ import {
   useAccountingSettingsQuery,
 } from '@/lib/hooks/useAccountingSettings';
 import { AccountSlotField } from './AccountSlotField';
+import { NumberingModeControl } from '@/components/accounting/NumberingModeControl';
 import type { AccountingAccountSlotKey } from '@/lib/accounting-settings/accounting-settings.types';
 
 export default function CompanyAccountingSettingsPage() {
@@ -1594,14 +1595,12 @@ export default function CompanyAccountingSettingsPage() {
                             </CompactFormField>
                           ))}
                           <CompactFormField label="ترقيم شجرة الحسابات">
-                            <select
-                              className={compactControlClass}
-                              value={settings.coaAutoNumbering === false ? 'manual' : 'auto'}
-                              onChange={(e) => update('coaAutoNumbering', e.target.value === 'auto')}
-                            >
-                              <option value="auto">تلقائي — يُقفل حقل رقم الحساب</option>
-                              <option value="manual">يدوي — إدخال رقم الحساب</option>
-                            </select>
+                            <NumberingModeControl
+                              kind="accounts"
+                              auto={settings.coaAutoNumbering !== false}
+                              recordCount={settingsRes?.data?.general?.numberingRecordCounts?.accounts ?? 0}
+                              settingKey="coaAutoNumbering"
+                            />
                           </CompactFormField>
                           <CompactFormField
                             label="من تاريخ"

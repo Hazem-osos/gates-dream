@@ -491,35 +491,48 @@ export class JournalEntryService {
   }
 
   /**
-   * Restore journal entry (undo cancel)
+   * Restore a cancelled journal entry and post it again.
    */
-  async restoreJournalEntry(companyId: string, journalEntryId: string) {
+  async restoreJournalEntry(
+    companyId: string,
+    journalEntryId: string,
+    context?: { branchId?: string; fiscalYearId?: string; userId?: string; isAdmin?: boolean }
+  ) {
+    const journalEntry = await prisma.journalEntry.findFirst({
+      where: { id: journalEntryId, companyId },
+    });
+
+    if (!journalEntry) {
+      throw new AppError(404, 'القيد غير موجود');
+    }
+
+    if (!journalEntry.isCancelled) {
+      throw new AppError(400, 'القيد ليس ملغياً');
+    }
+
+    await prisma.journalEntry.update({
+      where: { id: journalEntryId },
+      data: {
+        isCancelled: false,
+        isApproved: true,
+        workflowStatus: 'APPROVED',
+      },
+    });
+
     try {
-      const journalEntry = await prisma.journalEntry.findFirst({
-        where: { id: journalEntryId, companyId },
-      });
-
-      if (!journalEntry) {
-        throw new Error('Journal entry not found');
-      }
-
-      if (!journalEntry.isCancelled) {
-        throw new Error('Journal entry is not cancelled');
-      }
-
-      const updated = await prisma.journalEntry.update({
-        where: { id: journalEntryId },
-        data: { isCancelled: false },
-      });
-
-      logger.info({ companyId, journalEntryId }, 'Journal entry restored');
-      return updated;
+      const posted = await this.postJournalEntry(companyId, journalEntryId, context);
+      logger.info({ companyId, journalEntryId }, 'Journal entry restored and posted');
+      return posted;
     } catch (error) {
-      logger.error(
+      logger.warn(
         { error, companyId, journalEntryId },
-        'Error restoring journal entry'
+        'Journal entry restored as draft; posting failed'
       );
-      throw error;
+      const reason = error instanceof Error ? error.message : 'تعذر الترحيل';
+      throw new AppError(
+        error instanceof AppError ? error.statusCode : 422,
+        `تم استعادة القيد كمسودة وتعذر الترحيل: ${reason}`
+      );
     }
   }
 

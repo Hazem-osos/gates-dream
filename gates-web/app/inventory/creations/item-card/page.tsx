@@ -27,6 +27,9 @@ import { useItemCardTourPrepare } from '@/lib/onboarding/useItemCardTourPrepare'
 import { queryKeys } from '@/lib/query/query-keys';
 import { BarcodePrintModal } from '@/app/components/print/BarcodePrintModal';
 import { ItemFinderModal } from '@/components/inventory/ItemFinderModal';
+import { NumberingModeControl } from '@/components/accounting/NumberingModeControl';
+import { useAccountingSettingsQuery } from '@/lib/hooks/useAccountingSettings';
+import { nextNumericSerial } from '@/lib/masters/nextNumericSerial';
 import {
   applyItemToForm,
   assemblyRowsTotal,
@@ -241,6 +244,9 @@ export default function ItemCardPage() {
   const [lookup, setLookup] = useState('');
   const hydratedIdRef = useRef<string | null>(null);
 
+  const { data: settingsRes } = useAccountingSettingsQuery();
+  const itemAuto = settingsRes?.data?.general?.itemAutoNumbering !== false;
+  const itemRecordCount = settingsRes?.data?.general?.numberingRecordCounts?.items ?? 0;
   const [formData, setFormData] = useState<ItemCardForm>({ ...EMPTY_ITEM_FORM });
   const [assemblyRows, setAssemblyRows] = useState<AssemblyRow[]>(
     parseAssemblyRows(undefined)
@@ -270,6 +276,19 @@ export default function ItemCardPage() {
     { limit: 200, isActive: true }
   );
   const categories = categoriesResponse?.data ?? [];
+
+  const { data: itemsSerialRes } = useApiQuery<{ serial?: string | null }[]>(
+    ['items', 'serials'],
+    '/inventory/items',
+    { limit: 500, isActive: true },
+    { enabled: itemAuto && !activeItemId }
+  );
+  const nextItemSerial = nextNumericSerial((itemsSerialRes?.data ?? []).map((row) => row.serial));
+
+  useEffect(() => {
+    if (!itemAuto || activeItemId) return;
+    setFormData((prev) => (prev.serial ? prev : { ...prev, serial: nextItemSerial }));
+  }, [activeItemId, itemAuto, nextItemSerial]);
 
   const unitRows = itemDetail?.units ?? [];
   const [factorBusyId, setFactorBusyId] = useState<string | null>(null);
@@ -387,6 +406,10 @@ export default function ItemCardPage() {
     });
     if (!parsed.success) {
       setError(parsed.error.issues[0]?.message || 'يرجى مراجعة بيانات الصنف');
+      return;
+    }
+    if (!itemAuto && !formData.serial.trim() && !activeItemId) {
+      setError('رقم الصنف مطلوب — الترقيم يدوي');
       return;
     }
 
@@ -520,6 +543,13 @@ export default function ItemCardPage() {
           { label: 'بطاقة الصنف' },
         ]}
         actions={
+          <div className="flex flex-wrap items-center gap-2">
+            <NumberingModeControl
+              kind="items"
+              auto={itemAuto}
+              recordCount={itemRecordCount}
+              settingKey="itemAutoNumbering"
+            />
           <CrudButtons
             onPrevious={() => router.push('/inventory/guide/items')}
             previousLabel="الدليل"
@@ -536,6 +566,7 @@ export default function ItemCardPage() {
               { id: 'barcode', label: 'طباعة باركود', onClick: () => setShowPrint(true) },
             ]}
           />
+          </div>
         }
       />
 
@@ -547,8 +578,9 @@ export default function ItemCardPage() {
         <CompactFormField
           label="المسلسل"
           value={formData.serial}
+          disabled={itemAuto}
           onChange={(e) => patch({ serial: e.target.value })}
-          placeholder="رقم الصنف"
+          placeholder={itemAuto ? 'تلقائي' : 'أدخل رقم الصنف'}
         />
         <CompactFormField
           label="الاسم العربي"

@@ -82,6 +82,7 @@ router.get(
         status: 'success',
         data: result.periods,
         nextStartDate: result.nextStartDate,
+        nextSerial: result.nextSerial,
         pagination: result.pagination,
       });
     } catch (error) {

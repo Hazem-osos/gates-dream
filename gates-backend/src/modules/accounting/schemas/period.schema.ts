@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 const periodFieldsSchema = z.object({
-  code: z.string().min(1, 'Period code is required'),
+  code: z.string().trim().max(50).optional(),
   name: z.string().min(1, 'Period name is required'),
   startDate: z.string().datetime().or(z.date()),
   endDate: z.string().datetime().or(z.date()),

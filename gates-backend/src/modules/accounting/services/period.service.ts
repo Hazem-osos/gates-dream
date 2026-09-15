@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import prisma from '../../../shared/database/prisma';
 import { logger } from '../../../shared/logger';
 import { AppError } from '../../../shared/middleware/error-handler';
@@ -5,10 +6,27 @@ import { yearEndClosingService } from '../../operations/services/year-end-closin
 import type { JournalPostingContext } from './journal-posting.service';
 
 export interface CreatePeriodData {
-  code: string;
+  code?: string;
   name: string;
   startDate: Date;
   endDate: Date;
+}
+
+/** Sequential period serials: 001, 002, … — never the period name. */
+export function nextPeriodSerial(codes: Array<string | null | undefined>): string {
+  const used = new Set(codes.map((code) => String(code ?? '').trim()).filter(Boolean));
+  let n = 1;
+  for (const code of used) {
+    if (/^\d{1,3}$/.test(code)) {
+      n = Math.max(n, Number.parseInt(code, 10) + 1);
+    }
+  }
+  let serial = String(n).padStart(3, '0');
+  while (used.has(serial) || used.has(String(Number(serial)))) {
+    n += 1;
+    serial = String(n).padStart(3, '0');
+  }
+  return serial;
 }
 
 export interface UpdatePeriodData extends Partial<CreatePeriodData> {
@@ -76,6 +94,14 @@ export class PeriodService {
       where: { companyId, isActive: true },
       orderBy: { endDate: 'desc' },
     });
+  }
+
+  async allocateNextSerial(companyId: string): Promise<string> {
+    const rows = await prisma.period.findMany({
+      where: { companyId },
+      select: { code: true },
+    });
+    return nextPeriodSerial(rows.map((row) => row.code));
   }
 
   async nextStartDate(companyId: string, exceptPeriodId?: string): Promise<Date | null> {
@@ -198,8 +224,10 @@ export class PeriodService {
       );
     }
 
+    const code = data.code?.trim() || (await this.allocateNextSerial(companyId));
+
     const existingCode = await prisma.period.findFirst({
-      where: { companyId, code: data.code },
+      where: { companyId, code },
     });
     if (existingCode) {
       throw new AppError(409, 'مسلسل الفترة مستخدم من قبل');
@@ -208,7 +236,7 @@ export class PeriodService {
     const period = await prisma.period.create({
       data: {
         companyId,
-        code: data.code,
+        code,
         name: data.name,
         startDate,
         endDate,
@@ -305,11 +333,15 @@ export class PeriodService {
       prisma.period.count({ where }),
     ]);
 
-    const nextStart = await this.nextStartDate(companyId);
+    const [nextStart, nextSerial] = await Promise.all([
+      this.nextStartDate(companyId),
+      this.allocateNextSerial(companyId),
+    ]);
 
     return {
       periods,
       nextStartDate: nextStart ? dateLabel(nextStart) : null,
+      nextSerial,
       otherCount: total,
       pagination: {
         page,
@@ -328,7 +360,18 @@ export class PeriodService {
     let startDate = data.startDate ? startOfUtcDay(data.startDate) : existing.startDate;
     const endDate = data.endDate ? startOfUtcDay(data.endDate) : existing.endDate;
 
-    if (otherCount > 0) {
+    const latest = await prisma.period.findFirst({
+      where: { companyId, isActive: true },
+      orderBy: { endDate: 'desc' },
+      select: { id: true },
+    });
+    const isLatest = latest?.id === periodId;
+    if (!isLatest) {
+      startDate = existing.startDate;
+      if (data.endDate && dateLabel(endDate) !== dateLabel(existing.endDate)) {
+        throw new AppError(422, 'لا يمكن تعديل تواريخ سنة سابقة. عدّل آخر سنة مالية فقط.');
+      }
+    } else if (otherCount > 0) {
       startDate = existing.startDate;
     }
 
@@ -417,10 +460,23 @@ export class PeriodService {
     if (year) {
       const yearMovements = await this.countMovements(companyId, year.startDate, year.endDate);
       if (yearMovements.total === 0 && year.status !== 'Close') {
-        await prisma.fiscalYear.update({
-          where: { id: year.id },
-          data: { isActive: false },
-        });
+        await prisma.fiscalPeriod.deleteMany({ where: { fiscalYearId: year.id } });
+        await prisma.documentSequence.deleteMany({ where: { fiscalYearId: year.id } });
+        try {
+          await prisma.fiscalYear.delete({ where: { id: year.id } });
+        } catch (error) {
+          const blocked =
+            error instanceof Prisma.PrismaClientKnownRequestError &&
+            (error.code === 'P2003' || error.code === 'P2014');
+          if (!blocked) throw error;
+          await prisma.fiscalYear.update({
+            where: { id: year.id },
+            data: {
+              isActive: false,
+              legacyYearId: `${year.legacyYearId}__del__${year.id.slice(0, 8)}`.slice(0, 20),
+            },
+          });
+        }
       }
     }
 

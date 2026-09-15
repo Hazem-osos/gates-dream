@@ -49,6 +49,18 @@ const SCREEN_TITLES: Record<string, string> = {
   '/accounting/operations/cost-center-movement': 'نقل حركة مركز التكلفة',
   '/accounting/operations/treasury/temp-receipt': 'إيصال استلام مؤقت',
   '/accounting/vouchers/temporary-receipt': 'إيصال استلام مؤقت',
+  '/accounting/create/currencies': 'تعريف العملات',
+  '/accounting/create/periods': 'الفترات المحاسبية',
+  '/accounting/chart-of-accounts': 'دليل الحسابات',
+  '/accounting/guide/cost-center': 'دليل مراكز التكلفة',
+  '/inventory/guide/items': 'دليل الأصناف',
+  '/inventory/creations/item-card': 'بطاقة الصنف',
+  '/inventory/creations/stores': 'دليل المخازن',
+  '/accounting/cards/customer': 'بطاقة عميل',
+  '/accounting/cards/supplier': 'بطاقة مورد',
+  '/accounting/cards/cost-center': 'بطاقة مركز تكلفة',
+  '/accounting/cards/account': 'دليل الحسابات',
+  '/accounting/cards/delegate': 'بطاقة مندوب',
 };
 
 function lookupTitle(pathname: string): string | undefined {

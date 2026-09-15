@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { User } from 'lucide-react';
 import Image from 'next/image';
 import {
@@ -15,6 +15,7 @@ import { useApiQuery, useApiMutation, useInvalidateQuery } from '@/lib/hooks/use
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
 import type { ApiError } from '@/lib/api/types';
+import { nextNumericSerial } from '@/lib/masters/nextNumericSerial';
 
 interface PriceList {
   id: string;
@@ -65,6 +66,22 @@ export default function DelegatePage() {
     { limit: 1000, isActive: true }
   );
   const priceLists = priceListsResponse?.data || [];
+
+  const { data: delegatesResponse } = useApiQuery<{ serial?: string; code?: string }[]>(
+    ['delegates'],
+    '/accounting/delegates',
+    { limit: 1000, isActive: true }
+  );
+  const nextDelegateCode = useMemo(
+    () => nextNumericSerial((delegatesResponse?.data ?? []).flatMap((row) => [row.serial, row.code])),
+    [delegatesResponse?.data]
+  );
+
+  useEffect(() => {
+    setFormData((prev) =>
+      prev.serial || prev.code ? prev : { ...prev, serial: nextDelegateCode, code: nextDelegateCode }
+    );
+  }, [nextDelegateCode]);
 
   // Delegate mutation
   const delegateMutation = useApiMutation<unknown, Record<string, unknown>>(
@@ -166,14 +183,14 @@ export default function DelegatePage() {
           <CompactFormField
             label="المسلسل"
             value={formData.serial}
-            onChange={(e) => setFormData((prev) => ({ ...prev, serial: e.target.value }))}
-            placeholder="إدخل رقم المسلسل"
+            disabled
+            placeholder="تلقائي"
           />
           <CompactFormField
             label="الكود"
             value={formData.code}
-            onChange={(e) => setFormData((prev) => ({ ...prev, code: e.target.value }))}
-            placeholder="إدخل الكود"
+            disabled
+            placeholder="تلقائي"
           />
           <CompactFormField
             label="الإسم العربي"

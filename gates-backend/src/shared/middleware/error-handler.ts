@@ -63,24 +63,49 @@ export type ApiError = AppError;
 function handlePrismaError(err: Prisma.PrismaClientKnownRequestError): AppError {
   switch (err.code) {
     case 'P2002': {
-      // Unique constraint failed — surface the conflicting field if available
-      const target = Array.isArray(err.meta?.target)
-        ? (err.meta.target as string[]).join(', ')
-        : 'field';
-      return new AppError(409, `A record with this ${target} already exists.`);
+      const fields = Array.isArray(err.meta?.target)
+        ? (err.meta.target as string[]).filter(
+            (field) => field !== 'companyId' && field !== 'tenantId'
+          )
+        : [];
+      if (fields.includes('code')) {
+        return new AppError(
+          409,
+          'هذا الرقم مستخدم من قبل. الحل: غيّر الرقم ثم احفظ.'
+        );
+      }
+      if (fields.includes('email')) {
+        return new AppError(
+          409,
+          'هذا البريد الإلكتروني مسجّل مسبقاً. الحل: استخدم بريداً آخر أو افتح السجل الموجود.'
+        );
+      }
+      return new AppError(
+        409,
+        'يوجد سجل بنفس هذه البيانات مسبقاً. الحل: غيّر الرقم أو الاسم المكرر ثم أعد الحفظ.'
+      );
     }
     case 'P2025':
-      // Record to update/delete not found
-      return new AppError(404, err.meta?.cause as string ?? 'Record not found.');
+      return new AppError(
+        404,
+        'السجل غير موجود أو تم حذفه. الحل: حدّث الصفحة ثم أعد المحاولة.'
+      );
     case 'P2003':
-      // Foreign key constraint failed
-      return new AppError(409, 'Operation failed: a related record does not exist.');
+      return new AppError(
+        409,
+        'تعذّر الحفظ لأن بياناً مرتبطاً غير موجود. الحل: تأكد أن الحساب أو الصنف أو المخزن المختار ما زال موجوداً.'
+      );
     case 'P2014':
-      // Required relation violation
-      return new AppError(400, 'Invalid data: a required relation is missing.');
+      return new AppError(
+        400,
+        'بيانات غير مكتملة — علاقة مطلوبة ناقصة. الحل: أكمل الحقول المرتبطة ثم احفظ.'
+      );
     default:
-      // Unknown Prisma error — log internally, return generic 500
-      return new AppError(500, 'A database error occurred.', false);
+      return new AppError(
+        500,
+        'تعذّر حفظ البيانات. الحل: راجع الحقول وأعد المحاولة.',
+        false
+      );
   }
 }
 
@@ -142,7 +167,7 @@ export const errorHandler = (
 
     const safeMessage =
       isProduction && err.statusCode >= 500
-        ? 'An error occurred while processing your request'
+        ? 'حدث خطأ أثناء تنفيذ العملية. الحل: حدّث الصفحة وأعد المحاولة.'
         : err.message;
 
     const details = 'details' in err ? (err as { details?: unknown }).details : undefined;
@@ -162,7 +187,7 @@ export const errorHandler = (
 
   const statusCode = err instanceof AppError ? err.statusCode : 500;
   const message = isProduction
-    ? 'An internal server error occurred'
+    ? 'حدث خطأ غير متوقع. الحل: حدّث الصفحة وأعد المحاولة.'
     : err instanceof Error
       ? err.message
       : String(err);

@@ -46,6 +46,7 @@ export class YearEndClosingService {
     const earlierOpenYear = await prisma.fiscalYear.findFirst({
       where: {
         companyId,
+        isActive: true,
         status: { not: 'Close' },
         endDate: { lt: year.endDate },
       },

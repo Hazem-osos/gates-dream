@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client';
 import prisma from '../../../shared/database/prisma';
 import { AppError } from '../../../shared/middleware/error-handler';
 import { logger } from '../../../shared/logger';
+import { advancedFlag } from '../../../shared/utils/next-numeric-code';
 
 function retiredCostCenterCode(code: string, id: string): string {
   if (code.includes('__deleted__')) return code;
@@ -12,7 +13,6 @@ export interface CreateCostCenterData {
   code?: string;
   arabicName: string;
   englishName?: string;
-  centerType?: string | null;
   parentId?: string | null;
   quantityBudget?: number | null;
   warning?: 'مدين' | 'دائن' | 'بدون' | null;
@@ -49,6 +49,14 @@ export class CostCenterService {
       }),
     ]);
     return journalLines + ccMoves + invoices + invoiceLines;
+  }
+
+  private async isCostCenterAutoNumbering(companyId: string): Promise<boolean> {
+    const settings = await prisma.companySettings.findUnique({
+      where: { companyId },
+      select: { advancedSettings: true },
+    });
+    return advancedFlag(settings?.advancedSettings, 'costCenterAutoNumbering');
   }
 
   async suggestNextCostCenterCode(companyId: string, parentId?: string | null): Promise<string> {
@@ -159,9 +167,12 @@ export class CostCenterService {
   async createCostCenter(companyId: string, data: CreateCostCenterData) {
     try {
       await this.assertParentCanReceiveChild(companyId, data.parentId);
+      const auto = await this.isCostCenterAutoNumbering(companyId);
       let code = data.code?.trim() ?? '';
-      if (!code) {
+      if (auto) {
         code = await this.suggestNextCostCenterCode(companyId, data.parentId);
+      } else if (!code) {
+        throw new AppError(400, 'رقم المركز مطلوب — الترقيم يدوي.');
       }
       await this.vacateInactiveCostCenterCode(companyId, code);
       await this.assertUniqueCostCenterCode(companyId, code);
@@ -172,7 +183,6 @@ export class CostCenterService {
           code,
           arabicName: data.arabicName,
           englishName: data.englishName,
-          centerType: data.centerType,
           parentId: data.parentId,
           quantityBudget: data.quantityBudget,
           warning: data.warning,
@@ -323,7 +333,6 @@ export class CostCenterService {
           ...(data.code && { code: data.code }),
           ...(data.arabicName && { arabicName: data.arabicName }),
           ...(data.englishName !== undefined && { englishName: data.englishName }),
-          ...(data.centerType !== undefined && { centerType: data.centerType }),
           ...(data.parentId !== undefined && { parentId: data.parentId }),
           ...(data.quantityBudget !== undefined && { quantityBudget: data.quantityBudget }),
           ...(data.warning !== undefined && { warning: data.warning }),

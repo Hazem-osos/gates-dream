@@ -1,7 +1,7 @@
 'use client';
 import { useBackendReachability } from '@/lib/hooks/useBackendReachability';
 
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Users } from 'lucide-react';
 import {
   PageHeader,
@@ -12,6 +12,7 @@ import {
 } from '@/components/ui';
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
+import { nextNumericSerial } from '@/lib/masters/nextNumericSerial';
 
 const EMPTY_FORM = {
   serial: '',
@@ -25,6 +26,21 @@ export default function DelegateGroupPage() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [saving, setSaving] = useState(false);
+  const storedSerials = useMemo(() => {
+    if (typeof window === 'undefined') return [];
+    try {
+      const raw = window.localStorage.getItem('gates:delegate-groups');
+      const rows = raw ? (JSON.parse(raw) as Array<{ serial?: string }>) : [];
+      return rows.map((row) => row.serial);
+    } catch {
+      return [];
+    }
+  }, [success]);
+  const nextSerial = nextNumericSerial(storedSerials);
+
+  useEffect(() => {
+    setFormData((prev) => (prev.serial ? prev : { ...prev, serial: nextSerial }));
+  }, [nextSerial]);
 
   const handleCancel = () => {
     setFormData(EMPTY_FORM);
@@ -75,8 +91,8 @@ export default function DelegateGroupPage() {
           <CompactFormField
             label="المسلسل"
             value={formData.serial}
-            onChange={(e) => setFormData((prev) => ({ ...prev, serial: e.target.value }))}
-            placeholder="إدخل رقم المسلسل"
+            disabled
+            placeholder="تلقائي"
           />
           <CompactFormField
             label="الإسم العربي"

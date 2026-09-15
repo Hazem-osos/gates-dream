@@ -9,13 +9,14 @@ import { buildParentTree, type GuideTreeNode } from '@/lib/accounting/buildGuide
 import { useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
 import { apiClient } from '@/lib/api/client';
 import { toast } from '@/lib/feedback/toast';
+import { NumberingModeControl } from '@/components/accounting/NumberingModeControl';
+import { useAccountingSettingsQuery } from '@/lib/hooks/useAccountingSettings';
 
 type CostCenterRow = {
   id: string;
   code: string;
   arabicName: string;
   englishName?: string | null;
-  centerType?: string | null;
   parentId?: string | null;
   isActive?: boolean;
 };
@@ -24,7 +25,6 @@ type FormState = {
   code: string;
   arabicName: string;
   englishName: string;
-  centerType: string;
   parentId: string;
 };
 
@@ -32,12 +32,14 @@ const emptyForm = (): FormState => ({
   code: '',
   arabicName: '',
   englishName: '',
-  centerType: '',
   parentId: '',
 });
 
 export default function CostCentersGuidePage() {
   const invalidate = useInvalidateQuery();
+  const { data: settingsRes } = useAccountingSettingsQuery();
+  const costCenterAuto = settingsRes?.data?.general?.costCenterAutoNumbering !== false;
+  const costCenterCount = settingsRes?.data?.general?.numberingRecordCounts?.costCenters ?? 0;
   const { data, isLoading, refetch } = useApiQuery<CostCenterRow[]>(
     ['cost-centers', 'guide'],
     '/accounting/cost-centers',
@@ -59,15 +61,15 @@ export default function CostCentersGuidePage() {
     ['cost-centers', 'next-code', form.parentId || 'root'],
     '/accounting/cost-centers/next-code',
     form.parentId ? { parentId: form.parentId } : undefined,
-    { enabled: modalOpen && modalMode === 'create' }
+    { enabled: modalOpen && modalMode === 'create' && costCenterAuto }
   );
 
   useEffect(() => {
-    if (!modalOpen || modalMode !== 'create') return;
+    if (!modalOpen || modalMode !== 'create' || !costCenterAuto) return;
     const suggested = nextCodeResponse?.data?.code;
     if (!suggested) return;
     setForm((f) => (f.code ? f : { ...f, code: suggested }));
-  }, [modalOpen, modalMode, nextCodeResponse?.data?.code]);
+  }, [modalOpen, modalMode, costCenterAuto, nextCodeResponse?.data?.code]);
 
   const tree = useMemo(
     () =>
@@ -75,7 +77,6 @@ export default function CostCentersGuidePage() {
         id: item.id,
         code: item.code,
         name: item.arabicName,
-        subtitle: item.centerType || undefined,
         folder: children.length > 0,
         children,
       })),
@@ -107,7 +108,6 @@ export default function CostCentersGuidePage() {
       code: row.code ?? '',
       arabicName: row.arabicName ?? '',
       englishName: row.englishName ?? '',
-      centerType: row.centerType ?? '',
       parentId: row.parentId ?? '',
     });
     setModalOpen(true);
@@ -124,7 +124,6 @@ export default function CostCentersGuidePage() {
         code: form.code.trim() || undefined,
         arabicName: form.arabicName.trim(),
         englishName: form.englishName.trim() || undefined,
-        centerType: form.centerType || undefined,
         parentId: form.parentId || undefined,
         isActive: true,
       };
@@ -178,9 +177,17 @@ export default function CostCentersGuidePage() {
           { label: 'مراكز التكلفة' },
         ]}
         actions={
-          <Button type="button" variant="secondary" size="sm" onClick={() => openCreate()}>
-            + إضافة مركز رئيسي
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <NumberingModeControl
+              kind="costCenters"
+              auto={costCenterAuto}
+              recordCount={costCenterCount}
+              settingKey="costCenterAutoNumbering"
+            />
+            <Button type="button" variant="secondary" size="sm" onClick={() => openCreate()}>
+              + إضافة مركز رئيسي
+            </Button>
+          </div>
         }
       />
 
@@ -241,7 +248,8 @@ export default function CostCentersGuidePage() {
             label="رقم مركز التكلفة"
             value={form.code}
             onChange={(e) => setForm((f) => ({ ...f, code: e.target.value }))}
-            placeholder="تلقائي أو أدخل يدوياً"
+            disabled={costCenterAuto && modalMode === 'create'}
+            placeholder={costCenterAuto ? 'تلقائي' : 'أدخل الرقم'}
           />
           <CompactFormField
             label="الاسم العربي"
@@ -254,18 +262,6 @@ export default function CostCentersGuidePage() {
             value={form.englishName}
             onChange={(e) => setForm((f) => ({ ...f, englishName: e.target.value }))}
           />
-          <CompactFormField label="نوع المركز">
-            <select
-              className={compactControlClass}
-              value={form.centerType}
-              onChange={(e) => setForm((f) => ({ ...f, centerType: e.target.value }))}
-            >
-              <option value="">اختر النوع</option>
-              <option value="توفير">توفير</option>
-              <option value="إنتاج">إنتاج</option>
-              <option value="خدمة">خدمة</option>
-            </select>
-          </CompactFormField>
         </div>
       </GuideEntityModal>
     </div>

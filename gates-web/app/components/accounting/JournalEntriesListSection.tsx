@@ -18,6 +18,7 @@ import {
 import { JournalSourceBadge } from '@/components/accounting/JournalSourceBadge';
 import { toast } from '@/lib/feedback/toast';
 import { deleteDraftDocument } from '@/lib/documents/deleteDraftDocument';
+import { apiClient } from '@/lib/api/client';
 import { useQueryClient } from '@tanstack/react-query';
 
 export type JournalEntryRow = {
@@ -27,6 +28,7 @@ export type JournalEntryRow = {
   voucherNumber?: string | null;
   legacyGlNum?: string | null;
   isPosted: boolean;
+  isCancelled?: boolean;
   isApproved?: boolean;
   sourceType?: string | null;
   sourceKind?: string | null;
@@ -49,15 +51,16 @@ export function JournalEntriesListSection({
   const { prefetchDetail } = useRowDetailPrefetch();
   const [page, setPage] = useState(1);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [restoringId, setRestoringId] = useState<string | null>(null);
   const [pageSize, setPageSize] = useState(10);
   const [search, setSearch] = useState('');
-  const [postedFilter, setPostedFilter] = useState<'all' | 'posted' | 'draft'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'posted' | 'draft' | 'cancelled'>('all');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
 
   const filterKey = useMemo(
-    () => ({ postedFilter, search, startDate, endDate, entryType }),
-    [postedFilter, search, startDate, endDate, entryType]
+    () => ({ statusFilter, search, startDate, endDate, entryType }),
+    [statusFilter, search, startDate, endDate, entryType]
   );
 
   const queryParams = useMemo(() => {
@@ -69,12 +72,18 @@ export function JournalEntriesListSection({
     if (search.trim().length >= 2) p.search = search.trim();
     if (startDate) p.startDate = startDate;
     if (endDate) p.endDate = endDate;
-    if (postedFilter === 'posted') p.isPosted = true;
-    if (postedFilter === 'draft') p.isPosted = false;
+    if (statusFilter === 'posted') {
+      p.isPosted = true;
+      p.isCancelled = false;
+    } else if (statusFilter === 'draft') {
+      p.isPosted = false;
+      p.isCancelled = false;
+    } else if (statusFilter === 'cancelled') {
+      p.isCancelled = true;
+    }
     if (entryType) p.entryType = entryType;
-    p.isCancelled = false;
     return p;
-  }, [page, pageSize, search, startDate, endDate, postedFilter, entryType]);
+  }, [page, pageSize, search, startDate, endDate, statusFilter, entryType]);
 
   const { data, isLoading } = useApiQuery<JournalEntryRow[]>(
     queryKeys.journalEntries(page, filterKey),
@@ -106,7 +115,7 @@ export function JournalEntriesListSection({
     {
       id: 'status',
       header: 'الحالة',
-      getValue: (r) => (r.isPosted ? 'مرحّل' : 'مسودة'),
+      getValue: (r) => (r.isCancelled ? 'ملغي' : r.isPosted ? 'مرحّل' : 'مسودة'),
     },
   ];
 
@@ -146,16 +155,17 @@ export function JournalEntriesListSection({
           aria-label="إلى تاريخ"
         />
         <select
-          value={postedFilter}
+          value={statusFilter}
           onChange={(e) => {
             setPage(1);
-            setPostedFilter(e.target.value as 'all' | 'posted' | 'draft');
+            setStatusFilter(e.target.value as 'all' | 'posted' | 'draft' | 'cancelled');
           }}
           className="rounded-lg border border-[#D6EAF3] bg-white px-3 py-2 text-sm"
         >
           <option value="all">كل الحالات</option>
           <option value="posted">مرحّل فقط</option>
           <option value="draft">مسودة فقط</option>
+          <option value="cancelled">ملغي فقط</option>
         </select>
       </FilterToolbar>
 
@@ -201,8 +211,8 @@ export function JournalEntriesListSection({
             cell: (r) => (
               <StatusBadge
                 compact
-                variant={r.isPosted ? 'success' : 'warning'}
-                label={r.isPosted ? 'مرحّل' : 'مسودة'}
+                variant={r.isCancelled ? 'danger' : r.isPosted ? 'success' : 'warning'}
+                label={r.isCancelled ? 'ملغي' : r.isPosted ? 'مرحّل' : 'مسودة'}
               />
             ),
           },
@@ -225,7 +235,30 @@ export function JournalEntriesListSection({
                 >
                   فتح
                 </Button>
-                {!r.isPosted ? (
+                {r.isCancelled ? (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    disabled={restoringId === r.id}
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      if (!window.confirm('استعادة هذا القيد الملغي وترحيله من جديد؟')) return;
+                      setRestoringId(r.id);
+                      try {
+                        await apiClient.post(`/accounting/journal-entries/${r.id}/restore`, {});
+                        toast.success('تم استعادة القيد وترحيله');
+                      } catch (error) {
+                        toast.error(error instanceof Error ? error.message : 'تعذر استعادة القيد');
+                      } finally {
+                        await queryClient.invalidateQueries({ queryKey: ['journal-entries'] });
+                        setRestoringId(null);
+                      }
+                    }}
+                  >
+                    {restoringId === r.id ? 'جاري الاستعادة…' : 'استعادة'}
+                  </Button>
+                ) : null}
+                {!r.isPosted && !r.isCancelled ? (
                   <Button
                     variant="danger"
                     size="sm"

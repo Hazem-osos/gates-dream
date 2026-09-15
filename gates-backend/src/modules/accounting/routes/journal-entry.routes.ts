@@ -47,6 +47,8 @@ function sendRouteError(res: Response, error: unknown, fallback: string) {
       'not posted',
       'not approved',
       'not cancelled',
+      'ليس ملغياً',
+      'استعادة القيد',
       'balanced',
     ];
     const status = known.some((k) => error.message.includes(k)) ? 400 : 500;
@@ -516,27 +518,20 @@ router.post(
 
       const journalEntry = await journalEntryService.restoreJournalEntry(
         companyId,
-        req.params.id
+        req.params.id,
+        routeContext(req)
       );
 
       return void res.json({
         status: 'success',
-        message: 'Journal entry restored successfully',
+        message: 'تم استعادة القيد وترحيله',
         data: journalEntry,
       });
     } catch (error) {
-      logger.error({ error }, 'Error restoring journal entry');
-      const status =
-        error instanceof Error &&
-        (error.message === 'Journal entry not found' ||
-          error.message.includes('not cancelled'))
-          ? 400
-          : 500;
-      return void res.status(status).json({
-        status: 'error',
-        message:
-          error instanceof Error ? error.message : 'Failed to restore journal entry',
-      });
+      if (!(error instanceof AppError) || error.statusCode >= 500) {
+        logger.error({ error }, 'Error restoring journal entry');
+      }
+      return void sendRouteError(res, error, 'تعذّر استعادة القيد');
     }
   }
 );

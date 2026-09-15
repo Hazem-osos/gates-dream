@@ -8,6 +8,8 @@ import { apiClient } from '@/lib/api/client';
 import { useQueryClient } from '@tanstack/react-query';
 import { invalidateMasterDataClient } from '@/lib/hooks/invalidateMasterData';
 import type { ItemOption } from '@/lib/hooks/useMasterDataQueries';
+import { useAccountingSettingsQuery } from '@/lib/hooks/useAccountingSettings';
+import { nextNumericSerial } from '@/lib/masters/nextNumericSerial';
 
 export type QuickCreatedItem = {
   id: string;
@@ -54,6 +56,21 @@ export function QuickCreateItemModal({
     { enabled: open }
   );
   const units = unitsResponse?.data ?? [];
+  const { data: settingsRes } = useAccountingSettingsQuery();
+  const itemAuto = settingsRes?.data?.general?.itemAutoNumbering !== false;
+
+  const { data: itemsSerialRes } = useApiQuery<{ serial?: string | null }[]>(
+    ['items', 'serials'],
+    '/inventory/items',
+    { limit: 500, isActive: true },
+    { enabled: open && itemAuto && !initialCode }
+  );
+  const nextItemSerial = nextNumericSerial((itemsSerialRes?.data ?? []).map((row) => row.serial));
+
+  React.useEffect(() => {
+    if (!open || !itemAuto || initialCode) return;
+    setCode((prev) => prev || nextItemSerial);
+  }, [initialCode, itemAuto, nextItemSerial, open]);
 
   React.useEffect(() => {
     if (open) {
@@ -179,7 +196,13 @@ export function QuickCreateItemModal({
             onChange={(e) => setName(e.target.value)}
             autoFocus
           />
-          <CompactFormField label="كود / باركود" value={code} onChange={(e) => setCode(e.target.value)} />
+          <CompactFormField
+            label="كود / باركود"
+            value={code}
+            disabled={itemAuto}
+            onChange={(e) => setCode(e.target.value)}
+            placeholder={itemAuto ? 'تلقائي' : 'أدخل الكود'}
+          />
           <CompactFormField
             label="سعر البيع"
             type="number"

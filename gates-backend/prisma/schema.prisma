@@ -890,7 +890,6 @@ model CostCenter {
   code           String
   arabicName     String
   englishName    String?
-  centerType     String?
   parentId       String?  @db.Char(36)
   quantityBudget Decimal? @db.Decimal(15, 2)
   warning        String? // مدين/دائن/بدون

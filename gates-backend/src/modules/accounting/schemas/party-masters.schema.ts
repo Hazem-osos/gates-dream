@@ -52,15 +52,15 @@ export const updatePersonItemPriceSchema = createPersonItemPriceSchema
   .partial();
 
 export const createCustomerCategorySchema = z.object({
-  code: z.string().min(1).max(30).optional(),
-  legacyCode: z.string().min(1).max(30).optional(),
+  code: z.string().max(30).optional(),
+  legacyCode: z.string().max(30).optional(),
   arabicName: z.string().min(1),
   englishName: z.string().optional(),
 }).transform((v) => ({
   legacyCode: (v.legacyCode || v.code || '').trim(),
   arabicName: v.arabicName,
   englishName: v.englishName,
-})).refine((v) => v.legacyCode.length > 0, { message: 'كود المجموعة مطلوب' });
+}));
 
 export const updateCustomerCategorySchema = z.object({
   code: z.string().min(1).max(30).optional(),

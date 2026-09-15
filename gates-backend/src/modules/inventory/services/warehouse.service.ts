@@ -1,6 +1,7 @@
 // @ts-nocheck — strict cleanup pending; tracked for incremental typing.
 import prisma from '../../../shared/database/prisma';
 import { logger } from '../../../shared/logger';
+import { nextNumericCode } from '../../../shared/utils/next-numeric-code';
 
 export interface CreateWarehouseData {
   code?: string;
@@ -75,10 +76,15 @@ export class WarehouseService {
   async createWarehouse(companyId: string, data: CreateWarehouseData) {
     try {
       await assertWarehouseRefs(companyId, data);
+      const existing = await prisma.warehouse.findMany({
+        where: { companyId },
+        select: { code: true },
+      });
+      const code = nextNumericCode(existing.map((row) => row.code));
       const warehouse = await prisma.warehouse.create({
         data: {
           companyId,
-          code: data.code,
+          code,
           arabicName: data.arabicName,
           englishName: data.englishName,
           ...(data.branchId ? { branchId: data.branchId } : {}),
