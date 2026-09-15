@@ -9,6 +9,7 @@ import {
 } from '../../../shared/middleware/tenant-fiscal-context.middleware';
 import { AppError } from '../../../shared/middleware/error-handler';
 import { AuthRequest } from '../../../shared/auth/types';
+import { isAdminRequest } from '../../../shared/auth/roles.util';
 import { requestPermittedBranchIds } from '../../../shared/auth/branch-scope';
 import {
   createM5InvoiceSchema,
@@ -178,6 +179,10 @@ router.post(
         req.body,
         req.user?.sub
       );
+      if (isAdminRequest(req) && data?.id && !data.isPosted) {
+        const posted = await invoicePostingOrchestrator.post(buildPostingContext(req), data.id);
+        return void res.status(201).json({ status: 'success', data: posted });
+      }
       return void res.status(201).json({ status: 'success', data });
     } catch (e: unknown) {
       return respondError(res, e, 'Create failed');

@@ -45,14 +45,15 @@ export class JournalEntryService {
     companyId: string,
     userId: string,
     data: CreateJournalEntryData,
-    context?: { branchId?: string; fiscalYearId?: string }
+    context?: { branchId?: string; fiscalYearId?: string; isAdmin?: boolean }
   ) {
     try {
       const ctx = this.buildPostingContext(
         companyId,
         context?.branchId,
         userId,
-        context?.fiscalYearId
+        context?.fiscalYearId,
+        context?.isAdmin
       );
       const locked = await openingBalanceService.applyLockedDate(companyId, data);
       return await journalPostingService.createJournalEntry(ctx, locked);
@@ -295,14 +296,15 @@ export class JournalEntryService {
     companyId: string,
     journalEntryId: string,
     data: UpdateJournalEntryData,
-    context?: { branchId?: string; fiscalYearId?: string; userId?: string }
+    context?: { branchId?: string; fiscalYearId?: string; userId?: string; isAdmin?: boolean }
   ) {
     try {
       const ctx = this.buildPostingContext(
         companyId,
         context?.branchId,
         context?.userId ?? 'system',
-        context?.fiscalYearId
+        context?.fiscalYearId,
+        context?.isAdmin
       );
       const existing = await prisma.journalEntry.findFirst({
         where: { id: journalEntryId, companyId },

@@ -5,6 +5,7 @@ import { tenantAndFiscalContextMiddleware } from '../../../shared/middleware/ten
 import { validate } from '../../../shared/middleware/validate';
 import { asyncHandler } from '../../../shared/middleware/async-handler';
 import type { AuthRequest } from '../../../shared/auth/types';
+import { isAdminRequest } from '../../../shared/auth/roles.util';
 import {
   buildTreasuryPostingContext,
   resolveTreasuryPostingContext,
@@ -103,7 +104,7 @@ router.post(
             approvalState: approvers,
           },
         });
-      } else if (mode === 'AUTO') {
+      } else if (mode === 'AUTO' || isAdminRequest(req)) {
         try {
           const ctx = await resolveTreasuryPostingContext(req, created.date);
           const posted = await treasuryPostingService.postCashTransaction(ctx, created.id);

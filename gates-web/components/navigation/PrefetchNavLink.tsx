@@ -1,7 +1,7 @@
 'use client';
 
 import type { AnchorHTMLAttributes, MouseEvent, ReactNode } from 'react';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { useInstantPrefetch } from '@/lib/hooks/useInstantPrefetch';
 import { isSameAppModule, normalizeAppPath } from '@/lib/navigation/app-module-root';
 import { useAppTabs } from '@/app/components/AppTabsContext';
@@ -23,6 +23,7 @@ export function PrefetchNavLink({
   const { getPrefetchHandlers } = useInstantPrefetch();
   const prefetch = getPrefetchHandlers(href);
   const pathname = usePathname();
+  const router = useRouter();
   const tabs = useAppTabs();
 
   const handleClick = (event: MouseEvent<HTMLAnchorElement>) => {
@@ -42,6 +43,7 @@ export function PrefetchNavLink({
     if (isSameAppModule(current, target)) {
       event.preventDefault();
       tabs.addBackgroundTab(target);
+      router.push(target);
     }
   };
 

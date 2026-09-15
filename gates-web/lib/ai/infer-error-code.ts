@@ -8,7 +8,14 @@ export function inferBusinessErrorCode(message: string, code?: string): string {
   if (/NEGATIVE_STOCK|رصيد سالب|غير متوفر|لا يكفي/i.test(blob)) {
     return 'NEGATIVE_STOCK_ERROR';
   }
-  if (/DOCUMENT_IS_POSTED|IS_POSTED|مرحّل|مرحل/i.test(blob)) {
+  if (/يوجد.*غير\s*مرح|غير مرحلة|unposted|not posted/i.test(blob)) {
+    return 'UNPOSTED_DOCUMENTS';
+  }
+  if (
+    /DOCUMENT_IS_POSTED|already posted|is already posted/i.test(blob) &&
+    !/غير\s*مرح/i.test(blob) &&
+    !/unposted|not posted/i.test(blob)
+  ) {
     return 'DOCUMENT_IS_POSTED';
   }
   if (/READ_ONLY|عرض فقط/i.test(blob)) {
@@ -44,6 +51,9 @@ export function problemHeadline(pageTitle: string, code: string, fallback: strin
   }
   if (code === 'NEGATIVE_STOCK_ERROR') {
     return `تعذر حفظ ${screen}: الكمية غير متاحة في المخزن`;
+  }
+  if (code === 'UNPOSTED_DOCUMENTS') {
+    return fallback;
   }
   if (code === 'DOCUMENT_IS_POSTED') {
     return `تعذر تعديل ${screen}: المستند مرحّل`;

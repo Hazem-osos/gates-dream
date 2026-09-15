@@ -10,6 +10,7 @@ import {
 import { transferService } from '../services/transfer.service';
 import { logger } from '../../../shared/logger';
 import { AuthRequest } from '../../../shared/auth/types';
+import { isAdminRequest } from '../../../shared/auth/roles.util';
 import { buildStockGlPostingContext } from '../services/stock-gl-posting-context';
 import { resolveStockListPaging } from '../utils/stock-list-query';
 
@@ -49,6 +50,10 @@ router.post(
         lines: req.body.lines,
       });
 
+      if (isAdminRequest(req)) {
+        await transferService.postTransfer(companyId, transfer.id, buildStockGlPostingContext(req, companyId));
+      }
+
       logger.info(
         { companyId, transferId: transfer.id },
         'Transfer created'
@@ -56,7 +61,7 @@ router.post(
 
       return void res.status(201).json({
         status: 'success',
-        message: 'Transfer created successfully',
+        message: isAdminRequest(req) ? 'تم حفظ وترحيل النقل تلقائياً' : 'Transfer created successfully',
         data: transfer,
       });
     } catch (error) {

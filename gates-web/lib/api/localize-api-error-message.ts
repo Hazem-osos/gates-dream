@@ -172,12 +172,15 @@ const RULES: Rule[] = [
     ar: 'لا يمكن ترحيل مستند ملغى.',
   },
   {
-    test: /is already posted/i,
-    ar: 'المستند مرحّل مسبقاً.',
+    test: /غير\s*مرح|unposted|not posted/i,
+    ar: (m, raw) =>
+      /يوجد|فاتورة|قيد|خزين/.test(raw)
+        ? raw
+        : 'يوجد مستندات غير مرحلة. رحّلها من شاشاتها ثم أعد المحاولة.',
   },
   {
-    test: /is not posted/i,
-    ar: 'المستند غير مرحّل.',
+    test: /already posted by another|is already posted/i,
+    ar: 'المستند مرحّل مسبقاً.',
   },
   {
     test: /is already cancelled/i,

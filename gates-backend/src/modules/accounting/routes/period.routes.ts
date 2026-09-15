@@ -177,7 +177,9 @@ router.post(
       const period = await periodService.closePeriod(companyIdOf(req), req.params.id, ctx);
       return void res.json({
         status: 'success',
-        message: 'تم إغلاق الفترة المالية',
+        message: period.closingJournalEntryId
+          ? 'تم إغلاق الفترة وإنشاء قيد الإقفال التلقائي للإيرادات والمصروفات'
+          : 'تم إغلاق الفترة المالية',
         data: period,
       });
     } catch (error) {

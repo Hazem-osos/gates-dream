@@ -320,13 +320,17 @@ export class JournalPostingService {
     });
 
     if (data.isCyclic) {
-      return this.syncCyclicRecurringTemplate(ctx.companyId, entry!.id, {
+      const synced = await this.syncCyclicRecurringTemplate(ctx.companyId, entry!.id, {
         sourceId: data.sourceId ?? entry?.sourceId,
         description: data.description,
         voucherNumber: data.voucherNumber ?? entry?.voucherNumber,
         date: data.date,
         lines,
       });
+      if (ctx.isAdmin && synced?.id && !synced.isPosted) {
+        return this.postJournalEntry(ctx, synced.id);
+      }
+      return synced;
     }
     if (sourceKind === JournalSourceType.RECURRING_TEMPLATE && data.sourceId) {
       await recurringEntriesService.markGenerated(ctx.companyId, data.sourceId);
@@ -337,6 +341,9 @@ export class JournalPostingService {
       'Journal entry created (posting service)'
     );
 
+    if (ctx.isAdmin && entry?.id) {
+      return this.postJournalEntry(ctx, entry.id);
+    }
     return entry;
   }
 
@@ -749,29 +756,33 @@ export class JournalPostingService {
     });
 
     const cyclic = data.isCyclic ?? existing.isCyclic;
-    if (!cyclic) return updated;
+    const synced = cyclic
+      ? await this.syncCyclicRecurringTemplate(ctx.companyId, journalEntryId, {
+          sourceId: data.sourceId ?? existing.sourceId,
+          description: data.description ?? existing.description,
+          voucherNumber: data.voucherNumber ?? existing.voucherNumber,
+          date: data.date ?? existing.date,
+          lines: (
+            data.lines ??
+            (await prisma.journalEntryLine.findMany({
+              where: { journalEntryId },
+              orderBy: { lineOrder: 'asc' },
+            }))
+          ).map((line, index) => ({
+            accountId: line.accountId,
+            costCenterId: line.costCenterId,
+            description: line.description,
+            debit: Number(line.debit) || 0,
+            credit: Number(line.credit) || 0,
+            lineOrder: 'lineOrder' in line ? Number(line.lineOrder) || index + 1 : index + 1,
+          })),
+        })
+      : updated;
 
-    const lineSource =
-      data.lines ??
-      (await prisma.journalEntryLine.findMany({
-        where: { journalEntryId },
-        orderBy: { lineOrder: 'asc' },
-      }));
-
-    return this.syncCyclicRecurringTemplate(ctx.companyId, journalEntryId, {
-      sourceId: data.sourceId ?? existing.sourceId,
-      description: data.description ?? existing.description,
-      voucherNumber: data.voucherNumber ?? existing.voucherNumber,
-      date: data.date ?? existing.date,
-      lines: lineSource.map((line, index) => ({
-        accountId: line.accountId,
-        costCenterId: line.costCenterId,
-        description: line.description,
-        debit: Number(line.debit) || 0,
-        credit: Number(line.credit) || 0,
-        lineOrder: 'lineOrder' in line ? Number(line.lineOrder) || index + 1 : index + 1,
-      })),
-    });
+    if (ctx.isAdmin && synced?.id && !synced.isPosted) {
+      return this.postJournalEntry(ctx, synced.id);
+    }
+    return synced;
   }
 
   async postJournalEntry(ctx: JournalPostingContext, journalEntryId: string) {

@@ -10,6 +10,7 @@ import {
 import { issueService } from '../services/issue.service';
 import { logger } from '../../../shared/logger';
 import { AuthRequest } from '../../../shared/auth/types';
+import { isAdminRequest } from '../../../shared/auth/roles.util';
 import { buildStockGlPostingContext } from '../services/stock-gl-posting-context';
 import { resolveStockListPaging } from '../utils/stock-list-query';
 
@@ -48,6 +49,10 @@ router.post(
         lines: req.body.lines,
       });
 
+      if (isAdminRequest(req)) {
+        await issueService.postIssue(companyId, issue.id, buildStockGlPostingContext(req, companyId));
+      }
+
       logger.info(
         { companyId, issueId: issue.id },
         'Issue created'
@@ -55,7 +60,7 @@ router.post(
 
       return void res.status(201).json({
         status: 'success',
-        message: 'Issue created successfully',
+        message: isAdminRequest(req) ? 'تم حفظ وترحيل الصرف تلقائياً' : 'Issue created successfully',
         data: issue,
       });
     } catch (error) {

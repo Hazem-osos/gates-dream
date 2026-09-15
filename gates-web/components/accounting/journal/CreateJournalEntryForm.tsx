@@ -42,6 +42,7 @@ import { DocumentApprovalBar } from '@/app/components/accounting/DocumentApprova
 import { DatePickerWithHijri } from '@/components/ui/DatePickerWithHijri';
 import { RecurringEntryPickerModal, type RecurringTemplate } from '@/components/accounting/RecurringEntryPickerModal';
 import { toHijriDate } from '@/lib/hijri-date';
+import { useDraftAutosave } from '@/lib/hooks/useDraftAutosave';
 import { onFieldErrors } from '@/lib/forms/on-field-errors';
 import { resolveJournalSourceKind, type JournalSourceType } from '@/lib/accounting/journal-source';
 
@@ -123,6 +124,8 @@ type JournalEntryDetail = {
 const inputErrorClass = 'border-red-400 focus:ring-red-200';
 const fieldErrorClass = 'text-red-600 text-xs mt-1 block text-right';
 
+type JournalDraftSnapshot = JournalEntryFormValues & { isCyclic: boolean };
+
 function FieldError({ message }: { message?: string }) {
   if (!message) return null;
   return <span className={fieldErrorClass}>{message}</span>;
@@ -183,6 +186,7 @@ function CreateJournalEntryFormInner() {
 
   const openJournal = useCallback(
     (id: string | null) => {
+      skipUrlHydrateRef.current = false;
       setSavedJournalEntryId(id);
       if (id) router.replace(`/accounting/operations/journal-entry?id=${id}`, { scroll: false });
       else router.replace('/accounting/operations/journal-entry', { scroll: false });
@@ -473,7 +477,38 @@ function CreateJournalEntryFormInner() {
   const referenceNumberW = watch('referenceNumber');
   const dateW = watch('date');
   const descriptionW = watch('description');
+  const hijriDateW = watch('hijriDate');
   const headerCurrencyCode = currencies.find((c) => c.id === headerCurrencyId)?.code ?? 'EGP';
+
+  const draftSnapshot = useMemo<JournalDraftSnapshot>(
+    () => ({
+      date: dateW || '',
+      referenceNumber: referenceNumberW || '',
+      hijriDate: hijriDateW || '',
+      description: descriptionW || '',
+      currencyId: headerCurrencyId || '',
+      lines: watchedLines ?? [],
+      isCyclic,
+    }),
+    [dateW, referenceNumberW, hijriDateW, descriptionW, headerCurrencyId, watchedLines, isCyclic]
+  );
+  const hasDraftContent =
+    Boolean(descriptionW?.trim()) ||
+    Boolean((watchedLines ?? []).some((line) => line.accountId || Number(line.debit) || Number(line.credit)));
+  const {
+    restoreOffer,
+    acceptRestore,
+    dismissRestore,
+    clearDraft,
+  } = useDraftAutosave('gates:draft:journal-entry', draftSnapshot, !savedJournalEntryId && !isPosted && hasDraftContent);
+
+  useEffect(() => {
+    if (!restoreOffer || savedJournalEntryId) return;
+    const hasContent =
+      Boolean(restoreOffer.description?.trim()) ||
+      (restoreOffer.lines ?? []).some((line) => line.accountId || Number(line.debit) || Number(line.credit));
+    if (!hasContent) dismissRestore();
+  }, [restoreOffer, savedJournalEntryId, dismissRestore]);
 
   useEffect(() => {
     if (!dateW) return;
@@ -641,9 +676,12 @@ function CreateJournalEntryFormInner() {
     setError('');
     setSuccess('');
     setMode('create');
-    skipUrlHydrateRef.current = true;
+    clearDraft();
     if (journalEntryIdFromUrl) {
+      skipUrlHydrateRef.current = true;
       router.replace('/accounting/operations/journal-entry');
+    } else {
+      skipUrlHydrateRef.current = false;
     }
   };
 
@@ -682,6 +720,37 @@ function CreateJournalEntryFormInner() {
     <ErpDocumentLayout>
       {error && <ErrorToast message={error} onClose={() => setError('')} />}
       {success && <SuccessToast message={success} onClose={() => setSuccess('')} />}
+      {restoreOffer && !savedJournalEntryId ? (
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
+          <span>يوجد مسودة قيد غير محفوظة من جلسة سابقة.</span>
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant="primary"
+              onClick={() => {
+                const payload = acceptRestore();
+                if (!payload) return;
+                reset({
+                  date: payload.date,
+                  referenceNumber: payload.referenceNumber,
+                  hijriDate: payload.hijriDate,
+                  description: payload.description,
+                  currencyId: payload.currencyId,
+                  lines: payload.lines ?? [],
+                });
+                setIsCyclic(Boolean(payload.isCyclic));
+                setSuccess('تم استعادة المسودة المحفوظة');
+              }}
+            >
+              استعادة
+            </Button>
+            <Button type="button" size="sm" variant="ghost" onClick={dismissRestore}>
+              تجاهل
+            </Button>
+          </div>
+        </div>
+      ) : null}
 
       <ErpDocumentPageHeader
         breadcrumbs={[
@@ -772,7 +841,9 @@ function CreateJournalEntryFormInner() {
 
       <DocumentBrowseDrawer open={showList} onClose={() => setShowList(false)} title="القيود السابقة">
         <JournalEntriesListSection
-          onSelectEntry={() => {
+          onSelectEntry={(id) => {
+            skipUrlHydrateRef.current = false;
+            openJournal(id);
             lockToView();
             setShowList(false);
           }}

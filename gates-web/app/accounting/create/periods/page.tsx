@@ -206,9 +206,15 @@ function AccountingPeriodsPageInner() {
     setError('');
     setClosing(true);
     try {
-      const res = await apiClient.post<PeriodRow>(`/accounting/periods/${selectedId}/close`);
+      const res = await apiClient.post<PeriodRow & { closingJournalEntryId?: string | null }>(
+        `/accounting/periods/${selectedId}/close`
+      );
       if (res.data) hydrate(res.data);
-      setSuccess('تم إغلاق الفترة وترحيل قيد الإقفال');
+      setSuccess(
+        res.data?.closingJournalEntryId
+          ? 'تم إغلاق الفترة وإنشاء قيد الإقفال التلقائي (إيرادات ومصروفات عكس نوعها على الأرباح والخسائر)'
+          : res.message || 'تم إغلاق الفترة المالية'
+      );
       await refetchPeriods();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'تعذر إغلاق الفترة');

@@ -177,7 +177,10 @@ export function JournalEntriesListSection({
         emptyDescription="غيّر عوامل التصفية أو أنشئ قيداً جديداً من الأسفل."
         onRowIntent={(r) => prefetchDetail(journalEntryDetailPrefetch(r.id))}
         onRowClick={(r) => {
-          onSelectEntry?.(r.id);
+          if (onSelectEntry) {
+            onSelectEntry(r.id);
+            return;
+          }
           router.push(`${hrefBase}?id=${r.id}`);
         }}
         columns={[
@@ -229,7 +232,10 @@ export function JournalEntriesListSection({
                   onFocus={() => prefetchDetail(journalEntryDetailPrefetch(r.id))}
                   onClick={(e) => {
                     e.stopPropagation();
-                    onSelectEntry?.(r.id);
+                    if (onSelectEntry) {
+                      onSelectEntry(r.id);
+                      return;
+                    }
                     router.push(`${hrefBase}?id=${r.id}`);
                   }}
                 >

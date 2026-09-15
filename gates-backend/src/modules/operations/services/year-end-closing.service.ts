@@ -304,7 +304,7 @@ export class YearEndClosingService {
       const je = await journalPostingService.createAndPostInTx(tx, ctx, {
         fiscalYearId,
         date: year.endDate,
-        description: `Year-end close ${year.legacyYearId}`,
+        description: `قيد إقفال الفترة — ${year.arabicName || year.legacyYearId}`,
         currencyCode: 'EGP',
         exchangeRate: 1,
         entryType: 'YearClose',

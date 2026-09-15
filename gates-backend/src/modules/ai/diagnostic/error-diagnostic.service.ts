@@ -28,7 +28,16 @@ function normalizeCode(code: string, message?: string): string {
     return 'PRICE_BELOW_COST';
   }
   if (/NEGATIVE_STOCK|رصيد سالب|غير متوفر/.test(blob)) return 'NEGATIVE_STOCK_ERROR';
-  if (/DOCUMENT_IS_POSTED|IS_POSTED|مرحّل|مرحل/.test(blob)) return 'DOCUMENT_IS_POSTED';
+  if (/يوجد.*غير\s*مرح|غير مرحلة|UNPOSTED|NOT POSTED/.test(blob)) {
+    return 'UNPOSTED_DOCUMENTS';
+  }
+  if (
+    /DOCUMENT_IS_POSTED|ALREADY POSTED|IS ALREADY POSTED/.test(blob) &&
+    !/غير\s*مرح/.test(blob) &&
+    !/UNPOSTED|NOT POSTED/.test(blob)
+  ) {
+    return 'DOCUMENT_IS_POSTED';
+  }
   if (/READ_ONLY|عرض فقط|السابق/.test(blob)) return 'DOCUMENT_READ_ONLY';
   if (/SAVE_DISABLED|REQUIRED|إلزام|الحفظ معطل/.test(blob)) return 'SAVE_DISABLED';
   return code.trim().toUpperCase() || 'UNKNOWN';
@@ -92,6 +101,18 @@ function diagnoseCode(
         labelAr: 'فتح كارت الصنف',
         href: '/inventory/creations/item-card',
       },
+    };
+  }
+
+  if (code === 'UNPOSTED_DOCUMENTS') {
+    return {
+      explanationAr:
+        'الإغلاق متعطل لأن فيه مستندات أو قيود لسه غير مرحلة. رحّلها من شاشاتها أو احذف المسودات غير اللازمة ثم أعد الإغلاق.',
+      correctiveSteps: [
+        'افتح القيود أو الفواتير أو حركات الخزينة غير المرحلة.',
+        'رحّلها أو احذف المسودات.',
+        'ارجع لشاشة الفترة واضغط إغلاق مرة ثانية.',
+      ],
     };
   }
 
