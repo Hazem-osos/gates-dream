@@ -5,6 +5,7 @@ import { AccountSelect } from '@/app/components/form/AccountSelect';
 import { CostCenterSelect } from '@/app/components/form/CostCenterSelect';
 import { Button, IconButton, compactControlClass } from '@/components/ui';
 import { isFxRateLocked, rateForCurrency } from '@/lib/accounting/fx-base';
+import { ExchangeRateInput } from '@/components/accounting/ExchangeRateInput';
 import { useCompanyBaseCurrency } from '@/lib/hooks/useCompanyBaseCurrency';
 
 export type EditableJournalLine = {
@@ -109,6 +110,7 @@ export function EditableJournalLinesTable({
                       className={compactControlClass}
                       disabled={disabled}
                       emptyLabel="اختر الحساب"
+                      leafOnly
                     />
                   </td>
                   <td className="min-w-[8rem] border-x border-[#D6EAF3] px-1.5 py-1.5">
@@ -168,11 +170,13 @@ export function EditableJournalLinesTable({
                     </select>
                   </td>
                   <td className="w-24 border-x border-[#D6EAF3] px-1.5 py-1.5">
-                    <input
-                      type="number"
-                      min={0}
-                      step="0.0001"
+                    <ExchangeRateInput
                       className={`${compactControlClass} text-center`}
+                      currencyId={line.currencyId || defaultCurrencyId}
+                      currencyCode={
+                        currencies.find((c) => c.id === (line.currencyId || defaultCurrencyId))?.code
+                      }
+                      companyBaseCode={companyBase}
                       value={
                         isFxRateLocked(
                           currencies.find((c) => c.id === (line.currencyId || defaultCurrencyId))?.code,
@@ -188,7 +192,7 @@ export function EditableJournalLinesTable({
                           companyBase
                         )
                       }
-                      onChange={(e) => updateLine(index, { exchangeRate: parseFloat(e.target.value) || 1 })}
+                      onChange={(rate) => updateLine(index, { exchangeRate: rate })}
                     />
                   </td>
                   <td className="min-w-[10rem] border-x border-[#D6EAF3] px-1.5 py-1.5">

@@ -21,6 +21,7 @@ import { NumberingModeControl } from '@/components/accounting/NumberingModeContr
 import { useAccountingSettingsQuery } from '@/lib/hooks/useAccountingSettings';
 import { entityLabel } from '@/lib/quick-create/catalog';
 import { useQuickCreateHost } from '@/lib/quick-create/useQuickCreateTab';
+import { bumpTrailingCode, isCodeAfter } from '@/lib/masters/nextNumericSerial';
 
 const EMPTY_COST_CENTER_FORM = {
   code: '',
@@ -85,10 +86,18 @@ function CostCenterPage() {
     { enabled: costCenterAuto }
   );
 
+  const keepParentIdRef = React.useRef(formData.parentId);
+  keepParentIdRef.current = formData.parentId;
+  const keepCodeRef = React.useRef(formData.code);
+  keepCodeRef.current = formData.code;
+
   useEffect(() => {
     const suggested = nextCodeResponse?.data?.code;
     if (!suggested || codeTouched || !costCenterAuto) return;
-    setFormData((prev) => (prev.code === suggested ? prev : { ...prev, code: suggested }));
+    setFormData((prev) => {
+      if (prev.code && isCodeAfter(prev.code, suggested)) return prev;
+      return prev.code === suggested ? prev : { ...prev, code: suggested };
+    });
   }, [codeTouched, costCenterAuto, nextCodeResponse?.data?.code]);
 
   // Fetch currencies
@@ -114,10 +123,13 @@ function CostCenterPage() {
             code: created.code,
           });
         }
-        setSuccess('تم حفظ مركز التكلفة بنجاح');
+        setSuccess('تم حفظ مركز التكلفة بنجاح — تقدر تضيف التالي');
         invalidateQuery(['cost-centers']);
-        // Reset form
-        setFormData({ ...EMPTY_COST_CENTER_FORM });
+        setFormData({
+          ...EMPTY_COST_CENTER_FORM,
+          parentId: keepParentIdRef.current,
+          code: bumpTrailingCode(created?.code || keepCodeRef.current),
+        });
         setCodeTouched(false);
       },
       onError: (error: ApiError) => {

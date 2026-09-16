@@ -8,6 +8,7 @@ import { documentSequenceService } from '../../platform/services/document-sequen
 import { assertCashOverdraftAllowed } from './treasury-overdraft';
 import { splitVoucherLineTotals } from '../types/vouchers.dto';
 import { journalPostingService } from '../../accounting/services/journal-posting.service';
+import { persistFxDecimal } from '../../accounting/utils/company-fx-rate';
 
 export interface CreateCashTransactionLineInput {
   accountId: string;
@@ -294,7 +295,7 @@ export class CashTransactionService {
         offsetAccountId: input.offsetAccountId ?? lines[0]?.accountId,
         safeId: input.safeId,
         bankAccountId: input.bankAccountId,
-        exchangeRate: input.exchangeRate != null ? new Decimal(input.exchangeRate) : null,
+        exchangeRate: persistFxDecimal(input.currencyCode, input.exchangeRate),
         isRecurring: input.isRecurring ?? false,
         documentRole: input.documentRole ?? 'VOUCHER',
         departmentId: input.departmentId,
@@ -320,7 +321,10 @@ export class CashTransactionService {
           description: line.description,
           amount: new Decimal(line.amount),
           currencyCode: line.currencyCode ?? input.currencyCode,
-          exchangeRate: new Decimal(line.exchangeRate ?? input.exchangeRate ?? 1),
+          exchangeRate: persistFxDecimal(
+            line.currencyCode ?? input.currencyCode,
+            line.exchangeRate ?? input.exchangeRate
+          ),
           costCenterId: line.costCenterId ?? null,
           entrySide:
             line.entrySide === 'CREDIT'
@@ -381,13 +385,19 @@ export class CashTransactionService {
    * Draft voucher update (spec: vouchers.service.ts).
    * `expectedVersion` must match the row the client loaded.
    */
-  async update(companyId: string, id: string, input: UpdateCashTransactionInput, userId?: string) {
+  async update(
+    companyId: string,
+    id: string,
+    input: UpdateCashTransactionInput,
+    userId?: string,
+    options?: { allowPosted?: boolean }
+  ) {
     return prisma.$transaction(async (tx) => {
       const existing = await tx.cashTransaction.findFirst({
         where: { id, companyId },
       });
       if (!existing) throw new AppError(404, 'Cash transaction not found');
-      if (existing.isPosted) {
+      if (existing.isPosted && !options?.allowPosted) {
         throw new AppError(422, 'لا يمكن تعديل سند مرحّل — فك الترحيل أولاً');
       }
       if (existing.isCancelled) {
@@ -471,7 +481,7 @@ export class CashTransactionService {
           offsetAccountId: input.offsetAccountId ?? lines[0]?.accountId ?? null,
           safeId: input.safeId ?? null,
           bankAccountId: input.bankAccountId ?? null,
-          exchangeRate: input.exchangeRate != null ? new Decimal(input.exchangeRate) : null,
+          exchangeRate: persistFxDecimal(input.currencyCode, input.exchangeRate),
           isRecurring: input.isRecurring ?? existing.isRecurring,
           departmentId: input.departmentId ?? null,
           sourceOrderId: nextSourceOrderId,
@@ -525,7 +535,10 @@ export class CashTransactionService {
             description: line.description,
             amount: new Decimal(line.amount),
             currencyCode: line.currencyCode ?? input.currencyCode,
-            exchangeRate: new Decimal(line.exchangeRate ?? input.exchangeRate ?? 1),
+            exchangeRate: persistFxDecimal(
+            line.currencyCode ?? input.currencyCode,
+            line.exchangeRate ?? input.exchangeRate
+          ),
             costCenterId: line.costCenterId ?? null,
             entrySide:
             line.entrySide === 'CREDIT'

@@ -11,6 +11,8 @@ export const transactionDocumentTypeSchema = z.enum([
   'PURCHASE_RETURN',
   'BANK_DEBIT_ADVICE',
   'BANK_CREDIT_ADVICE',
+  'JOURNAL_ENTRY',
+  'OPENING_BALANCE',
 ]);
 
 export const numberingModeSchema = z.enum(['AUTOMATIC', 'MANUAL']);
@@ -54,6 +56,7 @@ export const updateTransactionSettingsSchema = z.object({
   costCenterAllocationTarget: costCenterAllocationTargetSchema.optional(),
   allowStandaloneReturns: z.boolean().optional(),
   enforceOriginalPrice: z.boolean().optional(),
+  showFxColumns: z.boolean().optional(),
 });
 
 export const documentTypeParamsSchema = z.object({

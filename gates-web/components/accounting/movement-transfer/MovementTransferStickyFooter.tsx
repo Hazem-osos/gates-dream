@@ -22,6 +22,9 @@ export function MovementTransferStickyFooter({
       <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3" dir="rtl">
         <p className="max-w-xl text-sm text-muted-foreground">{summary}</p>
         <div className="flex flex-wrap items-center gap-2">
+          <Button type="button" variant="secondary" size="sm" disabled={pending} onClick={onCancel}>
+            تفريغ
+          </Button>
           <Button
             type="button"
             variant="danger"

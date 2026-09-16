@@ -28,8 +28,7 @@ export const WORKSPACE_HUB_GROUPS: WorkspaceHubGroup[] = [
       { label: 'تتبع أقساط الفواتير', href: '/inventory/operations/invoice-installments' },
       { label: 'عروض الأسعار', href: '/inventory/operations/price-quote' },
       { label: 'أوامر البيع', href: '/inventory/operations/sales-order' },
-      { label: 'العملاء', href: '/accounting/cards/customer' },
-      { label: 'مجموعات العملاء', href: '/accounting/cards/customer-group' },
+      { label: 'دليل العملاء والموردين', href: '/accounting/guide/customers-suppliers' },
       { label: 'مرتجعات المبيعات', href: '/inventory/operations/sales-returns' },
     ],
   },
@@ -51,7 +50,7 @@ export const WORKSPACE_HUB_GROUPS: WorkspaceHubGroup[] = [
     links: [
       { label: 'شجرة الحسابات', href: '/accounting/chart-of-accounts' },
       { label: 'قيود اليومية', href: '/accounting/operations/journal-entry' },
-      { label: 'مراكز التكلفة', href: '/accounting/cards/cost-center' },
+      { label: 'دليل المندوبين والتوزيع', href: '/accounting/guide/representatives-guide' },
       { label: 'كشوف الحسابات', href: '/accounting/account-reports/credit/account-balances' },
     ],
   },

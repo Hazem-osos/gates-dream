@@ -2,10 +2,13 @@
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import dynamic from 'next/dynamic';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
+import { destinationAppTabHref } from '@/lib/navigation/tab-memory';
+import { useOwnTabPathname, useOwnTabSearchParams } from '@/lib/navigation/tab-route-lock';
 import { Button } from '@/components/ui';
 import { DynamicModalSkeleton, LineGridSkeleton } from '@/components/ui/DynamicChunkSkeleton';
 import { useApiQuery, useApiMutation, useInvalidateQuery } from '@/lib/hooks/useApi';
+import { pickDefaultSafeId } from '@/lib/hooks/useMasterDataQueries';
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
 import { toastVersionConflict } from '@/lib/feedback/toast';
@@ -27,6 +30,7 @@ import { inferDiscountTypeFromApi, inferDiscountValueFromApi } from '@/lib/invoi
 import { useCompanyPrintProfile } from '@/lib/hooks/useCompanyPrintProfile';
 import { useFirstCompany } from '@/lib/hooks/useFirstCompany';
 import { ErpDocumentLayout } from '@/components/erp/ErpDocumentLayout';
+import { PageDraftRestoreBanner } from '@/components/erp/PageDraftRestoreBanner';
 import { ERP_INVOICE_DOCUMENT_LAYOUT_CLASS } from '@/components/erp/erpUiTokens';
 import { PurchaseInvoicePageHeader } from '@/components/inventory/purchase-invoice/PurchaseInvoicePageHeader';
 import { PurchaseInvoiceFormHeader } from '@/components/inventory/purchase-invoice/PurchaseInvoiceFormHeader';
@@ -129,6 +133,11 @@ type PurchaseInvoiceDraft = {
   sourceNumber: string;
 };
 
+function isPurchaseInvoiceDraftEmpty(draft: PurchaseInvoiceDraft) {
+  const hasLine = (draft.invoiceLines ?? []).some((line) => Boolean(line.itemId?.trim()));
+  return !draft.supplierId?.trim() && !draft.description?.trim() && !hasLine;
+}
+
 function invoiceRemainingForCollect(inv: Record<string, unknown> | undefined): number | null {
   if (!inv) return null;
   const net = Number(inv.netAmount ?? inv.totalAmount ?? 0);
@@ -147,7 +156,8 @@ export default function FinalPurchaseInvoicePage() {
 
 function FinalPurchaseInvoicePageInner() {
   const router = useRouter();
-  const searchParams = useSearchParams();
+  const searchParams = useOwnTabSearchParams();
+  const ownPathname = useOwnTabPathname();
   const { lockToView, setMode, unlockForEdit, isReadOnly } = useDocumentMode();
   const invalidateQuery = useInvalidateQuery();
   const { companyId } = useFirstCompany();
@@ -218,8 +228,8 @@ function FinalPurchaseInvoicePageInner() {
     const params = new URLSearchParams(searchParams.toString());
     params.delete('fromAiDraft');
     const qs = params.toString();
-    router.replace(qs ? `?${qs}` : window.location.pathname, { scroll: false });
-  }, [fromAiDraft, router, searchParams, selectedInvoiceId]);
+    router.replace(qs ? `${ownPathname}?${qs}` : ownPathname, { scroll: false });
+  }, [fromAiDraft, ownPathname, router, searchParams, selectedInvoiceId]);
 
   const openInvoice = useCallback((id: string | null) => {
     setSelectedInvoiceId(id);
@@ -227,8 +237,8 @@ function FinalPurchaseInvoicePageInner() {
     if (id) params.set('invoiceId', id);
     else params.delete('invoiceId');
     const qs = params.toString();
-    router.replace(qs ? `?${qs}` : window.location.pathname, { scroll: false });
-  }, [router, searchParams]);
+    router.replace(qs ? `${ownPathname}?${qs}` : ownPathname, { scroll: false });
+  }, [ownPathname, router, searchParams]);
 
   useEffect(() => {
     const prev = prevPurchaseWarehouseRef.current;
@@ -284,6 +294,25 @@ function FinalPurchaseInvoicePageInner() {
     ]
   );
 
+  const applyPurchaseDraft = useCallback((payload: PurchaseInvoiceDraft) => {
+    setInvoiceNumber(payload.invoiceNumber);
+    setSupplierRef(payload.supplierRef);
+    setDescription(payload.description);
+    setDate(payload.date || new Date().toISOString().split('T')[0]);
+    setHijriDate(payload.hijriDate);
+    setSupplierId(payload.supplierId);
+    setWarehouseId(payload.warehouseId);
+    setCostCenterId(payload.costCenterId);
+    setDelegateId(payload.delegateId);
+    setCurrencyId(payload.currencyId);
+    setPaymentType(payload.paymentType === 'cash' ? 'cash' : 'split');
+    setPricingCalculationBasis(parsePricingCalculationBasis(payload.pricingCalculationBasis));
+    setInvoiceLines(payload.invoiceLines ?? []);
+    setSourceType(payload.sourceType ?? '');
+    setSourceId(payload.sourceId ?? '');
+    setSourceNumber(payload.sourceNumber ?? '');
+  }, []);
+
   const draftEnabled = !selectedInvoiceId && !isPosted;
   const {
     lastSavedAt,
@@ -291,14 +320,15 @@ function FinalPurchaseInvoicePageInner() {
     acceptRestore,
     dismissRestore,
     clearDraft,
-  } = useDraftAutosave('gates:draft:purchase-invoice', draftSnapshot, draftEnabled);
+  } = useDraftAutosave('gates:draft:purchase-invoice', draftSnapshot, draftEnabled, {
+    applyRestore: applyPurchaseDraft,
+    isEmpty: isPurchaseInvoiceDraftEmpty,
+    restoreMessage: 'تم استعادة مسودة فاتورة المشتريات',
+  });
 
   useEffect(() => {
     if (!restoreOffer || selectedInvoiceId) return;
-    const d = restoreOffer as PurchaseInvoiceDraft;
-    const hasContent =
-      Boolean(d.supplierId?.trim()) || d.invoiceLines.length > 0 || Boolean(d.description?.trim());
-    if (!hasContent) dismissRestore();
+    if (isPurchaseInvoiceDraftEmpty(restoreOffer as PurchaseInvoiceDraft)) dismissRestore();
   }, [restoreOffer, selectedInvoiceId, dismissRestore]);
 
   const { data: invoiceResponse } = useApiQuery<Record<string, unknown>>(
@@ -565,22 +595,7 @@ function FinalPurchaseInvoicePageInner() {
   const handleRestoreDraft = () => {
     const payload = acceptRestore() as PurchaseInvoiceDraft | null;
     if (!payload) return;
-    setInvoiceNumber(payload.invoiceNumber);
-    setSupplierRef(payload.supplierRef);
-    setDescription(payload.description);
-    setDate(payload.date || new Date().toISOString().split('T')[0]);
-    setHijriDate(payload.hijriDate);
-    setSupplierId(payload.supplierId);
-    setWarehouseId(payload.warehouseId);
-    setCostCenterId(payload.costCenterId);
-    setDelegateId(payload.delegateId);
-    setCurrencyId(payload.currencyId);
-    setPaymentType(payload.paymentType === 'cash' ? 'cash' : 'split');
-    setPricingCalculationBasis(parsePricingCalculationBasis(payload.pricingCalculationBasis));
-    setInvoiceLines(payload.invoiceLines ?? []);
-    setSourceType(payload.sourceType ?? '');
-    setSourceId(payload.sourceId ?? '');
-    setSourceNumber(payload.sourceNumber ?? '');
+    applyPurchaseDraft(payload);
     setSuccess('تم استعادة مسودة فاتورة المشتريات');
   };
 
@@ -675,7 +690,7 @@ function FinalPurchaseInvoicePageInner() {
     '/accounting/safes',
     { page: 1, limit: 50 }
   );
-  const defaultSafeId = safesResponse?.data?.[0]?.id;
+  const defaultSafeId = pickDefaultSafeId(safesResponse?.data);
 
   const collectPaymentMutation = useApiMutation<unknown, Record<string, unknown>>(
     selectedInvoiceId ? `/invoices/${selectedInvoiceId}/settlements` : '/invoices',
@@ -835,17 +850,11 @@ function FinalPurchaseInvoicePageInner() {
       {success ? <SuccessToast message={success} onClose={() => setSuccess('')} /> : null}
 
       {restoreOffer && !selectedInvoiceId ? (
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
-          <span>يوجد مسودة فاتورة مشتريات غير محفوظة.</span>
-          <div className="flex gap-2">
-            <Button type="button" size="sm" variant="primary" onClick={handleRestoreDraft}>
-              استعادة
-            </Button>
-            <Button type="button" size="sm" variant="ghost" onClick={dismissRestore}>
-              تجاهل
-            </Button>
-                </div>
-              </div>
+        <PageDraftRestoreBanner
+          message="يوجد مسودة فاتورة مشتريات غير محفوظة."
+          onRestore={handleRestoreDraft}
+          onDismiss={dismissRestore}
+        />
       ) : null}
 
       {draftEnabled && lastSavedAt ? (
@@ -888,7 +897,7 @@ function FinalPurchaseInvoicePageInner() {
         }}
         onOpenJournal={() => {
           if (selectedInvoiceId) {
-            router.push(`/accounting/operations/journal-entry?ref=invoice&id=${selectedInvoiceId}`);
+            router.push(destinationAppTabHref(`/accounting/operations/journal-entry?ref=invoice&id=${selectedInvoiceId}`));
           }
         }}
         onCollectPayment={() => {
@@ -913,7 +922,7 @@ function FinalPurchaseInvoicePageInner() {
             setError('يجب ترحيل الفاتورة قبل إنشاء مرتجع');
             return;
           }
-          router.push(`/inventory/operations/purchase-returns?fromInvoice=${selectedInvoiceId}`);
+          router.push(destinationAppTabHref(`/inventory/operations/purchase-returns?fromInvoice=${selectedInvoiceId}`));
         }}
         unpostPending={unpostInvoiceMutation.isPending || financialBusy}
         deletePending={invoiceDeleteMutation.isPending || financialBusy}

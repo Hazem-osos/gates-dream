@@ -135,6 +135,34 @@ export class CostCenterService {
     }
   }
 
+  private async assertNoParentCycle(
+    companyId: string,
+    costCenterId: string,
+    parentId: string | undefined | null
+  ) {
+    if (!parentId) return;
+    if (parentId === costCenterId) {
+      throw new AppError(400, 'لا يمكن أن يكون مركز التكلفة أباً لنفسه.');
+    }
+
+    let current: string | null = parentId;
+    const seen = new Set<string>([costCenterId]);
+    while (current) {
+      if (seen.has(current)) {
+        throw new AppError(
+          400,
+          'لا يمكن جعل مركز التكلفة فرعاً تحت أحد أبنائه. هذا يكسر شجرة الدليل.'
+        );
+      }
+      seen.add(current);
+      const row = await prisma.costCenter.findFirst({
+        where: { id: current, companyId },
+        select: { parentId: true },
+      });
+      current = row?.parentId ?? null;
+    }
+  }
+
   private async assertParentCanReceiveChild(
     companyId: string,
     parentId: string | undefined | null
@@ -319,6 +347,7 @@ export class CostCenterService {
       }
 
       if (data.parentId !== undefined && data.parentId !== existing.parentId) {
+        await this.assertNoParentCycle(companyId, costCenterId, data.parentId);
         await this.assertParentCanReceiveChild(companyId, data.parentId);
       }
       if (data.code && data.code !== existing.code) {

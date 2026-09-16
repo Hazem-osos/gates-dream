@@ -247,31 +247,15 @@ export const accountingModules: ModuleWithChildren[] = [
         ],
       },
       {
-        key: 'cards',
-        icon: '💳',
-        label: 'البطاقات',
-        color: '#0E79AA',
-        children: [
-          { key: 'cost-center', icon: '📊', label: 'بطاقة مركز التكلفة', color: '#0E79AA', href: '/accounting/cards/cost-center' },
-          { key: 'supplier', icon: '📋', label: 'بطاقة مورد', color: '#0E79AA', href: '/accounting/cards/supplier' },
-          { key: 'supplier-group', icon: '📂', label: 'مجموعة المورد', color: '#0E79AA', href: '/accounting/cards/supplier-group' },
-          { key: 'customer', icon: '👥', label: 'بطاقة عميل', color: '#0E79AA', href: '/accounting/cards/customer' },
-          { key: 'customer-group', icon: '📂', label: 'مجموعة العميل', color: '#0E79AA', href: '/accounting/cards/customer-group' },
-          { key: 'delegate-group', icon: '👥', label: 'بطاقة مجموعة مندوب', color: '#0E79AA', href: '/accounting/cards/delegate-group' },
-          { key: 'delegate', icon: '👤', label: 'بطاقة مندوب', color: '#0E79AA', href: '/accounting/cards/delegate' },
-          { key: 'driver', icon: '🚗', label: 'بطاقة سائق', color: '#0E79AA', href: '/accounting/cards/driver' },
-          { key: 'distributor', icon: '🚚', label: 'بطاقة موزع', color: '#0E79AA', href: '/accounting/cards/distributor' },
-        ]
-      },
-      {
         key: 'guide',
         icon: '📖',
         label: 'الدليل',
         color: '#0E79AA',
         children: [
           { key: 'accounts-guide', icon: '📚', label: 'دليل الحسابات', color: '#0E79AA' , href: '/accounting/chart-of-accounts' },
+          { key: 'customers-suppliers-guide', icon: '👥', label: 'دليل العملاء والموردين', color: '#0E79AA', href: '/accounting/guide/customers-suppliers' },
           { key: 'cost-centers-guide', icon: '📊', label: 'دليل مراكز التكلفة', color: '#0E79AA' , href: '/accounting/guide/cost-center'  },
-          { key: 'representatives-guide', icon: '👥', label: 'دليل المندوبين', color: '#0E79AA' , href: '/accounting/guide/representatives-guide' },
+          { key: 'representatives-guide', icon: '👥', label: 'دليل المندوبين والتوزيع', color: '#0E79AA' , href: '/accounting/guide/representatives-guide' },
         ]
       },
     ]

@@ -181,7 +181,16 @@ function labelForAutoColumn(key: string): string {
 
 function guessFormat(key: string): ReportCellFormat {
   if (/date|At$/i.test(key) && key !== 'updatedAt') return key.endsWith('At') ? 'datetime' : 'date';
-  if (/amount|total|price|cost|balance|paid|profit|tax|discount|net/i.test(key)) return 'money';
+  if (
+    /amount|total|price|cost|balance|paid|profit|tax|discount|net|debit|credit|budget|actual|variance|expenses/i.test(
+      key
+    )
+  ) {
+    return 'money';
+  }
+  if (/^(account|costCenter|customer|supplier|safe|bankAccount|branch)$/i.test(key)) {
+    return 'relation';
+  }
   if (/quantity|count|qty/i.test(key)) return 'number';
   return 'text';
 }

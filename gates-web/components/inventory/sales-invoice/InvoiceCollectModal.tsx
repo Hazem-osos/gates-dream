@@ -9,7 +9,7 @@ export type InvoiceCollectPayload = {
   description?: string;
 };
 
-type Safe = { id: string; arabicName?: string; code?: string | null };
+type Safe = { id: string; arabicName?: string; code?: string | null; isDefault?: boolean };
 
 type Props = {
   open: boolean;
@@ -43,7 +43,7 @@ export function InvoiceCollectModal({
   useEffect(() => {
     if (!open) return;
     setAmount(String(remaining));
-    setSafeId(defaultSafeId ?? safes[0]?.id ?? '');
+    setSafeId(defaultSafeId ?? safes.find((safe) => safe.isDefault)?.id ?? safes[0]?.id ?? '');
     setDate(todayIsoDate());
     setDescription('');
     setError('');
@@ -119,6 +119,7 @@ export function InvoiceCollectModal({
               {safes.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.arabicName ?? s.code ?? s.id}
+                  {s.isDefault ? ' (رئيسية)' : ''}
                 </option>
               ))}
             </select>

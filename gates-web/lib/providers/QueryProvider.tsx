@@ -11,6 +11,7 @@ import { ClientSearchIndexSync } from '@/lib/providers/ClientSearchIndexSync';
 import { AbortRuntimeGuard } from '@/lib/providers/AbortRuntimeGuard';
 import { createAppQueryClient } from '@/lib/query/query-client';
 import { MutationActivityPill } from '@/components/feedback/MutationActivityPill';
+import { MasterCatalogSync } from '@/lib/providers/MasterCatalogSync';
 
 export function QueryProvider({ children }: { children: ReactNode }) {
   const [queryClient] = useState(() => createAppQueryClient());
@@ -20,6 +21,7 @@ export function QueryProvider({ children }: { children: ReactNode }) {
       <AbortRuntimeGuard>
         <TenantBootstrap>
           <ClientSearchIndexSync />
+          <MasterCatalogSync />
           {children}
           <MutationActivityPill />
           <AppToaster />

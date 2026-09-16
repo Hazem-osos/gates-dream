@@ -136,7 +136,7 @@ export function ReturnInvoiceFormHeader({
             <label className={erpLabelClass}>المخزن</label>
             <WarehouseSelect value={warehouseId} onChange={onWarehouseId} className={erpInputClass} />
           </div>
-          <div className="space-y-1 sm:col-span-2">
+          <div className="space-y-1">
             <label className={erpLabelClass}>
               {sourceLabel}
               {sourceRequired ? <span className="mr-1 text-rose-600">*</span> : null}
@@ -183,7 +183,7 @@ export function ReturnInvoiceFormHeader({
         </>
       }
       extras={
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
           <div className="space-y-1">
             <label className={erpLabelClass}>سبب المرتجع</label>
             <select className={erpInputClass} value={returnReason} onChange={(e) => onReturnReason?.(e.target.value)}>

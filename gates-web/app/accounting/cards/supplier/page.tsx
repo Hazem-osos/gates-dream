@@ -6,10 +6,10 @@ import TaxInfoOverlay from '@/components/TaxInfoOverlay';
 import { PartiesListSection, type PartyRow } from '@/app/components/accounting/PartiesListSection';
 import {
   CompactFormField,
-  AdvancedFieldsSection,
   FormSectionCard,
   compactControlClass,
 } from '@/components/ui';
+import { useOwnTabSearchParams } from '@/lib/navigation/tab-route-lock';
 import { DocumentBrowseDrawer } from '@/components/erp/DocumentBrowseDrawer';
 import { ErpDocumentLayout, ErpDocumentPageHeader } from '@/components/erp';
 import { DocumentModeProvider, useDocumentMode } from '@/components/common/document-shell';
@@ -18,7 +18,7 @@ import { ClientMountGate } from '@/lib/hooks/useClientMounted';
 import { apiClient } from '@/lib/api/client';
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
-import { nextNumericSerial } from '@/lib/masters/nextNumericSerial';
+import { bumpTrailingCode, isCodeAfter, nextNumericSerial } from '@/lib/masters/nextNumericSerial';
 import { entityLabel } from '@/lib/quick-create/catalog';
 import { useQuickCreateHost } from '@/lib/quick-create/useQuickCreateTab';
 
@@ -77,6 +77,9 @@ function SupplierPageInner() {
   const { isReadOnly, unlockForEdit, lockToView, setMode } = useDocumentMode();
   const invalidateQuery = useInvalidateQuery();
   const quickCreate = useQuickCreateHost('supplier');
+  const searchParams = useOwnTabSearchParams();
+  const idFromUrl = searchParams.get('id');
+  const categoryFromUrl = searchParams.get('categoryId');
 
   const [showTaxInfo, setShowTaxInfo] = useState(false);
   const [isTaxInfoChecked, setIsTaxInfoChecked] = useState(false);
@@ -131,7 +134,7 @@ function SupplierPageInner() {
   const { data: accountsResponse } = useApiQuery<Account[]>(
     ['accounts'],
     '/accounting/accounts',
-    { limit: 1000, isActive: true }
+    { limit: 1000, isActive: true, leafOnly: true }
   );
   const accounts = accountsResponse?.data || [];
 
@@ -163,12 +166,39 @@ function SupplierPageInner() {
   );
 
   useEffect(() => {
-    setFormData((prev) =>
-      prev.serial || prev.code ? prev : { ...prev, serial: nextPartyCode, code: nextPartyCode }
-    );
-  }, [nextPartyCode]);
+    if (selectedId) return;
+    setFormData((prev) => {
+      const current = prev.serial || prev.code;
+      if (current && isCodeAfter(current, nextPartyCode)) return prev;
+      if (prev.serial === nextPartyCode && prev.code === nextPartyCode) return prev;
+      return { ...prev, serial: nextPartyCode, code: nextPartyCode };
+    });
+  }, [nextPartyCode, selectedId]);
 
-  const blankForm = (serial = nextPartyCode) => ({
+  useEffect(() => {
+    if (selectedId || !categoryFromUrl) return;
+    setFormData((prev) =>
+      prev.supplierCategoryId ? prev : { ...prev, supplierCategoryId: categoryFromUrl }
+    );
+  }, [categoryFromUrl, selectedId]);
+
+  useEffect(() => {
+    if (!idFromUrl) return;
+    let cancelled = false;
+    void apiClient.get<SupplierRecord>(`/accounting/suppliers/${idFromUrl}`).then((res) => {
+      if (!cancelled && res.data) hydrate(res.data);
+    }).catch((err: unknown) => {
+      if (!cancelled) setError(err instanceof Error ? err.message : 'تعذر فتح المورد');
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [idFromUrl]);
+
+  const blankForm = (
+    serial = nextPartyCode,
+    categoryId = formData.supplierCategoryId || categoryFromUrl || ''
+  ) => ({
     serial,
     code: serial,
     arabicName: '',
@@ -201,7 +231,7 @@ function SupplierPageInner() {
     registrationNumber: '',
     financier: '',
     discountType: '',
-    supplierCategoryId: '',
+    supplierCategoryId: categoryId,
   });
 
   const handleTaxInfoCheckboxChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -334,8 +364,8 @@ function SupplierPageInner() {
             accountId: created.accountId,
           });
         }
-        setSuccess('تم حفظ المورد بنجاح');
-        setFormData(blankForm());
+        setSuccess('تم حفظ المورد بنجاح — تقدر تضيف التالي');
+        setFormData(blankForm(bumpTrailingCode(formData.serial) || nextPartyCode));
         setIsTaxInfoChecked(false);
         setSelectedId(null);
         setMode('create');
@@ -372,31 +402,6 @@ function SupplierPageInner() {
       setError(err instanceof Error ? err.message : 'تعذر الحذف');
     }
   };
-
-  const advancedFilledCount = [
-    formData.englishName,
-    formData.registrationNumber,
-    formData.taxData ? '1' : '',
-    formData.taxAuthority,
-    formData.mainAccountId,
-    formData.accountId,
-    formData.email,
-    formData.website,
-    formData.phone2,
-    formData.mobile,
-    formData.fax,
-    formData.nationality,
-    formData.country,
-    formData.city,
-    formData.area,
-    formData.street,
-    formData.postalCode,
-    formData.poBox,
-    formData.warning,
-    formData.estimatedBudget,
-    formData.currencyCode,
-    formData.how !== 'local' ? formData.how : '',
-  ].filter((v) => String(v ?? '').trim().length > 0).length;
 
   return (
     <ErpDocumentLayout>
@@ -526,8 +531,7 @@ function SupplierPageInner() {
             </CompactFormField>
           </FormSectionCard>
 
-          <AdvancedFieldsSection title="الحقول والإعدادات المتقدمة" badgeCount={advancedFilledCount}>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <FormSectionCard title="الاتصال والعنوان" subtitle="الهاتف والعنوان والحسابات" icon={Truck}>
               <CompactFormField
                 label="الإسم الإنجليزي"
                 value={formData.englishName}
@@ -741,8 +745,7 @@ function SupplierPageInner() {
                   ))}
                 </div>
               </CompactFormField>
-            </div>
-          </AdvancedFieldsSection>
+          </FormSectionCard>
 
           </fieldset>
         </form>

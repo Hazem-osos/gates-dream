@@ -1,5 +1,6 @@
 import React, { ForwardedRef } from 'react';
 import { useRouter } from 'next/navigation';
+import { destinationAppTabHref } from '@/lib/navigation/tab-memory';
 import { NavbarQuickPanel } from './NavbarQuickPanel';
 
 const helpItems: Array<{
@@ -43,7 +44,7 @@ export default function HelpSidebar({
     if (external) {
       window.location.href = href;
     } else {
-      router.push(href);
+      router.push(destinationAppTabHref(href));
     }
     onClose();
   };

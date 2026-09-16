@@ -6,6 +6,7 @@ import type { ExecuteMultiCollectionDto } from '../../treasury/dto/commercial-pa
 import type { JournalEntryLineData } from '../types/journal-entry.types';
 import { journalPostingService } from './journal-posting.service';
 import { fiscalYearService } from '../../platform/services/fiscal-year.service';
+import { resolveCompanyFxRate } from '../utils/company-fx-rate';
 
 export type CommercialPaperKind = 'PAYMENT' | 'RECEIPT';
 
@@ -93,6 +94,7 @@ export class CommercialPaperPostingService {
         ? (paper as { paymentNumber?: string | null }).paymentNumber
         : (paper as { receiptNumber?: string | null }).receiptNumber;
     const fiscalYearId = await fiscalYearService.assertOpenForDate(ctx.companyId, collectionDate);
+    const { exchangeRate } = await resolveCompanyFxRate(ctx.companyId, paper.currencyCode);
 
     const jeLines: JournalEntryLineData[] = [];
     let order = 1;
@@ -170,6 +172,7 @@ export class CommercialPaperPostingService {
             input.notes ||
             `تحصيل متعدد — ${paperKind === 'PAYMENT' ? 'ورقة مدفوعات' : 'ورقة مقبوضات'} ${paperNumber ?? paper.id.slice(0, 8)}`,
           currencyCode: paper.currencyCode,
+          exchangeRate,
           entryType: 'MULTI_COLLECTION',
           sourceType: paperKind === 'PAYMENT' ? 'SECP' : 'SECR',
           sourceId: paper.id,

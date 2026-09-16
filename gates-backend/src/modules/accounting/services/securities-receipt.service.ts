@@ -7,6 +7,7 @@ import { journalPostingService } from './journal-posting.service';
 import { fiscalYearService } from '../../platform/services/fiscal-year.service';
 import { treasuryAccountResolverService } from '../../treasury/services/treasury-account-resolver.service';
 import { commercialPaperPostingService } from './commercial-paper-posting.service';
+import { resolveCompanyFxRate, toBaseAmount } from '../utils/company-fx-rate';
 
 /** Minimal context needed to post a real GL entry for a securities receipt (H11). */
 export interface SecuritiesPostingCtx {
@@ -323,6 +324,8 @@ export class SecuritiesReceiptService {
     }
 
     const amount = Number(receipt.amount);
+    const { exchangeRate } = await resolveCompanyFxRate(companyId, receipt.currencyCode);
+    const baseAmount = toBaseAmount(amount, exchangeRate);
     const fiscalYearId = await fiscalYearService.assertOpenForDate(companyId, receipt.date);
     const chequeAccounts = await treasuryAccountResolverService.resolveChequeAccounts(companyId);
     const partyAccountId = await treasuryAccountResolverService.resolvePartyAccountId({
@@ -343,6 +346,7 @@ export class SecuritiesReceiptService {
             receipt.description ??
             `Securities receipt ${receipt.receiptNumber ?? receipt.id.slice(0, 8)} (${receipt.securityType})`,
           currencyCode: receipt.currencyCode,
+          exchangeRate,
           entryType: 'SecuritiesReceipt',
           sourceType: 'SECR',
           sourceNumber: receipt.receiptNumber ?? receipt.id,
@@ -362,13 +366,13 @@ export class SecuritiesReceiptService {
       if (receipt.customerId) {
         await tx.customer.update({
           where: { id: receipt.customerId },
-          data: { balance: { decrement: new Decimal(amount) } },
+          data: { balance: { decrement: new Decimal(baseAmount) } },
         });
       }
       if (receipt.supplierId) {
         await tx.supplier.update({
           where: { id: receipt.supplierId },
-          data: { balance: { increment: new Decimal(amount) } },
+          data: { balance: { increment: new Decimal(baseAmount) } },
         });
       }
 
@@ -397,6 +401,8 @@ export class SecuritiesReceiptService {
     }
 
     const amount = Number(receipt.amount);
+    const { exchangeRate } = await resolveCompanyFxRate(companyId, receipt.currencyCode);
+    const baseAmount = toBaseAmount(amount, exchangeRate);
     const fiscalYearId = await fiscalYearService.assertOpenForDate(companyId, new Date());
 
     return prisma.$transaction(async (tx) => {
@@ -413,13 +419,13 @@ export class SecuritiesReceiptService {
       if (receipt.customerId) {
         await tx.customer.update({
           where: { id: receipt.customerId },
-          data: { balance: { increment: new Decimal(amount) } },
+          data: { balance: { increment: new Decimal(baseAmount) } },
         });
       }
       if (receipt.supplierId) {
         await tx.supplier.update({
           where: { id: receipt.supplierId },
-          data: { balance: { decrement: new Decimal(amount) } },
+          data: { balance: { decrement: new Decimal(baseAmount) } },
         });
       }
 

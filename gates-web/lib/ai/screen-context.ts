@@ -74,6 +74,8 @@ const SCREEN_TITLES: Record<string, string> = {
   '/accounting/cards/customer': 'بطاقة عميل',
   '/accounting/cards/supplier': 'بطاقة مورد',
   '/accounting/cards/cost-center': 'بطاقة مركز تكلفة',
+  '/accounting/cards/staff': 'إضافة مندوب',
+  '/accounting/guide/customers-suppliers': 'دليل العملاء والموردين',
   '/accounting/cards/account': 'دليل الحسابات',
   '/accounting/cards/delegate': 'بطاقة مندوب',
 };

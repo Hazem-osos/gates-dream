@@ -13,6 +13,10 @@ export const updateCurrencySchema = createCurrencySchema.partial().extend({
   isActive: z.boolean().optional(),
 });
 
+export const rememberCurrencyRateSchema = z.object({
+  exchangeRate: z.number().positive(),
+});
+
 export const currencyQuerySchema = z.object({
   page: z.string().optional().transform((val) => (val ? parseInt(val, 10) : 1)),
   limit: z.string().optional().transform((val) => (val ? parseInt(val, 10) : 50)),

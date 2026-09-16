@@ -2,6 +2,7 @@
 
 import { useMutation } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api/client';
+import { clearConditionalGetCache } from '@/lib/api/conditional-get-cache';
 import { useApiQuery, useInvalidateQuery } from './useApi';
 import type { ApiError } from '@/lib/api/types';
 import type { CoaHierarchyAccount } from '@/lib/accounting/mapCoaToTreeNodes';
@@ -19,6 +20,10 @@ export type AccountFormPayload = {
   budget?: number | null;
   creditLimit?: number | null;
   currencyCode?: string | null;
+  accountKind?: 'HEADER' | 'POSTING';
+  accountNature?: 'DEBIT' | 'CREDIT';
+  statementType?: 'BALANCE_SHEET' | 'INCOME_STATEMENT';
+  requiresCostCenter?: boolean;
 };
 
 export function useCoaTreeQuery() {
@@ -26,7 +31,7 @@ export function useCoaTreeQuery() {
     ['coa-tree'],
     '/accounting/accounts/tree',
     undefined,
-    { staleTime: 60_000, requireFullTenant: false }
+    { staleTime: 0, refetchOnMount: 'always', requireFullTenant: false }
   );
 }
 
@@ -43,10 +48,13 @@ export function useSuggestAccountCode(parentId: string | null | undefined, enabl
 function useCoaRefresh() {
   const invalidate = useInvalidateQuery();
   return () => {
+    clearConditionalGetCache();
     void invalidate(['coa-tree']);
     void invalidate(['accounts']);
     void invalidate(['coa-suggest-code']);
     void invalidate(['safes']);
+    void invalidate(['journal-entries']);
+    void invalidate(['journal-entry']);
   };
 }
 

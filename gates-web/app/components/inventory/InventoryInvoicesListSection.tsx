@@ -21,6 +21,11 @@ import { useSavedViews } from '@/lib/hooks/useSavedViews';
 import { exportRowsToExcel, rowsToExportMatrix } from '@/lib/export/export-utils';
 import { useDocumentProfiles } from '@/lib/hooks/useDocumentProfiles';
 import type { DocumentBaseType } from '@/lib/document-profiles/types';
+import {
+  rowMatchesDateRange,
+  rowMatchesPostedStatus,
+  rowMatchesSearch,
+} from '@/lib/browse/browse-list-match';
 
 export type InvoiceListRow = {
   id: string;
@@ -93,20 +98,24 @@ export function InventoryInvoicesListSection({
     [invoiceKind, search, postedFilter, startDate, endDate, profileId]
   );
 
+  const hasLocalFilters = Boolean(
+    search.trim() || startDate || endDate || postedFilter !== 'all' || profileId
+  );
+
   const queryParams = useMemo(() => {
     const p: Record<string, string | number | boolean> = {
-      page,
-      limit: pageSize,
+      page: hasLocalFilters ? 1 : page,
+      limit: hasLocalFilters ? 200 : pageSize,
       invoiceKind,
     };
-    if (search.trim().length >= 2) p.search = search.trim();
+    if (search.trim()) p.search = search.trim();
     if (startDate) p.startDate = startDate;
     if (endDate) p.endDate = endDate;
     if (postedFilter === 'posted') p.isPosted = true;
     if (postedFilter === 'draft') p.isPosted = false;
     if (profileId) p.profileId = profileId;
     return p;
-  }, [page, pageSize, invoiceKind, search, startDate, endDate, postedFilter, profileId]);
+  }, [page, pageSize, invoiceKind, search, startDate, endDate, postedFilter, profileId, hasLocalFilters]);
 
   const { data, isLoading } = useApiQuery<InvoiceListRow[]>(
     queryKeys.invoices({ page, ...filterKey }),
@@ -115,8 +124,23 @@ export function InventoryInvoicesListSection({
     { staleTime: staleTimes.transactionalMs, gcTime: staleTimes.transactionalGcMs }
   );
 
-  const rows = data?.data ?? [];
-  const total = data?.pagination?.total ?? data?.meta?.total ?? rows.length;
+  const fetchedRows = data?.data ?? [];
+  const filteredRows = useMemo(() => {
+    if (!hasLocalFilters) return fetchedRows;
+    return fetchedRows.filter((row) => {
+      if (!rowMatchesSearch(row, search)) return false;
+      if (!rowMatchesDateRange(row, startDate, endDate)) return false;
+      if (!rowMatchesPostedStatus(row, postedFilter)) return false;
+      if (profileId && String(row.profileId ?? '') !== profileId) return false;
+      return true;
+    });
+  }, [fetchedRows, hasLocalFilters, search, startDate, endDate, postedFilter, profileId]);
+  const rows = hasLocalFilters
+    ? filteredRows.slice((page - 1) * pageSize, page * pageSize)
+    : fetchedRows;
+  const total = hasLocalFilters
+    ? filteredRows.length
+    : data?.pagination?.total ?? data?.meta?.total ?? fetchedRows.length;
 
   const cancelDraftMutation = useCancelDraftInvoice<InvoiceListRow>({
     onOptimisticSideEffect: (invoiceId) => {
@@ -204,6 +228,26 @@ export function InventoryInvoicesListSection({
             printTitle: title ?? 'المستندات السابقة',
           }}
         >
+          <input
+            type="date"
+            value={startDate}
+            onChange={(e) => {
+              setPage(1);
+              setStartDate(e.target.value);
+            }}
+            className="h-10 rounded-lg border border-[#D6EAF3] bg-white px-2 text-sm"
+            aria-label="من تاريخ"
+          />
+          <input
+            type="date"
+            value={endDate}
+            onChange={(e) => {
+              setPage(1);
+              setEndDate(e.target.value);
+            }}
+            className="h-10 rounded-lg border border-[#D6EAF3] bg-white px-2 text-sm"
+            aria-label="إلى تاريخ"
+          />
           <select
             value={postedFilter}
             onChange={(e) => {
@@ -212,7 +256,7 @@ export function InventoryInvoicesListSection({
             }}
             className="h-10 rounded-lg border border-[#D6EAF3] bg-white px-3 text-sm"
           >
-            <option value="all">الكل</option>
+            <option value="all">كل الحالات</option>
             <option value="posted">مرحّل</option>
             <option value="draft">مسودة</option>
           </select>

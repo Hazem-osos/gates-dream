@@ -1,6 +1,7 @@
 // @ts-nocheck — strict cleanup pending; tracked for incremental typing.
 import prisma from '../../../shared/database/prisma';
 import { logger } from '../../../shared/logger';
+import { AppError } from '../../../shared/middleware/error-handler';
 import { nextNumericCode } from '../../../shared/utils/next-numeric-code';
 
 export interface CreateWarehouseData {
@@ -27,33 +28,130 @@ const branchSummarySelect = {
   legacyBranchCode: true,
 } as const;
 
+function normalizeWarehouseHierarchy(data: CreateWarehouseData) {
+  const parentWarehouseId = data.parentWarehouseId || null;
+  if (data.storeType === 'SUB' && !parentWarehouseId) {
+    throw new AppError(400, 'المخزن الفرعي لازم يكون تحت مخزن رئيسي.');
+  }
+  if (!parentWarehouseId || data.storeType === 'MAIN') {
+    return { storeType: 'MAIN', parentWarehouseId: null as string | null };
+  }
+  return { storeType: 'SUB', parentWarehouseId };
+}
+
+async function assertWarehouseParentCycle(
+  companyId: string,
+  selfId: string | undefined,
+  parentWarehouseId: string | null
+) {
+  if (!parentWarehouseId) return;
+  if (selfId && parentWarehouseId === selfId) {
+    throw new AppError(400, 'لا يمكن أن يكون المخزن رئيسيًا لنفسه');
+  }
+
+  let current: string | null = parentWarehouseId;
+  const seen = new Set<string>(selfId ? [selfId] : []);
+  while (current) {
+    if (seen.has(current)) {
+      throw new AppError(400, 'لا يمكن جعل المخزن فرعاً تحت أحد أبنائه. هذا يكسر شجرة المخازن.');
+    }
+    seen.add(current);
+    const row = await prisma.warehouse.findFirst({
+      where: { id: current, companyId },
+      select: { parentWarehouseId: true },
+    });
+    current = row?.parentWarehouseId ?? null;
+  }
+}
+
 async function assertWarehouseRefs(
   companyId: string,
   data: CreateWarehouseData,
   selfId?: string
 ) {
+  const touchingHierarchy =
+    data.storeType !== undefined || data.parentWarehouseId !== undefined;
+  if (touchingHierarchy) {
+    const hierarchy = normalizeWarehouseHierarchy(data);
+    data.storeType = hierarchy.storeType;
+    data.parentWarehouseId = hierarchy.parentWarehouseId;
+  }
+
   const accountIds = [data.inventoryAccountId, data.costAccountId, data.giftAccountId].filter(
     (id): id is string => Boolean(id)
   );
   if (accountIds.length) {
-    const found = await prisma.account.count({
-      where: { companyId, id: { in: accountIds } },
+    const accounts = await prisma.account.findMany({
+      where: { companyId, id: { in: accountIds }, deletedAt: null },
+      select: {
+        id: true,
+        code: true,
+        arabicName: true,
+        _count: { select: { children: { where: { deletedAt: null } } } },
+      },
     });
-    if (found !== accountIds.length) {
-      throw new Error('حساب المخزن غير موجود في دليل الحسابات');
+    if (accounts.length !== accountIds.length) {
+      throw new AppError(400, 'حساب المخزن غير موجود في دليل الحسابات');
+    }
+    const header = accounts.find((account) => (account._count?.children ?? 0) > 0);
+    if (header) {
+      throw new AppError(
+        400,
+        `الحساب ${header.code} (${header.arabicName}) حساب أب. اختر حساباً تحليلياً لكارت المخزن.`
+      );
     }
   }
+
   if (data.parentWarehouseId) {
-    if (selfId && data.parentWarehouseId === selfId) {
-      throw new Error('لا يمكن أن يكون المخزن رئيسيًا لنفسه');
-    }
     const parent = await prisma.warehouse.findFirst({
-      where: { id: data.parentWarehouseId, companyId },
+      where: { id: data.parentWarehouseId, companyId, isActive: true },
       select: { id: true },
     });
     if (!parent) {
-      throw new Error('المخزن الرئيسي غير موجود');
+      throw new AppError(400, 'المخزن الرئيسي غير موجود');
     }
+    await assertWarehouseParentCycle(companyId, selfId, data.parentWarehouseId);
+  }
+}
+
+async function assertWarehouseIdle(companyId: string, warehouseId: string) {
+  const [childrenCount, stockRows, movementCount, defaultBranch] = await Promise.all([
+    prisma.warehouse.count({
+      where: { companyId, parentWarehouseId: warehouseId, isActive: true },
+    }),
+    prisma.itemWarehouseBalance.count({
+      where: {
+        companyId,
+        warehouseId,
+        OR: [{ quantityOnHand: { not: 0 } }, { reservedQuantity: { not: 0 } }],
+      },
+    }),
+    prisma.inventoryMovement.count({
+      where: { companyId, warehouseId },
+    }),
+    prisma.branch.findFirst({
+      where: { companyId, defaultWarehouseId: warehouseId },
+      select: { id: true, arabicName: true },
+    }),
+  ]);
+
+  if (childrenCount > 0) {
+    throw new AppError(
+      400,
+      'لا يمكن تعطيل أو حذف المخزن لأن تحته مخازن فرعية. انقل أو احذف الفروع أولاً.'
+    );
+  }
+  if (stockRows > 0 || movementCount > 0) {
+    throw new AppError(
+      409,
+      'لا يمكن تعطيل أو حذف المخزن لأن عليه رصيد أو حركات مخزنية. سوِّ الرصيد أو انقل الحركات أولاً.'
+    );
+  }
+  if (defaultBranch) {
+    throw new AppError(
+      409,
+      `لا يمكن تعطيل أو حذف المخزن لأنه المخزن الافتراضي للفرع «${defaultBranch.arabicName}».`
+    );
   }
 }
 
@@ -69,56 +167,30 @@ function warehouseCardFields(data: CreateWarehouseData) {
   };
 }
 
-function warehouseDedupeKey(row: { code?: string | null; arabicName: string }) {
-  return `${String(row.code ?? '').trim().toLowerCase()}|${row.arabicName.trim().toLowerCase()}`;
-}
-
 export class WarehouseService {
-  private async collapseDuplicateWarehouses(companyId: string) {
-    const rows = await prisma.warehouse.findMany({
-      where: { companyId, isActive: true },
-      orderBy: { createdAt: 'asc' },
-      select: { id: true, code: true, arabicName: true },
-    });
-    const keepByKey = new Map<string, string>();
-    const duplicates: string[] = [];
-    for (const row of rows) {
-      const key = warehouseDedupeKey(row);
-      const keepId = keepByKey.get(key);
-      if (!keepId) {
-        keepByKey.set(key, row.id);
-        continue;
-      }
-      duplicates.push(row.id);
-    }
-    if (duplicates.length === 0) return;
-    await prisma.warehouse.updateMany({
-      where: { companyId, id: { in: duplicates } },
-      data: { isActive: false },
-    });
-    for (const duplicateId of duplicates) {
-      const row = rows.find((item) => item.id === duplicateId);
-      if (!row) continue;
-      const keepId = keepByKey.get(warehouseDedupeKey(row));
-      if (!keepId) continue;
-      await prisma.branch.updateMany({
-        where: { defaultWarehouseId: duplicateId },
-        data: { defaultWarehouseId: keepId },
-      });
-    }
-  }
-
   /**
    * Create a new warehouse
    */
   async createWarehouse(companyId: string, data: CreateWarehouseData) {
     try {
+      if (data.storeType === undefined && !data.parentWarehouseId) {
+        data.storeType = 'MAIN';
+      }
       await assertWarehouseRefs(companyId, data);
       const existing = await prisma.warehouse.findMany({
         where: { companyId },
-        select: { code: true },
+        select: { id: true, code: true, isActive: true },
       });
-      const code = nextNumericCode(existing.map((row) => row.code));
+      const requested = data.code?.trim() || '';
+      if (requested) {
+        const clash = existing.find(
+          (row) => row.isActive && (row.code ?? '').trim() === requested
+        );
+        if (clash) {
+          throw new AppError(409, `رقم المخزن «${requested}» مستخدم بالفعل. غيّر الرقم أو اتركه فارغًا للترقيم التلقائي.`);
+        }
+      }
+      const code = requested || nextNumericCode(existing.map((row) => row.code));
       const warehouse = await prisma.warehouse.create({
         data: {
           companyId,
@@ -176,7 +248,7 @@ export class WarehouseService {
       });
 
       if (!warehouse) {
-        throw new Error('Warehouse not found');
+        throw new AppError(404, 'المخزن غير موجود');
       }
 
       return warehouse;
@@ -203,12 +275,6 @@ export class WarehouseService {
       const page = options.page || 1;
       const limit = options.limit || 50;
       const skip = (page - 1) * limit;
-
-      try {
-        await this.collapseDuplicateWarehouses(companyId);
-      } catch (error) {
-        logger.error({ error, companyId }, 'Warehouse dedupe skipped so the directory can still open');
-      }
 
       const where: any = {
         companyId,
@@ -277,15 +343,33 @@ export class WarehouseService {
       });
 
       if (!existing) {
-        throw new Error('Warehouse not found');
+        throw new AppError(404, 'المخزن غير موجود');
       }
 
       await assertWarehouseRefs(companyId, data, warehouseId);
+      if (data.isActive === false && existing.isActive) {
+        await assertWarehouseIdle(companyId, warehouseId);
+      }
+      const nextCode = data.code?.trim();
+      if (nextCode && nextCode !== (existing.code ?? '').trim()) {
+        const clash = await prisma.warehouse.findFirst({
+          where: {
+            companyId,
+            isActive: true,
+            id: { not: warehouseId },
+            code: nextCode,
+          },
+          select: { id: true },
+        });
+        if (clash) {
+          throw new AppError(409, `رقم المخزن «${nextCode}» مستخدم بالفعل.`);
+        }
+      }
 
       const warehouse = await prisma.warehouse.update({
         where: { id: warehouseId },
         data: {
-          ...(data.code && { code: data.code }),
+          ...(nextCode ? { code: nextCode } : {}),
           ...(data.arabicName && { arabicName: data.arabicName }),
           ...(data.englishName !== undefined && { englishName: data.englishName }),
           ...(data.branchId !== undefined && { branchId: data.branchId }),
@@ -326,8 +410,10 @@ export class WarehouseService {
       });
 
       if (!warehouse) {
-        throw new Error('Warehouse not found');
+        throw new AppError(404, 'المخزن غير موجود');
       }
+
+      await assertWarehouseIdle(companyId, warehouseId);
 
       await prisma.warehouse.update({
         where: { id: warehouseId },

@@ -246,7 +246,10 @@ export type InventoryPurchaseOrderFormInput = z.infer<typeof inventoryPurchaseOr
 
 export const inventorySupplierInvoiceFormSchema = inventorySupplierWarehouseHeaderFormSchema.merge(
   z.object({
-    lines: z.array(inventoryPurchaseOrderLineSchema).min(1, 'أضف سطراً واحداً على الأقل'),
+    lines: z.preprocess(
+      dropBlankInvoiceLines,
+      z.array(inventoryPurchaseOrderLineSchema)
+    ),
   })
 );
 
@@ -451,6 +454,11 @@ const emptyOptional = (value: unknown) =>
     ? undefined
     : value;
 
+export function dropBlankInvoiceLines<T extends { itemId?: string | null }>(value: unknown): T[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((line): line is T => Boolean(String((line as T | undefined)?.itemId ?? '').trim()));
+}
+
 export const salesInvoiceSchema = z.object({
   customerId: z.string().min(1, 'اختر العميل'),
   date: z.string().min(1, 'التاريخ مطلوب'),
@@ -512,7 +520,10 @@ export const salesInvoiceSchema = z.object({
     emptyOptional,
     z.coerce.number().min(0, 'قيمة رسم التنمية لا يمكن أن تكون سالبة').optional()
   ),
-  lines: z.array(salesInvoiceLineSchema).min(1, 'أضف سطراً واحداً على الأقل'),
+  lines: z.preprocess(
+    dropBlankInvoiceLines,
+    z.array(salesInvoiceLineSchema)
+  ),
 }).superRefine((data, ctx) => {
   const method = String(data.paymentMethod ?? '').toLowerCase();
   if (method === 'cash' && !String(data.treasuryId ?? '').trim()) {

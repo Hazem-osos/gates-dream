@@ -18,7 +18,7 @@ export default function EndorsePaymentModal({ isOpen, onClose }: Props) {
         <FormSectionCard title="بيانات التظهير" bodyClassName="lg:grid-cols-2">
           <CompactFormField label="المظهَّر إليه" placeholder="اسم المستفيد الجديد" className="sm:col-span-2 lg:col-span-2" />
           <CompactFormField label="تاريخ التظهير" type="date" />
-          <CompactFormField label="الشرح" placeholder="إدخل الشرح" className="sm:col-span-2 lg:col-span-2" />
+          <CompactFormField label="الشرح" placeholder="إدخل الشرح" />
         </FormSectionCard>
         <div className="mt-2 flex justify-end">
           <ActionButtons />

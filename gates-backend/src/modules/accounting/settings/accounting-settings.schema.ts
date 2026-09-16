@@ -29,6 +29,7 @@ export const accountingSettingsGeneralSchema = z.object({
   documentaryCredits: z.boolean().optional(),
   executiveWhatsAppPhone: z.string().max(30).optional().nullable(),
   autoPostGl: z.boolean().optional(),
+  inventorySystem: z.enum(['PERPETUAL', 'PERIODIC']).optional(),
   retainedEarningsAccountId: accountIdSchema,
 });
 

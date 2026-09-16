@@ -1,8 +1,12 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { ArrowLeftRight, CalendarRange } from 'lucide-react';
 import { DatePickerWithHijri } from '@/components/ui/DatePickerWithHijri';
-import { Button, PageHeader } from '@/components/ui';
+import { Button } from '@/components/ui';
+import { FormSectionCard } from '@/app/components/ui/forms/FormSectionCard';
+import { CompactFormField } from '@/app/components/ui/forms/CompactFormField';
+import { ErpDocumentLayout } from '@/components/erp';
 import { AccountSelect } from '@/app/components/form/AccountSelect';
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
@@ -11,6 +15,11 @@ import { toHijriDate } from '@/lib/hijri-date';
 import type { ApiError } from '@/lib/api/types';
 import { MovementTransferConfirmModal } from './MovementTransferConfirmModal';
 import { MovementTransferGrid } from './MovementTransferGrid';
+import {
+  MovementTransferPageHeader,
+  movementTransferStatus,
+  printMovementPreview,
+} from './MovementTransferPageHeader';
 import { MovementTransferStickyFooter } from './MovementTransferStickyFooter';
 import { mapPreviewMovements, money, partyLabel, type MovementPreviewPayload } from './types';
 
@@ -64,6 +73,14 @@ export function AccountMovementTransferScreen() {
   const destLabel = partyLabel(destAccount?.account, destinationAccountId ? 'الحساب المستلم' : '—');
   const sourceBalance = Number(sourceAccount?.currentBalance ?? sourceAccount?.summary?.balance ?? 0);
   const destBalance = Number(destAccount?.currentBalance ?? destAccount?.summary?.balance ?? 0);
+  const canExecute = selectedIds.length > 0 && Boolean(sourceAccountId && destinationAccountId);
+  const allSelected = rows.length > 0 && selectedIds.length === rows.length;
+  const { statusLabel, statusTone } = movementTransferStatus(
+    false,
+    selectedIds.length,
+    Boolean(destinationAccountId),
+    rows.length > 0
+  );
 
   const transferMutation = useApiMutation<{ matchedLinesCount?: number }, Record<string, unknown>>(
     '/accounting/account-movements/transfer',
@@ -80,6 +97,17 @@ export function AccountMovementTransferScreen() {
     }
   );
 
+  const resetForm = () => {
+    setSourceAccountId('');
+    setDestinationAccountId('');
+    setFromDate(todayIso());
+    setToDate(todayIso());
+    setSelectedIds([]);
+    setPreviewKey(0);
+    setError('');
+    setSuccess('');
+  };
+
   const loadMovements = () => {
     setError('');
     if (!sourceAccountId) {
@@ -92,6 +120,10 @@ export function AccountMovementTransferScreen() {
     }
     setSelectedIds([]);
     setPreviewKey((n) => n + 1);
+  };
+
+  const toggleAll = () => {
+    setSelectedIds((prev) => (prev.length === rows.length ? [] : rows.map((row) => row.id)));
   };
 
   const execute = () => {
@@ -118,20 +150,60 @@ export function AccountMovementTransferScreen() {
     });
   };
 
+  const openConfirm = () => {
+    if (!canExecute) {
+      setError('حمّل الحركات وحدد الحساب المصدر والمستلم أولاً');
+      return;
+    }
+    setConfirmOpen(true);
+  };
+
   return (
-    <div className="p-6" dir="rtl">
-      <PageHeader
+    <ErpDocumentLayout>
+      {error ? <ErrorToast message={error} onClose={() => setError('')} /> : null}
+      {success ? <SuccessToast message={success} onClose={() => setSuccess('')} /> : null}
+
+      <MovementTransferPageHeader
         title="نقل حركة حساب"
+        favoriteHref="/accounting/tools/transfer-account"
         breadcrumbs={[
-          { label: 'المحاسبة', href: '/accounting' },
+          { href: '/accounting', label: 'المحاسبة' },
           { label: 'الأدوات' },
           { label: 'نقل حركة حساب' },
         ]}
+        statusLabel={transferMutation.isPending ? 'جاري التنفيذ' : statusLabel}
+        statusTone={transferMutation.isPending ? 'warning' : statusTone}
+        savePending={transferMutation.isPending}
+        canExecute={canExecute}
+        hasSource={Boolean(sourceAccountId)}
+        hasRows={rows.length > 0}
+        allSelected={allSelected}
+        loadLabel="تحميل حركات الفترة"
+        onNew={resetForm}
+        onLoad={loadMovements}
+        onToggleAll={toggleAll}
+        onExecute={openConfirm}
+        onPrint={() =>
+          void printMovementPreview({
+            title: 'نقل حركة حساب',
+            sourceLabel,
+            destLabel,
+            date: toDate,
+            rows: rows.filter((row) => selectedIds.includes(row.id)).length
+              ? rows.filter((row) => selectedIds.includes(row.id))
+              : rows,
+          })
+        }
       />
 
-      <div className="mb-4 grid grid-cols-1 gap-4 rounded-xl border border-border/80 bg-card p-4 shadow-sm md:grid-cols-2">
-        <div className="space-y-1.5">
-          <label className="text-xs font-semibold text-foreground">من حساب (الحساب المصدر)</label>
+      <FormSectionCard
+        title="الحساب المصدر والمستلم"
+        subtitle="اختَر الحسابين ثم حمّل حركات الفترة"
+        icon={ArrowLeftRight}
+        className="mb-3 p-3 sm:p-4"
+        bodyClassName="!grid-cols-1 md:!grid-cols-2"
+      >
+        <CompactFormField label="من حساب (المصدر)" required hint={sourceAccountId ? `الرصيد الحالي: ${money(sourceBalance)}` : undefined}>
           <AccountSelect
             value={sourceAccountId}
             onChange={(id) => {
@@ -142,15 +214,8 @@ export function AccountMovementTransferScreen() {
             emptyLabel="اختر الحساب المصدر..."
             leafOnly
           />
-          {sourceAccountId ? (
-            <div className="font-mono text-[11px] text-muted-foreground">
-              الرصيد الحالي:{' '}
-              <span className="font-bold text-foreground">{money(sourceBalance)}</span>
-            </div>
-          ) : null}
-        </div>
-        <div className="space-y-1.5">
-          <label className="text-xs font-semibold text-foreground">إلى حساب (الحساب البديل / المستلم)</label>
+        </CompactFormField>
+        <CompactFormField label="إلى حساب (المستلم)" required hint={destinationAccountId ? `الرصيد الحالي: ${money(destBalance)}` : undefined}>
           <AccountSelect
             value={destinationAccountId}
             onChange={setDestinationAccountId}
@@ -158,48 +223,40 @@ export function AccountMovementTransferScreen() {
             emptyLabel="اختر الحساب المحول إليه..."
             leafOnly
           />
-          {destinationAccountId ? (
-            <div className="font-mono text-[11px] text-muted-foreground">
-              الرصيد الحالي:{' '}
-              <span className="font-bold text-foreground">{money(destBalance)}</span>
-            </div>
-          ) : null}
-        </div>
-      </div>
+        </CompactFormField>
+      </FormSectionCard>
 
-      <div className="mb-4 flex flex-wrap items-end gap-3 rounded-xl border border-border/80 bg-card p-4 shadow-sm">
+      <FormSectionCard
+        title="فترة الحركات"
+        subtitle="حدد المدى ثم حمّل الحركات من الثلاث نقاط أو من هنا"
+        icon={CalendarRange}
+        className="mb-3 p-3 sm:p-4"
+        bodyClassName="!grid-cols-1 items-end sm:!grid-cols-[1fr_1fr_auto]"
+      >
         <DatePickerWithHijri label="من تاريخ" value={fromDate} onChange={setFromDate} />
         <DatePickerWithHijri label="إلى تاريخ" value={toDate} onChange={setToDate} />
         <Button type="button" variant="secondary" size="sm" onClick={loadMovements} isLoading={previewQ.isFetching}>
           تحميل حركات الفترة
         </Button>
-      </div>
+      </FormSectionCard>
 
-      <MovementTransferGrid
-        rows={rows}
-        selectedIds={selectedIds}
-        onToggle={(id) =>
-          setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
-        }
-        onToggleAll={() =>
-          setSelectedIds((prev) => (prev.length === rows.length ? [] : rows.map((row) => row.id)))
-        }
-      />
-
-      {error ? <ErrorToast message={error} onClose={() => setError('')} /> : null}
-      {success ? <SuccessToast message={success} onClose={() => setSuccess('')} /> : null}
+      <FormSectionCard title="حركات الفترة" subtitle="حدّد الحركات المطلوب نقلها" className="mb-3 p-3 sm:p-4">
+        <MovementTransferGrid
+          rows={rows}
+          selectedIds={selectedIds}
+          onToggle={(id) =>
+            setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
+          }
+          onToggleAll={toggleAll}
+        />
+      </FormSectionCard>
 
       <MovementTransferStickyFooter
         summary={`سيتم نقل ${selectedIds.length} حركة إلى [${destLabel}]`}
-        canExecute={selectedIds.length > 0 && Boolean(sourceAccountId && destinationAccountId)}
+        canExecute={canExecute}
         pending={transferMutation.isPending}
-        onExecute={() => setConfirmOpen(true)}
-        onCancel={() => {
-          setSourceAccountId('');
-          setDestinationAccountId('');
-          setSelectedIds([]);
-          setPreviewKey(0);
-        }}
+        onExecute={openConfirm}
+        onCancel={resetForm}
       />
 
       <MovementTransferConfirmModal
@@ -211,6 +268,6 @@ export function AccountMovementTransferScreen() {
         onClose={() => setConfirmOpen(false)}
         onConfirm={execute}
       />
-    </div>
+    </ErpDocumentLayout>
   );
 }

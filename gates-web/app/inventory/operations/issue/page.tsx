@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useOwnTabSearchParams } from '@/lib/navigation/tab-route-lock';
 import {
   DocumentFormLock,
   DocumentModeProvider,
@@ -111,7 +111,7 @@ export default function IssuePage() {
 }
 
 function IssuePageInner() {
-  const searchParams = useSearchParams();
+  const searchParams = useOwnTabSearchParams();
   const { lockToView, setMode, unlockForEdit, isReadOnly } = useDocumentMode();
   useIssueTourPrepare();
   const invalidateQuery = useInvalidateQuery();
@@ -498,7 +498,7 @@ function IssuePageInner() {
 
       <DocumentReadOnlyBanner />
       <DocumentFormLock>
-      <FormSectionCard title="بيانات الإذن" subtitle="المخزن والتاريخ والمرجع" bodyClassName="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
+      <FormSectionCard title="بيانات الإذن" subtitle="المخزن والتاريخ والمرجع">
           <div className="col-span-full flex items-center justify-between">
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-2" data-tour="stock-movement-types">
@@ -624,9 +624,9 @@ function IssuePageInner() {
             issueLines.map((line, index) => (
               <div
                 key={`issue-line-${index}`}
-                className="grid grid-cols-1 gap-3 rounded-xl border border-[#E6F0F7] bg-[#F6FBFD] p-3 md:grid-cols-6"
+                className="grid min-w-0 grid-cols-1 gap-3 rounded-xl border border-[#E6F0F7] bg-[#F6FBFD] p-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4"
               >
-                <div className="md:col-span-2">
+                <div>
                   <label className={labelCls}>الصنف</label>
                   <select
                     className={inputCls}

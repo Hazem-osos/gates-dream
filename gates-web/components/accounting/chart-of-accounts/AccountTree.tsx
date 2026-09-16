@@ -2,7 +2,11 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import type { CoaHierarchyAccount } from '@/lib/accounting/mapCoaToTreeNodes';
+import {
+  collectAncestorIds,
+  collectIdsToDepth,
+  type CoaHierarchyAccount,
+} from '@/lib/accounting/mapCoaToTreeNodes';
 import { flattenVisibleCoaRows } from '@/lib/accounting/flattenCoaVisibleRows';
 import { getTreeGuideClasses } from '@/lib/accounting/coaTreeTheme';
 import { cn } from '@/lib/utils';
@@ -31,7 +35,17 @@ function filterTree(nodes: CoaHierarchyAccount[], q: string): CoaHierarchyAccoun
 
 function filterByRootNature(nodes: CoaHierarchyAccount[], rootCode: string | null): CoaHierarchyAccount[] {
   if (!rootCode) return nodes;
-  return nodes.filter((n) => n.code === rootCode || n.code.startsWith(rootCode));
+  const out: CoaHierarchyAccount[] = [];
+  for (const node of nodes) {
+    if (node.code === rootCode || node.code.startsWith(rootCode)) {
+      out.push(node);
+      continue;
+    }
+    if (node.children?.length) {
+      out.push(...filterByRootNature(node.children, rootCode));
+    }
+  }
+  return out;
 }
 
 function collectExpandableIds(nodes: CoaHierarchyAccount[], out: Set<string>) {
@@ -148,18 +162,11 @@ function TreeBranch({
   );
 }
 
-export type CoaNatureFilter =
-  | 'all'
-  | 'asset'
-  | 'liability'
-  | 'equity'
-  | 'revenue'
-  | 'expense';
+export type CoaNatureFilter = 'all' | 'asset' | 'liability' | 'revenue' | 'expense';
 
 const NATURE_ROOT: Record<Exclude<CoaNatureFilter, 'all'>, string> = {
   asset: '1',
   liability: '2',
-  equity: '3',
   revenue: '4',
   expense: '5',
 };
@@ -170,6 +177,7 @@ export function AccountTree({
   natureFilter = 'all',
   expandAllToken,
   collapseAllToken,
+  revealAccountId,
   onAddChild,
   onEdit,
   onDelete,
@@ -180,6 +188,7 @@ export function AccountTree({
   natureFilter?: CoaNatureFilter;
   expandAllToken?: number;
   collapseAllToken?: number;
+  revealAccountId?: string | null;
   onAddChild: (n: CoaHierarchyAccount) => void;
   onEdit: (n: CoaHierarchyAccount) => void;
   onDelete: (n: CoaHierarchyAccount) => void;
@@ -187,6 +196,30 @@ export function AccountTree({
 }) {
   const q = search.trim().toLowerCase();
   const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
+  const seededExpandRef = useRef(false);
+  const lastExpandToken = useRef(0);
+  const lastCollapseToken = useRef(0);
+  const lastRevealId = useRef<string | null>(null);
+  const prevSearch = useRef(q);
+  const filteredRef = useRef<CoaHierarchyAccount[]>([]);
+
+  useEffect(() => {
+    if (seededExpandRef.current || nodes.length === 0) return;
+    seededExpandRef.current = true;
+    setExpandedIds(new Set(collectIdsToDepth(nodes, 1)));
+  }, [nodes]);
+
+  useEffect(() => {
+    if (!revealAccountId || revealAccountId === lastRevealId.current) return;
+    lastRevealId.current = revealAccountId;
+    const ancestors = collectAncestorIds(nodes, revealAccountId);
+    if (!ancestors.length) return;
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      for (const id of ancestors) next.add(id);
+      return next;
+    });
+  }, [nodes, revealAccountId]);
 
   const filtered = useMemo(() => {
     let tree = filterTree(nodes, q);
@@ -195,23 +228,32 @@ export function AccountTree({
     }
     return tree;
   }, [nodes, q, natureFilter]);
+  filteredRef.current = filtered;
 
   useEffect(() => {
-    if (!q) return;
-    const ids = new Set<string>();
-    collectExpandableIds(filtered, ids);
-    setExpandedIds(ids);
-  }, [q, filtered]);
+    if (q) {
+      const ids = new Set<string>();
+      collectExpandableIds(filteredRef.current, ids);
+      setExpandedIds(ids);
+    } else if (prevSearch.current) {
+      setExpandedIds(new Set(collectIdsToDepth(nodes, 1)));
+    }
+    prevSearch.current = q;
+  }, [q, nodes]);
 
   useEffect(() => {
     if (expandAllToken == null || expandAllToken === 0) return;
+    if (expandAllToken === lastExpandToken.current) return;
+    lastExpandToken.current = expandAllToken;
     const ids = new Set<string>();
-    collectExpandableIds(filtered, ids);
+    collectExpandableIds(filteredRef.current, ids);
     setExpandedIds(ids);
-  }, [expandAllToken, filtered]);
+  }, [expandAllToken]);
 
   useEffect(() => {
     if (collapseAllToken == null || collapseAllToken === 0) return;
+    if (collapseAllToken === lastCollapseToken.current) return;
+    lastCollapseToken.current = collapseAllToken;
     setExpandedIds(new Set());
   }, [collapseAllToken]);
 

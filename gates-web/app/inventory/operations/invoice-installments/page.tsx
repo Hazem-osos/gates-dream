@@ -12,6 +12,7 @@ import { formatInvoiceMoney } from '@/lib/invoices/computeInvoiceFinancialSummar
 import { toast } from '@/lib/feedback/toast';
 import type { ApiError } from '@/lib/api/types';
 import { InvoiceCollectModal } from '@/components/inventory/sales-invoice/InvoiceCollectModal';
+import { pickDefaultSafeId } from '@/lib/hooks/useMasterDataQueries';
 
 type TrackerRow = {
   id: string;
@@ -106,7 +107,7 @@ export default function InvoiceInstallmentsTrackerPage() {
           </Button>
         </div>
 
-        <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="mb-4 grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
           <div>
             <label className={erpLabelClass}>العميل</label>
             <CustomerSelect
@@ -219,7 +220,7 @@ export default function InvoiceInstallmentsTrackerPage() {
           open
           remaining={collectRow.remainingAmount}
           safes={safesResponse?.data ?? []}
-          defaultSafeId={safesResponse?.data?.[0]?.id}
+          defaultSafeId={pickDefaultSafeId(safesResponse?.data)}
           pending={collectMutation.isPending}
           onClose={() => setCollectRow(null)}
           onConfirm={(payload) => collectMutation.mutate(payload)}

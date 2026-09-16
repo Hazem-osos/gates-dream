@@ -57,7 +57,12 @@ export const CompactFormField = React.forwardRef<HTMLInputElement, CompactFormFi
     };
 
     return (
-      <div className={cn('min-w-0', className)} dir="rtl" data-hijri-unified={isDateField ? '1' : undefined}>
+      <div
+        className={cn('min-w-0 w-full', className)}
+        dir="rtl"
+        data-hijri-unified={isDateField ? '1' : undefined}
+        data-erp-field={/شرح|البيان|بيان/.test(label) ? 'description' : undefined}
+      >
         <label htmlFor={fieldId} className={compactLabelClass}>
           {label}
           {required ? <span className="text-red-500">*</span> : null}

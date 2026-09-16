@@ -11,6 +11,8 @@ export const documentBaseTypeSchema = z.enum([
   'PURCHASE_RETURN',
   'BANK_DEBIT_ADVICE',
   'BANK_CREDIT_ADVICE',
+  'JOURNAL_ENTRY',
+  'OPENING_BALANCE',
 ]);
 
 export const documentProfileColumnKeySchema = z.enum([

@@ -22,6 +22,7 @@ const SUPPLIER_LIST_SELECT = {
   taxAuthorityName: true,
   creditLimit: true,
   currencyCode: true,
+  supplierCategoryId: true,
   createdAt: true,
   updatedAt: true,
 } as const;

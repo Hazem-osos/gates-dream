@@ -1,7 +1,10 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useDraftAutosave } from '@/lib/hooks/useDraftAutosave';
+import { PageDraftRestoreBanner } from '@/components/erp/PageDraftRestoreBanner';
+import { useRouter } from 'next/navigation';
+import { useOwnTabSearchParams } from '@/lib/navigation/tab-route-lock';
 import { Receipt } from 'lucide-react';
 import { Button } from '@/components/ui';
 import { toast } from '@/lib/feedback/toast';
@@ -84,7 +87,7 @@ function orderStatus(order?: OrderRecord | null) {
 
 export function SalesOrderForm() {
   const router = useRouter();
-  const searchParams = useSearchParams();
+  const searchParams = useOwnTabSearchParams();
   const orderIdFromUrl = searchParams.get('orderId') || searchParams.get('invoiceId');
   const invalidateQuery = useInvalidateQuery();
   const convertMutation = useDocumentConvertMutation();
@@ -105,6 +108,64 @@ export function SalesOrderForm() {
   const [shippingTerms, setShippingTerms] = useState('');
   const [paymentTerms, setPaymentTerms] = useState('');
   const [lines, setLines] = useState<CommercialDocumentLine[]>([emptyCommercialLine()]);
+
+  const salesOrderDraft = useMemo(
+    () => ({
+      orderNumber,
+      description,
+      date,
+      deliveryDate,
+      customerId,
+      warehouseId,
+      costCenterId,
+      delegateId,
+      currencyId,
+      shippingTerms,
+      paymentTerms,
+      lines,
+    }),
+    [
+      costCenterId,
+      currencyId,
+      customerId,
+      date,
+      delegateId,
+      deliveryDate,
+      description,
+      lines,
+      orderNumber,
+      paymentTerms,
+      shippingTerms,
+      warehouseId,
+    ]
+  );
+  const applySalesOrderDraft = useCallback((payload: typeof salesOrderDraft) => {
+    setOrderNumber(payload.orderNumber);
+    setDescription(payload.description);
+    setDate(payload.date);
+    setDeliveryDate(payload.deliveryDate);
+    setCustomerId(payload.customerId);
+    setWarehouseId(payload.warehouseId);
+    setCostCenterId(payload.costCenterId);
+    setDelegateId(payload.delegateId);
+    setCurrencyId(payload.currencyId);
+    setShippingTerms(payload.shippingTerms);
+    setPaymentTerms(payload.paymentTerms);
+    setLines(payload.lines?.length ? payload.lines : [emptyCommercialLine()]);
+  }, []);
+  const {
+    restoreOffer,
+    acceptRestore,
+    dismissRestore,
+    clearDraft,
+  } = useDraftAutosave('gates:draft:sales-order', salesOrderDraft, !selectedId, {
+    applyRestore: applySalesOrderDraft,
+    isEmpty: (draft) =>
+      !draft.customerId?.trim() &&
+      !draft.description?.trim() &&
+      !(draft.lines ?? []).some((line) => isEnteredCommercialLine(line)),
+    restoreMessage: 'تم استعادة مسودة أمر البيع',
+  });
 
   const { data: orderResponse } = useApiQuery<OrderRecord>(
     ['invoice', selectedId ?? ''],
@@ -340,12 +401,25 @@ export function SalesOrderForm() {
     params.delete('invoiceId');
     const qs = params.toString();
     router.replace(qs ? `?${qs}` : window.location.pathname, { scroll: false });
+    clearDraft();
   };
 
   const money = (n: number) => n.toLocaleString('ar-EG', { minimumFractionDigits: 2 });
 
   return (
     <ErpDocumentLayout>
+      {restoreOffer && !selectedId ? (
+        <PageDraftRestoreBanner
+          message="يوجد مسودة أمر بيع غير محفوظة."
+          onRestore={() => {
+            const payload = acceptRestore();
+            if (!payload) return;
+            applySalesOrderDraft(payload);
+            setSuccess('تم استعادة مسودة أمر البيع');
+          }}
+          onDismiss={dismissRestore}
+        />
+      ) : null}
       <div className="flex min-h-[calc(100dvh-3rem)] flex-col pb-4">
         <ErpDocumentPageHeader
           breadcrumbs={[
@@ -462,7 +536,7 @@ export function SalesOrderForm() {
             </>
           }
           extras={
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
               <div className="space-y-1">
                 <label className={erpLabelClass}>مندوب المبيعات</label>
                 <select className={erpInputClass} value={delegateId} onChange={(e) => setDelegateId(e.target.value)}>

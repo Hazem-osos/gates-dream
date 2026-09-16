@@ -19,6 +19,9 @@ import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
 import { useApiMutation, useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
 import { useCurrenciesQuery } from '@/lib/hooks/useMasterDataQueries';
+import { pickCurrencyByCode, rateForCurrency } from '@/lib/accounting/fx-base';
+import { useCompanyBaseCurrency } from '@/lib/hooks/useCompanyBaseCurrency';
+import { DocumentCurrencyRateFields } from '@/components/accounting/DocumentCurrencyRateFields';
 import type { ApiError } from '@/lib/api/types';
 import { onFieldErrors } from '@/lib/forms/on-field-errors';
 import { toHijriDate } from '@/lib/hijri-date';
@@ -52,9 +55,12 @@ function todayIso(): string {
   return new Date().toISOString().split('T')[0];
 }
 
-function defaultCurrencyId(currencies: { id: string; code: string }[]): string {
+function defaultCurrencyId(
+  currencies: { id: string; code: string; exchangeRate?: number | string | null }[],
+  companyBase = 'EGP'
+): string {
   if (!currencies.length) return '';
-  return (currencies.find((c) => c.code === 'EGP') || currencies[0]).id;
+  return pickCurrencyByCode(currencies, companyBase)?.id || currencies[0].id;
 }
 
 function isEnteredLine(line: BatchReceiptLine): boolean {
@@ -82,6 +88,7 @@ export function BatchReceiptCreateForm() {
 
   const { data: currenciesResponse } = useCurrenciesQuery();
   const currencies = useMemo(() => currenciesResponse?.data || [], [currenciesResponse?.data]);
+  const { code: companyBaseCurrency } = useCompanyBaseCurrency();
 
   const { data: customersResponse } = useApiQuery<NamedParty[]>(
     ['customers'],
@@ -107,6 +114,7 @@ export function BatchReceiptCreateForm() {
     resolver: zodResolver(securitiesBulkCreateHeaderFormSchema) as Resolver<SecuritiesBulkCreateHeaderFormInput>,
     defaultValues: {
       currencyId: '',
+      exchangeRate: 1,
       partyName: '',
       partyId: '',
       partyType: 'customer',
@@ -130,9 +138,16 @@ export function BatchReceiptCreateForm() {
 
   useEffect(() => {
     if (currencies.length > 0 && !currencyId) {
-      setValue('currencyId', defaultCurrencyId(currencies), { shouldValidate: false });
+      const id = defaultCurrencyId(currencies, companyBaseCurrency);
+      const cur = currencies.find((c) => c.id === id);
+      setValue('currencyId', id, { shouldValidate: false });
+      setValue(
+        'exchangeRate',
+        rateForCurrency(cur?.code, companyBaseCurrency, cur?.exchangeRate),
+        { shouldValidate: false }
+      );
     }
-  }, [currencies, currencyId, setValue]);
+  }, [companyBaseCurrency, currencies, currencyId, setValue]);
 
   useEffect(() => {
     if (issueDate) {
@@ -348,15 +363,20 @@ export function BatchReceiptCreateForm() {
         <AdvancedFieldsSection title="الحقول المتقدمة" badgeCount={advancedFilledCount}>
           <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
             <CompactFormField label="الاسم" placeholder="اسم الساحب" error={errors.partyName?.message} {...register('partyName')} />
-            <CompactFormField label="العملة" error={errors.currencyId?.message}>
-              <select className={`${compactControlClass} ${errors.currencyId ? 'border-red-400' : ''}`} {...register('currencyId')}>
-                {currencies.map((currency) => (
-                  <option key={currency.id} value={currency.id}>
-                    {currency.arabicName || currency.englishName || currency.code}
-                  </option>
-                ))}
-              </select>
-            </CompactFormField>
+            <DocumentCurrencyRateFields
+              currencies={currencies}
+              currencyId={currencyId}
+              exchangeRate={Number(watch('exchangeRate')) > 0 ? Number(watch('exchangeRate')) : 1}
+              companyBaseCode={companyBaseCurrency}
+              amount={totalAmount}
+              showEquivalent
+              selectClassName={`${compactControlClass} ${errors.currencyId ? 'border-red-400' : ''}`}
+              onCurrencyIdChange={(id, nextRate) => {
+                setValue('currencyId', id, { shouldValidate: true });
+                setValue('exchangeRate', nextRate);
+              }}
+              onExchangeRateChange={(rate) => setValue('exchangeRate', rate)}
+            />
             <CompactFormField label="مركز التكلفة الافتراضي">
               <CostCenterSelect
                 value={costCenterId || ''}
@@ -364,7 +384,7 @@ export function BatchReceiptCreateForm() {
                 emptyLabel="اختر مركز التكلفة"
               />
             </CompactFormField>
-            <CompactFormField label="ملاحظات داخلية" className="md:col-span-3">
+            <CompactFormField label="ملاحظات داخلية">
               <textarea
                 rows={2}
                 className={`${compactControlClass} min-h-[64px] py-2`}

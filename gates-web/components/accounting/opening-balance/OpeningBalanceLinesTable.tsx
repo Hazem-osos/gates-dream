@@ -12,6 +12,7 @@ import {
 } from '@/lib/keyboard/gridLineFocus';
 import type { EditableJournalLine } from '@/components/accounting/EditableJournalLinesTable';
 import { formatBaseAmount, isFxRateLocked, lineFxRate, rateForCurrency, toBaseAmount } from '@/lib/accounting/fx-base';
+import { ExchangeRateInput } from '@/components/accounting/ExchangeRateInput';
 import { useCompanyBaseCurrency } from '@/lib/hooks/useCompanyBaseCurrency';
 
 export type OpeningBalanceLineCurrency = {
@@ -274,12 +275,13 @@ export function OpeningBalanceLinesTable({
           const selected = currencies.find((c) => c.id === (line.currencyId || defaultCurrencyId));
           const rateLocked = isFxRateLocked(selected?.code, companyBase);
           return (
-            <input
-              type="number"
-              step="0.0001"
+            <ExchangeRateInput
               disabled={disabled || rateLocked}
+              currencyId={selected?.id}
+              currencyCode={selected?.code}
+              companyBaseCode={companyBase}
               value={rateLocked ? 1 : line.exchangeRate ?? 1}
-              onChange={(e) => updateLine(index, { exchangeRate: Number(e.target.value) || 1 })}
+              onChange={(rate) => updateLine(index, { exchangeRate: rate })}
               className={`${dataEntryGridInputClass} h-9 text-xs text-end font-mono`}
               {...keyHandlers(index, 'rate')}
             />

@@ -71,7 +71,7 @@ export function JournalEntriesListSection({
       limit: pageSize,
       includeLines: false,
     };
-    if (search.trim().length >= 2) p.search = search.trim();
+    if (search.trim()) p.search = search.trim();
     if (startDate) p.startDate = startDate;
     if (endDate) p.endDate = endDate;
     if (statusFilter === 'posted') {

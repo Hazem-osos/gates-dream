@@ -31,6 +31,7 @@ const CUSTOMER_LIST_SELECT = {
   currencyCode: true,
   priceTier: true,
   linkedSupplierId: true,
+  customerCategoryId: true,
   createdAt: true,
   updatedAt: true,
 } as const;

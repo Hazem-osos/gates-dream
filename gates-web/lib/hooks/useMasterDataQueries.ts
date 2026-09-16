@@ -12,6 +12,9 @@ export type AccountOption = {
   parentId?: string | null;
   accountType?: string | null;
   statementType?: 'BALANCE_SHEET' | 'INCOME_STATEMENT' | null;
+  accountKind?: 'HEADER' | 'POSTING' | null;
+  costCenterRequired?: string | null;
+  requiresCostCenter?: boolean | null;
   _count?: { children?: number };
 };
 
@@ -112,17 +115,28 @@ function pickerParams(search: string | undefined, limit: number, extra?: Record<
 }
 
 export function isPostableLeafAccount(account: AccountOption): boolean {
-  return (account._count?.children ?? 0) === 0;
+  if (account.accountKind === 'HEADER') return false;
+  if ((account._count?.children ?? 0) > 0) return false;
+  return account.accountKind === 'POSTING' || (account._count?.children ?? 0) === 0;
 }
+
+/** Account dropdowns need the posting list, not a 30-row first page. */
+export const ACCOUNT_PICKER_PAGE_SIZE = 500;
 
 export function useAccountsQuery(
   search?: string,
-  limit = 200,
-  opts?: { leafOnly?: boolean; statementType?: 'BALANCE_SHEET' | 'INCOME_STATEMENT'; enabled?: boolean }
+  limit = ACCOUNT_PICKER_PAGE_SIZE,
+  opts?: {
+    leafOnly?: boolean;
+    headerOnly?: boolean;
+    statementType?: 'BALANCE_SHEET' | 'INCOME_STATEMENT';
+    enabled?: boolean;
+  }
 ) {
   const debounced = useDebouncedValue(search ?? '', PICKER_SEARCH_DEBOUNCE_MS);
   const extra: Record<string, string | number | boolean> = {};
   if (opts?.leafOnly) extra.leafOnly = 'true';
+  if (opts?.headerOnly) extra.headerOnly = 'true';
   if (opts?.statementType) extra.statementType = opts.statementType;
   const params = pickerParams(debounced, limit, extra);
 
@@ -131,8 +145,9 @@ export function useAccountsQuery(
     '/accounting/accounts',
     params,
     {
-      staleTime: staleTimes.masterMs,
+      staleTime: 15_000,
       gcTime: staleTimes.masterGcMs,
+      refetchOnMount: 'always',
       enabled: opts?.enabled !== false,
     }
   );
@@ -212,9 +227,17 @@ export type SafeOption = {
   englishName?: string | null;
   code?: string | null;
   balance?: number | string;
+  isDefault?: boolean;
   glAccountCode?: string | null;
   glAccount?: { id?: string; code?: string | null; arabicName?: string } | null;
 };
+
+export function pickDefaultSafeId<T extends { id: string; isDefault?: boolean }>(
+  safes: T[] | undefined | null
+): string | undefined {
+  if (!safes?.length) return undefined;
+  return safes.find((safe) => safe.isDefault)?.id ?? safes[0]?.id;
+}
 
 export function useSafesQuery(params?: { isActive?: boolean; enabled?: boolean }) {
   const queryParams = { isActive: params?.isActive ?? true };
@@ -284,6 +307,6 @@ export function useCoaHierarchyQuery() {
     ['coa-tree'],
     '/accounting/accounts/hierarchy',
     undefined,
-    { staleTime: staleTimes.masterMs, gcTime: staleTimes.masterGcMs }
+    { staleTime: 0, gcTime: staleTimes.masterGcMs, refetchOnMount: 'always' }
   );
 }

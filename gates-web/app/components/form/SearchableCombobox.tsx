@@ -49,6 +49,22 @@ type SearchableComboboxProps = {
 };
 
 const defaultInputCls = compactControlClass;
+const PORTAL_LIST_Z = 11000;
+
+function sameFixedStyle(
+  prev: React.CSSProperties | null,
+  next: React.CSSProperties
+): boolean {
+  return (
+    prev != null &&
+    prev.left === next.left &&
+    prev.top === next.top &&
+    prev.bottom === next.bottom &&
+    prev.width === next.width &&
+    prev.maxHeight === next.maxHeight &&
+    prev.zIndex === next.zIndex
+  );
+}
 
 export function SearchableCombobox({
   value,
@@ -165,7 +181,9 @@ export function SearchableCombobox({
     return () => document.removeEventListener('mousedown', onDoc);
   }, []);
 
-  const repositionList = useCallback(() => {
+  const repositionList = useCallback((ev?: Event) => {
+    if (ev?.target instanceof Node && listRef.current?.contains(ev.target)) return;
+
     const el = inputRef.current;
     if (!el || !open) return;
 
@@ -180,32 +198,33 @@ export function SearchableCombobox({
       place = spaceBelow < 200 && spaceAbove > spaceBelow ? 'top' : 'bottom';
     }
 
-    setResolvedPlacement(place);
+    setResolvedPlacement((prev) => (prev === place ? prev : place));
     const width = Math.min(Math.max(rect.width, 280), 512);
 
-    if (portaled) {
-      if (place === 'top') {
-        setListFixedStyle({
-          position: 'fixed',
-          left: rect.left,
-          width,
-          bottom: window.innerHeight - rect.top + gap,
-          maxHeight: Math.min(maxList, Math.max(120, spaceAbove - 8)),
-          zIndex: 10050,
-        });
-      } else {
-        setListFixedStyle({
-          position: 'fixed',
-          left: rect.left,
-          width,
-          top: rect.bottom + gap,
-          maxHeight: Math.min(maxList, Math.max(120, spaceBelow - 8)),
-          zIndex: 10050,
-        });
-      }
-    } else {
+    if (!portaled) {
       setListFixedStyle(null);
+      return;
     }
+
+    const next: React.CSSProperties =
+      place === 'top'
+        ? {
+            position: 'fixed',
+            left: rect.left,
+            width,
+            bottom: window.innerHeight - rect.top + gap,
+            maxHeight: Math.min(maxList, Math.max(120, spaceAbove - 8)),
+            zIndex: PORTAL_LIST_Z,
+          }
+        : {
+            position: 'fixed',
+            left: rect.left,
+            width,
+            top: rect.bottom + gap,
+            maxHeight: Math.min(maxList, Math.max(120, spaceBelow - 8)),
+            zIndex: PORTAL_LIST_Z,
+          };
+    setListFixedStyle((prev) => (sameFixedStyle(prev, next) ? prev : next));
   }, [open, menuPlacement, portaled, maxListHeight]);
 
   useLayoutEffect(() => {
@@ -346,7 +365,9 @@ export function SearchableCombobox({
               id={listId}
               role="listbox"
               style={portaled ? listFixedStyle ?? undefined : undefined}
-              className={`${portaled ? 'fixed' : 'absolute'} z-[10050] ${listPositionClass} max-h-[min(26rem,70vh)] min-w-[min(100%,28rem)] w-max max-w-[32rem] overflow-auto rounded-lg border border-[#D6EAF3] bg-white py-1 text-sm shadow-lg ${listClassName ?? ''}`}
+              onWheel={(e) => e.stopPropagation()}
+              onTouchMove={(e) => e.stopPropagation()}
+              className={`${portaled ? 'fixed' : 'absolute'} z-[11000] ${listPositionClass} max-h-[min(26rem,70vh)] min-w-[min(100%,28rem)] w-max max-w-[32rem] overflow-auto overscroll-contain rounded-lg border border-[#D6EAF3] bg-white py-1 text-sm shadow-lg ${listClassName ?? ''}`}
             >
               {filtered.length === 0 && !showQuickCreate ? (
                 <li className="px-3 py-2 text-gray-500">{emptyMessage}</li>

@@ -1,6 +1,7 @@
 'use client';
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Plus } from 'lucide-react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import dynamic from 'next/dynamic';
 import { ColumnVisibilityPicker } from '@/components/inventory/ColumnVisibilityPicker';
@@ -150,6 +151,7 @@ type PurchaseLineRowProps = {
   onPeek: (index: number) => void;
   onRemove: (index: number) => void;
   onAppend: () => void;
+  readOnly?: boolean;
   applyPickedItem: (index: number, picked: Item | undefined) => void;
   pricingCalculationBasis?: PricingCalculationBasis | string;
   lockUnitPrice?: boolean;
@@ -171,6 +173,7 @@ const PurchaseInvoiceLineRow = memo(function PurchaseInvoiceLineRow({
   onPeek,
   onRemove,
   onAppend,
+  readOnly = false,
   applyPickedItem,
   pricingCalculationBasis = 'SELECTED_UNIT_QTY',
   lockUnitPrice = false,
@@ -632,6 +635,17 @@ const PurchaseInvoiceLineRow = memo(function PurchaseInvoiceLineRow({
           case 'rowDelete':
             return (
               <td key={col.id} className={`py-2 px-2 border-x border-[#D6EAF3] ${ERP_PURCHASE_COLUMN_WIDTH.rowDelete ?? ''}`}>
+                {readOnly ? null : (
+                  <button
+                    type="button"
+                    onClick={onAppend}
+                    className="rounded-md px-1 py-1 text-[#0E78AA] hover:bg-[#E8F4FA]"
+                    aria-label="إضافة سطر"
+                    title="إضافة سطر"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => onPeek(index)}
@@ -796,6 +810,16 @@ export function ProgressivePurchaseInvoiceLineGrid({
     ]);
   }, [warehouseId]);
 
+  useEffect(() => {
+    if (readOnly) return;
+    if (lines.length === 0) {
+      appendLine();
+      return;
+    }
+    const lastLine = lines[lines.length - 1];
+    if (lastLine?.itemId?.trim()) appendLine();
+  }, [appendLine, lines, readOnly]);
+
   const removeLine = useCallback((index: number) => {
     onChangeRef.current(linesRef.current.filter((_, i) => i !== index));
   }, []);
@@ -875,15 +899,6 @@ export function ProgressivePurchaseInvoiceLineGrid({
               onChange={onVisibleColumnIdsChange}
               companyId={companyId}
             />
-            {readOnly || hideAddLine ? null : (
-            <button
-              type="button"
-              onClick={appendLine}
-              className="px-4 py-2 bg-gradient-to-r from-[#0E78AA] to-[#0A5F8A] text-white rounded-lg text-sm font-medium"
-            >
-              إضافة سطر
-            </button>
-            )}
           </div>
         </div>
         <div
@@ -938,6 +953,7 @@ export function ProgressivePurchaseInvoiceLineGrid({
                       onPeek={openPeek}
                       onRemove={removeLine}
                       onAppend={appendLine}
+                      readOnly={readOnly}
                       applyPickedItem={applyPickedItem}
                       pricingCalculationBasis={pricingCalculationBasis}
                       lockUnitPrice={lockUnitPrice}
@@ -956,6 +972,16 @@ export function ProgressivePurchaseInvoiceLineGrid({
           </tbody>
         </table>
         </div>
+        {readOnly || hideAddLine ? null : (
+          <button
+            type="button"
+            onClick={appendLine}
+            className="mx-3 mt-2 mb-2 inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold text-[#0E78AA] hover:bg-[#E8F4FA]"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            إضافة سطر جديد (Enter)
+          </button>
+        )}
       </div>
 
       {peekIndex != null ? (

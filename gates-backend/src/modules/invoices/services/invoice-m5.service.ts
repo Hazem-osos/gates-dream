@@ -28,6 +28,7 @@ import { replaceInvoiceInstallmentsInTx } from './invoice-installment.service';
 import { documentAuditService } from '../../accounting/services/document-audit.service';
 import { journalPostingService } from '../../accounting/services/journal-posting.service';
 import { documentSequenceService } from '../../platform/services/document-sequence.service';
+import { persistFxDecimal } from '../../accounting/utils/company-fx-rate';
 import { documentProfileService } from '../../document-profiles/services/document-profile.service';
 import {
   applyProfileLocks,
@@ -67,11 +68,12 @@ import { assertPurchaseReturnPolicy, assertSalesReturnPolicy } from './sales-ret
 function kindToLegacyType(kind: InvoiceKind): string {
   switch (kind) {
     case 'PURCHASE':
+      return 'purchase';
     case 'PURCHASE_RETURN':
-      return kind === 'PURCHASE' ? 'purchase' : 'return';
-    case 'SALE':
+      return 'purchaseReturn';
     case 'SALE_RETURN':
-      return kind === 'SALE' ? 'sales' : 'return';
+      return 'salesReturn';
+    case 'SALE':
     default:
       return 'sales';
   }
@@ -442,7 +444,7 @@ export class InvoiceM5Service {
           hijriDate: resolveHijriDate(data.date, data.hijriDate),
           description: data.description,
           currencyCode: data.currencyCode,
-          exchangeRate: new Decimal(data.exchangeRate ?? 1),
+          exchangeRate: persistFxDecimal(data.currencyCode, data.exchangeRate),
           sourceYearId: data.sourceYearId,
           customerId: data.customerId,
           supplierId: data.supplierId,
@@ -857,7 +859,10 @@ export class InvoiceM5Service {
           ),
           description: data.description ?? existing.description,
           currencyCode: data.currencyCode ?? existing.currencyCode,
-          exchangeRate: new Decimal(data.exchangeRate ?? Number(existing.exchangeRate)),
+          exchangeRate: persistFxDecimal(
+            data.currencyCode ?? existing.currencyCode,
+            data.exchangeRate ?? existing.exchangeRate
+          ),
           sourceYearId: data.sourceYearId ?? existing.sourceYearId,
           customerId: data.customerId ?? existing.customerId,
           supplierId: data.supplierId ?? existing.supplierId,

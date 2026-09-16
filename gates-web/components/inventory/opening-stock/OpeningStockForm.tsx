@@ -577,7 +577,7 @@ function OpeningStockFormInner() {
               onChange={(id) => setValue('warehouseId', id, { shouldValidate: false })}
             />
           </CompactFormField>
-          <CompactFormField label="الشرح" className="md:col-span-2">
+          <CompactFormField label="الشرح">
             <input
               className={compactControlClass}
               disabled={gridLocked}

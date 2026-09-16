@@ -6,6 +6,7 @@ import { journalPostingService } from '../../accounting/services/journal-posting
 import { stockMovementService } from './stock-movement.service';
 import { itemCostService } from './item-cost.service';
 import { scopedItemQuantityWhere } from '../utils/item-quantity-tenant';
+import { assertWarehouseActive } from '../utils/inventory-system';
 import { assertUpdateCount } from '../../../shared/concurrency/optimistic-lock';
 
 export interface IssueLine {
@@ -35,13 +36,7 @@ export class IssueService {
   async createIssue(companyId: string, data: CreateIssueData) {
     try {
       // Validate warehouse belongs to company
-      const warehouse = await prisma.warehouse.findFirst({
-        where: { id: data.warehouseId, companyId },
-      });
-
-      if (!warehouse) {
-        throw new Error('Warehouse not found or does not belong to company');
-      }
+      await assertWarehouseActive(companyId, data.warehouseId);
 
       // Validate all items belong to company
       const itemIds = data.lines.map((line) => line.itemId);
@@ -344,6 +339,8 @@ export class IssueService {
       if (issue.isPosted) {
         throw new Error('Issue is already posted');
       }
+
+      await assertWarehouseActive(companyId, issue.warehouseId);
 
       // H1 fix: route the quantity mutation through stockMovementService
       // (row lock + InventoryMovement audit row + negative-stock guard)

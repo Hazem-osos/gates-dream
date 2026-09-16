@@ -53,6 +53,7 @@ export function MovementTransferGrid({
                 <th className={dataEntryGridHeadCellClass}>رقم القيد / المستند</th>
                 <th className={`${dataEntryGridHeadCellClass} text-center`}>التاريخ</th>
                 <th className={dataEntryGridHeadCellClass}>البيان</th>
+                <th className={`${dataEntryGridHeadCellClass} text-center`}>الحالة</th>
                 <th className={`${dataEntryGridHeadCellClass} text-left`}>المبلغ (مدين / دائن)</th>
               </tr>
             </thead>
@@ -60,7 +61,7 @@ export function MovementTransferGrid({
               {rows.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={6}
+                    colSpan={7}
                     className={`${dataEntryGridBodyCellClass} py-8 text-center text-muted-foreground`}
                   >
                     {emptyMessage}
@@ -98,6 +99,9 @@ export function MovementTransferGrid({
                         {row.date}
                       </td>
                       <td className={dataEntryGridBodyCellClass}>{row.description || '—'}</td>
+                      <td className={`${dataEntryGridBodyCellClass} text-center text-xs`}>
+                        {row.statusLabel}
+                      </td>
                       <td className={`${dataEntryGridBodyCellClass} text-left font-mono text-xs`}>
                         {row.debit > 0 ? (
                           <span>مدين {money(row.debit)}</span>

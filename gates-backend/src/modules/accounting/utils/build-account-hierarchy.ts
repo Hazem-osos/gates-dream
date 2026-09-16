@@ -8,10 +8,12 @@ export type AccountHierarchyNode = {
   englishName?: string | null;
   nature: 'DEBIT' | 'CREDIT';
   type: 'HEADER' | 'DETAIL';
+  accountKind: 'HEADER' | 'POSTING';
   accountType: string;
   isParent: boolean;
   level: number;
   currentBalance: number;
+  parentId?: string | null;
   defaultCostCenterId?: string | null;
   costCenterRequired?: string | null;
   children?: AccountHierarchyNode[];
@@ -27,6 +29,7 @@ export type FlatAccountForHierarchy = {
   parentId: string | null;
   defaultCostCenterId?: string | null;
   costCenterRequired?: string | null;
+  accountKind?: 'HEADER' | 'POSTING' | null;
 };
 
 function natureFromAccount(account: FlatAccountForHierarchy): 'DEBIT' | 'CREDIT' {
@@ -64,6 +67,7 @@ export function buildAccountHierarchyTree(
       const childNodes = buildLevel(row.id, level + 1);
       const ownBalance = balanceByAccountId?.get(row.id) ?? 0;
       const childrenBalance = childNodes.reduce((s, c) => s + c.currentBalance, 0);
+      const isHeader = row.accountKind === 'HEADER' || childNodes.length > 0;
       const node: AccountHierarchyNode = {
         id: row.id,
         code: row.code,
@@ -72,10 +76,12 @@ export function buildAccountHierarchyTree(
         arabicName: row.arabicName,
         englishName: row.englishName,
         nature: natureFromAccount(row),
-        type: childNodes.length > 0 ? 'HEADER' : 'DETAIL',
+        type: isHeader ? 'HEADER' : 'DETAIL',
+        accountKind: isHeader ? 'HEADER' : 'POSTING',
         accountType: row.accountType ?? '',
-        isParent: childNodes.length > 0,
+        isParent: isHeader,
         level,
+        parentId: row.parentId,
         currentBalance:
           childNodes.length > 0 ? childrenBalance : ownBalance,
         defaultCostCenterId: row.defaultCostCenterId ?? null,

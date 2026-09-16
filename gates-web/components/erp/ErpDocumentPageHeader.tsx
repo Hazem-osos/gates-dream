@@ -175,7 +175,7 @@ export function ErpDocumentPageHeader({
   return (
     <header className={`sticky top-0 z-40 isolate -mx-3 px-3 bg-white border-b border-[#E6F0F7] shadow-sm rounded-lg overflow-visible ${compact ? 'py-1.5 mb-1' : 'py-2.5 mb-2'}`} data-tour="document-header" data-tour-legacy="erp-page-header">
       {registerChrome ? <RegisterScreenChrome /> : null}
-      <div className={`flex flex-wrap justify-between gap-2 ${compact ? 'items-center' : 'items-start'}`}>
+      <div className={`flex min-w-0 max-w-full flex-wrap justify-between gap-2 ${compact ? 'items-center' : 'items-start'}`}>
         <div className={`min-w-0 ${compact ? '' : 'space-y-0.5'}`}>
           {compact ? null : (
           <nav className="text-[11px] text-[#64748B] flex flex-wrap items-center gap-1">
@@ -221,7 +221,7 @@ export function ErpDocumentPageHeader({
           </div>
         </div>
 
-        <div className={`${formActionPairClass} shrink-0`}>
+        <div className={`${formActionPairClass} w-full min-w-0 xl:w-auto`}>
           <div data-gates-page-header-actions className="contents" />
           {hideBrowseList ? null : onBrowseList ? (
             <DocumentPreviousBrowser

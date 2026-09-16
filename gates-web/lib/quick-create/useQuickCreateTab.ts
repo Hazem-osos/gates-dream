@@ -2,17 +2,23 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   completeQuickCreate,
   consumeQuickCreateResult,
+  peekPendingRequestId,
   storeQuickCreateRequest,
   subscribeQuickCreate,
 } from './bridge';
+import { flushPageDrafts, markQcReturn } from '@/lib/drafts/page-drafts';
 import {
   QUICK_CREATE_PATHS,
   type QuickCreateEntity,
   type QuickCreateKind,
 } from './catalog';
+import { destinationAppTabHref, pinCurrentWindowHref } from '@/lib/navigation/tab-memory';
+import { bumpMasterCatalog, invalidateMasterCatalog } from '@/lib/query/master-catalog-sync';
+import { useAppTabs } from '@/app/components/AppTabsContext';
 
 export function useOpenQuickCreateTab(
   kind: QuickCreateKind,
@@ -20,6 +26,7 @@ export function useOpenQuickCreateTab(
 ) {
   const router = useRouter();
   const pathname = usePathname();
+  const tabs = useAppTabs();
   const requestIdRef = useRef<string | null>(null);
   const onCreatedRef = useRef(onCreated);
   onCreatedRef.current = onCreated;
@@ -32,8 +39,11 @@ export function useOpenQuickCreateTab(
       requestIdRef.current = null;
     };
 
-    const pending = requestIdRef.current;
-    if (pending) apply(pending);
+    const pending = requestIdRef.current || peekPendingRequestId(kind);
+    if (pending) {
+      requestIdRef.current = pending;
+      apply(pending);
+    }
 
     return subscribeQuickCreate((result) => {
       if (requestIdRef.current && result.requestId !== requestIdRef.current) return;
@@ -49,22 +59,36 @@ export function useOpenQuickCreateTab(
           ? crypto.randomUUID()
           : `qc-${Date.now()}`;
       requestIdRef.current = id;
+      const returnPath =
+        typeof window !== 'undefined'
+          ? `${window.location.pathname}${window.location.search}`
+          : pathname || '/';
       storeQuickCreateRequest({
         id,
         kind,
-        returnPath: pathname || '/',
+        returnPath,
         prefillName: prefillName?.trim() || undefined,
       });
+      flushPageDrafts();
+      markQcReturn(pathname || '/');
+      pinCurrentWindowHref();
+      tabs?.pinCurrentTab();
       const qs = new URLSearchParams({ qc: id });
       if (prefillName?.trim()) qs.set('qcName', prefillName.trim());
-      router.push(`${QUICK_CREATE_PATHS[kind]}?${qs.toString()}`);
+      const href = `${QUICK_CREATE_PATHS[kind]}?${qs.toString()}`;
+      if (tabs) {
+        tabs.openAppTab(href);
+        return;
+      }
+      router.push(destinationAppTabHref(href));
     },
-    [kind, pathname, router]
+    [kind, pathname, router, tabs]
   );
 }
 
 export function useQuickCreateHost(kind: QuickCreateKind) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [prefillName, setPrefillName] = useState('');
   const [isQuickCreate, setIsQuickCreate] = useState(false);
 
@@ -77,9 +101,11 @@ export function useQuickCreateHost(kind: QuickCreateKind) {
   const complete = useCallback(
     (entity: QuickCreateEntity) => {
       const returnPath = completeQuickCreate(kind, entity);
-      if (returnPath) router.push(returnPath);
+      bumpMasterCatalog(kind);
+      invalidateMasterCatalog(queryClient, kind);
+      if (returnPath) router.push(destinationAppTabHref(returnPath));
     },
-    [kind, router]
+    [kind, queryClient, router]
   );
 
   return { isQuickCreate, prefillName, complete };

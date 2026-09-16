@@ -96,14 +96,10 @@ export function UniversalReportViewer({
     return o;
   }, [searchParams]);
 
-  const params = useMemo(
-    () =>
-      ensureReportPreviewDates(
-        mapReportPreviewQueryParams(rawParams, registryPath),
-        registryPath
-      ),
-    [rawParams, registryPath]
-  );
+  const params = useMemo(() => {
+    const withDates = ensureReportPreviewDates(rawParams, registryPath);
+    return mapReportPreviewQueryParams(withDates, registryPath);
+  }, [rawParams, registryPath]);
 
   const endpoint = useMemo(
     () => resolveReportApiPath(registryPath, rawParams),

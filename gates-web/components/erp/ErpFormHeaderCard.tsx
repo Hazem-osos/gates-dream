@@ -3,7 +3,7 @@
 import { useState, type ReactNode } from 'react';
 import { Card, CardContent } from '@/app/components/ui/card';
 import { Settings2 } from 'lucide-react';
-import { erpFieldErrorClass } from '@/components/erp/erpUiTokens';
+import { erpFieldErrorClass, erpFormGridClass } from '@/components/erp/erpUiTokens';
 
 export function ErpFieldError({ message, show }: { message?: string; show?: boolean }) {
   if (!show || !message) return null;
@@ -24,13 +24,13 @@ export function ErpFormHeaderCard({ row1, row2, extras, extrasLabel = 'خيار�
   const [extrasOpen, setExtrasOpen] = useState(false);
 
   return (
-    <Card className="border-slate-200 shadow-sm rounded-xl overflow-hidden mt-2">
-      <CardContent className="space-y-3 p-3 sm:p-4">
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">{row1}</div>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">{row2}</div>
+    <Card className="mt-2 min-w-0 max-w-full overflow-hidden rounded-xl border-slate-200 shadow-sm">
+      <CardContent className="space-y-3 p-3">
+        <div className={erpFormGridClass}>{row1}</div>
+        <div className={erpFormGridClass}>{row2}</div>
         {extras ? (
           <>
-            <div className="flex w-full flex-wrap items-center justify-between gap-2 pt-1">
+            <div className="flex w-full flex-wrap items-center justify-start gap-2 pt-1">
               <button
                 type="button"
                 onClick={() => setExtrasOpen((v) => !v)}
@@ -47,7 +47,9 @@ export function ErpFormHeaderCard({ row1, row2, extras, extrasLabel = 'خيار�
               }`}
             >
               <div className="min-h-0">
-                <div className="pt-2 border-t border-slate-100">{extras}</div>
+                <div className="min-w-0 max-w-full overflow-x-hidden border-t border-slate-100 pt-2">
+                  {extras}
+                </div>
               </div>
             </div>
           </>

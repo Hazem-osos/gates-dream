@@ -8,9 +8,11 @@ import { journalPostingService } from '../../accounting/services/journal-posting
 import {
   stockMovementGlService,
   resolveStockGlAccounts,
+  pickLineInventoryAccount,
   type StockGlPostingContext,
 } from './stock-movement-gl.service';
 import { roundTo4 } from '../../../shared/utils/decimal-round';
+import { assertWarehouseActive } from '../utils/inventory-system';
 
 export interface DisassemblyComponentLine {
   componentItemId: string; // Component item ID (output)
@@ -90,12 +92,9 @@ export class DisassemblyService {
   async createDisassembly(companyId: string, data: CreateDisassemblyData) {
     try {
       // Validate warehouse belongs to company
-      const warehouse = await prisma.warehouse.findFirst({
-        where: { id: data.warehouseId, companyId },
-      });
-
-      if (!warehouse) {
-        throw new Error('Warehouse not found or does not belong to company');
+      await assertWarehouseActive(companyId, data.warehouseId);
+      if (data.toWarehouseId && data.toWarehouseId !== data.warehouseId) {
+        await assertWarehouseActive(companyId, data.toWarehouseId, { label: 'مخزن الإضافة' });
       }
 
       // Collect all item IDs (components and disassembled items)
@@ -416,6 +415,10 @@ export class DisassemblyService {
 
       const extras = parseDisassemblyExtras(disassembly.record);
       const destWarehouseId = extras.toWarehouseId || disassembly.warehouseId;
+      await assertWarehouseActive(companyId, disassembly.warehouseId);
+      if (destWarehouseId !== disassembly.warehouseId) {
+        await assertWarehouseActive(companyId, destWarehouseId, { label: 'مخزن الإضافة' });
+      }
       const sourceType = 'DSM';
       const sourceNumber = disassembly.serial ?? disassembly.id.slice(0, 8);
       const sourceYearId = String(new Date(disassembly.date).getFullYear());
@@ -432,10 +435,17 @@ export class DisassemblyService {
           where: { id: { in: allItemIds }, companyId },
           select: { id: true, mainAccountId: true },
         }),
-        glCtx ? resolveStockGlAccounts(companyId).catch(() => null) : Promise.resolve(null),
+        glCtx
+          ? Promise.all([
+              resolveStockGlAccounts(companyId, disassembly.warehouseId),
+              resolveStockGlAccounts(companyId, destWarehouseId),
+            ])
+              .then(([source, dest]) => ({ source, dest }))
+              .catch(() => null)
+          : Promise.resolve(null),
       ]);
       const itemAccountById = new Map(items.map((i) => [i.id, i.mainAccountId]));
-      const defaultInventoryAccountId = glAccounts?.inventoryAccountId;
+      const defaultInventoryAccountId = glAccounts?.source.inventoryAccountId;
 
       const debitLines: { accountId: string; amount: number; description: string }[] = [];
       const creditLines: { accountId: string; amount: number; description: string }[] = [];
@@ -460,7 +470,11 @@ export class DisassemblyService {
           });
 
           if (glAccounts) {
-            const acctId = itemAccountById.get(line.disassembledItemId) ?? defaultInventoryAccountId;
+            const acctId =
+              pickLineInventoryAccount(
+                glAccounts.source,
+                itemAccountById.get(line.disassembledItemId)
+              ) ?? defaultInventoryAccountId;
             if (acctId) {
               creditLines.push({
                 accountId: acctId,
@@ -519,7 +533,11 @@ export class DisassemblyService {
             });
 
             if (glAccounts) {
-              const acctId = itemAccountById.get(component.componentItemId) ?? defaultInventoryAccountId;
+              const acctId =
+                pickLineInventoryAccount(
+                  glAccounts.dest,
+                  itemAccountById.get(component.componentItemId)
+                ) ?? defaultInventoryAccountId;
               if (acctId) {
                 debitLines.push({
                   accountId: acctId,
@@ -779,10 +797,10 @@ export class DisassemblyService {
     if (existing.isPosted) throw new Error('Cannot edit a posted disassembly');
     if (existing.isCancelled) throw new Error('Cannot edit a cancelled disassembly');
 
-    const warehouse = await prisma.warehouse.findFirst({
-      where: { id: data.warehouseId, companyId },
-    });
-    if (!warehouse) throw new Error('Warehouse not found or does not belong to company');
+    await assertWarehouseActive(companyId, data.warehouseId);
+    if (data.toWarehouseId && data.toWarehouseId !== data.warehouseId) {
+      await assertWarehouseActive(companyId, data.toWarehouseId, { label: 'مخزن الإضافة' });
+    }
 
     let totalAmount = 0;
     data.lines.forEach((line) => {

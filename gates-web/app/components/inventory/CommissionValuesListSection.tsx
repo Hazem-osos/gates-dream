@@ -28,7 +28,7 @@ export function CommissionValuesListSection({
 
   const queryParams = useMemo(() => {
     const p: Record<string, string | number> = { page, limit: pageSize };
-    if (search.trim().length >= 2) p.search = search.trim();
+    if (search.trim()) p.search = search.trim();
     return p;
   }, [page, pageSize, search]);
 

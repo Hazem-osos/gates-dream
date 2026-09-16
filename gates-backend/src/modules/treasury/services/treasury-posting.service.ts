@@ -19,6 +19,7 @@ import {
 import type { TreasuryPostingContext } from '../types/treasury.types';
 import { cashDisbursementWorkflowService } from './cash-disbursement-workflow.service';
 import { splitVoucherLineTotals } from '../types/vouchers.dto';
+import { asFxRate } from '../../accounting/utils/company-fx-rate';
 
 type CashTx = Prisma.CashTransactionGetPayload<{
   include: {
@@ -102,8 +103,8 @@ export class TreasuryPostingService {
       );
       let order = 2;
       for (const line of voucherLines) {
-        const rate = Number(line.exchangeRate ?? tx.exchangeRate ?? 1);
-        const lineAmount = Number(line.amount) * (Number.isFinite(rate) && rate > 0 ? rate : 1);
+        const rate = asFxRate(line.exchangeRate ?? tx.exchangeRate, 1);
+        const lineAmount = Number(line.amount);
         const side =
           (line as { entrySide?: string }).entrySide === 'DEBIT' && hasCreditLeg ? 'DEBIT' : 'CREDIT';
         const row: JournalEntryLineData = {
@@ -121,8 +122,14 @@ export class TreasuryPostingService {
         if (side === 'DEBIT') debitLegs.push(row);
         else creditLegs.push(row);
       }
-      const debitTotal = debitLegs.reduce((sum, line) => sum + line.debit, 0);
-      const creditTotal = creditLegs.reduce((sum, line) => sum + line.credit, 0);
+      const debitTotal = debitLegs.reduce(
+        (sum, line) => sum + line.debit * asFxRate(line.exchangeRate, 1),
+        0
+      );
+      const creditTotal = creditLegs.reduce(
+        (sum, line) => sum + line.credit * asFxRate(line.exchangeRate, 1),
+        0
+      );
       const netCash = creditTotal - debitTotal;
       if (netCash <= 0) {
         throw new AppError(
@@ -136,7 +143,13 @@ export class TreasuryPostingService {
       return {
         amount: netCash,
         lines: [
-          { accountId: destAccountId, debit: netCash, credit: 0, lineOrder: lineOrder++ },
+          {
+            accountId: destAccountId,
+            debit: netCash,
+            credit: 0,
+            lineOrder: lineOrder++,
+            exchangeRate: 1,
+          },
           ...debitLegs.map((line) => ({ ...line, lineOrder: lineOrder++ })),
           ...creditLegs.map((line) => ({ ...line, lineOrder: lineOrder++ })),
         ],
@@ -153,15 +166,23 @@ export class TreasuryPostingService {
 
     const partyId = tx.customerId ?? tx.supplierId ?? undefined;
     const partnerType = tx.customerId ? 'CUSTOMER' : tx.supplierId ? 'SUPPLIER' : undefined;
+    const rate = asFxRate(tx.exchangeRate, 1);
     return {
-      amount,
+      amount: amount * rate,
       lines: [
-        { accountId: destAccountId, debit: amount, credit: 0, lineOrder: 1 },
+        {
+          accountId: destAccountId,
+          debit: amount,
+          credit: 0,
+          lineOrder: 1,
+          exchangeRate: rate,
+        },
         {
           accountId: creditAccountId,
           debit: 0,
           credit: amount,
           lineOrder: 2,
+          exchangeRate: rate,
           partnerId: partyId,
           partnerType,
         },
@@ -191,8 +212,8 @@ export class TreasuryPostingService {
       const creditLegs: JournalEntryLineData[] = [];
       let order = 1;
       for (const line of voucherLines) {
-        const rate = Number(line.exchangeRate ?? tx.exchangeRate ?? 1);
-        const lineAmount = Number(line.amount) * (Number.isFinite(rate) && rate > 0 ? rate : 1);
+        const rate = asFxRate(line.exchangeRate ?? tx.exchangeRate, 1);
+        const lineAmount = Number(line.amount);
         const side = (line as { entrySide?: string }).entrySide === 'CREDIT' ? 'CREDIT' : 'DEBIT';
         const row: JournalEntryLineData = {
           accountId: line.accountId,
@@ -209,8 +230,14 @@ export class TreasuryPostingService {
         if (side === 'CREDIT') creditLegs.push(row);
         else debitLegs.push(row);
       }
-      const debitTotal = debitLegs.reduce((sum, line) => sum + line.debit, 0);
-      const creditTotal = creditLegs.reduce((sum, line) => sum + line.credit, 0);
+      const debitTotal = debitLegs.reduce(
+        (sum, line) => sum + line.debit * asFxRate(line.exchangeRate, 1),
+        0
+      );
+      const creditTotal = creditLegs.reduce(
+        (sum, line) => sum + line.credit * asFxRate(line.exchangeRate, 1),
+        0
+      );
       const netCash = debitTotal - creditTotal;
       if (netCash <= 0) {
         throw new AppError(
@@ -230,6 +257,7 @@ export class TreasuryPostingService {
             debit: 0,
             credit: netCash,
             lineOrder: order,
+            exchangeRate: 1,
           },
         ],
       };
@@ -245,18 +273,26 @@ export class TreasuryPostingService {
 
     const partyId = tx.customerId ?? tx.supplierId ?? undefined;
     const partnerType = tx.customerId ? 'CUSTOMER' : tx.supplierId ? 'SUPPLIER' : undefined;
+    const rate = asFxRate(tx.exchangeRate, 1);
     return {
-      amount,
+      amount: amount * rate,
       lines: [
         {
           accountId: debitAccountId,
           debit: amount,
           credit: 0,
           lineOrder: 1,
+          exchangeRate: rate,
           partnerId: partyId,
           partnerType,
         },
-        { accountId: sourceAccountId, debit: 0, credit: amount, lineOrder: 2 },
+        {
+          accountId: sourceAccountId,
+          debit: 0,
+          credit: amount,
+          lineOrder: 2,
+          exchangeRate: rate,
+        },
       ],
     };
   }
@@ -486,6 +522,62 @@ export class TreasuryPostingService {
     return tx.cashTransaction.findFirstOrThrow({
       where: { id: cashTransactionId, companyId: ctx.companyId },
       include: { treasuryReceipt: true, treasuryPayment: true, lines: true },
+    });
+  }
+
+  async rewritePostedCashJournal(
+    ctx: TreasuryPostingContext,
+    cashTransactionId: string,
+    previous: CashTx
+  ) {
+    const next = await this.loadCashTransaction(ctx.companyId, cashTransactionId);
+    if (!next.journalEntryId) {
+      throw new AppError(422, 'السند ليس له قيد محاسبي لتعديله');
+    }
+    if (next.isCancelled) {
+      throw new AppError(400, 'Cannot rewrite a cancelled cash transaction');
+    }
+
+    return prisma.$transaction(async (tx) => {
+      const isReceipt = previous.transactionKind === 'RECEIPT';
+      const previousAmount = Number(previous.amount);
+      if (isReceipt) {
+        await this.reverseReceiptBalances(tx, previous, previousAmount);
+      } else {
+        await this.reversePaymentBalances(tx, previous, previousAmount);
+      }
+
+      const cashRow: CashTx = next;
+      const { lines, amount } = isReceipt
+        ? await this.buildReceiptLines(ctx.companyId, cashRow)
+        : await this.buildPaymentLines(ctx.companyId, cashRow);
+      const voucherRef = next.voucherNumber ?? next.id.slice(0, 8);
+
+      await journalPostingService.replacePostedJournalInTx(tx, ctx, next.journalEntryId!, {
+        date: next.date,
+        hijriDate: next.hijriDate,
+        description: next.description ?? `Cash ${next.transactionKind} ${voucherRef}`,
+        currencyCode: next.currencyCode,
+        exchangeRate: next.exchangeRate != null ? Number(next.exchangeRate) : undefined,
+        sourceNumber: voucherRef,
+        lines,
+      });
+
+      if (isReceipt) {
+        await this.applyReceiptBalances(tx, cashRow, amount);
+      } else {
+        await this.applyPaymentBalances(tx, cashRow, amount);
+      }
+
+      await tx.cashTransaction.update({
+        where: { id: cashTransactionId },
+        data: { version: { increment: 1 } },
+      });
+
+      return tx.cashTransaction.findFirstOrThrow({
+        where: { id: cashTransactionId, companyId: ctx.companyId },
+        include: { treasuryReceipt: true, treasuryPayment: true, lines: true },
+      });
     });
   }
 

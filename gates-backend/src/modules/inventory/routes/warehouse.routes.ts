@@ -10,7 +10,14 @@ import {
 } from '../schemas/warehouse.schema';
 import { warehouseService } from '../services/warehouse.service';
 import { logger } from '../../../shared/logger';
+import { AppError } from '../../../shared/middleware/error-handler';
 import { AuthRequest } from '../../../shared/auth/types';
+
+function warehouseErrorStatus(error: unknown): number {
+  if (error instanceof AppError) return error.statusCode;
+  if (error instanceof Error && error.message === 'Warehouse not found') return 404;
+  return 500;
+}
 
 const router = Router();
 
@@ -89,10 +96,7 @@ router.get(
       });
     } catch (error) {
       logger.error({ error }, 'Error getting warehouse');
-      const status =
-        error instanceof Error && error.message === 'Warehouse not found'
-          ? 404
-          : 500;
+      const status = warehouseErrorStatus(error);
       return void res.status(status).json({
         status: 'error',
         message:
@@ -134,7 +138,7 @@ router.post(
       });
     } catch (error) {
       logger.error({ error }, 'Error creating warehouse');
-      return void res.status(500).json({
+      return void res.status(warehouseErrorStatus(error)).json({
         status: 'error',
         message:
           error instanceof Error
@@ -176,10 +180,7 @@ router.put(
       });
     } catch (error) {
       logger.error({ error }, 'Error updating warehouse');
-      const status =
-        error instanceof Error && error.message === 'Warehouse not found'
-          ? 404
-          : 500;
+      const status = warehouseErrorStatus(error);
       return void res.status(status).json({
         status: 'error',
         message:
@@ -213,10 +214,7 @@ router.delete(
       return void res.status(204).send();
     } catch (error) {
       logger.error({ error }, 'Error deleting warehouse');
-      const status =
-        error instanceof Error && error.message === 'Warehouse not found'
-          ? 404
-          : 500;
+      const status = warehouseErrorStatus(error);
       return void res.status(status).json({
         status: 'error',
         message:

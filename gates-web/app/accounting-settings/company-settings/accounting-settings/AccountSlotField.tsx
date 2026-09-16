@@ -10,11 +10,13 @@ export function AccountSlotField({
   value,
   onChange,
   accountDetails,
+  headerOnly = false,
 }: {
   label: string;
   value: string;
   onChange: (accountId: string) => void;
   accountDetails: Record<string, AccountRef | null>;
+  headerOnly?: boolean;
 }) {
   return (
     <div className="flex items-center gap-3">
@@ -23,9 +25,10 @@ export function AccountSlotField({
         className={`${compactControlClass} flex-1`}
         value={value}
         onChange={onChange}
-        leafOnly
+        headerOnly={headerOnly}
+        leafOnly={!headerOnly}
         selectedAccount={accountDetailFor(accountDetails, value)}
-        placeholder="اختر حساباً تفصيلياً"
+        placeholder={headerOnly ? 'اختر حساباً رئيسياً' : 'اختر حساباً تفصيلياً'}
         emptyLabel="—"
       />
     </div>

@@ -15,7 +15,7 @@ export default function CollectPaymentModal({ isOpen }: CollectPaymentModalProps
       <div className="flex w-full max-w-4xl flex-col rounded-2xl border border-[#E6F0F7] bg-white p-5 shadow-2xl">
         <h2 className="mb-4 text-lg font-bold text-[#0A3D5E]">تحصيل الورقة</h2>
         <FormSectionCard title="بيانات التحصيل" bodyClassName="lg:grid-cols-2">
-          <CompactFormField label="الشرح" placeholder="إدخل الشرح" className="sm:col-span-2 lg:col-span-2" />
+          <CompactFormField label="الشرح" placeholder="إدخل الشرح" />
           <CompactFormField label="التاريخ" type="date" />
           <CompactFormField label="الحساب" className="sm:col-span-2 lg:col-span-2">
             <div className="flex gap-2">

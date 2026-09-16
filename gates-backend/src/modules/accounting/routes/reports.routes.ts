@@ -1010,17 +1010,10 @@ router.get(
         });
       }
 
-      if (!req.query.costCenterId) {
-        return void res.status(400).json({
-          status: 'error',
-          message: 'Cost Center ID is required',
-        });
-      }
-
       const filters = {
         ...partyGroupFromQuery(req.query),
         companyId,
-        costCenterId: req.query.costCenterId as string,
+        costCenterId: (req.query.costCenterId as string) || undefined,
         toDate: req.query.toDate ? parseRangeEnd(req.query.toDate, 'toDate') : todayEndOfDayUtc(),
         branchId: req.query.branchId as string | undefined,
       };
@@ -1229,6 +1222,11 @@ router.get(
         companyId,
         toDate: req.query.toDate ? parseRangeEnd(req.query.toDate, 'toDate') : todayEndOfDayUtc(),
         branchId: req.query.branchId as string | undefined,
+        accountId: (req.query.accountId as string) || undefined,
+        costCenterId: (req.query.costCenterId as string) || undefined,
+        currencyId: (req.query.currencyId as string) || undefined,
+        customerId: (req.query.customerId as string) || undefined,
+        supplierId: (req.query.supplierId as string) || undefined,
       };
 
       const options = {

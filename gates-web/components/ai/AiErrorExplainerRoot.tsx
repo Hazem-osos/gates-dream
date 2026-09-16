@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
+import { destinationAppTabHref } from '@/lib/navigation/tab-memory';
 import { AiErrorModal } from './AiErrorModal';
 import { askGatesAi } from '@/lib/ai/ask-screen-help';
 import { diagnoseApiError, type DiagnoseErrorResult } from '@/lib/ai/diagnose-error';
@@ -90,7 +91,7 @@ export function AiErrorExplainerRoot() {
     const action = diagnosis?.quickFixAction;
     if (!action) return;
     if (action.href) {
-      router.push(action.href);
+      router.push(destinationAppTabHref(action.href));
       close();
       return;
     }

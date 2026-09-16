@@ -17,6 +17,7 @@ import {
   type SequenceMode,
   type TransactionDocumentType,
   type TransactionSettings,
+  isJournalLikeDocumentType,
   isTreasuryDocumentType,
 } from '@/lib/transaction-settings/types';
 import {
@@ -104,6 +105,8 @@ export function TransactionSettingsForm({
 
   const title = DOCUMENT_TYPE_TITLE[documentType];
   const treasury = isTreasuryDocumentType(documentType);
+  const journalLike = isJournalLikeDocumentType(documentType);
+  const hideStockPolicies = treasury || journalLike;
   const isBankAdvice = documentType === 'BANK_DEBIT_ADVICE' || documentType === 'BANK_CREDIT_ADVICE';
   const isReceiptLike = documentType === 'RECEIPT_VOUCHER' || documentType === 'BANK_CREDIT_ADVICE';
 
@@ -325,7 +328,7 @@ export function TransactionSettingsForm({
           label="توليد قيد يومية محاسبي تلقائياً"
           hint="إنشاء قيود اليومية تلقائياً مع الحركة من الحسابات التي تختارها تحت."
         />
-        {treasury ? null : (
+        {hideStockPolicies ? null : (
           <SwitchRow
             checked={form.affectStock !== false}
             onChange={(v) => patch('affectStock', v)}
@@ -337,6 +340,15 @@ export function TransactionSettingsForm({
             }
           />
         )}
+      </Section>
+
+      <Section title="العملة وسعر الصرف">
+        <SwitchRow
+          checked={form.showFxColumns !== false}
+          onChange={(v) => patch('showFxColumns', v)}
+          label="إظهار أعمدة العملة وسعر الصرف دائماً"
+          hint="لو مفعّلة، أعمدة العملة وسعر الصرف تظهر في الحركة الجديدة. تقدر تلغيها أو تشغّلها استثناءً من الخيارات الإضافية على نفس الصفحة."
+        />
       </Section>
 
       {treasury ? (
@@ -385,7 +397,7 @@ export function TransactionSettingsForm({
         </Section>
       ) : null}
 
-      {treasury ? null : (
+      {hideStockPolicies ? null : (
       <Section title="3. الرقابة والتحكم وحراسات الأسعار">
         <SwitchRow
           checked={form.allowItemPriceOverride !== false}
@@ -408,7 +420,7 @@ export function TransactionSettingsForm({
       </Section>
       )}
 
-      {treasury ? null : (
+      {hideStockPolicies ? null : (
       <Section title="4. الضرائب والخصومات">
         <SwitchRow
           checked={form.autoApplyVat !== false}
@@ -437,7 +449,7 @@ export function TransactionSettingsForm({
       </Section>
       )}
 
-      {treasury ? null : (
+      {hideStockPolicies ? null : (
       <Section title="5. الحسابات ومراكز التكلفة الافتراضية وسياسة التسعير">
         <SwitchRow
           checked={form.showAllAccountsInCustomerField === true}

@@ -4,9 +4,11 @@
  */
 const PATH_RESOURCE: Array<{ prefix: string; resource: string; module?: string }> = [
   { prefix: '/accounting/cards/account', resource: 'account', module: 'accounting' },
+  { prefix: '/accounting/cards/staff', resource: 'delegate', module: 'accounting' },
   { prefix: '/accounting/cards/cost-center', resource: 'cost-center', module: 'accounting' },
   { prefix: '/accounting/guide/cost-center', resource: 'cost-center', module: 'accounting' },
   { prefix: '/accounting/guide/representatives-guide', resource: 'delegate', module: 'accounting' },
+  { prefix: '/accounting/guide/customers-suppliers', resource: 'customer', module: 'accounting' },
   { prefix: '/accounting/cards/distributor', resource: 'delegate', module: 'accounting' },
   { prefix: '/accounting/cards/driver', resource: 'delegate', module: 'accounting' },
   { prefix: '/accounting/operations/treasury', resource: 'treasury', module: 'treasury' },

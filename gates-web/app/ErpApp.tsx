@@ -127,9 +127,11 @@ export function ErpApp({ children }: { children: ReactNode }) {
                           <div style={{ marginTop: showMenuRow ? 80 : 0, transition: 'margin-top 0.3s' }}>
                             <AppTabs />
                           </div>
-                          <main className="erp-contain min-w-0 flex-1 overflow-x-hidden overflow-y-auto bg-white">
-                            <AppScreenChromeFallback />
-                            <TabPageCache>{children}</TabPageCache>
+                          <main className="erp-contain min-w-0 flex-1 overflow-x-hidden overflow-y-auto bg-[#EEF4F8] p-3 xl:p-5">
+                            <div className="erp-page-card">
+                              <AppScreenChromeFallback />
+                              <TabPageCache>{children}</TabPageCache>
+                            </div>
                           </main>
                         </div>
                       </div>

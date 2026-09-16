@@ -159,7 +159,7 @@ export function OpeningBalanceHeader({
         }
         row2={
           <>
-            <div className="lg:col-span-4">
+            <div>
               <label className={erpLabelClass}>الشرح / الملاحظات</label>
               <textarea
                 className={`${erpInputClass} min-h-[72px] resize-y`}

@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { AppTable, FilterToolbar, Button, StatusBadge } from '@/components/ui';
+import { BrowseStatusFilter } from '@/components/erp/BrowseListFilters';
 import { useApiQuery } from '@/lib/hooks/useApi';
 import type { ExportColumnDef } from '@/lib/export/export-utils';
 
@@ -44,6 +45,7 @@ export function CurrenciesListSection({
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [search, setSearch] = useState('');
+  const [status, setStatus] = useState<'all' | 'active' | 'inactive'>('all');
 
   const { data, isLoading } = useApiQuery<CurrencyRow[]>(
     ['currencies', { page: 1, pageSize: 200 }],
@@ -54,8 +56,14 @@ export function CurrenciesListSection({
 
   const allRows = useMemo(() => data?.data ?? [], [data?.data]);
   const filtered = useMemo(
-    () => allRows.filter((row) => matchesSearch(row, search)),
-    [allRows, search]
+    () =>
+      allRows.filter((row) => {
+        if (!matchesSearch(row, search)) return false;
+        if (status === 'active' && row.isActive === false) return false;
+        if (status === 'inactive' && row.isActive !== false) return false;
+        return true;
+      }),
+    [allRows, search, status]
   );
   const rows = filtered.slice((page - 1) * pageSize, page * pageSize);
 
@@ -81,7 +89,20 @@ export function CurrenciesListSection({
           columns: exportColumns as ExportColumnDef<Record<string, unknown>>[],
           rows: filtered as Record<string, unknown>[],
         }}
-      />
+      >
+        <BrowseStatusFilter
+          value={status}
+          onChange={(value) => {
+            setPage(1);
+            setStatus(value);
+          }}
+          options={[
+            { value: 'all', label: 'كل الحالات' },
+            { value: 'active', label: 'نشطة' },
+            { value: 'inactive', label: 'غير نشطة' },
+          ]}
+        />
+      </FilterToolbar>
       <AppTable<CurrencyRow>
         isLoading={isLoading}
         data={rows}

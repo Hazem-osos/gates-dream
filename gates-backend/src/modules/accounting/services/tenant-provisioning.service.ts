@@ -38,13 +38,15 @@ export class TenantProvisioningService {
   ): Promise<TenantProvisionResult> {
     if (refuseProductionSeed()) {
       const count = await prisma.account.count({ where: { companyId, deletedAt: null } });
-      logger.warn({ companyId, count }, 'Skipping tenant provisioning in production');
-      return {
-        success: true,
-        count,
-        accountsCreated: 0,
-        skipped: true,
-      };
+      if (count > 0 || options?.force) {
+        logger.warn({ companyId, count }, 'Skipping tenant re-provisioning in production');
+        return {
+          success: true,
+          count,
+          accountsCreated: 0,
+          skipped: true,
+        };
+      }
     }
 
     const result = await prisma.$transaction(
@@ -58,10 +60,12 @@ export class TenantProvisioningService {
     await invalidateTenantCache(tenantCacheKeys.settings(companyId));
     await invalidateTenantCache(tenantCacheKeys.branches(companyId));
 
-    try {
-      await demoCatalogService.ensureDemoCatalog(companyId);
-    } catch (demoErr) {
-      logger.warn({ demoErr, companyId }, 'Demo catalog ensure failed after provision');
+    if (!refuseProductionSeed()) {
+      try {
+        await demoCatalogService.ensureDemoCatalog(companyId);
+      } catch (demoErr) {
+        logger.warn({ demoErr, companyId }, 'Demo catalog ensure failed after provision');
+      }
     }
 
     logger.info({ companyId, ...result }, 'Tenant standard provisioning completed');
@@ -75,6 +79,10 @@ export class TenantProvisioningService {
   ): Promise<TenantProvisionResult> {
     const industry = options?.industry ?? 'general';
     const templateRows = sortCoaRows(getCoaTemplateRows(industry));
+    const headerCodes = new Set(
+      templateRows.map((row) => row.parentCode).filter((code): code is string => Boolean(code))
+    );
+    for (const control of ['1121', '2111']) headerCodes.add(control);
 
     const existing = await tx.account.count({
       where: { companyId, deletedAt: null },
@@ -88,6 +96,7 @@ export class TenantProvisioningService {
         where: { companyId, code: row.code, deletedAt: null },
       });
       const expectedParentId = row.parentCode ? codeToId.get(row.parentCode) ?? null : null;
+      const accountKind = !row.parentCode || headerCodes.has(row.code) ? 'HEADER' : 'POSTING';
 
       if (!acc) {
         acc = await tx.account.create({
@@ -99,6 +108,7 @@ export class TenantProvisioningService {
             accountType: row.accountType,
             accountSide: row.accountSide ?? null,
             parentId: expectedParentId,
+            accountKind,
             isActive: true,
           },
         });
@@ -109,11 +119,13 @@ export class TenantProvisioningService {
           acc.arabicName !== row.arabicName ||
           acc.accountType !== row.accountType ||
           (row.accountSide != null && acc.accountSide !== row.accountSide);
-        if (needsParentFix || needsMetaFix) {
+        const needsKindFix = acc.accountKind !== accountKind;
+        if (needsParentFix || needsMetaFix || needsKindFix) {
           acc = await tx.account.update({
             where: { id: acc.id },
             data: {
               parentId: expectedParentId,
+              accountKind,
               ...(needsMetaFix
                 ? {
                     arabicName: row.arabicName,

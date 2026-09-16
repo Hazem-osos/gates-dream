@@ -77,7 +77,7 @@ export default function DepartmentsPage() {
       onRefresh={() => void refetch()}
     >
       <div className={`${DASH_PANEL} p-5`}>
-        <FormSectionCard title="بيانات القسم" className="mb-0 shadow-none" bodyClassName="md:grid-cols-2 lg:grid-cols-4">
+        <FormSectionCard title="بيانات القسم" className="mb-0 shadow-none">
           <CompactFormField label="الكود" placeholder="إدخل الكود" {...register('code')} />
           <CompactFormField
             label="الإسم العربي"

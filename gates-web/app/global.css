@@ -54,7 +54,16 @@ html.gates-privacy-mode .gates-sensitive {
   }
 }
 
-/* Lock the document pane to the viewport; wide tables scroll inside .erp-scroll-x */
+/* Lock the document pane to the viewport; wide tables scroll inside .erp-scroll-x.
+ * Field caps scale with the pane: large screens stay roomy, narrow panes shrink. */
+:root,
+.gates-erp-root {
+  --erp-field-max: clamp(12rem, 22vw, 32rem);
+  --erp-field-desc-max: clamp(16rem, 34vw, 44rem);
+  --erp-form-gap-x: clamp(0.75rem, 1.4vw, 1.75rem);
+  --erp-form-gap-y: clamp(0.75rem, 1vw, 1.25rem);
+}
+
 .erp-contain {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -62,19 +71,39 @@ html.gates-privacy-mode .gates-sensitive {
   width: 100%;
   max-width: 100%;
   min-width: 0;
-  background-color: #fff;
+  container-type: inline-size;
+  --erp-field-max: clamp(12rem, 30cqi, 32rem);
+  --erp-field-desc-max: clamp(16rem, 46cqi, 44rem);
+  --erp-form-gap-x: clamp(0.75rem, 2cqi, 1.75rem);
+  --erp-form-gap-y: clamp(0.75rem, 1.6cqi, 1.25rem);
+}
+
+.erp-page-card {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  min-height: 100%;
+  padding: clamp(0.75rem, 1.4vw, 1.5rem);
+  border: 1px solid #d6eaf3;
+  border-radius: 0.85rem;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(9, 76, 107, 0.06);
+  overflow-x: hidden;
 }
 
 .erp-scroll-x {
   display: block;
+  box-sizing: border-box;
   width: 100%;
   max-width: 100%;
   min-width: 0;
   overflow-x: scroll;
   overscroll-behavior-x: contain;
   scrollbar-gutter: stable;
-  scrollbar-width: thin;
+  scrollbar-width: auto;
   scrollbar-color: #8ebfd6 #eef6fb;
+  contain: inline-size;
 }
 
 .erp-scroll-x::-webkit-scrollbar {
@@ -126,6 +155,95 @@ html.gates-privacy-mode .gates-sensitive {
   grid-column: 1 / -1;
   min-width: 0;
   max-width: 100%;
+}
+
+[data-erp-overlay-panel] {
+  box-sizing: border-box;
+  max-width: calc(100vw - 2rem);
+  --erp-field-max: 100%;
+  --erp-field-desc-max: 100%;
+}
+
+/* Compact fields on every ERP page + dialogs (modals are often outside the page card) */
+.gates-erp-root main :is(input, select, textarea):not([type='checkbox']):not([type='radio']):not([type='hidden']):not([type='file']):not([type='range']):not([type='button']):not([type='submit']),
+[role='dialog'] :is(input, select, textarea):not([type='checkbox']):not([type='radio']):not([type='hidden']):not([type='file']):not([type='range']):not([type='button']):not([type='submit']) {
+  max-width: min(100%, var(--erp-field-max));
+}
+
+.gates-erp-root main :is(input, textarea)[name*='description' i],
+.gates-erp-root main :is(input, textarea)[placeholder*='شرح'],
+.gates-erp-root main :is(input, textarea)[placeholder*='البيان'],
+.gates-erp-root main [data-erp-field='description'] :is(input, textarea, select),
+[role='dialog'] :is(input, textarea)[name*='description' i],
+[role='dialog'] :is(input, textarea)[placeholder*='شرح'],
+[role='dialog'] [data-erp-field='description'] :is(input, textarea, select) {
+  max-width: min(100%, var(--erp-field-desc-max));
+}
+
+.gates-erp-root main [data-erp-field='description'],
+[role='dialog'] [data-erp-field='description'] {
+  max-width: var(--erp-field-desc-max);
+}
+
+.gates-erp-root main .relative.w-full:has(input[role='combobox']),
+[role='dialog'] .relative.w-full:has(input[role='combobox']) {
+  max-width: var(--erp-field-max);
+}
+
+.gates-erp-root main :is(td, th) :is(input, select, textarea),
+.gates-erp-root main :is(td, th) .relative.w-full,
+.gates-erp-root main .erp-scroll-x :is(input, select, textarea),
+.gates-erp-root main .erp-scroll-x .relative.w-full,
+.gates-erp-root main .erp-field-wide,
+.gates-erp-root main .erp-field-wide :is(input, select, textarea),
+[role='dialog'] .erp-field-wide,
+[role='dialog'] .erp-field-wide :is(input, select, textarea),
+[role='dialog'] .erp-field-wide .relative.w-full,
+[role='dialog'] :is(td, th) :is(input, select, textarea),
+[role='dialog'] .erp-scroll-x :is(input, select, textarea),
+[cmdk-root] input,
+[cmdk-input] {
+  max-width: none;
+}
+
+.gates-erp-root [data-tour='document-header'],
+.gates-erp-root [data-tour='document-header'] > div {
+  max-width: 100%;
+  min-width: 0;
+}
+
+.gates-erp-root [data-tour='document-header'] .flex {
+  flex-wrap: wrap;
+}
+
+/* Invoice line grids: scroll inside the card — never widen the page. */
+.erp-invoice-scroll {
+  contain: inline-size;
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  overflow-x: scroll !important;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  scrollbar-width: auto;
+}
+
+.erp-invoice-scroll::-webkit-scrollbar {
+  height: 12px;
+  display: block;
+  -webkit-appearance: none;
+}
+
+.erp-invoice-scroll > table {
+  width: max-content !important;
+  min-width: max(100%, 68rem) !important;
+  max-width: none !important;
+}
+
+@media (max-width: 1280px) {
+  [data-tour='document-header'] button {
+    min-width: 0;
+  }
 }
 
 /* Horizontal scrollbar specific styles */

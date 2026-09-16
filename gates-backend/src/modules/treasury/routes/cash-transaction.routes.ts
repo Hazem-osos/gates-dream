@@ -166,12 +166,54 @@ router.patch(
     if (!companyId) {
       return void res.status(400).json({ status: 'error', message: 'Company ID required' });
     }
-    const data = await cashTransactionService.update(
-      companyId,
-      req.params.id,
-      req.body,
-      req.user?.sub
-    );
+    const existing = await cashTransactionService.getById(companyId, req.params.id);
+    const isVoucher = (existing.documentRole ?? 'VOUCHER') === 'VOUCHER';
+    const family = cashVoucherFamily(existing);
+    const mode = isVoucher
+      ? await cashDisbursementWorkflowService.resolvePostingMode(companyId, family)
+      : 'MANUAL';
+    const wasPosted = Boolean(existing.isPosted);
+    const shouldRewriteJournal =
+      isVoucher && wasPosted && Boolean(existing.journalEntryId) && mode !== 'MULTI';
+    const shouldAutoPost =
+      isVoucher &&
+      !shouldRewriteJournal &&
+      mode !== 'MULTI' &&
+      (mode === 'AUTO' || isAdminRequest(req));
+
+    await cashTransactionService.update(companyId, req.params.id, req.body, req.user?.sub, {
+      allowPosted: shouldRewriteJournal,
+    });
+
+    if (shouldRewriteJournal) {
+      const ctx = await resolveTreasuryPostingContext(
+        req,
+        new Date(req.body?.date ?? existing.date)
+      );
+      await treasuryPostingService.rewritePostedCashJournal(ctx, existing.id, existing);
+      const posted = await cashTransactionService.getById(companyId, req.params.id);
+      return void res.json({
+        status: 'success',
+        data: posted,
+        message: 'تم حفظ تعديلات السند وتحديث القيد',
+      });
+    }
+
+    if (shouldAutoPost) {
+      const ctx = await resolveTreasuryPostingContext(
+        req,
+        new Date(req.body?.date ?? existing.date)
+      );
+      await treasuryPostingService.postCashTransaction(ctx, req.params.id);
+      const posted = await cashTransactionService.getById(companyId, req.params.id);
+      return void res.json({
+        status: 'success',
+        data: posted,
+        message: 'تم حفظ تعديلات السند وتحديث القيد',
+      });
+    }
+
+    const data = await cashTransactionService.getById(companyId, req.params.id);
     return void res.json({ status: 'success', data, message: 'تم تحديث السند' });
   })
 );

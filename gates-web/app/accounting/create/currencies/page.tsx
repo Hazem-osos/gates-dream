@@ -18,6 +18,8 @@ import { apiClient } from '@/lib/api/client';
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
 import { nextNumericSerial } from '@/lib/masters/nextNumericSerial';
+import { isEgyptianPound } from '@/lib/accounting/fx-base';
+import { useRememberCurrencyRate } from '@/lib/hooks/useRememberCurrencyRate';
 type FormState = {
   serial: string;
   code: string;
@@ -48,6 +50,7 @@ const emptyForm = (serial = ''): FormState => ({
 function CurrenciesPageInner() {
   const { isReadOnly, unlockForEdit, lockToView, setMode } = useDocumentMode();
   const invalidateQuery = useInvalidateQuery();
+  const rememberRate = useRememberCurrencyRate();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
   const [error, setError] = useState('');
@@ -88,7 +91,7 @@ function CurrenciesPageInner() {
       symbol: row.symbol || catalog?.symbol || '',
       arabicName: row.arabicName ?? '',
       englishName: row.englishName ?? '',
-      exchangeRate: rateToInput(row.exchangeRate),
+      exchangeRate: isEgyptianPound(row.code) ? '1' : rateToInput(row.exchangeRate),
     });
     setError('');
     setSuccess('');
@@ -111,6 +114,7 @@ function CurrenciesPageInner() {
       symbol: item.symbol,
       arabicName: form.arabicName || item.arabicName,
       englishName: form.englishName || item.englishName,
+      exchangeRate: isEgyptianPound(item.code) ? '1' : form.exchangeRate,
     });
   };
 
@@ -133,7 +137,11 @@ function CurrenciesPageInner() {
       symbol: form.symbol.trim() || undefined,
       arabicName: form.arabicName.trim(),
       englishName: form.englishName.trim() || undefined,
-      exchangeRate: form.exchangeRate ? parseFloat(form.exchangeRate) : undefined,
+      exchangeRate: isEgyptianPound(form.code)
+        ? 1
+        : form.exchangeRate
+          ? parseFloat(form.exchangeRate)
+          : undefined,
     };
 
     setSaving(true);
@@ -261,9 +269,30 @@ function CurrenciesPageInner() {
           <CompactFormField
             label="سعر الصرف"
             type="number"
-            placeholder="إدخل سعر الصرف"
-            value={form.exchangeRate}
-            onChange={(e) => patch({ exchangeRate: e.target.value })}
+            placeholder={isEgyptianPound(form.code) ? '1' : 'إدخل سعر الصرف'}
+            value={isEgyptianPound(form.code) ? '1' : form.exchangeRate}
+            disabled={isReadOnly || isEgyptianPound(form.code)}
+            hint={isEgyptianPound(form.code) ? 'الجنيه سعر صرفه 1 دائماً ويُحفظ كذلك' : undefined}
+            onChange={(e) => {
+              patch({ exchangeRate: e.target.value });
+              if (selectedId && !isEgyptianPound(form.code)) {
+                rememberRate({
+                  currencyId: selectedId,
+                  currencyCode: form.code,
+                  rate: e.target.value,
+                });
+              }
+            }}
+            onBlur={() => {
+              if (selectedId && !isEgyptianPound(form.code)) {
+                rememberRate({
+                  currencyId: selectedId,
+                  currencyCode: form.code,
+                  rate: form.exchangeRate,
+                  flush: true,
+                });
+              }
+            }}
           />
           <CompactFormField label="العملة الرئيسية =" suffix="جزء عملة">
             <input

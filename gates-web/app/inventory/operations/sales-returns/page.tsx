@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useOwnTabSearchParams } from '@/lib/navigation/tab-route-lock';
 import { ReturnStickyFooter } from '@/components/inventory/returns/ReturnStickyFooter';
 import { InventoryInvoicesListSection } from '@/components/inventory/InventoryInvoicesListSection';
 import { useApiQuery, useApiMutation, useInvalidateQuery } from '@/lib/hooks/useApi';
@@ -44,7 +44,7 @@ interface Item {
 }
 
 export default function SalesReturnsPage() {
-  const searchParams = useSearchParams();
+  const searchParams = useOwnTabSearchParams();
   const fromInvoiceParam = searchParams.get('fromInvoice');
   const invoiceIdParam = searchParams.get('invoiceId');
   const prefillApplied = useRef(false);

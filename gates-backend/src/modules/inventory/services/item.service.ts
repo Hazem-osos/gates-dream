@@ -162,10 +162,11 @@ export class ItemService {
     try {
       const auto = await this.isItemAutoNumbering(companyId);
       let serial = data.serial?.trim() ?? '';
-      if (auto) {
+      if (!serial) {
+        if (!auto) {
+          throw new AppError(400, 'رقم الصنف مطلوب — الترقيم يدوي.');
+        }
         serial = await this.suggestNextItemSerial(companyId);
-      } else if (!serial) {
-        throw new AppError(400, 'رقم الصنف مطلوب — الترقيم يدوي.');
       }
       // Sales Invoice Enterprise Redesign: "auto-assign GL accounts by
       // category" — when a category is selected, snapshot its defaults onto

@@ -1,5 +1,6 @@
 import prisma from '../../../shared/database/prisma';
 import { logger } from '../../../shared/logger';
+import { SYSTEM_GL_CODES } from '../data/system-account-map';
 import {
   createCashGlForNewSafe,
   ensureSafesFromChart,
@@ -41,15 +42,35 @@ export class SafeService {
       where.id = { in: options.allowedSafeIds };
     }
 
-    return prisma.safe.findMany({
-      where,
-      orderBy: { arabicName: 'asc' },
-      include: {
-        glAccount: {
-          select: { id: true, code: true, arabicName: true, englishName: true },
+    const [rows, defaultBranch] = await Promise.all([
+      prisma.safe.findMany({
+        where,
+        orderBy: { arabicName: 'asc' },
+        include: {
+          glAccount: {
+            select: { id: true, code: true, arabicName: true, englishName: true },
+          },
         },
-      },
-    });
+      }),
+      prisma.branch.findFirst({
+        where: { companyId, deletedAt: null, defaultSafeId: { not: null } },
+        orderBy: { createdAt: 'asc' },
+        select: { defaultSafeId: true },
+      }),
+    ]);
+    const branchDefaultId =
+      defaultBranch?.defaultSafeId && rows.some((row) => row.id === defaultBranch.defaultSafeId)
+        ? defaultBranch.defaultSafeId
+        : null;
+    const cashMainSafeId =
+      rows.find((row) => row.glAccount?.code === SYSTEM_GL_CODES.cashMain)?.id ?? null;
+    const defaultSafeId = branchDefaultId ?? cashMainSafeId;
+    return rows
+      .map((row) => ({
+        ...row,
+        isDefault: Boolean(defaultSafeId && row.id === defaultSafeId),
+      }))
+      .sort((a, b) => Number(b.isDefault) - Number(a.isDefault) || a.arabicName.localeCompare(b.arabicName, 'ar'));
   }
 
   /**

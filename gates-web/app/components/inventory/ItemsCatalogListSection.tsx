@@ -44,7 +44,7 @@ export function ItemsCatalogListSection({
 
   const queryParams = useMemo(() => {
     const p: Record<string, string | number | boolean> = { page, limit: pageSize };
-    if (search.trim().length >= 2) p.search = search.trim();
+    if (search.trim()) p.search = search.trim();
     if (itemType) p.itemType = itemType;
     return p;
   }, [page, pageSize, search, itemType]);

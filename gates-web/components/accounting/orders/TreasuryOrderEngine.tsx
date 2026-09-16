@@ -1,10 +1,13 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
+import { useOwnTabPathname, useOwnTabSearchParams } from '@/lib/navigation/tab-route-lock';
 import dynamic from 'next/dynamic';
 import { Check } from 'lucide-react';
-import { useForm, type Resolver } from 'react-hook-form';
+import { useForm, useWatch, type Resolver } from 'react-hook-form';
+import { useDraftAutosave } from '@/lib/hooks/useDraftAutosave';
+import { PageDraftRestoreBanner } from '@/components/erp/PageDraftRestoreBanner';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Button, FormSectionCard } from '@/components/ui';
 import { VoucherLinesGrid, type VoucherGridLine } from '@/components/accounting/vouchers/VoucherLinesGrid';
@@ -28,6 +31,7 @@ import {
   ErpFieldError,
   ErpFormHeaderCard,
   GenericRecordsList,
+  erpFormGridClass,
   erpInputClass,
   erpInputErrorClass,
   erpLabelClass,
@@ -51,13 +55,16 @@ import { getTenantContext } from '@/lib/tenant/tenant-context-storage';
 import { useApiMutation, useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
 import {
   invalidateTreasuryFundBalances,
+  pickDefaultSafeId,
   useLiveFundBalance,
   useSafesQuery,
 } from '@/lib/hooks/useMasterDataQueries';
 import { useCompanyPrintProfile } from '@/lib/hooks/useCompanyPrintProfile';
 import { useAccountingSettingsQuery } from '@/lib/hooks/useAccountingSettings';
 import { pickCurrencyByCode, rateForCurrency, treasuryBalanceInCurrency, withHeaderCurrency } from '@/lib/accounting/fx-base';
+import { costCenterRuleFromAccount } from '@/lib/accounting/cost-center-rule';
 import { useCompanyBaseCurrency } from '@/lib/hooks/useCompanyBaseCurrency';
+import { DocumentCurrencyRateFields } from '@/components/accounting/DocumentCurrencyRateFields';
 import {
   formatTreasuryBalanceLabel,
   isCashAmountOverBalance,
@@ -70,6 +77,8 @@ import {
   type TreasuryOrderVariantId,
 } from '@/lib/treasury/treasury-order.variant';
 import PaymentsDistributionModal from '@/components/LazyPaymentsDistributionModal';
+import { ShowFxColumnsField } from '@/components/accounting/ShowFxColumnsField';
+import { useShowFxColumns } from '@/lib/transaction-settings/useShowFxColumns';
 
 const VoucherPrintActions = dynamic(
   () =>
@@ -166,10 +175,7 @@ function emptyLine(currencyCode: string, exchangeRate = 1): VoucherGridLine {
 }
 
 function costCenterRule(account?: Account): 'required' | 'optional' | 'none' {
-  const raw = (account?.costCenterRequired ?? '').trim();
-  if (raw === 'إجباري' || raw.toUpperCase() === 'REQUIRED') return 'required';
-  if (raw === 'بدون' || raw.toUpperCase() === 'NONE') return 'none';
-  return 'optional';
+  return costCenterRuleFromAccount(account);
 }
 
 export function TreasuryOrderEngine({ variantId }: { variantId: TreasuryOrderVariantId }) {
@@ -184,8 +190,8 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
   const variant = TREASURY_ORDER_VARIANTS[variantId];
   const { lockToView, setMode, unlockForEdit, isReadOnly } = useDocumentMode();
   const router = useRouter();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
+  const pathname = useOwnTabPathname();
+  const searchParams = useOwnTabSearchParams();
   const idFromUrl = searchParams.get('id');
   const invalidateQuery = useInvalidateQuery();
   const lastHydratedIdRef = useRef<string | null>(null);
@@ -228,6 +234,10 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
 
   const skipUrlHydrateRef = useRef(false);
   const skipHeaderFxSyncRef = useRef(false);
+  const [headerRateOverride, setHeaderRateOverride] = useState<number | null>(null);
+  const { showFx: showFxColumns, setShowFx: setShowFxColumns, resetFxToSetting } = useShowFxColumns(
+    isReceiptOrder ? 'RECEIPT_VOUCHER' : 'PAYMENT_VOUCHER'
+  );
 
   useEffect(() => {
     const id = idFromUrl?.trim();
@@ -258,6 +268,7 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
     reset,
     watch,
     setValue,
+    control,
     formState: { errors },
   } = useForm<TreasuryOrderHeaderFormInput>({
     resolver: zodResolver(treasuryOrderHeaderFormSchema) as Resolver<TreasuryOrderHeaderFormInput>,
@@ -280,11 +291,36 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
   const descriptionW = watch('description');
   const fundKind = watch('fundKind');
   const isBank = fundKind === 'BANK_ACCOUNT';
+  const headerSnapshot = useWatch({ control }) as TreasuryOrderHeaderFormInput;
+  const orderDraftSnapshot = useMemo(
+    () => ({ header: headerSnapshot, voucherLines }),
+    [headerSnapshot, voucherLines]
+  );
+  const applyOrderDraft = useCallback(
+    (payload: typeof orderDraftSnapshot) => {
+      if (payload.header) reset(payload.header);
+      setVoucherLines(payload.voucherLines?.length ? payload.voucherLines : [emptyLine('EGP')]);
+    },
+    [reset]
+  );
+  const {
+    restoreOffer,
+    acceptRestore,
+    dismissRestore,
+    clearDraft,
+  } = useDraftAutosave(`gates:draft:treasury-order:${variantId}`, orderDraftSnapshot, !savedOrderId, {
+    applyRestore: applyOrderDraft,
+    isEmpty: (draft) =>
+      !draft.header?.description?.trim() &&
+      !draft.header?.fundId?.trim() &&
+      !(draft.voucherLines ?? []).some((line) => line.accountId),
+    restoreMessage: 'تم استعادة مسودة الأمر',
+  });
 
   const { data: accountsResponse } = useApiQuery<Account[]>(
     ['accounts', 'leaf'],
     '/accounting/accounts',
-    { limit: 200, isActive: true, leafOnly: true }
+    { limit: 500, isActive: true, leafOnly: true }
   );
   const accounts = accountsResponse?.data || [];
 
@@ -303,6 +339,16 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
     { enabled: !isCashOrder && isBank, staleTime: 0, refetchOnMount: 'always' }
   );
   const funds = isCashOrder || !isBank ? safesResponse?.data || [] : banksResponse?.data || [];
+  const defaultFundAppliedRef = useRef(false);
+
+  useEffect(() => {
+    if (savedOrderId || isBank || defaultFundAppliedRef.current) return;
+    if (!funds.length) return;
+    defaultFundAppliedRef.current = true;
+    if (fundId) return;
+    const next = pickDefaultSafeId(safesResponse?.data);
+    if (next) setValue('fundId', next, { shouldValidate: false });
+  }, [fundId, funds.length, isBank, safesResponse?.data, savedOrderId, setValue]);
   const { data: liveFundResponse } = useLiveFundBalance({
     kind: isBank ? 'bank' : 'safe',
     id: fundId,
@@ -467,6 +513,8 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
       });
       const cur = currencies.find((c) => c.code === row.currencyCode);
       if (cur) setValue('currencyId', cur.id, { shouldValidate: false });
+      const savedRate = Number(row.exchangeRate ?? row.lines?.[0]?.exchangeRate);
+      setHeaderRateOverride(savedRate > 0 ? savedRate : null);
       const headerPartyId = row.supplierId || row.customerId || '';
       const headerPartyKind: VoucherGridLine['partyKind'] = row.supplierId
         ? 'SUPPLIER'
@@ -539,6 +587,7 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
       skipHeaderFxSyncRef.current = false;
       return;
     }
+    setHeaderRateOverride(null);
     applyHeaderCurrencyToRows(header.code, header.exchangeRate);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currencyId]);
@@ -546,7 +595,9 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
   const selectedFund = fundId && funds.length > 0 ? funds.find((s) => s.id === fundId) : undefined;
   const currency = currencies.find((c) => c.id === currencyId);
   const headerCurrencyCode = currency?.code ?? companyBaseCurrency;
-  const headerFxRate = rateForCurrency(headerCurrencyCode, companyBaseCurrency, currency?.exchangeRate);
+  const headerFxRate =
+    headerRateOverride ??
+    rateForCurrency(headerCurrencyCode, companyBaseCurrency, currency?.exchangeRate);
   const storedBaseBalance = parseDecimal(
     liveFundResponse?.data?.balance ?? selectedFund?.balance
   );
@@ -586,13 +637,14 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
     reset({
       date: new Date().toISOString().split('T')[0],
       description: '',
-      fundId: '',
+      fundId: !isBank ? pickDefaultSafeId(safesResponse?.data) ?? '' : '',
       currencyId: defaultCurrencyId(currencies, companyBaseCurrency),
       voucherNumber: '',
       hijriDate: toHijriDate(new Date().toISOString().split('T')[0]),
       fundKind: 'CASHBOX',
     });
     setVoucherLines([emptyLine(headerCurrencyCode, headerFxRate)]);
+    resetFxToSetting();
     setAllocations([]);
     setSavedOrderId(null);
     setExecutionStatus('PENDING');
@@ -607,6 +659,7 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
     openOrder(null);
     setError('');
     setSuccess('');
+    clearDraft();
   };
 
   const validateLines = (): string | null => {
@@ -615,8 +668,12 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
       if (!line.accountId) return `يرجى اختيار الحساب في السطر ${index + 1}`;
       if (!(Number(line.amount) > 0)) return `قيمة السطر ${index + 1} يجب أن تكون أكبر من صفر`;
       const account = accounts.find((a) => a.id === line.accountId);
-      if (costCenterRule(account) === 'required' && !line.costCenterId) {
-        return `مركز التكلفة إجباري في السطر ${index + 1}`;
+      const ccRule = costCenterRule(account);
+      if (ccRule === 'required' && !line.costCenterId) {
+        return `مركز التكلفة إجباري في السطر ${index + 1}${account?.code ? ` (${account.code})` : ''}`;
+      }
+      if (ccRule === 'none' && line.costCenterId) {
+        return `الحساب ${account?.code ?? index + 1} مربوط بدون مركز تكلفة — امسح المركز من السطر`;
       }
     }
     if (allocations.length > 0) {
@@ -718,6 +775,18 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
     <ErpDocumentLayout>
       {error && <ErrorToast message={error} onClose={() => setError('')} />}
       {success && <SuccessToast message={success} onClose={() => setSuccess('')} />}
+      {restoreOffer && !savedOrderId ? (
+        <PageDraftRestoreBanner
+          message="يوجد مسودة أمر غير محفوظة."
+          onRestore={() => {
+            const payload = acceptRestore();
+            if (!payload) return;
+            applyOrderDraft(payload);
+            setSuccess('تم استعادة مسودة الأمر');
+          }}
+          onDismiss={dismissRestore}
+        />
+      ) : null}
 
       <ErpDocumentPageHeader
         breadcrumbs={variant.breadcrumbs}
@@ -846,7 +915,7 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
                 />
                 <ErpFieldError message={errors.date?.message} show={Boolean(errors.date)} />
               </div>
-              <div className="lg:col-span-2">
+              <div>
                 <label className={erpLabelClass}>الشرح</label>
                 <input
                   type="text"
@@ -860,27 +929,25 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
           }
           row2={
             <>
-              <div>
-                <label className={erpLabelClass}>العملة</label>
-                <select
-                  className={erpInputClass}
-                  disabled={locked}
-                  {...register('currencyId', {
-                    onChange: (event) => {
-                      const header = currencies.find((c) => c.id === event.target.value);
-                      if (header?.code) applyHeaderCurrencyToRows(header.code, header.exchangeRate);
-                    },
-                  })}
-                >
-                  {currencies.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.arabicName || c.englishName || c.code}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <DocumentCurrencyRateFields
+                currencies={currencies}
+                currencyId={currencyId}
+                exchangeRate={headerFxRate}
+                companyBaseCode={companyBaseCurrency}
+                showRate={showFxColumns}
+                disabled={locked}
+                onCurrencyIdChange={(id, nextRate, code) => {
+                  setHeaderRateOverride(null);
+                  setValue('currencyId', id, { shouldDirty: true, shouldValidate: true });
+                  if (code) applyHeaderCurrencyToRows(code, nextRate);
+                }}
+                onExchangeRateChange={(rate) => {
+                  setHeaderRateOverride(rate);
+                  applyHeaderCurrencyToRows(headerCurrencyCode, rate);
+                }}
+              />
               {isCashOrder ? (
-                <div className="lg:col-span-2">
+                <div>
                   {isReceiptOrder ? (
                     <ReceiptOrderHeader
                       safes={funds}
@@ -962,18 +1029,21 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
             </>
           }
           extras={
-            <button
-              type="button"
-              className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-1.5 text-sm font-bold text-gray-700 transition-colors hover:border-[#0E78AA] hover:text-[#0E78AA]"
-              onClick={() => setShowPaymentsModal(true)}
-            >
-              توزيع السدادات على الفواتير
-              {allocations.length > 0 ? (
-                <span className="inline-flex min-w-[1.15rem] items-center justify-center rounded-full bg-[#0E78AA]/15 px-1 text-[10px] text-[#094C6B]">
-                  {allocations.length}
-                </span>
-              ) : null}
-            </button>
+            <div className={erpFormGridClass}>
+              <ShowFxColumnsField compact checked={showFxColumns} onChange={setShowFxColumns} />
+              <button
+                type="button"
+                className="inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-4 py-1.5 text-sm font-bold text-gray-700 transition-colors hover:border-[#0E78AA] hover:text-[#0E78AA]"
+                onClick={() => setShowPaymentsModal(true)}
+              >
+                توزيع السدادات على الفواتير
+                {allocations.length > 0 ? (
+                  <span className="inline-flex min-w-[1.15rem] items-center justify-center rounded-full bg-[#0E78AA]/15 px-1 text-[10px] text-[#094C6B]">
+                    {allocations.length}
+                  </span>
+                ) : null}
+              </button>
+            </div>
           }
         />
 
@@ -988,6 +1058,7 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
                 accountLabelFor={accountLabelFor}
                 currencies={currencies}
                 baseCurrency={headerCurrencyCode}
+                showFx={showFxColumns}
               />
             ) : (
               <PaymentOrderLinesTable
@@ -998,6 +1069,7 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
                 accountLabelFor={accountLabelFor}
                 currencies={currencies}
                 baseCurrency={headerCurrencyCode}
+                showFx={showFxColumns}
               />
             )
           ) : (
@@ -1009,6 +1081,7 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
               accountLabelFor={accountLabelFor}
               currencies={currencies}
               headerCurrencyCode={headerCurrencyCode}
+              showFx={showFxColumns}
             />
           )}
         </FormSectionCard>

@@ -106,19 +106,6 @@ function GuideTreeRow({
           <FileText className="h-4 w-4 shrink-0 text-slate-400" />
         )}
 
-        {isChild ? (
-          <span
-            className={cn(
-              'shrink-0 rounded-md border px-1.5 py-0.5 text-[10px] font-bold tabular-nums text-slate-600',
-              tone.border,
-              tone.surface
-            )}
-            title={`مستوى ${depth + 1}`}
-          >
-            م{depth + 1}
-          </span>
-        ) : null}
-
         <span className="shrink-0 rounded border border-slate-200/80 bg-white/80 px-2 py-1 font-mono text-xs font-bold tabular-nums text-slate-800">
           {highlightText(node.code || '—', q)}
         </span>

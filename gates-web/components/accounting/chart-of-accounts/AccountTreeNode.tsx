@@ -2,13 +2,7 @@
 
 import { ChevronDown, ChevronLeft, Folder, FolderOpen, FileText, CornerDownLeft } from 'lucide-react';
 import { isSystemCashPostingAccount, type CoaHierarchyAccount } from '@/lib/accounting/mapCoaToTreeNodes';
-import {
-  depthLevelLabel,
-  depthPaddingClass,
-  getNodeStyling,
-  getRootIconClass,
-  getTreeGuideClasses,
-} from '@/lib/accounting/coaTreeTheme';
+import { depthPaddingClass, getNodeStyling, getRootIconClass } from '@/lib/accounting/coaTreeTheme';
 import { cn } from '@/lib/utils';
 
 function displayName(a: CoaHierarchyAccount) {
@@ -43,7 +37,7 @@ export function AccountTreeNode({
   depth,
   expanded,
   isLastSibling,
-  rootDigit,
+  rootDigit: _rootDigit,
   onToggle,
   searchQuery,
   onAddChild,
@@ -64,8 +58,9 @@ export function AccountTreeNode({
   onLedger: (n: CoaHierarchyAccount) => void;
 }) {
   const hasChildren = Boolean(node.children?.length);
-  const isFolder = hasChildren || node.type === 'HEADER' || node.isParent;
-  const lockBranching = isSystemCashPostingAccount(node);
+  const isFolder = node.accountKind === 'HEADER' || node.type === 'HEADER' || node.isParent || hasChildren;
+  const isPosting = !isFolder;
+  const lockBranching = isPosting || isSystemCashPostingAccount(node);
   const childCount = node.children?.length ?? 0;
   const q = searchQuery.trim();
   const code = node.code;
@@ -73,8 +68,6 @@ export function AccountTreeNode({
   const iconClass = getRootIconClass(code, depth);
   const styling = getNodeStyling(code, depth);
   const isChildRow = depth > 0;
-  const levelLabel = depthLevelLabel(depth);
-  const guide = depth > 0 ? getTreeGuideClasses(rootDigit || code.charAt(0)) : null;
 
   return (
     <div
@@ -119,19 +112,6 @@ export function AccountTreeNode({
           <FileText className="h-4 w-4 shrink-0 text-slate-500" />
         )}
 
-        {levelLabel && guide ? (
-          <span
-            className={cn(
-              'text-[10px] font-bold tabular-nums px-1.5 py-0.5 rounded-md shrink-0 border text-slate-600',
-              guide.border,
-              guide.surface
-            )}
-            title={`مستوى ${depth + 1} في الشجرة`}
-          >
-            {levelLabel}
-          </span>
-        ) : null}
-
         <span className="font-mono text-xs font-bold px-2 py-1 rounded bg-slate-100 text-slate-800 tabular-nums shrink-0 border border-slate-200/80">
           {highlightText(code, q)}
         </span>
@@ -155,9 +135,13 @@ export function AccountTreeNode({
           </span>
         ) : null}
 
-        {!isFolder ? (
+        {isFolder ? (
+          <span className="text-[11px] text-slate-500 font-medium shrink-0 hidden sm:inline">
+            {depth === 0 ? 'رئيسي' : 'رئيسي فرعي'}
+          </span>
+        ) : (
           <span className="text-[11px] text-slate-500 font-medium shrink-0 hidden sm:inline">حساب حركة</span>
-        ) : null}
+        )}
       </div>
 
       <span className="text-xs tabular-nums text-slate-700 shrink-0 hidden lg:inline z-[1]">

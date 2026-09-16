@@ -10,6 +10,7 @@ import {
 } from '@/lib/invoices/invoice-adjustments';
 import { erpInputClass, erpLabelClass } from '@/components/erp/erpUiTokens';
 import { formatBaseAmount, rateForCurrency, toBaseAmount } from '@/lib/accounting/fx-base';
+import { ExchangeRateInput } from '@/components/accounting/ExchangeRateInput';
 import { useCompanyBaseCurrency } from '@/lib/hooks/useCompanyBaseCurrency';
 
 type Currency = { id: string; code: string; arabicName: string; exchangeRate?: number | string | null };
@@ -193,16 +194,13 @@ export function InvoiceExtrasPanel({
                     </select>
                   </td>
                   <td className="px-2 py-2 w-28">
-                    <input
-                      type="number"
-                      min="0"
-                      step="0.0001"
+                    <ExchangeRateInput
                       className={compactInput}
+                      currencyCode={row.currency}
+                      companyBaseCode={companyBase}
                       value={row.exchangeRate}
                       disabled={disabled || row.currency === companyBase}
-                      onChange={(e) =>
-                        patch(index, { exchangeRate: e.target.value === '' ? '' : Number(e.target.value) })
-                      }
+                      onChange={(rate) => patch(index, { exchangeRate: rate })}
                     />
                   </td>
                   <td className="px-2 py-2 w-28 text-end font-mono text-xs text-slate-600">

@@ -2,6 +2,12 @@ import prisma from '../../../shared/database/prisma';
 import { logger } from '../../../shared/logger';
 import { Decimal } from '@prisma/client/runtime/library';
 import { AppError } from '../../../shared/middleware/error-handler';
+import {
+  isUnitRateCurrency,
+  persistFxDecimal,
+  persistFxRate,
+  POUND_CURRENCY,
+} from '../utils/company-fx-rate';
 
 export interface CreateCurrencyData {
   serial?: number | null;
@@ -83,6 +89,30 @@ export class CurrencyService {
     );
   }
 
+  private async ensurePoundRateIsOne(companyId: string) {
+    const settings = await prisma.companySettings.findUnique({
+      where: { companyId },
+      select: { defaultCurrency: true },
+    });
+    const unitCodes = Array.from(
+      new Set(
+        [POUND_CURRENCY, String(settings?.defaultCurrency || POUND_CURRENCY).toUpperCase()].filter(Boolean)
+      )
+    );
+    const rows = await prisma.currency.findMany({
+      where: { companyId, code: { in: unitCodes } },
+      select: { id: true, code: true, exchangeRate: true },
+    });
+    for (const row of rows) {
+      const next = persistFxRate(row.code, row.exchangeRate);
+      if (Number(row.exchangeRate ?? 0) === next) continue;
+      await prisma.currency.update({
+        where: { id: row.id },
+        data: { exchangeRate: new Decimal(next) },
+      });
+    }
+  }
+
   async createCurrency(companyId: string, data: CreateCurrencyData) {
     const code = data.code.trim().toUpperCase();
     const clash = await prisma.currency.findFirst({ where: { companyId, code } });
@@ -104,7 +134,11 @@ export class CurrencyService {
         symbol: data.symbol?.trim() || DEFAULT_SYMBOLS[code] || null,
         arabicName: data.arabicName,
         englishName: data.englishName,
-        exchangeRate: data.exchangeRate ? new Decimal(data.exchangeRate) : null,
+        exchangeRate: isUnitRateCurrency(code)
+          ? new Decimal(1)
+          : data.exchangeRate
+            ? new Decimal(data.exchangeRate)
+            : null,
       },
     });
 
@@ -145,6 +179,7 @@ export class CurrencyService {
     const limit = options.limit || 50;
     const skip = (page - 1) * limit;
     await this.backfillMissingSerials(companyId);
+    await this.ensurePoundRateIsOne(companyId);
     const search = options.search?.trim();
 
     const where: {
@@ -191,7 +226,12 @@ export class CurrencyService {
 
   async updateCurrency(companyId: string, currencyId: string, data: UpdateCurrencyData) {
     const existing = await this.getCurrencyById(companyId, currencyId);
-    await this.assertUnused(companyId, currencyId, existing.code, 'تعديل');
+    const nextCode = data.code ? data.code.trim().toUpperCase() : existing.code;
+    const codeChanging = nextCode !== existing.code;
+    const serialChanging = data.serial != null && data.serial !== existing.serial;
+    if (codeChanging || serialChanging) {
+      await this.assertUnused(companyId, currencyId, existing.code, 'تعديل رمز أو مسلسل');
+    }
 
     if (data.code && data.code.trim().toUpperCase() !== existing.code) {
       const clash = await prisma.currency.findFirst({
@@ -223,14 +263,28 @@ export class CurrencyService {
           : {}),
         ...(data.arabicName !== undefined ? { arabicName: data.arabicName } : {}),
         ...(data.englishName !== undefined ? { englishName: data.englishName } : {}),
-        ...(data.exchangeRate !== undefined
-          ? { exchangeRate: data.exchangeRate ? new Decimal(data.exchangeRate) : null }
-          : {}),
+        exchangeRate: persistFxDecimal(code, data.exchangeRate ?? existing.exchangeRate),
         ...(data.isActive !== undefined ? { isActive: data.isActive } : {}),
       },
     });
 
     logger.info({ companyId, currencyId }, 'Currency updated');
+    return currency;
+  }
+
+  async rememberLastRate(companyId: string, currencyId: string, exchangeRate: number) {
+    const existing = await this.getCurrencyById(companyId, currencyId);
+    const settings = await prisma.companySettings.findUnique({
+      where: { companyId },
+      select: { defaultCurrency: true },
+    });
+    const next = persistFxDecimal(existing.code, exchangeRate, settings?.defaultCurrency);
+    if (Number(existing.exchangeRate ?? 0) === Number(next)) return existing;
+    const currency = await prisma.currency.update({
+      where: { id: currencyId },
+      data: { exchangeRate: next },
+    });
+    logger.info({ companyId, currencyId, exchangeRate: Number(next) }, 'Currency last rate remembered');
     return currency;
   }
 

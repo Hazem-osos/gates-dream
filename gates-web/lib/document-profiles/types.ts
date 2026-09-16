@@ -8,7 +8,9 @@ export type DocumentBaseType =
   | 'SALES_RETURN'
   | 'PURCHASE_RETURN'
   | 'BANK_DEBIT_ADVICE'
-  | 'BANK_CREDIT_ADVICE';
+  | 'BANK_CREDIT_ADVICE'
+  | 'JOURNAL_ENTRY'
+  | 'OPENING_BALANCE';
 
 export type DocumentProfileColumnKey =
   | 'colorAndSize'
@@ -51,6 +53,8 @@ export const DOCUMENT_BASE_TYPE_LABELS: Record<DocumentBaseType, string> = {
   PURCHASE_RETURN: 'مردود مشتريات',
   BANK_DEBIT_ADVICE: 'إشعار خصم بنكي',
   BANK_CREDIT_ADVICE: 'إشعار إضافة بنكي',
+  JOURNAL_ENTRY: 'قيد يومية',
+  OPENING_BALANCE: 'رصيد افتتاحي',
 };
 
 export const DOCUMENT_PROFILE_COLUMN_OPTIONS: { id: DocumentProfileColumnKey; labelAr: string }[] = [
@@ -95,6 +99,10 @@ export function profileEntryHref(profile: Pick<DocumentProfile, 'baseType' | 'sl
       return `/accounting/operations/banks/bank-discount?${q}`;
     case 'BANK_CREDIT_ADVICE':
       return `/accounting/operations/banks/bank-addition?${q}`;
+    case 'JOURNAL_ENTRY':
+      return `/accounting/operations/journal-entry?${q}`;
+    case 'OPENING_BALANCE':
+      return `/accounting/operations/basic-operations/opening-balance?${q}`;
     default:
       return `/inventory/operations/sales-invoice?${q}`;
   }

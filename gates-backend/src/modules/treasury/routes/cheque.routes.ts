@@ -15,6 +15,7 @@ import {
   createOutwardChequeSchema,
   endorseInwardChequeSchema,
   listChequesQuerySchema,
+  updateChequeHeaderSchema,
 } from '../schemas/treasury.schema';
 
 const router = Router();
@@ -40,6 +41,17 @@ router.get(
   '/:id',
   authorize({ resource: 'treasury', action: 'view' }),
   asyncHandler(getChequeById)
+);
+
+router.patch(
+  '/:id',
+  authorize({ resource: 'treasury', action: 'edit' }),
+  validate({ body: updateChequeHeaderSchema }),
+  async (req: AuthRequest, res: Response) => {
+    const ctx = buildTreasuryPostingContext(req);
+    const data = await chequeLifecycleService.updateChequeHeader(ctx, req.params.id, req.body);
+    return void res.json({ status: 'success', data });
+  }
 );
 
 router.post(
@@ -141,6 +153,16 @@ router.post(
   async (req: AuthRequest, res: Response) => {
     const ctx = buildTreasuryPostingContext(req);
     const data = await chequeLifecycleService.unendorseInwardCheque(ctx, req.params.id);
+    return void res.json({ status: 'success', data });
+  }
+);
+
+router.post(
+  '/inward/:id/cancel',
+  authorize({ resource: 'treasury', action: 'edit' }),
+  async (req: AuthRequest, res: Response) => {
+    const ctx = buildTreasuryPostingContext(req);
+    const data = await chequeLifecycleService.cancelInwardCheque(ctx, req.params.id);
     return void res.json({ status: 'success', data });
   }
 );

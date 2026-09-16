@@ -28,6 +28,9 @@ import { CostCenterSelect } from '@/app/components/form/CostCenterSelect';
 import { CustomerSelect } from '@/app/components/form/PartySelect';
 import { useApiMutation, useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
 import { useCurrenciesQuery } from '@/lib/hooks/useMasterDataQueries';
+import { pickCurrencyByCode, rateForCurrency } from '@/lib/accounting/fx-base';
+import { useCompanyBaseCurrency } from '@/lib/hooks/useCompanyBaseCurrency';
+import { DocumentCurrencyRateFields } from '@/components/accounting/DocumentCurrencyRateFields';
 import { apiClient } from '@/lib/api/client';
 import type { ApiError } from '@/lib/api/types';
 import { toHijri } from '@/lib/dates/hijri';
@@ -53,6 +56,7 @@ const formSchema = z
     dueDate: z.string().optional(),
     dueHijriDate: z.string().optional(),
     currencyId: z.string().min(1, 'اختر العملة'),
+    exchangeRate: z.coerce.number().positive().optional(),
     partyType: z.enum(['customer', 'account']),
     partyId: z.string().optional(),
     accountId: z.string().optional(),
@@ -90,7 +94,7 @@ const formSchema = z
 type FormValues = z.infer<typeof formSchema>;
 
 type Named = { id: string; code?: string; arabicName: string; englishName?: string };
-type Currency = Named & { code: string };
+type Currency = Named & { code: string; exchangeRate?: number | string | null };
 type BankAccount = {
   id: string;
   accountNumber?: string;
@@ -102,9 +106,9 @@ function todayIso(): string {
   return new Date().toISOString().split('T')[0];
 }
 
-function defaultCurrencyId(currencies: Currency[]): string {
+function defaultCurrencyId(currencies: Currency[], companyBase = 'EGP'): string {
   if (!currencies.length) return '';
-  return (currencies.find((c) => c.code === 'EGP') || currencies[0]).id;
+  return pickCurrencyByCode(currencies, companyBase)?.id || currencies[0].id;
 }
 
 function emptyForm(currencies: Currency[]): FormValues {
@@ -115,6 +119,7 @@ function emptyForm(currencies: Currency[]): FormValues {
     dueDate: '',
     dueHijriDate: '',
     currencyId: defaultCurrencyId(currencies),
+    exchangeRate: 1,
     partyType: 'customer',
     partyId: '',
     accountId: '',
@@ -183,7 +188,9 @@ export function SecuritiesPaperEngine({ kind }: Props) {
   const date = watch('date');
   const dueDate = watch('dueDate');
   const bankIssueDate = watch('bankIssueDate');
+  const { code: companyBaseCurrency } = useCompanyBaseCurrency();
   const currencyId = watch('currencyId');
+  const exchangeRateWatch = watch('exchangeRate');
   const partyType = watch('partyType');
   const partyId = watch('partyId');
   const depositInBank = watch('depositInBank');
@@ -223,9 +230,16 @@ export function SecuritiesPaperEngine({ kind }: Props) {
 
   useEffect(() => {
     if (currencies.length > 0 && !currencyId) {
-      setValue('currencyId', defaultCurrencyId(currencies), { shouldValidate: false });
+      const id = defaultCurrencyId(currencies, companyBaseCurrency);
+      const cur = currencies.find((c) => c.id === id);
+      setValue('currencyId', id, { shouldValidate: false });
+      setValue(
+        'exchangeRate',
+        rateForCurrency(cur?.code, companyBaseCurrency, cur?.exchangeRate),
+        { shouldValidate: false }
+      );
     }
-  }, [currencies, currencyId, setValue]);
+  }, [companyBaseCurrency, currencies, currencyId, setValue]);
 
   useEffect(() => {
     const record = recordResponse?.data;
@@ -246,7 +260,13 @@ export function SecuritiesPaperEngine({ kind }: Props) {
       dueDate: due,
       dueHijriDate: toHijri(due),
       currencyId:
-        currencies.find((c) => c.code === record.currencyCode)?.id || defaultCurrencyId(currencies),
+        currencies.find((c) => c.code === record.currencyCode)?.id ||
+        defaultCurrencyId(currencies, companyBaseCurrency),
+      exchangeRate: rateForCurrency(
+        record.currencyCode,
+        companyBaseCurrency,
+        currencies.find((c) => c.code === record.currencyCode)?.exchangeRate
+      ),
       partyType: partyIsCustomer ? 'customer' : partyIsAccount ? 'account' : record.destinationAccountId ? 'account' : 'customer',
       partyId: partyIsCustomer ? record.customerId || '' : record.destinationAccountId || '',
       accountId: record.destinationAccountId || '',
@@ -260,7 +280,7 @@ export function SecuritiesPaperEngine({ kind }: Props) {
       bankName: (kind === 'payment' ? record.payeeBank : record.issuerBank) || '',
       amount: record.amount != null ? String(record.amount) : '',
     });
-  }, [recordResponse?.data, selectedId, currencies, kind, reset]);
+  }, [recordResponse?.data, selectedId, currencies, companyBaseCurrency, kind, reset]);
 
   const applyParty = (id: string, name?: string) => {
     setValue('partyId', id, { shouldValidate: true });
@@ -519,17 +539,21 @@ export function SecuritiesPaperEngine({ kind }: Props) {
       <ErpFormHeaderCard
         extrasLabel="الإعدادات المتقدمة"
         extras={
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <div>
-              <label className={erpLabelClass}>العملة</label>
-              <select className={erpInputClass} disabled={locked} {...register('currencyId')}>
-                {currencies.map((currency) => (
-                  <option key={currency.id} value={currency.id}>
-                    {currency.arabicName || currency.englishName || currency.code}
-                  </option>
-                ))}
-              </select>
-            </div>
+          <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+            <DocumentCurrencyRateFields
+              currencies={currencies}
+              currencyId={currencyId}
+              exchangeRate={Number(exchangeRateWatch) > 0 ? Number(exchangeRateWatch) : 1}
+              companyBaseCode={companyBaseCurrency}
+              disabled={locked}
+              amount={amountNum}
+              showEquivalent
+              onCurrencyIdChange={(id, nextRate) => {
+                setValue('currencyId', id, { shouldDirty: true, shouldValidate: true });
+                setValue('exchangeRate', nextRate, { shouldDirty: true });
+              }}
+              onExchangeRateChange={(rate) => setValue('exchangeRate', rate, { shouldDirty: true })}
+            />
             <div className="flex justify-end sm:col-span-2">
               <DocumentSectionNumberPair>
                 <div className="w-[8.5rem] shrink-0">
@@ -645,9 +669,9 @@ export function SecuritiesPaperEngine({ kind }: Props) {
                       onChange={(id) => applyParty(id)}
                       className={erpInputClass}
                       disabled={locked}
-                      leafOnly={false}
-                      placeholder="اختر الحساب من الدليل كله"
-                      emptyLabel="اختر الحساب من الدليل كله"
+                      leafOnly
+                      placeholder="اختر حساب الحركة"
+                      emptyLabel="اختر حساب الحركة"
                     />
                   )}
                   <ErpFieldError message={errors.partyId?.message} show={Boolean(errors.partyId)} />
@@ -716,10 +740,10 @@ export function SecuritiesPaperEngine({ kind }: Props) {
                 value={watch('accountId') || ''}
                 onChange={(id) => setValue('accountId', id, { shouldValidate: false })}
                 className={erpInputClass}
-                leafOnly={false}
+                leafOnly
                 disabled={locked}
-                placeholder="اختر الحساب من الدليل كله"
-                emptyLabel="اختر الحساب من الدليل كله"
+                placeholder="اختر حساب الحركة"
+                emptyLabel="اختر حساب الحركة"
               />
             </div>
           </>

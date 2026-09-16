@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const delegateRoleSchema = z.enum(['DELEGATE', 'DISTRIBUTOR', 'DRIVER']);
+export const delegateRoleSchema = z.enum(['DELEGATE', 'DISTRIBUTOR', 'DRIVER', 'GROUP']);
 
 export const createDelegateSchema = z.object({
   serial: z.string().optional(),
@@ -39,6 +39,10 @@ export const delegateQuerySchema = z.object({
   limit: z.string().optional().transform((val) => (val ? parseInt(val, 10) : 50)),
   search: z.string().optional(),
   role: delegateRoleSchema.optional(),
+  includeGroups: z
+    .string()
+    .optional()
+    .transform((val) => (val === undefined ? undefined : val === 'true')),
   isActive: z
     .string()
     .optional()

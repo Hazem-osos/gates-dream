@@ -71,7 +71,7 @@ export function ModuleDashboardLayout({
             <PeriodSegmentedControl value={period} onChange={onPeriodChange} />
           </div>
         ) : null}
-        <div className="grid grid-cols-12 items-start gap-5 [&>*]:col-span-12">{children}</div>
+        <div className="grid min-w-0 max-w-full grid-cols-1 items-start gap-5">{children}</div>
       </div>
     </div>
   );

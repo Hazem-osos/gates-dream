@@ -1,7 +1,7 @@
 'use client';
 
 import { Suspense, useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useOwnTabSearchParams } from '@/lib/navigation/tab-route-lock';
 import { Warehouse } from 'lucide-react';
 import {
   CompactFormField,
@@ -49,7 +49,7 @@ const emptyForm = (code = ''): WarehouseForm => ({
 });
 
 function StoresPageInner() {
-  const searchParams = useSearchParams();
+  const searchParams = useOwnTabSearchParams();
   const idFromUrl = searchParams.get('id');
   const { isReadOnly, unlockForEdit, lockToView, setMode } = useDocumentMode();
   const invalidateQuery = useInvalidateQuery();
@@ -116,8 +116,17 @@ function StoresPageInner() {
           });
         }
         invalidateQuery(['warehouses']);
-        resetNew();
-        setSuccess('تم حفظ المخزن');
+        setSelectedId(null);
+        setFormData((prev) => ({
+          ...emptyForm(),
+          storeType: prev.storeType,
+          parentWarehouseId: prev.parentWarehouseId,
+          inventoryAccountId: prev.inventoryAccountId,
+          costAccountId: prev.costAccountId,
+          giftAccountId: prev.giftAccountId,
+        }));
+        setMode('create');
+        setSuccess('تم حفظ المخزن — تقدر تضيف التالي');
       },
       onError: (err: ApiError) => {
         setError(err.message || 'حدث خطأ أثناء الحفظ');
@@ -147,7 +156,7 @@ function StoresPageInner() {
     arabicName: formData.arabicName,
     englishName: formData.englishName || undefined,
     storeType: formData.storeType,
-    parentWarehouseId: formData.parentWarehouseId || null,
+    parentWarehouseId: formData.storeType === 'MAIN' ? null : formData.parentWarehouseId || null,
     inventoryAccountId: formData.inventoryAccountId || null,
     costAccountId: formData.costAccountId || null,
     giftAccountId: formData.giftAccountId || null,
@@ -166,6 +175,10 @@ function StoresPageInner() {
     setError('');
     if (!formData.arabicName.trim()) {
       setError('يرجى إدخال اسم المخزن');
+      return;
+    }
+    if (formData.storeType === 'SUB' && !formData.parentWarehouseId) {
+      setError('المخزن الفرعي لازم يكون تحت مخزن رئيسي.');
       return;
     }
     if (selectedId && formData.parentWarehouseId === selectedId) {
@@ -261,7 +274,13 @@ function StoresPageInner() {
             className={compactControlClass}
             disabled={isReadOnly}
             value={formData.storeType}
-            onChange={(e) => patch({ storeType: e.target.value as 'MAIN' | 'SUB' })}
+            onChange={(e) => {
+              const storeType = e.target.value as 'MAIN' | 'SUB';
+              patch({
+                storeType,
+                parentWarehouseId: storeType === 'MAIN' ? '' : formData.parentWarehouseId,
+              });
+            }}
           >
             <option value="MAIN">مخزن رئيسي</option>
             <option value="SUB">فرعي</option>

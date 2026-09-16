@@ -311,6 +311,7 @@ export class PartyLedgerAccountService {
           statementType: parent.statementType,
           requiresCostCenter: parent.requiresCostCenter,
           costCenterRequired: parent.costCenterRequired ?? undefined,
+          accountKind: 'POSTING',
           allowParentWithMovements: true,
         });
       } catch (error) {

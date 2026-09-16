@@ -14,7 +14,7 @@ import { DocumentModeProvider, useDocumentMode } from '@/components/common/docum
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
 import { useApiMutation, useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
-import { useSafesQuery } from '@/lib/hooks/useMasterDataQueries';
+import { pickDefaultSafeId, useSafesQuery } from '@/lib/hooks/useMasterDataQueries';
 import { apiClient } from '@/lib/api/client';
 import { toHijriDate } from '@/lib/hijri-date';
 import type { ApiError } from '@/lib/api/types';
@@ -25,11 +25,18 @@ import {
 } from '@/lib/validation/accounting.schema';
 import { TemporaryReceiptHeader } from './TemporaryReceiptHeader';
 import { TemporaryReceiptStickyFooter } from './TemporaryReceiptStickyFooter';
-import { pickCurrencyByCode } from '@/lib/accounting/fx-base';
+import { pickCurrencyByCode, rateForCurrency } from '@/lib/accounting/fx-base';
 import { useCompanyBaseCurrency } from '@/lib/hooks/useCompanyBaseCurrency';
+import { DocumentCurrencyRateFields } from '@/components/accounting/DocumentCurrencyRateFields';
 
 type Safe = { id: string; arabicName: string; englishName?: string };
-type Currency = { id: string; code: string; arabicName: string; englishName?: string };
+type Currency = {
+  id: string;
+  code: string;
+  arabicName: string;
+  englishName?: string;
+  exchangeRate?: number | string | null;
+};
 type TempReceiptRecord = {
   id: string;
   serial?: string | null;
@@ -39,6 +46,7 @@ type TempReceiptRecord = {
   description?: string | null;
   amount?: number | string;
   currencyCode?: string;
+  exchangeRate?: number | string | null;
   safeId?: string | null;
   isPosted?: boolean;
   isApproved?: boolean;
@@ -54,7 +62,7 @@ function defaultCurrencyId(currencies: Currency[], companyBase = 'EGP') {
   return pickCurrencyByCode(currencies, companyBase)?.id || currencies[0].id;
 }
 
-function emptyForm(currencies: Currency[]): TreasuryTempReceiptFormInput {
+function emptyForm(currencies: Currency[], defaultSafeId = ''): TreasuryTempReceiptFormInput {
   return {
     date: todayIso(),
     serial: '',
@@ -62,8 +70,9 @@ function emptyForm(currencies: Currency[]): TreasuryTempReceiptFormInput {
     amount: '',
     recipient: '',
     isSettled: false,
-    safeId: '',
+    safeId: defaultSafeId,
     currencyId: defaultCurrencyId(currencies),
+    exchangeRate: 1,
   };
 }
 
@@ -78,6 +87,7 @@ function TemporaryReceiptFormInner() {
 
   const { data: safesResponse } = useSafesQuery();
   const safes = safesResponse?.data || [];
+  const defaultSafeId = pickDefaultSafeId(safes);
   const { data: currenciesResponse } = useApiQuery<Currency[]>(
     ['currencies'],
     '/accounting/currencies',
@@ -108,7 +118,9 @@ function TemporaryReceiptFormInner() {
     mode: 'onTouched',
   });
 
+  const safeId = watch('safeId');
   const currencyId = watch('currencyId');
+  const exchangeRateWatch = watch('exchangeRate');
   const amountWatch = watch('amount');
   const serial = watch('serial');
   const date = watch('date');
@@ -116,8 +128,20 @@ function TemporaryReceiptFormInner() {
   const recipient = watch('recipient');
 
   useEffect(() => {
+    if (selectedId || loaded || safeId || !defaultSafeId) return;
+    setValue('safeId', defaultSafeId, { shouldValidate: false });
+  }, [defaultSafeId, loaded, safeId, selectedId, setValue]);
+
+  useEffect(() => {
     if (currencies.length > 0 && !currencyId) {
-      setValue('currencyId', defaultCurrencyId(currencies, companyBaseCurrency), { shouldValidate: false });
+      const id = defaultCurrencyId(currencies, companyBaseCurrency);
+      const cur = currencies.find((c) => c.id === id);
+      setValue('currencyId', id, { shouldValidate: false });
+      setValue(
+        'exchangeRate',
+        rateForCurrency(cur?.code, companyBaseCurrency, cur?.exchangeRate),
+        { shouldValidate: false }
+      );
     }
   }, [companyBaseCurrency, currencies, currencyId, setValue]);
 
@@ -137,7 +161,12 @@ function TemporaryReceiptFormInner() {
       recipient: '',
       isSettled: Boolean(row.isPosted || row.isApproved),
       safeId: row.safeId || '',
-      currencyId: currency?.id || defaultCurrencyId(currencies),
+      currencyId: currency?.id || defaultCurrencyId(currencies, companyBaseCurrency),
+      exchangeRate: rateForCurrency(
+        row.currencyCode,
+        companyBaseCurrency,
+        currency?.exchangeRate ?? row.exchangeRate
+      ),
     });
     setSelectedId(row.id);
     setLoaded(row);
@@ -178,6 +207,10 @@ function TemporaryReceiptFormInner() {
     date: new Date(values.date).toISOString(),
     hijriDate: toHijriDate(values.date),
     currencyCode: selectedCurrency?.code || 'EGP',
+    exchangeRate:
+      Number(values.exchangeRate) > 0
+        ? Number(values.exchangeRate)
+        : rateForCurrency(selectedCurrency?.code, companyBaseCurrency, selectedCurrency?.exchangeRate),
     voucherNumber: values.serial || undefined,
     serial: values.serial || undefined,
     description: values.description || undefined,
@@ -197,7 +230,7 @@ function TemporaryReceiptFormInner() {
   };
 
   const resetNew = () => {
-    reset(emptyForm(currencies));
+    reset(emptyForm(currencies, defaultSafeId));
     setSelectedId(null);
     setLoaded(null);
     setError('');
@@ -294,19 +327,21 @@ function TemporaryReceiptFormInner() {
                   error={errors.recipient?.message}
                   {...register('recipient')}
                 />
-                <CompactFormField label="العملة">
-                  <select
-                    className={compactControlClass}
-                    disabled={isReadOnly}
-                    {...register('currencyId')}
-                  >
-                    {currencies.map((currency) => (
-                      <option key={currency.id} value={currency.id}>
-                        {currency.arabicName || currency.englishName || currency.code}
-                      </option>
-                    ))}
-                  </select>
-                </CompactFormField>
+                <DocumentCurrencyRateFields
+                  currencies={currencies}
+                  currencyId={currencyId}
+                  exchangeRate={Number(exchangeRateWatch) > 0 ? Number(exchangeRateWatch) : 1}
+                  companyBaseCode={companyBaseCurrency}
+                  disabled={isReadOnly}
+                  amount={totalAmount}
+                  showEquivalent
+                  selectClassName={compactControlClass}
+                  onCurrencyIdChange={(id, nextRate) => {
+                    setValue('currencyId', id, { shouldDirty: true, shouldValidate: true });
+                    setValue('exchangeRate', nextRate, { shouldDirty: true });
+                  }}
+                  onExchangeRateChange={(rate) => setValue('exchangeRate', rate, { shouldDirty: true })}
+                />
               </>
             }
             row2={
@@ -321,6 +356,7 @@ function TemporaryReceiptFormInner() {
                     {safes.map((safe) => (
                       <option key={safe.id} value={safe.id}>
                         {safe.arabicName || safe.englishName}
+                        {safe.isDefault ? ' (رئيسية)' : ''}
                       </option>
                     ))}
                   </select>
@@ -342,7 +378,7 @@ function TemporaryReceiptFormInner() {
                     />
                   </div>
                 </CompactFormField>
-                <CompactFormField label="الشرح" className="lg:col-span-2">
+                <CompactFormField label="الشرح">
                   <textarea
                     className={`${compactControlClass} min-h-[72px] resize-y`}
                     disabled={isReadOnly}

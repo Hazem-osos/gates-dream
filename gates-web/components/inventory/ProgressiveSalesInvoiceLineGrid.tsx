@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Plus } from 'lucide-react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import {
   Controller,
@@ -337,6 +338,16 @@ export function ProgressiveSalesInvoiceLineGrid({
 
   const colSpan = columnDefs.length;
 
+  useEffect(() => {
+    if (readOnly) return;
+    if (fields.length === 0) {
+      onAppendLine();
+      return;
+    }
+    const lastLine = linesW?.[fields.length - 1];
+    if (lastLine?.itemId?.trim()) onAppendLine();
+  }, [fields.length, linesW, onAppendLine, readOnly]);
+
   const applyBulkDiscount = () => {
     const raw = window.prompt('نسبة الخصم % لتطبيقها على كل السطور');
     if (raw == null) return;
@@ -420,26 +431,8 @@ export function ProgressiveSalesInvoiceLineGrid({
               onChange={onVisibleColumnIdsChange}
               companyId={companyId}
             />
-            {readOnly ? null : (
-            <button
-              type="button"
-              onClick={onAppendLine}
-              className={
-                modernUi
-                  ? 'px-4 h-10 bg-[#0E78AA] text-white rounded-lg hover:bg-[#0A5F8A] transition-colors duration-200 font-medium text-sm shadow-sm'
-                  : 'px-4 py-2 bg-gradient-to-r from-[#0E78AA] to-[#0A5F8A] text-white rounded-lg hover:from-[#0A5F8A] hover:to-[#084A6B] transition-all duration-300 font-medium shadow-sm text-sm'
-              }
-            >
-              إضافة سطر
-            </button>
-            )}
           </div>
         </div>
-        {linesRootMessage ? (
-          <p className="px-4 py-2 text-red-600 text-sm text-right border-b border-red-100 bg-red-50/60">
-            {linesRootMessage}
-          </p>
-        ) : null}
         <div
           ref={lineGridScrollRef}
           className={`${ERP_INVOICE_ITEMS_TABLE_WRAP_CLASS} ${
@@ -1089,6 +1082,17 @@ export function ProgressiveSalesInvoiceLineGrid({
                         case 'rowDelete':
                           return (
                             <td key={col.id} className={tdBase('rowDelete', 'whitespace-nowrap')}>
+                              {readOnly ? null : (
+                                <button
+                                  type="button"
+                                  onClick={onAppendLine}
+                                  className="rounded-md px-1 py-1 text-[#0E78AA] transition-colors hover:bg-[#E8F4FA]"
+                                  aria-label="إضافة سطر"
+                                  title="إضافة سطر"
+                                >
+                                  <Plus className="h-3.5 w-3.5" />
+                                </button>
+                              )}
                               <button
                                 type="button"
                                 onClick={() => setPeekIndex(index)}
@@ -1130,6 +1134,16 @@ export function ProgressiveSalesInvoiceLineGrid({
           </tbody>
         </table>
         </div>
+        {readOnly ? null : (
+          <button
+            type="button"
+            onClick={onAppendLine}
+            className="mx-3 mt-2 mb-1 inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold text-[#0E78AA] hover:bg-[#E8F4FA]"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            إضافة سطر جديد (Enter)
+          </button>
+        )}
         {fields.length > 0 ? (
           <div className={`px-4 py-2 text-left text-sm border-t ${modernUi ? 'border-[#D6EAF3] text-[#094C6B] bg-white' : 'text-[#0A3D5E] border-[#D6EAF3] bg-white'}`}>
             <span className="font-semibold">إجمالي الأسطر (بعد الخصم): </span>

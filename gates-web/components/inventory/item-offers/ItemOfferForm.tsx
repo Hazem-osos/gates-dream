@@ -220,7 +220,7 @@ export function ItemOfferForm() {
 
         <div className="mb-4 space-y-4 rounded-xl border border-border/80 bg-card p-4 shadow-sm">
           <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-            <div className="space-y-1 md:col-span-2">
+            <div className="space-y-1">
               <label className="text-xs font-semibold text-foreground">اسم العرض / الترويج</label>
               <input
                 type="text"
@@ -244,13 +244,14 @@ export function ItemOfferForm() {
             </div>
           </div>
 
-          <div className="space-y-1">
+          <div className="space-y-1" data-erp-field="description">
             <label className="text-xs font-semibold text-foreground">الشرح / البيان</label>
             <textarea
+              name="description"
               value={form.description || ''}
               onChange={(e) => patch('description', e.target.value)}
               rows={2}
-              className="w-full resize-none rounded-md border border-input bg-background p-2 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
+              className="w-full max-w-[var(--erp-field-desc-max,20rem)] resize-none rounded-md border border-input bg-background p-2 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary"
               placeholder="شروط وتفاصيل تطبيق العرض الترويجي..."
             />
           </div>

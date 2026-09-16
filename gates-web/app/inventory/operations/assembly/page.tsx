@@ -1,7 +1,7 @@
 'use client';
 
 import { Suspense, useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useOwnTabSearchParams } from '@/lib/navigation/tab-route-lock';
 import { ErpDocumentLayout } from '@/components/erp/ErpDocumentLayout';
 import { DocumentBrowseDrawer } from '@/components/erp/DocumentBrowseDrawer';
 import { GenericRecordsList } from '@/components/erp/GenericRecordsList';
@@ -72,7 +72,7 @@ function todayIso() {
 }
 
 function AssemblyPageInner() {
-  const searchParams = useSearchParams();
+  const searchParams = useOwnTabSearchParams();
   const invalidateQuery = useInvalidateQuery();
   const [selectedId, setSelectedId] = useState<string | null>(
     () => searchParams.get('id')?.trim() || null

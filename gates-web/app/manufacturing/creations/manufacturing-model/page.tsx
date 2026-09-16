@@ -155,7 +155,6 @@ export default function ManufacturingModelPage() {
         <FormSectionCard
           title="البيانات الأساسية"
           subtitle="المسلسل والصنف الناتج والكمية الأساسية"
-          bodyClassName="grid-cols-1 sm:grid-cols-2 lg:grid-cols-4"
         >
           <CompactFormField
             label="المسلسل"

@@ -1,25 +1,27 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Truck, UserRound } from 'lucide-react';
 import UserPermissionsBar from '@/components/UserPermissionsBar';
 import {
   CompactFormField,
-  AdvancedFieldsSection,
   FormSectionCard,
   AppTable,
 } from '@/components/ui';
+import { useOwnTabSearchParams } from '@/lib/navigation/tab-route-lock';
+import { apiClient } from '@/lib/api/client';
 import { DocumentBrowseDrawer, MasterCardShell } from '@/components/erp';
 import { useApiMutation, useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
 import type { ApiError } from '@/lib/api/types';
-import { nextNumericSerial } from '@/lib/masters/nextNumericSerial';
+import { bumpTrailingCode, isCodeAfter, nextNumericSerial } from '@/lib/masters/nextNumericSerial';
 
 export type DelegateKind = 'DISTRIBUTOR' | 'DRIVER';
 
 type CardForm = {
   serial: string;
+  groupId: string;
   arabicName: string;
   nationality: string;
   barcode: string;
@@ -47,6 +49,7 @@ type SavedRow = {
 
 const EMPTY: CardForm = {
   serial: '',
+  groupId: '',
   arabicName: '',
   nationality: 'مصري',
   barcode: '',
@@ -89,11 +92,16 @@ const KIND_COPY: Record<
 export function DelegateKindCardPage({ kind }: { kind: DelegateKind }) {
   const copy = KIND_COPY[kind];
   const invalidateQuery = useInvalidateQuery();
+  const searchParams = useOwnTabSearchParams();
+  const idFromUrl = searchParams.get('id');
+  const groupIdFromUrl = searchParams.get('groupId');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [showGuide, setShowGuide] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [formData, setFormData] = useState<CardForm>(EMPTY);
+  const stayOpenRef = useRef({ serial: '' });
+  stayOpenRef.current = { serial: formData.serial };
   const KindIcon = kind === 'DISTRIBUTOR' ? Truck : UserRound;
 
   const listKey = useMemo(() => ['delegates', kind] as const, [kind]);
@@ -109,19 +117,74 @@ export function DelegateKindCardPage({ kind }: { kind: DelegateKind }) {
   );
 
   useEffect(() => {
-    setFormData((prev) => (prev.serial ? prev : { ...prev, serial: nextSerial }));
-  }, [nextSerial]);
+    if (selectedId) return;
+    setFormData((prev) => {
+      const nextGroup = groupIdFromUrl || prev.groupId;
+      if (prev.serial && isCodeAfter(prev.serial, nextSerial)) {
+        return nextGroup !== prev.groupId ? { ...prev, groupId: nextGroup } : prev;
+      }
+      if (prev.serial === nextSerial) {
+        return nextGroup !== prev.groupId ? { ...prev, groupId: nextGroup } : prev;
+      }
+      return { ...prev, serial: nextSerial, groupId: nextGroup };
+    });
+  }, [nextSerial, selectedId, groupIdFromUrl]);
+
+  useEffect(() => {
+    if (!idFromUrl) return;
+    const row = rows.find((item) => item.id === idFromUrl);
+    if (row) {
+      setSelectedId(row.id);
+      setFormData((prev) => ({
+        ...prev,
+        serial: row.serial || '',
+        arabicName: row.arabicName,
+        phone1: row.phone1 || '',
+        mobile: row.mobile || '',
+      }));
+      return;
+    }
+    let cancelled = false;
+    void apiClient.get<SavedRow & Partial<CardForm>>(`/accounting/delegates/${idFromUrl}`).then((res) => {
+      if (cancelled || !res.data) return;
+      setSelectedId(res.data.id);
+      setFormData((prev) => ({
+        ...prev,
+        serial: res.data.serial || '',
+        arabicName: res.data.arabicName,
+        phone1: res.data.phone1 || '',
+        mobile: res.data.mobile || '',
+        nationality: res.data.nationality || prev.nationality,
+        barcode: res.data.barcode || '',
+        phone2: res.data.phone2 || '',
+        fax: res.data.fax || '',
+        email: res.data.email || '',
+        website: res.data.website || '',
+        country: res.data.country || prev.country,
+        city: res.data.city || prev.city,
+        area: res.data.area || prev.area,
+        street: res.data.street || '',
+        postalCode: res.data.postalCode || '',
+        poBox: res.data.poBox || '',
+      }));
+    }).catch((err: unknown) => {
+      if (!cancelled) setError(err instanceof Error ? err.message : 'تعذر فتح البطاقة');
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [idFromUrl, rows]);
 
   const mutation = useApiMutation<unknown, Record<string, unknown>>(
     '/accounting/delegates',
     'POST',
     {
       onSuccess: () => {
-        setSuccess(copy.success);
+        setSuccess(`${copy.success} — تقدر تضيف التالي`);
         invalidateQuery(listKey);
         invalidateQuery(['delegates']);
         setSelectedId(null);
-        setFormData(EMPTY);
+        setFormData({ ...EMPTY, serial: bumpTrailingCode(stayOpenRef.current.serial) });
       },
       onError: (err: ApiError) => {
         setError(err.message || 'حدث خطأ أثناء الحفظ');
@@ -140,10 +203,10 @@ export function DelegateKindCardPage({ kind }: { kind: DelegateKind }) {
       setError(copy.required);
       return;
     }
-    try {
-      await mutation.mutateAsync({
+    const payload = {
         role: kind,
         serial: formData.serial.trim() || undefined,
+        groupId: formData.groupId || groupIdFromUrl || undefined,
         arabicName: formData.arabicName.trim(),
         nationality: formData.nationality.trim() || undefined,
         barcode: formData.barcode.trim() || undefined,
@@ -162,7 +225,16 @@ export function DelegateKindCardPage({ kind }: { kind: DelegateKind }) {
         address: [formData.street, formData.area, formData.city, formData.country]
           .filter(Boolean)
           .join(' — ') || undefined,
-      });
+    };
+    try {
+      if (selectedId) {
+        await apiClient.put(`/accounting/delegates/${selectedId}`, payload);
+        setSuccess(copy.success);
+        invalidateQuery(listKey);
+        invalidateQuery(['delegates']);
+        return;
+      }
+      await mutation.mutateAsync(payload);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'حدث خطأ أثناء الحفظ');
     }
@@ -174,20 +246,6 @@ export function DelegateKindCardPage({ kind }: { kind: DelegateKind }) {
     setError('');
     setSuccess('');
   };
-
-  const advancedFilledCount = [
-    formData.barcode,
-    formData.phone2,
-    formData.fax,
-    formData.email,
-    formData.website,
-    formData.country,
-    formData.city,
-    formData.area,
-    formData.street,
-    formData.postalCode,
-    formData.poBox,
-  ].filter((v) => String(v ?? '').trim().length > 0).length;
 
   return (
     <MasterCardShell
@@ -250,8 +308,7 @@ export function DelegateKindCardPage({ kind }: { kind: DelegateKind }) {
           />
         </FormSectionCard>
 
-        <AdvancedFieldsSection title="الحقول والإعدادات المتقدمة" badgeCount={advancedFilledCount}>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <FormSectionCard title="الاتصال والعنوان" subtitle="باقي بيانات التواصل" icon={KindIcon}>
             <CompactFormField
               label="رقم الباركود"
               value={formData.barcode}
@@ -316,8 +373,7 @@ export function DelegateKindCardPage({ kind }: { kind: DelegateKind }) {
               onChange={(e) => patch('poBox', e.target.value)}
               placeholder="إدخل صندوق البريد"
             />
-          </div>
-        </AdvancedFieldsSection>
+        </FormSectionCard>
 
       </form>
 

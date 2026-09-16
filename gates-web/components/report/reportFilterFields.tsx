@@ -414,6 +414,7 @@ export function ReportFilterAccountSelect({
         emptyLabel={emptyLabel}
         placeholder={placeholder}
         enableQuickCreate
+        leafOnly={false}
       />
     </ReportFilterField>
   );

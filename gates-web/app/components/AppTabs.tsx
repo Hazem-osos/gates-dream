@@ -4,6 +4,7 @@ import { IoClose } from "react-icons/io5";
 import { normalizeAppPath } from '@/lib/navigation/app-module-root';
 import { resolveTabLabel } from '@/lib/navigation/tab-labels';
 import { useAppTabs } from './AppTabsContext';
+import { flushPageDrafts, markQcReturn } from '@/lib/drafts/page-drafts';
 
 export default function AppTabs() {
   const pathname = usePathname();
@@ -19,7 +20,8 @@ export default function AppTabs() {
     ctx?.closeTab(path);
     if (path === activeTab) {
       if (remaining.length > 0) {
-        router.push(remaining[remaining.length - 1].path);
+        const last = remaining[remaining.length - 1];
+        router.push(last.href || last.path);
       } else {
         const currentRoot = pathname.split('/')[1];
         router.push(currentRoot ? `/${currentRoot}` : '/');
@@ -42,7 +44,14 @@ export default function AppTabs() {
           <button
             key={tab.path}
             type="button"
-            onClick={() => router.push(tab.path)}
+            onClick={() => {
+              if (tab.path !== activeTab) {
+                flushPageDrafts();
+                markQcReturn(activeTab);
+                ctx?.pinCurrentTab();
+              }
+              router.push(tab.href || tab.path);
+            }}
             className={`relative flex items-center gap-3 px-5 py-2 rounded-2xl text-sm transition-all backdrop-blur-sm
               ${isActive
                 ? 'bg-gradient-to-r from-[#0E79AA] to-[#1787B8] text-white shadow-md hover:shadow-lg'

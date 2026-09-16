@@ -6,6 +6,7 @@ export type MovementRow = {
   description: string;
   debit: number;
   credit: number;
+  statusLabel: string;
 };
 
 export type NamedLedgerParty = {
@@ -27,6 +28,9 @@ export type MovementPreviewPayload = {
     description?: string | null;
     debit?: number;
     credit?: number;
+    isPosted?: boolean;
+    isCancelled?: boolean;
+    statusLabel?: string;
   }>;
 };
 
@@ -56,5 +60,7 @@ export function mapPreviewMovements(payload?: MovementPreviewPayload | null): Mo
     description: row.description || '',
     debit: Number(row.debit) || 0,
     credit: Number(row.credit) || 0,
+    statusLabel: row.statusLabel
+      || (row.isCancelled ? 'ملغي' : row.isPosted ? 'مرحل' : 'غير مرحل'),
   }));
 }

@@ -2,7 +2,9 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import dynamic from 'next/dynamic';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
+import { destinationAppTabHref } from '@/lib/navigation/tab-memory';
+import { useOwnTabPathname, useOwnTabSearchParams } from '@/lib/navigation/tab-route-lock';
 import { useForm, useFieldArray, useWatch, type FieldErrors, type Resolver } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Button } from '@/components/ui';
@@ -47,6 +49,7 @@ import { columnsFromDocumentProfile } from '@/lib/document-profiles/columns';
 import { previewProfileNumber } from '@/lib/document-profiles/types';
 import { SalesInvoicePageHeader } from '@/components/inventory/sales-invoice/SalesInvoicePageHeader';
 import { ErpDocumentLayout } from '@/components/erp/ErpDocumentLayout';
+import { PageDraftRestoreBanner } from '@/components/erp/PageDraftRestoreBanner';
 import { ERP_INVOICE_DOCUMENT_LAYOUT_CLASS } from '@/components/erp/erpUiTokens';
 import { SalesInvoiceFormHeader } from '@/components/inventory/sales-invoice/SalesInvoiceFormHeader';
 import { SalesInvoiceBottomSplit } from '@/components/inventory/sales-invoice/SalesInvoiceBottomSplit';
@@ -59,7 +62,7 @@ import {
 } from '@/lib/invoices/invoice-adjustments';
 import { DocumentApprovalBar } from '@/app/components/accounting/DocumentApprovalBar';
 import { useCompanyPrintProfile } from '@/lib/hooks/useCompanyPrintProfile';
-import { useCustomersQuery } from '@/lib/hooks/useMasterDataQueries';
+import { pickDefaultSafeId, useCustomersQuery } from '@/lib/hooks/useMasterDataQueries';
 import { firstPartyPhone, type WhatsAppInvoicePayload } from '@/lib/whatsapp-share';
 import { consumeAiTransactionDraft } from '@/lib/ai/ai-draft-storage';
 import { invoiceDateFromDraft, salesLinesFromAiDraft } from '@/lib/ai/hydrate-ai-draft';
@@ -247,6 +250,38 @@ function firstErrorMessage(errors: FieldErrors | undefined): string | undefined 
   return undefined;
 }
 
+function blankSalesInvoiceLine(
+  overrides: Partial<SalesInvoiceFormValues['lines'][number]> = {}
+): SalesInvoiceFormValues['lines'][number] {
+  return {
+    itemId: '',
+    unitId: '',
+    quantity: 1,
+    baseQuantity: 1,
+    conversionFactor: 1,
+    baseUnitId: '',
+    unitPrice: 0,
+    discount: 0,
+    discountValue: 0,
+    discountType: 'PERCENTAGE',
+    taxRate: 0,
+    warehouseId: '',
+    withholdingTaxRate: 0,
+    withholdingTaxAmount: 0,
+    costCenterId: '',
+    color: '',
+    size: '',
+    customRevenueAccountId: '',
+    batchAllocations: [],
+    ...overrides,
+  };
+}
+
+function isSalesInvoiceDraftEmpty(draft: SalesInvoiceFormValues) {
+  const hasLine = (draft.lines ?? []).some((line) => Boolean(line.itemId?.trim()));
+  return !draft.customerId?.trim() && !draft.description?.trim() && !hasLine;
+}
+
 function emptySalesInvoiceDefaults(): SalesInvoiceFormValues {
   const today = new Date().toISOString().split('T')[0];
   return {
@@ -285,7 +320,7 @@ function emptySalesInvoiceDefaults(): SalesInvoiceFormValues {
     developmentFeeMode: 'percent',
     developmentFeeRate: 1,
     developmentFeeFixedAmount: undefined,
-    lines: [],
+    lines: [blankSalesInvoiceLine()],
   };
 }
 
@@ -301,7 +336,8 @@ function SalesInvoicePageInner() {
   const router = useRouter();
   const { lockToView, setMode, unlockForEdit, isReadOnly, isEditing } = useDocumentMode();
   const { companyId } = useFirstCompany();
-  const searchParams = useSearchParams();
+  const searchParams = useOwnTabSearchParams();
+  const ownPathname = useOwnTabPathname();
   const showOnboardingGuide = searchParams.get('onboarding') === '1';
   const invoiceIdFromUrl = searchParams.get('invoiceId');
   const fromAiDraft = searchParams.get('fromAiDraft') === '1';
@@ -415,27 +451,15 @@ function SalesInvoicePageInner() {
   const setVisibleColumnIds = documentProfile ? () => undefined : setUserVisibleColumnIds;
 
   const appendBlankInvoiceLine = useCallback(() => {
-    append({
-      itemId: '',
-      unitId: '',
-      quantity: 1,
-      baseQuantity: 1,
-      conversionFactor: 1,
-      baseUnitId: '',
-      unitPrice: 0,
-      discount: 0,
-      discountValue: 0,
-      discountType: 'PERCENTAGE',
-      taxRate: isSalesTaxInvoice ? 14 : 0,
-      warehouseId: getValues('warehouseId') || '',
-      withholdingTaxRate: defaultWhtRate,
-      withholdingTaxAmount: 0,
-      costCenterId: getValues('costCenterId') || txSettings?.defaultCostCenterId || '',
-      color: '',
-      size: '',
-      customRevenueAccountId: txSettings?.defaultSalesAccountId || '',
-      batchAllocations: [],
-    });
+    append(
+      blankSalesInvoiceLine({
+        taxRate: isSalesTaxInvoice ? 14 : 0,
+        warehouseId: getValues('warehouseId') || '',
+        withholdingTaxRate: defaultWhtRate,
+        costCenterId: getValues('costCenterId') || txSettings?.defaultCostCenterId || '',
+        customRevenueAccountId: txSettings?.defaultSalesAccountId || '',
+      })
+    );
   }, [append, defaultWhtRate, getValues, isSalesTaxInvoice, txSettings]);
 
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<string | null>(() =>
@@ -493,8 +517,8 @@ function SalesInvoicePageInner() {
     const params = new URLSearchParams(searchParams.toString());
     params.delete('fromAiDraft');
     const qs = params.toString();
-    router.replace(qs ? `?${qs}` : window.location.pathname, { scroll: false });
-  }, [fromAiDraft, isSalesTaxInvoice, reset, router, searchParams, selectedInvoiceId]);
+    router.replace(qs ? `${ownPathname}?${qs}` : ownPathname, { scroll: false });
+  }, [fromAiDraft, isSalesTaxInvoice, ownPathname, reset, router, searchParams, selectedInvoiceId]);
 
   const openInvoice = useCallback(
     (id: string | null) => {
@@ -503,9 +527,9 @@ function SalesInvoicePageInner() {
       if (id) params.set('invoiceId', id);
       else params.delete('invoiceId');
       const qs = params.toString();
-      router.replace(qs ? `?${qs}` : window.location.pathname, { scroll: false });
+      router.replace(qs ? `${ownPathname}?${qs}` : ownPathname, { scroll: false });
     },
-    [router, searchParams]
+    [ownPathname, router, searchParams]
   );
   const [bottomSplitTab, setBottomSplitTab] = useState('gl');
   const [paymentSplits, setPaymentSplits] = useState<PaymentSplitLine[]>([]);
@@ -528,23 +552,15 @@ function SalesInvoicePageInner() {
     acceptRestore,
     dismissRestore,
     clearDraft,
-  } = useDraftAutosave(
-    'gates:draft:sales-invoice',
-    formSnapshot,
-    draftEnabled
-  );
+  } = useDraftAutosave('gates:draft:sales-invoice', formSnapshot, draftEnabled, {
+    applyRestore: (payload) => reset(payload),
+    isEmpty: isSalesInvoiceDraftEmpty,
+    restoreMessage: 'تم استعادة المسودة المحفوظة',
+  });
 
   useEffect(() => {
     if (!restoreOffer || selectedInvoiceId) return;
-    if (aiDraftAppliedRef.current) {
-      dismissRestore();
-      return;
-    }
-    const hasContent =
-      Boolean(restoreOffer.customerId?.trim()) ||
-      (restoreOffer.lines?.length ?? 0) > 0 ||
-      Boolean(restoreOffer.description?.trim());
-    if (!hasContent) {
+    if (aiDraftAppliedRef.current || isSalesInvoiceDraftEmpty(restoreOffer)) {
       dismissRestore();
     }
   }, [restoreOffer, selectedInvoiceId, dismissRestore]);
@@ -1244,7 +1260,7 @@ function SalesInvoicePageInner() {
     '/accounting/safes',
     { page: 1, limit: 50 }
   );
-  const defaultSafeId = safesResponse?.data?.[0]?.id;
+  const defaultSafeId = pickDefaultSafeId(safesResponse?.data);
 
   useEffect(() => {
     if (paymentMethodW !== 'split') return;
@@ -1353,7 +1369,7 @@ function SalesInvoicePageInner() {
       toast.error('يرجى اختيار فاتورة أولاً');
       return;
     }
-    router.push(`/accounting/operations/journal-entry?ref=invoice&id=${selectedInvoiceId}`);
+    router.push(destinationAppTabHref(`/accounting/operations/journal-entry?ref=invoice&id=${selectedInvoiceId}`));
   };
 
   const saveInFlight =
@@ -1408,6 +1424,7 @@ function SalesInvoicePageInner() {
           : undefined;
       const formData = {
         ...data,
+        lines: data.lines ?? [],
         paymentMethod: resolvedMethod,
         paymentSplits:
           resolvedMethod === 'split'
@@ -1591,7 +1608,7 @@ function SalesInvoicePageInner() {
       toast.error('يجب ترحيل الفاتورة قبل إنشاء مرتجع');
       return;
     }
-    router.push(`/inventory/operations/sales-returns?fromInvoice=${selectedInvoiceId}`);
+    router.push(destinationAppTabHref(`/inventory/operations/sales-returns?fromInvoice=${selectedInvoiceId}`));
   };
 
   const handleDuplicateDocument = () => {
@@ -1634,17 +1651,11 @@ function SalesInvoicePageInner() {
   return (
     <ErpDocumentLayout className={ERP_INVOICE_DOCUMENT_LAYOUT_CLASS}>
       {restoreOffer && !selectedInvoiceId ? (
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
-          <span>يوجد مسودة فاتورة غير محفوظة من جلسة سابقة.</span>
-          <div className="flex gap-2">
-            <Button type="button" size="sm" variant="primary" onClick={handleRestoreDraft}>
-              استعادة
-            </Button>
-            <Button type="button" size="sm" variant="ghost" onClick={dismissRestore}>
-              تجاهل
-            </Button>
-          </div>
-        </div>
+        <PageDraftRestoreBanner
+          message="يوجد مسودة فاتورة غير محفوظة من جلسة سابقة."
+          onRestore={handleRestoreDraft}
+          onDismiss={dismissRestore}
+        />
       ) : null}
 
       {showOnboardingGuide && !selectedInvoiceId ? (

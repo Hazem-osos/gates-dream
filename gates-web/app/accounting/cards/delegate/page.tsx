@@ -1,21 +1,22 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { User } from 'lucide-react';
 import Image from 'next/image';
 import {
   CompactFormField,
-  AdvancedFieldsSection,
   FormSectionCard,
   compactControlClass,
   AppTable,
 } from '@/components/ui';
+import { useOwnTabSearchParams } from '@/lib/navigation/tab-route-lock';
+import { apiClient } from '@/lib/api/client';
 import { DocumentBrowseDrawer, MasterCardShell } from '@/components/erp';
 import { useApiQuery, useApiMutation, useInvalidateQuery } from '@/lib/hooks/useApi';
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
 import type { ApiError } from '@/lib/api/types';
-import { nextNumericSerial } from '@/lib/masters/nextNumericSerial';
+import { bumpTrailingCode, isCodeAfter, nextNumericSerial } from '@/lib/masters/nextNumericSerial';
 
 interface PriceList {
   id: string;
@@ -51,8 +52,39 @@ const EMPTY_FORM = {
   priceListId: '',
 };
 
+type DelegateRecord = {
+  id: string;
+  serial?: string | null;
+  code?: string | null;
+  arabicName?: string | null;
+  englishName?: string | null;
+  nationality?: string | null;
+  barcode?: string | null;
+  phone1?: string | null;
+  phone2?: string | null;
+  mobile?: string | null;
+  fax?: string | null;
+  email?: string | null;
+  website?: string | null;
+  country?: string | null;
+  city?: string | null;
+  area?: string | null;
+  street?: string | null;
+  postalCode?: string | null;
+  poBox?: string | null;
+  address?: string | null;
+  commissionPercentage?: number | string | null;
+  commissionPolicyId?: string | null;
+  groupId?: string | null;
+  salesCommissionsId?: string | null;
+  priceListId?: string | null;
+};
+
 export default function DelegatePage() {
   const invalidateQuery = useInvalidateQuery();
+  const searchParams = useOwnTabSearchParams();
+  const idFromUrl = searchParams.get('id');
+  const groupIdFromUrl = searchParams.get('groupId');
   
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -60,6 +92,8 @@ export default function DelegatePage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const [formData, setFormData] = useState(EMPTY_FORM);
+  const stayOpenRef = useRef({ serial: '', code: '' });
+  stayOpenRef.current = { serial: formData.serial, code: formData.code || formData.serial };
 
   // Fetch price lists
   const { data: priceListsResponse } = useApiQuery<PriceList[]>(
@@ -78,10 +112,63 @@ export default function DelegatePage() {
   );
 
   useEffect(() => {
-    setFormData((prev) =>
-      prev.serial || prev.code ? prev : { ...prev, serial: nextDelegateCode, code: nextDelegateCode }
-    );
-  }, [nextDelegateCode]);
+    if (selectedId) return;
+    setFormData((prev) => {
+      const nextGroup = groupIdFromUrl || prev.groupId;
+      const current = prev.serial || prev.code;
+      if (current && isCodeAfter(current, nextDelegateCode)) {
+        return nextGroup !== prev.groupId ? { ...prev, groupId: nextGroup } : prev;
+      }
+      if (prev.serial === nextDelegateCode && prev.code === nextDelegateCode) {
+        return nextGroup !== prev.groupId ? { ...prev, groupId: nextGroup } : prev;
+      }
+      return { ...prev, serial: nextDelegateCode, code: nextDelegateCode, groupId: nextGroup };
+    });
+  }, [nextDelegateCode, selectedId, groupIdFromUrl]);
+
+  const hydrate = (row: DelegateRecord) => {
+    setSelectedId(row.id);
+    setFormData({
+      serial: row.serial || row.code || '',
+      code: row.code || row.serial || '',
+      arabicName: row.arabicName ?? '',
+      englishName: row.englishName ?? '',
+      nationality: row.nationality ?? '',
+      barcode: row.barcode ?? '',
+      phone1: row.phone1 ?? '',
+      phone2: row.phone2 ?? '',
+      mobile: row.mobile ?? '',
+      fax: row.fax ?? '',
+      email: row.email ?? '',
+      website: row.website ?? '',
+      country: row.country ?? '',
+      city: row.city ?? '',
+      area: row.area ?? '',
+      street: row.street ?? '',
+      postalCode: row.postalCode ?? '',
+      poBox: row.poBox ?? '',
+      address: row.address ?? '',
+      commissionPercentage: row.commissionPercentage != null ? String(row.commissionPercentage) : '',
+      commissionPolicyId: row.commissionPolicyId ?? '',
+      groupId: row.groupId ?? '',
+      salesCommissionsId: row.salesCommissionsId ?? '',
+      priceListId: row.priceListId ?? '',
+    });
+    setError('');
+  };
+
+  useEffect(() => {
+    if (!idFromUrl) return;
+    let cancelled = false;
+    void apiClient.get<DelegateRecord>(`/accounting/delegates/${idFromUrl}`).then((res) => {
+      if (!cancelled && res.data) hydrate(res.data);
+    }).catch((err: unknown) => {
+      if (!cancelled) setError(err instanceof Error ? err.message : 'تعذر فتح المندوب');
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [idFromUrl]);
 
   // Delegate mutation
   const delegateMutation = useApiMutation<unknown, Record<string, unknown>>(
@@ -93,7 +180,11 @@ export default function DelegatePage() {
         invalidateQuery(['delegates']);
         // Reset form
         setSelectedId(null);
-        setFormData(EMPTY_FORM);
+        setFormData({
+          ...EMPTY_FORM,
+          serial: bumpTrailingCode(stayOpenRef.current.serial),
+          code: bumpTrailingCode(stayOpenRef.current.code),
+        });
       },
       onError: (error: ApiError) => {
         setError(error.message || 'حدث خطأ أثناء الحفظ');
@@ -107,8 +198,8 @@ export default function DelegatePage() {
       return;
     }
 
-    try {
-      await delegateMutation.mutateAsync({
+    const payload = {
+        role: 'DELEGATE',
         serial: formData.serial || undefined,
         code: formData.code || undefined,
         arabicName: formData.arabicName,
@@ -133,7 +224,16 @@ export default function DelegatePage() {
         groupId: formData.groupId || undefined,
         salesCommissionsId: formData.salesCommissionsId || undefined,
         priceListId: formData.priceListId || undefined,
-      });
+    };
+
+    try {
+      if (selectedId) {
+        await apiClient.put(`/accounting/delegates/${selectedId}`, payload);
+        setSuccess('تم تحديث المندوب بنجاح');
+        invalidateQuery(['delegates']);
+        return;
+      }
+      await delegateMutation.mutateAsync(payload);
     } catch (error: unknown) {
       setError(error instanceof Error ? error.message : 'حدث خطأ أثناء الحفظ');
     }
@@ -145,29 +245,6 @@ export default function DelegatePage() {
     setError('');
     setSuccess('');
   };
-
-  const advancedFilledCount = [
-    formData.englishName,
-    formData.nationality,
-    formData.barcode,
-    formData.phone2,
-    formData.mobile,
-    formData.fax,
-    formData.email,
-    formData.website,
-    formData.country,
-    formData.city,
-    formData.area,
-    formData.street,
-    formData.postalCode,
-    formData.poBox,
-    formData.address,
-    formData.commissionPercentage,
-    formData.commissionPolicyId,
-    formData.groupId,
-    formData.salesCommissionsId,
-    formData.priceListId,
-  ].filter((v) => String(v ?? '').trim().length > 0).length;
 
   return (
     <MasterCardShell
@@ -216,8 +293,7 @@ export default function DelegatePage() {
           />
         </FormSectionCard>
 
-        <AdvancedFieldsSection title="الحقول والإعدادات المتقدمة" badgeCount={advancedFilledCount}>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <FormSectionCard title="الاتصال والعمولات" subtitle="العنوان وبيانات العمولة" icon={User}>
             <CompactFormField
               label="الإسم الإنجليزي"
               value={formData.englishName}
@@ -374,8 +450,7 @@ export default function DelegatePage() {
               onChange={(e) => setFormData((prev) => ({ ...prev, commissionPercentage: e.target.value }))}
               placeholder="إدخل نسبة العمولة"
             />
-          </div>
-        </AdvancedFieldsSection>
+        </FormSectionCard>
 
       </form>
 

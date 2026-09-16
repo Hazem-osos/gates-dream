@@ -204,7 +204,10 @@ export class GlAccountResolver {
           code: true,
           arabicName: true,
           requiresCostCenter: true,
+          costCenterRequired: true,
           statementType: true,
+          accountKind: true,
+          _count: { select: { children: { where: { deletedAt: null } } } },
         },
       }),
       prisma.companySettings.findUnique({
@@ -217,14 +220,45 @@ export class GlAccountResolver {
 
     return lines.map((line) => {
       const account = byId.get(line.accountId);
-      if (!account) return line;
+      if (!account) {
+        throw new AppError(422, 'أحد حسابات القيد غير موجود في دليل الحسابات');
+      }
+      if (account.accountKind === 'HEADER' || (account._count?.children ?? 0) > 0) {
+        throw new AppError(
+          422,
+          `الحساب ${account.code} (${account.arabicName}) حساب رئيسي/رئيسي فرعي ولا يُرحَّل عليه. اختر حساب حركة.`
+        );
+      }
+      const caption = (account.costCenterRequired ?? '').trim();
+      const forbidCostCenter = caption === 'بدون' || caption.toUpperCase() === 'NONE';
       const needsCostCenter =
-        account.requiresCostCenter === true ||
-        (enforcePnl && account.statementType === 'INCOME_STATEMENT');
-      if (!needsCostCenter) return line;
+        !forbidCostCenter &&
+        (account.requiresCostCenter === true ||
+          caption === 'إجباري' ||
+          (enforcePnl && account.statementType === 'INCOME_STATEMENT'));
+
+      if (forbidCostCenter) {
+        if (line.costCenterId) {
+          throw new AppError(
+            422,
+            `الحساب ${account.code} (${account.arabicName}) مربوط بدون مركز تكلفة. امسح مركز التكلفة من السطر.`
+          );
+        }
+        return { ...line, costCenterId: undefined };
+      }
+
+      if (!needsCostCenter) {
+        return {
+          ...line,
+          costCenterId: line.costCenterId ?? fallbackCostCenterId ?? undefined,
+        };
+      }
       const costCenterId = line.costCenterId ?? fallbackCostCenterId ?? undefined;
       if (!costCenterId) {
-        throw new AppError(422, 'مركز التكلفة إجباري لحسابات الأرباح والخسائر');
+        throw new AppError(
+          422,
+          `مركز التكلفة إجباري للحساب ${account.code} (${account.arabicName}).`
+        );
       }
       return { ...line, costCenterId };
     });

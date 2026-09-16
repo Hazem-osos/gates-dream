@@ -4,6 +4,7 @@ import { autoGlPostingService } from './auto-gl-posting.service';
 import { treasuryPostingService } from '../../treasury/services/treasury-posting.service';
 import { resolveDefaultTreasuryPostingContext } from '../../treasury/services/treasury-posting-context';
 import { assertCashOverdraftAllowed } from '../../treasury/services/treasury-overdraft';
+import { persistFxDecimal } from '../utils/company-fx-rate';
 
 export interface CreateTreasuryPaymentData {
   branchId?: string;
@@ -193,7 +194,7 @@ export class TreasuryPaymentService {
         supplierId: data.supplierId,
         amount: new Decimal(data.amount),
         currencyCode: data.currencyCode,
-        exchangeRate: data.exchangeRate ? new Decimal(data.exchangeRate) : null,
+        exchangeRate: persistFxDecimal(data.currencyCode, data.exchangeRate),
         isPosted: false,
         isApproved: false,
         isCancelled: false,

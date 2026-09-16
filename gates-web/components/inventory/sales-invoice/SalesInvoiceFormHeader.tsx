@@ -19,9 +19,12 @@ import {
   erpInputClass,
   erpInputErrorClass,
   erpLabelClass,
+  erpFormGridClass,
 } from '@/components/erp';
 import { useClientMounted } from '@/lib/hooks/useClientMounted';
 import { isFxRateLocked, rateForCurrency } from '@/lib/accounting/fx-base';
+import { useFollowCurrencyCardRate } from '@/lib/hooks/useFollowCurrencyCardRate';
+import { ExchangeRateInput } from '@/components/accounting/ExchangeRateInput';
 import { useCompanyBaseCurrency } from '@/lib/hooks/useCompanyBaseCurrency';
 import { InvoiceSourceDocumentControl } from '@/components/invoices/InvoiceSourceDocumentControl';
 import type { SourceHydratePayload } from '@/lib/invoices/sourceDocument';
@@ -124,8 +127,20 @@ export function SalesInvoiceFormHeader({
   };
 
   const currencyIdW = useWatch({ control, name: 'currencyId' });
+  const exchangeRateW = useWatch({ control, name: 'exchangeRate' });
   const selectedHeaderCurrency = currencies.find((c) => c.id === currencyIdW);
   const headerRateLocked = isFxRateLocked(selectedHeaderCurrency?.code, companyBase);
+  const catalogHeaderRate = rateForCurrency(
+    selectedHeaderCurrency?.code,
+    companyBase,
+    selectedHeaderCurrency?.exchangeRate
+  );
+  useFollowCurrencyCardRate(
+    catalogHeaderRate,
+    Number(exchangeRateW) || catalogHeaderRate,
+    !headerRateLocked && !currenciesBusy,
+    (rate) => setValue('exchangeRate', rate, { shouldDirty: true })
+  );
   const sourceType = useWatch({ control, name: 'sourceType' });
   const sourceId = useWatch({ control, name: 'sourceId' });
   const sourceNumber = useWatch({ control, name: 'sourceNumber' });
@@ -216,7 +231,7 @@ export function SalesInvoiceFormHeader({
         />
         <ErpFieldError message={errors.warehouseId?.message} show={showValidationErrors} />
       </div>
-      <div>
+      <div className="min-w-[18rem]">
         <label className={erpLabelClass}>طريقة الدفع</label>
         <div
           className="flex min-h-10 flex-wrap rounded-lg border border-slate-200 overflow-hidden bg-slate-50 p-0.5 gap-0.5"
@@ -355,7 +370,7 @@ export function SalesInvoiceFormHeader({
           onHydrate={onSourceHydrate}
         />
       ) : null}
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+    <div className={erpFormGridClass}>
       <div>
         <label className={erpLabelClass}>المندوب</label>
         <select className={erpInputClass} disabled={delegatesBusy} {...register('delegateId')}>
@@ -399,14 +414,15 @@ export function SalesInvoiceFormHeader({
       </div>
       <div>
         <label className={erpLabelClass}>سعر الصرف</label>
-        <input
-          type="number"
-          step="0.0001"
-          min="0"
+        <ExchangeRateInput
           className={erpInputClass}
           placeholder="1.0000"
           disabled={headerRateLocked}
-          {...register('exchangeRate', { valueAsNumber: true })}
+          currencyId={currencyIdW}
+          currencyCode={selectedHeaderCurrency?.code}
+          companyBaseCode={companyBase}
+          value={exchangeRateW}
+          onChange={(rate) => setValue('exchangeRate', rate, { shouldDirty: true })}
         />
         <p className="mt-1 text-[11px] text-slate-400">
           {headerRateLocked
@@ -424,7 +440,7 @@ export function SalesInvoiceFormHeader({
         فاتورة خاضعة لضريبة القيمة المضافة (ض.ق.م)
       </label>
       <p
-        className={`col-span-full text-xs text-slate-500 -mt-2 ${isSalesTaxInvoice ? 'hidden' : ''}`}
+        className={`w-full text-xs text-slate-500 -mt-2 ${isSalesTaxInvoice ? 'hidden' : ''}`}
       >
         ضريبة القيمة المضافة (ض.ق.م) معطّلة — الأسعار والإجمالي بدون ض.ق.م. فعّل الخيار أعلاه عند الحاجة.
       </p>
@@ -491,7 +507,7 @@ export function SalesInvoiceFormHeader({
         )}
       />
       {convertedFromInvoice ? (
-        <div className="col-span-full flex items-center gap-2 rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] px-3 py-2 text-xs text-[#0A3D5E]">
+        <div className="flex w-full items-center gap-2 rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] px-3 py-2 text-xs text-[#0A3D5E]">
           <span className="font-semibold">مُحوّلة من:</span>
           <span>
             {convertedFromInvoice.invoiceKind ?? 'مستند'} رقم {convertedFromInvoice.invoiceNumber ?? convertedFromInvoice.id.slice(0, 8)}
@@ -501,7 +517,7 @@ export function SalesInvoiceFormHeader({
           </span>
         </div>
       ) : null}
-      <div className="col-span-full rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] p-3 space-y-2">
+      <div className="w-full rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] p-3 space-y-2">
         <label className={erpLabelClass}>أساس احتساب سعر البند</label>
         <div className="flex flex-wrap gap-4">
           {(Object.keys(PRICING_CALCULATION_BASIS_LABELS) as Array<keyof typeof PRICING_CALCULATION_BASIS_LABELS>).map(
@@ -522,7 +538,7 @@ export function SalesInvoiceFormHeader({
           كمية الوحدة المختارة = سعر × الكمية. كمية الوحدة الأساسية = سعر × الكمية الأساسية.
         </p>
       </div>
-      <div className="col-span-full rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] p-3 space-y-3">
+      <div className="w-full rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] p-3 space-y-3">
         <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
           <input
             type="checkbox"
@@ -573,7 +589,7 @@ export function SalesInvoiceFormHeader({
           </div>
         ) : null}
       </div>
-      <div className="col-span-full grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-3 items-end">
+      <div className="grid w-full grid-cols-1 sm:grid-cols-[1fr_auto] gap-3 items-end">
         <div>
           <label className={erpLabelClass}>شروط الدفع / طريقة الدفع</label>
           <input

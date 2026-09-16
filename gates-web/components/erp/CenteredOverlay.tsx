@@ -5,11 +5,11 @@ import { createPortal } from 'react-dom';
 
 type Width = 'md' | 'lg' | 'xl' | 'full';
 
-const WIDTH: Record<Width, string> = {
-  md: 'max-w-lg',
-  lg: 'max-w-3xl',
-  xl: 'max-w-6xl',
-  full: 'max-w-7xl',
+const PANEL_WIDTH: Record<Width, string> = {
+  md: 'min(32rem, calc(100vw - 2rem))',
+  lg: 'min(52rem, calc(100vw - 2rem))',
+  xl: 'min(72rem, calc(100vw - 2rem))',
+  full: 'min(80rem, calc(100vw - 2rem))',
 };
 
 type Props = {
@@ -50,17 +50,33 @@ export function CenteredOverlay({
 
   return createPortal(
     <div
-      className={`fixed inset-0 ${zClass} flex items-start justify-center overflow-y-auto p-4 sm:items-center sm:p-6`}
+      className={`fixed inset-0 ${zClass} overflow-y-auto p-4 sm:p-6`}
       style={{ direction: 'rtl' }}
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby={labelledBy}
+      role="presentation"
     >
-      <button type="button" className="fixed inset-0 bg-black/45" aria-label="إغلاق" onClick={handleClose} />
-      <div
-        className={`relative my-auto flex min-h-0 max-h-[min(92dvh,calc(100dvh-2rem))] w-full ${WIDTH[width]} flex-col overflow-hidden rounded-2xl border border-[#E6F0F7] bg-white shadow-2xl`}
-      >
-        {children}
+      <button
+        type="button"
+        className="absolute inset-0 bg-black/45"
+        aria-label="إغلاق"
+        onClick={handleClose}
+      />
+      <div className="relative flex min-h-full items-center justify-center">
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={labelledBy}
+          data-erp-overlay-panel=""
+          className="relative flex max-h-[min(92dvh,calc(100dvh-2rem))] flex-col overflow-hidden rounded-2xl border border-[#E6F0F7] bg-white shadow-2xl"
+          style={{
+            width: PANEL_WIDTH[width],
+            maxWidth: 'calc(100vw - 2rem)',
+            flexShrink: 0,
+            ['--erp-field-max' as string]: '100%',
+            ['--erp-field-desc-max' as string]: '100%',
+          }}
+        >
+          {children}
+        </div>
       </div>
     </div>,
     document.body

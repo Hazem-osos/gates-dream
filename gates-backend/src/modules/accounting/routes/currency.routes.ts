@@ -6,6 +6,7 @@ import { setTenantContext } from '../../../shared/middleware/tenant.middleware';
 import {
   createCurrencySchema,
   updateCurrencySchema,
+  rememberCurrencyRateSchema,
   currencyQuerySchema,
 } from '../schemas/currency.schema';
 import { currencyService } from '../services/currency.service';
@@ -152,6 +153,41 @@ router.post(
     } catch (error) {
       logger.error({ error, body: req.body }, 'Error creating currency');
       return sendError(res, error, 'تعذّر حفظ العملة');
+    }
+  }
+);
+
+/**
+ * PATCH /api/v1/accounting/currencies/:id/last-rate
+ * Remember the last typed FX rate so the next document reads it.
+ */
+router.patch(
+  '/:id/last-rate',
+  authorize({ resource: 'currency', action: 'view' }),
+  validate({ body: rememberCurrencyRateSchema }),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const companyId = req.companyId || req.tenantId;
+      if (!companyId) {
+        return void res.status(400).json({
+          status: 'error',
+          message: 'Company ID is required',
+        });
+      }
+
+      const currency = await currencyService.rememberLastRate(
+        companyId,
+        req.params.id,
+        req.body.exchangeRate
+      );
+
+      return void res.json({
+        status: 'success',
+        data: currency,
+      });
+    } catch (error) {
+      logger.error({ error, currencyId: req.params.id }, 'Error remembering currency rate');
+      return sendError(res, error, 'تعذّر حفظ سعر الصرف');
     }
   }
 );

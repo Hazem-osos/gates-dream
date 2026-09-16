@@ -9,6 +9,10 @@ import { invalidateMasterDataClient } from '@/lib/hooks/invalidateMasterData';
 import type { ApiError } from '@/lib/api/types';
 import { useQueryClient } from '@tanstack/react-query';
 import { QuickCreateDialog } from '@/app/components/form/QuickCreateDialog';
+import { AccountSelect } from '@/app/components/form/AccountSelect';
+import { compactControlClass } from '@/components/ui/forms/formTokens';
+import { statementTypeFromAccountType } from '@/lib/accounting/account-classification';
+import { useAccountsQuery } from '@/lib/hooks/useMasterDataQueries';
 
 export type QuickCreatedAccount = {
   id: string;
@@ -27,27 +31,46 @@ export function QuickCreateAccountModal({ open, initialName, onClose, onCreated 
   const queryClient = useQueryClient();
   const [name, setName] = useState(initialName);
   const [code, setCode] = useState('');
+  const [parentId, setParentId] = useState('');
   const [accountSide, setAccountSide] = useState<'مدين' | 'دائن' | ''>('');
   const [codeTouched, setCodeTouched] = useState(false);
   const [error, setError] = useState('');
 
   const { data: settingsRes } = useAccountingSettingsQuery();
   const autoNumbering = settingsRes?.data?.general?.coaAutoNumbering !== false;
-  const { data: suggestRes } = useSuggestAccountCode(null, open);
+  const { data: suggestRes } = useSuggestAccountCode(
+    parentId || null,
+    open && autoNumbering && Boolean(parentId)
+  );
+  const { data: headersRes } = useAccountsQuery('', 200, { headerOnly: true, enabled: open });
+  const parent = (headersRes?.data ?? []).find((row) => row.id === parentId);
 
   useEffect(() => {
     if (!open) return;
     setName(initialName);
+    setParentId('');
     setAccountSide('');
+    setCode('');
     setCodeTouched(false);
     setError('');
   }, [open, initialName]);
 
   useEffect(() => {
-    if (open && !codeTouched && suggestRes?.data?.code) {
-      setCode(suggestRes.data.code);
-    }
-  }, [open, codeTouched, suggestRes?.data?.code]);
+    if (!open || !autoNumbering || !parentId || codeTouched) return;
+    const next = suggestRes?.data?.code;
+    if (next) setCode(next);
+  }, [open, autoNumbering, parentId, codeTouched, suggestRes?.data?.code]);
+
+  useEffect(() => {
+    if (!parent || accountSide) return;
+    const inherited =
+      parent.accountType?.toLowerCase() === 'liability' ||
+      parent.accountType?.toLowerCase() === 'equity' ||
+      parent.accountType?.toLowerCase() === 'revenue'
+        ? 'دائن'
+        : 'مدين';
+    setAccountSide(inherited);
+  }, [parent, accountSide]);
 
   const mutation = useApiMutation<QuickCreatedAccount, Record<string, unknown>>(
     '/accounting/accounts',
@@ -59,6 +82,23 @@ export function QuickCreateAccountModal({ open, initialName, onClose, onCreated 
         const row = res.data;
         if (!row?.id) return;
         invalidateMasterDataClient(queryClient);
+        queryClient.setQueriesData({ queryKey: ['accounts'] }, (current: unknown) => {
+          if (!current || typeof current !== 'object') return current;
+          const bag = current as { data?: Array<Record<string, unknown>> };
+          if (!Array.isArray(bag.data) || bag.data.some((item) => item.id === row.id)) return current;
+          return {
+            ...bag,
+            data: [
+              {
+                id: row.id,
+                code: row.code || code.trim(),
+                arabicName: row.arabicName || name.trim(),
+                accountKind: 'POSTING',
+              },
+              ...bag.data,
+            ],
+          };
+        });
         onCreated({
           id: row.id,
           code: row.code || code.trim(),
@@ -76,6 +116,10 @@ export function QuickCreateAccountModal({ open, initialName, onClose, onCreated 
       setError('الاسم مطلوب');
       return;
     }
+    if (!parentId) {
+      setError('اختَر الحساب الرئيسي أولاً. الإضافة السريعة تنشئ حساب حركة تحت أب.');
+      return;
+    }
     if (!autoNumbering && !code.trim()) {
       setError('كود الحساب مطلوب — الترقيم يدوي');
       return;
@@ -87,15 +131,19 @@ export function QuickCreateAccountModal({ open, initialName, onClose, onCreated 
     mutation.mutate({
       arabicName: name.trim(),
       code: code.trim() || undefined,
+      parentId,
       accountSide,
       accountNature: accountSide === 'دائن' ? 'CREDIT' : 'DEBIT',
+      accountType: parent?.accountType || undefined,
+      statementType: statementTypeFromAccountType(parent?.accountType),
+      accountKind: 'POSTING',
     });
   };
 
   return (
     <QuickCreateDialog
       open={open}
-      title="إضافة حساب جديد"
+      title="إضافة حساب حركة"
       titleId="quick-account-title"
       error={error}
       saving={mutation.isPending}
@@ -103,6 +151,21 @@ export function QuickCreateAccountModal({ open, initialName, onClose, onCreated 
       onSave={submit}
     >
       <FormSectionCard title="البيانات الأساسية" bodyClassName="sm:grid-cols-1 lg:grid-cols-1">
+        <CompactFormField label="الحساب الرئيسي" required>
+          <AccountSelect
+            value={parentId}
+            onChange={(id) => {
+              setParentId(id);
+              setCodeTouched(false);
+            }}
+            headerOnly
+            leafOnly={false}
+            className={compactControlClass}
+            placeholder="اختر الحساب الرئيسي"
+            emptyLabel="اختر الحساب الرئيسي"
+            enableQuickCreate={false}
+          />
+        </CompactFormField>
         <CompactFormField
           label="اسم الحساب"
           required
@@ -116,6 +179,7 @@ export function QuickCreateAccountModal({ open, initialName, onClose, onCreated 
           value={code}
           readOnly={autoNumbering}
           disabled={autoNumbering}
+          hint={autoNumbering ? undefined : 'أدخله بنفسك — مفيش رقم مقترح'}
           onChange={(e) => {
             setCodeTouched(true);
             setCode(e.target.value);

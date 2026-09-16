@@ -10,6 +10,7 @@ import { useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
 import { apiClient } from '@/lib/api/client';
 import { toast } from '@/lib/feedback/toast';
 import { asWarehouseRows, type WarehouseRow } from '@/components/inventory/WarehousesListSection';
+import { bumpTrailingCode } from '@/lib/masters/nextNumericSerial';
 
 type FormState = {
   code: string;
@@ -112,13 +113,25 @@ export default function WarehouseGuidePage() {
           ...body,
           code: form.code.trim() || undefined,
         });
-      } else {
-        await apiClient.post('/inventory/warehouses', body);
+        toast.success('تم حفظ المخزن');
+        invalidate(['warehouses']);
+        void refetch();
+        setModalOpen(false);
+        return;
       }
-      toast.success('تم حفظ المخزن');
+      const created = await apiClient.post<{ id?: string; code?: string }>('/inventory/warehouses', {
+        ...body,
+        ...(form.code.trim() ? { code: form.code.trim() } : {}),
+      });
+      const createdCode = created.data?.code ?? form.code;
+      toast.success('تم حفظ المخزن — تقدر تضيف التالي');
+      setForm({
+        ...emptyForm(),
+        parentId: form.parentId,
+        code: bumpTrailingCode(createdCode),
+      });
       invalidate(['warehouses']);
       void refetch();
-      setModalOpen(false);
     } catch (e) {
       toast.error('تعذّر حفظ المخزن', {
         description: e instanceof Error ? e.message : 'راجع المخزن الأب والحركات المرتبطة به.',
@@ -158,13 +171,7 @@ export default function WarehouseGuidePage() {
             دليل المخازن
           </span>
         }
-        actions={
-          isEmpty ? null : (
-            <Button type="button" variant="secondary" size="sm" onClick={() => openCreate()}>
-              + إضافة مخزن رئيسي
-            </Button>
-          )
-        }
+        actions={null}
       />
 
       {isEmpty ? (
@@ -178,8 +185,15 @@ export default function WarehouseGuidePage() {
         </div>
       ) : (
         <>
-          <div className="mt-2">
-            <FilterToolbar searchPlaceholder="بحث بالرمز أو الاسم…" onSearchChange={setSearch} />
+          <div className="mt-2 flex items-center gap-2">
+            <Button type="button" variant="secondary" size="sm" onClick={() => openCreate()}>
+              + إضافة
+            </Button>
+            <FilterToolbar
+              className="min-w-0 flex-1"
+              searchPlaceholder="بحث بالرمز أو الاسم…"
+              onSearchChange={setSearch}
+            />
           </div>
           <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-5 text-slate-900 shadow-sm">
             <div className="mb-4 flex flex-wrap items-center gap-2">
@@ -188,9 +202,6 @@ export default function WarehouseGuidePage() {
               </Button>
               <Button type="button" variant="ghost" size="sm" onClick={() => setCollapseToken((t) => t + 1)}>
                 ⊟ طي الكل
-              </Button>
-              <Button type="button" variant="secondary" size="sm" onClick={() => openCreate()}>
-                + إضافة مخزن رئيسي
               </Button>
             </div>
             {isLoading ? (
@@ -215,6 +226,8 @@ export default function WarehouseGuidePage() {
         open={modalOpen}
         title={modalMode === 'edit' ? 'تعديل مخزن' : form.parentId ? 'إضافة مخزن فرعي' : 'إضافة مخزن رئيسي'}
         subtitle={`المخزن الأب: ${parentLabel}`}
+        hint={modalMode === 'create' ? 'بعد الحفظ النموذج يفضل مفتوح عشان تضيف التالي تحت نفس الأب. إغلاق من إلغاء.' : undefined}
+        saveText={modalMode === 'create' ? 'حفظ وإضافة آخر' : 'حفظ'}
         saving={saving}
         onClose={() => setModalOpen(false)}
         onSave={() => void handleSave()}

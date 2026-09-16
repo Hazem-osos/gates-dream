@@ -1,4 +1,9 @@
 export const FALLBACK_BASE_CURRENCY = 'EGP';
+export const POUND_CURRENCY = 'EGP';
+
+export function isEgyptianPound(currencyCode?: string | null): boolean {
+  return (currencyCode || POUND_CURRENCY).trim().toUpperCase() === POUND_CURRENCY;
+}
 
 export function currencyDisplayLabel(code: string | null | undefined): string {
   const normalized = (code || FALLBACK_BASE_CURRENCY).trim().toUpperCase();
@@ -45,7 +50,10 @@ export function rateForCurrency(
   companyBaseCode: string | null | undefined,
   catalogRate?: number | string | null
 ): number {
-  return isCompanyBaseCurrency(currencyCode, companyBaseCode) ? 1 : normalizeFxRate(catalogRate);
+  if (isEgyptianPound(currencyCode) || isCompanyBaseCurrency(currencyCode, companyBaseCode)) {
+    return 1;
+  }
+  return normalizeFxRate(catalogRate);
 }
 
 export function sameCurrencyCode(
@@ -95,5 +103,5 @@ export function isFxRateLocked(
   currencyCode: string | null | undefined,
   companyBaseCode: string | null | undefined
 ): boolean {
-  return !currencyCode || isCompanyBaseCurrency(currencyCode, companyBaseCode);
+  return !currencyCode || isEgyptianPound(currencyCode) || isCompanyBaseCurrency(currencyCode, companyBaseCode);
 }

@@ -5,6 +5,7 @@ import { SearchableCombobox } from '@/app/components/form/SearchableCombobox';
 import {
   formatAccountLabel,
   isPostableLeafAccount,
+  ACCOUNT_PICKER_PAGE_SIZE,
   PICKER_PAGE_SIZE,
   useAccountsQuery,
   useCustomersQuery,
@@ -12,7 +13,7 @@ import {
   type AccountOption,
   type PartyOption,
 } from '@/lib/hooks/useMasterDataQueries';
-import { useOpenQuickCreateTab } from '@/lib/quick-create/useQuickCreateTab';
+import { QuickCreateAccountModal } from '@/app/components/form/QuickCreateAccountModal';
 
 export type VoucherAccountPick =
   | { kind: 'ACCOUNT'; accountId: string }
@@ -48,18 +49,23 @@ export function VoucherAccountCombobox({
   onPick,
 }: Props) {
   const [search, setSearch] = useState('');
+  const [quickOpen, setQuickOpen] = useState(false);
+  const [quickName, setQuickName] = useState('');
+  const [pinnedAccount, setPinnedAccount] = useState<AccountOption | null>(null);
   const [pinnedLabel, setPinnedLabel] = useState<string | undefined>(undefined);
-  const openAccountTab = useOpenQuickCreateTab('account', (entity) => {
-    setPinnedLabel(`حساب · ${entity.label}`);
-    onPick({ kind: 'ACCOUNT', accountId: entity.id });
-  });
-  const accountsQ = useAccountsQuery(search, PICKER_PAGE_SIZE, { leafOnly: true });
+  const accountsQ = useAccountsQuery(search, ACCOUNT_PICKER_PAGE_SIZE, { leafOnly: true });
   const customersQ = useCustomersQuery(PICKER_PAGE_SIZE, search, true);
   const suppliersQ = useSuppliersQuery(PICKER_PAGE_SIZE, search, true);
 
-  const accounts = (accountsQ.data?.data ?? []).filter((a: AccountOption) =>
-    isPostableLeafAccount(a)
-  );
+  const accounts = useMemo(() => {
+    const rows = (accountsQ.data?.data ?? []).filter((a: AccountOption) =>
+      isPostableLeafAccount(a)
+    );
+    if (pinnedAccount && !rows.some((a) => a.id === pinnedAccount.id)) {
+      return [pinnedAccount, ...rows];
+    }
+    return rows;
+  }, [accountsQ.data?.data, pinnedAccount]);
   const customers = useMemo(() => customersQ.data?.data ?? [], [customersQ.data?.data]);
   const suppliers = useMemo(() => suppliersQ.data?.data ?? [], [suppliersQ.data?.data]);
 
@@ -144,8 +150,28 @@ export function VoucherAccountCombobox({
         inputProps={inputProps}
         onInputKeyDown={onInputKeyDown}
         quickCreateLabel="+ إضافة سريع"
-        onQuickCreate={(query) => openAccountTab(query)}
+        onQuickCreate={(query) => {
+          setQuickName(query?.trim() || '');
+          setQuickOpen(true);
+        }}
       />
+      {quickOpen ? (
+        <QuickCreateAccountModal
+          open={quickOpen}
+          initialName={quickName}
+          onClose={() => setQuickOpen(false)}
+          onCreated={(account) => {
+            setPinnedAccount({
+              id: account.id,
+              code: account.code,
+              arabicName: account.arabicName,
+              accountKind: 'POSTING',
+            });
+            setPinnedLabel(`حساب · [${account.code}] ${account.arabicName}`);
+            onPick({ kind: 'ACCOUNT', accountId: account.id });
+          }}
+        />
+      ) : null}
     </>
   );
 }

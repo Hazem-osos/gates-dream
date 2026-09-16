@@ -169,6 +169,7 @@ export async function createCashGlForNewSafe(
       accountSide: cashMain.accountSide ?? 'مدين',
       accountNature: cashMain.accountNature ?? 'DEBIT',
       statementType: cashMain.statementType ?? 'BALANCE_SHEET',
+      accountKind: 'POSTING',
       isActive: true,
     },
     select: { id: true },

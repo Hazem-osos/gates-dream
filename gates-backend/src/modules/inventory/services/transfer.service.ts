@@ -13,6 +13,7 @@ import { sortForStockLocking, stockLockSortKey } from '../utils/stock-lock-order
 import type { PostStockMovementInput } from './stock-movement.service';
 import { bulkCreateMany } from '../../../shared/database/bulk-write';
 import { assertUpdateCount } from '../../../shared/concurrency/optimistic-lock';
+import { assertWarehouseActive } from '../utils/inventory-system';
 
 /**
  * Wave 4 fix: a transfer locks *two* warehouse legs per item (source then
@@ -69,22 +70,8 @@ export class TransferService {
   async createTransfer(companyId: string, data: CreateTransferData) {
     try {
       // Validate warehouses belong to company
-      const [fromWarehouse, toWarehouse] = await Promise.all([
-        prisma.warehouse.findFirst({
-          where: { id: data.fromWarehouseId, companyId },
-        }),
-        prisma.warehouse.findFirst({
-          where: { id: data.toWarehouseId, companyId },
-        }),
-      ]);
-
-      if (!fromWarehouse) {
-        throw new Error('Source warehouse not found or does not belong to company');
-      }
-
-      if (!toWarehouse) {
-        throw new Error('Destination warehouse not found or does not belong to company');
-      }
+      await assertWarehouseActive(companyId, data.fromWarehouseId, { label: 'مخزن الصرف' });
+      await assertWarehouseActive(companyId, data.toWarehouseId, { label: 'مخزن الإضافة' });
 
       if (data.fromWarehouseId === data.toWarehouseId) {
         throw new Error('Source and destination warehouses cannot be the same');
@@ -443,6 +430,8 @@ export class TransferService {
       }
 
       await fiscalYearService.assertOpenForDate(companyId, transfer.date);
+      await assertWarehouseActive(companyId, transfer.fromWarehouseId, { label: 'مخزن الصرف' });
+      await assertWarehouseActive(companyId, transfer.toWarehouseId, { label: 'مخزن الإضافة' });
 
       const sourceType = 'TRF';
       const sourceNumber = transfer.serial ?? transfer.id.slice(0, 8);

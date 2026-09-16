@@ -15,7 +15,7 @@ export default function ReturnPaymentModal({ isOpen }: ReturnPaymentModalProps) 
       <div className="flex w-full max-w-2xl flex-col rounded-2xl border border-[#E6F0F7] bg-white p-5 shadow-2xl">
         <h2 className="mb-4 text-lg font-bold text-[#0A3D5E]">ارتداد الورقة</h2>
         <FormSectionCard title="بيانات الرد" bodyClassName="lg:grid-cols-2">
-          <CompactFormField label="الشرح" placeholder="إدخل الشرح" className="sm:col-span-2 lg:col-span-2" />
+          <CompactFormField label="الشرح" placeholder="إدخل الشرح" />
           <CompactFormField label="التاريخ" type="date" />
         </FormSectionCard>
         <div className="mt-2 flex justify-end">

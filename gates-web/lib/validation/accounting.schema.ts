@@ -312,6 +312,7 @@ export const treasuryTempReceiptFormSchema = z.object({
   isSettled: z.boolean(),
   safeId: z.string().min(1, 'يرجى اختيار الصندوق'),
   currencyId: z.string().min(1, 'اختر العملة'),
+  exchangeRate: z.coerce.number().positive().optional(),
 }).superRefine((data, ctx) => {
   const amt = parseFloat(String(data.amount).replace(/,/g, ''));
   if (!Number.isFinite(amt) || amt <= 0) {
@@ -403,6 +404,7 @@ export type TreasuryOrderHeaderFormInput = z.infer<typeof treasuryOrderHeaderFor
 
 export const securitiesBulkCreateHeaderFormSchema = z.object({
   currencyId: z.string().min(1, 'اختر العملة'),
+  exchangeRate: z.coerce.number().positive().optional(),
   partyName: z.string().optional(),
   partyId: z.string().min(1, 'اختر الساحب / العميل'),
   partyType: z.enum(['customer', 'supplier']),
@@ -518,6 +520,7 @@ export const accountCardFormSchema = z
     warning: z.enum(['مدين', 'دائن', 'بدون', '']).optional(),
     budget: z.string().optional(),
     currencyCode: z.string().optional(),
+    accountKind: z.enum(['HEADER', 'POSTING']).optional(),
   })
   .superRefine((value, ctx) => {
     if (!value.parentId?.trim() && !value.accountSide) {

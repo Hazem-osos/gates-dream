@@ -15,6 +15,10 @@ import { bankBoxRightsService } from './bank-box-rights.service';
 import { treasuryAccountResolverService } from './treasury-account-resolver.service';
 import type { TreasuryPostingContext } from '../types/treasury.types';
 import { assertChequeTransition } from './cheque-transition.util';
+import {
+  resolveCompanyFxRate,
+  toBaseAmount,
+} from '../../accounting/utils/company-fx-rate';
 
 const chequePartyInclude = {
   customer: { select: { id: true, code: true, arabicName: true } },
@@ -91,6 +95,14 @@ export class ChequeLifecycleService {
     return fy?.legacyYearId ?? String(new Date().getUTCFullYear());
   }
 
+  private async chequeFx(companyId: string, currencyCode?: string | null) {
+    return resolveCompanyFxRate(companyId, currencyCode);
+  }
+
+  private chequeBase(amount: number, exchangeRate: number) {
+    return new Decimal(toBaseAmount(amount, exchangeRate));
+  }
+
   private async postJe(
     tx: Prisma.TransactionClient,
     ctx: TreasuryPostingContext,
@@ -98,6 +110,7 @@ export class ChequeLifecycleService {
       date: Date;
       description: string;
       currencyCode: string;
+      exchangeRate?: number;
       sourceType: string;
       sourceNumber: string;
       sourceYearId: string;
@@ -105,6 +118,8 @@ export class ChequeLifecycleService {
       lines: JournalEntryLineData[];
     }
   ) {
+    const exchangeRate =
+      params.exchangeRate ?? (await this.chequeFx(ctx.companyId, params.currencyCode)).exchangeRate;
     const legacyGlNum = await this.allocateGlNumInTx(tx, ctx);
     const je = await autoGlPostingService.commitInTx(tx, ctx, {
       fiscalYearId: ctx.fiscalYearId!,
@@ -112,6 +127,7 @@ export class ChequeLifecycleService {
       date: params.date,
       description: params.description,
       currencyCode: params.currencyCode,
+      exchangeRate,
       entryType: 'Cheque',
       sourceType: params.sourceType,
       sourceId: params.sourceId ?? params.sourceNumber,
@@ -140,6 +156,7 @@ export class ChequeLifecycleService {
       invoiceId: extra?.invoiceId,
     });
     const amount = input.amount;
+    const { exchangeRate } = await this.chequeFx(ctx.companyId, input.currencyCode);
     const sourceYearId = await this.sourceYearId(ctx);
 
     const lines: JournalEntryLineData[] = [
@@ -156,6 +173,7 @@ export class ChequeLifecycleService {
       date: input.dueDate ?? new Date(),
       description: input.description ?? `Inward cheque ${input.chequeNumber}`,
       currencyCode: input.currencyCode,
+      exchangeRate,
       sourceType: 'CKR',
       sourceNumber: input.chequeNumber,
       sourceYearId,
@@ -164,7 +182,7 @@ export class ChequeLifecycleService {
 
     await tx.customer.update({
       where: { id: input.customerId },
-      data: { balance: { decrement: new Decimal(amount) } },
+      data: { balance: { decrement: this.chequeBase(amount, exchangeRate) } },
     });
 
     return tx.cheque.create({
@@ -206,6 +224,7 @@ export class ChequeLifecycleService {
 
     const accounts = await treasuryAccountResolverService.resolveChequeAccounts(ctx.companyId);
     const amount = Number(cheque.amount);
+    const { exchangeRate } = await this.chequeFx(ctx.companyId, cheque.currencyCode);
     const sourceYearId = cheque.sourceYearId ?? (await this.sourceYearId(ctx));
 
     const lines: JournalEntryLineData[] = [
@@ -228,6 +247,7 @@ export class ChequeLifecycleService {
         date: new Date(),
         description: `Deposit cheque ${cheque.chequeNumber} for collection`,
         currencyCode: cheque.currencyCode,
+        exchangeRate,
         sourceType: 'CKD',
         sourceNumber: cheque.chequeNumber,
         sourceYearId,
@@ -293,6 +313,7 @@ export class ChequeLifecycleService {
       bankAccountId
     );
     const amount = Number(cheque.amount);
+    const { exchangeRate } = await this.chequeFx(ctx.companyId, cheque.currencyCode);
     const sourceYearId = cheque.sourceYearId ?? (await this.sourceYearId(ctx));
 
     const lines: JournalEntryLineData[] = [
@@ -310,6 +331,7 @@ export class ChequeLifecycleService {
         date: new Date(),
         description: `Clear inward cheque ${cheque.chequeNumber}`,
         currencyCode: cheque.currencyCode,
+        exchangeRate,
         sourceType: 'CKC',
         sourceNumber: cheque.chequeNumber,
         sourceYearId,
@@ -318,7 +340,7 @@ export class ChequeLifecycleService {
 
       await tx.bankAccount.update({
         where: { id: bankAccountId },
-        data: { balance: { increment: new Decimal(amount) } },
+        data: { balance: { increment: this.chequeBase(amount, exchangeRate) } },
       });
 
       return tx.cheque.update({
@@ -352,6 +374,7 @@ export class ChequeLifecycleService {
     }
 
     const amount = Number(cheque.amount);
+    const { exchangeRate } = await this.chequeFx(ctx.companyId, cheque.currencyCode);
 
     return prisma.$transaction(async (tx) => {
       await journalPostingService.reverseJournalEntryInTx(tx, ctx, cheque.clearJournalEntryId!, {
@@ -360,7 +383,7 @@ export class ChequeLifecycleService {
 
       await tx.bankAccount.update({
         where: { id: cheque.bankAccountId! },
-        data: { balance: { decrement: new Decimal(amount) } },
+        data: { balance: { decrement: this.chequeBase(amount, exchangeRate) } },
       });
 
       return tx.cheque.update({
@@ -396,6 +419,7 @@ export class ChequeLifecycleService {
       invoiceId: cheque.invoiceId,
     });
     const amount = Number(cheque.amount);
+    const { exchangeRate } = await this.chequeFx(ctx.companyId, cheque.currencyCode);
     const sourceYearId = cheque.sourceYearId ?? (await this.sourceYearId(ctx));
     const wasEndorsed = cheque.status === 'ENDORSED';
     // An endorsed cheque's carrying value sits in chequesUnderHand (it was
@@ -432,6 +456,7 @@ export class ChequeLifecycleService {
         date: new Date(),
         description: `Bounce inward cheque ${cheque.chequeNumber}`,
         currencyCode: cheque.currencyCode,
+        exchangeRate,
         sourceType: 'CKB',
         sourceNumber: cheque.chequeNumber,
         sourceYearId,
@@ -440,7 +465,7 @@ export class ChequeLifecycleService {
 
       await tx.customer.update({
         where: { id: cheque.customerId! },
-        data: { balance: { increment: new Decimal(amount) } },
+        data: { balance: { increment: this.chequeBase(amount, exchangeRate) } },
       });
 
       if (wasEndorsed && cheque.endorsedSupplierId) {
@@ -448,7 +473,7 @@ export class ChequeLifecycleService {
         // never actually got paid.
         await tx.supplier.update({
           where: { id: cheque.endorsedSupplierId },
-          data: { balance: { increment: new Decimal(amount) } },
+          data: { balance: { increment: this.chequeBase(amount, exchangeRate) } },
         });
       }
 
@@ -480,6 +505,7 @@ export class ChequeLifecycleService {
       throw new AppError(400, 'Cheque has no bounce journal entry to reverse');
     }
     const amount = Number(cheque.amount);
+    const { exchangeRate } = await this.chequeFx(ctx.companyId, cheque.currencyCode);
     const wasEndorsed = !!cheque.endorsedSupplierId;
 
     return prisma.$transaction(async (tx) => {
@@ -489,12 +515,12 @@ export class ChequeLifecycleService {
 
       await tx.customer.update({
         where: { id: cheque.customerId! },
-        data: { balance: { decrement: new Decimal(amount) } },
+        data: { balance: { decrement: this.chequeBase(amount, exchangeRate) } },
       });
       if (wasEndorsed && cheque.endorsedSupplierId) {
         await tx.supplier.update({
           where: { id: cheque.endorsedSupplierId },
-          data: { balance: { decrement: new Decimal(amount) } },
+          data: { balance: { decrement: this.chequeBase(amount, exchangeRate) } },
         });
       }
 
@@ -535,6 +561,7 @@ export class ChequeLifecycleService {
       supplierId,
     });
     const amount = Number(cheque.amount);
+    const { exchangeRate } = await this.chequeFx(ctx.companyId, cheque.currencyCode);
     const sourceYearId = cheque.sourceYearId ?? (await this.sourceYearId(ctx));
 
     const lines: JournalEntryLineData[] = [
@@ -554,6 +581,7 @@ export class ChequeLifecycleService {
           ? `Endorse cheque ${cheque.chequeNumber} to supplier — ${notes.trim()}`
           : `Endorse cheque ${cheque.chequeNumber} to supplier`,
         currencyCode: cheque.currencyCode,
+        exchangeRate,
         sourceType: 'CKE',
         sourceNumber: cheque.chequeNumber,
         sourceYearId,
@@ -564,7 +592,7 @@ export class ChequeLifecycleService {
       // owe the supplier reduces their balance.
       await tx.supplier.update({
         where: { id: supplierId },
-        data: { balance: { decrement: new Decimal(amount) } },
+        data: { balance: { decrement: this.chequeBase(amount, exchangeRate) } },
       });
 
       return tx.cheque.update({
@@ -601,6 +629,7 @@ export class ChequeLifecycleService {
       throw new AppError(400, 'Cheque has no endorsement to reverse');
     }
     const amount = Number(cheque.amount);
+    const { exchangeRate } = await this.chequeFx(ctx.companyId, cheque.currencyCode);
 
     return prisma.$transaction(async (tx) => {
       await journalPostingService.reverseJournalEntryInTx(tx, ctx, cheque.endorseJournalEntryId!, {
@@ -609,7 +638,7 @@ export class ChequeLifecycleService {
 
       await tx.supplier.update({
         where: { id: cheque.endorsedSupplierId! },
-        data: { balance: { increment: new Decimal(amount) } },
+        data: { balance: { increment: this.chequeBase(amount, exchangeRate) } },
       });
 
       return tx.cheque.update({
@@ -636,6 +665,7 @@ export class ChequeLifecycleService {
       invoiceId: extra?.invoiceId,
     });
     const amount = input.amount;
+    const { exchangeRate } = await this.chequeFx(ctx.companyId, input.currencyCode);
     const sourceYearId = await this.sourceYearId(ctx);
 
     const lines: JournalEntryLineData[] = [
@@ -652,6 +682,7 @@ export class ChequeLifecycleService {
       date: input.dueDate ?? new Date(),
       description: input.description ?? `Issue outward cheque ${input.chequeNumber}`,
       currencyCode: input.currencyCode,
+      exchangeRate,
       sourceType: 'PKI',
       sourceNumber: input.chequeNumber,
       sourceYearId,
@@ -660,7 +691,7 @@ export class ChequeLifecycleService {
 
     await tx.supplier.update({
       where: { id: input.supplierId },
-      data: { balance: { decrement: new Decimal(amount) } },
+      data: { balance: { decrement: this.chequeBase(amount, exchangeRate) } },
     });
 
     return tx.cheque.create({
@@ -713,6 +744,7 @@ export class ChequeLifecycleService {
       cheque.bankAccountId
     );
     const amount = Number(cheque.amount);
+    const { exchangeRate } = await this.chequeFx(ctx.companyId, cheque.currencyCode);
     const sourceYearId = cheque.sourceYearId ?? (await this.sourceYearId(ctx));
 
     const lines: JournalEntryLineData[] = [
@@ -730,6 +762,7 @@ export class ChequeLifecycleService {
         date: new Date(),
         description: `Clear outward cheque ${cheque.chequeNumber}`,
         currencyCode: cheque.currencyCode,
+        exchangeRate,
         sourceType: 'PKC',
         sourceNumber: cheque.chequeNumber,
         sourceYearId,
@@ -738,7 +771,7 @@ export class ChequeLifecycleService {
 
       await tx.bankAccount.update({
         where: { id: cheque.bankAccountId! },
-        data: { balance: { decrement: new Decimal(amount) } },
+        data: { balance: { decrement: this.chequeBase(amount, exchangeRate) } },
       });
 
       return tx.cheque.update({
@@ -768,6 +801,7 @@ export class ChequeLifecycleService {
     }
 
     const amount = Number(cheque.amount);
+    const { exchangeRate } = await this.chequeFx(ctx.companyId, cheque.currencyCode);
 
     return prisma.$transaction(async (tx) => {
       await journalPostingService.reverseJournalEntryInTx(tx, ctx, cheque.clearJournalEntryId!, {
@@ -776,7 +810,7 @@ export class ChequeLifecycleService {
 
       await tx.bankAccount.update({
         where: { id: cheque.bankAccountId! },
-        data: { balance: { increment: new Decimal(amount) } },
+        data: { balance: { increment: this.chequeBase(amount, exchangeRate) } },
       });
 
       return tx.cheque.update({
@@ -784,6 +818,67 @@ export class ChequeLifecycleService {
         data: { status: 'UNDER_HAND', clearJournalEntryId: null },
       });
     });
+  }
+
+  async updateChequeHeader(
+    ctx: TreasuryPostingContext,
+    chequeId: string,
+    input: {
+      chequeNumber?: string;
+      bankName?: string | null;
+      dueDate?: Date | null;
+      description?: string | null;
+    }
+  ) {
+    const cheque = await prisma.cheque.findFirst({
+      where: { id: chequeId, companyId: ctx.companyId },
+    });
+    if (!cheque) throw new AppError(404, 'Cheque not found');
+    if (cheque.status !== 'UNDER_HAND') {
+      throw new AppError(400, 'لا يمكن تعديل الشيك إلا وهو في الخزينة');
+    }
+    return prisma.cheque.update({
+      where: { id: chequeId },
+      data: {
+        ...(input.chequeNumber != null ? { chequeNumber: input.chequeNumber } : {}),
+        ...(input.bankName !== undefined ? { bankName: input.bankName } : {}),
+        ...(input.dueDate !== undefined ? { dueDate: input.dueDate } : {}),
+        ...(input.description !== undefined ? { description: input.description } : {}),
+      },
+      include: chequePartyInclude,
+    }).then(serializeCheque);
+  }
+
+  async cancelInwardCheque(ctx: TreasuryPostingContext, chequeId: string) {
+    await this.assertChequeRight(ctx, 'INWARD', 'unpost');
+    const cheque = await prisma.cheque.findFirst({
+      where: { id: chequeId, companyId: ctx.companyId, direction: 'INWARD' },
+    });
+    if (!cheque) throw new AppError(404, 'Inward cheque not found');
+    assertChequeTransition('INWARD', cheque.status, 'CANCEL');
+    if (!cheque.customerId) {
+      throw new AppError(422, 'Cheque has no customer for cancellation');
+    }
+
+    const amount = Number(cheque.amount);
+    const { exchangeRate } = await this.chequeFx(ctx.companyId, cheque.currencyCode);
+
+    return prisma.$transaction(async (tx) => {
+      if (cheque.portfolioJournalEntryId) {
+        await journalPostingService.reverseJournalEntryInTx(tx, ctx, cheque.portfolioJournalEntryId, {
+          reason: `Inward cheque ${cheque.chequeNumber} cancelled`,
+        });
+      }
+      await tx.customer.update({
+        where: { id: cheque.customerId! },
+        data: { balance: { increment: this.chequeBase(amount, exchangeRate) } },
+      });
+      return tx.cheque.update({
+        where: { id: chequeId },
+        data: { status: 'CANCELLED' },
+        include: chequePartyInclude,
+      });
+    }).then(serializeCheque);
   }
 
   async cancelOutwardCheque(ctx: TreasuryPostingContext, chequeId: string) {
@@ -804,6 +899,7 @@ export class ChequeLifecycleService {
       invoiceId: cheque.invoiceId,
     });
     const amount = Number(cheque.amount);
+    const { exchangeRate } = await this.chequeFx(ctx.companyId, cheque.currencyCode);
     const sourceYearId = cheque.sourceYearId ?? (await this.sourceYearId(ctx));
 
     const lines: JournalEntryLineData[] = [
@@ -821,6 +917,7 @@ export class ChequeLifecycleService {
         date: new Date(),
         description: `Cancel outward cheque ${cheque.chequeNumber}`,
         currencyCode: cheque.currencyCode,
+        exchangeRate,
         sourceType: 'PKX',
         sourceNumber: cheque.chequeNumber,
         sourceYearId,
@@ -829,7 +926,7 @@ export class ChequeLifecycleService {
 
       await tx.supplier.update({
         where: { id: cheque.supplierId! },
-        data: { balance: { increment: new Decimal(amount) } },
+        data: { balance: { increment: this.chequeBase(amount, exchangeRate) } },
       });
 
       return tx.cheque.update({
@@ -851,6 +948,7 @@ export class ChequeLifecycleService {
       direction: string;
       status: string;
       amount: Prisma.Decimal | number;
+      currencyCode?: string | null;
       customerId: string | null;
       supplierId: string | null;
       portfolioJournalEntryId: string | null;
@@ -858,6 +956,7 @@ export class ChequeLifecycleService {
     }
   ) {
     const amount = Number(cheque.amount);
+    const { exchangeRate } = await this.chequeFx(ctx.companyId, cheque.currencyCode);
     const glUnPost = await companySettingService.getFlag(ctx.companyId, 'GLUnPost', true);
     const jeId =
       cheque.direction === 'OUTWARD'
@@ -867,14 +966,14 @@ export class ChequeLifecycleService {
     if (cheque.direction === 'INWARD' && cheque.status === 'UNDER_HAND' && cheque.customerId) {
       await tx.customer.update({
         where: { id: cheque.customerId },
-        data: { balance: { increment: new Decimal(amount) } },
+        data: { balance: { increment: this.chequeBase(amount, exchangeRate) } },
       });
     }
 
     if (cheque.direction === 'OUTWARD' && cheque.status === 'UNDER_HAND' && cheque.supplierId) {
       await tx.supplier.update({
         where: { id: cheque.supplierId },
-        data: { balance: { increment: new Decimal(amount) } },
+        data: { balance: { increment: this.chequeBase(amount, exchangeRate) } },
       });
     }
 

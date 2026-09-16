@@ -113,6 +113,7 @@ export type AccountingSettingsDb = {
         companyId?: string;
         code: string;
         arabicName: string;
+        accountKind?: 'HEADER' | 'POSTING';
         _count?: { children: number };
       }>
     >;
@@ -154,6 +155,7 @@ type AdvancedSettings = {
     financialPositionSettings?: unknown;
   };
   defaultPaymentTermsDays?: number | null;
+  inventorySystem?: 'PERPETUAL' | 'PERIODIC';
   [key: string]: unknown;
 };
 
@@ -273,6 +275,7 @@ export class AccountingSettingsService {
         documentaryCredits: settings.documentaryCredits ?? false,
         executiveWhatsAppPhone: settings.executiveWhatsAppPhone,
         autoPostGl: settings.autoPostGl,
+        inventorySystem: advanced.inventorySystem === 'PERIODIC' ? 'PERIODIC' : 'PERPETUAL',
         retainedEarningsAccountId: settings.retainedEarningsAccountId,
       },
       controls: {
@@ -405,6 +408,9 @@ export class AccountingSettingsService {
       }
       if (input.controls?.defaultPaymentTermsDays !== undefined) {
         advanced.defaultPaymentTermsDays = input.controls.defaultPaymentTermsDays;
+      }
+      if (input.general?.inventorySystem !== undefined) {
+        advanced.inventorySystem = input.general.inventorySystem;
       }
 
       const preventNegativeStock =
@@ -545,6 +551,7 @@ export class AccountingSettingsService {
         companyId: true,
         code: true,
         arabicName: true,
+        accountKind: true,
         _count: { select: { children: { where: { deletedAt: null } } } },
       },
     });
@@ -558,7 +565,7 @@ export class AccountingSettingsService {
           'Account does not exist in this company or is not available for posting'
         );
       }
-      if ((account._count?.children ?? 0) > 0) {
+      if (account.accountKind === 'HEADER' || (account._count?.children ?? 0) > 0) {
         throw new AppError(
           422,
           `Account ${account.code} (${account.arabicName}) is a header account and cannot be used as a default posting account`

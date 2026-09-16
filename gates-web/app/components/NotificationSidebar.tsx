@@ -1,5 +1,6 @@
 import React, { ForwardedRef } from 'react';
 import { useRouter } from 'next/navigation';
+import { destinationAppTabHref } from '@/lib/navigation/tab-memory';
 import { NavbarQuickPanel } from './NavbarQuickPanel';
 
 export type NotificationItem = {
@@ -76,7 +77,7 @@ export default function NotificationSidebar({
                       onOpenItem?.(n.id, n.linkUrl, n.type);
                       const href = n.linkUrl?.startsWith('/dashboard?startTour') ? '/academy' : n.linkUrl;
                       if (href) {
-                        router.push(href);
+                        router.push(destinationAppTabHref(href));
                         onClose();
                       }
                     }}

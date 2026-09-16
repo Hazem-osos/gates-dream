@@ -15,6 +15,7 @@ const accountFields = {
   warning: z.enum(['مدين', 'دائن', 'بدون']).optional().nullable(),
   budget: z.number().nonnegative().optional().nullable(),
   currencyCode: z.string().optional().nullable(),
+  accountKind: z.enum(['HEADER', 'POSTING']).optional(),
 };
 
 export const createAccountSchema = z.object(accountFields).superRefine((value, ctx) => {
@@ -44,6 +45,10 @@ export const accountQuerySchema = z.object({
     .optional()
     .transform((val) => (val === undefined ? undefined : val === 'true')),
   leafOnly: z
+    .string()
+    .optional()
+    .transform((val) => (val === undefined ? undefined : val === 'true')),
+  headerOnly: z
     .string()
     .optional()
     .transform((val) => (val === undefined ? undefined : val === 'true')),

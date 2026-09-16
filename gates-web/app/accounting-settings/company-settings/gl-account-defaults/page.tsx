@@ -193,6 +193,9 @@ export default function GlAccountDefaultsSettingsPage() {
               onChange={(accountId) =>
                 setCustomersAccountByBranch((prev) => ({ ...prev, '': accountId }))
               }
+              headerOnly
+              leafOnly={false}
+              placeholder="اختر حساب العملاء الرئيسي"
             />
             <button
               type="button"
@@ -217,6 +220,9 @@ export default function GlAccountDefaultsSettingsPage() {
                   setCustomersAccountByBranch((prev) => ({ ...prev, [b.id]: accountId }))
                 }
                 emptyLabel="— بدون تخصيص (يستخدم افتراضي الشركة) —"
+                headerOnly
+                leafOnly={false}
+                placeholder="اختر حساب العملاء الرئيسي"
               />
               <button
                 type="button"
@@ -236,7 +242,9 @@ export default function GlAccountDefaultsSettingsPage() {
 
         <AdvancedFieldsSection title="حسابات النظام الافتراضية الأخرى" badgeCount={filledSlotCount} defaultOpen>
           <FormSectionCard icon={BookOpen} bodyClassName="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            {DIRECT_POSTING_SLOTS.map((slot) => (
+            {DIRECT_POSTING_SLOTS.map((slot) => {
+              const controlSlot = slot.webAlias === 'suppliersAccount';
+              return (
               <CompactFormField key={slot.webAlias} label={slot.label}>
                 <AccountSelect
                   className={compactControlClass}
@@ -244,9 +252,13 @@ export default function GlAccountDefaultsSettingsPage() {
                   onChange={(accountId) =>
                     setDefs((prev) => ({ ...prev, [slot.webAlias]: accountId }))
                   }
+                  headerOnly={controlSlot}
+                  leafOnly={!controlSlot}
+                  placeholder={controlSlot ? 'اختر حساباً رئيسياً' : 'اختر حساب حركة'}
                 />
               </CompactFormField>
-            ))}
+              );
+            })}
           </FormSectionCard>
         </AdvancedFieldsSection>
 

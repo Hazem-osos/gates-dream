@@ -1,0 +1,460 @@
+.gates-hero {
+  position: relative;
+  isolation: isolate;
+  min-height: 100vh;
+  min-height: 100dvh;
+  overflow: visible;
+  background:
+    radial-gradient(900px 520px at 18% 22%, rgba(20, 153, 214, 0.14), transparent 55%),
+    radial-gradient(800px 480px at 86% 30%, rgba(124, 58, 237, 0.1), transparent 50%),
+    radial-gradient(1000px 640px at 50% 88%, rgba(14, 165, 164, 0.14), transparent 55%),
+    linear-gradient(180deg, #f4fafd 0%, #e8f4fb 46%, #dff0f8 100%);
+  color: #071b2b;
+}
+
+.gates-hero-word {
+  position: absolute;
+  left: -3vw;
+  right: -3vw;
+  top: 50%;
+  z-index: 0;
+  width: 106vw;
+  margin: 0;
+  transform: translateY(-50%) scaleX(1.08);
+  text-align: center;
+  white-space: nowrap;
+  font-size: 24.8vw;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  line-height: 0.76;
+  user-select: none;
+  pointer-events: none;
+  background: linear-gradient(
+    110deg,
+    #9fe4ff 0%,
+    #1499d6 22%,
+    #0b6fa4 48%,
+    #38bdf8 70%,
+    #064a70 100%
+  );
+  background-size: 220% 220%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: gates-word-flow 10s ease-in-out infinite, gates-word-glow 5s ease-in-out infinite;
+}
+
+@keyframes gates-word-flow {
+  0%,
+  100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+@keyframes gates-word-glow {
+  0%,
+  100% {
+    filter: drop-shadow(0 18px 36px rgba(11, 111, 164, 0.22));
+    opacity: 0.7;
+  }
+  50% {
+    filter: drop-shadow(0 28px 70px rgba(20, 153, 214, 0.4));
+    opacity: 0.9;
+  }
+}
+
+.gates-hero-figure {
+  position: absolute;
+  left: 50%;
+  bottom: -4%;
+  z-index: 1;
+  width: min(680px, 70vw);
+  height: min(74vh, 820px);
+  transform: translateX(-50%);
+  pointer-events: none;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 12%, #000 88%, transparent 100%),
+    linear-gradient(to right, transparent 0, #000 12%, #000 88%, transparent 100%);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 12%, #000 88%, transparent 100%),
+    linear-gradient(to right, transparent 0, #000 12%, #000 88%, transparent 100%);
+  -webkit-mask-composite: source-in;
+  mask-composite: intersect;
+}
+
+.gates-hero-figure video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 50% 42%;
+  filter: brightness(1.12) saturate(1.08);
+  mix-blend-mode: multiply;
+}
+
+.gates-hero-intro {
+  position: relative;
+  z-index: 2;
+  pointer-events: none;
+  padding: 7.5rem 1.5rem 0;
+  max-width: 34rem;
+}
+
+.gates-hero-intro a {
+  pointer-events: auto;
+}
+
+.gates-hero-pin,
+.gates-hero-pin * {
+  pointer-events: none;
+}
+
+.gates-hero-pin {
+  position: absolute;
+  z-index: 20;
+}
+
+.gates-hero-card[data-place='in'] {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.gates-hero-card[data-place='left'] {
+  position: absolute;
+  top: 50%;
+  right: 18px;
+  transform: translate(0, -50%);
+}
+
+.gates-hero-card[data-place='right'] {
+  position: absolute;
+  top: 50%;
+  left: 18px;
+  transform: translate(0, -50%);
+}
+
+.gates-hero-card[data-place='up'] {
+  position: absolute;
+  bottom: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.gates-hero-node {
+  position: absolute;
+  width: 22px;
+  height: 22px;
+  transform: translate(-50%, -50%);
+  color: inherit;
+}
+
+.gates-hero-node i {
+  position: absolute;
+  inset: 0;
+  display: block;
+  pointer-events: none;
+}
+
+.gates-hero-node[data-skin='hex'] i:nth-child(1) {
+  inset: 3px;
+  background: currentColor;
+  clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
+  box-shadow: 0 0 14px currentColor;
+  animation: gates-node-pulse 2.6s ease-in-out infinite;
+}
+
+.gates-hero-node[data-skin='hex'] i:nth-child(2) {
+  border: 1px solid currentColor;
+  clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
+  animation: gates-node-spin 10s linear infinite;
+}
+
+.gates-hero-node[data-skin='hex'] i:nth-child(3) {
+  inset: -8px;
+  border: 1px solid currentColor;
+  opacity: 0.28;
+  clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
+  animation: gates-ripple 3s ease-out infinite;
+}
+
+.gates-hero-node[data-skin='ring'] i:nth-child(1) {
+  inset: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 16px currentColor;
+}
+
+.gates-hero-node[data-skin='ring'] i:nth-child(2),
+.gates-hero-node[data-skin='ring'] i:nth-child(3) {
+  border-radius: 50%;
+  border: 1px solid currentColor;
+}
+
+.gates-hero-node[data-skin='ring'] i:nth-child(2) {
+  inset: -2px;
+  border-top-color: transparent;
+  animation: gates-node-spin 3.4s linear infinite;
+}
+
+.gates-hero-node[data-skin='ring'] i:nth-child(3) {
+  inset: -8px;
+  border-bottom-color: transparent;
+  opacity: 0.45;
+  animation: gates-node-spin 5.5s linear infinite reverse;
+}
+
+.gates-hero-node[data-skin='plus'] i:nth-child(1),
+.gates-hero-node[data-skin='plus'] i:nth-child(2) {
+  background: currentColor;
+  box-shadow: 0 0 12px currentColor;
+}
+
+.gates-hero-node[data-skin='plus'] i:nth-child(1) {
+  left: 10px;
+  right: 10px;
+  top: 2px;
+  bottom: 2px;
+}
+
+.gates-hero-node[data-skin='plus'] i:nth-child(2) {
+  top: 10px;
+  bottom: 10px;
+  left: 2px;
+  right: 2px;
+}
+
+.gates-hero-node[data-skin='plus'] i:nth-child(3) {
+  inset: -7px;
+  border: 1px dashed currentColor;
+  opacity: 0.4;
+  animation: gates-node-spin 8s linear infinite;
+}
+
+.gates-hero-node[data-skin='diamond'] i:nth-child(1) {
+  inset: 4px;
+  background: currentColor;
+  transform: rotate(45deg);
+  box-shadow: 0 0 14px currentColor;
+  animation: gates-node-pulse 2.2s ease-in-out infinite;
+}
+
+.gates-hero-node[data-skin='diamond'] i:nth-child(2) {
+  inset: -1px;
+  border: 1px solid currentColor;
+  transform: rotate(45deg);
+}
+
+.gates-hero-node[data-skin='diamond'] i:nth-child(3) {
+  inset: -9px;
+  border: 1px solid currentColor;
+  opacity: 0.3;
+  transform: rotate(45deg);
+  animation: gates-ripple 2.8s ease-out infinite;
+}
+
+.gates-hero-node[data-on='true'] {
+  filter: drop-shadow(0 0 10px currentColor);
+  scale: 1.25;
+}
+
+.gates-hero-card {
+  --ai: #38bdf8;
+  position: relative;
+  width: min(19.5rem, 68vw);
+  overflow: hidden;
+  padding: 1rem 1.1rem 1.05rem;
+  color: #d7f4ff;
+  isolation: isolate;
+  clip-path: polygon(14px 0, calc(100% - 22px) 0, 100% 18px, 100% calc(100% - 12px), calc(100% - 14px) 100%, 18px 100%, 0 calc(100% - 16px), 0 16px);
+  background:
+    linear-gradient(180deg, rgba(56, 189, 248, 0.16), transparent 28%),
+    linear-gradient(160deg, rgba(4, 16, 28, 0.92), rgba(7, 36, 58, 0.88));
+  border: 1px solid color-mix(in srgb, var(--ai) 55%, transparent);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.04) inset,
+    0 18px 50px -16px rgba(2, 12, 24, 0.7),
+    0 0 40px color-mix(in srgb, var(--ai) 28%, transparent);
+}
+
+.gates-hero-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    to bottom,
+    transparent 0 2px,
+    rgba(125, 211, 252, 0.045) 2px 3px
+  );
+  pointer-events: none;
+  z-index: 0;
+}
+
+.gates-hero-card::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: -40%;
+  height: 40%;
+  background: linear-gradient(180deg, transparent, color-mix(in srgb, var(--ai) 35%, transparent), transparent);
+  animation: gates-scan 2.4s linear infinite;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.gates-hero-card .visor {
+  position: absolute;
+  top: 10px;
+  width: 42px;
+  height: 18px;
+  border: 1.5px solid var(--ai);
+  border-radius: 999px;
+  background: radial-gradient(circle at 50% 50%, var(--ai), transparent 70%);
+  box-shadow: 0 0 16px var(--ai);
+  animation: gates-pulse 2s ease-in-out infinite;
+  z-index: 2;
+}
+
+[dir='rtl'] .gates-hero-card .visor {
+  left: 12px;
+}
+
+[dir='ltr'] .gates-hero-card .visor {
+  right: 12px;
+}
+
+.gates-hero-card .copy {
+  position: relative;
+  z-index: 2;
+  animation: gates-pop 0.48s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.gates-hero-card .meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.6rem;
+  margin-bottom: 0.55rem;
+  font-size: 0.62rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--ai);
+}
+
+.gates-hero-card .kicker {
+  margin: 0 0 0.35rem;
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #f0fbff;
+}
+
+.gates-hero-card .body {
+  margin: 0;
+  font-size: 0.86rem;
+  line-height: 1.5;
+  color: rgba(224, 242, 254, 0.82);
+}
+
+.gates-hero-card .foot {
+  margin: 0.7rem 0 0;
+  font-size: 0.6rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--ai) 80%, white);
+}
+
+.gates-hero-card[data-theme='cyan'] { --ai: #38bdf8; }
+.gates-hero-card[data-theme='violet'] { --ai: #c084fc; }
+.gates-hero-card[data-theme='magenta'] { --ai: #f472b6; }
+.gates-hero-card[data-theme='ice'] { --ai: #67e8f9; }
+.gates-hero-card[data-theme='lime'] { --ai: #86efac; }
+.gates-hero-card[data-theme='amber'] { --ai: #fcd34d; }
+
+@keyframes gates-pop {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.86) rotateX(12deg);
+    filter: blur(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1) rotateX(0);
+    filter: blur(0);
+  }
+}
+
+@keyframes gates-scan {
+  0% {
+    top: -40%;
+  }
+  100% {
+    top: 110%;
+  }
+}
+
+@keyframes gates-ripple {
+  0% {
+    transform: scale(0.7);
+    opacity: 0.45;
+  }
+  100% {
+    transform: scale(1.9);
+    opacity: 0;
+  }
+}
+
+@keyframes gates-pulse {
+  0%,
+  100% {
+    opacity: 0.45;
+    transform: scale(0.94);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.08);
+  }
+}
+
+@keyframes gates-node-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes gates-node-pulse {
+  0%,
+  100% {
+    opacity: 0.7;
+    transform: scale(0.92);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@media (max-width: 767px) {
+  .gates-hero {
+    overflow: visible;
+  }
+  .gates-hero-word {
+    font-size: 22vw;
+    width: 104vw;
+  }
+  .gates-hero-rail {
+    display: flex;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gates-hero-word,
+  .gates-hero-card,
+  .gates-hero-card::after,
+  .gates-hero-card .visor,
+  .gates-hero-node i {
+    animation: none;
+  }
+}

@@ -8,6 +8,7 @@ import { dataEntryGridInputClass } from '@/components/ui/data-entry-grid/tokens'
 import { handleLineGridKeyDown, JOURNAL_LINE_FIELD_ORDER, lineGridDataAttrs } from '@/lib/keyboard/gridLineFocus';
 import { useApiQuery } from '@/lib/hooks/useApi';
 import { formatBaseAmount, isFxRateLocked, lineFxRate, rateForCurrency, toBaseAmount } from '@/lib/accounting/fx-base';
+import { ExchangeRateInput } from '@/components/accounting/ExchangeRateInput';
 import { useCompanyBaseCurrency } from '@/lib/hooks/useCompanyBaseCurrency';
 import type { JournalLineFormValues } from '@/lib/validation/accounting.schema';
 import { VoucherAccountCombobox } from '@/components/accounting/vouchers/VoucherAccountCombobox';
@@ -270,12 +271,13 @@ export function JournalLinesTable({
           const selected = currencies.find((c) => c.id === (line.currencyId || defaultCurrencyId));
           const rateLocked = isFxRateLocked(selected?.code, companyBase);
           return (
-            <input
-              type="number"
-              step="0.0001"
+            <ExchangeRateInput
               disabled={disabled || rateLocked}
+              currencyId={selected?.id}
+              currencyCode={selected?.code}
+              companyBaseCode={companyBase}
               value={rateLocked ? 1 : line.exchangeRate ?? 1}
-              onChange={(e) => updateLine(index, { exchangeRate: Number(e.target.value) || 1 })}
+              onChange={(rate) => updateLine(index, { exchangeRate: rate })}
               className={`${dataEntryGridInputClass} text-end font-mono`}
               {...keyHandlers(index, 'rate')}
             />

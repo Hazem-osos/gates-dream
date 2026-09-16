@@ -32,6 +32,7 @@ import {
 } from '../utils/journal-source';
 import { recurringEntriesService } from './recurring-entries.service';
 import { JournalSourceType } from '@prisma/client';
+import { persistFxRate } from '../utils/company-fx-rate';
 
 function journalNumberKeys(value: string | null | undefined): string[] {
   const trimmed = value?.trim();
@@ -215,11 +216,11 @@ export class JournalPostingService {
       'SaveUnbalanced',
       false
     );
-    const headerRate = data.exchangeRate ?? 1;
+    const headerRate = persistFxRate(data.currencyCode, data.exchangeRate);
     const lineInputs = data.lines.map((l) => ({
       debit: l.debit,
       credit: l.credit,
-      exchangeRate: l.exchangeRate ?? headerRate,
+      exchangeRate: persistFxRate(data.currencyCode, l.exchangeRate ?? headerRate),
     }));
     const { isBalanced } = this.validateDoubleEntryBalance(lineInputs, {
       allowUnbalanced: saveUnbalanced,
@@ -408,17 +409,20 @@ export class JournalPostingService {
       allowOpeningDocument: (data.entryType ?? '').toUpperCase() === 'OPENING_BALANCE',
     });
 
-    const headerRate = data.exchangeRate ?? 1;
+    const headerRate = persistFxRate(data.currencyCode, data.exchangeRate);
     const lineInputs = data.lines.map((l) => ({
       debit: l.debit,
       credit: l.credit,
-      exchangeRate: l.exchangeRate ?? headerRate,
+      exchangeRate: persistFxRate(data.currencyCode, l.exchangeRate ?? headerRate),
     }));
     validateJournalLineSides(lineInputs);
     const { isBalanced } = this.validateDoubleEntryBalance(lineInputs, {
       allowUnbalanced: false,
       requireStrictLines: false,
     });
+    if (!data.skipBalanceApply) {
+      data.lines = await glAccountResolver.enforceCostCenters(tx, ctx.companyId, data.lines);
+    }
 
     const created = await tx.journalEntry.create({
       data: {
@@ -628,6 +632,113 @@ export class JournalPostingService {
     );
   }
 
+  /**
+   * Rewrite a posted journal in place. Used when the source document is
+   * edited — the same voucher number / id keeps the new lines instead of
+   * booking a reversal plus a second entry.
+   */
+  async replacePostedJournalInTx(
+    tx: Prisma.TransactionClient,
+    ctx: JournalPostingContext,
+    journalEntryId: string,
+    data: {
+      date: Date;
+      hijriDate?: string | null;
+      description?: string | null;
+      currencyCode: string;
+      exchangeRate?: number | null;
+      sourceNumber?: string | null;
+      lines: JournalEntryLineData[];
+    }
+  ) {
+    const original = await tx.journalEntry.findFirst({
+      where: { id: journalEntryId, companyId: ctx.companyId },
+      include: { lines: { orderBy: { lineOrder: 'asc' } } },
+    });
+    if (!original) {
+      throw new AppError(404, 'Journal entry not found');
+    }
+    if (original.deletedAt) {
+      throw new AppError(400, 'Journal entry is deleted');
+    }
+    if (original.isCancelled) {
+      throw new AppError(400, 'القيد ملغي ولا يمكن تعديله');
+    }
+    if (!original.isPosted) {
+      throw new AppError(400, 'Journal entry is not posted');
+    }
+
+    await fiscalYearService.assertOpenForDate(ctx.companyId, data.date, {
+      allowOpeningDocument: (original.entryType ?? '').toUpperCase() === 'OPENING_BALANCE',
+    });
+
+    const headerRate = persistFxRate(data.currencyCode, data.exchangeRate);
+    const resolvedLines = await glAccountResolver.enforceCostCenters(
+      tx,
+      ctx.companyId,
+      data.lines
+    );
+    const lineInputs = resolvedLines.map((line) => ({
+      debit: line.debit,
+      credit: line.credit,
+      exchangeRate: persistFxRate(data.currencyCode, line.exchangeRate ?? headerRate),
+    }));
+    validateJournalLineSides(lineInputs);
+    this.validateDoubleEntryBalance(lineInputs);
+
+    await applyPostedJournalBalancesInTx(tx, {
+      companyId: ctx.companyId,
+      date: original.date,
+      currencyCode: original.currencyCode,
+      invert: true,
+      lines: original.lines,
+    });
+
+    await tx.journalEntry.update({
+      where: { id: journalEntryId },
+      data: {
+        date: data.date,
+        hijriDate: resolveHijriDate(data.date, data.hijriDate ?? original.hijriDate),
+        description: data.description ?? original.description,
+        currencyCode: data.currencyCode,
+        exchangeRate: new Decimal(headerRate),
+        sourceNumber: data.sourceNumber ?? original.sourceNumber,
+        version: { increment: 1 },
+      },
+    });
+    await tx.journalEntryLine.deleteMany({ where: { journalEntryId } });
+    await tx.journalEntryLine.createMany({
+      data: this.buildLineRows(journalEntryId, resolvedLines, headerRate),
+    });
+
+    const nextLines = await tx.journalEntryLine.findMany({
+      where: { journalEntryId },
+      orderBy: { lineOrder: 'asc' },
+    });
+    await applyPostedJournalBalancesInTx(tx, {
+      companyId: ctx.companyId,
+      date: data.date,
+      currencyCode: data.currencyCode,
+      lines: nextLines,
+    });
+
+    await documentAuditService.record(
+      {
+        companyId: ctx.companyId,
+        entityType: 'JOURNAL_ENTRY',
+        entityId: journalEntryId,
+        action: 'UPDATED',
+        userId: ctx.userId,
+      },
+      tx
+    );
+
+    return tx.journalEntry.findUnique({
+      where: { id: journalEntryId },
+      include: this.journalInclude(),
+    });
+  }
+
   async updateJournalEntry(
     ctx: JournalPostingContext,
     journalEntryId: string,
@@ -677,8 +788,10 @@ export class JournalPostingService {
       'SaveUnbalanced',
       false
     );
-    const headerRate =
-      data.exchangeRate ?? Number(existing.exchangeRate ?? 1);
+    const headerRate = persistFxRate(
+      data.currencyCode ?? existing.currencyCode,
+      data.exchangeRate ?? existing.exchangeRate
+    );
 
     if (data.lines) {
       data.lines = await glAccountResolver.enforceCostCenters(
@@ -690,7 +803,10 @@ export class JournalPostingService {
         data.lines.map((l) => ({
           debit: l.debit,
           credit: l.credit,
-          exchangeRate: l.exchangeRate ?? headerRate,
+          exchangeRate: persistFxRate(
+            data.currencyCode ?? existing.currencyCode,
+            l.exchangeRate ?? headerRate
+          ),
         })),
         { allowUnbalanced: saveUnbalanced }
       );
@@ -733,7 +849,10 @@ export class JournalPostingService {
           data.lines.map((l) => ({
             debit: l.debit,
             credit: l.credit,
-            exchangeRate: l.exchangeRate ?? headerRate,
+            exchangeRate: persistFxRate(
+            data.currencyCode ?? existing.currencyCode,
+            l.exchangeRate ?? headerRate
+          ),
           })),
           { allowUnbalanced: saveUnbalanced }
         );

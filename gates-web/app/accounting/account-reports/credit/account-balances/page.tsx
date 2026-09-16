@@ -14,6 +14,8 @@ export default function AccountBalancesPage() {
         costCenter: true,
         currency: true,
         branch: true,
+        customer: true,
+        supplier: true,
       }}
     />
   );

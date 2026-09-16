@@ -16,6 +16,7 @@ import {
   toBaseAmount,
 } from '@/lib/accounting/fx-base';
 import { useCompanyBaseCurrency } from '@/lib/hooks/useCompanyBaseCurrency';
+import { ExchangeRateInput } from '@/components/accounting/ExchangeRateInput';
 import { VoucherAccountCombobox } from './VoucherAccountCombobox';
 
 export type VoucherLineCurrency = {
@@ -232,12 +233,12 @@ export function VoucherLinesGrid({
           const lineCode = line.currencyCode || headerCode;
           const rateLocked = isFxRateLocked(lineCode, companyBase);
           return (
-            <input
-              type="number"
-              step="0.0001"
+            <ExchangeRateInput
               disabled={disabled || rateLocked}
+              currencyCode={lineCode}
+              companyBaseCode={companyBase}
               value={rateLocked ? 1 : line.exchangeRate ?? 1}
-              onChange={(e) => updateLine(index, { exchangeRate: Number(e.target.value) || 1 })}
+              onChange={(rate) => updateLine(index, { exchangeRate: rate })}
               className={`${dataEntryGridInputClass} text-end font-mono`}
               {...keyHandlers(index, 'rate')}
             />

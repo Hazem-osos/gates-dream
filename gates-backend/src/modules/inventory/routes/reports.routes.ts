@@ -920,6 +920,7 @@ router.get(
         fromDate: req.query.fromDate ? parseRangeStart(req.query.fromDate, 'fromDate') : undefined,
         toDate: req.query.toDate ? parseRangeEnd(req.query.toDate, 'toDate') : undefined,
         branchId: req.query.branchId as string | undefined,
+        currencyId: req.query.currencyId as string | undefined,
       };
 
       const options = {
@@ -969,6 +970,7 @@ router.get(
         fromDate: req.query.fromDate ? parseRangeStart(req.query.fromDate, 'fromDate') : undefined,
         toDate: req.query.toDate ? parseRangeEnd(req.query.toDate, 'toDate') : undefined,
         branchId: req.query.branchId as string | undefined,
+        currencyId: req.query.currencyId as string | undefined,
       };
 
       const options = {
@@ -1122,6 +1124,7 @@ router.get(
         fromDate: req.query.fromDate ? parseRangeStart(req.query.fromDate, 'fromDate') : undefined,
         toDate: req.query.toDate ? parseRangeEnd(req.query.toDate, 'toDate') : undefined,
         branchId: req.query.branchId as string | undefined,
+        currencyId: req.query.currencyId as string | undefined,
       };
 
       const options = {
@@ -1171,6 +1174,7 @@ router.get(
         fromDate: req.query.fromDate ? parseRangeStart(req.query.fromDate, 'fromDate') : undefined,
         toDate: req.query.toDate ? parseRangeEnd(req.query.toDate, 'toDate') : undefined,
         branchId: req.query.branchId as string | undefined,
+        currencyId: req.query.currencyId as string | undefined,
       };
 
       const options = {

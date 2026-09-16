@@ -8,9 +8,12 @@ import { dataEntryGridInputClass } from '@/components/ui/data-entry-grid/tokens'
 import { handleLineGridKeyDown, lineGridDataAttrs } from '@/lib/keyboard/gridLineFocus';
 import { useApiQuery } from '@/lib/hooks/useApi';
 import { isFxRateLocked, lineFxRate, rateForCurrency } from '@/lib/accounting/fx-base';
+import { ExchangeRateInput } from '@/components/accounting/ExchangeRateInput';
 import { useCompanyBaseCurrency } from '@/lib/hooks/useCompanyBaseCurrency';
 import { lineBaseAmount, type PaymentVoucherLine } from '@/lib/treasury/payment-voucher-line';
 import { VoucherAccountCombobox } from './VoucherAccountCombobox';
+import { costCenterRuleFromAccount } from '@/lib/accounting/cost-center-rule';
+import { useAccountsQuery } from '@/lib/hooks/useMasterDataQueries';
 
 export type PaymentLineCurrency = { id: string; code: string; arabicName?: string; exchangeRate?: number | string | null };
 
@@ -59,6 +62,10 @@ export function PaymentLinesTable({
   invoiceKind = 'PURCHASE',
   partyEmptyHint,
 }: Props) {
+  const { data: accountsRes } = useAccountsQuery(undefined, 500, { leafOnly: true });
+  const accounts = accountsRes?.data ?? [];
+  const costCenterRuleFor = (accountId: string) =>
+    costCenterRuleFromAccount(accounts.find((a) => a.id === accountId));
   const { code: companyBase, label: companyBaseLabel } = useCompanyBaseCurrency();
   const headerCurrency = baseCurrency || companyBase || 'EGP';
   const resolvedBase = headerCurrency;
@@ -170,6 +177,10 @@ export function PaymentLinesTable({
                   accountId: pick.accountId,
                   partyId: pick.kind === 'ACCOUNT' ? undefined : pick.partyId,
                   partyKind: pick.kind === 'ACCOUNT' ? undefined : pick.kind,
+                  costCenterId:
+                    pick.accountId && costCenterRuleFor?.(pick.accountId) === 'none'
+                      ? ''
+                      : line.costCenterId,
                 })
               }
               inputProps={lineGridDataAttrs(gridId, index, 'account')}
@@ -220,12 +231,12 @@ export function PaymentLinesTable({
           const lineCode = line.currencyCode || headerCurrency;
           const rateLocked = isFxRateLocked(lineCode, companyBase);
           return (
-            <input
-              type="number"
-              step="0.0001"
+            <ExchangeRateInput
               disabled={disabled || rateLocked}
+              currencyCode={lineCode}
+              companyBaseCode={companyBase}
               value={rateLocked ? 1 : line.exchangeRate ?? 1}
-              onChange={(e) => updateLine(index, { exchangeRate: Number(e.target.value) || 1 })}
+              onChange={(rate) => updateLine(index, { exchangeRate: rate })}
               className={`${dataEntryGridInputClass} text-end font-mono`}
               {...keyHandlers(index, 'rate')}
             />
@@ -274,13 +285,17 @@ export function PaymentLinesTable({
           );
         }
         if (columnId === 'costCenter') {
+          const forbidCc = Boolean(line.accountId && costCenterRuleFor?.(line.accountId) === 'none');
+          const requireCc = Boolean(line.accountId && costCenterRuleFor?.(line.accountId) === 'required');
           return (
             <CostCenterSelect
-              value={line.costCenterId || ''}
+              value={forbidCc ? '' : line.costCenterId || ''}
               onChange={(id) => updateLine(index, { costCenterId: id })}
-              disabled={disabled}
+              disabled={disabled || forbidCc}
+              allowEmpty={!requireCc}
               className={dataEntryGridInputClass}
               nativeSelectProps={keyHandlers(index, 'costCenter')}
+              emptyLabel={forbidCc ? 'بدون — الحساب لا يقبل مركز' : requireCc ? 'مطلوب' : 'اختياري'}
             />
           );
         }

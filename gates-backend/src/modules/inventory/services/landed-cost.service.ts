@@ -11,6 +11,7 @@ import { resolveInvoiceLineWarehouseId } from '../../invoices/services/invoice-m
 import { itemCostService } from './item-cost.service';
 import { splitLandedCostCapitalization } from './landed-cost-math';
 import { resolveStockGlAccounts } from './stock-movement-gl.service';
+import { loadWarehouseGlMap, pickInventoryAccount } from '../utils/inventory-system';
 
 export interface StockGlPostingContext extends JournalPostingContext {
   fiscalYearId: string;
@@ -217,6 +218,12 @@ export class LandedCostService {
     const sourceYearId = String(new Date(allocation.date).getFullYear());
     const invoiceNumber = allocation.invoice.invoiceNumber ?? serial;
     const stockAccounts = await resolveStockGlAccounts(companyId);
+    const warehouseMap = await loadWarehouseGlMap(
+      companyId,
+      allocation.lines.map((line) =>
+        resolveInvoiceLineWarehouseId(line.invoiceLine.warehouseId, allocation.invoice.warehouseId)
+      )
+    );
     const skippedItems: string[] = [];
 
     const je = await prisma.$transaction(async (tx) => {
@@ -273,7 +280,13 @@ export class LandedCostService {
             split.capitalizeAmount = 0;
             skippedItems.push(line.itemId);
           } else {
-            const inventoryAccountId = line.item.mainAccountId || stockAccounts.inventoryAccountId;
+            const inventoryAccountId =
+              pickInventoryAccount(
+                stockAccounts.system,
+                stockAccounts.companyInventoryAccountId,
+                warehouseMap.get(warehouseId ?? '')?.inventoryAccountId,
+                line.item.mainAccountId
+              ) || stockAccounts.inventoryAccountId;
             inventoryByAccount.set(
               inventoryAccountId,
               roundTo4((inventoryByAccount.get(inventoryAccountId) ?? 0) + split.capitalizeAmount)
@@ -282,7 +295,13 @@ export class LandedCostService {
         }
 
         if (split.cogsTrueUpAmount > 0) {
-          const cogsAccountId = line.item.cogsAccountId || stockAccounts.expenseAccountId;
+          const cogsAccountId =
+            pickInventoryAccount(
+              stockAccounts.system,
+              stockAccounts.companyExpenseAccountId,
+              warehouseMap.get(warehouseId ?? '')?.costAccountId,
+              line.item.cogsAccountId
+            ) || stockAccounts.expenseAccountId;
           cogsByAccount.set(
             cogsAccountId,
             roundTo4((cogsByAccount.get(cogsAccountId) ?? 0) + split.cogsTrueUpAmount)

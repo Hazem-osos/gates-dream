@@ -69,45 +69,63 @@ export class AccountMovementService {
         throw new AppError(422, 'Company has no branch to post the reclassification journal against');
       }
 
-      // Only *posted* lines represent immutable ledger facts worth
-      // reclassifying — drafts can simply be edited directly.
-      const postedLines = await prisma.journalEntryLine.findMany({
+      const matchedLines = await prisma.journalEntryLine.findMany({
         where: {
           accountId: data.fromAccountId,
           ...(data.lineIds?.length ? { id: { in: data.lineIds } } : {}),
           journalEntry: {
             companyId,
-            isPosted: true,
             deletedAt: null,
             date: { gte: data.fromDate, lte: data.toDate },
           },
         },
-        select: { id: true, debitBase: true, creditBase: true, journalEntryId: true },
+        select: {
+          id: true,
+          debitBase: true,
+          creditBase: true,
+          journalEntryId: true,
+          journalEntry: { select: { isPosted: true, isCancelled: true } },
+        },
       });
 
-      if (postedLines.length === 0) {
+      if (matchedLines.length === 0) {
         throw new Error(
           'No journal entries found for the specified account and date range'
         );
       }
+
+      const livePostedLines = matchedLines.filter(
+        (line) => line.journalEntry.isPosted && !line.journalEntry.isCancelled
+      );
+      const movableLineIds = matchedLines
+        .filter((line) => !line.journalEntry.isPosted || line.journalEntry.isCancelled)
+        .map((line) => line.id);
 
       // Wave 2 fix: sum debitBase/creditBase (always EGP), not the raw
       // transaction-currency debit/credit — mixing lines posted in different
       // foreign currencies by their face amounts would produce a meaningless
       // net balance. The reclassification JE itself is always base-currency.
       const netDebit = roundTo4(
-        postedLines.reduce((sum, l) => sum + Number(l.debitBase) - Number(l.creditBase), 0)
+        livePostedLines.reduce((sum, l) => sum + Number(l.debitBase) - Number(l.creditBase), 0)
       );
 
-      if (Math.abs(netDebit) < 0.0001) {
+      if (Math.abs(netDebit) < 0.0001 && movableLineIds.length === 0) {
         throw new AppError(
           422,
           'Net posted balance for this account in the date range is zero — nothing to reclassify'
         );
       }
 
+      const needsReclass = Math.abs(netDebit) >= 0.0001;
       const reclassDate = new Date();
-      const fiscalYearId = await fiscalYearService.assertOpenForDate(companyId, reclassDate);
+      const fiscalYearId = needsReclass
+        ? await fiscalYearService.assertOpenForDate(companyId, reclassDate)
+        : undefined;
+      const companySettings = await prisma.companySettings.findUnique({
+        where: { companyId },
+        select: { defaultCurrency: true },
+      });
+      const baseCurrency = (companySettings?.defaultCurrency || 'EGP').toUpperCase();
 
       const description =
         data.description ??
@@ -125,26 +143,37 @@ export class AccountMovementService {
             ];
 
       const result = await prisma.$transaction(async (tx) => {
-        const je = await journalPostingService.createAndPostInTx(
-          tx,
-          { companyId, branchId, userId, fiscalYearId },
-          {
-            date: reclassDate,
-            hijriDate: data.hijriDate,
-            description,
-            currencyCode: fromAccount.currencyCode ?? 'EGP',
-            fiscalYearId,
-            entryType: 'RECLASSIFICATION',
-            lines,
-          }
-        );
+        if (movableLineIds.length > 0) {
+          await tx.journalEntryLine.updateMany({
+            where: { id: { in: movableLineIds } },
+            data: { accountId: data.toAccountId },
+          });
+        }
+
+        const je =
+          needsReclass && fiscalYearId
+            ? await journalPostingService.createAndPostInTx(
+                tx,
+                { companyId, branchId, userId, fiscalYearId },
+                {
+                  date: reclassDate,
+                  hijriDate: data.hijriDate,
+                  description,
+                  currencyCode: baseCurrency,
+                  exchangeRate: 1,
+                  fiscalYearId,
+                  entryType: 'RECLASSIFICATION',
+                  lines,
+                }
+              )
+            : null;
 
         return {
-          journalEntryId: je.id,
+          journalEntryId: je?.id ?? null,
           reclassifiedAmount: Math.abs(netDebit),
           direction: netDebit > 0 ? ('debit' as const) : ('credit' as const),
-          matchedLinesCount: postedLines.length,
-          matchedJournalEntriesCount: new Set(postedLines.map((l) => l.journalEntryId)).size,
+          matchedLinesCount: matchedLines.length,
+          matchedJournalEntriesCount: new Set(matchedLines.map((l) => l.journalEntryId)).size,
           fromAccount: {
             id: fromAccount.id,
             code: fromAccount.code,
@@ -205,7 +234,6 @@ export class AccountMovementService {
             accountId,
             journalEntry: {
               companyId,
-              isPosted: true,
               deletedAt: null,
               date: { gte: fromDate, lte: toDate },
             },
@@ -224,6 +252,8 @@ export class AccountMovementService {
                 voucherNumber: true,
                 legacyGlNum: true,
                 description: true,
+                isPosted: true,
+                isCancelled: true,
               },
             },
           },
@@ -233,7 +263,7 @@ export class AccountMovementService {
         prisma.journalEntryLine.aggregate({
           where: {
             accountId,
-            journalEntry: { companyId, isPosted: true, deletedAt: null },
+            journalEntry: { companyId, deletedAt: null },
           },
           _sum: { debitBase: true, creditBase: true },
         }),
@@ -269,6 +299,13 @@ export class AccountMovementService {
           description: line.description || line.journalEntry.description || '',
           debit: Number(line.debitBase),
           credit: Number(line.creditBase),
+          isPosted: line.journalEntry.isPosted,
+          isCancelled: line.journalEntry.isCancelled,
+          statusLabel: line.journalEntry.isCancelled
+            ? 'ملغي'
+            : line.journalEntry.isPosted
+              ? 'مرحل'
+              : 'غير مرحل',
         })),
       };
     } catch (error) {

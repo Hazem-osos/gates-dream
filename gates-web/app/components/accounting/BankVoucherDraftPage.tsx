@@ -274,7 +274,7 @@ export default function BankVoucherDraftPage({ title, logTag }: { title: string;
         </CompactFormField>
       </FormSectionCard>
 
-      <FormSectionCard title="تصنيف الأطراف" bodyClassName="grid-cols-1 sm:grid-cols-3 lg:grid-cols-4">
+      <FormSectionCard title="تصنيف الأطراف">
         <select className={compactControlClass}>
           <option>أطراف دائنة أخرى</option>
         </select>
@@ -293,7 +293,7 @@ export default function BankVoucherDraftPage({ title, logTag }: { title: string;
         <EditableJournalLinesTable lines={lines} onChange={setLines} />
       </FormSectionCard>
 
-      <FormSectionCard title="الأطراف" bodyClassName="grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
+      <FormSectionCard title="الأطراف">
         <div className="col-span-full">
           <DebitCreditTotals
             debit={lineTotals.debit}

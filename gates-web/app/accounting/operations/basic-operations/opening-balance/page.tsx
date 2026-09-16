@@ -1,7 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
+import { useOwnTabSearchParams } from '@/lib/navigation/tab-route-lock';
 import dynamic from 'next/dynamic';
 import { useForm, type Resolver, type SubmitHandler } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -16,6 +17,8 @@ import {
 } from '@/components/accounting/EditableJournalLinesTable';
 import { OpeningBalanceHeader } from '@/components/accounting/opening-balance/OpeningBalanceHeader';
 import { OpeningBalanceLinesTable } from '@/components/accounting/opening-balance/OpeningBalanceLinesTable';
+import { ShowFxColumnsField } from '@/components/accounting/ShowFxColumnsField';
+import { useShowFxColumns } from '@/lib/transaction-settings/useShowFxColumns';
 import { OpeningBalanceFooter } from '@/components/accounting/opening-balance/OpeningBalanceFooter';
 import { JournalEntryBottomSplit } from '@/components/accounting/journal/JournalEntryBottomSplit';
 import { useApiMutation, useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
@@ -120,7 +123,7 @@ export default function OpeningBalancePage() {
 
 function OpeningBalancePageInner() {
   const router = useRouter();
-  const searchParams = useSearchParams();
+  const searchParams = useOwnTabSearchParams();
   const journalEntryIdFromUrl = searchParams.get('id');
   const invalidateQuery = useInvalidateQuery();
   const { lockToView, setMode, unlockForEdit, isReadOnly } = useDocumentMode();
@@ -130,7 +133,9 @@ function OpeningBalancePageInner() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [showList, setShowList] = useState(false);
-  const [showFxColumns, setShowFxColumns] = useState(true);
+  const { showFx: showFxColumns, setShowFx: setShowFxColumns, resetFxToSetting } = useShowFxColumns(
+    'OPENING_BALANCE'
+  );
   const [isSyncingInventory, setIsSyncingInventory] = useState(false);
   const [savedJournalEntryId, setSavedJournalEntryId] = useState<string | null>(
     () => journalEntryIdFromUrl?.trim() || null
@@ -469,6 +474,7 @@ function OpeningBalancePageInner() {
       hijriDate: openingMeta?.hijriDate || toHijriDate(dateIso),
     });
     setLines([]);
+    resetFxToSetting();
     setIsPosted(false);
     setLoadedVersion(undefined);
     setError('');
@@ -668,15 +674,9 @@ function OpeningBalancePageInner() {
 
       <DocumentFormLock>
         <div className="mt-3">
-          <label className="mb-2 inline-flex items-center gap-2 text-sm text-slate-700">
-            <input
-              type="checkbox"
-              checked={showFxColumns}
-              onChange={(e) => setShowFxColumns(e.target.checked)}
-              className="rounded border-slate-300"
-            />
-            إظهار أعمدة العملة وسعر الصرف
-          </label>
+          <div className="mb-2">
+            <ShowFxColumnsField checked={showFxColumns} onChange={setShowFxColumns} />
+          </div>
           <OpeningBalanceLinesTable
             lines={lines}
             onChange={setLines}

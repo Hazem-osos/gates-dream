@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { GATES_TOUR_INTERRUPT_EVENT } from '@/components/onboarding/ProductTourProvider';
 import { Command } from 'cmdk';
 import { useRouter } from 'next/navigation';
+import { destinationAppTabHref } from '@/lib/navigation/tab-memory';
 import { useApiQuery } from '@/lib/hooks/useApi';
 import { useDebouncedValue } from '@/lib/hooks/useDebouncedValue';
 import {
@@ -109,7 +110,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
       }
       pushRecent({ id: id ?? href, label, href });
       onOpenChange(false);
-      router.push(href);
+      router.push(destinationAppTabHref(href));
     },
     [onOpenChange, router, pushRecent]
   );

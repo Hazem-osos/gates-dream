@@ -9,6 +9,7 @@ import { journalPostingService } from '../../accounting/services/journal-posting
 import { assertStoreDocumentRight } from './store-document-rights';
 import { fiscalYearService } from '../../platform/services/fiscal-year.service';
 import { assertUpdateCount } from '../../../shared/concurrency/optimistic-lock';
+import { assertWarehouseActive } from '../utils/inventory-system';
 
 export interface AdjustmentLine {
   itemId: string;
@@ -54,13 +55,7 @@ export class AdjustmentService {
   async createAdjustment(companyId: string, data: CreateAdjustmentData) {
     try {
       // Validate warehouse belongs to company
-      const warehouse = await prisma.warehouse.findFirst({
-        where: { id: data.warehouseId, companyId },
-      });
-
-      if (!warehouse) {
-        throw new Error('Warehouse not found or does not belong to company');
-      }
+      await assertWarehouseActive(companyId, data.warehouseId);
 
       // Validate all items belong to company
       const itemIds = data.lines.map((line) => line.itemId);
@@ -394,6 +389,7 @@ export class AdjustmentService {
       }
 
       await fiscalYearService.assertOpenForDate(companyId, adjustment.date);
+      await assertWarehouseActive(companyId, adjustment.warehouseId);
 
       const sourceType = 'ADJ';
       const sourceNumber = adjustment.serial ?? adjustment.id.slice(0, 8);

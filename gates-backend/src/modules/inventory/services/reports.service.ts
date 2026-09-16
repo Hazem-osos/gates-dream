@@ -10,6 +10,56 @@ import {
   applySupplierGroupWhere,
   applySupplierMasterWhere,
 } from '../../accounting/services/party-group-filter';
+import type { InvoiceKind } from '../../invoices/types/invoice-posting.types';
+
+/** Match M5 `invoiceKind` and legacy `invoiceType` without mixing sale/purchase returns. */
+function invoiceFamilyWhere(kinds: InvoiceKind[]) {
+  const typeMap: Record<InvoiceKind, string[]> = {
+    SALE: ['sales'],
+    PURCHASE: ['purchase'],
+    SALE_RETURN: ['salesReturn'],
+    PURCHASE_RETURN: ['purchaseReturn'],
+  };
+  const types = kinds.flatMap((kind) => typeMap[kind]);
+  const or: Record<string, unknown>[] = [
+    { invoiceKind: { in: kinds } },
+    { invoiceType: { in: types } },
+  ];
+  const saleReturnOnly = kinds.includes('SALE_RETURN') && !kinds.includes('PURCHASE_RETURN');
+  const purchaseReturnOnly = kinds.includes('PURCHASE_RETURN') && !kinds.includes('SALE_RETURN');
+  if (saleReturnOnly) {
+    or.push({
+      invoiceType: 'return',
+      NOT: { invoiceKind: { in: ['PURCHASE', 'PURCHASE_RETURN'] } },
+    });
+  } else if (purchaseReturnOnly) {
+    or.push({
+      invoiceType: 'return',
+      NOT: { invoiceKind: { in: ['SALE', 'SALE_RETURN'] } },
+    });
+  } else if (kinds.includes('SALE_RETURN') && kinds.includes('PURCHASE_RETURN')) {
+    or.push({ invoiceType: 'return' });
+  }
+  return { OR: or };
+}
+
+function isSaleSide(invoice: { invoiceKind?: string | null; invoiceType?: string | null }) {
+  if (invoice.invoiceKind === 'SALE' || invoice.invoiceKind === 'SALE_RETURN') return true;
+  if (invoice.invoiceKind === 'PURCHASE' || invoice.invoiceKind === 'PURCHASE_RETURN') return false;
+  return invoice.invoiceType === 'sales' || invoice.invoiceType === 'salesReturn' || invoice.invoiceType === 'return';
+}
+
+function isSaleReturn(invoice: { invoiceKind?: string | null; invoiceType?: string | null }) {
+  if (invoice.invoiceKind === 'SALE_RETURN') return true;
+  if (invoice.invoiceKind && invoice.invoiceKind !== 'SALE_RETURN') return false;
+  return invoice.invoiceType === 'salesReturn' || invoice.invoiceType === 'return';
+}
+
+function isPurchaseReturn(invoice: { invoiceKind?: string | null; invoiceType?: string | null }) {
+  if (invoice.invoiceKind === 'PURCHASE_RETURN') return true;
+  if (invoice.invoiceKind && invoice.invoiceKind !== 'PURCHASE_RETURN') return false;
+  return invoice.invoiceType === 'purchaseReturn' || invoice.invoiceType === 'return';
+}
 
 export interface InventoryReportFilters {
   fromDate?: Date;
@@ -85,7 +135,7 @@ export class InventoryReportsService {
 
       const where: any = {
         companyId,
-        invoiceType: 'sales',
+        ...invoiceFamilyWhere(['SALE']),
         date: {
           gte: fromDate,
           lte: toDate,
@@ -242,7 +292,7 @@ export class InventoryReportsService {
 
       const where: any = {
         companyId,
-        invoiceType: 'purchase',
+        ...invoiceFamilyWhere(['PURCHASE']),
         date: {
           gte: fromDate,
           lte: toDate,
@@ -349,7 +399,7 @@ export class InventoryReportsService {
 
       const where: any = {
         companyId,
-        invoiceType: 'return',
+        ...invoiceFamilyWhere(['SALE_RETURN']),
         date: {
           gte: fromDate,
           lte: toDate,
@@ -439,7 +489,6 @@ export class InventoryReportsService {
         throw new Error('From date and to date are required');
       }
 
-      // Purchase returns are stored in PurchaseReturn model
       const where: any = {
         companyId,
         date: {
@@ -448,6 +497,7 @@ export class InventoryReportsService {
         },
         isPosted: true,
         isCancelled: false,
+        ...invoiceFamilyWhere(['PURCHASE_RETURN']),
       };
 
       if (warehouseId) {
@@ -459,7 +509,7 @@ export class InventoryReportsService {
       const skip = (page - 1) * limit;
 
       const [purchaseReturns, total] = await Promise.all([
-        prisma.purchaseReturn.findMany({
+        prisma.invoice.findMany({
           where,
           skip,
           take: limit,
@@ -492,7 +542,7 @@ export class InventoryReportsService {
             },
           },
         }),
-        prisma.purchaseReturn.count({ where }),
+        prisma.invoice.count({ where }),
       ]);
 
       const totalReturns = purchaseReturns.reduce(
@@ -651,7 +701,7 @@ export class InventoryReportsService {
       const salesInvoices = await prisma.invoice.findMany({
         where: {
           ...where,
-          invoiceType: 'sales',
+          ...invoiceFamilyWhere(['SALE']),
         },
         include: {
           lines: {
@@ -675,7 +725,7 @@ export class InventoryReportsService {
       const purchaseInvoices = await prisma.invoice.findMany({
         where: {
           ...where,
-          invoiceType: 'purchase',
+          ...invoiceFamilyWhere(['PURCHASE']),
         },
         include: {
           lines: {
@@ -1088,7 +1138,7 @@ export class InventoryReportsService {
       // Get sales invoices
       const salesWhere: any = {
         companyId,
-        invoiceType: 'sales',
+        ...invoiceFamilyWhere(['SALE']),
         date: {
           gte: fromDate,
           lte: toDate,
@@ -1475,9 +1525,7 @@ export class InventoryReportsService {
         },
         isPosted: true,
         isCancelled: false,
-        invoiceType: {
-          in: ['sales', 'salesReturn'],
-        },
+        ...invoiceFamilyWhere(['SALE', 'SALE_RETURN']),
       };
 
       if (warehouseId) where.warehouseId = warehouseId;
@@ -1505,10 +1553,10 @@ export class InventoryReportsService {
       ]);
 
       const totalSales = invoices
-        .filter((inv) => inv.invoiceType === 'sales')
+        .filter((inv) => inv.invoiceKind === 'SALE' || inv.invoiceType === 'sales')
         .reduce((sum, inv) => sum + Number(inv.totalAmount || 0), 0);
       const totalReturns = invoices
-        .filter((inv) => inv.invoiceType === 'salesReturn')
+        .filter((inv) => isSaleReturn(inv))
         .reduce((sum, inv) => sum + Number(inv.totalAmount || 0), 0);
 
       return {
@@ -1549,7 +1597,7 @@ export class InventoryReportsService {
 
       const where: any = {
         companyId,
-        invoiceType: 'sales',
+        ...invoiceFamilyWhere(['SALE']),
         date: {
           gte: fromDate,
           lte: toDate,
@@ -1645,51 +1693,45 @@ export class InventoryReportsService {
     options: InventoryReportOptions = {}
   ): Promise<InventoryReportResult> {
     try {
-      const { companyId, customerId, fromDate, toDate } = filters;
+      const { companyId, fromDate, toDate, branchId, currencyId } = filters;
       const { page = 1, limit = 100 } = options;
 
       const where: any = {
         companyId,
-        invoiceType: {
-          in: ['sales', 'salesReturn'],
-        },
         isPosted: true,
         isCancelled: false,
+        ...invoiceFamilyWhere(['SALE', 'SALE_RETURN']),
       };
 
       applyCustomerGroupWhere(where, filters);
+      if (branchId) where.branchId = branchId;
       if (fromDate || toDate) {
         where.date = {};
         if (fromDate) where.date.gte = fromDate;
         if (toDate) where.date.lte = toDate;
       }
+      if (currencyId) {
+        const currency = await prisma.currency.findFirst({
+          where: { id: currencyId, companyId },
+          select: { code: true },
+        });
+        if (currency?.code) where.currencyCode = currency.code;
+      }
 
-      const skip = (page - 1) * limit;
+      const invoices = await prisma.invoice.findMany({
+        where,
+        orderBy: { date: 'desc' },
+        include: {
+          customer: true,
+        },
+      });
 
-      const [invoices, total] = await Promise.all([
-        prisma.invoice.findMany({
-          where,
-          skip,
-          take: limit,
-          orderBy: { date: 'desc' },
-          include: {
-            customer: true,
-            lines: {
-              include: {
-                item: true,
-              },
-            },
-          },
-        }),
-        prisma.invoice.count({ where }),
-      ]);
-
-      // Calculate balances per customer
       const customerBalances = new Map<string, any>();
       invoices.forEach((invoice) => {
-        const customerId = invoice.customerId;
-        if (!customerBalances.has(customerId)) {
-          customerBalances.set(customerId, {
+        const partyId = invoice.customerId;
+        if (!partyId) return;
+        if (!customerBalances.has(partyId)) {
+          customerBalances.set(partyId, {
             customer: invoice.customer,
             totalSales: 0,
             totalReturns: 0,
@@ -1698,24 +1740,30 @@ export class InventoryReportsService {
             invoiceCount: 0,
           });
         }
-        const balance = customerBalances.get(customerId)!;
+        const balance = customerBalances.get(partyId)!;
+        const isReturn = isSaleReturn(invoice);
         balance.invoiceCount += 1;
-        if (invoice.invoiceType === 'sales') {
-          balance.totalSales += Number(invoice.totalAmount || 0);
+        if (isReturn) {
+          balance.totalReturns += Number(invoice.netAmount || invoice.totalAmount || 0);
+          balance.balance -= Number(invoice.remainingAmount || 0);
         } else {
-          balance.totalReturns += Number(invoice.totalAmount || 0);
+          balance.totalSales += Number(invoice.netAmount || invoice.totalAmount || 0);
+          balance.balance += Number(invoice.remainingAmount || 0);
         }
-        balance.balance = balance.totalSales - balance.totalReturns - balance.totalPaid;
+        balance.totalPaid += Number(invoice.paidAmount || 0);
       });
 
       const result = Array.from(customerBalances.values());
+      const skip = (page - 1) * limit;
 
       return {
-        data: result.slice((page - 1) * limit, page * limit),
+        data: result.slice(skip, skip + limit),
         summary: {
-          totalCustomers: customerBalances.size,
+          totalCustomers: result.length,
           totalSales: result.reduce((sum, c) => sum + c.totalSales, 0),
           totalReturns: result.reduce((sum, c) => sum + c.totalReturns, 0),
+          totalPaid: result.reduce((sum, c) => sum + c.totalPaid, 0),
+          totalBalances: result.reduce((sum, c) => sum + c.balance, 0),
         },
         pagination: {
           page,
@@ -1758,9 +1806,7 @@ export class InventoryReportsService {
 
       const where: any = {
         companyId,
-        invoiceType: {
-          in: ['sales', 'salesReturn'],
-        },
+        ...invoiceFamilyWhere(['SALE', 'SALE_RETURN']),
         isPosted: true,
         isCancelled: false,
       };
@@ -1841,7 +1887,7 @@ export class InventoryReportsService {
 
       const where: any = {
         companyId,
-        invoiceType: 'sales',
+        ...invoiceFamilyWhere(['SALE']),
         isPosted: true,
         isCancelled: false,
       };
@@ -1902,51 +1948,45 @@ export class InventoryReportsService {
     options: InventoryReportOptions = {}
   ): Promise<InventoryReportResult> {
     try {
-      const { companyId, supplierId, fromDate, toDate } = filters;
+      const { companyId, fromDate, toDate, branchId, currencyId } = filters;
       const { page = 1, limit = 100 } = options;
 
       const where: any = {
         companyId,
-        invoiceType: {
-          in: ['purchase', 'purchaseReturn'],
-        },
         isPosted: true,
         isCancelled: false,
+        ...invoiceFamilyWhere(['PURCHASE', 'PURCHASE_RETURN']),
       };
 
       applySupplierGroupWhere(where, filters);
+      if (branchId) where.branchId = branchId;
       if (fromDate || toDate) {
         where.date = {};
         if (fromDate) where.date.gte = fromDate;
         if (toDate) where.date.lte = toDate;
       }
+      if (currencyId) {
+        const currency = await prisma.currency.findFirst({
+          where: { id: currencyId, companyId },
+          select: { code: true },
+        });
+        if (currency?.code) where.currencyCode = currency.code;
+      }
 
-      const skip = (page - 1) * limit;
+      const invoices = await prisma.invoice.findMany({
+        where,
+        orderBy: { date: 'desc' },
+        include: {
+          supplier: true,
+        },
+      });
 
-      const [invoices, total] = await Promise.all([
-        prisma.invoice.findMany({
-          where,
-          skip,
-          take: limit,
-          orderBy: { date: 'desc' },
-          include: {
-            supplier: true,
-            lines: {
-              include: {
-                item: true,
-              },
-            },
-          },
-        }),
-        prisma.invoice.count({ where }),
-      ]);
-
-      // Calculate balances per supplier
       const supplierBalances = new Map<string, any>();
       invoices.forEach((invoice) => {
-        const supplierId = invoice.supplierId;
-        if (supplierId && !supplierBalances.has(supplierId)) {
-          supplierBalances.set(supplierId, {
+        const partyId = invoice.supplierId;
+        if (!partyId) return;
+        if (!supplierBalances.has(partyId)) {
+          supplierBalances.set(partyId, {
             supplier: invoice.supplier,
             totalPurchases: 0,
             totalReturns: 0,
@@ -1955,16 +1995,18 @@ export class InventoryReportsService {
             invoiceCount: 0,
           });
         }
-        if (supplierId) {
-          const balance = supplierBalances.get(supplierId)!;
-          balance.invoiceCount += 1;
-          if (invoice.invoiceType === 'purchase') {
-            balance.totalPurchases += Number(invoice.totalAmount || 0);
-          } else {
-            balance.totalReturns += Number(invoice.totalAmount || 0);
-          }
-          balance.balance = balance.totalPurchases - balance.totalReturns - balance.totalPaid;
+        const balance = supplierBalances.get(partyId)!;
+        const isReturn =
+          isPurchaseReturn(invoice);
+        balance.invoiceCount += 1;
+        if (isReturn) {
+          balance.totalReturns += Number(invoice.netAmount || invoice.totalAmount || 0);
+          balance.balance -= Number(invoice.remainingAmount || 0);
+        } else {
+          balance.totalPurchases += Number(invoice.netAmount || invoice.totalAmount || 0);
+          balance.balance += Number(invoice.remainingAmount || 0);
         }
+        balance.totalPaid += Number(invoice.paidAmount || 0);
       });
 
       const result = Array.from(supplierBalances.values());
@@ -1972,9 +2014,11 @@ export class InventoryReportsService {
       return {
         data: result.slice((page - 1) * limit, page * limit),
         summary: {
-          totalSuppliers: supplierBalances.size,
+          totalSuppliers: result.length,
           totalPurchases: result.reduce((sum, s) => sum + s.totalPurchases, 0),
           totalReturns: result.reduce((sum, s) => sum + s.totalReturns, 0),
+          totalPaid: result.reduce((sum, s) => sum + s.totalPaid, 0),
+          totalBalances: result.reduce((sum, s) => sum + s.balance, 0),
         },
         pagination: {
           page,
@@ -2009,7 +2053,7 @@ export class InventoryReportsService {
         include: {
           invoices: {
             where: {
-              invoiceType: 'purchase',
+              ...invoiceFamilyWhere(['PURCHASE']),
               isPosted: true,
               isCancelled: false,
               ...(asOfDate
@@ -2098,9 +2142,7 @@ export class InventoryReportsService {
 
       const where: any = {
         companyId,
-        invoiceType: {
-          in: ['purchase', 'purchaseReturn'],
-        },
+        ...invoiceFamilyWhere(['PURCHASE', 'PURCHASE_RETURN']),
         isPosted: true,
         isCancelled: false,
       };
@@ -2192,14 +2234,10 @@ export class InventoryReportsService {
       applyCustomerGroupWhere(where, filters);
       applySupplierGroupWhere(where, filters);
       if (filters.customerId || filters.customerCategoryId) {
-        where.invoiceType = {
-          in: ['sales', 'salesReturn'],
-        };
+        Object.assign(where, invoiceFamilyWhere(['SALE', 'SALE_RETURN']));
       }
       if (filters.supplierId || filters.supplierCategoryId) {
-        where.invoiceType = {
-          in: ['purchase', 'purchaseReturn'],
-        };
+        Object.assign(where, invoiceFamilyWhere(['PURCHASE', 'PURCHASE_RETURN']));
       }
 
       const skip = (page - 1) * limit;
@@ -2292,7 +2330,7 @@ export class InventoryReportsService {
 
       const where: any = {
         companyId,
-        invoiceType: 'sales',
+        ...invoiceFamilyWhere(['SALE']),
         date: {
           gte: fromDate,
           lte: toDate,
@@ -2395,7 +2433,7 @@ export class InventoryReportsService {
 
       const where: any = {
         companyId,
-        invoiceType: 'sales',
+        ...invoiceFamilyWhere(['SALE']),
         date: {
           gte: fromDate,
           lte: toDate,
@@ -2493,7 +2531,7 @@ export class InventoryReportsService {
 
       const where: any = {
         companyId,
-        invoiceType: 'sales',
+        ...invoiceFamilyWhere(['SALE']),
         date: {
           gte: fromDate,
           lte: toDate,
@@ -2579,7 +2617,7 @@ export class InventoryReportsService {
 
       const where: any = {
         companyId,
-        invoiceType: 'sales',
+        ...invoiceFamilyWhere(['SALE']),
         date: {
           gte: fromDate,
           lte: toDate,
@@ -2738,7 +2776,7 @@ export class InventoryReportsService {
           unitPrice: Number(line.unitPrice || 0),
           totalPrice: Number(line.totalPrice || 0),
           taxAmount: Number(line.taxAmount || 0),
-          movementType: invoice.invoiceType === 'sales' || invoice.invoiceType === 'salesReturn' ? 'out' : 'in',
+          movementType: isSaleSide(invoice) ? 'out' : 'in',
         }));
       });
 
@@ -2954,9 +2992,7 @@ export class InventoryReportsService {
       const salesInvoices = await prisma.invoice.findMany({
         where: {
           ...where,
-          invoiceType: {
-            in: ['sales', 'salesReturn'],
-          },
+          ...invoiceFamilyWhere(['SALE', 'SALE_RETURN']),
         },
         include: {
           lines: true,
@@ -2966,9 +3002,7 @@ export class InventoryReportsService {
       const purchaseInvoices = await prisma.invoice.findMany({
         where: {
           ...where,
-          invoiceType: {
-            in: ['purchase', 'purchaseReturn'],
-          },
+          ...invoiceFamilyWhere(['PURCHASE', 'PURCHASE_RETURN']),
         },
         include: {
           lines: true,

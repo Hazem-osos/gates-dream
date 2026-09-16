@@ -41,7 +41,7 @@ export class VendorPayableTool extends BaseAiTool<Params> {
       prisma.invoice.findMany({
         where: {
           companyId: context.companyId,
-          invoiceKind: { in: ['PURCHASE', 'PURCHASE_INVOICE'] },
+          invoiceKind: { in: ['PURCHASE'] },
           isPosted: true,
           isCancelled: false,
           remainingAmount: { gt: 0 },

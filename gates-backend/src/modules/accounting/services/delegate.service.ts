@@ -6,7 +6,7 @@ import { Decimal } from '@prisma/client/runtime/library';
 import type { CreateDelegateInput, UpdateDelegateInput } from '../schemas/delegate.schema';
 import { nextNumericCode } from '../../../shared/utils/next-numeric-code';
 
-export type DelegateRole = 'DELEGATE' | 'DISTRIBUTOR' | 'DRIVER';
+export type DelegateRole = 'DELEGATE' | 'DISTRIBUTOR' | 'DRIVER' | 'GROUP';
 
 function optionalDecimal(value?: number | null) {
   if (value == null) return null;
@@ -117,6 +117,7 @@ export class DelegateService {
       search?: string;
       isActive?: boolean;
       role?: DelegateRole;
+      includeGroups?: boolean;
     }
   ) {
     const page = options.page || 1;
@@ -129,6 +130,8 @@ export class DelegateService {
     }
     if (options.role) {
       parts.push(Prisma.sql`role = ${options.role}`);
+    } else if (!options.includeGroups) {
+      parts.push(Prisma.sql`role <> 'GROUP'`);
     }
     if (options.search?.trim()) {
       const q = `%${options.search.trim()}%`;
@@ -224,6 +227,18 @@ export class DelegateService {
     });
     if (!delegate) {
       throw new AppError(404, 'المندوب غير موجود. الحل: حدّث الدليل ثم أعد المحاولة.');
+    }
+
+    if ((delegate as { role?: string }).role === 'GROUP') {
+      const childCount = await prisma.delegate.count({
+        where: { companyId, groupId: delegateId, isActive: true },
+      });
+      if (childCount > 0) {
+        throw new AppError(
+          409,
+          `المجموعة فيها ${childCount} عنصر. انقل أو احذف الفروع أولاً.`
+        );
+      }
     }
 
     await prisma.delegate.update({

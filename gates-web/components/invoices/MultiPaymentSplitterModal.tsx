@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ActionButtons } from '@/components/ui/ActionButtons';
 import { useApiQuery } from '@/lib/hooks/useApi';
+import { pickDefaultSafeId } from '@/lib/hooks/useMasterDataQueries';
 import {
   type PaymentSplitLine,
   splitsMatchTotal,
@@ -10,7 +11,7 @@ import {
   buildSplitWithOnAccount,
 } from '@/lib/invoices/payment-split.types';
 
-type SafeRow = { id: string; arabicName: string; code?: string | null };
+type SafeRow = { id: string; arabicName: string; code?: string | null; isDefault?: boolean };
 type BankRow = {
   id: string;
   accountNumber: string;
@@ -108,7 +109,7 @@ export function MultiPaymentSplitterModal({
   );
   const safes = safesRes?.data ?? EMPTY_SAFES;
   const banks = banksRes?.data ?? EMPTY_BANKS;
-  const defaultSafeId = safes[0]?.id ?? '';
+  const defaultSafeId = pickDefaultSafeId(safes) ?? '';
 
   // Seed drafts when the modal opens (not on every safes[] identity change).
   useEffect(() => {
@@ -238,7 +239,7 @@ export function MultiPaymentSplitterModal({
             type="button"
             className="text-xs font-medium text-[#0E78AA]"
             onClick={() =>
-              setCashRows([...cashRows, { type: 'CASH', safeId: safes[0]?.id ?? '', amount: '' }])
+              setCashRows([...cashRows, { type: 'CASH', safeId: pickDefaultSafeId(safes) ?? '', amount: '' }])
             }
           >
             + سطر نقدية

@@ -821,6 +821,8 @@ model Account {
   parentId           String? // Parent account
   accountSide        String? // مدين/دائن (legacy caption)
   accountNature      AccountNature   @default(DEBIT)
+  /// HEADER = رئيسي / رئيسي فرعي (يُفرَّع منه فقط). POSTING = حساب حركة.
+  accountKind        AccountKind     @default(POSTING)
   statementType      StatementType   @default(BALANCE_SHEET)
   costCenterRequired String? // إجباري/اختياري/بدون (legacy caption)
   requiresCostCenter Boolean         @default(false)
@@ -875,6 +877,11 @@ model Account {
   // by a raw-SQL migration but never declared here.
   @@index([companyId, isActive])
   @@map("accounts")
+}
+
+enum AccountKind {
+  HEADER
+  POSTING
 }
 
 enum AccountNature {
@@ -1588,7 +1595,7 @@ model Delegate {
   groupId              String?
   salesCommissionsId   String?
   priceListId          String?
-  /// DELEGATE | DISTRIBUTOR | DRIVER — same card table, filtered by screen.
+  /// DELEGATE | DISTRIBUTOR | DRIVER | GROUP — GROUP is a folder (code + name).
   role                 String   @default("DELEGATE") @db.VarChar(20)
   isActive             Boolean  @default(true)
   createdAt            DateTime @default(now())
@@ -4020,6 +4027,8 @@ enum DocumentBaseType {
   PURCHASE_RETURN
   BANK_DEBIT_ADVICE
   BANK_CREDIT_ADVICE
+  JOURNAL_ENTRY
+  OPENING_BALANCE
 }
 
 enum NumberingMode {
@@ -4143,6 +4152,8 @@ model TransactionSettings {
   allowStandaloneReturns Boolean @default(true)
   /// إلزام الرد بنفس سعر الفاتورة الأصلية
   enforceOriginalPrice   Boolean @default(true)
+  /// إظهار أعمدة العملة وسعر الصرف افتراضياً — يمكن تجاوزه من الخيارات الإضافية للحركة
+  showFxColumns          Boolean @default(true)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

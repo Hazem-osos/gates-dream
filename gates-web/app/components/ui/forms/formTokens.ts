@@ -1,21 +1,24 @@
-/** Card-form tokens aligned with components/erp/erpUiTokens (light theme). */
+/** Card-form tokens aligned with components/erp/erpUiTokens (light theme).
+ * Field width follows --erp-field-max / --erp-field-desc-max (roomy on wide panes).
+ */
 
 export const compactLabelClass =
   'mb-1 flex items-center gap-1 text-xs font-semibold text-slate-600';
 
 export const compactControlClass =
-  'h-9 w-full min-w-0 rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] px-2.5 text-sm font-medium text-[#094C6B] placeholder:text-slate-400 transition-colors focus:border-[#0E78AA] focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#0E78AA]/15 disabled:cursor-not-allowed disabled:opacity-50';
+  'h-8 w-full min-w-0 max-w-[var(--erp-field-max,32rem)] rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] px-2 text-sm font-medium text-[#094C6B] placeholder:text-slate-400 transition-colors focus:border-[#0E78AA] focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#0E78AA]/15 disabled:cursor-not-allowed disabled:opacity-50';
 
 export const compactControlShellClass =
-  'flex h-9 items-center overflow-hidden rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] transition-colors focus-within:border-[#0E78AA] focus-within:ring-2 focus-within:ring-[#0E78AA]/15';
+  'flex h-8 w-full max-w-[var(--erp-field-max,32rem)] items-center overflow-hidden rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] transition-colors focus-within:border-[#0E78AA] focus-within:ring-2 focus-within:ring-[#0E78AA]/15';
 
 export const compactFieldErrorClass = 'mt-1 block text-right text-xs text-red-600';
 
 /** Unified save / cancel pair — same size everywhere, clustered on the visual left in RTL. */
 export const formActionButtonClass =
-  'h-9 min-h-9 w-[7.5rem] px-4 text-sm font-semibold';
+  'h-8 min-h-8 w-auto min-w-[5.25rem] shrink-0 px-2.5 text-xs font-semibold';
 
-export const formActionPairClass = 'flex flex-wrap items-center justify-end gap-2';
+export const formActionPairClass =
+  'flex max-w-full min-w-0 flex-wrap items-center justify-end gap-1.5';
 
 export const denseTableWrapClass =
   'erp-scroll-x min-w-0 w-full max-w-full overflow-x-scroll rounded-lg border border-[#D6EAF3] bg-white';

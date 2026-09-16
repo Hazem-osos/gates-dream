@@ -5,12 +5,12 @@ import {
   useAccountsQuery,
   formatAccountLabel,
   isPostableLeafAccount,
-  PICKER_PAGE_SIZE,
+  ACCOUNT_PICKER_PAGE_SIZE,
   type AccountOption,
 } from '@/lib/hooks/useMasterDataQueries';
 import { SearchableCombobox } from '@/app/components/form/SearchableCombobox';
 import { compactControlClass } from '@/components/ui/forms/formTokens';
-import { useOpenQuickCreateTab } from '@/lib/quick-create/useQuickCreateTab';
+import { QuickCreateAccountModal } from '@/app/components/form/QuickCreateAccountModal';
 
 const selectCls = compactControlClass;
 
@@ -22,7 +22,9 @@ function AccountSelectInner({
   placeholder = 'اختر الحساب',
   allowEmpty = true,
   emptyLabel = '—',
-  leafOnly = false,
+  leafOnly = true,
+  headerOnly = false,
+  excludeIds,
   statementType,
   selectedAccount,
   nativeSelectProps,
@@ -36,6 +38,8 @@ function AccountSelectInner({
   allowEmpty?: boolean;
   emptyLabel?: string;
   leafOnly?: boolean;
+  headerOnly?: boolean;
+  excludeIds?: string[];
   statementType?: 'BALANCE_SHEET' | 'INCOME_STATEMENT';
   selectedAccount?: { id: string; code: string; arabicName: string } | null;
   nativeSelectProps?: React.SelectHTMLAttributes<HTMLSelectElement> &
@@ -43,13 +47,16 @@ function AccountSelectInner({
   enableQuickCreate?: boolean;
 }) {
   const [search, setSearch] = useState('');
+  const [quickOpen, setQuickOpen] = useState(false);
+  const [quickName, setQuickName] = useState('');
   const [pinnedAccount, setPinnedAccount] = useState<{
     id: string;
     code: string;
     arabicName: string;
   } | null>(null);
-  const { data, isLoading, isError } = useAccountsQuery(search, PICKER_PAGE_SIZE, {
-    leafOnly,
+  const { data, isLoading, isError } = useAccountsQuery(search, ACCOUNT_PICKER_PAGE_SIZE, {
+    leafOnly: headerOnly ? false : leafOnly,
+    headerOnly,
     statementType,
   });
   const accounts = data?.data ?? [];
@@ -59,8 +66,14 @@ function AccountSelectInner({
       pinnedAccount && !accounts.some((a) => a.id === pinnedAccount.id)
         ? [pinnedAccount as AccountOption, ...accounts]
         : accounts;
+    const blocked = new Set(excludeIds ?? []);
     const list = merged
-      .filter((a: AccountOption) => (leafOnly ? isPostableLeafAccount(a) : true))
+      .filter((a: AccountOption) => {
+        if (blocked.has(a.id)) return false;
+        if (headerOnly) return a.accountKind !== 'POSTING';
+        if (leafOnly) return isPostableLeafAccount(a);
+        return true;
+      })
       .map((a: AccountOption) => ({
         value: a.id,
         label: formatAccountLabel(a),
@@ -70,7 +83,7 @@ function AccountSelectInner({
       return [{ value: '', label: emptyLabel || placeholder, searchText: '' }, ...list];
     }
     return list;
-  }, [accounts, allowEmpty, emptyLabel, leafOnly, placeholder, pinnedAccount]);
+  }, [accounts, allowEmpty, emptyLabel, excludeIds, headerOnly, leafOnly, placeholder, pinnedAccount]);
 
   const valueLabel = useMemo(() => {
     if (!value) return undefined;
@@ -89,14 +102,10 @@ function AccountSelectInner({
     setSearch(q);
   }, []);
 
-  const openQuickCreate = useOpenQuickCreateTab('account', (entity) => {
-    setPinnedAccount({
-      id: entity.id,
-      code: String(entity.code ?? ''),
-      arabicName: entity.arabicName || entity.label,
-    });
-    onChange(entity.id);
-  });
+  const openQuickCreate = (query?: string) => {
+    setQuickName(query?.trim() || '');
+    setQuickOpen(true);
+  };
 
   return (
     <>
@@ -112,7 +121,7 @@ function AccountSelectInner({
         emptyMessage={isError ? 'تعذر تحميل الحسابات' : 'لا توجد نتائج'}
         valueLabel={valueLabel}
         onQueryChange={handleQueryChange}
-        maxVisible={PICKER_PAGE_SIZE}
+        maxVisible={ACCOUNT_PICKER_PAGE_SIZE}
         portaled
         menuPlacement="auto"
         quickCreateLabel={enableQuickCreate ? '+ إضافة سريع' : undefined}
@@ -130,6 +139,17 @@ function AccountSelectInner({
             | undefined,
         }}
       />
+      {enableQuickCreate && quickOpen ? (
+        <QuickCreateAccountModal
+          open={quickOpen}
+          initialName={quickName}
+          onClose={() => setQuickOpen(false)}
+          onCreated={(account) => {
+            setPinnedAccount(account);
+            onChange(account.id);
+          }}
+        />
+      ) : null}
     </>
   );
 }

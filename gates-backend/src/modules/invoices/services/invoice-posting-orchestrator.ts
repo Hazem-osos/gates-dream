@@ -17,6 +17,11 @@ import { inventoryCostingService } from '../../inventory/services/inventory-cost
 import { COSTING_MOVEMENT } from '../../inventory/services/inventory-costing-math';
 import { sortForStockLocking } from '../../inventory/utils/stock-lock-order.util';
 import { invoiceAccountResolverService } from './invoice-account-resolver.service';
+import {
+  ACCOUNT_SLOT_ALIASES,
+  pickAccountDef,
+  type AccountDefs,
+} from '../../accounting/settings/account-definition-map';
 import { assertNotSellingBelowCost } from './invoice-below-cost';
 import {
   defaultInvoiceModuleCode,
@@ -32,6 +37,11 @@ import {
   isSplitPaymentInvoice,
 } from './invoice-settlement-split.service';
 import { resolveInvoiceLineWarehouseId } from './invoice-m5-integrity.service';
+import {
+  getInventorySystem,
+  loadWarehouseGlMap,
+  pickInventoryAccount,
+} from '../../inventory/utils/inventory-system';
 import { computeAdjustmentInvoiceAmount } from './invoice-adjustment.math';
 import { computePurchaseLineNetCost } from './purchase-line-net-cost';
 import { taxPeriodService } from '../../taxes/services/tax-period.service';
@@ -158,12 +168,34 @@ async function resolveLineAccounts(
   return byLineId;
 }
 
-function resolveLineInventoryAccounts(
+async function resolveLineInventoryAccounts(
   companyId: string,
   lines: InvoiceWithLines['lines'],
-  defaultAccountId: string
+  defaultAccountId: string,
+  headerWarehouseId?: string | null
 ): Promise<Map<string, string>> {
-  return resolveLineAccounts(companyId, lines, (l) => l.item?.mainAccountId, defaultAccountId);
+  const system = await getInventorySystem(companyId);
+  const warehouseMap = await loadWarehouseGlMap(
+    companyId,
+    lines.map((line) => resolveInvoiceLineWarehouseId(line.warehouseId, headerWarehouseId))
+  );
+  return resolveLineAccounts(
+    companyId,
+    lines,
+    (line) => {
+      const warehouseId = resolveInvoiceLineWarehouseId(line.warehouseId, headerWarehouseId);
+      const warehouseAccount = warehouseId
+        ? warehouseMap.get(warehouseId)?.inventoryAccountId
+        : null;
+      return pickInventoryAccount(
+        system,
+        defaultAccountId,
+        warehouseAccount,
+        line.item?.mainAccountId
+      );
+    },
+    defaultAccountId
+  );
 }
 
 function resolveLineSalesAccounts(
@@ -174,12 +206,45 @@ function resolveLineSalesAccounts(
   return resolveLineAccounts(companyId, lines, (l) => l.item?.salesAccountId, defaultAccountId);
 }
 
-function resolveLineCogsAccounts(
+async function resolveLineCogsAccounts(
   companyId: string,
   lines: InvoiceWithLines['lines'],
-  defaultAccountId: string
+  defaultAccountId: string,
+  headerWarehouseId?: string | null
 ): Promise<Map<string, string>> {
-  return resolveLineAccounts(companyId, lines, (l) => l.item?.cogsAccountId, defaultAccountId);
+  const system = await getInventorySystem(companyId);
+  const settings = await prisma.companySettings.findUnique({
+    where: { companyId },
+    select: { accountDefinitions: true },
+  });
+  const defs = (settings?.accountDefinitions ?? {}) as AccountDefs;
+  const giftRaw = pickAccountDef(defs, [...ACCOUNT_SLOT_ALIASES.giftsAccountId, 'giftAccount']);
+  const companyGiftAccountId = giftRaw
+    ? await invoiceAccountResolverService.resolveAccountId(companyId, giftRaw)
+    : undefined;
+  const warehouseMap = await loadWarehouseGlMap(
+    companyId,
+    lines.map((line) => resolveInvoiceLineWarehouseId(line.warehouseId, headerWarehouseId))
+  );
+  return resolveLineAccounts(
+    companyId,
+    lines,
+    (line) => {
+      const warehouseId = resolveInvoiceLineWarehouseId(line.warehouseId, headerWarehouseId);
+      const warehouse = warehouseId ? warehouseMap.get(warehouseId) : undefined;
+      const isGift = Number(line.price ?? 0) === 0 && Number(line.quantity ?? 0) > 0;
+      if (isGift) {
+        return pickInventoryAccount(system, companyGiftAccountId, warehouse?.giftAccountId);
+      }
+      return pickInventoryAccount(
+        system,
+        defaultAccountId,
+        warehouse?.costAccountId,
+        line.item?.cogsAccountId
+      );
+    },
+    defaultAccountId
+  );
 }
 
 /**
@@ -440,7 +505,8 @@ export class InvoicePostingOrchestrator {
     const lineInventoryAccountId = await resolveLineInventoryAccounts(
       ctx.companyId,
       invoice.lines,
-      accounts.inventoryAccountId
+      accounts.inventoryAccountId,
+      headerWarehouseId
     );
     // Sales Invoice Enterprise Redesign: per-line sales-revenue and COGS
     // account overrides (item.salesAccountId/cogsAccountId, ultimately
@@ -456,7 +522,8 @@ export class InvoicePostingOrchestrator {
     const lineCogsAccountId = await resolveLineCogsAccounts(
       ctx.companyId,
       invoice.lines,
-      accounts.cogsAccountId
+      accounts.cogsAccountId,
+      headerWarehouseId
     );
 
     return prisma.$transaction(async (tx) => {

@@ -27,6 +27,7 @@ export function invalidateMasterDataClient(queryClient: QueryClient) {
   const keys = [
     ['accounts'],
     ['coa-tree'],
+    ['chart-of-accounts'],
     ['warehouses'],
     ['units'],
     ['items'],
@@ -34,6 +35,10 @@ export function invalidateMasterDataClient(queryClient: QueryClient) {
     ['suppliers'],
     ['cost-centers'],
     ['currencies'],
+    ['safes'],
+    ['bank-accounts'],
+    ['banks'],
+    ['delegates'],
     ['company-branches'],
     ['company-current'],
     ['company-fiscal-years'],
@@ -42,6 +47,6 @@ export function invalidateMasterDataClient(queryClient: QueryClient) {
     ['accounting-settings'],
   ] as const;
   for (const key of keys) {
-    void queryClient.invalidateQueries({ queryKey: key });
+    void queryClient.invalidateQueries({ queryKey: key, refetchType: 'all' });
   }
 }

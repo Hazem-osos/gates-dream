@@ -8,6 +8,13 @@ import { useResourcePermissions } from '@/lib/hooks/useResourcePermissions';
 import type { ExportColumnDef } from '@/lib/export/export-utils';
 import { toast } from '@/lib/feedback/toast';
 import { deleteDraftDocument, isDraftDocumentRow } from '@/lib/documents/deleteDraftDocument';
+import { BrowseDateRangeFilters, BrowseStatusFilter } from '@/components/erp/BrowseListFilters';
+import {
+  rowMatchesDateRange,
+  rowMatchesPostedStatus,
+  rowMatchesSearch,
+  type BrowsePostedStatus,
+} from '@/lib/browse/browse-list-match';
 
 export type GenericRecordRow = {
   id: string;
@@ -56,21 +63,36 @@ export function GenericRecordsList({
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [search, setSearch] = useState('');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [statusFilter, setStatusFilter] = useState<BrowsePostedStatus>('all');
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState('number');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+  const hasLocalFilters = Boolean(search.trim() || startDate || endDate || statusFilter !== 'all');
 
   const extraKey = JSON.stringify(extraParams ?? {});
   const queryParams = useMemo(() => {
     const p: Record<string, string | number | boolean> = {};
     if (paging === 'skip') {
-      p.skip = (page - 1) * pageSize;
-      p.take = pageSize;
+      p.skip = hasLocalFilters ? 0 : (page - 1) * pageSize;
+      p.take = hasLocalFilters ? 200 : pageSize;
     } else {
-      p.page = page;
-      p.limit = pageSize;
+      p.page = hasLocalFilters ? 1 : page;
+      p.limit = hasLocalFilters ? 200 : pageSize;
     }
-    if (search.trim().length >= 2) p.search = search.trim();
+    if (search.trim()) p.search = search.trim();
+    if (startDate) p.startDate = startDate;
+    if (endDate) p.endDate = endDate;
+    if (statusFilter === 'posted') {
+      p.isPosted = true;
+      p.isCancelled = false;
+    } else if (statusFilter === 'draft') {
+      p.isPosted = false;
+      p.isCancelled = false;
+    } else if (statusFilter === 'cancelled') {
+      p.isCancelled = true;
+    }
     p.sortBy = sortBy;
     p.sortDir = sortDir;
     const parsed = extraParams ?? {};
@@ -78,21 +100,34 @@ export function GenericRecordsList({
       if (v !== undefined && v !== '') p[k] = v;
     }
     return p;
-  }, [page, pageSize, paging, extraParams, search, sortBy, sortDir]);
+  }, [page, pageSize, paging, extraParams, search, startDate, endDate, statusFilter, hasLocalFilters, sortBy, sortDir]);
 
   const { data, isLoading } = useApiQuery<GenericRecordRow[]>(
-    [listKey, page, pageSize, extraKey, search, sortBy, sortDir],
+    [listKey, page, pageSize, extraKey, search, startDate, endDate, statusFilter, sortBy, sortDir],
     apiPath,
     queryParams,
     { staleTime: 20_000, enabled: canView }
   );
 
-  const rows = data?.data ?? [];
-  const total =
-    data?.pagination?.total ??
-    (typeof (data as { pagination?: { total?: number } })?.pagination?.total === 'number'
-      ? data!.pagination!.total
-      : rows.length);
+  const fetchedRows = data?.data ?? [];
+  const filteredRows = useMemo(() => {
+    if (!hasLocalFilters) return fetchedRows;
+    return fetchedRows.filter((row) => {
+      if (!rowMatchesSearch(row, search)) return false;
+      if (!rowMatchesDateRange(row, startDate, endDate)) return false;
+      if (!rowMatchesPostedStatus(row, statusFilter)) return false;
+      return true;
+    });
+  }, [fetchedRows, hasLocalFilters, search, startDate, endDate, statusFilter]);
+  const rows = hasLocalFilters
+    ? filteredRows.slice((page - 1) * pageSize, page * pageSize)
+    : fetchedRows;
+  const total = hasLocalFilters
+    ? filteredRows.length
+    : data?.pagination?.total ??
+      (typeof (data as { pagination?: { total?: number } })?.pagination?.total === 'number'
+        ? data!.pagination!.total
+        : fetchedRows.length);
 
   const hasCallerStatus = columns.some((col) => col.id === 'status');
   const statusExportColumn: ExportColumnDef<GenericRecordRow> = {
@@ -127,10 +162,36 @@ export function GenericRecordsList({
         exportConfig={{
           fileName: listKey,
           columns: exportColumns as ExportColumnDef<Record<string, unknown>>[],
-          rows: rows as Record<string, unknown>[],
+          rows: (hasLocalFilters ? filteredRows : rows) as Record<string, unknown>[],
           printTitle: printTitle ?? 'السجلات السابقة',
         }}
-      />
+      >
+        <BrowseDateRangeFilters
+          startDate={startDate}
+          endDate={endDate}
+          onStartDate={(value) => {
+            setPage(1);
+            setStartDate(value);
+          }}
+          onEndDate={(value) => {
+            setPage(1);
+            setEndDate(value);
+          }}
+        />
+        <BrowseStatusFilter
+          value={statusFilter}
+          onChange={(value) => {
+            setPage(1);
+            setStatusFilter(value);
+          }}
+          options={[
+            { value: 'all', label: 'كل الحالات' },
+            { value: 'posted', label: 'مرحّل' },
+            { value: 'draft', label: 'مسودة' },
+            { value: 'cancelled', label: 'ملغي' },
+          ]}
+        />
+      </FilterToolbar>
       <AppTable<GenericRecordRow>
         columns={[
           ...columns

@@ -208,7 +208,7 @@ export default function CompanyAccountingSettingsPage() {
                   {activeTab === 'تعريف الحسابات' && (
                     <div className="mt-6 space-y-6">
                       <p className="text-sm text-[#094C6B]">
-                        اختر حسابات تفصيلية فقط (بدون حسابات أب). يظهر الرمز والاسم العربي في القائمة.
+                        حسابات الترحيل تفصيلية (حركة). حسابا العملاء والموردين رئيسيان للسيطرة.
                       </p>
                       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                         {ACCOUNT_SLOT_LABELS.map((slot) => (
@@ -218,6 +218,7 @@ export default function CompanyAccountingSettingsPage() {
                             value={settings.accounts[slot.key]}
                             onChange={(id) => updateAccount(slot.key, id)}
                             accountDetails={settings.accountDetails}
+                            headerOnly={slot.key === 'arAccountId' || slot.key === 'apAccountId'}
                           />
                         ))}
                         {TAX_SLOT_LABELS.map((slot) => (
@@ -1633,6 +1634,21 @@ export default function CompanyAccountingSettingsPage() {
                               </label>
                             ))}
                           </FormSectionCard>
+                          <CompactFormField label="نظام الجرد">
+                            <select
+                              className={compactControlClass}
+                              value={settings.inventorySystem}
+                              onChange={(e) =>
+                                update(
+                                  'inventorySystem',
+                                  e.target.value === 'PERIODIC' ? 'PERIODIC' : 'PERPETUAL'
+                                )
+                              }
+                            >
+                              <option value="PERPETUAL">جرد مستمر — حساب كل مخزن</option>
+                              <option value="PERIODIC">جرد دوري — الحساب الرئيسي للشركة</option>
+                            </select>
+                          </CompactFormField>
                           <CompactFormField label="أساس احتساب سعر بند الفاتورة">
                             <select
                               className={compactControlClass}

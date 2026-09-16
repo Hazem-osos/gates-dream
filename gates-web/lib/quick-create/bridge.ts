@@ -2,6 +2,7 @@ import type { QuickCreateKind, QuickCreateRequest, QuickCreateResult } from './c
 
 const REQUEST_KEY = 'gates-qc-request';
 const RESULT_KEY = 'gates-qc-result';
+const pendingKey = (kind: string) => `gates-qc-pending-${kind}`;
 export const QUICK_CREATE_EVENT = 'gates:quick-create';
 
 function readJson<T>(key: string): T | null {
@@ -27,6 +28,19 @@ const memory = {
 export function storeQuickCreateRequest(request: QuickCreateRequest) {
   memory.request = request;
   writeJson(REQUEST_KEY, request);
+  if (typeof window !== 'undefined') {
+    sessionStorage.setItem(pendingKey(request.kind), request.id);
+  }
+}
+
+export function peekPendingRequestId(kind: QuickCreateKind): string | null {
+  if (typeof window === 'undefined') return null;
+  return sessionStorage.getItem(pendingKey(kind));
+}
+
+export function clearPendingRequestId(kind: QuickCreateKind) {
+  if (typeof window === 'undefined') return;
+  sessionStorage.removeItem(pendingKey(kind));
 }
 
 export function getQuickCreateRequest(id?: string | null): QuickCreateRequest | null {
@@ -48,7 +62,10 @@ export function consumeQuickCreateResult(requestId: string): QuickCreateResult |
   const current = memory.result ?? readJson<QuickCreateResult>(RESULT_KEY);
   if (!current || current.requestId !== requestId) return null;
   memory.result = null;
-  if (typeof window !== 'undefined') sessionStorage.removeItem(RESULT_KEY);
+  if (typeof window !== 'undefined') {
+    sessionStorage.removeItem(RESULT_KEY);
+    sessionStorage.removeItem(pendingKey(current.kind));
+  }
   return current;
 }
 

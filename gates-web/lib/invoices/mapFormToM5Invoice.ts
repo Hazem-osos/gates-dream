@@ -122,7 +122,8 @@ export function mapSalesFormToM5CreateBody(
   const currency = opts.currencies.find((c) => c.id === data.currencyId);
   const currencyCode = currency?.code ?? 'EGP';
   const pricingCalculationBasis = parsePricingCalculationBasis(data.pricingCalculationBasis);
-  const feePreview = computeInvoiceFinancialSummary(data.lines, {
+  const filledLines = data.lines.filter((line) => Boolean(line.itemId?.trim()));
+  const feePreview = computeInvoiceFinancialSummary(filledLines, {
     applyTax,
     developmentFeeEnabled: data.developmentFeeEnabled,
     developmentFeeMode: data.developmentFeeMode,
@@ -131,7 +132,7 @@ export function mapSalesFormToM5CreateBody(
     pricingCalculationBasis,
   });
 
-  const lines = data.lines.map((line, index) => {
+  const lines = filledLines.map((line, index) => {
     const unitId = resolveItemUnitId(line.itemId, opts.items, line.unitId);
     if (!unitId) {
       throw new Error('تعذر تحديد وحدة الصنف — تأكد من ربط وحدات الأصناف في بطاقة الصنف.');

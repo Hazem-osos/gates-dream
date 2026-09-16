@@ -41,6 +41,8 @@ export function invoiceSequenceDocType(kind: InvoiceKind): string {
 
 export function invoiceKindFromLegacyType(invoiceType: string): InvoiceKind {
   if (invoiceType === 'purchase') return 'PURCHASE';
+  if (invoiceType === 'purchaseReturn') return 'PURCHASE_RETURN';
+  if (invoiceType === 'salesReturn' || invoiceType === 'return') return 'SALE_RETURN';
   if (invoiceType === 'sales') return 'SALE';
   return 'SALE';
 }

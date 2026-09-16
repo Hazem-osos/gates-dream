@@ -37,6 +37,7 @@ export type AccountingSettingsGeneral = {
   documentaryCredits: boolean;
   executiveWhatsAppPhone: string | null;
   autoPostGl: boolean;
+  inventorySystem: 'PERPETUAL' | 'PERIODIC';
   retainedEarningsAccountId: string | null;
 };
 

@@ -83,6 +83,7 @@ export async function getCoaTreeEtag(
     prisma.account.aggregate({
       where: { companyId, deletedAt: null },
       _max: { updatedAt: true },
+      _count: { _all: true },
     }),
   ]);
   return etagFromRedisHashOrStamp(tenantCacheKeys.coaTree(companyId), [
@@ -91,6 +92,7 @@ export async function getCoaTreeEtag(
     parentId ?? 'root',
     company?.updatedAt,
     agg._max?.updatedAt,
+    agg._count._all,
   ]);
 }
 

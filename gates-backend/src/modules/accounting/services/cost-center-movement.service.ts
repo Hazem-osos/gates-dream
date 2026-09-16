@@ -1,6 +1,11 @@
 import prisma from '../../../shared/database/prisma';
 import { logger } from '../../../shared/logger';
 import { Decimal } from '@prisma/client/runtime/library';
+import { AppError } from '../../../shared/middleware/error-handler';
+import { roundTo4 } from '../../../shared/utils/decimal-round';
+import { journalPostingService } from './journal-posting.service';
+import { fiscalYearService } from '../../platform/services/fiscal-year.service';
+import type { JournalEntryLineData } from '../types/journal-entry.types';
 
 export interface TransferCostCenterMovementData {
   fromCostCenterId: string;
@@ -86,27 +91,147 @@ export class CostCenterMovementService {
           },
         });
 
-        if (movements.length === 0) {
+        const postedLines = await tx.journalEntryLine.findMany({
+          where: {
+            costCenterId: data.fromCostCenterId,
+            ...(data.accountId ? { accountId: data.accountId } : {}),
+            journalEntry: {
+              companyId,
+              isPosted: true,
+              isCancelled: false,
+              deletedAt: null,
+              date: { gte: data.fromDate, lte: data.toDate },
+            },
+          },
+          select: {
+            accountId: true,
+            debitBase: true,
+            creditBase: true,
+          },
+        });
+
+        if (movements.length === 0 && postedLines.length === 0) {
           throw new Error(
             'No cost center movements found for the specified criteria and date range'
           );
         }
 
-        // Update all movements to point to the new cost center
-        const updatedMovements = await tx.costCenterMovement.updateMany({
-          where: {
-            id: {
-              in: movements.map((m) => m.id),
-            },
-          },
-          data: {
-            costCenterId: data.toCostCenterId,
-            ...(data.description && { description: data.description }),
-          },
-        });
+        const netByAccount = new Map<string, number>();
+        for (const line of postedLines) {
+          netByAccount.set(
+            line.accountId,
+            roundTo4(
+              (netByAccount.get(line.accountId) ?? 0) +
+                Number(line.debitBase) -
+                Number(line.creditBase)
+            )
+          );
+        }
 
-        // Posted journal lines are immutable (C9). Operational cost-center
-        // movement rows may move; GL history is not rewritten in place.
+        let journalEntryId: string | null = null;
+        const reclassLines: JournalEntryLineData[] = [];
+        for (const [accountId, net] of netByAccount.entries()) {
+          if (Math.abs(net) < 0.0001) continue;
+          const amount = Math.abs(net);
+          if (net > 0) {
+            reclassLines.push(
+              {
+                accountId,
+                debit: amount,
+                credit: 0,
+                lineOrder: reclassLines.length + 1,
+                costCenterId: data.toCostCenterId,
+                description: data.description,
+              },
+              {
+                accountId,
+                debit: 0,
+                credit: amount,
+                lineOrder: reclassLines.length + 2,
+                costCenterId: data.fromCostCenterId,
+                description: data.description,
+              }
+            );
+          } else {
+            reclassLines.push(
+              {
+                accountId,
+                debit: amount,
+                credit: 0,
+                lineOrder: reclassLines.length + 1,
+                costCenterId: data.fromCostCenterId,
+                description: data.description,
+              },
+              {
+                accountId,
+                debit: 0,
+                credit: amount,
+                lineOrder: reclassLines.length + 2,
+                costCenterId: data.toCostCenterId,
+                description: data.description,
+              }
+            );
+          }
+        }
+
+        if (reclassLines.length > 0) {
+          const branchId = (
+            await tx.branch.findFirst({
+              where: { companyId, deletedAt: null },
+              orderBy: { createdAt: 'asc' },
+              select: { id: true },
+            })
+          )?.id;
+          if (!branchId) {
+            throw new AppError(422, 'لا يوجد فرع لترحيل قيد نقل مركز التكلفة');
+          }
+          const reclassDate = new Date();
+          const fiscalYearId = await fiscalYearService.assertOpenForDate(companyId, reclassDate);
+          const description =
+            data.description ??
+            `نقل مركز تكلفة: ${fromCostCenter.code} → ${toCostCenter.code}`;
+          const je = await journalPostingService.createAndPostInTx(
+            tx,
+            { companyId, branchId, userId, fiscalYearId },
+            {
+              date: reclassDate,
+              hijriDate: data.hijriDate,
+              description,
+              currencyCode: 'EGP',
+              exchangeRate: 1,
+              fiscalYearId,
+              entryType: 'RECLASSIFICATION',
+              lines: reclassLines.map((line, index) => ({
+                ...line,
+                lineOrder: index + 1,
+                description: line.description ?? description,
+              })),
+            }
+          );
+          journalEntryId = je.id;
+          await tx.costCenterMovement.createMany({
+            data: reclassLines.map((line) => ({
+              companyId,
+              accountId: line.accountId,
+              costCenterId: line.costCenterId!,
+              date: reclassDate,
+              debit: new Decimal(line.debit),
+              credit: new Decimal(line.credit),
+              description: line.description ?? description,
+            })),
+          });
+        }
+
+        const updatedMovements =
+          reclassLines.length === 0 && movements.length > 0
+            ? await tx.costCenterMovement.updateMany({
+                where: { id: { in: movements.map((m) => m.id) } },
+                data: {
+                  costCenterId: data.toCostCenterId,
+                  ...(data.description && { description: data.description }),
+                },
+              })
+            : { count: reclassLines.length };
 
         logger.info(
           {
@@ -115,13 +240,15 @@ export class CostCenterMovementService {
             toCostCenterId: data.toCostCenterId,
             dateRange: { from: data.fromDate, to: data.toDate },
             movementsUpdated: updatedMovements.count,
+            journalEntryId,
             userId,
           },
           'Cost center movement transferred'
         );
 
         return {
-          movementsTransferredCount: updatedMovements.count,
+          movementsTransferredCount: updatedMovements.count + (journalEntryId ? 1 : 0),
+          journalEntryId,
           fromCostCenter: {
             id: fromCostCenter.id,
             code: fromCostCenter.code,

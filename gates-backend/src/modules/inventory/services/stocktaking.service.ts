@@ -8,6 +8,7 @@ import { COSTING_MOVEMENT } from './inventory-costing-math';
 import { stockMovementGlService, type StockGlPostingContext } from './stock-movement-gl.service';
 import { assertStoreDocumentRight } from './store-document-rights';
 import { fiscalYearService } from '../../platform/services/fiscal-year.service';
+import { assertWarehouseActive } from '../utils/inventory-system';
 
 export interface StocktakingLine {
   itemId: string;
@@ -75,13 +76,7 @@ export class StocktakingService {
   async createStocktaking(companyId: string, data: CreateStocktakingData) {
     try {
       // Validate warehouse belongs to company
-      const warehouse = await prisma.warehouse.findFirst({
-        where: { id: data.warehouseId, companyId },
-      });
-
-      if (!warehouse) {
-        throw new Error('Warehouse not found or does not belong to company');
-      }
+      await assertWarehouseActive(companyId, data.warehouseId);
 
       // Validate all items belong to company
       const itemIds = data.lines.map((line) => line.itemId);
@@ -403,6 +398,7 @@ export class StocktakingService {
       // period lock entirely, so a count dated in a closed month still moved
       // stock whenever no GL context was supplied.
       await fiscalYearService.assertOpenForDate(companyId, stocktaking.date);
+      await assertWarehouseActive(companyId, stocktaking.warehouseId);
 
       const sourceType = 'STK';
       const sourceNumber = stocktaking.serial ?? stocktaking.id.slice(0, 8);

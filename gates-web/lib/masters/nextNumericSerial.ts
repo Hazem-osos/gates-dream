@@ -40,3 +40,20 @@ export function nextNumericSerial(
   }
   return serial;
 }
+
+/** Increment trailing digits: 1110002 → 1110003. Empty if the value has no trailing number. */
+export function bumpTrailingCode(code: string): string {
+  const trimmed = code.trim();
+  const match = trimmed.match(/^(.*?)(\d+)$/);
+  if (!match) return '';
+  const width = match[2].length;
+  return `${match[1]}${String(Number(match[2]) + 1).padStart(width, '0')}`;
+}
+
+/** True when `candidate` is a later sibling of `baseline` (same prefix, higher trailing number). */
+export function isCodeAfter(candidate: string, baseline: string): boolean {
+  const left = candidate.trim().match(/^(.*?)(\d+)$/);
+  const right = baseline.trim().match(/^(.*?)(\d+)$/);
+  if (!left || !right || left[1] !== right[1]) return false;
+  return Number(left[2]) > Number(right[2]);
+}

@@ -39,7 +39,7 @@ export function ReceiptOrderHeader({
 
   return (
     <div className="flex flex-wrap items-end gap-3">
-      <div className="w-72 space-y-1">
+      <div className="w-full max-w-[var(--erp-field-max,32rem)] min-w-0 space-y-1">
         <label className={erpLabelClass}>الخزينة</label>
         <select
           className={`${erpInputClass} ${error ? erpInputErrorClass : ''}`}

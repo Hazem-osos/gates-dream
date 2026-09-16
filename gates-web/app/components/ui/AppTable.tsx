@@ -151,9 +151,9 @@ export function AppTable<T extends Record<string, unknown>>({
     setSort(next);
     onSortChange?.(next);
   };
-  const serverPaged = Boolean(pagination || onSortChange);
+  const serverSorted = Boolean(onSortChange);
   const sortedData = React.useMemo(() => {
-    if (serverPaged || !sort) return data;
+    if (serverSorted || !sort) return data;
     const col = columns.find((item) => item.id === sort.id);
     if (!col || !columnSortable(col)) return data;
     const copy = [...data];
@@ -167,7 +167,7 @@ export function AppTable<T extends Record<string, unknown>>({
       return sort.dir === 'asc' ? cmp : -cmp;
     });
     return copy;
-  }, [columns, data, onSortChange, pagination, serverPaged, sort]);
+  }, [columns, data, serverSorted, sort]);
   const showSkeleton = !mounted || Boolean(isLoading);
   const parentRef = React.useRef<HTMLDivElement>(null);
   const useVirtual = !showSkeleton && sortedData.length >= virtualizeThreshold;

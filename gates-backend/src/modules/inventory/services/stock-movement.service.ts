@@ -175,6 +175,20 @@ export class StockMovementService {
     tx: Prisma.TransactionClient,
     input: PostStockMovementInput
   ) {
+    const warehouse = await tx.warehouse.findFirst({
+      where: { id: input.warehouseId, companyId: input.companyId },
+      select: { isActive: true, arabicName: true },
+    });
+    if (!warehouse) {
+      throw new AppError(404, 'المخزن غير موجود');
+    }
+    if (!warehouse.isActive) {
+      throw new AppError(
+        409,
+        `المخزن «${warehouse.arabicName}» غير نشط. اختر مخزناً شغّالاً.`
+      );
+    }
+
     await this.lockItemQuantityInTx(
       tx,
       input.companyId,

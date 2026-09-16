@@ -15,7 +15,9 @@ import { JournalEntryBottomSplit } from '@/components/accounting/journal/Journal
 import { JournalEntryStickyFooter } from '@/components/accounting/journal/JournalEntryStickyFooter';
 import { JournalLinesTable } from '@/components/accounting/journal/JournalLinesTable';
 import { Button } from '@/components/ui';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
+import { useOwnTabSearchParams } from '@/lib/navigation/tab-route-lock';
+import { PageDraftRestoreBanner } from '@/components/erp/PageDraftRestoreBanner';
 import { useApiQuery, useApiMutation, useInvalidateQuery } from '@/lib/hooks/useApi';
 import type { ApiError } from '@/lib/api/types';
 import { dispatchAcademyTrigger } from '@/lib/onboarding/tourCheckpoints';
@@ -26,7 +28,7 @@ import {
   journalEntrySchema,
   type JournalEntryFormValues,
 } from '@/lib/validation/accounting.schema';
-import { useAccountsQuery, useCurrenciesQuery } from '@/lib/hooks/useMasterDataQueries';
+import { ACCOUNT_PICKER_PAGE_SIZE, useAccountsQuery, useCurrenciesQuery } from '@/lib/hooks/useMasterDataQueries';
 import { useCompanyPrintProfile } from '@/lib/hooks/useCompanyPrintProfile';
 import { PrintDocumentButton } from '@/app/components/print/PrintDocumentButton';
 import { printOperationalDocument } from '@/lib/print/printOperationalDocument';
@@ -47,6 +49,9 @@ import { onFieldErrors } from '@/lib/forms/on-field-errors';
 import { resolveJournalSourceKind, type JournalSourceType } from '@/lib/accounting/journal-source';
 import { pickCurrencyByCode, rateForCurrency, toBaseAmount } from '@/lib/accounting/fx-base';
 import { useCompanyBaseCurrency } from '@/lib/hooks/useCompanyBaseCurrency';
+import { DocumentCurrencyRateFields } from '@/components/accounting/DocumentCurrencyRateFields';
+import { ShowFxColumnsField } from '@/components/accounting/ShowFxColumnsField';
+import { useShowFxColumns } from '@/lib/transaction-settings/useShowFxColumns';
 
 const JournalEntriesListSection = dynamic(
   () =>
@@ -145,7 +150,7 @@ function CreateJournalEntryFormInner() {
   const router = useRouter();
   const { lockToView, setMode, unlockForEdit, isReadOnly, mode } = useDocumentMode();
   const invalidateQuery = useInvalidateQuery();
-  const searchParams = useSearchParams();
+  const searchParams = useOwnTabSearchParams();
   const journalEntryIdFromUrl = searchParams.get('id');
 
   const [showList, setShowList] = useState(false);
@@ -155,7 +160,9 @@ function CreateJournalEntryFormInner() {
   const [isApproved, setIsApproved] = useState(false);
   const [voucherStatus, setVoucherStatus] = useState('غير مرحل');
   const [showRecurringPicker, setShowRecurringPicker] = useState(false);
-  const [showFxColumns, setShowFxColumns] = useState(true);
+  const { showFx: showFxColumns, setShowFx: setShowFxColumns, resetFxToSetting } = useShowFxColumns(
+    'JOURNAL_ENTRY'
+  );
   const [sourceKind, setSourceKind] = useState<JournalSourceType>('MANUAL');
   const [sourceId, setSourceId] = useState<string | null>(null);
   const [sourceNumber, setSourceNumber] = useState<string | null>(null);
@@ -167,6 +174,7 @@ function CreateJournalEntryFormInner() {
   const [loadedVersion, setLoadedVersion] = useState<number | undefined>(undefined);
   const skipUrlHydrateRef = useRef(false);
   const skipHeaderFxSyncRef = useRef(false);
+  const [headerRateOverride, setHeaderRateOverride] = useState<number | null>(null);
 
   useEffect(() => {
     const id = journalEntryIdFromUrl?.trim();
@@ -284,6 +292,8 @@ function CreateJournalEntryFormInner() {
         invoiceNumber: line.invoiceNumber ?? null,
       })),
     });
+    const firstLineRate = Number(loadedJournalEntry.lines?.[0]?.exchangeRate);
+    setHeaderRateOverride(firstLineRate > 0 ? firstLineRate : null);
     setIsCyclic(Boolean(loadedJournalEntry.isCyclic || loadedJournalEntry.isRecurring));
     const posted =
       Boolean(loadedJournalEntry.isPosted) || loadedJournalEntry.postingStatus === 'Post';
@@ -479,7 +489,8 @@ function CreateJournalEntryFormInner() {
       return;
     }
     const header = currencies.find((c) => c.id === headerCurrencyId);
-    const headerRate = rateForCurrency(header?.code, companyBaseCurrency, header?.exchangeRate);
+    const catalogRate = rateForCurrency(header?.code, companyBaseCurrency, header?.exchangeRate);
+    const headerRate = headerRateOverride ?? catalogRate;
     const lines = getValues('lines') ?? [];
     if (!lines.length) return;
     replace(
@@ -497,7 +508,7 @@ function CreateJournalEntryFormInner() {
   const creditTotal =
     watchedLines?.reduce((sum, line) => sum + toBaseAmount(line?.credit, line?.exchangeRate), 0) ?? 0;
 
-  const { data: accountsResponse } = useAccountsQuery();
+  const { data: accountsResponse } = useAccountsQuery(undefined, ACCOUNT_PICKER_PAGE_SIZE, { leafOnly: true });
   const accounts = useMemo(() => accountsResponse?.data ?? [], [accountsResponse?.data]);
   const { profile: companyProfile } = useCompanyPrintProfile();
   const referenceNumberW = watch('referenceNumber');
@@ -516,23 +527,43 @@ function CreateJournalEntryFormInner() {
     }),
     [dateW, referenceNumberW, hijriDateW, descriptionW, headerCurrencyId, watchedLines, isCyclic]
   );
-  const hasDraftContent =
-    Boolean(descriptionW?.trim()) ||
-    Boolean((watchedLines ?? []).some((line) => line.accountId || Number(line.debit) || Number(line.credit)));
+  const isJournalDraftEmpty = useCallback((draft: JournalDraftSnapshot) => {
+    return (
+      !draft.description?.trim() &&
+      !(draft.lines ?? []).some((line) => line.accountId || Number(line.debit) || Number(line.credit))
+    );
+  }, []);
+
+  const applyJournalDraft = useCallback(
+    (payload: JournalDraftSnapshot) => {
+      reset({
+        date: payload.date,
+        referenceNumber: payload.referenceNumber,
+        hijriDate: payload.hijriDate,
+        description: payload.description,
+        currencyId: payload.currencyId,
+        lines: payload.lines ?? [],
+      });
+      setIsCyclic(Boolean(payload.isCyclic));
+    },
+    [reset]
+  );
+
   const {
     restoreOffer,
     acceptRestore,
     dismissRestore,
     clearDraft,
-  } = useDraftAutosave('gates:draft:journal-entry', draftSnapshot, !savedJournalEntryId && !isPosted && hasDraftContent);
+  } = useDraftAutosave('gates:draft:journal-entry', draftSnapshot, !savedJournalEntryId && !isPosted, {
+    applyRestore: applyJournalDraft,
+    isEmpty: isJournalDraftEmpty,
+    restoreMessage: 'تم استعادة المسودة المحفوظة',
+  });
 
   useEffect(() => {
     if (!restoreOffer || savedJournalEntryId) return;
-    const hasContent =
-      Boolean(restoreOffer.description?.trim()) ||
-      (restoreOffer.lines ?? []).some((line) => line.accountId || Number(line.debit) || Number(line.credit));
-    if (!hasContent) dismissRestore();
-  }, [restoreOffer, savedJournalEntryId, dismissRestore]);
+    if (isJournalDraftEmpty(restoreOffer)) dismissRestore();
+  }, [isJournalDraftEmpty, restoreOffer, savedJournalEntryId, dismissRestore]);
 
   useEffect(() => {
     if (!dateW) return;
@@ -593,6 +624,7 @@ function CreateJournalEntryFormInner() {
       sourceId: sourceId || undefined,
       sourceNumber: sourceNumber || undefined,
       currencyCode,
+      exchangeRate: data.lines[0]?.exchangeRate || 1,
       lines: data.lines.map((line, index) => {
         const rate = line.exchangeRate || 1;
         const debit = line.debit || 0;
@@ -697,6 +729,8 @@ function CreateJournalEntryFormInner() {
     setIsCyclic(false);
     setSavedJournalEntryId(null);
     setLoadedVersion(undefined);
+    setHeaderRateOverride(null);
+    resetFxToSetting();
     setIsPosted(false);
     setIsCancelled(false);
     setIsApproved(false);
@@ -749,35 +783,16 @@ function CreateJournalEntryFormInner() {
       {error && <ErrorToast message={error} onClose={() => setError('')} />}
       {success && <SuccessToast message={success} onClose={() => setSuccess('')} />}
       {restoreOffer && !savedJournalEntryId ? (
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-900">
-          <span>يوجد مسودة قيد غير محفوظة من جلسة سابقة.</span>
-          <div className="flex gap-2">
-            <Button
-              type="button"
-              size="sm"
-              variant="primary"
-              onClick={() => {
-                const payload = acceptRestore();
-                if (!payload) return;
-                reset({
-                  date: payload.date,
-                  referenceNumber: payload.referenceNumber,
-                  hijriDate: payload.hijriDate,
-                  description: payload.description,
-                  currencyId: payload.currencyId,
-                  lines: payload.lines ?? [],
-                });
-                setIsCyclic(Boolean(payload.isCyclic));
-                setSuccess('تم استعادة المسودة المحفوظة');
-              }}
-            >
-              استعادة
-            </Button>
-            <Button type="button" size="sm" variant="ghost" onClick={dismissRestore}>
-              تجاهل
-            </Button>
-          </div>
-        </div>
+        <PageDraftRestoreBanner
+          message="يوجد مسودة قيد غير محفوظة من جلسة سابقة."
+          onRestore={() => {
+            const payload = acceptRestore();
+            if (!payload) return;
+            applyJournalDraft(payload);
+            setSuccess('تم استعادة المسودة المحفوظة');
+          }}
+          onDismiss={dismissRestore}
+        />
       ) : null}
 
       <ErpDocumentPageHeader
@@ -925,7 +940,7 @@ function CreateJournalEntryFormInner() {
         }
         row2={
           <>
-            <div className="lg:col-span-3">
+            <div>
               <label className={erpLabelClass}>الشرح</label>
               <input
                 type="text"
@@ -938,22 +953,35 @@ function CreateJournalEntryFormInner() {
               />
               <FieldError message={errors.description?.message} />
             </div>
-            <div>
-              <label className={erpLabelClass}>العملة</label>
-              <select
-                className={`${erpInputClass} ${errors.currencyId ? inputErrorClass : ''}`}
-                disabled={currenciesLoading}
-                {...register('currencyId')}
-              >
-                <option value="">اختر العملة</option>
-                {currencies.map((currency) => (
-                  <option key={currency.id} value={currency.id}>
-                    {currency.arabicName || currency.englishName || currency.code}
-                  </option>
-                ))}
-              </select>
-              <FieldError message={errors.currencyId?.message} />
-            </div>
+            <DocumentCurrencyRateFields
+              currencies={currencies}
+              currencyId={headerCurrencyId}
+              exchangeRate={
+                headerRateOverride ??
+                rateForCurrency(
+                  currencies.find((c) => c.id === headerCurrencyId)?.code,
+                  companyBaseCurrency,
+                  currencies.find((c) => c.id === headerCurrencyId)?.exchangeRate
+                )
+              }
+              companyBaseCode={companyBaseCurrency}
+              showRate={showFxColumns}
+              disabled={currenciesLoading || isReadOnly || isPosted || isCancelled}
+              onCurrencyIdChange={(id, nextRate) => {
+                setHeaderRateOverride(null);
+                setValue('currencyId', id, { shouldDirty: true, shouldValidate: true });
+                const lines = getValues('lines') ?? [];
+                if (!lines.length) return;
+                replace(lines.map((line) => ({ ...line, currencyId: id, exchangeRate: nextRate })));
+              }}
+              onExchangeRateChange={(rate) => {
+                setHeaderRateOverride(rate);
+                const lines = getValues('lines') ?? [];
+                if (!lines.length) return;
+                replace(lines.map((line) => ({ ...line, exchangeRate: rate })));
+              }}
+            />
+            <FieldError message={errors.currencyId?.message} />
           </>
         }
         extras={
@@ -979,15 +1007,7 @@ function CreateJournalEntryFormInner() {
               />
               سند دوري
             </label>
-            <label className="inline-flex items-center gap-2 text-sm text-slate-700">
-              <input
-                type="checkbox"
-                checked={showFxColumns}
-                onChange={(e) => setShowFxColumns(e.target.checked)}
-                className="rounded border-slate-300"
-              />
-              إظهار أعمدة العملة وسعر الصرف
-            </label>
+            <ShowFxColumnsField checked={showFxColumns} onChange={setShowFxColumns} />
           </div>
         }
       />

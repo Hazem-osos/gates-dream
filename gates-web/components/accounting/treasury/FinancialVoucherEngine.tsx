@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
+import { useOwnTabPathname, useOwnTabSearchParams } from '@/lib/navigation/tab-route-lock';
 import PaymentsDistributionModal from '@/components/LazyPaymentsDistributionModal';
 import {
   AdvancedFieldsSection,
@@ -36,6 +37,7 @@ import {
   ErpFieldError,
   ErpFormHeaderCard,
   GenericRecordsList,
+  erpFormGridClass,
   erpInputClass,
   erpInputErrorClass,
   erpLabelClass,
@@ -56,7 +58,9 @@ import {
 } from '@/lib/hooks/useMasterDataQueries';
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
-import { useForm, type Resolver, Controller } from 'react-hook-form';
+import { useForm, useWatch, type Resolver, Controller } from 'react-hook-form';
+import { useDraftAutosave } from '@/lib/hooks/useDraftAutosave';
+import { PageDraftRestoreBanner } from '@/components/erp/PageDraftRestoreBanner';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { DatePickerWithHijri } from '@/components/ui/DatePickerWithHijri';
 import { CostCenterSelect } from '@/app/components/form/CostCenterSelect';
@@ -75,6 +79,8 @@ import {
   type FinancialVoucherVariantId,
 } from '@/lib/treasury/financial-voucher.variant';
 import type { TransactionSettings } from '@/lib/transaction-settings/types';
+import { useShowFxColumns } from '@/lib/transaction-settings/useShowFxColumns';
+import { ShowFxColumnsField } from '@/components/accounting/ShowFxColumnsField';
 import { consumeAiTransactionDraft, peekAiTransactionDraft } from '@/lib/ai/ai-draft-storage';
 import { useAccountingSettingsQuery } from '@/lib/hooks/useAccountingSettings';
 import {
@@ -83,7 +89,9 @@ import {
   treasuryBalanceInCurrency,
   withHeaderCurrency,
 } from '@/lib/accounting/fx-base';
+import { costCenterRuleFromAccount, costCenterRuleMessage } from '@/lib/accounting/cost-center-rule';
 import { useCompanyBaseCurrency } from '@/lib/hooks/useCompanyBaseCurrency';
+import { DocumentCurrencyRateFields } from '@/components/accounting/DocumentCurrencyRateFields';
 import { onFieldErrors } from '@/lib/forms/on-field-errors';
 import {
   formatTreasuryBalanceLabel,
@@ -104,6 +112,7 @@ interface Account {
   arabicName: string;
   englishName?: string;
   costCenterRequired?: string | null;
+  requiresCostCenter?: boolean | null;
   isActive?: boolean;
 }
 
@@ -122,6 +131,7 @@ interface FundOption {
   code?: string | null;
   accountNumber?: string | null;
   balance?: number | string;
+  isDefault?: boolean;
   glAccountCode?: string | null;
   glAccount?: { id: string; code: string; arabicName: string } | null;
   bank?: { arabicName?: string; englishName?: string; code?: string | null } | null;
@@ -196,10 +206,7 @@ function toHijri(isoDate: string): string {
 }
 
 function costCenterRule(account?: Account): 'required' | 'optional' | 'none' {
-  const raw = (account?.costCenterRequired ?? '').trim();
-  if (raw === 'إجباري' || raw.toUpperCase() === 'REQUIRED') return 'required';
-  if (raw === 'بدون' || raw.toUpperCase() === 'NONE') return 'none';
-  return 'optional';
+  return costCenterRuleFromAccount(account);
 }
 
 function emptyLine(
@@ -211,10 +218,18 @@ function emptyLine(
   return emptyPaymentLine(currencyCode, entrySide, costCenterId, exchangeRate);
 }
 
-function applyDefaultCostCenter<T extends { costCenterId?: string }>(rows: T[], costCenterId: string): T[] {
-  return rows.map((line, index) =>
-    index === 0 || !line.costCenterId ? { ...line, costCenterId } : line
-  );
+function applyDefaultCostCenter<T extends { costCenterId?: string; accountId?: string }>(
+  rows: T[],
+  costCenterId: string,
+  accounts: Account[] = []
+): T[] {
+  return rows.map((line, index) => {
+    const account = accounts.find((a) => a.id === line.accountId);
+    if (costCenterRuleFromAccount(account) === 'none') {
+      return { ...line, costCenterId: '' };
+    }
+    return index === 0 || !line.costCenterId ? { ...line, costCenterId } : line;
+  });
 }
 
 function settingsDocumentTypeForVariant(
@@ -233,8 +248,11 @@ function settingsDocumentTypeForVariant(
 }
 
 function fundIdForGlAccount(funds: FundOption[], accountId?: string | null): string {
-  if (!accountId) return '';
-  return funds.find((fund) => fund.glAccount?.id === accountId)?.id ?? '';
+  if (accountId) {
+    const byGl = funds.find((fund) => fund.glAccount?.id === accountId)?.id;
+    if (byGl) return byGl;
+  }
+  return funds.find((fund) => fund.isDefault)?.id ?? funds[0]?.id ?? '';
 }
 
 const advancedActionClass =
@@ -252,8 +270,8 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
   const variant = FINANCIAL_VOUCHER_VARIANTS[variantId];
   const { lockToView, setMode, unlockForEdit, isReadOnly } = useDocumentMode();
   const router = useRouter();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
+  const pathname = useOwnTabPathname();
+  const searchParams = useOwnTabSearchParams();
   const idFromUrl = searchParams.get('id');
   const fromAiDraft = searchParams.get('fromAiDraft') === '1';
   const invalidateQuery = useInvalidateQuery();
@@ -280,7 +298,9 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
   const [voucherLines, setVoucherLines] = useState<VoucherLine[]>([emptyLine('EGP')]);
   const [creditLines, setCreditLines] = useState<VoucherLine[]>([]);
   const [showCreditModal, setShowCreditModal] = useState(false);
-  const [showFxColumns, setShowFxColumns] = useState(true);
+  const { showFx: showFxColumns, setShowFx: setShowFxColumns, resetFxToSetting } = useShowFxColumns(
+    settingsDocumentTypeForVariant(variantId)
+  );
   const [defaultCostCenterId, setDefaultCostCenterId] = useState('');
   const [orderRefResetKey, setOrderRefResetKey] = useState(0);
   const [showPaymentsModal, setShowPaymentsModal] = useState(false);
@@ -321,17 +341,16 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
     }
     if (id && id !== savedVoucherId) {
       setSavedVoucherId(id);
-    }
-  }, [idFromUrl, savedVoucherId]);
-
-  useEffect(() => {
-    if (!savedVoucherId) {
-      setMode('create');
       return;
     }
-    if (isPosted || isCancelled) lockToView();
-    else setMode('edit');
-  }, [isCancelled, isPosted, lockToView, savedVoucherId, setMode]);
+    if (!id && savedVoucherId) {
+      router.replace(`${pathname}?id=${savedVoucherId}`, { scroll: false });
+    }
+  }, [idFromUrl, pathname, router, savedVoucherId]);
+
+  useEffect(() => {
+    if (!savedVoucherId) setMode('create');
+  }, [savedVoucherId, setMode]);
 
   const {
     register,
@@ -370,11 +389,44 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
   const isCyclicW = watch('isCyclic');
   const bankReferenceW = watch('bankReference');
   const valueDateW = watch('valueDate');
+  const headerSnapshot = useWatch({ control }) as FinancialVoucherHeaderFormInput;
+  const voucherDraftSnapshot = useMemo(
+    () => ({
+      header: headerSnapshot,
+      voucherLines,
+      creditLines,
+      defaultCostCenterId,
+    }),
+    [creditLines, defaultCostCenterId, headerSnapshot, voucherLines]
+  );
+  const applyVoucherDraft = useCallback(
+    (payload: typeof voucherDraftSnapshot) => {
+      if (payload.header) reset(payload.header);
+      setVoucherLines(payload.voucherLines?.length ? payload.voucherLines : [emptyLine('EGP')]);
+      setCreditLines(payload.creditLines ?? []);
+      setDefaultCostCenterId(payload.defaultCostCenterId ?? '');
+    },
+    [reset]
+  );
+  const {
+    restoreOffer,
+    acceptRestore,
+    dismissRestore,
+    clearDraft,
+  } = useDraftAutosave(`gates:draft:voucher:${variantId}`, voucherDraftSnapshot, !savedVoucherId && !isPosted, {
+    applyRestore: applyVoucherDraft,
+    isEmpty: (draft) =>
+      !draft.header?.description?.trim() &&
+      !draft.header?.fundId?.trim() &&
+      !(draft.voucherLines ?? []).some((line) => line.accountId) &&
+      !(draft.creditLines ?? []).some((line) => line.accountId),
+    restoreMessage: 'تم استعادة مسودة السند',
+  });
 
   const { data: accountsResponse } = useApiQuery<Account[]>(
     ['accounts', 'leaf'],
     '/accounting/accounts',
-    { limit: 200, isActive: true, leafOnly: true }
+    { limit: 500, isActive: true, leafOnly: true }
   );
   const accounts = accountsResponse?.data || [];
 
@@ -510,8 +562,25 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
         invalidateQuery(['cash-voucher-detail']);
         invalidateQuery(['cash-order-detail']);
         invalidateQuery(['voucher-source-orders']);
+        invalidateQuery(['journal-entry']);
+        invalidateQuery(['journal-entries']);
         invalidateTreasuryFundBalances(invalidateQuery);
         dispatchAcademyTrigger('API_SUCCESS', variant.academyTrigger);
+        if (row?.id) {
+          lastHydratedIdRef.current = null;
+          clearDraft();
+          openVoucher(row.id);
+          setIsPosted(Boolean(row.isPosted));
+          setIsCancelled(Boolean(row.isCancelled));
+          setDocumentVersion(typeof row.version === 'number' ? row.version : documentVersion + 1);
+          setJournalEntryId(row.journalEntryId ?? row.journalEntry?.id ?? null);
+          setJournalNumber(row.journalEntry?.voucherNumber ?? null);
+          setIsEditing(false);
+          if (row.isPosted || row.isCancelled) lockToView();
+          else setMode('edit');
+          setSuccess(message);
+          return;
+        }
         resetForm();
         setSuccess(message);
       },
@@ -532,15 +601,31 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
     savedVoucherId ? `/treasury/cash-transactions/${savedVoucherId}` : '/treasury/cash-transactions',
     'PATCH',
     {
-      onSuccess: () => {
-        const message = `تم حفظ تعديلات ${variant.title} بنجاح`;
+      onSuccess: (res: { data?: CashTxRow }) => {
+        const row = res?.data;
+        const message = row?.isPosted
+          ? `تم حفظ تعديلات ${variant.title} وتحديث القيد`
+          : `تم حفظ تعديلات ${variant.title} بنجاح`;
         invalidateQuery(['treasury-cash-transactions']);
         invalidateQuery(['cash-voucher-detail']);
         invalidateQuery(['cash-order-detail']);
         invalidateQuery(['voucher-source-orders']);
+        invalidateQuery(['journal-entry']);
+        invalidateQuery(['journal-entries']);
         invalidateTreasuryFundBalances(invalidateQuery);
         dispatchAcademyTrigger('API_SUCCESS', variant.academyTrigger);
-        resetForm();
+        if (row?.id) {
+          lastHydratedIdRef.current = null;
+          clearDraft();
+          setIsPosted(Boolean(row.isPosted));
+          setIsCancelled(Boolean(row.isCancelled));
+          setDocumentVersion(typeof row.version === 'number' ? row.version : documentVersion + 1);
+          setJournalEntryId(row.journalEntryId ?? row.journalEntry?.id ?? null);
+          setJournalNumber(row.journalEntry?.voucherNumber ?? null);
+          setIsEditing(false);
+          if (row.isPosted || row.isCancelled) lockToView();
+          else setMode('edit');
+        }
         setSuccess(message);
       },
       onError: (err: ApiError) => {
@@ -584,27 +669,6 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
     }
   );
 
-  const unpostMutation = useApiMutation<CashTxRow, Record<string, never>>(
-    savedVoucherId ? `/treasury/cash-transactions/${savedVoucherId}/unpost` : '/treasury/cash-transactions',
-    'POST',
-    {
-      onSuccess: (res: { data?: CashTxRow }) => {
-        const row = res?.data;
-        setIsPosted(false);
-        if (row) {
-          setDocumentVersion(typeof row.version === 'number' ? row.version : documentVersion + 1);
-          setJournalEntryId(row.journalEntryId ?? null);
-        }
-        setSuccess('تم فك ترحيل السند');
-        unlockForEdit();
-        invalidateQuery(['treasury-cash-transactions']);
-        invalidateQuery(['cash-voucher-detail', savedVoucherId ?? 'none']);
-        invalidateTreasuryFundBalances(invalidateQuery);
-      },
-      onError: (err: ApiError) => setError(err.message || 'تعذر فك ترحيل السند'),
-    }
-  );
-
   const approveMutation = useApiMutation<unknown, Record<string, never>>(
     savedVoucherId ? `/treasury/cash-transactions/${savedVoucherId}/approve` : '/treasury/cash-transactions',
     'POST',
@@ -617,8 +681,57 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
     }
   );
 
+  const postMutation = useApiMutation<CashTxRow, Record<string, never>>(
+    savedVoucherId ? `/treasury/cash-transactions/${savedVoucherId}/post` : '/treasury/cash-transactions',
+    'POST',
+    {
+      onSuccess: (res: { data?: CashTxRow }) => {
+        const row = res?.data;
+        setIsPosted(true);
+        setIsCancelled(Boolean(row?.isCancelled));
+        if (typeof row?.version === 'number') setDocumentVersion(row.version);
+        setJournalEntryId(row?.journalEntryId ?? row?.journalEntry?.id ?? journalEntryId);
+        setJournalNumber(row?.journalEntry?.voucherNumber ?? journalNumber);
+        setIsEditing(false);
+        lockToView();
+        invalidateQuery(['treasury-cash-transactions']);
+        invalidateQuery(['cash-voucher-detail']);
+        invalidateQuery(['journal-entry']);
+        invalidateQuery(['journal-entries']);
+        invalidateTreasuryFundBalances(invalidateQuery);
+        setSuccess(`تم ترحيل ${variant.title}`);
+      },
+      onError: (err: ApiError) => setError(err.message || 'تعذر ترحيل السند'),
+    }
+  );
+
+  const unpostMutation = useApiMutation<CashTxRow, Record<string, never>>(
+    savedVoucherId ? `/treasury/cash-transactions/${savedVoucherId}/unpost` : '/treasury/cash-transactions',
+    'POST',
+    {
+      onSuccess: (res: { data?: CashTxRow }) => {
+        const row = res?.data;
+        setIsPosted(false);
+        setIsCancelled(Boolean(row?.isCancelled));
+        if (typeof row?.version === 'number') setDocumentVersion(row.version);
+        setJournalEntryId(row?.journalEntryId ?? row?.journalEntry?.id ?? null);
+        setJournalNumber(row?.journalEntry?.voucherNumber ?? null);
+        lastHydratedIdRef.current = null;
+        invalidateQuery(['treasury-cash-transactions']);
+        invalidateQuery(['cash-voucher-detail']);
+        invalidateQuery(['journal-entry']);
+        invalidateQuery(['journal-entries']);
+        invalidateTreasuryFundBalances(invalidateQuery);
+        unlockForEdit();
+        setIsEditing(true);
+        setSuccess(`تم فك ترحيل ${variant.title}`);
+      },
+      onError: (err: ApiError) => setError(err.message || 'تعذر فك ترحيل السند'),
+    }
+  );
+
   const loading = saveMutation.isPending || updateMutation.isPending;
-  const financialBusy = loading || unpostMutation.isPending;
+  const financialBusy = loading || postMutation.isPending || unpostMutation.isPending;
 
   useEffect(() => {
     if (currencies.length > 0 && !currencyId) {
@@ -633,6 +746,7 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
   }, [dateW, showHijri, setValue]);
 
   const skipHeaderFxSyncRef = useRef(false);
+  const [headerRateOverride, setHeaderRateOverride] = useState<number | null>(null);
   const applyHeaderCurrencyToRows = useCallback(
     (code: string, catalogRate?: number | string | null) => {
       if (!code) return;
@@ -653,6 +767,7 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
       skipHeaderFxSyncRef.current = false;
       return;
     }
+    setHeaderRateOverride(null);
     applyHeaderCurrencyToRows(header.code, header.exchangeRate);
     // Header pick only — don't re-run when the currencies catalog refetches.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -684,6 +799,8 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
     setValue('valueDate', row.valueDate?.slice(0, 10) ?? '', { shouldValidate: false });
     const cur = currencies.find((c) => c.code === row.currencyCode);
     if (cur) setValue('currencyId', cur.id, { shouldValidate: false });
+    const savedRate = Number(row.exchangeRate ?? row.lines?.[0]?.exchangeRate);
+    setHeaderRateOverride(savedRate > 0 ? savedRate : null);
     const headerPartyId = row.supplierId || row.customerId || '';
     const headerPartyKind: VoucherLine['partyKind'] = row.supplierId
       ? 'SUPPLIER'
@@ -810,7 +927,9 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
   const selectedFund = fundId && funds.length > 0 ? funds.find((s) => s.id === fundId) : undefined;
   const currency = currencies.find((c) => c.id === currencyId);
   const headerCurrencyCode = currency?.code ?? companyBaseCurrency;
-  const headerFxRate = rateForCurrency(headerCurrencyCode, companyBaseCurrency, currency?.exchangeRate);
+  const headerFxRate =
+    headerRateOverride ??
+    rateForCurrency(headerCurrencyCode, companyBaseCurrency, currency?.exchangeRate);
   const storedBaseBalance = parseDecimal(
     liveFundResponse?.data?.balance ?? selectedFund?.balance
   );
@@ -844,7 +963,7 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
     if (savedVoucherId || fromAiDraft) return;
     if (!txSettings) return;
     const fundAccountId = isBank ? txSettings.defaultBankGlAccountId : txSettings.defaultCashAccountId;
-    if (fundAccountId && funds.length === 0) return;
+    if (funds.length === 0) return;
     if (defaultsAppliedRef.current) return;
     defaultsAppliedRef.current = true;
     const costCenter = txSettings.defaultCostCenterId ?? '';
@@ -863,7 +982,7 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
         ];
       }
       if (first.accountId || Number(first.amount) > 0 || first.description) {
-        return applyDefaultCostCenter(prev, costCenter);
+        return applyDefaultCostCenter(prev, costCenter, accounts);
       }
       return [
         {
@@ -938,7 +1057,7 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
     return !isPayable ? settlementPartyId : '';
   }, [isPayable, settlementPartyId, voucherLines]);
 
-  const locked = isReadOnly || isPosted || isCancelled || financialBusy;
+  const locked = isReadOnly || isCancelled || financialBusy;
 
   const resetForm = () => {
     const fundAccountId = isBank ? txSettings?.defaultBankGlAccountId : txSettings?.defaultCashAccountId;
@@ -982,6 +1101,8 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
     setError('');
     setSuccess('');
     setOrderRefResetKey((n) => n + 1);
+    resetFxToSetting();
+    clearDraft();
   };
 
   const validateLines = (): string | null => {
@@ -993,8 +1114,12 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
       const account = accounts.find((a) => a.id === line.accountId);
       if (!account) return `الحساب في السطر ${index + 1} غير موجود في الدليل`;
       if (account.isActive === false) return `الحساب ${account.code} غير نشط`;
-      if (costCenterRule(account) === 'required' && !line.costCenterId) {
-        return `مركز التكلفة إجباري للحساب ${account.code}`;
+      const ccRule = costCenterRule(account);
+      if (ccRule === 'required' && !line.costCenterId) {
+        return costCenterRuleMessage(ccRule, account.code) ?? `مركز التكلفة إجباري للحساب ${account.code}`;
+      }
+      if (ccRule === 'none' && line.costCenterId) {
+        return costCenterRuleMessage(ccRule, account.code);
       }
     }
     if (isModernVoucher && totalAmount <= 0) {
@@ -1131,6 +1256,18 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
     <ErpDocumentLayout>
       {error && <ErrorToast message={error} onClose={() => setError('')} />}
       {success && <SuccessToast message={success} onClose={() => setSuccess('')} />}
+      {restoreOffer && !savedVoucherId ? (
+        <PageDraftRestoreBanner
+          message="يوجد مسودة سند غير محفوظة."
+          onRestore={() => {
+            const payload = acceptRestore();
+            if (!payload) return;
+            applyVoucherDraft(payload);
+            setSuccess('تم استعادة مسودة السند');
+          }}
+          onDismiss={dismissRestore}
+        />
+      ) : null}
 
       <ErpDocumentPageHeader
         breadcrumbs={variant.breadcrumbs}
@@ -1149,7 +1286,8 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
                 : 'حفظ السند'
         }
         savePending={financialBusy}
-        canSave={!isReadOnly && !isPosted && !isCancelled && !financialBusy}
+        canSave={!isReadOnly && !isCancelled && !financialBusy}
+        lockWhenPosted={isReadOnly}
         hideStandalonePost
         favoriteHref={pathname}
         favoriteLabel={variant.title}
@@ -1177,17 +1315,18 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
           hasDocument: Boolean(savedVoucherId),
           isPosted,
           isCancelled,
-          hidePostActions: true,
+          allowEditWhenPosted: true,
+          printLabel: 'طباعة السند',
+          duplicateLabel: 'تكرار',
+          voidLabel: 'إلغاء',
           onNew: resetForm,
           newLabel: 'جديد',
           onEdit: () => {
-            if (isPosted) {
-              setError('فك الترحيل أولاً من قائمة (...) حتى يمكن التعديل');
-              return;
-            }
             setIsEditing(true);
             unlockForEdit();
           },
+          onPost: () => postMutation.mutate({}),
+          postPending: postMutation.isPending,
           onUnpost: () => unpostMutation.mutate({}),
           unpostPending: unpostMutation.isPending,
           onPrint: triggerPrint,
@@ -1254,7 +1393,7 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
               />
               <ErpFieldError message={errors.date?.message} show={Boolean(errors.date)} />
             </div>
-            <div className="lg:col-span-2">
+            <div>
               <label className={erpLabelClass}>الشرح</label>
               <input
                 type="text"
@@ -1268,27 +1407,25 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
         }
         row2={
           <>
-            <div>
-              <label className={erpLabelClass}>العملة</label>
-              <select
-                className={erpInputClass}
-                disabled={locked}
-                {...register('currencyId', {
-                  onChange: (event) => {
-                    const header = currencies.find((c) => c.id === event.target.value);
-                    if (header?.code) applyHeaderCurrencyToRows(header.code, header.exchangeRate);
-                  },
-                })}
-              >
-                {currencies.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.arabicName || c.englishName || c.code}
-                  </option>
-                ))}
-              </select>
-            </div>
+            <DocumentCurrencyRateFields
+              currencies={currencies}
+              currencyId={currencyId}
+              exchangeRate={headerFxRate}
+              companyBaseCode={companyBaseCurrency}
+              showRate={showFxColumns}
+              disabled={locked}
+              onCurrencyIdChange={(id, nextRate, code) => {
+                setHeaderRateOverride(null);
+                setValue('currencyId', id, { shouldDirty: true, shouldValidate: true });
+                if (code) applyHeaderCurrencyToRows(code, nextRate);
+              }}
+              onExchangeRateChange={(rate) => {
+                setHeaderRateOverride(rate);
+                applyHeaderCurrencyToRows(headerCurrencyCode, rate);
+              }}
+            />
             {isCashVoucher ? (
-              <div className="lg:col-span-2">
+              <div>
                 <CashSafeHeaderSelector
                   safes={funds}
                   value={fundId}
@@ -1302,7 +1439,7 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
                 />
               </div>
             ) : isBankVoucher ? (
-              <div className="lg:col-span-2">
+              <div>
                 <BankHeaderSelector
                   banks={funds}
                   value={fundId}
@@ -1362,7 +1499,7 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
           </>
         }
         extras={
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className={erpFormGridClass}>
             {variant.extraHeader !== 'none' ? (
               <>
                 <CompactFormField
@@ -1402,8 +1539,8 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
                     value={defaultCostCenterId}
                     onChange={(id) => {
                       setDefaultCostCenterId(id);
-                      setVoucherLines((prev) => applyDefaultCostCenter(prev, id));
-                      setCreditLines((prev) => applyDefaultCostCenter(prev, id));
+                      setVoucherLines((prev) => applyDefaultCostCenter(prev, id, accounts));
+                      setCreditLines((prev) => applyDefaultCostCenter(prev, id, accounts));
                     }}
                     disabled={locked}
                     allowEmpty
@@ -1411,15 +1548,7 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
                   />
                 </div>
                 <CompactFormField label="العملات الأجنبية">
-                  <label className="flex h-9 items-center gap-2 text-sm text-[#094C6B]">
-                    <input
-                      type="checkbox"
-                      className="h-4 w-4"
-                      checked={showFxColumns}
-                      onChange={(e) => setShowFxColumns(e.target.checked)}
-                    />
-                    إظهار أعمدة العملة وسعر الصرف
-                  </label>
+                  <ShowFxColumnsField compact checked={showFxColumns} onChange={setShowFxColumns} />
                 </CompactFormField>
                 <button
                   type="button"
@@ -1449,6 +1578,7 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
 
       {!isModernVoucher ? (
       <AdvancedFieldsSection title="إعدادات متقدمة" badgeCount={advancedFilledCount}>
+        <ShowFxColumnsField checked={showFxColumns} onChange={setShowFxColumns} />
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
@@ -1587,7 +1717,7 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
         onSave={onSave}
         onCancel={resetForm}
         savePending={financialBusy}
-        canSave={!isReadOnly && !isPosted && !isCancelled && !financialBusy}
+        canSave={!isReadOnly && !isCancelled && !financialBusy}
         saveLabel={
           isEditing && savedVoucherId
             ? 'حفظ التعديلات'

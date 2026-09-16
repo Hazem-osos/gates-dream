@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import Link from 'next/link';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
+import { useOwnTabSearchParams } from '@/lib/navigation/tab-route-lock';
 import { ImagePlus, Package, Plus, Trash2, Upload, X } from 'lucide-react';
 import {
   Button,
@@ -28,7 +29,7 @@ import { BarcodePrintModal } from '@/app/components/print/BarcodePrintModal';
 import { ItemFinderModal } from '@/components/inventory/ItemFinderModal';
 import { NumberingModeControl } from '@/components/accounting/NumberingModeControl';
 import { useAccountingSettingsQuery } from '@/lib/hooks/useAccountingSettings';
-import { nextNumericSerial } from '@/lib/masters/nextNumericSerial';
+import { bumpTrailingCode, isCodeAfter, nextNumericSerial } from '@/lib/masters/nextNumericSerial';
 import { entityLabel } from '@/lib/quick-create/catalog';
 import { useQuickCreateHost } from '@/lib/quick-create/useQuickCreateTab';
 import {
@@ -260,7 +261,7 @@ export default function ItemCardPage() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [savedItemId, setSavedItemId] = useState<string | null>(null);
-  const searchParams = useSearchParams();
+  const searchParams = useOwnTabSearchParams();
   const itemIdFromUrl = searchParams.get('id');
   const activeItemId = savedItemId ?? itemIdFromUrl;
 
@@ -289,7 +290,10 @@ export default function ItemCardPage() {
 
   useEffect(() => {
     if (!itemAuto || activeItemId) return;
-    setFormData((prev) => (prev.serial ? prev : { ...prev, serial: nextItemSerial }));
+    setFormData((prev) => {
+      if (prev.serial && isCodeAfter(prev.serial, nextItemSerial)) return prev;
+      return prev.serial === nextItemSerial ? prev : { ...prev, serial: nextItemSerial };
+    });
   }, [activeItemId, itemAuto, nextItemSerial]);
 
   useEffect(() => {
@@ -378,23 +382,33 @@ export default function ItemCardPage() {
     const res = await apiClient.post<ItemDetail>('/inventory/items', requestBody);
     const saved = res.data;
     const id = saved?.id;
-    if (saved) hydrateFromItem(saved);
-    if (id) {
-      setSavedItemId(id);
-      hydratedIdRef.current = id;
-      if (quickCreate.isQuickCreate) {
+    if (quickCreate.isQuickCreate) {
+      if (saved) hydrateFromItem(saved);
+      if (id) {
+        setSavedItemId(id);
+        hydratedIdRef.current = id;
         quickCreate.complete({
           id,
           label: entityLabel(saved?.code ?? formData.serial, saved?.arabicName ?? formData.arabicName),
           arabicName: saved?.arabicName ?? formData.arabicName,
           code: saved?.code ?? formData.serial,
         });
-      } else {
-        router.replace(`/inventory/creations/item-card?id=${id}`);
       }
+    } else {
+      const keepCategory = formData.categoryId;
+      hydratedIdRef.current = null;
+      setSavedItemId(null);
+      setFormData({
+        ...EMPTY_ITEM_FORM,
+        categoryId: keepCategory,
+        serial: bumpTrailingCode(formData.serial || saved?.serial || ''),
+      });
+      setAssemblyRows(parseAssemblyRows(undefined));
+      setSupplierRows(parseSupplierRows(undefined));
     }
-    setSuccess('تم حفظ الصنف');
+    setSuccess(quickCreate.isQuickCreate ? 'تم حفظ الصنف' : 'تم حفظ الصنف — تقدر تضيف التالي');
     invalidateQuery(['items']);
+    invalidateQuery(['items', 'serials']);
     if (id) invalidateQuery(['item', id]);
   };
 
@@ -837,7 +851,7 @@ export default function ItemCardPage() {
           )}
 
           {formData.priceSource !== 'item_card' ? (
-          <div className="mb-5 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="mb-5 grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
             {(
               [
                 ['priceRetail', 'قطاعي'],

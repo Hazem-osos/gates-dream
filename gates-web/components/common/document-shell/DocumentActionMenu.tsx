@@ -45,8 +45,10 @@ export type DocumentActionMenuProps = {
   duplicatePending?: boolean;
   voidPending?: boolean;
   restorePending?: boolean;
-  /** Voucher screens: hide ترحيل / إلغاء الترحيل — posting is automatic on save. */
+  /** Hide ترحيل / فك الترحيل from the 3-dots menu. */
   hidePostActions?: boolean;
+  /** Keep تعديل enabled on posted docs (in-place journal update on save). */
+  allowEditWhenPosted?: boolean;
   printLabel?: string;
   voidLabel?: string;
   restoreLabel?: string;
@@ -81,6 +83,7 @@ export function DocumentActionMenu({
   voidPending,
   restorePending,
   hidePostActions = false,
+  allowEditWhenPosted = false,
   printLabel,
   voidLabel,
   restoreLabel,
@@ -113,14 +116,12 @@ export function DocumentActionMenu({
     setPhoneDialogOpen(true);
   };
 
-  const editDisabled = !hasDocument || isCancelled || isPosted || !onEdit;
+  const lockEditWhenPosted = isPosted && !hidePostActions && !allowEditWhenPosted;
+  const editDisabled = !hasDocument || isCancelled || lockEditWhenPosted || !onEdit;
   const editHint = isCancelled
     ? 'المستند ملغي ولا يمكن تعديله'
-    : isPosted
-      ? editLockedHint ??
-        (hidePostActions
-          ? 'المستند مرحل ومثبت محاسبياً ولا يمكن تعديله'
-          : 'المستند مرحل ومثبت محاسبياً. فك الترحيل أولاً من قائمة (...)')
+    : lockEditWhenPosted
+      ? editLockedHint ?? 'المستند مرحل ومثبت محاسبياً. فك الترحيل أولاً من قائمة (...)'
       : undefined;
 
   const items = [
@@ -164,16 +165,16 @@ export function DocumentActionMenu({
           },
         ]
       : []),
-    ...(onUnpost
-      ? [
+    ...(hidePostActions || !onUnpost
+      ? []
+      : [
           {
             id: 'unpost',
             label: unpostPending ? 'جاري فك الترحيل…' : 'فك الترحيل',
             disabled: !hasDocument || !isPosted || isCancelled || unpostPending,
             onClick: () => setConfirm('unpost'),
           },
-        ]
-      : []),
+        ]),
     {
       id: 'print',
       label: printLabel ?? (hidePostActions ? 'طباعة السند' : 'طباعة المستند'),

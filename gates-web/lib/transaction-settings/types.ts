@@ -8,7 +8,9 @@ export type TransactionDocumentType =
   | 'SALES_RETURN'
   | 'PURCHASE_RETURN'
   | 'BANK_DEBIT_ADVICE'
-  | 'BANK_CREDIT_ADVICE';
+  | 'BANK_CREDIT_ADVICE'
+  | 'JOURNAL_ENTRY'
+  | 'OPENING_BALANCE';
 
 export type NumberingMode = 'AUTOMATIC' | 'MANUAL';
 export type SequenceMode = 'CONTINUOUS' | 'ANNUAL_RESET';
@@ -49,6 +51,7 @@ export type TransactionSettings = {
   costCenterAllocationTarget: CostCenterAllocationTarget;
   allowStandaloneReturns: boolean;
   enforceOriginalPrice: boolean;
+  showFxColumns: boolean;
   defaultSalesAccount?: NamedRef | null;
   defaultPurchaseReturnAccount?: NamedRef | null;
   defaultCashAccount?: NamedRef | null;
@@ -70,6 +73,8 @@ export const DOCUMENT_TYPE_SLUG: Record<string, TransactionDocumentType> = {
   'purchase-return': 'PURCHASE_RETURN',
   'bank-discount': 'BANK_DEBIT_ADVICE',
   'bank-addition': 'BANK_CREDIT_ADVICE',
+  'journal-entry': 'JOURNAL_ENTRY',
+  'opening-balance': 'OPENING_BALANCE',
 };
 
 export const DOCUMENT_TYPE_TITLE: Record<TransactionDocumentType, string> = {
@@ -83,6 +88,8 @@ export const DOCUMENT_TYPE_TITLE: Record<TransactionDocumentType, string> = {
   PURCHASE_RETURN: 'إعدادات مردودات المشتريات',
   BANK_DEBIT_ADVICE: 'إعدادات إشعار الخصم',
   BANK_CREDIT_ADVICE: 'إعدادات إشعار الإضافة',
+  JOURNAL_ENTRY: 'إعدادات قيد اليومية',
+  OPENING_BALANCE: 'إعدادات الرصيد الافتتاحي',
 };
 
 export type TransactionSettingsModule = 'inventory' | 'accounting';
@@ -191,6 +198,24 @@ export const TRANSACTION_SETTINGS_CONTEXT: Record<
     sourceHref: '/accounting/operations/banks/bank-addition',
     sourceLabel: 'إشعار الإضافة',
   },
+  JOURNAL_ENTRY: {
+    slug: 'journal-entry',
+    documentType: 'JOURNAL_ENTRY',
+    title: DOCUMENT_TYPE_TITLE.JOURNAL_ENTRY,
+    module: 'accounting',
+    moduleLabel: 'الحسابات العامة',
+    sourceHref: '/accounting/operations/journal-entry',
+    sourceLabel: 'سند قيد يومية',
+  },
+  OPENING_BALANCE: {
+    slug: 'opening-balance',
+    documentType: 'OPENING_BALANCE',
+    title: DOCUMENT_TYPE_TITLE.OPENING_BALANCE,
+    module: 'accounting',
+    moduleLabel: 'الحسابات العامة',
+    sourceHref: '/accounting/operations/basic-operations/opening-balance',
+    sourceLabel: 'الرصيد الإفتتاحي',
+  },
 };
 
 export const TREASURY_DOCUMENT_TYPES: TransactionDocumentType[] = [
@@ -202,6 +227,10 @@ export const TREASURY_DOCUMENT_TYPES: TransactionDocumentType[] = [
 
 export function isTreasuryDocumentType(type: TransactionDocumentType): boolean {
   return TREASURY_DOCUMENT_TYPES.includes(type);
+}
+
+export function isJournalLikeDocumentType(type: TransactionDocumentType): boolean {
+  return type === 'JOURNAL_ENTRY' || type === 'OPENING_BALANCE';
 }
 
 export function settingsPageHref(documentType: TransactionDocumentType): string {
@@ -229,6 +258,10 @@ export function settingsHrefForNav(href?: string): string | null {
   }
   if (href.includes('/bank-discount')) return settingsPageHref('BANK_DEBIT_ADVICE');
   if (href.includes('/bank-addition')) return settingsPageHref('BANK_CREDIT_ADVICE');
+  if (href.includes('/journal-entry')) return settingsPageHref('JOURNAL_ENTRY');
+  if (href.includes('/opening-balance')) return settingsPageHref('OPENING_BALANCE');
+  if (href.includes('/payment-order')) return settingsPageHref('PAYMENT_VOUCHER');
+  if (href.includes('/receipt-order')) return settingsPageHref('RECEIPT_VOUCHER');
   if (href.includes('/operations/issue')) return settingsPageHref('STOCK_ISSUE');
   if (href.includes('/operations/receipt') && href.includes('/inventory')) {
     return settingsPageHref('STOCK_RECEIPT');

@@ -6,6 +6,7 @@ import { journalPostingService } from '../../accounting/services/journal-posting
 import { inventoryCostingService } from './inventory-costing.service';
 import { COSTING_MOVEMENT } from './inventory-costing-math';
 import { scopedItemQuantityWhere } from '../utils/item-quantity-tenant';
+import { assertWarehouseActive } from '../utils/inventory-system';
 import { assertUpdateCount } from '../../../shared/concurrency/optimistic-lock';
 
 export interface ReceiptLine {
@@ -35,13 +36,7 @@ export class ReceiptService {
   async createReceipt(companyId: string, data: CreateReceiptData) {
     try {
       // Validate warehouse belongs to company
-      const warehouse = await prisma.warehouse.findFirst({
-        where: { id: data.warehouseId, companyId },
-      });
-
-      if (!warehouse) {
-        throw new Error('Warehouse not found or does not belong to company');
-      }
+      await assertWarehouseActive(companyId, data.warehouseId);
 
       // Validate all items belong to company
       const itemIds = data.lines.map((line) => line.itemId);
@@ -318,6 +313,8 @@ export class ReceiptService {
       if (receipt.isPosted) {
         throw new Error('Receipt is already posted');
       }
+
+      await assertWarehouseActive(companyId, receipt.warehouseId);
 
       // Route quantity + MAC through inventoryCostingService (stock ledger,
       // warehouse average, and item valuation stay on one path).

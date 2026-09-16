@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useOwnTabSearchParams } from '@/lib/navigation/tab-route-lock';
 import {
   DocumentFormLock,
   DocumentModeProvider,
@@ -89,7 +89,7 @@ export default function TransferPage() {
 }
 
 function TransferPageInner() {
-  const searchParams = useSearchParams();
+  const searchParams = useOwnTabSearchParams();
   const { lockToView, setMode, unlockForEdit, isReadOnly } = useDocumentMode();
   const invalidateQuery = useInvalidateQuery();
   const todayStr = new Date().toISOString().split('T')[0];
@@ -434,7 +434,7 @@ function TransferPageInner() {
 
       <DocumentReadOnlyBanner />
       <DocumentFormLock>
-      <FormSectionCard title="بيانات التحويل" subtitle="المسلسل والتاريخ والمخازن" bodyClassName="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
+      <FormSectionCard title="بيانات التحويل" subtitle="المسلسل والتاريخ والمخازن">
           <div className="col-span-full flex items-center justify-between">
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-2">
@@ -583,9 +583,9 @@ function TransferPageInner() {
             transferLines.map((line, index) => (
               <div
                 key={`transfer-line-${index}`}
-                className="grid grid-cols-1 gap-3 rounded-xl border border-[#E6F0F7] bg-[#F6FBFD] p-3 md:grid-cols-6"
+                className="grid min-w-0 grid-cols-1 gap-3 rounded-xl border border-[#E6F0F7] bg-[#F6FBFD] p-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4"
               >
-                <div className="md:col-span-2">
+                <div>
                   <label className={labelCls}>الصنف</label>
                   <ItemSelect
                     value={line.itemId}

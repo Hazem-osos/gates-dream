@@ -3,7 +3,6 @@ import prisma from '../../../shared/database/prisma';
 import { logger } from '../../../shared/logger';
 import { Decimal } from '@prisma/client/runtime/library';
 import {
-  getTenantCached,
   invalidateTenantCache,
   tenantCacheKeys,
 } from '../../../shared/cache/tenant-metadata-cache';
@@ -17,6 +16,7 @@ import {
   assertNotCashPostingParent,
   ensureSafeForCashAccount,
 } from './cash-safe-sync';
+import { resolveCreateAccountKind, statementTypeFromAccountType } from '../utils/account-kind';
 
 export interface CreateAccountData {
   code: string;
@@ -33,6 +33,7 @@ export interface CreateAccountData {
   warning?: string;
   budget?: number;
   currencyCode?: string;
+  accountKind?: 'HEADER' | 'POSTING';
   /** Party cards may hang leaves under AR/AP control even if it has history. */
   allowParentWithMovements?: boolean;
 }
@@ -40,6 +41,7 @@ export interface CreateAccountData {
 function resolveAccountClassification(data: {
   accountNature?: 'DEBIT' | 'CREDIT';
   accountSide?: string | null;
+  accountType?: string | null;
   statementType?: 'BALANCE_SHEET' | 'INCOME_STATEMENT';
   requiresCostCenter?: boolean;
   costCenterRequired?: string | null;
@@ -48,11 +50,10 @@ function resolveAccountClassification(data: {
     data.accountNature ?? (data.accountSide === 'دائن' ? 'CREDIT' : 'DEBIT');
   const accountSide = data.accountSide ?? (accountNature === 'CREDIT' ? 'دائن' : 'مدين');
   const statementType: 'BALANCE_SHEET' | 'INCOME_STATEMENT' =
-    data.statementType ?? 'BALANCE_SHEET';
-  const requiresCostCenter =
-    data.requiresCostCenter ?? data.costCenterRequired === 'إجباري';
+    data.statementType ?? statementTypeFromAccountType(data.accountType) ?? 'BALANCE_SHEET';
   const costCenterRequired =
-    data.costCenterRequired ?? (requiresCostCenter ? 'إجباري' : 'اختياري');
+    data.costCenterRequired ?? (data.requiresCostCenter ? 'إجباري' : 'اختياري');
+  const requiresCostCenter = costCenterRequired === 'إجباري';
   return { accountNature, accountSide, statementType, requiresCostCenter, costCenterRequired };
 }
 
@@ -66,6 +67,7 @@ function retiredAccountCode(code: string, accountId: string): string {
 
 export interface UpdateAccountData extends Partial<CreateAccountData> {
   isActive?: boolean;
+  parentId?: string | null;
 }
 
 export class AccountService {
@@ -75,13 +77,15 @@ export class AccountService {
   async suggestNextAccountCode(companyId: string, parentId?: string | null): Promise<string> {
     if (!parentId) {
       const roots = await prisma.account.findMany({
-        where: { companyId, parentId: null, deletedAt: null, isActive: true },
+        where: { companyId, parentId: null },
         select: { code: true },
       });
       const nums = roots
         .map((r) => parseInt(r.code, 10))
         .filter((n) => !Number.isNaN(n));
-      const next = nums.length ? Math.max(...nums) + 1 : 1;
+      let next = nums.length ? Math.max(...nums) + 1 : 1;
+      const used = new Set(roots.map((r) => r.code));
+      while (used.has(String(next))) next += 1;
       return String(next);
     }
 
@@ -95,7 +99,7 @@ export class AccountService {
 
     const prefix = parent.code;
     const siblings = await prisma.account.findMany({
-      where: { companyId, parentId, deletedAt: null },
+      where: { companyId, parentId },
       select: { code: true },
       orderBy: { code: 'asc' },
     });
@@ -105,20 +109,26 @@ export class AccountService {
     }
 
     let maxSuffix = 0;
+    const used = new Set(siblings.map((row) => row.code));
     for (const row of siblings) {
       if (!row.code.startsWith(prefix) || row.code.length <= prefix.length) continue;
       const suffix = row.code.slice(prefix.length);
+      if (!/^\d+$/.test(suffix)) continue;
       const n = parseInt(suffix, 10);
       if (!Number.isNaN(n)) {
         maxSuffix = Math.max(maxSuffix, n);
       }
     }
 
-    if (maxSuffix > 0) {
-      return `${prefix}${maxSuffix + 1}`;
+    let candidate = maxSuffix > 0 ? `${prefix}${maxSuffix + 1}` : `${prefix}1`;
+    let guard = 0;
+    while (used.has(candidate) && guard < 50) {
+      const suffix = candidate.slice(prefix.length);
+      const n = parseInt(suffix, 10);
+      candidate = `${prefix}${Number.isNaN(n) ? maxSuffix + 1 + guard : n + 1}`;
+      guard += 1;
     }
-
-    return `${prefix}1`;
+    return candidate;
   }
 
   private async getPostedBalanceMap(companyId: string): Promise<Map<string, number>> {
@@ -243,6 +253,34 @@ export class AccountService {
     }
   }
 
+  private async assertNoParentCycle(
+    companyId: string,
+    accountId: string,
+    parentId: string | undefined | null
+  ) {
+    if (!parentId) return;
+    if (parentId === accountId) {
+      throw new AppError(400, 'لا يمكن أن يكون الحساب أباً لنفسه.');
+    }
+
+    let current: string | null = parentId;
+    const seen = new Set<string>([accountId]);
+    while (current) {
+      if (seen.has(current)) {
+        throw new AppError(
+          400,
+          'لا يمكن جعل الحساب فرعاً تحت أحد أبنائه. هذا يكسر شجرة الدليل.'
+        );
+      }
+      seen.add(current);
+      const row = await prisma.account.findFirst({
+        where: { id: current, companyId, deletedAt: null },
+        select: { parentId: true },
+      });
+      current = row?.parentId ?? null;
+    }
+  }
+
   /** A posting account with movements cannot become a parent. */
   private async assertParentCanReceiveChild(
     companyId: string,
@@ -252,7 +290,7 @@ export class AccountService {
 
     const parent = await prisma.account.findFirst({
       where: { id: parentId, companyId, deletedAt: null },
-      select: { id: true, code: true, arabicName: true },
+      select: { id: true, code: true, arabicName: true, accountKind: true },
     });
     if (!parent) {
       throw new AppError(
@@ -263,18 +301,161 @@ export class AccountService {
 
     await assertNotCashPostingParent(companyId, parentId, parent);
 
-    const movementCount = await this.countAccountMovements(companyId, parentId);
-    if (movementCount === 0) return;
+    if (parent.accountKind === 'POSTING') {
+      throw new AppError(
+        409,
+        `لا يمكن إضافة فرعي تحت ${accountLabel(parent)} لأنه حساب حركة. حساب الحركة يُترحَّل عليه ولا يُفرَّع منه.`
+      );
+    }
+  }
 
-    throw new AppError(
-      409,
-      `لا يمكن إضافة حساب فرعي تحت ${accountLabel(parent)} لأن عليه ${movementCount} قيد/حركة. الحساب الذي عليه حركة يبقى تحليلياً ولا يتحول إلى أب. الحل: انقل حركاته من شاشة «نقل حركة حساب» إلى حساب فرعي جديد، أو أنشئ الحساب تحت أب آخر ليس عليه قيود.`
+  private async collectSubtreeAccounts(
+    companyId: string,
+    rootId: string
+  ): Promise<Array<{ id: string; code: string }>> {
+    const all = await prisma.account.findMany({
+      where: { companyId, deletedAt: null },
+      select: { id: true, code: true, parentId: true },
+    });
+    const childrenOf = new Map<string, typeof all>();
+    for (const row of all) {
+      if (!row.parentId) continue;
+      const bucket = childrenOf.get(row.parentId) ?? [];
+      bucket.push(row);
+      childrenOf.set(row.parentId, bucket);
+    }
+    const out: Array<{ id: string; code: string }> = [];
+    const walk = (id: string) => {
+      const row = all.find((account) => account.id === id);
+      if (!row) return;
+      out.push({ id: row.id, code: row.code });
+      for (const child of childrenOf.get(id) ?? []) walk(child.id);
+    };
+    walk(rootId);
+    return out;
+  }
+
+  private rewriteSubtreeCode(oldCode: string, oldPrefix: string, newPrefix: string): string {
+    if (oldCode === oldPrefix) return newPrefix;
+    if (oldPrefix && oldCode.startsWith(oldPrefix)) {
+      return `${newPrefix}${oldCode.slice(oldPrefix.length)}`;
+    }
+    return `${newPrefix}${oldCode}`;
+  }
+
+  private async vacateDeletedAccountCodeInTx(
+    tx: Prisma.TransactionClient,
+    companyId: string,
+    code: string
+  ) {
+    const leftovers = await tx.account.findMany({
+      where: {
+        companyId,
+        code,
+        OR: [{ deletedAt: { not: null } }, { isActive: false }],
+      },
+      select: { id: true, code: true },
+    });
+    for (const row of leftovers) {
+      await tx.account.update({
+        where: { id: row.id },
+        data: {
+          code: retiredAccountCode(row.code, row.id),
+          isActive: false,
+          deletedAt: new Date(),
+        },
+      });
+    }
+  }
+
+  /**
+   * Move an account under a new parent and rewrite hierarchical codes for
+   * the whole subtree. Journal lines keep `accountId`, so operations show
+   * the new code on the next read.
+   */
+  private async reparentAccountWithCodeCascade(
+    companyId: string,
+    accountId: string,
+    oldRootCode: string,
+    newRootCode: string,
+    newParentId: string | null | undefined
+  ) {
+    const subtree = await this.collectSubtreeAccounts(companyId, accountId);
+    if (subtree.length === 0) {
+      throw new AppError(404, 'الحساب غير موجود. الحل: حدّث دليل الحسابات ثم أعد المحاولة.');
+    }
+
+    await prisma.$transaction(
+      async (tx) => {
+        for (const row of subtree) {
+          const temp = `_rp_${row.id.replace(/-/g, '')}`;
+          await this.vacateDeletedAccountCodeInTx(tx, companyId, temp);
+          await tx.account.update({
+            where: { id: row.id },
+            data: {
+              code: temp,
+              ...(row.id === accountId ? { parentId: newParentId ?? null } : {}),
+            },
+          });
+        }
+
+        const others = await tx.account.findMany({
+          where: {
+            companyId,
+            deletedAt: null,
+            id: { notIn: subtree.map((row) => row.id) },
+          },
+          select: { code: true },
+        });
+        const used = new Set(others.map((row) => row.code));
+
+        for (const row of subtree) {
+          const next = this.rewriteSubtreeCode(row.code, oldRootCode, newRootCode);
+          if (used.has(next)) {
+            throw new AppError(
+              409,
+              `رقم الحساب «${next}» مستخدم على حساب آخر. الحل: غيّر الرقم أو اترك الترقيم التلقائي يقترح رقماً جديداً.`
+            );
+          }
+          used.add(next);
+          await this.vacateDeletedAccountCodeInTx(tx, companyId, next);
+          await tx.account.update({
+            where: { id: row.id },
+            data: { code: next },
+          });
+          if (row.code !== next && row.code.length <= 20 && next.length <= 20) {
+            await tx.glPostingViolation.updateMany({
+              where: { companyId, accountCode: row.code },
+              data: { accountCode: next },
+            });
+          }
+        }
+      },
+      { timeout: 30_000 }
     );
   }
 
   async createAccount(companyId: string, data: CreateAccountData) {
     try {
-      if (!data.allowParentWithMovements) {
+      const accountKind = resolveCreateAccountKind({
+        parentId: data.parentId,
+        accountKind: data.accountKind,
+      });
+      if (data.allowParentWithMovements && data.parentId) {
+        const parent = await prisma.account.findFirst({
+          where: { id: data.parentId, companyId, deletedAt: null },
+          select: { id: true, code: true, arabicName: true, accountKind: true },
+        });
+        if (!parent) {
+          throw new AppError(400, 'الحساب الأب غير موجود. الحل: حدّث دليل الحسابات ثم اختر الحساب الأب من جديد.');
+        }
+        if (parent.accountKind === 'POSTING') {
+          await prisma.account.update({
+            where: { id: parent.id },
+            data: { accountKind: 'HEADER' },
+          });
+        }
+      } else {
         await this.assertParentCanReceiveChild(companyId, data.parentId);
       }
 
@@ -295,6 +476,7 @@ export class AccountService {
         ...data,
         accountNature: data.accountNature ?? inheritNature,
         accountSide: data.accountSide ?? inheritSide,
+        accountType: data.accountType,
         statementType: data.statementType ?? inheritStatement,
       });
       let code = data.code?.trim() ?? '';
@@ -308,8 +490,8 @@ export class AccountService {
         code = await this.suggestNextAccountCode(companyId, data.parentId);
       }
 
-      await this.assertUniqueAccountCode(companyId, code);
       await this.vacateDeletedAccountCode(companyId, code);
+      await this.assertUniqueAccountCode(companyId, code);
 
       let defaultCostCenterId = data.defaultCostCenterId ?? null;
       if (defaultCostCenterId) {
@@ -342,6 +524,7 @@ export class AccountService {
           warning: data.warning,
           budget: data.budget ? new Decimal(data.budget) : null,
           currencyCode: data.currencyCode,
+          accountKind,
         },
         include: {
           parent: {
@@ -387,6 +570,7 @@ export class AccountService {
         where: {
           id: accountId,
           companyId,
+          deletedAt: null,
         },
         include: {
           parent: {
@@ -409,7 +593,7 @@ export class AccountService {
       });
 
       if (!account) {
-        throw new Error('Account not found');
+        throw new AppError(404, 'الحساب غير موجود. الحل: حدّث دليل الحسابات ثم أعد المحاولة.');
       }
 
       return account;
@@ -432,12 +616,13 @@ export class AccountService {
       parentId?: string;
       isActive?: boolean;
       leafOnly?: boolean;
+      headerOnly?: boolean;
       statementType?: 'BALANCE_SHEET' | 'INCOME_STATEMENT';
     }
   ) {
     try {
       const page = options.page || 1;
-      const limit = Math.min(options.limit || 50, 200);
+      const limit = Math.min(options.limit || 50, 1000);
       const skip = (page - 1) * limit;
 
       const where: any = {
@@ -470,7 +655,11 @@ export class AccountService {
       }
 
       if (options.leafOnly) {
+        where.accountKind = 'POSTING';
         where.children = { none: { deletedAt: null } };
+      }
+      if (options.headerOnly) {
+        where.accountKind = 'HEADER';
       }
 
       const [accounts, total] = await Promise.all([
@@ -519,24 +708,51 @@ export class AccountService {
     try {
       // Verify account exists and belongs to company
       const existing = await prisma.account.findFirst({
-        where: { id: accountId, companyId },
+        where: { id: accountId, companyId, deletedAt: null },
       });
 
       if (!existing) {
         throw new AppError(404, 'الحساب غير موجود. الحل: حدّث دليل الحسابات ثم أعد المحاولة.');
       }
 
-      if (data.parentId !== undefined && data.parentId !== existing.parentId) {
+      const parentChanging =
+        data.parentId !== undefined && data.parentId !== existing.parentId;
+      if (parentChanging) {
+        await this.assertNoParentCycle(companyId, accountId, data.parentId);
         await this.assertParentCanReceiveChild(companyId, data.parentId);
+
+        const autoNumbering = await this.isCoaAutoNumbering(companyId);
+        const requested = data.code?.trim() ?? '';
+        const shouldSuggest = autoNumbering || !requested || requested === existing.code;
+        const nextCode = shouldSuggest
+          ? await this.suggestNextAccountCode(companyId, data.parentId)
+          : requested;
+
+        if (!shouldSuggest) {
+          await this.assertUniqueAccountCode(companyId, nextCode, accountId);
+        }
+
+        await this.reparentAccountWithCodeCascade(
+          companyId,
+          accountId,
+          existing.code,
+          nextCode,
+          data.parentId
+        );
       }
-      if (data.code !== undefined && data.code.trim() && data.code !== existing.code) {
+      if (
+        !parentChanging &&
+        data.code !== undefined &&
+        data.code.trim() &&
+        data.code !== existing.code
+      ) {
         await this.assertUniqueAccountCode(companyId, data.code.trim(), accountId);
         await this.vacateDeletedAccountCode(companyId, data.code.trim());
       }
 
       const updateData: any = {};
 
-      if (data.code !== undefined) updateData.code = data.code;
+      if (data.code !== undefined && !parentChanging) updateData.code = data.code.trim();
       if (data.arabicName !== undefined)
         updateData.arabicName = data.arabicName;
       if (data.englishName !== undefined)
@@ -544,7 +760,7 @@ export class AccountService {
       if (data.accountType !== undefined)
         updateData.accountType = data.accountType;
       if (data.parentId !== undefined) updateData.parentId = data.parentId;
-      if (data.accountSide !== undefined || data.accountNature !== undefined) {
+      if (data.accountNature !== undefined || (data.accountSide !== undefined && data.accountSide !== null)) {
         const classified = resolveAccountClassification({
           accountNature: data.accountNature,
           accountSide: data.accountSide,
@@ -554,6 +770,9 @@ export class AccountService {
       }
       if (data.statementType !== undefined) {
         updateData.statementType = data.statementType;
+      } else if (data.accountType !== undefined) {
+        const derivedStatement = statementTypeFromAccountType(data.accountType);
+        if (derivedStatement) updateData.statementType = derivedStatement;
       }
       if (data.costCenterRequired !== undefined || data.requiresCostCenter !== undefined) {
         const classified = resolveAccountClassification({
@@ -569,6 +788,20 @@ export class AccountService {
       if (data.currencyCode !== undefined)
         updateData.currencyCode = data.currencyCode;
       if (data.isActive !== undefined) updateData.isActive = data.isActive;
+      if (data.accountKind !== undefined) {
+        if (data.accountKind === 'POSTING') {
+          const childCount = await prisma.account.count({
+            where: { parentId: accountId, companyId, deletedAt: null },
+          });
+          if (childCount > 0) {
+            throw new AppError(
+              409,
+              'لا يمكن تحويل الحساب إلى حركة لأن تحته حسابات فرعية. احذف أو انقل الفرعي أولاً.'
+            );
+          }
+        }
+        updateData.accountKind = data.accountKind;
+      }
       if (data.defaultCostCenterId !== undefined) {
         if (data.defaultCostCenterId) {
           const cc = await prisma.costCenter.findFirst({
@@ -597,6 +830,13 @@ export class AccountService {
             },
           },
         },
+      });
+
+      await ensureSafeForCashAccount(companyId, {
+        id: account.id,
+        code: account.code,
+        arabicName: account.arabicName,
+        parentCode: account.parent?.code ?? null,
       });
 
       logger.info({ companyId, accountId }, 'Account updated');
@@ -641,7 +881,6 @@ export class AccountService {
           accountId,
           journalEntry: {
             companyId,
-            isPosted: true,
             isCancelled: false,
             deletedAt: null,
           },
@@ -695,28 +934,26 @@ export class AccountService {
     parentId?: string
   ): Promise<AccountHierarchyNode[]> {
     try {
-      await this.reparentEquityUnderLiabilities(companyId);
-      const accounts = await getTenantCached(tenantCacheKeys.coaTree(companyId), () =>
-        prisma.account.findMany({
-          where: {
-            companyId,
-            isActive: true,
-            deletedAt: null,
-          },
-          select: {
-            id: true,
-            code: true,
-            arabicName: true,
-            englishName: true,
-            accountType: true,
-            accountSide: true,
-            parentId: true,
-            defaultCostCenterId: true,
-            costCenterRequired: true,
-          },
-          orderBy: [{ code: 'asc' }],
-        })
-      );
+      const accounts = await prisma.account.findMany({
+        where: {
+          companyId,
+          isActive: true,
+          deletedAt: null,
+        },
+        select: {
+          id: true,
+          code: true,
+          arabicName: true,
+          englishName: true,
+          accountType: true,
+          accountSide: true,
+          parentId: true,
+          defaultCostCenterId: true,
+          costCenterRequired: true,
+          accountKind: true,
+        },
+        orderBy: [{ code: 'asc' }],
+      });
 
       const balanceMap = await this.getPostedBalanceMap(companyId);
       const tree = buildAccountHierarchyTree(accounts, balanceMap);

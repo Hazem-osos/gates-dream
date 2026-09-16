@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { Layers } from 'lucide-react';
-import { PageHeader, FilterToolbar, Button, CompactFormField, compactControlClass } from '@/components/ui';
+import { FilterToolbar, Button, CompactFormField } from '@/components/ui';
+import { ErpDocumentLayout, ErpDocumentPageHeader } from '@/components/erp';
 import { MasterGuideTree } from '@/components/accounting/guide/MasterGuideTree';
 import { GuideEntityModal } from '@/components/accounting/guide/GuideEntityModal';
 import { buildParentTree, type GuideTreeNode } from '@/lib/accounting/buildGuideTree';
@@ -11,6 +12,7 @@ import { apiClient } from '@/lib/api/client';
 import { toast } from '@/lib/feedback/toast';
 import { NumberingModeControl } from '@/components/accounting/NumberingModeControl';
 import { useAccountingSettingsQuery } from '@/lib/hooks/useAccountingSettings';
+import { bumpTrailingCode, isCodeAfter } from '@/lib/masters/nextNumericSerial';
 
 type CostCenterRow = {
   id: string;
@@ -68,7 +70,11 @@ export default function CostCentersGuidePage() {
     if (!modalOpen || modalMode !== 'create' || !costCenterAuto) return;
     const suggested = nextCodeResponse?.data?.code;
     if (!suggested) return;
-    setForm((f) => (f.code ? f : { ...f, code: suggested }));
+    setForm((f) => {
+      if (!costCenterAuto && f.code) return f;
+      if (f.code && isCodeAfter(f.code, suggested)) return f;
+      return f.code === suggested ? f : { ...f, code: suggested };
+    });
   }, [modalOpen, modalMode, costCenterAuto, nextCodeResponse?.data?.code]);
 
   const tree = useMemo(
@@ -133,13 +139,23 @@ export default function CostCentersGuidePage() {
       };
       if (modalMode === 'edit' && editId) {
         await apiClient.put(`/accounting/cost-centers/${editId}`, body);
-      } else {
-        await apiClient.post('/accounting/cost-centers', body);
+        toast.success('تم حفظ مركز التكلفة');
+        invalidate(['cost-centers']);
+        void refetch();
+        setModalOpen(false);
+        return;
       }
-      toast.success('تم حفظ مركز التكلفة');
+      await apiClient.post('/accounting/cost-centers', body);
+      toast.success('تم حفظ مركز التكلفة — تقدر تضيف التالي');
+      const parentId = form.parentId;
+      setForm({
+        ...emptyForm(),
+        parentId,
+        code: costCenterAuto ? bumpTrailingCode(form.code) : '',
+      });
       invalidate(['cost-centers']);
+      invalidate(['cost-centers', 'next-code']);
       void refetch();
-      setModalOpen(false);
     } catch (e) {
       toast.error('تعذّر حفظ مركز التكلفة', {
         description: e instanceof Error ? e.message : 'راجع المركز الأب والحركات المرتبطة به.',
@@ -169,30 +185,24 @@ export default function CostCentersGuidePage() {
   const isEmpty = !isLoading && rows.length === 0;
 
   return (
-    <div className="coa-page min-h-full bg-white text-slate-900" dir="rtl" style={{ colorScheme: 'light' }}>
-      <PageHeader
-        title="دليل مراكز التكلفة"
-        description="شجرة مراكز التكلفة — بحث، إضافة فرعي، تعديل وحذف"
-        favoriteHref="/accounting/guide/cost-center"
-        favoriteLabel="دليل مراكز التكلفة"
+    <ErpDocumentLayout className="coa-page">
+      <ErpDocumentPageHeader
+        compact
+        lockWhenPosted={false}
         breadcrumbs={[
-          { label: 'الحسابات', href: '/accounting' },
+          { href: '/accounting', label: 'المحاسبة' },
           { label: 'الدليل' },
           { label: 'مراكز التكلفة' },
         ]}
-        actions={
-          <div className="flex flex-wrap items-center gap-2">
-            <NumberingModeControl
-              kind="costCenters"
-              auto={costCenterAuto}
-              recordCount={costCenterCount}
-              settingKey="costCenterAutoNumbering"
-            />
-            <Button type="button" variant="secondary" size="sm" onClick={() => openCreate()}>
-              + إضافة مركز رئيسي
-            </Button>
-          </div>
-        }
+        title="دليل مراكز التكلفة"
+        showDocumentRef={false}
+        statusTone="info"
+        statusLabel="دليل"
+        hideStandalonePost
+        hideBrowseList
+        hideActionMenu
+        favoriteHref="/accounting/guide/cost-center"
+        favoriteLabel="دليل مراكز التكلفة"
       />
 
       {isEmpty ? (
@@ -206,8 +216,21 @@ export default function CostCentersGuidePage() {
         </div>
       ) : (
         <>
-          <div className="mt-2">
-            <FilterToolbar searchPlaceholder="بحث بالرمز أو الاسم…" onSearchChange={setSearch} />
+          <div className="mt-2 flex items-center gap-2">
+            <Button type="button" variant="secondary" size="sm" onClick={() => openCreate()}>
+              + إضافة
+            </Button>
+            <NumberingModeControl
+              kind="costCenters"
+              auto={costCenterAuto}
+              recordCount={costCenterCount}
+              settingKey="costCenterAutoNumbering"
+            />
+            <FilterToolbar
+              className="min-w-0 flex-1"
+              searchPlaceholder="بحث بالرمز أو الاسم…"
+              onSearchChange={setSearch}
+            />
           </div>
           <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-5 text-slate-900 shadow-sm">
             <div className="mb-4 flex flex-wrap items-center gap-2">
@@ -216,9 +239,6 @@ export default function CostCentersGuidePage() {
               </Button>
               <Button type="button" variant="ghost" size="sm" onClick={() => setCollapseToken((t) => t + 1)}>
                 ⊟ طي الكل
-              </Button>
-              <Button type="button" variant="secondary" size="sm" onClick={() => openCreate()}>
-                + إضافة مركز رئيسي
               </Button>
             </div>
             {isLoading ? (
@@ -243,6 +263,8 @@ export default function CostCentersGuidePage() {
         open={modalOpen}
         title={modalMode === 'edit' ? 'تعديل مركز تكلفة' : form.parentId ? 'إضافة مركز فرعي' : 'إضافة مركز رئيسي'}
         subtitle={`المركز الأب: ${parentLabel}`}
+        hint={modalMode === 'create' ? 'بعد الحفظ النموذج يفضل مفتوح عشان تضيف التالي تحت نفس الأب. إغلاق من إلغاء.' : undefined}
+        saveText={modalMode === 'create' ? 'حفظ وإضافة آخر' : 'حفظ'}
         saving={saving}
         onClose={() => setModalOpen(false)}
         onSave={() => void handleSave()}
@@ -269,6 +291,6 @@ export default function CostCentersGuidePage() {
           />
         </div>
       </GuideEntityModal>
-    </div>
+    </ErpDocumentLayout>
   );
 }

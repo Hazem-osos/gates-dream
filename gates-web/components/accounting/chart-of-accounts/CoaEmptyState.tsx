@@ -37,8 +37,8 @@ export function CoaEmptyState({
       <p className="text-xl font-bold text-[#0A3D5E]">لم يتم إعداد شجرة الحسابات بعد</p>
       <p className="mt-2 text-sm text-slate-600 leading-relaxed">
         {allowSeed
-          ? 'اختر نوع نشاط شركتك لتهيئة شجرة حسابات قياسية معتمدة بضغطة زر واحدة.'
-          : 'أضف الحسابات يدوياً من هنا — التهيئة التلقائية للدليل غير متاحة على بيئة التشغيل.'}
+          ? 'اختر نوع نشاط شركتك لتنزيل شجرة حسابات قياسية. بعد التنزيل يختفي الزر.'
+          : 'أضف أول حساب رئيسي لبناء الدليل يدوياً.'}
       </p>
       {allowSeed ? (
         <label className="block mt-6 max-w-sm mx-auto text-right text-sm">
@@ -56,24 +56,31 @@ export function CoaEmptyState({
           </select>
         </label>
       ) : null}
-      {allowSeed && onSeed ? (
-        <button
-          type="button"
-          disabled={seeding}
-          onClick={onSeed}
-          className="mt-5 inline-flex items-center justify-center gap-2 min-w-[16rem] px-6 py-3 rounded-xl bg-[#0E79AA] text-white font-bold shadow-md hover:bg-[#0A3D5E] disabled:opacity-60 transition-colors"
-        >
-          {seeding ? 'جاري التهيئة…' : '⚡ تهيئة شجرة الحسابات القياسية الآن'}
-        </button>
-      ) : (
-        <button
-          type="button"
-          onClick={onCreateRoot}
-          className="mt-5 inline-flex items-center justify-center gap-2 min-w-[16rem] px-6 py-3 rounded-xl bg-[#0E79AA] text-white font-bold shadow-md hover:bg-[#0A3D5E] transition-colors"
-        >
-          + إضافة حساب رئيسي
-        </button>
-      )}
+      <div className="mt-5 flex flex-col items-center gap-3">
+        {allowSeed && onSeed ? (
+          <button
+            type="button"
+            disabled={seeding}
+            onClick={onSeed}
+            className="inline-flex items-center justify-center gap-2 min-w-[16rem] px-6 py-3 rounded-xl bg-[#0E79AA] text-white font-bold shadow-md hover:bg-[#0A3D5E] disabled:opacity-60 transition-colors"
+          >
+            {seeding ? 'جاري التنزيل…' : 'تنزيل شجرة الحسابات الافتراضية'}
+          </button>
+        ) : null}
+        {onCreateRoot ? (
+          <button
+            type="button"
+            onClick={onCreateRoot}
+            className={
+              allowSeed && onSeed
+                ? 'inline-flex items-center justify-center gap-2 min-w-[16rem] px-6 py-2.5 rounded-xl border border-[#0E79AA] bg-white text-[#0E79AA] font-semibold hover:bg-[#F0F9FC] transition-colors'
+                : 'inline-flex items-center justify-center gap-2 min-w-[16rem] px-6 py-3 rounded-xl bg-[#0E79AA] text-white font-bold shadow-md hover:bg-[#0A3D5E] transition-colors'
+            }
+          >
+            + إضافة حساب رئيسي
+          </button>
+        ) : null}
+      </div>
     </div>
   );
 }

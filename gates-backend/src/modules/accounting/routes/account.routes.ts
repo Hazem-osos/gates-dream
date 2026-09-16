@@ -33,13 +33,6 @@ router.use(traceAudit('mnsmAccountcard'));
  * Seed standard chart of accounts + default unit / warehouse / safe
  */
 async function handleSeedDefaults(req: AuthRequest, res: Response) {
-  if (refuseProductionSeed()) {
-    return void res.status(403).json({
-      status: 'error',
-      message: 'تهيئة الدليل معطلة على بيئة التشغيل',
-    });
-  }
-
   try {
     const companyId = req.companyId || req.tenantId;
     if (!companyId) {
@@ -50,6 +43,12 @@ async function handleSeedDefaults(req: AuthRequest, res: Response) {
     }
 
     const force = req.body?.force === true;
+    if (force && refuseProductionSeed()) {
+      return void res.status(403).json({
+        status: 'error',
+        message: 'إعادة تنزيل الدليل معطلة على بيئة التشغيل',
+      });
+    }
     const industry =
       typeof req.body?.industry === 'string' && req.body.industry.trim()
         ? req.body.industry.trim()
@@ -140,6 +139,7 @@ router.get(
         parentId: req.query.parentId as string | undefined,
         isActive: req.query.isActive as boolean | undefined,
         leafOnly: req.query.leafOnly as boolean | undefined,
+        headerOnly: req.query.headerOnly as boolean | undefined,
         statementType: req.query.statementType as
           | 'BALANCE_SHEET'
           | 'INCOME_STATEMENT'

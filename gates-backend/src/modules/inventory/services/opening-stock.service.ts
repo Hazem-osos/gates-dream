@@ -15,6 +15,45 @@ import { assertStoreDocumentRight } from './store-document-rights';
 import { fiscalYearService } from '../../platform/services/fiscal-year.service';
 import { journalPostingService } from '../../accounting/services/journal-posting.service';
 import type { JournalEntryLineData } from '../../accounting/types/journal-entry.types';
+import {
+  assertWarehouseActive,
+  getInventorySystem,
+  loadWarehouseGlMap,
+  pickInventoryAccount,
+} from '../utils/inventory-system';
+
+async function collectOpeningInventoryValues(
+  companyId: string,
+  lines: Array<{ itemId: string; warehouseId: string; quantity: unknown; unitPrice: unknown }>,
+  db: { item: { findMany: typeof prisma.item.findMany } } = prisma
+): Promise<Map<string, number>> {
+  const companyAccounts = await resolveStockGlAccounts(companyId).catch(() => null);
+  const companyInventoryId = companyAccounts?.inventoryAccountId;
+  const system = companyAccounts?.system ?? (await getInventorySystem(companyId));
+  const warehouseMap = await loadWarehouseGlMap(
+    companyId,
+    lines.map((line) => line.warehouseId)
+  );
+  const items = await db.item.findMany({
+    where: { id: { in: [...new Set(lines.map((line) => line.itemId))] } },
+    select: { id: true, mainAccountId: true },
+  });
+  const itemAccountById = new Map(items.map((item) => [item.id, item.mainAccountId]));
+  const accountValues = new Map<string, number>();
+  for (const line of lines) {
+    const value = roundTo4(Number(line.quantity) * Number(line.unitPrice));
+    if (value === 0) continue;
+    const accountId = pickInventoryAccount(
+      system,
+      companyInventoryId,
+      warehouseMap.get(line.warehouseId)?.inventoryAccountId,
+      itemAccountById.get(line.itemId)
+    );
+    if (!accountId) continue;
+    accountValues.set(accountId, roundTo4((accountValues.get(accountId) ?? 0) + value));
+  }
+  return accountValues;
+}
 
 const SOURCE_TYPE = 'OB';
 
@@ -169,10 +208,15 @@ export class OpeningStockService {
             id: { in: warehouseIds },
             companyId,
           },
+          select: { id: true, isActive: true, arabicName: true },
         });
 
         if (warehouses.length !== warehouseIds.length) {
           throw new Error('مخزن أو أكثر غير موجود أو لا يتبع الشركة');
+        }
+        const inactive = warehouses.find((warehouse) => !warehouse.isActive);
+        if (inactive) {
+          throw new Error(`المخزن «${inactive.arabicName}» غير نشط. اختر مخزناً شغّالاً.`);
         }
       }
 
@@ -449,21 +493,14 @@ export class OpeningStockService {
         allowOpeningDocument: true,
       });
 
+      for (const warehouseId of new Set(
+        openingStock.lines.map((line) => line.warehouseId).filter(Boolean)
+      )) {
+        await assertWarehouseActive(companyId, warehouseId);
+      }
+
       if (glCtx) {
-        const accountValues = new Map<string, number>();
-        for (const line of openingStock.lines) {
-          const item = await prisma.item.findUnique({
-            where: { id: line.itemId },
-            select: { mainAccountId: true },
-          });
-          const value = roundTo4(Number(line.quantity) * Number(line.unitPrice));
-          if (item?.mainAccountId && value !== 0) {
-            accountValues.set(
-              item.mainAccountId,
-              roundTo4((accountValues.get(item.mainAccountId) ?? 0) + value)
-            );
-          }
-        }
+        const accountValues = await collectOpeningInventoryValues(companyId, openingStock.lines);
         await prisma.$transaction(async (tx) => {
           await this.postOpeningBalanceGlInTx(tx, glCtx, {
             openingStockId,
@@ -723,7 +760,7 @@ export class OpeningStockService {
       const sourceYearId = String(new Date(openingStock.date).getFullYear());
 
       const updated = await prisma.$transaction(async (tx) => {
-        const accountValues = new Map<string, number>();
+        const accountValues = await collectOpeningInventoryValues(companyId, openingStock.lines, tx);
         for (const line of openingStock.lines) {
           await inventoryCostingService.applyInboundMovement(tx, {
             companyId,
@@ -740,18 +777,6 @@ export class OpeningStockService {
             sourceDocumentId: openingStock.id,
             transactionDate: openingStock.date,
           });
-
-          const item = await tx.item.findUnique({
-            where: { id: line.itemId },
-            select: { mainAccountId: true },
-          });
-          const value = roundTo4(Number(line.quantity) * Number(line.unitPrice));
-          if (item?.mainAccountId && value !== 0) {
-            accountValues.set(
-              item.mainAccountId,
-              roundTo4((accountValues.get(item.mainAccountId) ?? 0) + value)
-            );
-          }
         }
 
         if (glCtx) {

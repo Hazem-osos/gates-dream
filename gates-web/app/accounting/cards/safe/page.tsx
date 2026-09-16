@@ -8,6 +8,7 @@ import { useApiMutation, useInvalidateQuery } from '@/lib/hooks/useApi';
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
 import type { ApiError } from '@/lib/api/types';
+import { bumpTrailingCode } from '@/lib/masters/nextNumericSerial';
 import { entityLabel } from '@/lib/quick-create/catalog';
 import { useQuickCreateHost } from '@/lib/quick-create/useQuickCreateTab';
 
@@ -42,9 +43,9 @@ export default function SafeCardPage() {
         });
       }
       invalidateQuery(['safes']);
-      setSuccess('تم حفظ الخزنة');
+      setSuccess('تم حفظ الخزنة — تقدر تضيف التالي');
       setArabicName('');
-      setCode('');
+      setCode(bumpTrailingCode(created?.code ?? ''));
     },
     onError: (err: ApiError) => setError(err.message || 'تعذر حفظ الخزنة'),
   });

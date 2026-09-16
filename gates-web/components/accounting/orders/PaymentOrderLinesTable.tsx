@@ -13,6 +13,7 @@ type Props = {
   accountLabelFor?: (accountId: string) => string | undefined;
   currencies: PaymentLineCurrency[];
   baseCurrency?: string;
+  showFx?: boolean;
 };
 
 export function PaymentOrderLinesTable({
@@ -23,6 +24,7 @@ export function PaymentOrderLinesTable({
   accountLabelFor,
   currencies,
   baseCurrency = 'EGP',
+  showFx = true,
 }: Props) {
   return (
     <div className="space-y-3">
@@ -35,7 +37,7 @@ export function PaymentOrderLinesTable({
         accountLabelFor={accountLabelFor}
         currencies={currencies}
         baseCurrency={baseCurrency}
-        showFx
+        showFx={showFx}
       />
       {disabled ? null : (
         <Button type="button" size="sm" variant="outline" className="gap-1.5" onClick={onAddLine}>

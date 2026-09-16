@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useOwnTabSearchParams } from '@/lib/navigation/tab-route-lock';
 import { useForm, type Resolver, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -105,7 +105,7 @@ export default function PurchaseOrderPage() {
 
   const [orderLines, setOrderLines] = useState<PurchaseOrderLine[]>([]);
   const [showList, setShowList] = useState(false);
-  const searchParams = useSearchParams();
+  const searchParams = useOwnTabSearchParams();
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(
     () => searchParams.get('orderId')?.trim() || null
   );
@@ -325,7 +325,6 @@ export default function PurchaseOrderPage() {
       <FormSectionCard
         title="بيانات أمر الشراء"
         subtitle="المورد والتاريخ والعملة والمخزن"
-        bodyClassName="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4"
       >
         <div className="col-span-full flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-4">

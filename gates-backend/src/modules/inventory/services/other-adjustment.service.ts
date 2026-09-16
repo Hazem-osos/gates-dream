@@ -3,9 +3,10 @@ import { Prisma } from '@prisma/client';
 import { scopedItemQuantityWhere } from '../utils/item-quantity-tenant';
 import { logger } from '../../../shared/logger';
 import { stockMovementService } from './stock-movement.service';
+import { stockMovementGlService, type StockGlPostingContext } from './stock-movement-gl.service';
 import { assertStoreDocumentRight } from './store-document-rights';
-import type { StockGlPostingContext } from './stock-movement-gl.service';
 import { fiscalYearService } from '../../platform/services/fiscal-year.service';
+import { assertWarehouseActive } from '../utils/inventory-system';
 
 export interface OtherAdjustmentSource {
   source: string; // Source name (المصدر)
@@ -39,13 +40,7 @@ export class OtherAdjustmentService {
   async createOtherAdjustment(companyId: string, data: CreateOtherAdjustmentData) {
     try {
       // Validate warehouse belongs to company
-      const warehouse = await prisma.warehouse.findFirst({
-        where: { id: data.warehouseId, companyId },
-      });
-
-      if (!warehouse) {
-        throw new Error('Warehouse not found or does not belong to company');
-      }
+      await assertWarehouseActive(companyId, data.warehouseId);
 
       // Validate all items belong to company
       const itemIds = data.lines.map((line) => line.itemId);
@@ -379,6 +374,7 @@ export class OtherAdjustmentService {
       }
 
       await fiscalYearService.assertOpenForDate(companyId, adjustment.date);
+      await assertWarehouseActive(companyId, adjustment.warehouseId);
 
       // Wave 3 fix: route through `stockMovementService.postMovementInTx` so
       // each line takes a row lock (via a companyId/item/warehouse-scoped
@@ -412,6 +408,10 @@ export class OtherAdjustmentService {
             sourceYearId,
             documentDate: adjustment.date,
           });
+        }
+
+        if (glCtx) {
+          await stockMovementGlService.postOtherAdjustmentGlInTx(tx, glCtx, adjustment);
         }
 
         // Mark adjustment as posted
@@ -487,6 +487,17 @@ export class OtherAdjustmentService {
             sourceYearId,
             documentDate: adjustment.date,
           });
+        }
+
+        if (glCtx) {
+          await stockMovementGlService.reverseBySourceInTx(
+            tx,
+            glCtx,
+            sourceType,
+            sourceNumber,
+            sourceYearId,
+            `Unpost other adjustment ${sourceNumber}`
+          );
         }
 
         // Mark adjustment as unposted

@@ -9,6 +9,7 @@ import {
   erpInputClass,
   erpInputErrorClass,
   erpLabelClass,
+  erpFormGridClass,
 } from '@/components/erp';
 import { useClientMounted } from '@/lib/hooks/useClientMounted';
 import {
@@ -164,7 +165,7 @@ export function PurchaseInvoiceFormHeader(props: Props) {
         />
         <ErpFieldError message={errors?.warehouseId} show={showValidationErrors} />
       </div>
-      <div>
+      <div className="min-w-[16rem]">
         <label className={erpLabelClass}>طريقة الدفع</label>
         <div className="flex h-10 rounded-lg border border-slate-200 overflow-hidden bg-slate-50 p-0.5 gap-0.5">
           <button
@@ -226,7 +227,7 @@ export function PurchaseInvoiceFormHeader(props: Props) {
           onHydrate={onSourceHydrate}
         />
       ) : null}
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+    <div className={erpFormGridClass}>
       <div>
         <label className={erpLabelClass}>رقم فاتورة المورد</label>
         <input

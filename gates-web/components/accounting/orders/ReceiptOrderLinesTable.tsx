@@ -13,6 +13,7 @@ type Props = {
   accountLabelFor?: (accountId: string) => string | undefined;
   currencies: PaymentLineCurrency[];
   baseCurrency?: string;
+  showFx?: boolean;
 };
 
 export function ReceiptOrderLinesTable({
@@ -23,6 +24,7 @@ export function ReceiptOrderLinesTable({
   accountLabelFor,
   currencies,
   baseCurrency = 'EGP',
+  showFx = true,
 }: Props) {
   return (
     <div className="space-y-3">
@@ -35,7 +37,7 @@ export function ReceiptOrderLinesTable({
         accountLabelFor={accountLabelFor}
         currencies={currencies}
         baseCurrency={baseCurrency}
-        showFx
+        showFx={showFx}
         accountColumnLabel="الحساب / العميل"
         invoiceKind="SALE"
         partyEmptyHint="اختر العميل أولاً"

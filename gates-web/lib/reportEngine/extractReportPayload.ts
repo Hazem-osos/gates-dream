@@ -1,15 +1,66 @@
 import type { ApiResponse } from '@/lib/api/types';
 
+function isJournalLine(value: unknown): boolean {
+  if (!value || typeof value !== 'object') return false;
+  const line = value as Record<string, unknown>;
+  return 'debit' in line || 'credit' in line || 'account' in line;
+}
+
+function explodeJournalEntryRows(rows: unknown[]): unknown[] {
+  if (!rows.length) return rows;
+  const first = rows[0];
+  if (!first || typeof first !== 'object') return rows;
+  const head = first as Record<string, unknown>;
+  const lines = head.lines;
+  if (!Array.isArray(lines) || !lines.length || !isJournalLine(lines[0])) return rows;
+  if (!('voucherNumber' in head || 'sourceType' in head || 'isPosted' in head)) return rows;
+
+  const out: Record<string, unknown>[] = [];
+  for (const row of rows) {
+    if (!row || typeof row !== 'object') continue;
+    const entry = row as Record<string, unknown>;
+    const entryLines = Array.isArray(entry.lines) && entry.lines.length ? entry.lines : [null];
+    for (const rawLine of entryLines) {
+      const line =
+        rawLine && typeof rawLine === 'object' ? (rawLine as Record<string, unknown>) : null;
+      out.push({
+        date: entry.date,
+        voucherNumber: entry.voucherNumber,
+        description: line?.description || entry.description,
+        account: line?.account ?? null,
+        costCenter: line?.costCenter ?? null,
+        debit: Number(line?.debit ?? 0),
+        credit: Number(line?.credit ?? 0),
+        sourceType: entry.sourceType,
+        sourceNumber: entry.sourceNumber,
+        isPosted: entry.isPosted,
+        isCancelled: entry.isCancelled,
+      });
+    }
+  }
+  return out;
+}
+
 function normalizeRows(payload: unknown): unknown[] {
-  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload)) return explodeJournalEntryRows(payload);
   if (payload && typeof payload === 'object') {
     const o = payload as Record<string, unknown>;
     if (Array.isArray(o.accounts)) return o.accounts;
     if (Array.isArray(o.transactions)) return o.transactions;
     if (Array.isArray(o.lines)) return o.lines;
+    if (Array.isArray(o.parties)) return o.parties;
     if (Array.isArray(o.rows)) return o.rows;
     if (Array.isArray(o.sections)) return o.sections;
-    if ('data' in o && Array.isArray(o.data)) return o.data as unknown[];
+    if (Array.isArray(o.receipts) || Array.isArray(o.payments)) {
+      const receipts = Array.isArray(o.receipts)
+        ? o.receipts.map((row) => ({ type: 'قبض', ...(row as object) }))
+        : [];
+      const payments = Array.isArray(o.payments)
+        ? o.payments.map((row) => ({ type: 'صرف', ...(row as object) }))
+        : [];
+      return [...receipts, ...payments];
+    }
+    if ('data' in o && Array.isArray(o.data)) return explodeJournalEntryRows(o.data);
   }
   return [];
 }

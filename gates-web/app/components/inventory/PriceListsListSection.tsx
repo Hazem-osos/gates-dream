@@ -35,7 +35,7 @@ export function PriceListsListSection({
       limit: pageSize,
       isActive: true,
     };
-    if (search.trim().length >= 2) p.search = search.trim();
+    if (search.trim()) p.search = search.trim();
     return p;
   }, [page, pageSize, search]);
 

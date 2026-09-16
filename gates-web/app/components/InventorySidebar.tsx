@@ -47,10 +47,6 @@ export const inventoryModules: ModuleWithChildren[] = [
           { key: 'item-card', icon: '', label: 'بطاقة الصنف', color: C, href: '/inventory/creations/item-card' },
           { key: 'item-groups', icon: '', label: 'بطاقة مجموعة أصناف', color: C, href: '/inventory/creations/item-groups' },
           { key: 'stores', icon: '', label: 'بطاقة مخزن', color: C, href: '/inventory/creations/stores' },
-          { key: 'suppliers', icon: '', label: 'بطاقة مورد', color: C, href: '/accounting/cards/supplier' },
-          { key: 'supplier-group', icon: '', label: 'مجموعة المورد', color: C, href: '/accounting/cards/supplier-group' },
-          { key: 'customers', icon: '', label: 'بطاقة عميل', color: C, href: '/accounting/cards/customer' },
-          { key: 'customer-group', icon: '', label: 'مجموعة العميل', color: C, href: '/accounting/cards/customer-group' },
         ],
       },
       {

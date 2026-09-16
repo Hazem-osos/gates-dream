@@ -41,7 +41,8 @@ router.get(
         limit: req.query.limit as number | undefined,
         search: req.query.search as string | undefined,
         isActive: req.query.isActive as boolean | undefined,
-        role: req.query.role as 'DELEGATE' | 'DISTRIBUTOR' | 'DRIVER' | undefined,
+        role: req.query.role as 'DELEGATE' | 'DISTRIBUTOR' | 'DRIVER' | 'GROUP' | undefined,
+        includeGroups: req.query.includeGroups as boolean | undefined,
       });
 
       logger.info(

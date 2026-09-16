@@ -8,21 +8,30 @@ import {
   AdvancedFieldsSection,
   FormSectionCard,
   compactControlClass,
-  Switch,
   AppTable,
 } from "@/components/ui";
 import { DocumentBrowseDrawer, MasterCardShell } from '@/components/erp';
-import { useApiQuery, useApiMutation, useInvalidateQuery } from "@/lib/hooks/useApi";
+import { useApiQuery, useInvalidateQuery } from "@/lib/hooks/useApi";
 import ErrorToast from "@/components/ErrorToast";
 import SuccessToast from "@/components/SuccessToast";
-import type { ApiError } from '@/lib/api/types';
 import { accountCardFormSchema } from '@/lib/validation/accounting.schema';
 import { CostCenterSelect } from '@/app/components/form/CostCenterSelect';
 import { useAccountingSettingsQuery } from '@/lib/hooks/useAccountingSettings';
-import { useSuggestAccountCode } from '@/lib/hooks/useChartOfAccounts';
+import {
+  useCreateAccountMutation,
+  useSuggestAccountCode,
+  useUpdateAccountMutation,
+} from '@/lib/hooks/useChartOfAccounts';
 import { NumberingModeControl } from '@/components/accounting/NumberingModeControl';
 import { entityLabel } from '@/lib/quick-create/catalog';
 import { useQuickCreateHost } from '@/lib/quick-create/useQuickCreateTab';
+import {
+  GL_ACCOUNT_TYPE_OPTIONS,
+  applyAccountTypeDefaults,
+  normalizeGlAccountType,
+  statementTypeFromAccountType,
+} from '@/lib/accounting/account-classification';
+import { isCodeAfter } from '@/lib/masters/nextNumericSerial';
 
 const EMPTY_ACCOUNT_FORM = {
   code: '',
@@ -33,21 +42,32 @@ const EMPTY_ACCOUNT_FORM = {
   accountSide: '' as 'مدين' | 'دائن' | '',
   accountNature: 'DEBIT' as 'DEBIT' | 'CREDIT',
   statementType: 'BALANCE_SHEET' as 'BALANCE_SHEET' | 'INCOME_STATEMENT',
-  costCenterRequired: '' as 'إجباري' | 'اختياري' | 'بدون' | '',
+  costCenterRequired: 'بدون' as 'إجباري' | 'اختياري' | 'بدون' | '',
   defaultCostCenterId: '',
   requiresCostCenter: false,
-  warning: '' as 'مدين' | 'دائن' | 'بدون' | '',
+  warning: 'بدون' as 'مدين' | 'دائن' | 'بدون' | '',
   budget: '',
   currencyCode: '',
+  accountKind: 'HEADER' as 'HEADER' | 'POSTING',
 };
 
 interface Account {
   id: string;
   code: string;
   arabicName: string;
-  englishName?: string;
+  englishName?: string | null;
   accountSide?: 'مدين' | 'دائن' | null;
   accountNature?: 'DEBIT' | 'CREDIT' | null;
+  accountType?: string | null;
+  parentId?: string | null;
+  statementType?: 'BALANCE_SHEET' | 'INCOME_STATEMENT' | null;
+  costCenterRequired?: string | null;
+  requiresCostCenter?: boolean | null;
+  defaultCostCenterId?: string | null;
+  warning?: string | null;
+  budget?: number | string | null;
+  currencyCode?: string | null;
+  accountKind?: 'HEADER' | 'POSTING' | null;
 }
 
 interface Currency {
@@ -57,41 +77,111 @@ interface Currency {
   englishName?: string;
 }
 
+function collectAccountFamilyIds(accounts: Account[], rootId: string): string[] {
+  const ids = [rootId];
+  for (const row of accounts) {
+    if (row.parentId === rootId) {
+      ids.push(...collectAccountFamilyIds(accounts, row.id));
+    }
+  }
+  return ids;
+}
+
+function mapAccountToForm(account: Account): typeof EMPTY_ACCOUNT_FORM {
+  const side =
+    account.accountSide ||
+    (account.accountNature === 'CREDIT' ? 'دائن' : account.accountNature === 'DEBIT' ? 'مدين' : '');
+  const accountType = normalizeGlAccountType(account.accountType);
+  return {
+    code: account.code ?? '',
+    accountType,
+    arabicName: account.arabicName ?? '',
+    englishName: account.englishName ?? '',
+    parentId: account.parentId ?? '',
+    accountSide: side,
+    accountNature: side === 'دائن' ? 'CREDIT' : 'DEBIT',
+    statementType:
+      account.statementType ??
+      statementTypeFromAccountType(accountType) ??
+      'BALANCE_SHEET',
+    costCenterRequired: (account.costCenterRequired as typeof EMPTY_ACCOUNT_FORM.costCenterRequired) || 'بدون',
+    defaultCostCenterId: account.defaultCostCenterId ?? '',
+    requiresCostCenter: Boolean(account.requiresCostCenter || account.costCenterRequired === 'إجباري'),
+    warning: (account.warning as typeof EMPTY_ACCOUNT_FORM.warning) || 'بدون',
+    budget: account.budget != null ? String(account.budget) : '',
+    currencyCode: account.currencyCode ?? '',
+    accountKind: account.parentId ? (account.accountKind === 'HEADER' ? 'HEADER' : 'POSTING') : 'HEADER',
+  };
+}
+
 function InputDesign() {
   const invalidateQuery = useInvalidateQuery();
   const quickCreate = useQuickCreateHost('account');
-  
-  const [formData, setFormData] = useState({ ...EMPTY_ACCOUNT_FORM });
-  const { data: settingsRes } = useAccountingSettingsQuery();
-  const autoNumbering = settingsRes?.data?.general?.coaAutoNumbering !== false;
-  const accountRecordCount = settingsRes?.data?.general?.numberingRecordCounts?.accounts ?? 0;
-  const { data: suggestRes } = useSuggestAccountCode(formData.parentId || null, true);
 
+  const [formData, setFormData] = useState({ ...EMPTY_ACCOUNT_FORM });
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [showGuide, setShowGuide] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [loadedParentId, setLoadedParentId] = useState('');
+  const [loadedCode, setLoadedCode] = useState('');
+  const { data: settingsRes } = useAccountingSettingsQuery();
+  const autoNumbering = settingsRes?.data?.general?.coaAutoNumbering !== false;
+  const accountRecordCount = settingsRes?.data?.general?.numberingRecordCounts?.accounts ?? 0;
+  const parentChanged = Boolean(selectedId) && formData.parentId !== loadedParentId;
+  const { data: suggestRes } = useSuggestAccountCode(
+    formData.parentId || null,
+    autoNumbering && (!selectedId || parentChanged)
+  );
+  const createMut = useCreateAccountMutation();
+  const updateMut = useUpdateAccountMutation();
 
   useEffect(() => {
+    if (!autoNumbering) return;
     const suggested = suggestRes?.data?.code;
-    if (!suggested || !autoNumbering) return;
-    setFormData((prev) => (prev.code === suggested ? prev : { ...prev, code: suggested }));
-  }, [autoNumbering, suggestRes?.data?.code]);
+    if (!suggested) return;
+    if (!selectedId) {
+      setFormData((prev) => {
+        if (prev.code && isCodeAfter(prev.code, suggested)) return prev;
+        return prev.code === suggested ? prev : { ...prev, code: suggested };
+      });
+      return;
+    }
+    if (parentChanged) {
+      setFormData((prev) => (prev.code === suggested ? prev : { ...prev, code: suggested }));
+    }
+  }, [autoNumbering, suggestRes?.data?.code, selectedId, parentChanged]);
 
   useEffect(() => {
     if (!quickCreate.prefillName) return;
     setFormData((prev) => (prev.arabicName ? prev : { ...prev, arabicName: quickCreate.prefillName }));
   }, [quickCreate.prefillName]);
 
-  // Fetch parent accounts
+  useEffect(() => {
+    if (!quickCreate.isQuickCreate) return;
+    setFormData((prev) => ({
+      ...prev,
+      accountKind: prev.parentId ? 'POSTING' : prev.accountKind,
+    }));
+  }, [quickCreate.isQuickCreate]);
+
   const { data: accountsResponse } = useApiQuery<Account[]>(
+    ['accounts', 'headers'],
+    '/accounting/accounts',
+    { limit: 1000, isActive: true, headerOnly: true }
+  );
+  const { data: browseAccountsResponse } = useApiQuery<Account[]>(
     ['accounts'],
     '/accounting/accounts',
     { limit: 1000, isActive: true }
   );
-  const accounts = accountsResponse?.data || [];
+  const headerAccounts = accountsResponse?.data || [];
+  const accounts = browseAccountsResponse?.data || [];
+  const blockedParentIds = React.useMemo(
+    () => (selectedId ? new Set(collectAccountFamilyIds(accounts, selectedId)) : new Set<string>()),
+    [accounts, selectedId]
+  );
 
-  // Fetch currencies
   const { data: currenciesResponse } = useApiQuery<Currency[]>(
     ['currencies'],
     '/accounting/currencies',
@@ -99,31 +189,7 @@ function InputDesign() {
   );
   const currencies = currenciesResponse?.data || [];
 
-  // Account mutation
-  const accountMutation = useApiMutation<unknown, Record<string, unknown>>(
-    '/accounting/accounts',
-    'POST',
-    {
-      onSuccess: (res) => {
-        const created = res?.data as { id?: string; arabicName?: string; code?: string } | undefined;
-        if (created?.id) {
-          quickCreate.complete({
-            id: created.id,
-            label: entityLabel(created.code, created.arabicName),
-            arabicName: created.arabicName,
-            code: created.code,
-          });
-        }
-        setSuccess('تم حفظ الحساب بنجاح');
-        invalidateQuery(['accounts']);
-        // Reset form
-        setFormData({ ...EMPTY_ACCOUNT_FORM });
-      },
-      onError: (error: ApiError) => {
-        setError(error.message || 'حدث خطأ أثناء الحفظ');
-      },
-    }
-  );
+  const pending = createMut.isPending || updateMut.isPending;
 
   const handleSave = async () => {
     const parsed = accountCardFormSchema.safeParse(formData);
@@ -135,45 +201,90 @@ function InputDesign() {
       setError('رقم الحساب مطلوب — الترقيم يدوي');
       return;
     }
+    if (quickCreate.isQuickCreate && !formData.parentId) {
+      setError('اختَر الحساب الرئيسي. الإضافة السريعة من السند بتنشئ حساب حركة يظهر في سند الصرف.');
+      return;
+    }
+
+    const payload = {
+      code: formData.code || undefined,
+      arabicName: formData.arabicName,
+      englishName: formData.englishName || undefined,
+      accountType: formData.accountType || undefined,
+      parentId: formData.parentId || null,
+      ...(formData.accountSide
+        ? {
+            accountSide: formData.accountSide,
+            accountNature: formData.accountNature,
+          }
+        : {}),
+      statementType: formData.statementType || statementTypeFromAccountType(formData.accountType),
+      costCenterRequired:
+        formData.costCenterRequired || (formData.requiresCostCenter ? 'إجباري' : 'بدون'),
+      defaultCostCenterId: formData.defaultCostCenterId || null,
+      accountKind: quickCreate.isQuickCreate
+        ? 'POSTING'
+        : formData.parentId
+          ? formData.accountKind
+          : 'HEADER',
+      requiresCostCenter: formData.costCenterRequired === 'إجباري',
+      warning: formData.warning || undefined,
+      budget: formData.budget ? parseFloat(formData.budget) : undefined,
+      currencyCode: formData.currencyCode || undefined,
+    };
 
     try {
-      await accountMutation.mutateAsync({
-        code: formData.code || undefined,
-        arabicName: formData.arabicName,
-        englishName: formData.englishName || undefined,
-        accountType: formData.accountType || undefined,
-        parentId: formData.parentId || undefined,
-        accountSide: formData.accountSide || (formData.accountNature === 'CREDIT' ? 'دائن' : 'مدين'),
-        accountNature: formData.accountNature,
-        statementType: formData.statementType,
-        costCenterRequired:
-          formData.costCenterRequired || (formData.requiresCostCenter ? 'إجباري' : undefined),
-        defaultCostCenterId: formData.defaultCostCenterId || undefined,
-        requiresCostCenter: formData.requiresCostCenter,
-        warning: formData.warning || undefined,
-        budget: formData.budget ? parseFloat(formData.budget) : undefined,
-        currencyCode: formData.currencyCode || undefined,
-      });
-    } catch (error: unknown) {
-      setError(error instanceof Error ? error.message : 'حدث خطأ أثناء الحفظ');
+      if (selectedId) {
+        await updateMut.mutateAsync({ id: selectedId, ...payload });
+        setLoadedParentId(formData.parentId);
+        setLoadedCode(formData.code);
+        setSuccess('تم تحديث الحساب بنجاح');
+      } else {
+        const res = await createMut.mutateAsync(payload);
+        const created = res?.data as { id?: string; arabicName?: string; code?: string } | undefined;
+        if (created?.id) {
+          quickCreate.complete({
+            id: created.id,
+            label: entityLabel(created.code, created.arabicName),
+            arabicName: created.arabicName,
+            code: created.code,
+          });
+        }
+        setSuccess('تم حفظ الحساب بنجاح — تقدر تضيف التالي');
+        setFormData({
+          ...EMPTY_ACCOUNT_FORM,
+          parentId: formData.parentId,
+          accountType: formData.accountType,
+          accountSide: formData.accountSide,
+          accountNature: formData.accountNature,
+          statementType: formData.statementType,
+          accountKind: formData.accountKind,
+        });
+      }
+      invalidateQuery(['accounts']);
+      invalidateQuery(['accounts', 'headers']);
+      invalidateQuery(['coa-tree']);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'حدث خطأ أثناء الحفظ');
     }
   };
 
   const handleCancel = () => {
     setSelectedId(null);
+    setLoadedParentId('');
+    setLoadedCode('');
     setFormData({ ...EMPTY_ACCOUNT_FORM });
     setError('');
   };
 
   const advancedFilledCount = [
     formData.englishName,
-    formData.costCenterRequired,
+    formData.costCenterRequired && formData.costCenterRequired !== 'بدون' ? formData.costCenterRequired : '',
     formData.currencyCode,
-    formData.warning,
+    formData.warning && formData.warning !== 'بدون' ? formData.warning : '',
     formData.budget,
-    formData.accountNature !== 'DEBIT' ? '1' : '',
     formData.statementType !== 'BALANCE_SHEET' ? '1' : '',
-    formData.requiresCostCenter ? '1' : '',
+    formData.defaultCostCenterId,
   ].filter((v) => String(v ?? '').trim().length > 0).length;
 
   return (
@@ -187,8 +298,8 @@ function InputDesign() {
       docNumber={formData.code || (selectedId ? 'تعديل' : 'جديد')}
       statusLabel={selectedId ? 'تعديل' : 'جديد'}
       onSave={() => void handleSave()}
-      savePending={accountMutation.isPending}
-      canSave={!accountMutation.isPending}
+      savePending={pending}
+      canSave={!pending}
       onNew={handleCancel}
       currentId={selectedId}
       onBrowseList={() => setShowGuide(true)}
@@ -206,20 +317,24 @@ function InputDesign() {
         <UserPermissionsBar resource="account" module="accounting" />
       </div>
       <form className="w-full text-base">
+        {quickCreate.isQuickCreate ? (
+          <p className="mb-3 rounded-xl border border-[#D6EAF3] bg-[#F6FBFD] px-3 py-2 text-sm text-[#0A3D5E]">
+            الإضافة السريعة من السند بتنشئ <b>حساب حركة</b> تحت حساب رئيسي، عشان يظهر فورًا في سند الصرف.
+          </p>
+        ) : null}
         <FormSectionCard
           title="البيانات الأساسية"
           subtitle="الحقول اللازمة لتعريف الحساب"
           icon={Landmark}
-          bodyClassName="!grid-cols-[7rem_minmax(0,1.8fr)_minmax(0,10rem)_minmax(0,11rem)]"
         >
           <CompactFormField
-            label={autoNumbering ? 'رقم الحساب' : 'رقم الحساب'}
+            label="رقم الحساب"
             required={!autoNumbering}
             value={formData.code}
             readOnly={autoNumbering}
             disabled={autoNumbering}
             onChange={(e) => setFormData((prev) => ({ ...prev, code: e.target.value }))}
-            placeholder={autoNumbering ? 'تلقائي' : 'رقم الحساب'}
+            placeholder={autoNumbering ? 'تلقائي' : 'أدخل الرقم بنفسك'}
           />
           <CompactFormField
             label="الإسم العربي"
@@ -229,79 +344,123 @@ function InputDesign() {
             placeholder="إدخل الإسم بالعربي"
           />
           <CompactFormField
-            label="الحد الائتماني"
-            type="number"
-            step="0.01"
-            min="0"
-            value={formData.budget}
-            onChange={(e) => setFormData((prev) => ({ ...prev, budget: e.target.value }))}
-            placeholder="0"
-          />
-          <CompactFormField label="جهة التحذير">
-            <select
-              className={compactControlClass}
-              value={formData.warning || 'بدون'}
-              onChange={(e) =>
-                setFormData((prev) => ({
-                  ...prev,
-                  warning: e.target.value as 'مدين' | 'دائن' | 'بدون',
-                }))
-              }
-            >
-              <option value="بدون">بدون</option>
-              <option value="مدين">مدين</option>
-              <option value="دائن">دائن</option>
-            </select>
-          </CompactFormField>
-          <CompactFormField label="ج رئيسي">
+            label="الحساب الرئيسي"
+            hint={
+              parentChanged
+                ? 'تغيير الأب يغيّر رقم هذا الحساب وكل فروعه. القيود تبقى على نفس الحساب وتظهر بالرقم الجديد.'
+                : 'اختَر أي حساب رئيسي أو رئيسي فرعي. حساب الحركة لا يُفرَّع منه.'
+            }
+          >
             <select
               className={compactControlClass}
               value={formData.parentId}
               onChange={(e) => {
                 const parentId = e.target.value;
-                const parent = accounts.find((account) => account.id === parentId);
+                const parent = headerAccounts.find((account) => account.id === parentId);
                 const inheritedSide =
                   parent?.accountSide ||
                   (parent?.accountNature === 'CREDIT' ? 'دائن' : parent?.accountNature === 'DEBIT' ? 'مدين' : '');
+                const inheritedType = normalizeGlAccountType(parent?.accountType);
                 setFormData((prev) => {
                   const nextSide = prev.accountSide || inheritedSide;
+                  const typed = inheritedType
+                    ? applyAccountTypeDefaults(inheritedType, {
+                        statementType: prev.statementType,
+                        accountSide: nextSide,
+                      })
+                    : null;
                   return {
                     ...prev,
                     parentId,
+                    code: selectedId && parentId === loadedParentId ? loadedCode : prev.code,
+                    accountKind: parentId ? (prev.parentId ? prev.accountKind : 'POSTING') : 'HEADER',
                     accountSide: nextSide,
                     accountNature: nextSide === 'دائن' ? 'CREDIT' : 'DEBIT',
+                    accountType: prev.accountType || typed?.accountType || '',
+                    statementType: prev.accountType
+                      ? prev.statementType
+                      : typed?.statementType ?? prev.statementType,
                   };
                 });
               }}
             >
-              <option value="">اختر الحساب الرئيسي</option>
-              {accounts.map((account) => (
-                <option key={account.id} value={account.id}>
-                  {account.code} - {account.arabicName}
+              <option value="">حساب رئيسي (بدون أب)</option>
+              {headerAccounts
+                .filter((account) => !blockedParentIds.has(account.id))
+                .map((account) => (
+                  <option key={account.id} value={account.id}>
+                    {account.code} - {account.arabicName}
+                  </option>
+                ))}
+            </select>
+          </CompactFormField>
+          {formData.parentId && !quickCreate.isQuickCreate ? (
+            <CompactFormField label="نوع الحساب الفرعي" className="sm:col-span-2">
+              <div className="flex flex-wrap gap-2">
+                {[
+                  { value: 'POSTING' as const, label: 'حساب حركة' },
+                  { value: 'HEADER' as const, label: 'رئيسي فرعي' },
+                ].map((opt) => (
+                  <label
+                    key={opt.value}
+                    className={`${
+                      formData.accountKind === opt.value
+                        ? 'bg-[#0E78AA] text-white border-[#0E78AA]'
+                        : 'bg-white text-[#0A3D5E] border-[#D6EAF3]'
+                    } inline-flex cursor-pointer items-center rounded-full border px-3 py-1.5 text-xs font-semibold`}
+                  >
+                    <input
+                      type="radio"
+                      name="accountKind"
+                      className="sr-only"
+                      checked={formData.accountKind === opt.value}
+                      onChange={() => setFormData((prev) => ({ ...prev, accountKind: opt.value }))}
+                    />
+                    {opt.label}
+                  </label>
+                ))}
+              </div>
+            </CompactFormField>
+          ) : (
+            <CompactFormField label="نوع الحساب">
+              <input
+                className={compactControlClass}
+                value={
+                  quickCreate.isQuickCreate || formData.parentId
+                    ? 'حساب حركة'
+                    : 'رئيسي بدون أب'
+                }
+                readOnly
+              />
+            </CompactFormField>
+          )}
+          <CompactFormField label="تصنيف GL">
+            <select
+              className={compactControlClass}
+              value={formData.accountType}
+              onChange={(e) => {
+                const next = applyAccountTypeDefaults(e.target.value, {
+                  statementType: formData.statementType,
+                  accountSide: formData.accountSide,
+                });
+                setFormData((prev) => ({
+                  ...prev,
+                  accountType: next.accountType,
+                  statementType: next.statementType,
+                  accountSide: next.accountSide || prev.accountSide,
+                  accountNature: next.accountNature,
+                }));
+              }}
+            >
+              <option value="">اختر التصنيف</option>
+              {GL_ACCOUNT_TYPE_OPTIONS.map((type) => (
+                <option key={type.value} value={type.value}>
+                  {type.label}
                 </option>
               ))}
             </select>
           </CompactFormField>
-          <CompactFormField label="نوع الحساب">
-            <select
-              className={compactControlClass}
-              value={formData.accountType}
-              onChange={(e) => setFormData((prev) => ({ ...prev, accountType: e.target.value }))}
-            >
-              <option value="">اختر النوع</option>
-              <option value="توفير">توفير</option>
-              <option value="جاري">جاري</option>
-              <option value="استثمار">استثمار</option>
-            </select>
-          </CompactFormField>
-          <CompactFormField label="مركز التكلفة (اختياري)" className="sm:col-span-2">
-            <CostCenterSelect
-              value={formData.defaultCostCenterId}
-              onChange={(id) => setFormData((prev) => ({ ...prev, defaultCostCenterId: id }))}
-              emptyLabel="غير مربوط"
-            />
-          </CompactFormField>
-          <CompactFormField label="جهة الحساب" required className="sm:col-span-2">
+          <CompactFormField label="جهة الحساب" required={!formData.parentId} className="sm:col-span-2">
             <div className="flex flex-wrap gap-2">
               {[
                 { value: 'مدين', label: 'مدين' },
@@ -338,39 +497,12 @@ function InputDesign() {
 
         <AdvancedFieldsSection title="الحقول والإعدادات المتقدمة" badgeCount={advancedFilledCount}>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            <CompactFormField label="طبيعة الحساب" className="sm:col-span-2">
-              <div className="flex flex-wrap gap-2">
-                {[
-                  { value: 'DEBIT' as const, label: 'مدين افتراضي' },
-                  { value: 'CREDIT' as const, label: 'دائن افتراضي' },
-                ].map((opt) => (
-                  <label
-                    key={opt.value}
-                    className={`${
-                      formData.accountNature === opt.value
-                        ? 'bg-[#0E78AA] text-white border-[#0E78AA]'
-                        : 'bg-white text-[#0A3D5E] border-[#D6EAF3]'
-                    } inline-flex cursor-pointer items-center rounded-full border px-3 py-1.5 text-xs font-semibold`}
-                  >
-                    <input
-                      type="radio"
-                      name="accountNature"
-                      value={opt.value}
-                      checked={formData.accountNature === opt.value}
-                      onChange={() =>
-                        setFormData((prev) => ({
-                          ...prev,
-                          accountNature: opt.value,
-                          accountSide: opt.value === 'CREDIT' ? 'دائن' : 'مدين',
-                        }))
-                      }
-                      className="sr-only"
-                    />
-                    {opt.label}
-                  </label>
-                ))}
-              </div>
-            </CompactFormField>
+            <CompactFormField
+              label="الإسم الإنجليزي"
+              value={formData.englishName}
+              onChange={(e) => setFormData((prev) => ({ ...prev, englishName: e.target.value }))}
+              placeholder="إدخل الإسم بالإنجليزي"
+            />
             <CompactFormField label="التقرير الختامي">
               <select
                 className={compactControlClass}
@@ -386,72 +518,44 @@ function InputDesign() {
                 <option value="INCOME_STATEMENT">أرباح وخسائر وقائمة دخل</option>
               </select>
             </CompactFormField>
-            <CompactFormField label="إلزام مركز التكلفة" className="sm:col-span-2">
-              <Switch
-                checked={formData.requiresCostCenter}
-                onCheckedChange={(checked) =>
-                  setFormData((prev) => ({
-                    ...prev,
-                    requiresCostCenter: checked,
-                    costCenterRequired: checked ? 'إجباري' : prev.costCenterRequired === 'إجباري' ? 'اختياري' : prev.costCenterRequired,
-                  }))
-                }
-                label="إلزام تحديد مركز تكلفة عند الترحيل"
-              />
-            </CompactFormField>
-            <CompactFormField
-              label="الإسم الإنجليزي"
-              value={formData.englishName}
-              onChange={(e) => setFormData((prev) => ({ ...prev, englishName: e.target.value }))}
-              placeholder="إدخل الإسم بالإنجليزي"
-            />
-            <CompactFormField label="مركز التكلفة" className="sm:col-span-2">
-              <div className="flex flex-wrap gap-2">
-                {[
-                  { value: 'إجباري', label: 'إجباري' },
-                  { value: 'اختياري', label: 'اختياري' },
-                  { value: 'بدون', label: 'بدون' },
-                ].map((opt) => (
-                  <label
-                    key={opt.value}
-                    className={`${
-                      formData.costCenterRequired === opt.value
-                        ? 'bg-[#0E78AA] text-white border-[#0E78AA]'
-                        : 'bg-white text-[#0A3D5E] border-[#D6EAF3]'
-                    } inline-flex cursor-pointer items-center rounded-full border px-3 py-1.5 text-xs font-semibold`}
-                  >
-                    <input
-                      type="radio"
-                      name="costCenter"
-                      value={opt.value}
-                      checked={formData.costCenterRequired === opt.value}
-                      onChange={(e) =>
-                        setFormData((prev) => ({
-                          ...prev,
-                          costCenterRequired: e.target.value as 'إجباري' | 'اختياري' | 'بدون',
-                          requiresCostCenter: e.target.value === 'إجباري',
-                        }))
-                      }
-                      className="sr-only"
-                    />
-                    {opt.label}
-                  </label>
-                ))}
-              </div>
-            </CompactFormField>
-            <CompactFormField label="ج/ ختامي">
+            <CompactFormField label="إلزام مركز التكلفة">
               <select
                 className={compactControlClass}
-                value={formData.statementType}
+                value={formData.costCenterRequired || 'بدون'}
                 onChange={(e) =>
                   setFormData((prev) => ({
                     ...prev,
-                    statementType: e.target.value as 'BALANCE_SHEET' | 'INCOME_STATEMENT',
+                    costCenterRequired: e.target.value as 'إجباري' | 'اختياري' | 'بدون',
+                    requiresCostCenter: e.target.value === 'إجباري',
                   }))
                 }
               >
-                <option value="BALANCE_SHEET">ميزانية عمومية</option>
-                <option value="INCOME_STATEMENT">أرباح وخسائر وقائمة دخل</option>
+                <option value="بدون">بدون</option>
+                <option value="اختياري">اختياري</option>
+                <option value="إجباري">إجباري</option>
+              </select>
+            </CompactFormField>
+            <CompactFormField label="مركز التكلفة (اختياري)" className="sm:col-span-2">
+              <CostCenterSelect
+                value={formData.defaultCostCenterId}
+                onChange={(id) => setFormData((prev) => ({ ...prev, defaultCostCenterId: id }))}
+                emptyLabel="غير مربوط"
+              />
+            </CompactFormField>
+            <CompactFormField label="جهة التحذير">
+              <select
+                className={compactControlClass}
+                value={formData.warning || 'بدون'}
+                onChange={(e) =>
+                  setFormData((prev) => ({
+                    ...prev,
+                    warning: e.target.value as 'مدين' | 'دائن' | 'بدون',
+                  }))
+                }
+              >
+                <option value="بدون">بدون</option>
+                <option value="مدين">مدين</option>
+                <option value="دائن">دائن</option>
               </select>
             </CompactFormField>
             <CompactFormField label="رمز العملة">
@@ -477,42 +581,8 @@ function InputDesign() {
               onChange={(e) => setFormData((prev) => ({ ...prev, budget: e.target.value }))}
               placeholder="إدخل الموازنة التقديرية"
             />
-            <CompactFormField label="تحذير" className="sm:col-span-2">
-              <div className="flex flex-wrap gap-2">
-                {[
-                  { value: 'مدين', label: 'مدين' },
-                  { value: 'دائن', label: 'دائن' },
-                  { value: 'بدون', label: 'بدون' },
-                ].map((opt) => (
-                  <label
-                    key={opt.value}
-                    className={`${
-                      formData.warning === opt.value
-                        ? 'bg-[#0E78AA] text-white border-[#0E78AA]'
-                        : 'bg-white text-[#0A3D5E] border-[#D6EAF3]'
-                    } inline-flex cursor-pointer items-center rounded-full border px-3 py-1.5 text-xs font-semibold`}
-                  >
-                    <input
-                      type="radio"
-                      name="warning"
-                      value={opt.value}
-                      checked={formData.warning === opt.value}
-                      onChange={(e) =>
-                        setFormData((prev) => ({
-                          ...prev,
-                          warning: e.target.value as 'مدين' | 'دائن' | 'بدون',
-                        }))
-                      }
-                      className="sr-only"
-                    />
-                    {opt.label}
-                  </label>
-                ))}
-              </div>
-            </CompactFormField>
           </div>
         </AdvancedFieldsSection>
-
       </form>
 
       {error && <ErrorToast message={error} onClose={() => setError('')} />}
@@ -525,20 +595,21 @@ function InputDesign() {
           emptyTitle="لا توجد حسابات بعد"
           onRowClick={(account) => {
             setSelectedId(account.id);
-            setFormData((prev) => ({
-              ...prev,
-              code: account.code,
-              arabicName: account.arabicName,
-              englishName: account.englishName || '',
-              accountSide: account.accountSide || '',
-              accountNature: account.accountNature || prev.accountNature,
-            }));
+            setLoadedParentId(account.parentId ?? '');
+            setLoadedCode(account.code ?? '');
+            setFormData(mapAccountToForm(account));
             setShowGuide(false);
+            setError('');
           }}
           columns={[
             { id: 'code', header: 'الكود', accessor: 'code' },
             { id: 'name', header: 'الاسم', accessor: 'arabicName' },
             { id: 'side', header: 'الجهة', cell: (r) => r.accountSide || '—' },
+            {
+              id: 'kind',
+              header: 'النوع',
+              cell: (r) => (r.accountKind === 'HEADER' || !r.parentId ? 'رئيسي' : 'حركة'),
+            },
           ]}
         />
       </DocumentBrowseDrawer>

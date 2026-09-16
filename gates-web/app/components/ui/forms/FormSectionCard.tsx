@@ -3,6 +3,7 @@
 import type { LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { cn } from '@/lib/utils';
+import { erpFormGridClass } from '@/components/erp/erpUiTokens';
 
 export type FormSectionCardProps = {
   title?: string;
@@ -24,7 +25,7 @@ export function FormSectionCard({
   return (
     <section
       className={cn(
-        'mb-4 rounded-xl border border-[#E6F0F7] bg-white p-4 shadow-sm sm:p-5',
+        'mb-4 min-w-0 max-w-full rounded-xl border border-[#E6F0F7] bg-white p-3 shadow-sm sm:p-4 lg:p-5',
         className
       )}
       dir="rtl"
@@ -45,8 +46,8 @@ export function FormSectionCard({
       <div
         className={
           bodyClassName
-            ? cn('grid min-w-0 grid-cols-1 gap-3', bodyClassName)
-            : 'grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4'
+            ? cn('grid min-w-0 max-w-full grid-cols-1 gap-3', bodyClassName)
+            : erpFormGridClass
         }
       >
         {children}

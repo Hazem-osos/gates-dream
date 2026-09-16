@@ -20,6 +20,7 @@ const M16_REPORT_PATHS: Record<string, string> = {
   'moves/cash-flow': 'cash-flow',
   'credit/aged-receivables': 'aged-receivables',
   'credit/aged-payables': 'aged-payables',
+  'balances/accounts-balance': 'trial-balance',
 };
 
 const LEGACY_ACCOUNT_REPORT_PATHS: Record<string, string> = {
@@ -64,9 +65,7 @@ export function resolveReportApiPath(
     if (rest === 'books/general-ledger' || rest === 'books/daftar-ostaz') {
       const accountId = query?.accountId?.trim();
       if (accountId) return `/accounting/reports/account-statement/${accountId}`;
-      // كشف حساب يحتاج حساباً؛ دفتر الأستاذ العام يقدر يعرض كل الحسابات.
-      if (rest === 'books/general-ledger') return `/accounting/reports/general-ledger`;
-      return null;
+      return `/accounting/reports/general-ledger`;
     }
 
     const apiSeg = LEGACY_ACCOUNT_REPORT_PATHS[rest] ?? rest.split('/').pop() ?? rest;
@@ -179,11 +178,13 @@ export function localTodayIso(d = new Date()): string {
   return `${y}-${m}-${day}`;
 }
 
-/** Inventory sales/movement reports 400 if fromDate/toDate are missing. */
+/** Inventory + accounting reports 400 if fromDate/toDate (or start/end) are missing. */
 export function reportPreviewNeedsDateRange(registryPath: string): boolean {
-  if (!registryPath.startsWith('inventory/reports/')) return false;
-  const seg = registryPath.slice('inventory/reports/'.length);
-  return seg !== 'price-list';
+  if (registryPath.startsWith('inventory/reports/')) {
+    const seg = registryPath.slice('inventory/reports/'.length);
+    return seg !== 'price-list';
+  }
+  return registryPath.startsWith('accounting/account-reports/');
 }
 
 /** Fill a missing date range so preview never calls the API without dates. */

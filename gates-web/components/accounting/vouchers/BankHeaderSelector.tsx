@@ -52,7 +52,7 @@ export function BankHeaderSelector({
 
   return (
     <div className="flex flex-wrap items-end gap-3" data-tour-id={tourId}>
-      <div className="min-w-[220px] flex-1 space-y-1">
+      <div className="w-full max-w-[var(--erp-field-max,32rem)] min-w-0 space-y-1">
         <label className={erpLabelClass}>البنك / الحساب البنكي</label>
         <div className="flex items-stretch gap-1">
           <select
@@ -73,7 +73,7 @@ export function BankHeaderSelector({
               type="button"
               title="إضافة حساب بنكي جديد"
               aria-label="إضافة حساب بنكي جديد"
-              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] text-[#0E78AA] hover:bg-[#EEF7FB]"
+              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] text-[#0E78AA] hover:bg-[#EEF7FB]"
               onClick={() => openQuickCreate()}
             >
               <Plus className="h-4 w-4" />
@@ -81,16 +81,6 @@ export function BankHeaderSelector({
           ) : null}
         </div>
         {error && errorMessage ? <p className="text-xs text-rose-600">{errorMessage}</p> : null}
-      </div>
-      <div className="w-28 space-y-1">
-        <label className="mb-1.5 block text-xs font-medium text-slate-500">كود البنك</label>
-        <input
-          type="text"
-          value={selected?.code || selected?.glAccountCode || selected?.glAccount?.code || ''}
-          readOnly
-          className="h-9 w-full rounded-md border border-[#D6EAF3] bg-[#F6FBFD] px-2 text-center font-mono text-xs text-[#094C6B]"
-          placeholder="---"
-        />
       </div>
       <div className="flex flex-col justify-end pb-0.5">
         <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs">

@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react';
 import { AppTable, FilterToolbar, StatusBadge } from '@/components/ui';
 import { useApiQuery } from '@/lib/hooks/useApi';
+import { rowMatchesSearch } from '@/lib/browse/browse-list-match';
 import type { ExportColumnDef } from '@/lib/export/export-utils';
 
 export type PartyRow = {
@@ -32,8 +33,13 @@ export function PartiesListSection({ endpoint, queryKeyPrefix, emptyTitle, onSel
   const [search, setSearch] = useState('');
 
   const queryParams = useMemo(() => {
-    const p: Record<string, string | number | boolean> = { page, limit: pageSize, isActive: true };
-    if (search.trim().length >= 2) p.search = search.trim();
+    const filtering = Boolean(search.trim());
+    const p: Record<string, string | number | boolean> = {
+      page: filtering ? 1 : page,
+      limit: filtering ? 200 : pageSize,
+      isActive: true,
+    };
+    if (search.trim()) p.search = search.trim();
     return p;
   }, [page, pageSize, search]);
 
@@ -44,8 +50,16 @@ export function PartiesListSection({ endpoint, queryKeyPrefix, emptyTitle, onSel
     { staleTime: 30_000 }
   );
 
-  const rows = data?.data ?? [];
-  const total = data?.pagination?.total ?? data?.meta?.total ?? rows.length;
+  const fetchedRows = data?.data ?? [];
+  const filteredRows = search.trim()
+    ? fetchedRows.filter((row) => rowMatchesSearch(row, search))
+    : fetchedRows;
+  const rows = search.trim()
+    ? filteredRows.slice((page - 1) * pageSize, page * pageSize)
+    : filteredRows;
+  const total = search.trim()
+    ? filteredRows.length
+    : data?.pagination?.total ?? data?.meta?.total ?? fetchedRows.length;
 
   const exportColumns: ExportColumnDef<PartyRow>[] = [
     { id: 'code', header: 'الكود', getValue: (r) => r.code || r.serial || '' },

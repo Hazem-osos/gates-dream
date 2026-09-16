@@ -5,6 +5,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useInstantPrefetch } from '@/lib/hooks/useInstantPrefetch';
 import { isSameAppModule, normalizeAppPath } from '@/lib/navigation/app-module-root';
 import { useAppTabs } from '@/app/components/AppTabsContext';
+import { flushPageDrafts, markQcReturn } from '@/lib/drafts/page-drafts';
 
 type PrefetchNavLinkProps = AnchorHTMLAttributes<HTMLAnchorElement> & {
   href: string;
@@ -42,8 +43,12 @@ export function PrefetchNavLink({
     }
     if (isSameAppModule(current, target)) {
       event.preventDefault();
-      tabs.addBackgroundTab(target);
-      router.push(target);
+      flushPageDrafts();
+      markQcReturn(current);
+      tabs.pinCurrentTab();
+      const dest = tabs.hrefForTab(target);
+      tabs.addBackgroundTab(dest);
+      router.push(dest);
     }
   };
 

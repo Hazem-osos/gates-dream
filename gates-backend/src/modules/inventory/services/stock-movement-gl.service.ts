@@ -14,6 +14,10 @@ import {
 } from '../../accounting/settings/account-definition-map';
 import { itemCostService } from './item-cost.service';
 import { documentSequenceService } from '../../platform/services/document-sequence.service';
+import {
+  pickInventoryAccount,
+  readInventorySystem,
+} from '../utils/inventory-system';
 
 export interface StockGlPostingContext extends JournalPostingContext {
   fiscalYearId: string;
@@ -45,7 +49,10 @@ async function allocateGlNum(
   return documentSequenceService.nextGlNumberInTx(tx, ctx);
 }
 
-export async function resolveStockGlAccounts(companyId: string) {
+export async function resolveStockGlAccounts(
+  companyId: string,
+  warehouseId?: string | null
+) {
   const settings = await prisma.companySettings.findUnique({
     where: { companyId },
     select: {
@@ -53,6 +60,7 @@ export async function resolveStockGlAccounts(companyId: string) {
       roundingAccountId: true,
       exchangeGainLossAccountId: true,
       retainedEarningsAccountId: true,
+      advancedSettings: true,
     },
   });
   const defs = overlayColumnAccountIds((settings?.accountDefinitions ?? {}) as AccountDefs, {
@@ -60,6 +68,7 @@ export async function resolveStockGlAccounts(companyId: string) {
     exchangeGainLossAccountId: settings?.exchangeGainLossAccountId,
     retainedEarningsAccountId: settings?.retainedEarningsAccountId,
   });
+  const system = readInventorySystem(settings?.advancedSettings);
 
   const inventoryRaw = pick(defs, ['inventoryAccount', 'stockAccount', 'storeAccount']);
   const expenseRaw = pick(defs, [
@@ -68,6 +77,7 @@ export async function resolveStockGlAccounts(companyId: string) {
     'cogsAccount',
     'costOfSalesAccount',
   ]);
+  const giftRaw = pick(defs, ['giftsAccount', 'giftAccount']);
   const adjustmentRaw = pick(defs, [
     'stocktakingDeficitAccount',
     'itemLossAccount',
@@ -87,13 +97,60 @@ export async function resolveStockGlAccounts(companyId: string) {
     throw new AppError(422, 'Inventory adjustment account is not configured in company settings');
   }
 
-  const [inventoryAccountId, expenseAccountId, adjustmentAccountId] = await Promise.all([
+  const [inventoryAccountId, expenseAccountId, adjustmentAccountId, giftAccountId] = await Promise.all([
     invoiceAccountResolverService.resolveAccountId(companyId, inventoryRaw),
     invoiceAccountResolverService.resolveAccountId(companyId, expenseRaw),
     invoiceAccountResolverService.resolveAccountId(companyId, adjustmentRaw),
+    giftRaw
+      ? invoiceAccountResolverService.resolveAccountId(companyId, giftRaw)
+      : Promise.resolve(undefined),
   ]);
 
-  return { inventoryAccountId, expenseAccountId, adjustmentAccountId };
+  let warehouseInventoryId: string | null = null;
+  let warehouseCostId: string | null = null;
+  let warehouseGiftId: string | null = null;
+  if (system === 'PERPETUAL' && warehouseId) {
+    const warehouse = await prisma.warehouse.findFirst({
+      where: { id: warehouseId, companyId },
+      select: {
+        inventoryAccountId: true,
+        costAccountId: true,
+        giftAccountId: true,
+      },
+    });
+    warehouseInventoryId = warehouse?.inventoryAccountId ?? null;
+    warehouseCostId = warehouse?.costAccountId ?? null;
+    warehouseGiftId = warehouse?.giftAccountId ?? null;
+  }
+
+  return {
+    system,
+    companyInventoryAccountId: inventoryAccountId,
+    warehouseInventoryAccountId: warehouseInventoryId,
+    inventoryAccountId:
+      pickInventoryAccount(system, inventoryAccountId, warehouseInventoryId) ?? inventoryAccountId,
+    companyExpenseAccountId: expenseAccountId,
+    warehouseCostAccountId: warehouseCostId,
+    expenseAccountId: pickInventoryAccount(system, expenseAccountId, warehouseCostId) ?? expenseAccountId,
+    companyGiftAccountId: giftAccountId,
+    warehouseGiftAccountId: warehouseGiftId,
+    giftAccountId: pickInventoryAccount(system, giftAccountId, warehouseGiftId) ?? giftAccountId,
+    adjustmentAccountId,
+  };
+}
+
+export function pickLineInventoryAccount(
+  accounts: Awaited<ReturnType<typeof resolveStockGlAccounts>>,
+  itemAccountId?: string | null
+) {
+  return (
+    pickInventoryAccount(
+      accounts.system,
+      accounts.companyInventoryAccountId,
+      accounts.warehouseInventoryAccountId,
+      itemAccountId
+    ) ?? accounts.inventoryAccountId
+  );
 }
 
 type IssueWithLines = Prisma.IssueGetPayload<{ include: { lines: true } }>;
@@ -113,6 +170,43 @@ function journalLink(je: { id: string; legacyGlNum?: string | null }) {
   };
 }
 
+function addAmount(map: Map<string, number>, accountId: string | undefined, amount: number) {
+  if (!accountId || amount <= 0) return;
+  map.set(accountId, roundTo4((map.get(accountId) ?? 0) + amount));
+}
+
+function linesFromAmountMap(
+  amounts: Map<string, number>,
+  side: 'debit' | 'credit',
+  description: string,
+  startOrder: number,
+  costCenterId?: string | null
+): JournalEntryLineData[] {
+  let lineOrder = startOrder;
+  return [...amounts.entries()]
+    .filter(([, amount]) => amount > 0)
+    .map(([accountId, amount]) => ({
+      accountId,
+      debit: side === 'debit' ? amount : 0,
+      credit: side === 'credit' ? amount : 0,
+      lineOrder: lineOrder++,
+      description,
+      costCenterId: costCenterId ?? undefined,
+    }));
+}
+
+async function loadItemInventoryMap(
+  tx: Prisma.TransactionClient,
+  itemIds: string[]
+): Promise<Map<string, { mainAccountId: string | null; averageCost: unknown }>> {
+  if (itemIds.length === 0) return new Map();
+  const rows = await tx.item.findMany({
+    where: { id: { in: itemIds } },
+    select: { id: true, mainAccountId: true, averageCost: true },
+  });
+  return new Map(rows.map((row) => [row.id, row]));
+}
+
 export class StockMovementGlService {
   async postGoodsIssueGlInTx(
     tx: Prisma.TransactionClient,
@@ -120,49 +214,86 @@ export class StockMovementGlService {
     issue: IssueWithLines,
     options?: { expenseAccountId?: string; costCenterId?: string | null }
   ) {
-    const accounts = await resolveStockGlAccounts(ctx.companyId);
+    const accounts = await resolveStockGlAccounts(ctx.companyId, issue.warehouseId);
     const expenseAccountId = options?.expenseAccountId ?? accounts.expenseAccountId;
 
     const itemIds = [...new Set(issue.lines.map((l) => l.itemId))];
-    const unitCosts = await itemCostService.getCostsAsOf(
-      ctx.companyId,
-      itemIds,
-      issue.date,
-      tx
-    );
+    const [unitCosts, items] = await Promise.all([
+      itemCostService.getCostsAsOf(ctx.companyId, itemIds, issue.date, tx),
+      loadItemInventoryMap(tx, itemIds),
+    ]);
 
-    let totalCost = 0;
+    const issueByInv = new Map<string, number>();
+    const giftByInv = new Map<string, number>();
+    let issueCost = 0;
+    let giftCost = 0;
     for (const line of issue.lines) {
       const qty = Number(line.quantity);
-      const unit =
-        line.unitPrice != null ? Number(line.unitPrice) : unitCosts.get(line.itemId) ?? 0;
-      totalCost += roundTo4(qty * unit);
+      const specified = line.unitPrice != null ? Number(line.unitPrice) : null;
+      const isGift = specified === 0;
+      const unit = unitCosts.get(line.itemId) ?? 0;
+      const value = roundTo4(qty * unit);
+      if (value <= 0) continue;
+      const invAccount = pickLineInventoryAccount(accounts, items.get(line.itemId)?.mainAccountId);
+      if (isGift) {
+        giftCost += value;
+        addAmount(giftByInv, invAccount, value);
+      } else {
+        issueCost += value;
+        addAmount(issueByInv, invAccount, value);
+      }
     }
-    totalCost = roundTo4(totalCost);
-    if (totalCost <= 0) return null;
+    issueCost = roundTo4(issueCost);
+    giftCost = roundTo4(giftCost);
+    if (issueCost <= 0 && giftCost <= 0) return null;
 
+    const giftAccountId = accounts.giftAccountId || accounts.companyGiftAccountId || expenseAccountId;
     const legacyGlNum = await allocateGlNum(tx, ctx);
     const serial = issue.serial ?? issue.id.slice(0, 8);
     const sourceYearId = String(new Date(issue.date).getFullYear());
 
-    const lines: JournalEntryLineData[] = [
-      {
+    const lines: JournalEntryLineData[] = [];
+    if (issueCost > 0) {
+      lines.push({
         accountId: expenseAccountId,
-        debit: totalCost,
+        debit: issueCost,
         credit: 0,
-        lineOrder: 1,
+        lineOrder: lines.length + 1,
         description: 'Goods issue — expense',
         costCenterId: options?.costCenterId ?? undefined,
-      },
-      {
-        accountId: accounts.inventoryAccountId,
-        debit: 0,
-        credit: totalCost,
-        lineOrder: 2,
-        description: 'Goods issue — inventory relief',
+      });
+      lines.push(
+        ...linesFromAmountMap(
+          issueByInv,
+          'credit',
+          'Goods issue — inventory relief',
+          lines.length + 1,
+          options?.costCenterId
+        )
+      );
+    }
+    if (giftCost > 0) {
+      lines.push({
+        accountId: giftAccountId,
+        debit: giftCost,
+        credit: 0,
+        lineOrder: lines.length + 1,
+        description: 'Goods issue — gift',
         costCenterId: options?.costCenterId ?? undefined,
-      },
-    ];
+      });
+      lines.push(
+        ...linesFromAmountMap(
+          giftByInv,
+          'credit',
+          'Goods issue — gift inventory relief',
+          lines.length + 1,
+          options?.costCenterId
+        )
+      );
+    }
+    lines.forEach((line, index) => {
+      line.lineOrder = index + 1;
+    });
 
     const je = await journalPostingService.createAndPostInTx(tx, ctx, {
       date: issue.date,
@@ -192,22 +323,25 @@ export class StockMovementGlService {
     receipt: ReceiptWithLines,
     options?: { costCenterId?: string | null }
   ) {
-    const accounts = await resolveStockGlAccounts(ctx.companyId);
+    const accounts = await resolveStockGlAccounts(ctx.companyId, receipt.warehouseId);
 
-    const fallbackItemIds = receipt.lines
-      .filter((l) => l.unitPrice == null || Number(l.unitPrice) === 0)
-      .map((l) => l.itemId);
-    const fallbackCosts =
-      fallbackItemIds.length > 0
-        ? await itemCostService.getCostsAsOf(ctx.companyId, fallbackItemIds, receipt.date, tx)
-        : new Map<string, number>();
+    const itemIds = [...new Set(receipt.lines.map((l) => l.itemId))];
+    const items = await loadItemInventoryMap(tx, itemIds);
 
+    const inventoryByAccount = new Map<string, number>();
     let totalCost = 0;
     for (const line of receipt.lines) {
       const qty = Number(line.quantity);
       const specified = line.unitPrice != null ? Number(line.unitPrice) : 0;
-      const unit = specified > 0 ? specified : fallbackCosts.get(line.itemId) ?? 0;
-      totalCost += roundTo4(qty * unit);
+      const unit = specified > 0 ? specified : Number(items.get(line.itemId)?.averageCost ?? 0);
+      const value = roundTo4(qty * unit);
+      if (value <= 0) continue;
+      totalCost += value;
+      addAmount(
+        inventoryByAccount,
+        pickLineInventoryAccount(accounts, items.get(line.itemId)?.mainAccountId),
+        value
+      );
     }
     totalCost = roundTo4(totalCost);
     if (totalCost <= 0) return null;
@@ -217,23 +351,25 @@ export class StockMovementGlService {
     const sourceYearId = String(new Date(receipt.date).getFullYear());
 
     const lines: JournalEntryLineData[] = [
-      {
-        accountId: accounts.inventoryAccountId,
-        debit: totalCost,
-        credit: 0,
-        lineOrder: 1,
-        description: 'Goods receipt — inventory',
-        costCenterId: options?.costCenterId ?? undefined,
-      },
+      ...linesFromAmountMap(
+        inventoryByAccount,
+        'debit',
+        'Goods receipt — inventory',
+        1,
+        options?.costCenterId
+      ),
       {
         accountId: accounts.adjustmentAccountId,
         debit: 0,
         credit: totalCost,
-        lineOrder: 2,
+        lineOrder: inventoryByAccount.size + 1,
         description: 'Goods receipt — stock adjustment',
         costCenterId: options?.costCenterId ?? undefined,
       },
     ];
+    lines.forEach((line, index) => {
+      line.lineOrder = index + 1;
+    });
 
     const je = await journalPostingService.createAndPostInTx(tx, ctx, {
       date: receipt.date,
@@ -285,6 +421,14 @@ export class StockMovementGlService {
         ? await itemCostService.getCostsAsOf(ctx.companyId, zeroOrMissingPriceItemIds, stocktaking.date, tx)
         : new Map<string, number>();
 
+    const accounts = await resolveStockGlAccounts(ctx.companyId, stocktaking.warehouseId);
+    const items = await loadItemInventoryMap(
+      tx,
+      [...new Set(stocktaking.lines.map((l) => l.itemId))]
+    );
+
+    const shortageByInv = new Map<string, number>();
+    const increaseByInv = new Map<string, number>();
     let shortage = 0;
     let increase = 0;
     for (const line of stocktaking.lines) {
@@ -292,60 +436,68 @@ export class StockMovementGlService {
       const price = priceRaw > 0 ? priceRaw : fallbackCosts.get(line.itemId) ?? 0;
       const shortageQty = Number(line.shortageQuantity ?? 0);
       const increaseQty = Number(line.increaseQuantity ?? 0);
-      if (shortageQty > 0) shortage += shortageQty * price;
-      if (increaseQty > 0) increase += increaseQty * price;
+      const invAccount = pickLineInventoryAccount(accounts, items.get(line.itemId)?.mainAccountId);
+      if (shortageQty > 0) {
+        const value = roundTo4(shortageQty * price);
+        shortage += value;
+        addAmount(shortageByInv, invAccount, value);
+      }
+      if (increaseQty > 0) {
+        const value = roundTo4(increaseQty * price);
+        increase += value;
+        addAmount(increaseByInv, invAccount, value);
+      }
     }
     shortage = roundTo4(shortage);
     increase = roundTo4(increase);
     if (shortage <= 0 && increase <= 0) return null;
 
-    const accounts = await resolveStockGlAccounts(ctx.companyId);
     const legacyGlNum = await allocateGlNum(tx, ctx);
     const serial = stocktaking.serial ?? stocktaking.id.slice(0, 8);
     const sourceYearId = sourceYearOf(stocktaking.date);
 
     const lines: JournalEntryLineData[] = [];
-    let lineOrder = 1;
     if (shortage > 0) {
+      lines.push({
+        accountId: accounts.adjustmentAccountId,
+        debit: shortage,
+        credit: 0,
+        lineOrder: 1,
+        description: 'Stocktaking shortage — shrinkage',
+        costCenterId: options?.costCenterId ?? undefined,
+      });
       lines.push(
-        {
-          accountId: accounts.adjustmentAccountId,
-          debit: shortage,
-          credit: 0,
-          lineOrder: lineOrder++,
-          description: 'Stocktaking shortage — shrinkage',
-          costCenterId: options?.costCenterId ?? undefined,
-        },
-        {
-          accountId: accounts.inventoryAccountId,
-          debit: 0,
-          credit: shortage,
-          lineOrder: lineOrder++,
-          description: 'Stocktaking shortage — inventory relief',
-          costCenterId: options?.costCenterId ?? undefined,
-        }
+        ...linesFromAmountMap(
+          shortageByInv,
+          'credit',
+          'Stocktaking shortage — inventory relief',
+          lines.length + 1,
+          options?.costCenterId
+        )
       );
     }
     if (increase > 0) {
       lines.push(
-        {
-          accountId: accounts.inventoryAccountId,
-          debit: increase,
-          credit: 0,
-          lineOrder: lineOrder++,
-          description: 'Stocktaking surplus — inventory gain',
-          costCenterId: options?.costCenterId ?? undefined,
-        },
-        {
-          accountId: accounts.adjustmentAccountId,
-          debit: 0,
-          credit: increase,
-          lineOrder: lineOrder++,
-          description: 'Stocktaking surplus — offset',
-          costCenterId: options?.costCenterId ?? undefined,
-        }
+        ...linesFromAmountMap(
+          increaseByInv,
+          'debit',
+          'Stocktaking surplus — inventory gain',
+          lines.length + 1,
+          options?.costCenterId
+        )
       );
+      lines.push({
+        accountId: accounts.adjustmentAccountId,
+        debit: 0,
+        credit: increase,
+        lineOrder: lines.length + 1,
+        description: 'Stocktaking surplus — offset',
+        costCenterId: options?.costCenterId ?? undefined,
+      });
     }
+    lines.forEach((line, index) => {
+      line.lineOrder = index + 1;
+    });
 
     const je = await journalPostingService.createAndPostInTx(tx, ctx, {
       date: stocktaking.date,
@@ -400,6 +552,14 @@ export class StockMovementGlService {
         ? await itemCostService.getCostsAsOf(ctx.companyId, macItemIds, adjustment.date, tx)
         : new Map<string, number>();
 
+    const accounts = await resolveStockGlAccounts(ctx.companyId, adjustment.warehouseId);
+    const items = await loadItemInventoryMap(
+      tx,
+      [...new Set(adjustment.lines.map((l) => l.itemId))]
+    );
+
+    const increaseByInv = new Map<string, number>();
+    const decreaseByInv = new Map<string, number>();
     let netIncrease = 0;
     let netDecrease = 0;
     for (const line of adjustment.lines) {
@@ -412,60 +572,64 @@ export class StockMovementGlService {
             ? specified
             : macCosts.get(line.itemId) ?? 0;
       const value = roundTo4(qty * unit);
-      if (value > 0) netIncrease += value;
-      else if (value < 0) netDecrease += Math.abs(value);
+      const invAccount = pickLineInventoryAccount(accounts, items.get(line.itemId)?.mainAccountId);
+      if (value > 0) {
+        netIncrease += value;
+        addAmount(increaseByInv, invAccount, value);
+      } else if (value < 0) {
+        netDecrease += Math.abs(value);
+        addAmount(decreaseByInv, invAccount, Math.abs(value));
+      }
     }
     netIncrease = roundTo4(netIncrease);
     netDecrease = roundTo4(netDecrease);
     if (netIncrease <= 0 && netDecrease <= 0) return null;
-
-    const accounts = await resolveStockGlAccounts(ctx.companyId);
     const legacyGlNum = await allocateGlNum(tx, ctx);
     const serial = adjustment.serial ?? adjustment.id.slice(0, 8);
     const sourceYearId = sourceYearOf(adjustment.date);
 
     const lines: JournalEntryLineData[] = [];
-    let lineOrder = 1;
     if (netDecrease > 0) {
+      lines.push({
+        accountId: accounts.adjustmentAccountId,
+        debit: netDecrease,
+        credit: 0,
+        lineOrder: 1,
+        description: 'Adjustment decrease — shrinkage',
+        costCenterId: options?.costCenterId ?? undefined,
+      });
       lines.push(
-        {
-          accountId: accounts.adjustmentAccountId,
-          debit: netDecrease,
-          credit: 0,
-          lineOrder: lineOrder++,
-          description: 'Adjustment decrease — shrinkage',
-          costCenterId: options?.costCenterId ?? undefined,
-        },
-        {
-          accountId: accounts.inventoryAccountId,
-          debit: 0,
-          credit: netDecrease,
-          lineOrder: lineOrder++,
-          description: 'Adjustment decrease — inventory relief',
-          costCenterId: options?.costCenterId ?? undefined,
-        }
+        ...linesFromAmountMap(
+          decreaseByInv,
+          'credit',
+          'Adjustment decrease — inventory relief',
+          lines.length + 1,
+          options?.costCenterId
+        )
       );
     }
     if (netIncrease > 0) {
       lines.push(
-        {
-          accountId: accounts.inventoryAccountId,
-          debit: netIncrease,
-          credit: 0,
-          lineOrder: lineOrder++,
-          description: 'Adjustment increase — inventory gain',
-          costCenterId: options?.costCenterId ?? undefined,
-        },
-        {
-          accountId: accounts.adjustmentAccountId,
-          debit: 0,
-          credit: netIncrease,
-          lineOrder: lineOrder++,
-          description: 'Adjustment increase — offset',
-          costCenterId: options?.costCenterId ?? undefined,
-        }
+        ...linesFromAmountMap(
+          increaseByInv,
+          'debit',
+          'Adjustment increase — inventory gain',
+          lines.length + 1,
+          options?.costCenterId
+        )
       );
+      lines.push({
+        accountId: accounts.adjustmentAccountId,
+        debit: 0,
+        credit: netIncrease,
+        lineOrder: lines.length + 1,
+        description: 'Adjustment increase — offset',
+        costCenterId: options?.costCenterId ?? undefined,
+      });
     }
+    lines.forEach((line, index) => {
+      line.lineOrder = index + 1;
+    });
 
     const je = await journalPostingService.createAndPostInTx(tx, ctx, {
       date: adjustment.date,
@@ -487,6 +651,100 @@ export class StockMovementGlService {
     });
 
     return je;
+  }
+
+  async postOtherAdjustmentGlInTx(
+    tx: Prisma.TransactionClient,
+    ctx: StockGlPostingContext,
+    adjustment: Prisma.OtherAdjustmentGetPayload<{ include: { lines: true } }>
+  ) {
+    const accounts = await resolveStockGlAccounts(ctx.companyId, adjustment.warehouseId);
+    const items = await loadItemInventoryMap(
+      tx,
+      [...new Set(adjustment.lines.map((l) => l.itemId))]
+    );
+
+    const increaseByInv = new Map<string, number>();
+    const decreaseByInv = new Map<string, number>();
+    let netIncrease = 0;
+    let netDecrease = 0;
+    for (const line of adjustment.lines) {
+      const qty = Number(line.quantity);
+      if (qty <= 0) continue;
+      const unit = line.unitPrice != null ? Number(line.unitPrice) : 0;
+      const value = roundTo4(qty * unit);
+      if (value <= 0) continue;
+      const invAccount = pickLineInventoryAccount(accounts, items.get(line.itemId)?.mainAccountId);
+      if (line.adjustmentType === 'discount') {
+        netDecrease += value;
+        addAmount(decreaseByInv, invAccount, value);
+      } else {
+        netIncrease += value;
+        addAmount(increaseByInv, invAccount, value);
+      }
+    }
+    netIncrease = roundTo4(netIncrease);
+    netDecrease = roundTo4(netDecrease);
+    if (netIncrease <= 0 && netDecrease <= 0) return null;
+
+    const legacyGlNum = await allocateGlNum(tx, ctx);
+    const serial = adjustment.serial ?? adjustment.id.slice(0, 8);
+    const sourceYearId = sourceYearOf(adjustment.date);
+
+    const lines: JournalEntryLineData[] = [];
+    if (netDecrease > 0) {
+      lines.push({
+        accountId: accounts.adjustmentAccountId,
+        debit: netDecrease,
+        credit: 0,
+        lineOrder: 1,
+        description: 'Other adjustment decrease — shrinkage',
+        costCenterId: undefined,
+      });
+      lines.push(
+        ...linesFromAmountMap(
+          decreaseByInv,
+          'credit',
+          'Other adjustment decrease — inventory relief',
+          lines.length + 1
+        )
+      );
+    }
+    if (netIncrease > 0) {
+      lines.push(
+        ...linesFromAmountMap(
+          increaseByInv,
+          'debit',
+          'Other adjustment increase — inventory gain',
+          lines.length + 1
+        )
+      );
+      lines.push({
+        accountId: accounts.adjustmentAccountId,
+        debit: 0,
+        credit: netIncrease,
+        lineOrder: lines.length + 1,
+        description: 'Other adjustment increase — offset',
+        costCenterId: undefined,
+      });
+    }
+    lines.forEach((line, index) => {
+      line.lineOrder = index + 1;
+    });
+
+    return journalPostingService.createAndPostInTx(tx, ctx, {
+      date: adjustment.date,
+      hijriDate: adjustment.hijriDate ?? undefined,
+      description: adjustment.description ?? `Other adjustment ${serial}`,
+      currencyCode: 'EGP',
+      fiscalYearId: ctx.fiscalYearId,
+      legacyGlNum,
+      sourceType: 'OADJ',
+      sourceNumber: serial,
+      sourceYearId,
+      entryType: 'ADJUSTMENT',
+      lines,
+    });
   }
 
   /**
@@ -586,19 +844,23 @@ export class StockMovementGlService {
     ctx: StockGlPostingContext,
     transfer: TransferDoc
   ) {
-    if (!transfer.fromCostCenterId || !transfer.toCostCenterId) return null;
-    if (transfer.fromCostCenterId === transfer.toCostCenterId) return null;
-
     const itemIds = [...new Set(transfer.lines.map((l) => l.itemId))];
     const [items, unitCosts] = await Promise.all([
       tx.item.findMany({ where: { id: { in: itemIds } }, select: { id: true, mainAccountId: true } }),
       itemCostService.getCostsAsOf(ctx.companyId, itemIds, transfer.date, tx),
     ]);
     const itemAccountById = new Map(items.map((i) => [i.id, i.mainAccountId]));
-    const accounts = await resolveStockGlAccounts(ctx.companyId);
-    const defaultInventoryAccountId = accounts.inventoryAccountId;
+    const [fromAccounts, toAccounts] = await Promise.all([
+      resolveStockGlAccounts(ctx.companyId, transfer.fromWarehouseId),
+      resolveStockGlAccounts(ctx.companyId, transfer.toWarehouseId),
+    ]);
+    const ccMove =
+      Boolean(transfer.fromCostCenterId) &&
+      Boolean(transfer.toCostCenterId) &&
+      transfer.fromCostCenterId !== transfer.toCostCenterId;
 
     let total = 0;
+    let accountMove = false;
     const debitLines: { accountId: string; amount: number; description: string }[] = [];
     const creditLines: { accountId: string; amount: number; description: string }[] = [];
     for (const line of transfer.lines) {
@@ -608,12 +870,23 @@ export class StockMovementGlService {
         line.unitPrice != null ? Number(line.unitPrice) : unitCosts.get(line.itemId) ?? 0;
       const value = roundTo4(qty * unit);
       if (value <= 0) continue;
-      const accountId = itemAccountById.get(line.itemId) ?? defaultInventoryAccountId;
+      const fromAccountId = pickLineInventoryAccount(fromAccounts, itemAccountById.get(line.itemId));
+      const toAccountId = pickLineInventoryAccount(toAccounts, itemAccountById.get(line.itemId));
+      if (fromAccountId !== toAccountId) accountMove = true;
       total += value;
-      debitLines.push({ accountId, amount: value, description: 'Transfer — value to destination cost center' });
-      creditLines.push({ accountId, amount: value, description: 'Transfer — value from source cost center' });
+      debitLines.push({
+        accountId: toAccountId,
+        amount: value,
+        description: 'Transfer — inventory into destination warehouse',
+      });
+      creditLines.push({
+        accountId: fromAccountId,
+        amount: value,
+        description: 'Transfer — inventory out of source warehouse',
+      });
     }
     if (total <= 0) return null;
+    if (!ccMove && !accountMove) return null;
 
     const legacyGlNum = await allocateGlNum(tx, ctx);
     const serial = transfer.serial ?? transfer.id.slice(0, 8);

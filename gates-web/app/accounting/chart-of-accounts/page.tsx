@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import dynamic from 'next/dynamic';
-import { PageHeader, FilterToolbar, Button } from '@/app/components/ui';
+import { FilterToolbar, Button } from '@/app/components/ui';
+import { ErpDocumentLayout, ErpDocumentPageHeader } from '@/components/erp';
 import { useBackendReachability } from '@/lib/hooks/useBackendReachability';
 import { useCoaTreeQuery, useDeleteAccountMutation } from '@/lib/hooks/useChartOfAccounts';
 import { useAccountingSettingsQuery } from '@/lib/hooks/useAccountingSettings';
@@ -10,6 +11,7 @@ import { useSeedDefaultCoa } from '@/lib/hooks/useSeedDefaultCoa';
 import { isSystemCashPostingAccount, type CoaHierarchyAccount } from '@/lib/accounting/mapCoaToTreeNodes';
 import { AccountTree, type CoaNatureFilter } from '@/components/accounting/chart-of-accounts/AccountTree';
 import { CoaEmptyState } from '@/components/accounting/chart-of-accounts/CoaEmptyState';
+import { ChildAccountKindDialog } from '@/components/accounting/chart-of-accounts/ChildAccountKindDialog';
 import { DynamicModalSkeleton } from '@/components/ui/DynamicChunkSkeleton';
 import { toast } from '@/lib/feedback/toast';
 import { NumberingModeControl } from '@/components/accounting/NumberingModeControl';
@@ -38,24 +40,18 @@ const NATURE_FILTERS: { id: CoaNatureFilter; label: string }[] = [
   { id: 'expense', label: 'المصروفات' },
 ];
 
-function isEquityAccount(node: CoaHierarchyAccount): boolean {
-  const code = (node.code ?? '').trim();
-  const name = `${node.arabicName ?? ''} ${node.nameAr ?? ''}`;
-  return (
-    code === '3' ||
-    code.startsWith('3') ||
-    name.includes('ملكية') ||
-    (node.accountType ?? '').toLowerCase() === 'equity'
-  );
-}
-
-function withoutEquity(nodes: CoaHierarchyAccount[]): CoaHierarchyAccount[] {
-  return nodes
-    .filter((node) => !isEquityAccount(node))
-    .map((node) => ({
-      ...node,
-      children: node.children?.length ? withoutEquity(node.children) : node.children,
-    }));
+function findParentAccount(
+  nodes: CoaHierarchyAccount[],
+  childId: string
+): CoaHierarchyAccount | null {
+  for (const node of nodes) {
+    if (node.children?.some((child) => child.id === childId)) return node;
+    if (node.children?.length) {
+      const found = findParentAccount(node.children, childId);
+      if (found) return found;
+    }
+  }
+  return null;
 }
 
 export default function ChartOfAccountsPage() {
@@ -75,11 +71,14 @@ export default function ChartOfAccountsPage() {
   const [modalMode, setModalMode] = useState<'create' | 'edit'>('create');
   const [editNode, setEditNode] = useState<CoaHierarchyAccount | null>(null);
   const [parentNode, setParentNode] = useState<CoaHierarchyAccount | null>(null);
+  const [createKind, setCreateKind] = useState<'HEADER' | 'POSTING'>('HEADER');
+  const [kindPickerParent, setKindPickerParent] = useState<CoaHierarchyAccount | null>(null);
 
   const [ledgerOpen, setLedgerOpen] = useState(false);
   const [ledgerNode, setLedgerNode] = useState<CoaHierarchyAccount | null>(null);
+  const [revealAccountId, setRevealAccountId] = useState<string | null>(null);
 
-  const tree = withoutEquity((data?.data ?? []) as CoaHierarchyAccount[]);
+  const tree = (data?.data ?? []) as CoaHierarchyAccount[];
   const isEmpty = !isLoading && tree.length === 0;
 
   const seedCoa = useSeedDefaultCoa({
@@ -98,51 +97,27 @@ export default function ChartOfAccountsPage() {
     setModalMode('create');
     setEditNode(null);
     setParentNode(null);
+    setCreateKind('HEADER');
     setModalOpen(true);
   }, []);
 
-  const allowSeed = process.env.NODE_ENV !== 'production';
-
-  const headerActions = useMemo(
-    () =>
-      isEmpty ? null : (
-        <div className="flex flex-wrap items-center gap-2">
-          <Button type="button" variant="secondary" size="sm" onClick={openCreateRoot}>
-            + إضافة حساب رئيسي
-          </Button>
-          {allowSeed ? (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={() => seedCoa.mutate({ industry, force: false })}
-              disabled={seedCoa.isPending}
-            >
-              {seedCoa.isPending ? 'جاري التحديث…' : 'مزامنة الدليل القياسي'}
-            </Button>
-          ) : null}
-        </div>
-      ),
-    [isEmpty, industry, openCreateRoot, seedCoa, allowSeed]
-  );
+  const allowSeed = isEmpty;
 
   const openCreateChild = (parent: CoaHierarchyAccount) => {
-    if (isSystemCashPostingAccount(parent)) {
-      toast.error('الخزينة الرئيسية حساب حركة', {
-        description: 'ممنوع التفريع منها. أنشئ الخزينة الجديدة تحت «النقدية وما في حكمها».',
+    const isHeader = parent.accountKind === 'HEADER' || parent.type === 'HEADER' || parent.isParent;
+    if (!isHeader || isSystemCashPostingAccount(parent)) {
+      toast.error('حساب الحركة لا يُفرَّع منه', {
+        description: 'اختَر حساباً رئيسياً أو رئيسياً فرعياً، أو أنشئ الحركة تحت مجموعة أعلى.',
       });
       return;
     }
-    setModalMode('create');
-    setEditNode(null);
-    setParentNode(parent);
-    setModalOpen(true);
+    setKindPickerParent(parent);
   };
 
   const openEdit = (node: CoaHierarchyAccount) => {
     setModalMode('edit');
     setEditNode(node);
-    setParentNode(null);
+    setParentNode(findParentAccount(tree, node.id));
     setModalOpen(true);
   };
 
@@ -160,23 +135,24 @@ export default function ChartOfAccountsPage() {
   };
 
   return (
-    <div
-      className="coa-page min-h-full bg-white text-slate-900"
-      dir="rtl"
-      style={{ colorScheme: 'light' }}
-    >
-      <PageHeader
+    <ErpDocumentLayout className="coa-page">
+      <ErpDocumentPageHeader
+        compact
+        lockWhenPosted={false}
+        breadcrumbs={[
+          { href: '/accounting', label: 'المحاسبة' },
+          { label: 'الدليل' },
+          { label: 'دليل الحسابات' },
+        ]}
         title="دليل الحسابات"
-        description="دليل حسابات مصري معياري — بحث، تصفية، وكشف حساب"
+        showDocumentRef={false}
+        statusTone="info"
+        statusLabel="دليل"
+        hideStandalonePost
+        hideBrowseList
+        hideActionMenu
         favoriteHref="/accounting/chart-of-accounts"
         favoriteLabel="دليل الحسابات"
-        className="[&_h1]:text-xl [&_h1]:font-bold [&_h1]:!text-slate-900 [&_p]:!text-slate-600"
-        statusBadge={
-          <span className="inline-flex items-center border border-slate-200 bg-slate-100 text-slate-600 text-xs px-2.5 py-1 rounded-full font-medium">
-            دليل الحسابات المصري
-          </span>
-        }
-        actions={headerActions}
       />
 
       {isEmpty ? (
@@ -192,8 +168,21 @@ export default function ChartOfAccountsPage() {
         </div>
       ) : (
         <>
-          <div className="mt-2">
-            <FilterToolbar searchPlaceholder="بحث بالرمز أو الاسم (مثل: عملاء أو 112)…" onSearchChange={setSearch} />
+          <div className="mt-2 flex items-center gap-2">
+            <Button type="button" variant="secondary" size="sm" onClick={openCreateRoot}>
+              + إضافة حساب رئيسي
+            </Button>
+            <NumberingModeControl
+              kind="accounts"
+              auto={coaAutoNumbering}
+              recordCount={accountRecordCount}
+              settingKey="coaAutoNumbering"
+            />
+            <FilterToolbar
+              className="min-w-0 flex-1"
+              searchPlaceholder="بحث بالرمز أو الاسم (مثل: عملاء أو 112)…"
+              onSearchChange={setSearch}
+            />
           </div>
 
           <div className="mt-4 bg-white border border-slate-200 rounded-2xl shadow-sm p-5 text-slate-900">
@@ -204,15 +193,6 @@ export default function ChartOfAccountsPage() {
               <Button type="button" variant="ghost" size="sm" onClick={() => setCollapseToken((t) => t + 1)}>
                 ⊟ طي الكل
               </Button>
-          <Button type="button" variant="secondary" size="sm" onClick={openCreateRoot}>
-            + إضافة حساب رئيسي جديد
-          </Button>
-          <NumberingModeControl
-            kind="accounts"
-            auto={coaAutoNumbering}
-            recordCount={accountRecordCount}
-            settingKey="coaAutoNumbering"
-          />
           <div className="flex flex-wrap gap-1 mr-auto">
                 {NATURE_FILTERS.map((f) => (
                   <button
@@ -232,7 +212,7 @@ export default function ChartOfAccountsPage() {
             </div>
 
             <div data-tour="coa-tree">
-            {isLoading ? (
+            {isLoading && tree.length === 0 ? (
               <p className="text-slate-600">جاري تحميل الشجرة…</p>
             ) : (
               <AccountTree
@@ -241,6 +221,7 @@ export default function ChartOfAccountsPage() {
                 natureFilter={natureFilter}
                 expandAllToken={expandToken}
                 collapseAllToken={collapseToken}
+                revealAccountId={revealAccountId}
                 onAddChild={openCreateChild}
                 onEdit={openEdit}
                 onDelete={(n) => void confirmDelete(n)}
@@ -261,14 +242,36 @@ export default function ChartOfAccountsPage() {
           mode={modalMode}
           initial={editNode}
           parentAccount={parentNode}
+          createKind={createKind}
+          lockAsRoot={modalMode === 'create' && !parentNode}
           onClose={() => setModalOpen(false)}
-          onSaved={() => {
+          onSaved={(accountId) => {
             toast.success('تم حفظ الحساب');
+            if (accountId) setRevealAccountId(accountId);
             void refetch();
           }}
           onError={(msg) => toast.error('تعذّر حفظ الحساب', { description: msg })}
         />
       ) : null}
+
+      <ChildAccountKindDialog
+        open={Boolean(kindPickerParent)}
+        parentLabel={
+          kindPickerParent
+            ? `${kindPickerParent.code} — ${kindPickerParent.arabicName ?? kindPickerParent.nameAr}`
+            : ''
+        }
+        onClose={() => setKindPickerParent(null)}
+        onPick={(kind) => {
+          if (!kindPickerParent) return;
+          setModalMode('create');
+          setEditNode(null);
+          setParentNode(kindPickerParent);
+          setCreateKind(kind);
+          setKindPickerParent(null);
+          setModalOpen(true);
+        }}
+      />
 
       {ledgerOpen ? (
         <AccountLedgerDrawer
@@ -280,6 +283,6 @@ export default function ChartOfAccountsPage() {
           onClose={() => setLedgerOpen(false)}
         />
       ) : null}
-    </div>
+    </ErpDocumentLayout>
   );
 }

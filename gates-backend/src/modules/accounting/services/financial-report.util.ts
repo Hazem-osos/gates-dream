@@ -9,18 +9,32 @@ export type AccountClass =
   | 'EXPENSE'
   | 'OTHER';
 
+function classifyByAccountType(accountType: string | null | undefined): AccountClass | null {
+  const normalized = (accountType ?? '').trim().toLowerCase();
+  if (!normalized) return null;
+  if (normalized === 'cogs' || normalized === 'تكلفة المبيعات') return 'COGS';
+  if (normalized === 'revenue' || normalized.includes('إيراد')) return 'REVENUE';
+  if (normalized === 'expense' || normalized.includes('مصروف')) return 'EXPENSE';
+  if (normalized === 'asset' || normalized.includes('أصل')) return 'ASSET';
+  if (normalized === 'liability' || normalized.includes('التزام') || normalized.includes('خصوم')) {
+    return 'LIABILITY';
+  }
+  if (normalized === 'equity' || normalized.includes('ملك')) return 'EQUITY';
+  return null;
+}
+
 export function classifyAccount(code: string, accountType: string | null | undefined): AccountClass {
-  const normalized = (accountType ?? '').toLowerCase();
+  const fromType = classifyByAccountType(accountType);
+  if (fromType) return fromType;
+
   const c = code.trim();
   if (c.startsWith('51')) return 'COGS';
   if (c.startsWith('52') || c.startsWith('53')) return 'EXPENSE';
   if (c.startsWith('61') || c.startsWith('62')) return 'EXPENSE';
-  if (c.startsWith('4') || normalized === 'revenue') return 'REVENUE';
-  if (c.startsWith('1') || normalized === 'asset') return 'ASSET';
-  if (c.startsWith('2') || normalized === 'liability') return 'LIABILITY';
-  if (c.startsWith('3') || normalized === 'equity') return 'EQUITY';
-  if (normalized === 'expense') return 'EXPENSE';
-  if (normalized === 'cogs') return 'COGS';
+  if (c.startsWith('4')) return 'REVENUE';
+  if (c.startsWith('1')) return 'ASSET';
+  if (c.startsWith('2')) return 'LIABILITY';
+  if (c.startsWith('3')) return 'EQUITY';
   return 'OTHER';
 }
 

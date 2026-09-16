@@ -3,6 +3,7 @@ import { Decimal } from '@prisma/client/runtime/library';
 import { autoGlPostingService } from './auto-gl-posting.service';
 import { treasuryPostingService } from '../../treasury/services/treasury-posting.service';
 import { resolveDefaultTreasuryPostingContext } from '../../treasury/services/treasury-posting-context';
+import { persistFxDecimal } from '../utils/company-fx-rate';
 
 export interface CreateTreasuryReceiptData {
   branchId?: string;
@@ -185,7 +186,7 @@ export class TreasuryReceiptService {
         bankAccountId: data.bankAccountId,
         amount: new Decimal(data.amount),
         currencyCode: data.currencyCode,
-        exchangeRate: data.exchangeRate ? new Decimal(data.exchangeRate) : null,
+        exchangeRate: persistFxDecimal(data.currencyCode, data.exchangeRate),
         isPosted: false,
         isApproved: false,
         isCancelled: false,

@@ -97,6 +97,13 @@ export const createInwardChequeSchema = z.object({
   description: z.string().optional(),
 });
 
+export const updateChequeHeaderSchema = z.object({
+  chequeNumber: z.string().min(1).max(50).optional(),
+  bankName: z.string().optional().nullable(),
+  dueDate: z.coerce.date().optional().nullable(),
+  description: z.string().optional().nullable(),
+});
+
 export const clearInwardChequeSchema = z.object({
   bankAccountId: z.string().uuid(),
 });

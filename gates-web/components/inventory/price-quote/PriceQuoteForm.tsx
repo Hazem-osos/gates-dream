@@ -1,7 +1,10 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useDraftAutosave } from '@/lib/hooks/useDraftAutosave';
+import { PageDraftRestoreBanner } from '@/components/erp/PageDraftRestoreBanner';
+import { useRouter } from 'next/navigation';
+import { useOwnTabSearchParams } from '@/lib/navigation/tab-route-lock';
 import { ArrowRightLeft, Receipt } from 'lucide-react';
 import { Button } from '@/components/ui';
 import { printOperationalDocument } from '@/lib/print/printOperationalDocument';
@@ -81,7 +84,7 @@ function quoteStatus(quote?: QuoteRecord | null, validUntil?: string) {
 
 export function PriceQuoteForm() {
   const router = useRouter();
-  const searchParams = useSearchParams();
+  const searchParams = useOwnTabSearchParams();
   const quoteIdFromUrl = searchParams.get('quoteId') || searchParams.get('id');
   const invalidateQuery = useInvalidateQuery();
   const convertMutation = useDocumentConvertMutation();
@@ -102,6 +105,64 @@ export function PriceQuoteForm() {
   const [paymentTerms, setPaymentTerms] = useState('');
   const [deliveryPeriod, setDeliveryPeriod] = useState('');
   const [lines, setLines] = useState<CommercialDocumentLine[]>([emptyCommercialLine()]);
+
+  const priceQuoteDraft = useMemo(
+    () => ({
+      quoteNumber,
+      description,
+      date,
+      validUntil,
+      customerId,
+      warehouseId,
+      costCenterId,
+      delegateId,
+      currencyId,
+      paymentTerms,
+      deliveryPeriod,
+      lines,
+    }),
+    [
+      costCenterId,
+      currencyId,
+      customerId,
+      date,
+      delegateId,
+      deliveryPeriod,
+      description,
+      lines,
+      paymentTerms,
+      quoteNumber,
+      validUntil,
+      warehouseId,
+    ]
+  );
+  const applyPriceQuoteDraft = useCallback((payload: typeof priceQuoteDraft) => {
+    setQuoteNumber(payload.quoteNumber);
+    setDescription(payload.description);
+    setDate(payload.date);
+    setValidUntil(payload.validUntil);
+    setCustomerId(payload.customerId);
+    setWarehouseId(payload.warehouseId);
+    setCostCenterId(payload.costCenterId);
+    setDelegateId(payload.delegateId);
+    setCurrencyId(payload.currencyId);
+    setPaymentTerms(payload.paymentTerms);
+    setDeliveryPeriod(payload.deliveryPeriod);
+    setLines(payload.lines?.length ? payload.lines : [emptyCommercialLine()]);
+  }, []);
+  const {
+    restoreOffer,
+    acceptRestore,
+    dismissRestore,
+    clearDraft,
+  } = useDraftAutosave('gates:draft:price-quote', priceQuoteDraft, !selectedId, {
+    applyRestore: applyPriceQuoteDraft,
+    isEmpty: (draft) =>
+      !draft.customerId?.trim() &&
+      !draft.description?.trim() &&
+      !(draft.lines ?? []).some((line) => isEnteredCommercialLine(line)),
+    restoreMessage: 'تم استعادة مسودة عرض السعر',
+  });
 
   const { data: quoteResponse } = useApiQuery<QuoteRecord>(
     ['price-quote', selectedId ?? ''],
@@ -292,12 +353,25 @@ export function PriceQuoteForm() {
     params.delete('id');
     const qs = params.toString();
     router.replace(qs ? `?${qs}` : window.location.pathname, { scroll: false });
+    clearDraft();
   };
 
   const money = (n: number) => n.toLocaleString('ar-EG', { minimumFractionDigits: 2 });
 
   return (
     <ErpDocumentLayout>
+      {restoreOffer && !selectedId ? (
+        <PageDraftRestoreBanner
+          message="يوجد مسودة عرض سعر غير محفوظة."
+          onRestore={() => {
+            const payload = acceptRestore();
+            if (!payload) return;
+            applyPriceQuoteDraft(payload);
+            setSuccess('تم استعادة مسودة عرض السعر');
+          }}
+          onDismiss={dismissRestore}
+        />
+      ) : null}
       <div className="flex min-h-[calc(100dvh-3rem)] flex-col pb-4">
         <ErpDocumentPageHeader
           breadcrumbs={[
@@ -408,7 +482,7 @@ export function PriceQuoteForm() {
             </>
           }
           extras={
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
               <div className="space-y-1">
                 <label className={erpLabelClass}>المندوب</label>
                 <select className={erpInputClass} value={delegateId} onChange={(e) => setDelegateId(e.target.value)}>

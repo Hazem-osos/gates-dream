@@ -21,6 +21,7 @@ import {
   DEFAULT_SAVE_SUCCESS_MESSAGE,
   notifyApiSuccess,
 } from '../api/api-success-notify';
+import { bumpMasterCatalog, isMasterCatalogKey } from '@/lib/query/master-catalog-sync';
 
 export type UseApiMutationExtraOptions = {
   /** Set to `false` to skip the global green success toast. Default: show for POST/PUT/PATCH. */
@@ -164,7 +165,10 @@ export function useInvalidateQuery() {
   const queryClient = useQueryClient();
 
   return (queryKey: readonly unknown[]) => {
-    queryClient.invalidateQueries({ queryKey });
+    if (isMasterCatalogKey(queryKey)) {
+      bumpMasterCatalog(String(queryKey[0]));
+    }
+    queryClient.invalidateQueries({ queryKey, refetchType: 'all' });
   };
 }
 

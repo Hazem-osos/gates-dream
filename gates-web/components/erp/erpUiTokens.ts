@@ -1,10 +1,18 @@
 import type { InvoiceLineColumnId } from '@/lib/invoices/invoiceLineColumns';
 
 /** Shared ERP field styling — light theme only (matches legacy Gates forms). */
+
+/** Document/header fields grow on a wide pane and wrap/shrink when it narrows. */
+export const erpFormGridClass =
+  'flex min-w-0 max-w-full flex-wrap items-start justify-start gap-x-[var(--erp-form-gap-x,1.25rem)] gap-y-[var(--erp-form-gap-y,1rem)] [&>*]:min-w-[min(100%,12rem)] [&>*]:flex-1 [&>*]:basis-[min(16rem,100%)] [&>*]:max-w-[min(100%,var(--erp-field-max))]';
+
 export const erpLabelClass = 'text-xs font-semibold text-slate-600 mb-1 block';
 
 export const erpInputClass =
-  'w-full h-9 min-w-0 px-2.5 text-sm text-gray-700 rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] transition-colors duration-200 placeholder:text-slate-400 focus:border-[#0E78AA] focus:ring-2 focus:ring-[#0E78AA]/20 focus:outline-none focus:bg-white';
+  'w-full h-8 min-w-0 max-w-[var(--erp-field-max,32rem)] px-2 text-sm text-gray-700 rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] transition-colors duration-200 placeholder:text-slate-400 focus:border-[#0E78AA] focus:ring-2 focus:ring-[#0E78AA]/20 focus:outline-none focus:bg-white';
+
+export const erpDescriptionInputClass =
+  'w-full h-8 min-w-0 max-w-[var(--erp-field-desc-max,44rem)] px-2 text-sm text-gray-700 rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] transition-colors duration-200 placeholder:text-slate-400 focus:border-[#0E78AA] focus:ring-2 focus:ring-[#0E78AA]/20 focus:outline-none focus:bg-white';
 
 export const erpInputErrorClass =
   'border-red-500 focus:border-red-500 focus:ring-red-500/30';
@@ -18,7 +26,7 @@ export const erpTableHeadCellClass = 'py-3 px-3 whitespace-nowrap border-e borde
 
 export const erpTableBodyCellClass = 'py-3 px-3 align-top border-b border-[#E8F1F6] border-e border-[#E8F1F6] last:border-e-0';
 
-export const erpLineGridInputClass = `${erpInputClass} h-9 min-h-9`;
+export const erpLineGridInputClass = `${erpInputClass} !max-w-none h-8 min-h-8`;
 
 export const ERP_SALES_COLUMN_WIDTH: Partial<Record<InvoiceLineColumnId, string>> = {
   rowIndex: 'w-10 min-w-[2.5rem] shrink-0 text-center',
@@ -79,7 +87,7 @@ export const ERP_INVOICE_ITEMS_CARD_CLASS =
   'flex min-h-[min(380px,42vh)] min-w-0 w-full max-w-full flex-col';
 
 export const ERP_INVOICE_ITEMS_TABLE_WRAP_CLASS =
-  'erp-scroll-x min-h-[220px] flex-1';
+  'erp-scroll-x erp-invoice-scroll min-h-[220px] flex-1';
 
 export const PURCHASE_INVOICE_DEFAULT_COLUMN_IDS: InvoiceLineColumnId[] = [
   'rowIndex',

@@ -12,6 +12,13 @@ import { useQueryClient } from '@tanstack/react-query';
 import type { ExportColumnDef } from '@/lib/export/export-utils';
 import { toast } from '@/lib/feedback/toast';
 import { deleteDraftDocument } from '@/lib/documents/deleteDraftDocument';
+import { BrowseDateRangeFilters, BrowseStatusFilter } from '@/components/erp/BrowseListFilters';
+import {
+  rowMatchesDateRange,
+  rowMatchesPostedStatus,
+  rowMatchesSearch,
+  type BrowsePostedStatus,
+} from '@/lib/browse/browse-list-match';
 
 type DocRow = {
   id: string;
@@ -44,8 +51,11 @@ export function StockDocumentsListSection({
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [search, setSearch] = useState('');
-  const [postedFilter, setPostedFilter] = useState<'all' | 'posted' | 'draft'>('all');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [postedFilter, setPostedFilter] = useState<BrowsePostedStatus>('all');
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const hasLocalFilters = Boolean(search.trim() || startDate || endDate || postedFilter !== 'all');
 
   const draftActions = (r: DocRow) => (
     <div className="flex flex-wrap items-center justify-center gap-1.5">
@@ -86,22 +96,41 @@ export function StockDocumentsListSection({
   );
 
   const queryParams = useMemo(() => {
-    const p: Record<string, string | number | boolean> = { page, limit: pageSize };
-    if (search.trim().length >= 2) p.search = search.trim();
+    const p: Record<string, string | number | boolean> = {
+      page: hasLocalFilters ? 1 : page,
+      limit: hasLocalFilters ? 200 : pageSize,
+    };
+    if (search.trim()) p.search = search.trim();
+    if (startDate) p.startDate = startDate;
+    if (endDate) p.endDate = endDate;
     if (postedFilter === 'posted') p.isPosted = true;
     if (postedFilter === 'draft') p.isPosted = false;
     return p;
-  }, [page, pageSize, search, postedFilter]);
+  }, [page, pageSize, search, startDate, endDate, postedFilter, hasLocalFilters]);
 
   const { data, isLoading } = useApiQuery<DocRow[]>(
-    [listKey, page, search, postedFilter],
+    [listKey, page, search, startDate, endDate, postedFilter],
     apiPath,
     queryParams,
     { staleTime: 30_000 }
   );
 
-  const rows = data?.data ?? [];
-  const total = data?.pagination?.total ?? data?.meta?.total ?? rows.length;
+  const fetchedRows = data?.data ?? [];
+  const filteredRows = useMemo(() => {
+    if (!hasLocalFilters) return fetchedRows;
+    return fetchedRows.filter((row) => {
+      if (!rowMatchesSearch(row, search)) return false;
+      if (!rowMatchesDateRange(row, startDate, endDate)) return false;
+      if (!rowMatchesPostedStatus(row, postedFilter)) return false;
+      return true;
+    });
+  }, [fetchedRows, hasLocalFilters, search, startDate, endDate, postedFilter]);
+  const rows = hasLocalFilters
+    ? filteredRows.slice((page - 1) * pageSize, page * pageSize)
+    : fetchedRows;
+  const total = hasLocalFilters
+    ? filteredRows.length
+    : data?.pagination?.total ?? data?.meta?.total ?? fetchedRows.length;
 
   const columns =
     variant === 'transfer'
@@ -219,18 +248,30 @@ export function StockDocumentsListSection({
           printTitle: title || 'السندات السابقة',
         }}
       >
-        <select
-          value={postedFilter}
-          onChange={(e) => {
+        <BrowseDateRangeFilters
+          startDate={startDate}
+          endDate={endDate}
+          onStartDate={(value) => {
             setPage(1);
-            setPostedFilter(e.target.value as 'all' | 'posted' | 'draft');
+            setStartDate(value);
           }}
-          className="h-10 rounded-lg border border-[#D6EAF3] bg-white px-3 text-sm"
-        >
-          <option value="all">الكل</option>
-          <option value="posted">مرحّل</option>
-          <option value="draft">مسودة</option>
-        </select>
+          onEndDate={(value) => {
+            setPage(1);
+            setEndDate(value);
+          }}
+        />
+        <BrowseStatusFilter
+          value={postedFilter}
+          onChange={(value) => {
+            setPage(1);
+            setPostedFilter(value);
+          }}
+          options={[
+            { value: 'all', label: 'كل الحالات' },
+            { value: 'posted', label: 'مرحّل' },
+            { value: 'draft', label: 'مسودة' },
+          ]}
+        />
       </FilterToolbar>
 
       <AppTable<DocRow>

@@ -10,9 +10,11 @@ import { journalPostingService } from '../../accounting/services/journal-posting
 import {
   stockMovementGlService,
   resolveStockGlAccounts,
+  pickLineInventoryAccount,
   type StockGlPostingContext,
 } from './stock-movement-gl.service';
 import { roundTo4 } from '../../../shared/utils/decimal-round';
+import { assertWarehouseActive } from '../utils/inventory-system';
 
 export interface AssemblyComponentLine {
   componentItemId: string; // Component item ID
@@ -89,12 +91,9 @@ export class AssemblyService {
   async createAssembly(companyId: string, data: CreateAssemblyData) {
     try {
       // Validate warehouse belongs to company
-      const warehouse = await prisma.warehouse.findFirst({
-        where: { id: data.warehouseId, companyId },
-      });
-
-      if (!warehouse) {
-        throw new Error('Warehouse not found or does not belong to company');
+      await assertWarehouseActive(companyId, data.warehouseId);
+      if (data.toWarehouseId && data.toWarehouseId !== data.warehouseId) {
+        await assertWarehouseActive(companyId, data.toWarehouseId, { label: 'مخزن الإضافة' });
       }
 
       // Collect all item IDs (components and assembled items)
@@ -421,6 +420,10 @@ export class AssemblyService {
 
       const extras = parseAssemblyExtras(assembly.record);
       const destWarehouseId = extras.toWarehouseId || assembly.warehouseId;
+      await assertWarehouseActive(companyId, assembly.warehouseId);
+      if (destWarehouseId !== assembly.warehouseId) {
+        await assertWarehouseActive(companyId, destWarehouseId, { label: 'مخزن الإضافة' });
+      }
       const sourceType = 'ASM';
       const sourceNumber = assembly.serial ?? assembly.id.slice(0, 8);
       const sourceYearId = String(new Date(assembly.date).getFullYear());
@@ -436,10 +439,17 @@ export class AssemblyService {
           where: { id: { in: allItemIds }, companyId },
           select: { id: true, mainAccountId: true },
         }),
-        glCtx ? resolveStockGlAccounts(companyId).catch(() => null) : Promise.resolve(null),
+        glCtx
+          ? Promise.all([
+              resolveStockGlAccounts(companyId, assembly.warehouseId),
+              resolveStockGlAccounts(companyId, destWarehouseId),
+            ])
+              .then(([source, dest]) => ({ source, dest }))
+              .catch(() => null)
+          : Promise.resolve(null),
       ]);
       const itemAccountById = new Map(items.map((i) => [i.id, i.mainAccountId]));
-      const defaultInventoryAccountId = glAccounts?.inventoryAccountId;
+      const defaultInventoryAccountId = glAccounts?.source.inventoryAccountId;
 
       const debitLines: { accountId: string; amount: number; description: string }[] = [];
       const creditLines: { accountId: string; amount: number; description: string }[] = [];
@@ -466,7 +476,11 @@ export class AssemblyService {
             lineComponentCost += outbound.totalValuation;
 
             if (glAccounts) {
-              const acctId = itemAccountById.get(component.componentItemId) ?? defaultInventoryAccountId;
+              const acctId =
+                pickLineInventoryAccount(
+                  glAccounts.source,
+                  itemAccountById.get(component.componentItemId)
+                ) ?? defaultInventoryAccountId;
               if (acctId) {
                 creditLines.push({
                   accountId: acctId,
@@ -506,7 +520,11 @@ export class AssemblyService {
           });
 
           if (glAccounts) {
-            const acctId = itemAccountById.get(line.assembledItemId) ?? defaultInventoryAccountId;
+            const acctId =
+              pickLineInventoryAccount(
+                glAccounts.dest,
+                itemAccountById.get(line.assembledItemId)
+              ) ?? defaultInventoryAccountId;
             if (acctId) {
               debitLines.push({
                 accountId: acctId,
@@ -762,10 +780,10 @@ export class AssemblyService {
     if (existing.isPosted) throw new Error('Cannot edit a posted assembly');
     if (existing.isCancelled) throw new Error('Cannot edit a cancelled assembly');
 
-    const warehouse = await prisma.warehouse.findFirst({
-      where: { id: data.warehouseId, companyId },
-    });
-    if (!warehouse) throw new Error('Warehouse not found or does not belong to company');
+    await assertWarehouseActive(companyId, data.warehouseId);
+    if (data.toWarehouseId && data.toWarehouseId !== data.warehouseId) {
+      await assertWarehouseActive(companyId, data.toWarehouseId, { label: 'مخزن الإضافة' });
+    }
 
     let totalAmount = 0;
     data.lines.forEach((line) => {

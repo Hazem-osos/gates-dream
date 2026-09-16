@@ -485,7 +485,7 @@ export default function AdjustmentPage() {
         </div>
       )}
 
-      <FormSectionCard title="بيانات التسوية" subtitle="المخزن والتاريخ والمرجع" bodyClassName="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-4">
+      <FormSectionCard title="بيانات التسوية" subtitle="المخزن والتاريخ والمرجع">
           <div className="col-span-full flex items-center justify-between">
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-2">

@@ -1,14 +1,15 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { User } from 'lucide-react';
 import TaxInfoOverlay from '@/components/TaxInfoOverlay';
 import {
   CompactFormField,
-  AdvancedFieldsSection,
   FormSectionCard,
   compactControlClass,
 } from '@/components/ui';
+import { useOwnTabSearchParams } from '@/lib/navigation/tab-route-lock';
+import { apiClient } from '@/lib/api/client';
 import { DocumentBrowseDrawer } from '@/components/erp/DocumentBrowseDrawer';
 import { ErpDocumentLayout, ErpDocumentPageHeader } from '@/components/erp';
 import { useApiQuery, useApiMutation, useInvalidateQuery } from '@/lib/hooks/useApi';
@@ -23,7 +24,7 @@ import dynamic from 'next/dynamic';
 import { DynamicModalSkeleton } from '@/components/ui/DynamicChunkSkeleton';
 import { getTenantContext } from '@/lib/tenant/tenant-context-storage';
 import { printPageContent } from '@/lib/print/printHtml';
-import { nextNumericSerial } from '@/lib/masters/nextNumericSerial';
+import { bumpTrailingCode, isCodeAfter, nextNumericSerial } from '@/lib/masters/nextNumericSerial';
 import { entityLabel } from '@/lib/quick-create/catalog';
 import { useQuickCreateHost } from '@/lib/quick-create/useQuickCreateTab';
 
@@ -56,15 +57,58 @@ interface Currency {
   englishName?: string;
 }
 
+type CustomerRecord = {
+  id: string;
+  serial?: string | null;
+  code?: string | null;
+  arabicName?: string | null;
+  englishName?: string | null;
+  customerType?: string | null;
+  how?: string | null;
+  nationality?: string | null;
+  taxData?: boolean | null;
+  taxAuthority?: string | null;
+  taxAuthorityName?: string | null;
+  phone1?: string | null;
+  phone2?: string | null;
+  mobile?: string | null;
+  fax?: string | null;
+  email?: string | null;
+  website?: string | null;
+  country?: string | null;
+  city?: string | null;
+  area?: string | null;
+  street?: string | null;
+  postalCode?: string | null;
+  poBox?: string | null;
+  mainAccountId?: string | null;
+  accountId?: string | null;
+  representativeId?: string | null;
+  priceListId?: string | null;
+  sellingPrice?: string | null;
+  transactionType?: string | null;
+  warning?: string | null;
+  estimatedBudget?: number | string | null;
+  creditLimit?: number | string | null;
+  customerCategoryId?: string | null;
+  currencyCode?: string | null;
+  priceTier?: PriceTier | null;
+  linkedSupplierId?: string | null;
+};
+
 export default function CustomerPage() {
   const invalidateQuery = useInvalidateQuery();
   const quickCreate = useQuickCreateHost('customer');
+  const searchParams = useOwnTabSearchParams();
+  const idFromUrl = searchParams.get('id');
+  const categoryFromUrl = searchParams.get('categoryId');
   
   const [showTaxInfo, setShowTaxInfo] = useState(false);
   const [isTaxInfoChecked, setIsTaxInfoChecked] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [partyDrawer, setPartyDrawer] = useState<PartyRow | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const [formData, setFormData] = useState({
     serial: '',
@@ -107,12 +151,22 @@ export default function CustomerPage() {
   const [offsetOpen, setOffsetOpen] = useState(false);
   const [savedCustomerId, setSavedCustomerId] = useState<string | null>(null);
   const tenantCtx = getTenantContext();
+  const stayOpenRef = useRef({
+    customerCategoryId: '',
+    serial: '',
+    code: '',
+  });
+  stayOpenRef.current = {
+    customerCategoryId: formData.customerCategoryId || categoryFromUrl || '',
+    serial: formData.serial,
+    code: formData.code || formData.serial,
+  };
 
   // Fetch accounts
   const { data: accountsResponse } = useApiQuery<Account[]>(
     ['accounts'],
     '/accounting/accounts',
-    { limit: 1000, isActive: true }
+    { limit: 1000, isActive: true, leafOnly: true }
   );
   const accounts = accountsResponse?.data || [];
 
@@ -156,10 +210,76 @@ export default function CustomerPage() {
   );
 
   useEffect(() => {
-    setFormData((prev) =>
-      prev.serial || prev.code ? prev : { ...prev, serial: nextPartyCode, code: nextPartyCode }
-    );
-  }, [nextPartyCode]);
+    if (selectedId) return;
+    setFormData((prev) => {
+      const current = prev.serial || prev.code;
+      if (current && isCodeAfter(current, nextPartyCode)) return prev;
+      if (prev.serial === nextPartyCode && prev.code === nextPartyCode) return prev;
+      return { ...prev, serial: nextPartyCode, code: nextPartyCode };
+    });
+  }, [nextPartyCode, selectedId]);
+
+  useEffect(() => {
+    if (selectedId || !categoryFromUrl) return;
+    setFormData((prev) => (prev.customerCategoryId ? prev : { ...prev, customerCategoryId: categoryFromUrl }));
+  }, [categoryFromUrl, selectedId]);
+
+  const hydrate = (row: CustomerRecord) => {
+    setSelectedId(row.id);
+    setSavedCustomerId(row.id);
+    setFormData({
+      serial: row.serial || row.code || '',
+      code: row.code || row.serial || '',
+      arabicName: row.arabicName ?? '',
+      englishName: row.englishName ?? '',
+      customerType: row.customerType === 'individual' ? 'individual' : 'company',
+      how: row.how === 'export' || row.how === 'exempt' ? row.how : 'local',
+      nationality: row.nationality ?? '',
+      taxData: Boolean(row.taxData),
+      taxAuthority: row.taxAuthority ?? '',
+      taxAuthorityName: row.taxAuthorityName ?? '',
+      phone1: row.phone1 ?? '',
+      phone2: row.phone2 ?? '',
+      mobile: row.mobile ?? '',
+      fax: row.fax ?? '',
+      email: row.email ?? '',
+      website: row.website ?? '',
+      country: row.country ?? '',
+      city: row.city ?? '',
+      area: row.area ?? '',
+      street: row.street ?? '',
+      postalCode: row.postalCode ?? '',
+      poBox: row.poBox ?? '',
+      mainAccountId: row.mainAccountId ?? row.accountId ?? '',
+      accountId: row.accountId ?? '',
+      representativeId: row.representativeId ?? '',
+      priceListId: row.priceListId ?? '',
+      sellingPrice: row.sellingPrice ?? '',
+      transactionType: row.transactionType ?? '',
+      warning: row.warning === 'debtor' || row.warning === 'creditor' ? row.warning : '',
+      estimatedBudget: row.estimatedBudget != null ? String(row.estimatedBudget) : '',
+      creditLimit: row.creditLimit != null ? String(row.creditLimit) : '',
+      customerCategoryId: row.customerCategoryId ?? '',
+      currencyCode: row.currencyCode ?? '',
+      priceTier: row.priceTier ?? 'RETAIL',
+      linkedSupplierId: row.linkedSupplierId ?? '',
+    });
+    setIsTaxInfoChecked(Boolean(row.taxData));
+    setError('');
+  };
+
+  useEffect(() => {
+    if (!idFromUrl) return;
+    let cancelled = false;
+    void apiClient.get<CustomerRecord>(`/accounting/customers/${idFromUrl}`).then((res) => {
+      if (!cancelled && res.data) hydrate(res.data);
+    }).catch((err: unknown) => {
+      if (!cancelled) setError(err instanceof Error ? err.message : 'تعذر فتح العميل');
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [idFromUrl]);
 
   useEffect(() => {
     if (!quickCreate.prefillName) return;
@@ -188,14 +308,13 @@ export default function CustomerPage() {
             accountId: created.accountId,
           });
         }
-        setSuccess('تم حفظ العميل بنجاح');
+        setSuccess('تم حفظ العميل بنجاح — تقدر تضيف التالي');
         invalidateQuery(['customers']);
         invalidateQuery(['accounts']);
         invalidateQuery(['chart-of-accounts']);
-        // Reset form
         setFormData({
-          serial: '',
-          code: '',
+          serial: bumpTrailingCode(stayOpenRef.current.serial),
+          code: bumpTrailingCode(stayOpenRef.current.code),
           arabicName: '',
           englishName: '',
           customerType: 'company',
@@ -225,7 +344,7 @@ export default function CustomerPage() {
           warning: '',
           estimatedBudget: '',
           creditLimit: '',
-          customerCategoryId: '',
+          customerCategoryId: stayOpenRef.current.customerCategoryId,
           currencyCode: '',
           priceTier: 'RETAIL',
           linkedSupplierId: '',
@@ -261,8 +380,7 @@ export default function CustomerPage() {
       return;
     }
 
-    try {
-      await customerMutation.mutateAsync({
+    const payload = {
         serial: formData.serial || undefined,
         code: formData.code || undefined,
         arabicName: formData.arabicName,
@@ -298,13 +416,24 @@ export default function CustomerPage() {
         currencyCode: formData.currencyCode || undefined,
         priceTier: formData.priceTier,
         linkedSupplierId: formData.linkedSupplierId || null,
-      });
+    };
+
+    try {
+      if (selectedId) {
+        await apiClient.put(`/accounting/customers/${selectedId}`, payload);
+        setSuccess('تم تحديث العميل بنجاح');
+        invalidateQuery(['customers']);
+        return;
+      }
+      await customerMutation.mutateAsync(payload);
     } catch (error: unknown) {
       setError(error instanceof Error ? error.message : 'حدث خطأ أثناء الحفظ');
     }
   };
 
   const handleCancel = () => {
+    setSelectedId(null);
+    setSavedCustomerId(null);
     setFormData({
       serial: '',
       code: '',
@@ -346,35 +475,6 @@ export default function CustomerPage() {
     setError('');
   };
 
-  const advancedFilledCount = [
-    formData.englishName,
-    formData.taxData ? '1' : '',
-    formData.taxAuthority,
-    formData.taxAuthorityName,
-    formData.creditLimit,
-    formData.mainAccountId,
-    formData.accountId,
-    formData.email,
-    formData.website,
-    formData.country,
-    formData.city,
-    formData.area,
-    formData.street,
-    formData.postalCode,
-    formData.poBox,
-    formData.representativeId,
-    formData.linkedSupplierId,
-    formData.phone2,
-    formData.mobile,
-    formData.fax,
-    formData.warning,
-    formData.estimatedBudget,
-    formData.currencyCode,
-    formData.nationality,
-    formData.how !== 'local' ? formData.how : '',
-    formData.priceTier !== 'RETAIL' ? formData.priceTier : '',
-  ].filter((v) => String(v ?? '').trim().length > 0).length;
-
   const [showGuide, setShowGuide] = useState(false);
 
   return (
@@ -388,9 +488,9 @@ export default function CustomerPage() {
           { label: 'عميل' },
         ]}
         title="بطاقة عميل"
-        docNumber={formData.serial || (partyDrawer?.id ? 'تعديل' : 'جديد')}
+        docNumber={formData.serial || (selectedId ? 'تعديل' : 'جديد')}
         statusTone="info"
-        statusLabel={partyDrawer?.id ? 'تعديل' : 'جديد'}
+        statusLabel={selectedId ? 'تعديل' : 'جديد'}
         saveLabel="حفظ"
         onSaveDraft={() => void handleSave()}
         savePending={customerMutation.isPending}
@@ -419,7 +519,7 @@ export default function CustomerPage() {
         }
         onBrowseList={() => setShowGuide(true)}
         browseListLabel="السابق"
-        currentId={partyDrawer?.id ?? savedCustomerId}
+        currentId={selectedId ?? partyDrawer?.id ?? savedCustomerId}
       />
 
       <ClientMountGate
@@ -508,8 +608,7 @@ export default function CustomerPage() {
             </CompactFormField>
           </FormSectionCard>
 
-          <AdvancedFieldsSection title="الحقول والإعدادات المتقدمة" badgeCount={advancedFilledCount}>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <FormSectionCard title="الاتصال والعنوان" subtitle="الهاتف والعنوان والبيانات الضريبية" icon={User}>
               <CompactFormField label="الرصيد" readOnly placeholder="إدخل الرصيد" />
               <CompactFormField
                 label="الإسم الإنجليزي"
@@ -759,7 +858,7 @@ export default function CustomerPage() {
                   ))}
                 </select>
               </CompactFormField>
-              <CompactFormField label="تحذير" className="sm:col-span-2">
+              <CompactFormField label="تحذير">
                 <div className="flex flex-wrap gap-2">
                   {[
                     { value: 'debtor', label: 'مدين' },
@@ -791,8 +890,7 @@ export default function CustomerPage() {
                   ))}
                 </div>
               </CompactFormField>
-            </div>
-          </AdvancedFieldsSection>
+          </FormSectionCard>
 
         </form>
       </ClientMountGate>
@@ -807,6 +905,11 @@ export default function CustomerPage() {
           onRowActivate={(row) => {
             setPartyDrawer(row);
             setShowGuide(false);
+            void apiClient.get<CustomerRecord>(`/accounting/customers/${row.id}`).then((res) => {
+              if (res.data) hydrate(res.data);
+            }).catch((err: unknown) => {
+              setError(err instanceof Error ? err.message : 'تعذر فتح العميل');
+            });
           }}
         />
       </DocumentBrowseDrawer>

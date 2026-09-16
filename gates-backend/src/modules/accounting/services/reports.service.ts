@@ -218,9 +218,9 @@ export class ReportsService {
         throw new Error('From date and to date are required');
       }
 
-      if (!costCenterId) {
-        throw new Error('Cost center ID is required');
-      }
+      const lineFilter = costCenterId
+        ? { costCenterId }
+        : { costCenterId: { not: null } };
 
       const where: any = {
         companyId,
@@ -231,9 +231,7 @@ export class ReportsService {
         isPosted: true,
         isCancelled: false,
         lines: {
-          some: {
-            costCenterId,
-          },
+          some: lineFilter,
         },
       };
 
@@ -251,9 +249,7 @@ export class ReportsService {
           orderBy: [{ date: 'asc' }, { voucherNumber: 'asc' }],
           include: {
             lines: {
-              where: {
-                costCenterId,
-              },
+              where: lineFilter,
               include: {
                 account: {
                   select: {
@@ -826,16 +822,18 @@ export class ReportsService {
       const accountIds = tb.accounts.map((a) => a.accountId);
       const accountsMeta = await prisma.account.findMany({
         where: { id: { in: accountIds } },
-        include: {
-          accountType: {
-            select: { id: true, code: true, arabicName: true },
-          },
+        select: {
+          id: true,
+          code: true,
+          arabicName: true,
+          accountType: true,
         },
       });
       const metaById = new Map(accountsMeta.map((a) => [a.id, a]));
 
       const accountBalances = tb.accounts.map((row) => {
         const account = metaById.get(row.accountId);
+        const typeCode = account?.accountType ?? row.accountType ?? 'OTHER';
         const debit = Number(row.periodDebit) + Number(row.openingDebit);
         const credit = Number(row.periodCredit) + Number(row.openingCredit);
         return {
@@ -843,7 +841,7 @@ export class ReportsService {
             id: row.accountId,
             code: row.code,
             arabicName: row.arabicName,
-            accountType: account?.accountType ?? { code: row.accountType, arabicName: row.accountType },
+            accountType: { code: typeCode, arabicName: typeCode },
           },
           debit,
           credit,
@@ -1053,15 +1051,15 @@ export class ReportsService {
       return {
         data: [
           {
-            item: 'Sales',
+            item: 'المبيعات',
             amount: totalSales,
           },
           {
-            item: 'Cost of Goods Sold',
+            item: 'تكلفة البضاعة المباعة',
             amount: totalCOGS,
           },
           {
-            item: 'Gross Profit',
+            item: 'مجمل الربح',
             amount: grossProfit,
           },
         ],
@@ -1455,41 +1453,48 @@ export class ReportsService {
    */
   async getCostCenterBalance(filters: ReportFilters, options: ReportOptions = {}): Promise<ReportResult> {
     try {
-      const { companyId, costCenterId, toDate } = filters;
+      const { companyId, costCenterId, toDate, branchId } = filters;
       const { page = 1, limit = 1000 } = options;
 
       if (!costCenterId) {
-        throw new Error('Cost Center ID is required');
+        return this.getCostCentersBalance(filters, options);
       }
 
-      const where: any = {
-        companyId,
-        costCenterId,
-      };
-
-      const movements = await prisma.costCenterMovement.findMany({
+      const asOf = toDate || new Date();
+      const lines = await prisma.journalEntryLine.findMany({
         where: {
-          ...where,
-          date: {
-            lte: toDate || new Date(),
+          costCenterId,
+          journalEntry: {
+            companyId,
+            isPosted: true,
+            isCancelled: false,
+            date: { lte: asOf },
+            ...(branchId ? { branchId } : {}),
           },
         },
         include: {
-          costCenter: true,
+          account: { select: { id: true, code: true, arabicName: true } },
+          costCenter: { select: { id: true, code: true, arabicName: true } },
           journalEntry: {
-            include: {
-              lines: true,
-            },
+            select: { id: true, date: true, voucherNumber: true, description: true },
           },
         },
-        orderBy: { date: 'asc' },
+        orderBy: [{ journalEntry: { date: 'asc' } }, { lineOrder: 'asc' }],
       });
 
       let balance = 0;
-      const balanceData = movements.map((movement) => {
-        balance += Number(movement.debitAmount || 0) - Number(movement.creditAmount || 0);
+      const balanceData = lines.map((line) => {
+        const debit = Number(line.debitBase || line.debit || 0);
+        const credit = Number(line.creditBase || line.credit || 0);
+        balance += debit - credit;
         return {
-          ...movement,
+          date: line.journalEntry?.date,
+          voucherNumber: line.journalEntry?.voucherNumber,
+          description: line.description || line.journalEntry?.description,
+          account: line.account,
+          costCenter: line.costCenter,
+          debit,
+          credit,
           runningBalance: balance,
         };
       });
@@ -1498,7 +1503,7 @@ export class ReportsService {
         data: balanceData.slice((page - 1) * limit, page * limit),
         summary: {
           finalBalance: balance,
-          totalMovements: movements.length,
+          totalMovements: lines.length,
         },
         pagination: {
           page,
@@ -1518,18 +1523,93 @@ export class ReportsService {
    */
   async getBudgetReport(filters: ReportFilters, options: ReportOptions = {}): Promise<ReportResult> {
     try {
-      const { companyId, fromDate, toDate } = filters;
+      const { companyId, fromDate, toDate, costCenterId, branchId } = filters;
       const { page = 1, limit = 1000 } = options;
 
-      // Placeholder - requires budget data structure
+      const periodStart = fromDate ?? new Date(new Date().getFullYear(), 0, 1);
+      const periodEnd = toDate ?? new Date();
+
+      const journalWhere = {
+        isPosted: true,
+        isCancelled: false,
+        date: { gte: periodStart, lte: periodEnd },
+        ...(branchId ? { branchId } : {}),
+      };
+
+      const accounts = await prisma.account.findMany({
+        where: {
+          companyId,
+          isActive: true,
+          deletedAt: null,
+          accountKind: 'POSTING',
+          OR: [
+            { budget: { not: null } },
+            {
+              journalEntryLines: {
+                some: {
+                  ...(costCenterId ? { costCenterId } : {}),
+                  journalEntry: journalWhere,
+                },
+              },
+            },
+          ],
+        },
+        select: {
+          id: true,
+          code: true,
+          arabicName: true,
+          accountType: true,
+          budget: true,
+          journalEntryLines: {
+            where: {
+              ...(costCenterId ? { costCenterId } : {}),
+              journalEntry: journalWhere,
+            },
+            select: { debitBase: true, creditBase: true, debit: true, credit: true },
+          },
+        },
+        orderBy: { code: 'asc' },
+      });
+
+      const rows = accounts.map((account) => {
+        const debit = account.journalEntryLines.reduce(
+          (sum, line) => sum + Number(line.debitBase || line.debit || 0),
+          0
+        );
+        const credit = account.journalEntryLines.reduce(
+          (sum, line) => sum + Number(line.creditBase || line.credit || 0),
+          0
+        );
+        const cls = classifyAccount(account.code, account.accountType);
+        const actual = cls === 'REVENUE' ? credit - debit : debit - credit;
+        const budget = Number(account.budget || 0);
+        return {
+          account: {
+            id: account.id,
+            code: account.code,
+            arabicName: account.arabicName,
+            accountType: account.accountType,
+          },
+          budget,
+          actual,
+          variance: budget - actual,
+        };
+      });
+
+      const total = rows.length;
       return {
-        data: [],
-        summary: {},
+        data: rows.slice((page - 1) * limit, page * limit),
+        summary: {
+          totalAccounts: total,
+          totalBudget: rows.reduce((sum, row) => sum + row.budget, 0),
+          totalActual: rows.reduce((sum, row) => sum + row.actual, 0),
+          totalVariance: rows.reduce((sum, row) => sum + row.variance, 0),
+        },
         pagination: {
           page,
           limit,
-          total: 0,
-          totalPages: 0,
+          total,
+          totalPages: Math.ceil(total / limit),
         },
       };
     } catch (error) {
@@ -1543,64 +1623,48 @@ export class ReportsService {
    */
   async getExpensesAnalysis(filters: ReportFilters, options: ReportOptions = {}): Promise<ReportResult> {
     try {
-      const { companyId, fromDate, toDate, accountId } = filters;
+      const { companyId, fromDate, toDate, accountId, costCenterId, branchId } = filters;
       const { page = 1, limit = 100 } = options;
 
       if (!fromDate || !toDate) {
         throw new Error('From date and to date are required');
       }
 
-      const where: any = {
-        companyId,
-        date: {
-          gte: fromDate,
-          lte: toDate,
-        },
-        isPosted: true,
-        isCancelled: false,
-      };
-
-      if (accountId) {
-        where.lines = {
-          some: {
-            accountId,
-            debitAmount: { gt: 0 },
+      const lines = await prisma.journalEntryLine.findMany({
+        where: {
+          ...(accountId ? { accountId } : {}),
+          ...(costCenterId ? { costCenterId } : {}),
+          debit: { gt: 0 },
+          journalEntry: {
+            companyId,
+            date: { gte: fromDate, lte: toDate },
+            isPosted: true,
+            isCancelled: false,
+            ...(branchId ? { branchId } : {}),
           },
-        };
-      }
-
-      const journalEntries = await prisma.journalEntry.findMany({
-        where,
+        },
         include: {
-          lines: {
-            include: {
-              account: true,
-              costCenter: true,
-            },
-            where: {
-              debitAmount: { gt: 0 },
-            },
+          account: {
+            select: { id: true, code: true, arabicName: true, accountType: true },
           },
         },
-        orderBy: { date: 'desc' },
       });
 
-      // Group by account
       const accountMap = new Map<string, any>();
-      journalEntries.forEach((entry) => {
-        entry.lines.forEach((line) => {
-          const accountId = line.accountId;
-          if (!accountMap.has(accountId)) {
-            accountMap.set(accountId, {
-              account: line.account,
-              totalExpenses: 0,
-              entryCount: 0,
-            });
-          }
-          const accountData = accountMap.get(accountId)!;
-          accountData.totalExpenses += Number(line.debitAmount || 0);
-          accountData.entryCount += 1;
-        });
+      lines.forEach((line) => {
+        const cls = classifyAccount(line.account?.code ?? '', line.account?.accountType);
+        if (cls !== 'EXPENSE' && cls !== 'COGS') return;
+        const key = line.accountId;
+        if (!accountMap.has(key)) {
+          accountMap.set(key, {
+            account: line.account,
+            totalExpenses: 0,
+            entryCount: 0,
+          });
+        }
+        const accountData = accountMap.get(key)!;
+        accountData.totalExpenses += Number(line.debitBase || line.debit || 0);
+        accountData.entryCount += 1;
       });
 
       const result = Array.from(accountMap.values())
@@ -1664,11 +1728,14 @@ export class ReportsService {
         orderBy: { date: 'desc' },
       });
 
-      // Group by operation type (simplified)
       const operations = journalEntries.map((entry) => ({
-        entry,
-        totalDebit: entry.lines.reduce((sum, line) => sum + Number(line.debitAmount || 0), 0),
-        totalCredit: entry.lines.reduce((sum, line) => sum + Number(line.creditAmount || 0), 0),
+        date: entry.date,
+        voucherNumber: entry.voucherNumber,
+        description: entry.description,
+        sourceType: entry.sourceType,
+        sourceNumber: entry.sourceNumber,
+        totalDebit: entry.lines.reduce((sum, line) => sum + Number(line.debit || 0), 0),
+        totalCredit: entry.lines.reduce((sum, line) => sum + Number(line.credit || 0), 0),
       }));
 
       const sortedData = operations
@@ -1700,41 +1767,140 @@ export class ReportsService {
    */
   async getAccountBalancesCredit(filters: ReportFilters, options: ReportOptions = {}): Promise<ReportResult> {
     try {
-      const { companyId, toDate } = filters;
+      const {
+        companyId,
+        toDate,
+        accountId,
+        costCenterId,
+        currencyId,
+        branchId,
+        customerId,
+        supplierId,
+        customerCategoryId,
+        supplierCategoryId,
+      } = filters;
       const { page = 1, limit = 1000 } = options;
 
-      const where: any = {
+      const partyAccountIds = new Set<string>();
+      let restrictToPartyAccounts = false;
+
+      if (customerId || customerCategoryId) {
+        restrictToPartyAccounts = true;
+        const customers = await prisma.customer.findMany({
+          where: {
+            companyId,
+            ...(customerId ? { id: customerId } : {}),
+            ...(customerCategoryId ? { customerCategoryId } : {}),
+          },
+          select: { accountId: true, mainAccountId: true },
+        });
+        for (const row of customers) {
+          if (row.accountId) partyAccountIds.add(row.accountId);
+          if (row.mainAccountId) partyAccountIds.add(row.mainAccountId);
+        }
+      }
+      if (supplierId || supplierCategoryId) {
+        restrictToPartyAccounts = true;
+        const suppliers = await prisma.supplier.findMany({
+          where: {
+            companyId,
+            ...(supplierId ? { id: supplierId } : {}),
+            ...(supplierCategoryId ? { supplierCategoryId } : {}),
+          },
+          select: { accountId: true, mainAccountId: true },
+        });
+        for (const row of suppliers) {
+          if (row.accountId) partyAccountIds.add(row.accountId);
+          if (row.mainAccountId) partyAccountIds.add(row.mainAccountId);
+        }
+      }
+
+      if (restrictToPartyAccounts && partyAccountIds.size === 0) {
+        return {
+          data: [],
+          summary: { totalCreditBalance: 0, totalDebitBalance: 0, totalAccounts: 0 },
+          pagination: { page, limit, total: 0, totalPages: 0 },
+        };
+      }
+
+      let currencyCode: string | undefined;
+      if (currencyId) {
+        const currency = await prisma.currency.findFirst({
+          where: { id: currencyId, companyId },
+          select: { code: true },
+        });
+        currencyCode = currency?.code || undefined;
+      }
+
+      const accountWhere: Record<string, unknown> = {
         companyId,
         isActive: true,
+        deletedAt: null,
+        accountKind: 'POSTING',
+      };
+      if (accountId && restrictToPartyAccounts) {
+        accountWhere.id = partyAccountIds.has(accountId) ? accountId : '__none__';
+      } else if (accountId) {
+        accountWhere.id = accountId;
+      } else if (restrictToPartyAccounts) {
+        accountWhere.id = { in: [...partyAccountIds] };
+      }
+      if (currencyCode) accountWhere.currencyCode = currencyCode;
+
+      const lineWhere: Record<string, unknown> = {
+        journalEntry: {
+          isPosted: true,
+          isCancelled: false,
+          date: { lte: toDate || new Date() },
+          ...(branchId ? { branchId } : {}),
+          ...(currencyCode ? { currencyCode } : {}),
+        },
+        ...(costCenterId ? { costCenterId } : {}),
       };
 
       const accounts = await prisma.account.findMany({
-        where,
-        include: {
-          movements: {
-            where: {
-              date: {
-                lte: toDate || new Date(),
-              },
-            },
+        where: accountWhere,
+        select: {
+          id: true,
+          code: true,
+          arabicName: true,
+          englishName: true,
+          accountType: true,
+          currencyCode: true,
+          journalEntryLines: {
+            where: lineWhere,
+            select: { debitBase: true, creditBase: true, debit: true, credit: true },
           },
         },
+        orderBy: { code: 'asc' },
       });
 
       const allAccountBalances = accounts
         .map((account) => {
-          const creditBalance = account.movements.reduce(
-            (sum, mov) => sum + Number(mov.creditAmount || 0) - Number(mov.debitAmount || 0),
+          const debit = account.journalEntryLines.reduce(
+            (sum, line) => sum + Number(line.debitBase || line.debit || 0),
             0
           );
+          const credit = account.journalEntryLines.reduce(
+            (sum, line) => sum + Number(line.creditBase || line.credit || 0),
+            0
+          );
+          const net = credit - debit;
           return {
-            account,
-            creditBalance: creditBalance > 0 ? creditBalance : 0,
-            debitBalance: creditBalance < 0 ? Math.abs(creditBalance) : 0,
+            account: {
+              id: account.id,
+              code: account.code,
+              arabicName: account.arabicName,
+              englishName: account.englishName,
+              accountType: account.accountType,
+              currencyCode: account.currencyCode,
+            },
+            creditBalance: net > 0 ? net : 0,
+            debitBalance: net < 0 ? Math.abs(net) : 0,
           };
         })
-        .filter((acc) => acc.creditBalance > 0)
-        .sort((a, b) => b.creditBalance - a.creditBalance);
+        .filter((row) => row.creditBalance > 0 || row.debitBalance > 0)
+        .sort((a, b) => b.creditBalance + b.debitBalance - (a.creditBalance + a.debitBalance));
 
       // M16 fix (Item 35): `total`/`totalPages` were computed from the
       // already-sliced page array (always <= `limit`), so callers could
@@ -1748,6 +1914,7 @@ export class ReportsService {
         data: accountBalances,
         summary: {
           totalCreditBalance: allAccountBalances.reduce((sum, acc) => sum + acc.creditBalance, 0),
+          totalDebitBalance: allAccountBalances.reduce((sum, acc) => sum + acc.debitBalance, 0),
           totalAccounts: total,
         },
         pagination: {
@@ -1834,11 +2001,35 @@ export class ReportsService {
         0
       );
 
+      const data = [
+        ...treasuryReceipts.map((receipt) => ({
+          type: 'قبض',
+          date: receipt.date,
+          voucherNumber: receipt.voucherNumber,
+          description: receipt.description,
+          amount: Number(receipt.amount || 0),
+          currencyCode: receipt.currencyCode,
+          safe: receipt.safe,
+          account: receipt.account,
+        })),
+        ...treasuryPayments.map((payment) => ({
+          type: 'صرف',
+          date: payment.date,
+          voucherNumber: payment.voucherNumber,
+          description: payment.description,
+          amount: Number(payment.amount || 0),
+          currencyCode: payment.currencyCode,
+          safe: payment.safe,
+          account: payment.account,
+        })),
+      ].sort((a, b) => {
+        const dateA = a.date ? new Date(a.date).getTime() : 0;
+        const dateB = b.date ? new Date(b.date).getTime() : 0;
+        return dateB - dateA;
+      });
+
       return {
-        data: {
-          receipts: treasuryReceipts,
-          payments: treasuryPayments,
-        },
+        data,
         summary: {
           totalReceipts: totalReceiptsAmount,
           totalPayments: totalPaymentsAmount,
@@ -1879,7 +2070,15 @@ export class ReportsService {
 
       const skip = (page - 1) * limit;
 
-      const [receipts, payments, totalReceipts, totalPayments] = await Promise.all([
+      const chequeWhere: any = {
+        companyId,
+        OR: [
+          { dueDate: { gte: fromDate, lte: toDate } },
+          { createdAt: { gte: fromDate, lte: toDate } },
+        ],
+      };
+
+      const [receipts, payments, cheques, totalReceipts, totalPayments, totalCheques] = await Promise.all([
         prisma.treasuryReceipt.findMany({
           where,
           skip,
@@ -1902,16 +2101,55 @@ export class ReportsService {
           },
           orderBy: { date: 'desc' },
         }),
+        prisma.cheque.findMany({
+          where: chequeWhere,
+          include: {
+            customer: { select: { id: true, code: true, arabicName: true } },
+            supplier: { select: { id: true, code: true, arabicName: true } },
+            bankAccount: { select: { id: true, code: true, arabicName: true } },
+          },
+          orderBy: { createdAt: 'desc' },
+        }),
         prisma.treasuryReceipt.count({ where }),
         prisma.treasuryPayment.count({ where }),
+        prisma.cheque.count({ where: chequeWhere }),
       ]);
 
       const allPapers = [
-        ...receipts.map((r) => ({ type: 'receipt', ...r })),
-        ...payments.map((p) => ({ type: 'payment', ...p })),
+        ...receipts.map((r) => ({
+          type: 'قبض',
+          date: r.date,
+          voucherNumber: r.voucherNumber,
+          description: r.description,
+          amount: Number(r.amount || 0),
+          account: r.account,
+          safe: r.safe,
+          bankAccount: r.bankAccount,
+        })),
+        ...payments.map((p) => ({
+          type: 'صرف',
+          date: p.date,
+          voucherNumber: p.voucherNumber,
+          description: p.description,
+          amount: Number(p.amount || 0),
+          account: p.account,
+          safe: p.safe,
+          bankAccount: p.bankAccount,
+        })),
+        ...cheques.map((cheque) => ({
+          type: cheque.direction === 'INWARD' ? 'شيك قبض' : 'شيك صرف',
+          date: cheque.dueDate || cheque.createdAt,
+          voucherNumber: cheque.chequeNumber,
+          description: cheque.description || cheque.bankName,
+          amount: Number(cheque.amount || 0),
+          customer: cheque.customer,
+          supplier: cheque.supplier,
+          bankAccount: cheque.bankAccount,
+          status: cheque.status,
+        })),
       ].sort((a, b) => {
-        const dateA = a.date?.getTime() || 0;
-        const dateB = b.date?.getTime() || 0;
+        const dateA = a.date ? new Date(a.date).getTime() : 0;
+        const dateB = b.date ? new Date(b.date).getTime() : 0;
         return dateB - dateA;
       });
 
@@ -1920,12 +2158,13 @@ export class ReportsService {
         summary: {
           totalReceipts: totalReceipts,
           totalPayments: totalPayments,
+          totalCheques,
         },
         pagination: {
           page,
           limit,
-          total: totalReceipts + totalPayments,
-          totalPages: Math.ceil((totalReceipts + totalPayments) / limit),
+          total: totalReceipts + totalPayments + totalCheques,
+          totalPages: Math.ceil((totalReceipts + totalPayments + totalCheques) / limit),
         },
       };
     } catch (error) {
@@ -2120,7 +2359,6 @@ export class ReportsService {
       const where: any = {
         companyId,
         ...dateFilter,
-        isPosted: true,
         isCancelled: false,
       };
 
@@ -2128,110 +2366,116 @@ export class ReportsService {
         where.branchId = branchId;
       }
 
-      const [securitiesReceipts, securitiesPayments, securitiesRenewals] = await Promise.all([
+      const chequeDateFilter =
+        fromDate || toDate
+          ? {
+              OR: [
+                {
+                  dueDate: {
+                    ...(fromDate ? { gte: fromDate } : {}),
+                    ...(toDate ? { lte: toDate } : {}),
+                  },
+                },
+                {
+                  createdAt: {
+                    ...(fromDate ? { gte: fromDate } : {}),
+                    ...(toDate ? { lte: toDate } : {}),
+                  },
+                },
+              ],
+            }
+          : {};
+
+      const [securitiesReceipts, securitiesPayments, securitiesRenewals, cheques] = await Promise.all([
         prisma.securitiesReceipt.findMany({
           where,
           include: {
-            account: {
-              select: {
-                id: true,
-                code: true,
-                arabicName: true,
-              },
-            },
-            safe: {
-              select: {
-                id: true,
-                code: true,
-                arabicName: true,
-              },
-            },
-            bankAccount: {
-              select: {
-                id: true,
-                code: true,
-                arabicName: true,
-              },
-            },
+            customer: { select: { id: true, code: true, arabicName: true } },
+            supplier: { select: { id: true, code: true, arabicName: true } },
           },
           orderBy: { date: 'desc' },
         }),
         prisma.securitiesPayment.findMany({
           where,
           include: {
-            account: {
-              select: {
-                id: true,
-                code: true,
-                arabicName: true,
-              },
-            },
-            safe: {
-              select: {
-                id: true,
-                code: true,
-                arabicName: true,
-              },
-            },
-            bankAccount: {
-              select: {
-                id: true,
-                code: true,
-                arabicName: true,
-              },
-            },
+            customer: { select: { id: true, code: true, arabicName: true } },
+            supplier: { select: { id: true, code: true, arabicName: true } },
           },
           orderBy: { date: 'desc' },
         }),
         prisma.securitiesRenewal.findMany({
-          where,
-          include: {
-            securitiesReceipt: {
-              select: {
-                id: true,
-                serial: true,
-                amount: true,
-              },
-            },
+          where: {
+            companyId,
+            ...dateFilter,
+            isCancelled: false,
+            ...(branchId ? { branchId } : {}),
           },
           orderBy: { date: 'desc' },
         }),
+        prisma.cheque.findMany({
+          where: {
+            companyId,
+            ...(branchId ? { branchId } : {}),
+            ...chequeDateFilter,
+          },
+          include: {
+            customer: { select: { id: true, code: true, arabicName: true } },
+            supplier: { select: { id: true, code: true, arabicName: true } },
+            bankAccount: { select: { id: true, code: true, arabicName: true } },
+          },
+          orderBy: { createdAt: 'desc' },
+        }),
       ]);
 
-      // Combine all financial papers
       const financialPapers = [
+        ...cheques.map((cheque) => ({
+          id: cheque.id,
+          type: cheque.direction === 'INWARD' ? 'شيك قبض' : 'شيك صرف',
+          serial: cheque.chequeNumber,
+          date: cheque.dueDate || cheque.createdAt,
+          amount: Number(cheque.amount || 0),
+          description: cheque.description || cheque.bankName,
+          customer: cheque.customer,
+          supplier: cheque.supplier,
+          bankAccount: cheque.bankAccount,
+          status: cheque.status,
+        })),
         ...securitiesReceipts.map((sr) => ({
           id: sr.id,
-          type: 'receipt',
-          serial: sr.serial,
+          type: 'ورقة قبض',
+          serial: sr.serial || sr.receiptNumber || sr.securityNumber,
           date: sr.date,
           amount: Number(sr.amount || 0),
           description: sr.description,
-          account: sr.account,
-          safe: sr.safe,
-          bankAccount: sr.bankAccount,
+          customer: sr.customer,
+          supplier: sr.supplier,
+          status: sr.isPosted ? 'POSTED' : 'DRAFT',
         })),
         ...securitiesPayments.map((sp) => ({
           id: sp.id,
-          type: 'payment',
-          serial: sp.serial,
+          type: 'ورقة دفع',
+          serial: sp.serial || sp.paymentNumber || sp.securityNumber,
           date: sp.date,
           amount: Number(sp.amount || 0),
           description: sp.description,
-          account: sp.account,
-          safe: sp.safe,
-          bankAccount: sp.bankAccount,
+          customer: sp.customer,
+          supplier: sp.supplier,
+          status: sp.isPosted ? 'POSTED' : 'DRAFT',
         })),
         ...securitiesRenewals.map((srn) => ({
           id: srn.id,
-          type: 'renewal',
-          serial: srn.serial,
+          type: 'تجديد',
+          serial: srn.serial || srn.renewalNumber,
           date: srn.date,
-          amount: Number(srn.securitiesReceipt?.amount || 0),
+          amount: Number(srn.newAmount || 0),
           description: srn.description,
-          originalReceipt: srn.securitiesReceipt,
+          status: srn.isPosted ? 'POSTED' : 'DRAFT',
         })),
-      ].sort((a, b) => b.date.getTime() - a.date.getTime());
+      ].sort((a, b) => {
+        const dateA = a.date ? new Date(a.date).getTime() : 0;
+        const dateB = b.date ? new Date(b.date).getTime() : 0;
+        return dateB - dateA;
+      });
 
       const skip = (page - 1) * limit;
       const paginatedData = financialPapers.slice(skip, skip + limit);
