@@ -8,12 +8,12 @@ import { MasterGuideTree } from '@/components/accounting/guide/MasterGuideTree';
 import { DistributionAddDialog } from '@/components/accounting/DistributionAddDialog';
 import { DistributionGroupModal } from '@/components/accounting/DistributionGroupModal';
 import { staffCardHref, type StaffCardKind } from '@/components/accounting/StaffCardKindDialog';
-import { buildParentTree, type GuideTreeNode } from '@/lib/accounting/buildGuideTree';
+import { buildParentTree, groupAsFolders, type GuideTreeNode } from '@/lib/accounting/buildGuideTree';
 import { useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
 import { apiClient } from '@/lib/api/client';
 import { toast } from '@/lib/feedback/toast';
+import { confirmAction } from '@/lib/feedback/confirm';
 import { useAppTabs } from '@/app/components/AppTabsContext';
-import { nextNumericSerial } from '@/lib/masters/nextNumericSerial';
 
 type DelegateRow = {
   id: string;
@@ -41,6 +41,27 @@ function roleLabel(role?: string) {
   return 'مندوب';
 }
 
+const ROLE_FOLDERS: Array<{
+  id: string;
+  role: 'DRIVER' | 'DISTRIBUTOR' | 'DELEGATE';
+  code: string;
+  name: string;
+}> = [
+  { id: 'role:DRIVER', role: 'DRIVER', code: 'DRV', name: 'سائق' },
+  { id: 'role:DISTRIBUTOR', role: 'DISTRIBUTOR', code: 'DST', name: 'موزع' },
+  { id: 'role:DELEGATE', role: 'DELEGATE', code: 'DEL', name: 'مندوب' },
+];
+
+function personNode(row: DelegateRow): GuideTreeNode {
+  return {
+    id: row.id,
+    code: row.code || row.serial || '—',
+    name: row.arabicName,
+    subtitle: row.mobile || row.phone1 || undefined,
+    groupKey: row.role && row.role !== 'GROUP' ? row.role : 'DELEGATE',
+  };
+}
+
 export default function RepresentativesGuidePage() {
   const router = useRouter();
   const tabs = useAppTabs();
@@ -61,11 +82,6 @@ export default function RepresentativesGuidePage() {
   const [parentGroup, setParentGroup] = useState<GuideTreeNode | null>(null);
   const [groupModalOpen, setGroupModalOpen] = useState(false);
   const [editGroup, setEditGroup] = useState<{ id: string; code: string; arabicName: string } | null>(null);
-
-  const suggestedCode = useMemo(
-    () => nextNumericSerial(rows.flatMap((row) => [row.serial, row.code])),
-    [rows]
-  );
 
   const tree = useMemo(
     () =>
@@ -93,8 +109,12 @@ export default function RepresentativesGuidePage() {
   };
 
   const startAdd = (parent?: GuideTreeNode) => {
-    if (parent && parent.groupKey !== 'GROUP' && !parent.folder) {
-      toast.error('الفرد لا يُفرَّع منه', { description: 'اختَر مجموعة، أو أنشئ مجموعة جديدة.' });
+    if (parent && !parent.folder && parent.groupKey !== 'GROUP') {
+      toast.error('الفرد لا يُفرَّع منه', { description: 'اختَر مجلد سائق / موزع / مندوب، أو مجموعة.' });
+      return;
+    }
+    if (parent?.synthetic && parent.groupKey && parent.groupKey !== 'GROUP') {
+      openCard(staffCardHref(staffKindFromRole(parent.groupKey)));
       return;
     }
     setParentGroup(parent && (parent.folder || parent.groupKey === 'GROUP') ? parent : null);
@@ -114,11 +134,16 @@ export default function RepresentativesGuidePage() {
       setGroupModalOpen(true);
       return;
     }
-    openCard(staffCardHref(staffKindFromRole(node.groupKey), node.id));
+    openCard(staffCardHref(staffKindFromRole(node.groupKey), node.id, { mode: 'edit' }));
+  };
+
+  const openView = (node: GuideTreeNode) => {
+    if (node.folder || node.synthetic || node.groupKey === 'GROUP') return;
+    openCard(staffCardHref(staffKindFromRole(node.groupKey), node.id, { mode: 'view' }));
   };
 
   const handleDelete = async (node: GuideTreeNode) => {
-    if (!window.confirm(`حذف «${node.name}»؟`)) return;
+    if (!(await confirmAction(`حذف «${node.name}»؟`))) return;
     try {
       await apiClient.delete(`/accounting/delegates/${node.id}`);
       toast.success(node.folder || node.groupKey === 'GROUP' ? 'تم حذف المجموعة' : 'تم حذف الفرد');
@@ -182,6 +207,7 @@ export default function RepresentativesGuidePage() {
             childNoun="فرع"
             onAddChild={startAdd}
             canAddChild={(n) => Boolean(n.folder || n.groupKey === 'GROUP')}
+            onView={openView}
             onEdit={openEdit}
             onDelete={(n) => void handleDelete(n)}
           />
@@ -207,7 +233,6 @@ export default function RepresentativesGuidePage() {
           open
           parentId={editGroup ? null : parentGroup?.id}
           parentLabel={editGroup ? null : parentGroup ? `${parentGroup.code} — ${parentGroup.name}` : null}
-          suggestedCode={suggestedCode}
           initial={editGroup}
           onClose={() => {
             setGroupModalOpen(false);

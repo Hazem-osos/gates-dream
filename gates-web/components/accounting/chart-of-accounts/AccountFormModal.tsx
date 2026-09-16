@@ -30,6 +30,7 @@ import {
   statementTypeFromAccountType,
 } from '@/lib/accounting/account-classification';
 import { bumpTrailingCode, isCodeAfter } from '@/lib/masters/nextNumericSerial';
+import { useApiQuery } from '@/lib/hooks/useApi';
 
 export type AccountFormModalMode = 'create' | 'edit';
 
@@ -44,6 +45,7 @@ const emptyForm: AccountFormPayload = {
   defaultCostCenterId: null,
   warning: 'بدون',
   budget: null,
+  currencyCode: null,
   accountKind: 'HEADER',
   statementType: 'BALANCE_SHEET',
 };
@@ -55,8 +57,11 @@ export function AccountFormModal({
   parentAccount,
   createKind = 'HEADER',
   lockAsRoot = false,
+  pickerMode = false,
+  initialArabicName = '',
   onClose,
   onSaved,
+  onCreatedAccount,
   onError,
 }: {
   open: boolean;
@@ -65,8 +70,12 @@ export function AccountFormModal({
   parentAccount?: CoaHierarchyAccount | null;
   createKind?: 'HEADER' | 'POSTING';
   lockAsRoot?: boolean;
+  /** Same بطاقة حساب fields, used from any account picker. Closes after save. */
+  pickerMode?: boolean;
+  initialArabicName?: string;
   onClose: () => void;
   onSaved: (accountId?: string) => void;
+  onCreatedAccount?: (account: { id: string; code: string; arabicName: string }) => void;
   onError: (msg: string) => void;
 }) {
   const [form, setForm] = useState<AccountFormPayload>(emptyForm);
@@ -89,6 +98,14 @@ export function AccountFormModal({
   const createMut = useCreateAccountMutation();
   const updateMut = useUpdateAccountMutation();
   const pending = createMut.isPending || updateMut.isPending;
+  const { data: currenciesRes } = useApiQuery<{ id: string; code: string; arabicName: string }[]>(
+    ['currencies'],
+    '/accounting/currencies',
+    { limit: 100, isActive: true },
+    { enabled: open }
+  );
+  const currencies = currenciesRes?.data ?? [];
+  const effectiveCreateKind = pickerMode ? 'POSTING' : createKind;
 
   useEffect(() => {
     if (!open) {
@@ -115,16 +132,17 @@ export function AccountFormModal({
         parentAccount?.nature === 'CREDIT' ? 'دائن' : parentAccount?.nature === 'DEBIT' ? 'مدين' : null;
       setForm({
         ...emptyForm,
+        arabicName: initialArabicName.trim(),
         parentId: lockAsRoot ? null : parentAccount?.id ?? null,
         accountType: normalizeGlAccountType(parentAccount?.accountType),
         accountSide: inheritedSide,
-        accountKind: parentAccount && !lockAsRoot ? createKind : 'HEADER',
+        accountKind: pickerMode || (parentAccount && !lockAsRoot) ? effectiveCreateKind : 'HEADER',
         statementType: statementTypeFromAccountType(parentAccount?.accountType) ?? 'BALANCE_SHEET',
         code: '',
       });
       if (autoNumbering) void refetchSuggest();
     }
-  }, [open, mode, initial?.id, parentAccount?.id, createKind, lockAsRoot, autoNumbering, refetchSuggest]);
+  }, [open, mode, initial?.id, parentAccount?.id, createKind, lockAsRoot, autoNumbering, refetchSuggest, pickerMode, initialArabicName, effectiveCreateKind]);
 
   useEffect(() => {
     if (!open || !autoNumbering) return;
@@ -163,6 +181,10 @@ export function AccountFormModal({
       onError('رقم الحساب مطلوب — الترقيم يدوي');
       return;
     }
+    if (pickerMode && !form.parentId) {
+      onError('اختَر الحساب الرئيسي. الإضافة من الاختيار بتنشئ حساب حركة تحت أب.');
+      return;
+    }
     if (!form.parentId && !form.accountSide) {
       onError('جهة الحساب مطلوبة للحساب الرئيسي (مدين أو دائن)');
       return;
@@ -175,7 +197,8 @@ export function AccountFormModal({
         parentId: lockAsRoot ? null : form.parentId || null,
         accountSide: form.accountSide || undefined,
         statementType: form.statementType ?? statementTypeFromAccountType(form.accountType),
-        accountKind: lockAsRoot || !form.parentId ? 'HEADER' : form.accountKind,
+        accountKind: lockAsRoot || !form.parentId ? 'HEADER' : pickerMode ? 'POSTING' : form.accountKind,
+        currencyCode: form.currencyCode || undefined,
       };
       if (mode === 'edit' && initial) {
         await updateMut.mutateAsync({ id: initial.id, ...payload });
@@ -184,10 +207,20 @@ export function AccountFormModal({
         return;
       }
       const created = await createMut.mutateAsync(payload);
-      const createdId =
-        (created as { data?: { id?: string }; id?: string })?.data?.id ??
-        (created as { id?: string })?.id;
+      const row = (created as { data?: { id?: string; code?: string; arabicName?: string }; id?: string })?.data;
+      const createdId = row?.id ?? (created as { id?: string })?.id;
+      if (createdId && row) {
+        onCreatedAccount?.({
+          id: createdId,
+          code: row.code || payload.code || '',
+          arabicName: row.arabicName || payload.arabicName,
+        });
+      }
       onSaved(createdId);
+      if (pickerMode) {
+        onClose();
+        return;
+      }
       setForm({
         ...emptyForm,
         parentId: payload.parentId ?? null,
@@ -232,11 +265,13 @@ export function AccountFormModal({
       <div className="erp-field-wide flex min-h-0 w-full min-w-0 flex-1 flex-col" dir="rtl">
         <div className="min-w-0 flex-1 overflow-y-auto p-6 pb-2">
           <h2 id="account-form-title" className="mb-1 text-xl font-bold text-[#0E79AA]">
-            {mode === 'create'
-              ? lockAsRoot || !parentAccount
-                ? 'إضافة حساب رئيسي'
-                : 'إضافة حساب فرعي'
-              : 'تعديل حساب'}
+            {pickerMode
+              ? 'بطاقة حساب'
+              : mode === 'create'
+                ? lockAsRoot || !parentAccount
+                  ? 'إضافة حساب رئيسي'
+                  : 'إضافة حساب فرعي'
+                : 'تعديل حساب'}
           </h2>
           <p className="mb-1 text-sm text-slate-500">
             {lockAsRoot
@@ -249,7 +284,7 @@ export function AccountFormModal({
                       : 'رئيسي بدون أب'
                 }`}
           </p>
-          {mode === 'create' ? (
+          {mode === 'create' && !pickerMode ? (
             <p className="mb-4 text-xs text-[#0E79AA]">بعد الحفظ النموذج يفضل مفتوح عشان تضيف التالي تحت نفس الأب. إغلاق من إلغاء.</p>
           ) : (
             <div className="mb-3" />
@@ -277,8 +312,46 @@ export function AccountFormModal({
               value={form.arabicName}
               onChange={(e) => setForm((f) => ({ ...f, arabicName: e.target.value }))}
             />
+            {form.parentId && !pickerMode ? (
+              <CompactFormField label="نوع الحساب الفرعي">
+                <div className="flex flex-wrap gap-2">
+                  {(
+                    [
+                      { value: 'POSTING' as const, label: 'حساب حركة' },
+                      { value: 'HEADER' as const, label: 'رئيسي فرعي' },
+                    ] as const
+                  ).map((opt) => (
+                    <label
+                      key={opt.value}
+                      className={`${
+                        form.accountKind === opt.value
+                          ? 'bg-[#0E78AA] text-white border-[#0E78AA]'
+                          : 'bg-white text-[#0A3D5E] border-[#D6EAF3]'
+                      } inline-flex cursor-pointer items-center rounded-full border px-3 py-1.5 text-xs font-semibold`}
+                    >
+                      <input
+                        type="radio"
+                        name="accountKind"
+                        className="sr-only"
+                        checked={form.accountKind === opt.value}
+                        onChange={() => setForm((f) => ({ ...f, accountKind: opt.value }))}
+                      />
+                      {opt.label}
+                    </label>
+                  ))}
+                </div>
+              </CompactFormField>
+            ) : (
+              <CompactFormField label="نوع الحساب">
+                <input
+                  className={compactControlClass}
+                  value={pickerMode || form.parentId ? 'حساب حركة' : 'رئيسي بدون أب'}
+                  readOnly
+                />
+              </CompactFormField>
+            )}
             <CompactFormField
-              label="الحد الائتماني"
+              label="موازنة تقديرية"
               type="number"
               min="0"
               step="0.01"
@@ -415,6 +488,35 @@ export function AccountFormModal({
                   emptyLabel="غير مربوط"
                 />
               </CompactFormField>
+              <CompactFormField label="التقرير الختامي">
+                <select
+                  className={compactControlClass}
+                  value={form.statementType ?? 'BALANCE_SHEET'}
+                  onChange={(e) =>
+                    setForm((f) => ({
+                      ...f,
+                      statementType: e.target.value as AccountFormPayload['statementType'],
+                    }))
+                  }
+                >
+                  <option value="BALANCE_SHEET">ميزانية عمومية</option>
+                  <option value="INCOME_STATEMENT">أرباح وخسائر وقائمة دخل</option>
+                </select>
+              </CompactFormField>
+              <CompactFormField label="رمز العملة">
+                <select
+                  className={compactControlClass}
+                  value={form.currencyCode ?? ''}
+                  onChange={(e) => setForm((f) => ({ ...f, currencyCode: e.target.value || null }))}
+                >
+                  <option value="">اختر العملة</option>
+                  {currencies.map((currency) => (
+                    <option key={currency.id} value={currency.code}>
+                      {currency.arabicName}
+                    </option>
+                  ))}
+                </select>
+              </CompactFormField>
             </div>
           </AdvancedFieldsSection>
         </div>
@@ -424,7 +526,7 @@ export function AccountFormModal({
           onSave={() => void submit()}
           saveLoading={pending}
           cancelText="إلغاء"
-          saveText={mode === 'create' ? 'حفظ وإضافة آخر' : 'حفظ'}
+          saveText={pickerMode ? 'حفظ' : mode === 'create' ? 'حفظ وإضافة آخر' : 'حفظ'}
           respectPermissions={false}
           className="mt-0"
         />

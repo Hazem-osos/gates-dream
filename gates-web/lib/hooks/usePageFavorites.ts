@@ -67,14 +67,14 @@ export function usePageFavorites() {
     writeFavoritesLocal(merged);
     setFavorites(merged);
     if (merged.length !== serverList.length) {
-      void apiClient.put('/users/me/ui-preferences', { pageFavorites: merged });
+      void apiClient.put('/users/me/ui-preferences', { pageFavorites: merged }, { skipSuccessNotify: true });
     }
   }, [prefsResponse]);
 
   const scheduleSync = useCallback((list: PageFavorite[]) => {
     if (syncTimer.current) clearTimeout(syncTimer.current);
     syncTimer.current = setTimeout(() => {
-      void apiClient.put('/users/me/ui-preferences', { pageFavorites: list }).catch(() => {
+      void apiClient.put('/users/me/ui-preferences', { pageFavorites: list }, { skipSuccessNotify: true }).catch(() => {
         /* offline — localStorage remains source until next session */
       });
     }, 800);

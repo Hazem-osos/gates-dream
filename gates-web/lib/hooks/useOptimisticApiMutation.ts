@@ -1,10 +1,6 @@
 import { apiClient } from '@/lib/api/client';
 import { getTenantContext, isMutationTenantReady } from '@/lib/tenant/tenant-context-storage';
-import type { ApiError, ApiResponse, QueryParams } from '@/lib/api/types';
-import {
-  notifyApiSuccess,
-  DEFAULT_SAVE_SUCCESS_MESSAGE,
-} from '@/lib/api/api-success-notify';
+import type { ApiError, ApiResponse, QueryParams, RequestConfig } from '@/lib/api/types';
 import type { UseApiMutationExtraOptions } from '@/lib/hooks/useApi';
 import {
   useOptimisticMutation,
@@ -14,7 +10,8 @@ import {
 async function runApiMutation<TData, TVariables>(
   url: string,
   method: 'POST' | 'PUT' | 'PATCH' | 'DELETE',
-  variables: TVariables
+  variables: TVariables,
+  notify?: Pick<RequestConfig, 'skipSuccessNotify' | 'successMessage'>
 ): Promise<ApiResponse<TData>> {
   const ctx = getTenantContext();
   if (!isMutationTenantReady(url, ctx)) {
@@ -25,13 +22,13 @@ async function runApiMutation<TData, TVariables>(
   }
   switch (method) {
     case 'POST':
-      return apiClient.post<TData>(url, variables);
+      return apiClient.post<TData>(url, variables, notify);
     case 'PUT':
-      return apiClient.put<TData>(url, variables);
+      return apiClient.put<TData>(url, variables, notify);
     case 'PATCH':
-      return apiClient.patch<TData>(url, variables);
+      return apiClient.patch<TData>(url, variables, notify);
     case 'DELETE':
-      return apiClient.delete<TData>(url, variables as QueryParams);
+      return apiClient.delete<TData>(url, variables as QueryParams, notify);
     default:
       throw new Error(`Unsupported method: ${method}`);
   }
@@ -52,19 +49,16 @@ export function useOptimisticApiMutation<TData = unknown, TVariables = unknown>(
     ...rest
   } = options ?? {};
 
-  const shouldToast =
-    showSuccessToast !== false &&
-    (method === 'POST' || method === 'PUT' || method === 'PATCH');
-
   return useOptimisticMutation<TData, TVariables>(
-    (variables) => runApiMutation<TData, TVariables>(url, method, variables),
+    (variables) =>
+      runApiMutation<TData, TVariables>(url, method, variables, {
+        skipSuccessNotify: showSuccessToast === false,
+        successMessage,
+      }),
     {
       ...rest,
       onSuccess: (data, variables, context, meta) => {
         userOnSuccess?.(data, variables, context, meta);
-        if (shouldToast) {
-          notifyApiSuccess(successMessage ?? DEFAULT_SAVE_SUCCESS_MESSAGE);
-        }
       },
       onError: (error, variables, context, meta) => {
         userOnError?.(error, variables, context, meta);

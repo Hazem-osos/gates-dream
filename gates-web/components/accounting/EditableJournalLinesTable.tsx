@@ -7,6 +7,8 @@ import { Button, IconButton, compactControlClass } from '@/components/ui';
 import { isFxRateLocked, rateForCurrency } from '@/lib/accounting/fx-base';
 import { ExchangeRateInput } from '@/components/accounting/ExchangeRateInput';
 import { useCompanyBaseCurrency } from '@/lib/hooks/useCompanyBaseCurrency';
+import { costCenterRuleFromAccount } from '@/lib/accounting/cost-center-rule';
+import { useAccountsQuery } from '@/lib/hooks/useMasterDataQueries';
 
 export type EditableJournalLine = {
   accountId: string;
@@ -53,6 +55,10 @@ export function EditableJournalLinesTable({
   disabled,
 }: Props) {
   const { code: companyBase } = useCompanyBaseCurrency();
+  const { data: accountsRes } = useAccountsQuery(undefined, 500, { leafOnly: true });
+  const accounts = accountsRes?.data ?? [];
+  const ruleFor = (accountId?: string) =>
+    costCenterRuleFromAccount(accounts.find((a) => a.id === accountId));
   const headerCurrency = currencies.find((c) => c.id === defaultCurrencyId);
   const headerRate = rateForCurrency(headerCurrency?.code, companyBase, headerCurrency?.exchangeRate);
 
@@ -106,7 +112,12 @@ export function EditableJournalLinesTable({
                   <td className="min-w-[12rem] border-x border-[#D6EAF3] px-1.5 py-1.5">
                     <AccountSelect
                       value={line.accountId}
-                      onChange={(accountId) => updateLine(index, { accountId })}
+                      onChange={(accountId) =>
+                        updateLine(index, {
+                          accountId,
+                          costCenterId: ruleFor(accountId) === 'none' ? '' : line.costCenterId,
+                        })
+                      }
                       className={compactControlClass}
                       disabled={disabled}
                       emptyLabel="اختر الحساب"
@@ -197,10 +208,18 @@ export function EditableJournalLinesTable({
                   </td>
                   <td className="min-w-[10rem] border-x border-[#D6EAF3] px-1.5 py-1.5">
                     <CostCenterSelect
-                      value={line.costCenterId || ''}
+                      value={ruleFor(line.accountId) === 'none' ? '' : line.costCenterId || ''}
                       onChange={(costCenterId) => updateLine(index, { costCenterId })}
                       className={compactControlClass}
-                      disabled={disabled}
+                      disabled={disabled || ruleFor(line.accountId) === 'none'}
+                      allowEmpty={ruleFor(line.accountId) !== 'required'}
+                      emptyLabel={
+                        ruleFor(line.accountId) === 'none'
+                          ? 'بدون — الحساب لا يقبل مركز'
+                          : ruleFor(line.accountId) === 'required'
+                            ? 'مطلوب'
+                            : 'اختياري'
+                      }
                     />
                   </td>
                   <td className="border-x border-[#D6EAF3] px-1.5 py-1.5">

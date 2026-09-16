@@ -11,6 +11,7 @@ import { useApiQuery } from '@/lib/hooks/useApi';
 import { useQueryClient } from '@tanstack/react-query';
 import type { ExportColumnDef } from '@/lib/export/export-utils';
 import { toast } from '@/lib/feedback/toast';
+import { confirmAction } from '@/lib/feedback/confirm';
 import { deleteDraftDocument } from '@/lib/documents/deleteDraftDocument';
 import { BrowseDateRangeFilters, BrowseStatusFilter } from '@/components/erp/BrowseListFilters';
 import {
@@ -76,7 +77,7 @@ export function StockDocumentsListSection({
           disabled={deletingId === r.id}
           onClick={async (e) => {
             e.stopPropagation();
-            if (!window.confirm('حذف هذه المسودة؟')) return;
+            if (!(await confirmAction('حذف هذه المسودة؟'))) return;
             setDeletingId(r.id);
             try {
               await deleteDraftDocument(apiPath, r.id);

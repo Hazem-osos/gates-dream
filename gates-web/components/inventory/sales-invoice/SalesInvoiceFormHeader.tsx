@@ -8,6 +8,7 @@ import { CustomerSelect } from '@/components/form/PartySelect';
 import { DynamicModalSkeleton } from '@/components/ui/DynamicChunkSkeleton';
 import { WarehouseSelect } from '@/components/form/WarehouseSelect';
 import { CostCenterSelect } from '@/components/form/CostCenterSelect';
+import { SafeSelect } from '@/app/components/form/SafeSelect';
 import type { SalesInvoiceFormValues } from '@/lib/validation/inventory.schema';
 import { PRICING_CALCULATION_BASIS_LABELS } from '@/lib/invoices/unit-conversion';
 import { toHijriDate } from '@/lib/hijri-date';
@@ -288,18 +289,21 @@ export function SalesInvoiceFormHeader({
                 الخزينة
                 {creditNeedsSafe ? <RequiredDot hint="الخزينة مطلوبة عند دفع مبلغ في الأول" /> : null}
               </label>
-              <select
-                className={`${erpInputClass} ${errors.advanceSafeId ? erpInputErrorClass : ''}`}
-                disabled={lockTreasury}
-                {...register('advanceSafeId')}
-              >
-                <option value="">اختر الخزينة</option>
-                {safes.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.arabicName ?? s.code ?? s.id}
-                  </option>
-                ))}
-              </select>
+              <Controller
+                name="advanceSafeId"
+                control={control}
+                render={({ field }) => (
+                  <SafeSelect
+                    value={field.value || ''}
+                    onChange={field.onChange}
+                    disabled={lockTreasury}
+                    safes={safes}
+                    placeholder="اختر الخزينة"
+                    emptyLabel="اختر الخزينة"
+                    className={errors.advanceSafeId ? erpInputErrorClass : undefined}
+                  />
+                )}
+              />
               <ErpFieldError message={errors.advanceSafeId?.message} show={!!errors.advanceSafeId?.message} />
             </div>
             <div>
@@ -334,18 +338,21 @@ export function SalesInvoiceFormHeader({
               الخزنة
               <RequiredDot hint="الخزنة مطلوبة في الفاتورة النقدية" />
             </label>
-            <select
-              className={`${erpInputClass} ${errors.treasuryId ? erpInputErrorClass : ''}`}
-              disabled={lockTreasury}
-              {...register('treasuryId')}
-            >
-              <option value="">اختر الخزنة</option>
-              {safes.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.arabicName ?? s.code ?? s.id}
-                </option>
-              ))}
-            </select>
+            <Controller
+              name="treasuryId"
+              control={control}
+              render={({ field }) => (
+                <SafeSelect
+                  value={field.value || ''}
+                  onChange={field.onChange}
+                  disabled={lockTreasury}
+                  safes={safes}
+                  placeholder="اختر الخزنة"
+                  emptyLabel="اختر الخزنة"
+                  className={errors.treasuryId ? erpInputErrorClass : undefined}
+                />
+              )}
+            />
             <ErpFieldError message={errors.treasuryId?.message} show={!!errors.treasuryId?.message} />
           </div>
         ) : null}

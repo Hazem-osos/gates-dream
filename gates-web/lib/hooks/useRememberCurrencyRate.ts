@@ -69,7 +69,7 @@ async function sendRate(currencyId: string, rate: number) {
     await apiClient.patch(
       `/accounting/currencies/${currencyId}/last-rate`,
       { exchangeRate: rate },
-      { skipErrorNotify: true }
+      { skipErrorNotify: true, skipSuccessNotify: true }
     );
     bumpMasterCatalog('currencies');
     if (queryClientRef) {

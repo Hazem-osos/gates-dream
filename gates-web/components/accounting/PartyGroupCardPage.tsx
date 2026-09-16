@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useState } from 'react';
 import { Users } from 'lucide-react';
 import {
   CompactFormField,
@@ -13,7 +13,7 @@ import { useApiQuery, useApiMutation, useInvalidateQuery } from '@/lib/hooks/use
 import { apiClient } from '@/lib/api/client';
 import ErrorToast from '@/components/ErrorToast';
 import type { ApiError } from '@/lib/api/types';
-import { nextNumericSerial } from '@/lib/masters/nextNumericSerial';
+import { confirmAction } from '@/lib/feedback/confirm';
 
 export type PartyGroupRow = {
   id: string;
@@ -78,15 +78,6 @@ export function PartyGroupCardPage({ kind }: { kind: Kind }) {
     isActive: true,
   });
   const rows = data?.data ?? [];
-  const nextCode = useMemo(
-    () => nextNumericSerial(rows.map((row) => row.code || row.legacyCode)),
-    [rows]
-  );
-
-  useEffect(() => {
-    if (selectedId) return;
-    setFormData((prev) => (prev.code ? prev : { ...prev, code: nextCode }));
-  }, [nextCode, selectedId]);
 
   const createMutation = useApiMutation<unknown, Record<string, unknown>>(config.api, 'POST', {
     onSuccess: () => {
@@ -116,6 +107,10 @@ export function PartyGroupCardPage({ kind }: { kind: Kind }) {
 
   const handleSave = () => {
     setError('');
+    if (!formData.code.trim()) {
+      setError('كود المجموعة مطلوب');
+      return;
+    }
     if (!formData.arabicName.trim()) {
       setError('اسم المجموعة مطلوب');
       return;
@@ -145,7 +140,7 @@ export function PartyGroupCardPage({ kind }: { kind: Kind }) {
 
   const handleDelete = async () => {
     if (!selectedId) return;
-    if (!window.confirm('هل تريد حذف هذه المجموعة؟ العملاء أو الموردين المرتبطين بها سيبقون بدون مجموعة.')) {
+    if (!(await confirmAction('هل تريد حذف هذه المجموعة؟ العملاء أو الموردين المرتبطين بها سيبقون بدون مجموعة.'))) {
       return;
     }
     setDeleting(true);
@@ -216,9 +211,10 @@ export function PartyGroupCardPage({ kind }: { kind: Kind }) {
       >
         <CompactFormField
           label="كود المجموعة"
+          required
           value={formData.code}
-          disabled
-          placeholder="تلقائي"
+          onChange={(e) => setFormData((prev) => ({ ...prev, code: e.target.value }))}
+          placeholder="إدخل كود المجموعة"
         />
         <CompactFormField
           label="اسم المجموعة"

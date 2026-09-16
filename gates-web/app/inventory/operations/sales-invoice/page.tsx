@@ -24,6 +24,7 @@ import {
 import type { SalesInvoiceDetail } from '@/lib/inventory/transaction-types';
 import { resolveUnitPrice, type PriceTier } from '@/lib/inventory/pricing-engine';
 import { toast, toastInvoiceSaveError, toastVersionConflict } from '@/lib/feedback/toast';
+import { confirmAction } from '@/lib/feedback/confirm';
 import { dispatchAcademyTrigger } from '@/lib/onboarding/tourCheckpoints';
 import { AutoSaveStatusIndicator } from '@/components/feedback/AutoSaveStatusIndicator';
 import {
@@ -1557,14 +1558,14 @@ function SalesInvoicePageInner() {
   );
 
   // Handle delete
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!selectedInvoiceId) {
       toast.error('يرجى اختيار فاتورة أولاً');
       return;
     }
     if (financialBusy) return;
 
-    if (window.confirm('هل أنت متأكد من حذف هذه الفاتورة؟')) {
+    if (await confirmAction('هل أنت متأكد من حذف هذه الفاتورة؟')) {
       invoiceDeleteMutation.mutate({});
     }
   };

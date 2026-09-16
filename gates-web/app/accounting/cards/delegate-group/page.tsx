@@ -1,7 +1,8 @@
 'use client';
 
 import { useBackendReachability } from '@/lib/hooks/useBackendReachability';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
+import { confirmAction } from '@/lib/feedback/confirm';
 import { Users } from 'lucide-react';
 import {
   CompactFormField,
@@ -12,7 +13,6 @@ import {
 import { DocumentBrowseDrawer, MasterCardShell } from '@/components/erp';
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
-import { nextNumericSerial } from '@/lib/masters/nextNumericSerial';
 
 const EMPTY_FORM = {
   serial: '',
@@ -39,23 +39,20 @@ export default function DelegateGroupPage() {
   const [success, setSuccess] = useState('');
   const [saving, setSaving] = useState(false);
   const [showGuide, setShowGuide] = useState(false);
-  const storedSerials = useMemo(() => {
-    return readStoredGroups().map((row) => row.serial);
-  }, [success]);
-  const nextSerial = nextNumericSerial(storedSerials);
   const rows = useMemo(() => readStoredGroups(), [success, saving]);
 
-  useEffect(() => {
-    setFormData((prev) => (prev.serial ? prev : { ...prev, serial: nextSerial }));
-  }, [nextSerial]);
-
   const handleNew = () => {
-    setFormData({ ...EMPTY_FORM, serial: nextSerial });
+    setFormData({ ...EMPTY_FORM });
     setError('');
     setSuccess('');
   };
 
   const handleSave = () => {
+    if (!formData.serial.trim()) {
+      setSuccess('');
+      setError('أدخل كود المجموعة قبل الحفظ');
+      return;
+    }
     if (!formData.arabicName.trim()) {
       setSuccess('');
       setError('أدخل الاسم العربي لمجموعة المندوبين قبل الحفظ');
@@ -79,8 +76,9 @@ export default function DelegateGroupPage() {
     }
   };
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!formData.serial) return;
+    if (!(await confirmAction(`حذف المجموعة «${formData.arabicName || formData.serial}»؟`))) return;
     const next = readStoredGroups().filter((row) => row.serial !== formData.serial);
     window.localStorage.setItem('gates:delegate-groups', JSON.stringify(next));
     handleNew();
@@ -110,7 +108,13 @@ export default function DelegateGroupPage() {
     >
       <form className="w-full text-base">
         <FormSectionCard title="البيانات الأساسية" subtitle="الحقول اللازمة لتعريف مجموعة المندوبين" icon={Users}>
-          <CompactFormField label="المسلسل" value={formData.serial} disabled placeholder="تلقائي" />
+          <CompactFormField
+            label="الكود"
+            required
+            value={formData.serial}
+            onChange={(e) => setFormData((prev) => ({ ...prev, serial: e.target.value }))}
+            placeholder="إدخل الكود"
+          />
           <CompactFormField
             label="الإسم العربي"
             value={formData.arabicName}
@@ -148,7 +152,7 @@ export default function DelegateGroupPage() {
             setShowGuide(false);
           }}
           columns={[
-            { id: 'serial', header: 'المسلسل', accessor: 'serial' },
+            { id: 'serial', header: 'الكود', accessor: 'serial' },
             { id: 'name', header: 'الاسم', accessor: 'arabicName' },
           ]}
         />

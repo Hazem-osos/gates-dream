@@ -210,7 +210,8 @@ export class CustomerCategoryService {
         where: { companyId, isActive: true },
         select: { legacyCode: true },
       });
-      const legacyCode = nextNumericCode(existing.map((row) => row.legacyCode));
+      const legacyCode =
+        data.legacyCode?.trim() || nextNumericCode(existing.map((row) => row.legacyCode));
       const row = await prisma.customerCategory.create({
         data: { companyId, legacyCode, arabicName: data.arabicName, englishName: data.englishName },
       });
@@ -259,7 +260,8 @@ export class SupplierCategoryService {
         where: { companyId, isActive: true },
         select: { legacyCode: true },
       });
-      const legacyCode = nextNumericCode(existing.map((row) => row.legacyCode));
+      const legacyCode =
+        data.legacyCode?.trim() || nextNumericCode(existing.map((row) => row.legacyCode));
       const row = await prisma.supplierCategory.create({
         data: { companyId, legacyCode, arabicName: data.arabicName, englishName: data.englishName },
       });

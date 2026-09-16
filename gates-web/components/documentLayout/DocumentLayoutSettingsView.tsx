@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { apiClient } from '@/lib/api/client';
+import { confirmAction } from '@/lib/feedback/confirm';
 import { useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
 import { DocumentLayoutConfigurator } from '@/components/documentLayout/DocumentLayoutConfigurator';
 import { DEFAULT_DOCUMENT_LAYOUT_CONFIG, cloneDefaultConfig } from '@/lib/documentLayout/defaults';
@@ -96,7 +97,7 @@ export function DocumentLayoutSettingsView() {
 
   const handleDelete = async () => {
     if (!config.id) return;
-    if (!window.confirm(`حذف الشكل «${layoutDisplayName(config)}»؟`)) return;
+    if (!(await confirmAction(`حذف الشكل «${layoutDisplayName(config)}»؟`))) return;
     try {
       await apiClient.delete(`/document-layout-configs/${config.id}`);
       setToast({ kind: 'success', message: 'تم حذف الشكل' });

@@ -8,6 +8,7 @@ import { useOwnTabSearchParams } from '@/lib/navigation/tab-route-lock';
 import { Receipt } from 'lucide-react';
 import { Button } from '@/components/ui';
 import { toast } from '@/lib/feedback/toast';
+import { confirmAction } from '@/lib/feedback/confirm';
 import { deleteDraftDocument } from '@/lib/documents/deleteDraftDocument';
 import { printOperationalDocument } from '@/lib/print/printOperationalDocument';
 import { ErpDocumentLayout } from '@/components/erp/ErpDocumentLayout';
@@ -622,7 +623,7 @@ export function SalesOrderForm() {
                       size="sm"
                       variant="danger"
                       onClick={async () => {
-                        if (!window.confirm('حذف هذه المسودة؟')) return;
+                        if (!(await confirmAction('حذف هذه المسودة؟'))) return;
                         try {
                           await deleteDraftDocument('/invoices', row.id);
                           toast.success('تم حذف المسودة');

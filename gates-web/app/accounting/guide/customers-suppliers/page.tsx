@@ -9,8 +9,11 @@ import { groupAsFolders, type GuideTreeNode } from '@/lib/accounting/buildGuideT
 import { useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
 import { apiClient } from '@/lib/api/client';
 import { toast } from '@/lib/feedback/toast';
+import { confirmAction } from '@/lib/feedback/confirm';
 import { useAppTabs } from '@/app/components/AppTabsContext';
 import type { PartyGroupRow } from '@/components/accounting/PartyGroupCardPage';
+import { PartyGuideAddDialog, type PartyGuideAddChoice } from '@/components/accounting/PartyGuideAddDialog';
+import { PartyGroupModal, type PartyGroupKind } from '@/components/accounting/PartyGroupModal';
 
 type PartyKind = 'customers' | 'suppliers';
 
@@ -38,6 +41,10 @@ export default function CustomersSuppliersGuidePage() {
   const [search, setSearch] = useState('');
   const [expandToken, setExpandToken] = useState(0);
   const [collapseToken, setCollapseToken] = useState(0);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [groupModalKind, setGroupModalKind] = useState<PartyGroupKind | null>(null);
+  const [editGroup, setEditGroup] = useState<{ id: string; code: string; arabicName: string } | null>(null);
+  const [addParentGroupId, setAddParentGroupId] = useState('');
 
   const isCustomers = partyKind === 'customers';
   const partiesPath = isCustomers ? '/accounting/customers' : '/accounting/suppliers';
@@ -107,28 +114,75 @@ export default function CustomersSuppliersGuidePage() {
     router.push(href);
   };
 
-  const openCreate = (parent?: GuideTreeNode) => {
-    const groupId = parent?.synthetic ? parent.groupKey ?? '' : '';
+  const openPersonCard = (kind: 'customer' | 'supplier' | 'delegate', groupId?: string) => {
+    const path =
+      kind === 'customer'
+        ? '/accounting/cards/customer'
+        : kind === 'supplier'
+          ? '/accounting/cards/supplier'
+          : '/accounting/cards/delegate';
     const qs = new URLSearchParams();
-    if (groupId) qs.set('categoryId', groupId);
-    openCard(qs.size ? `${cardPath}?${qs.toString()}` : cardPath);
+    if (groupId && kind !== 'delegate') qs.set('categoryId', groupId);
+    if (groupId && kind === 'delegate') qs.set('groupId', groupId);
+    openCard(qs.size ? `${path}?${qs.toString()}` : path);
+  };
+
+  const startAdd = (parent?: GuideTreeNode) => {
+    const groupId = parent?.folder || parent?.synthetic ? parent.groupKey ?? '' : '';
+    setAddParentGroupId(groupId);
+    if (parent?.folder && groupId) {
+      openPersonCard(isCustomers ? 'customer' : 'supplier', groupId);
+      return;
+    }
+    setPickerOpen(true);
+  };
+
+  const handlePick = (choice: PartyGuideAddChoice) => {
+    setPickerOpen(false);
+    if (choice === 'customer') {
+      openPersonCard('customer', isCustomers ? addParentGroupId : '');
+      return;
+    }
+    if (choice === 'supplier') {
+      openPersonCard('supplier', !isCustomers ? addParentGroupId : '');
+      return;
+    }
+    if (choice === 'delegate') {
+      openPersonCard('delegate');
+      return;
+    }
+    setEditGroup(null);
+    setGroupModalKind(choice === 'supplier-group' ? 'supplier' : 'customer');
   };
 
   const openEdit = (node: GuideTreeNode) => {
-    if (node.folder || node.synthetic) return;
+    if (node.id === 'group:ungrouped') return;
+    if (node.folder || node.synthetic) {
+      setEditGroup({
+        id: node.groupKey || node.id.replace(/^group:/, ''),
+        code: node.code === '—' ? '' : node.code,
+        arabicName: node.name,
+      });
+      setGroupModalKind(isCustomers ? 'customer' : 'supplier');
+      return;
+    }
     openCard(`${cardPath}?id=${encodeURIComponent(node.id)}`);
   };
 
   const handleDelete = async (node: GuideTreeNode) => {
-    if (node.folder || node.synthetic) return;
-    if (!window.confirm(`حذف «${node.name}»؟`)) return;
+    if (node.id === 'group:ungrouped') return;
+    if (!(await confirmAction(`حذف «${node.name}»؟`))) return;
+    const isGroup = Boolean(node.folder || node.synthetic);
+    const id = isGroup ? node.groupKey || node.id.replace(/^group:/, '') : node.id;
+    const path = isGroup ? `${groupsPath}/${id}` : `${partiesPath}/${id}`;
     try {
-      await apiClient.delete(`${partiesPath}/${node.id}`);
-      toast.success(`تم حذف ال${noun}`);
+      await apiClient.delete(path);
+      toast.success(isGroup ? 'تم حذف المجموعة' : `تم حذف ال${noun}`);
       invalidate([partyKind]);
+      invalidate([isCustomers ? 'customer-categories' : 'supplier-categories']);
       void refetch();
     } catch (e) {
-      toast.error(`تعذّر حذف ال${noun}`, {
+      toast.error(isGroup ? 'تعذّر حذف المجموعة' : `تعذّر حذف ال${noun}`, {
         description: e instanceof Error ? e.message : 'حدّث الدليل ثم أعد المحاولة.',
       });
     }
@@ -156,7 +210,7 @@ export default function CustomersSuppliersGuidePage() {
       />
 
       <div className="mt-2 flex items-center gap-2">
-        <Button type="button" variant="secondary" size="sm" onClick={() => openCreate()}>
+        <Button type="button" variant="secondary" size="sm" onClick={() => startAdd()}>
           + إضافة
         </Button>
         <FilterToolbar
@@ -200,13 +254,39 @@ export default function CustomersSuppliersGuidePage() {
             expandAllToken={expandToken}
             collapseAllToken={collapseToken}
             childNoun={isCustomers ? 'عملاء' : 'موردين'}
-            onAddChild={openCreate}
+            onAddChild={startAdd}
             canAddChild={(n) => Boolean(n.folder || n.synthetic)}
             onEdit={openEdit}
             onDelete={(n) => void handleDelete(n)}
           />
         )}
       </div>
+
+      <PartyGuideAddDialog
+        open={pickerOpen}
+        currentKind={partyKind}
+        onPick={handlePick}
+        onClose={() => setPickerOpen(false)}
+      />
+      {groupModalKind ? (
+        <PartyGroupModal
+          open
+          kind={groupModalKind}
+          initial={editGroup}
+          onClose={() => {
+            setGroupModalKind(null);
+            setEditGroup(null);
+          }}
+          onSaved={() => {
+            toast.success(editGroup ? 'تم تحديث المجموعة' : 'تم حفظ المجموعة');
+            setPartyKind(groupModalKind === 'supplier' ? 'suppliers' : 'customers');
+            invalidate(['customer-categories']);
+            invalidate(['supplier-categories']);
+            void refetch();
+          }}
+          onError={(msg) => toast.error(msg)}
+        />
+      ) : null}
     </ErpDocumentLayout>
   );
 }

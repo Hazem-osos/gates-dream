@@ -48,6 +48,7 @@ import { useDraftAutosave } from '@/lib/hooks/useDraftAutosave';
 import { onFieldErrors } from '@/lib/forms/on-field-errors';
 import { resolveJournalSourceKind, type JournalSourceType } from '@/lib/accounting/journal-source';
 import { pickCurrencyByCode, rateForCurrency, toBaseAmount } from '@/lib/accounting/fx-base';
+import { costCenterRuleFromAccount } from '@/lib/accounting/cost-center-rule';
 import { useCompanyBaseCurrency } from '@/lib/hooks/useCompanyBaseCurrency';
 import { DocumentCurrencyRateFields } from '@/components/accounting/DocumentCurrencyRateFields';
 import { ShowFxColumnsField } from '@/components/accounting/ShowFxColumnsField';
@@ -612,6 +613,18 @@ function CreateJournalEntryFormInner() {
     if (financialBusy) return;
     setError('');
     setSuccess('');
+    for (const [index, line] of data.lines.entries()) {
+      const account = accounts.find((a) => a.id === line.accountId);
+      const rule = costCenterRuleFromAccount(account);
+      if (rule === 'required' && !line.costCenterId) {
+        setError(`مركز التكلفة إجباري في السطر ${index + 1}${account?.code ? ` (${account.code})` : ''}`);
+        return;
+      }
+      if (rule === 'none' && line.costCenterId) {
+        setError(`الحساب ${account?.code ?? index + 1} مربوط بدون مركز تكلفة — امسح المركز من السطر`);
+        return;
+      }
+    }
     const headerCurrency = currencies.find((c) => c.id === data.currencyId);
     const currencyCode = headerCurrency?.code ?? companyBaseCurrency;
     const requestBody: JournalEntryApiBody = {

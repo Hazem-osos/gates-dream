@@ -14,6 +14,7 @@ import { CoaEmptyState } from '@/components/accounting/chart-of-accounts/CoaEmpt
 import { ChildAccountKindDialog } from '@/components/accounting/chart-of-accounts/ChildAccountKindDialog';
 import { DynamicModalSkeleton } from '@/components/ui/DynamicChunkSkeleton';
 import { toast } from '@/lib/feedback/toast';
+import { confirmAction } from '@/lib/feedback/confirm';
 import { NumberingModeControl } from '@/components/accounting/NumberingModeControl';
 
 const AccountFormModal = dynamic(
@@ -122,7 +123,7 @@ export default function ChartOfAccountsPage() {
   };
 
   const confirmDelete = async (node: CoaHierarchyAccount) => {
-    const ok = window.confirm(`حذف الحساب ${node.code} — ${node.arabicName ?? node.nameAr}؟`);
+    const ok = await confirmAction(`حذف الحساب ${node.code} — ${node.arabicName ?? node.nameAr}؟`);
     if (!ok) return;
     try {
       await deleteMut.mutateAsync({ id: node.id });

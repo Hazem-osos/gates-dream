@@ -12,6 +12,7 @@ import { pickDefaultSafeId } from '@/lib/hooks/useMasterDataQueries';
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
 import { toastVersionConflict } from '@/lib/feedback/toast';
+import { confirmAction } from '@/lib/feedback/confirm';
 import { firstPartyPhone } from '@/lib/whatsapp-share';
 import { inventorySupplierInvoiceFormSchema } from '@/lib/validation/inventory.schema';
 import { mapSalesFormToM5CreateBody, mapSalesFormToM5UpdateBody } from '@/lib/invoices/mapFormToM5Invoice';
@@ -893,7 +894,9 @@ function FinalPurchaseInvoicePageInner() {
         }}
         onDelete={() => {
           if (financialBusy) return;
-          if (window.confirm('حذف الفاتورة؟')) invoiceDeleteMutation.mutate({});
+          void confirmAction('حذف الفاتورة؟').then((ok) => {
+            if (ok) invoiceDeleteMutation.mutate({});
+          });
         }}
         onOpenJournal={() => {
           if (selectedInvoiceId) {

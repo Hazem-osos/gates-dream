@@ -1,13 +1,14 @@
 'use client';
 
-import React, { useEffect, useMemo, useState } from 'react';
-import { Truck } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Printer, Truck } from 'lucide-react';
 import TaxInfoOverlay from '@/components/TaxInfoOverlay';
 import { PartiesListSection, type PartyRow } from '@/app/components/accounting/PartiesListSection';
 import {
   CompactFormField,
   FormSectionCard,
   compactControlClass,
+  Button,
 } from '@/components/ui';
 import { useOwnTabSearchParams } from '@/lib/navigation/tab-route-lock';
 import { DocumentBrowseDrawer } from '@/components/erp/DocumentBrowseDrawer';
@@ -18,7 +19,10 @@ import { ClientMountGate } from '@/lib/hooks/useClientMounted';
 import { apiClient } from '@/lib/api/client';
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
-import { bumpTrailingCode, isCodeAfter, nextNumericSerial } from '@/lib/masters/nextNumericSerial';
+import { confirmAction } from '@/lib/feedback/confirm';
+import { toast } from '@/lib/feedback/toast';
+import { printPageContent } from '@/lib/print/printHtml';
+import { PartyGroupSelectField } from '@/components/accounting/PartyGroupSelectField';
 import { entityLabel } from '@/lib/quick-create/catalog';
 import { useQuickCreateHost } from '@/lib/quick-create/useQuickCreateTab';
 
@@ -154,27 +158,6 @@ function SupplierPageInner() {
   });
   const supplierCategories = categoriesResponse?.data || [];
 
-  const { data: suppliersListResponse } = useApiQuery<{ serial?: string; code?: string }[]>(
-    ['suppliers'],
-    '/accounting/suppliers',
-    { limit: 1000, isActive: true }
-  );
-  const nextPartyCode = useMemo(
-    () =>
-      nextNumericSerial((suppliersListResponse?.data ?? []).flatMap((row) => [row.serial, row.code])),
-    [suppliersListResponse?.data]
-  );
-
-  useEffect(() => {
-    if (selectedId) return;
-    setFormData((prev) => {
-      const current = prev.serial || prev.code;
-      if (current && isCodeAfter(current, nextPartyCode)) return prev;
-      if (prev.serial === nextPartyCode && prev.code === nextPartyCode) return prev;
-      return { ...prev, serial: nextPartyCode, code: nextPartyCode };
-    });
-  }, [nextPartyCode, selectedId]);
-
   useEffect(() => {
     if (selectedId || !categoryFromUrl) return;
     setFormData((prev) =>
@@ -196,11 +179,10 @@ function SupplierPageInner() {
   }, [idFromUrl]);
 
   const blankForm = (
-    serial = nextPartyCode,
     categoryId = formData.supplierCategoryId || categoryFromUrl || ''
   ) => ({
-    serial,
-    code: serial,
+    serial: '',
+    code: '',
     arabicName: '',
     englishName: '',
     supplierType: 'company' as const,
@@ -251,37 +233,37 @@ function SupplierPageInner() {
   };
 
   const payload = () => ({
-    serial: formData.serial || undefined,
-    code: formData.code || undefined,
-    arabicName: formData.arabicName,
-    englishName: formData.englishName || undefined,
+    serial: formData.serial.trim() || undefined,
+    code: formData.code.trim() || undefined,
+    arabicName: formData.arabicName.trim(),
+    englishName: formData.englishName.trim() || undefined,
     supplierType: formData.supplierType,
     how: formData.how,
-    nationality: formData.nationality || undefined,
+    nationality: formData.nationality.trim() || undefined,
     taxData: formData.taxData,
-    taxAuthority: formData.taxAuthority || undefined,
-    taxAuthorityName: formData.taxAuthorityName || undefined,
-    phone1: formData.phone1 || undefined,
-    phone2: formData.phone2 || undefined,
-    mobile: formData.mobile || undefined,
-    fax: formData.fax || undefined,
-    email: formData.email || undefined,
-    website: formData.website || undefined,
-    country: formData.country || undefined,
-    city: formData.city || undefined,
-    area: formData.area || undefined,
-    street: formData.street || undefined,
-    postalCode: formData.postalCode || undefined,
-    poBox: formData.poBox || undefined,
+    taxAuthority: formData.taxAuthority.trim() || undefined,
+    taxAuthorityName: formData.taxAuthorityName.trim() || undefined,
+    phone1: formData.phone1.trim() || undefined,
+    phone2: formData.phone2.trim() || undefined,
+    mobile: formData.mobile.trim() || undefined,
+    fax: formData.fax.trim() || undefined,
+    email: formData.email.trim() || undefined,
+    website: formData.website.trim() || undefined,
+    country: formData.country.trim() || undefined,
+    city: formData.city.trim() || undefined,
+    area: formData.area.trim() || undefined,
+    street: formData.street.trim() || undefined,
+    postalCode: formData.postalCode.trim() || undefined,
+    poBox: formData.poBox.trim() || undefined,
     mainAccountId: formData.mainAccountId || undefined,
     accountId: formData.accountId || undefined,
     transactionType: formData.transactionType || undefined,
     warning: formData.warning || undefined,
     estimatedBudget: formData.estimatedBudget ? parseFloat(formData.estimatedBudget) : undefined,
     currencyCode: formData.currencyCode || undefined,
-    fileNumber: formData.fileNumber || undefined,
-    registrationNumber: formData.registrationNumber || undefined,
-    financier: formData.financier || undefined,
+    fileNumber: formData.fileNumber.trim() || undefined,
+    registrationNumber: formData.registrationNumber.trim() || undefined,
+    financier: formData.financier.trim() || undefined,
     discountType: formData.discountType || undefined,
     supplierCategoryId: formData.supplierCategoryId || undefined,
   });
@@ -340,8 +322,16 @@ function SupplierPageInner() {
   };
 
   const handleSave = async () => {
-    if (!formData.arabicName) {
+    const code = formData.code.trim();
+    const arabicName = formData.arabicName.trim();
+    if (!code) {
+      setError('يرجى إدخال الكود');
+      toast.error('يرجى إدخال الكود');
+      return;
+    }
+    if (!arabicName) {
       setError('يرجى إدخال الإسم العربي');
+      toast.error('يرجى إدخال الإسم العربي');
       return;
     }
 
@@ -352,6 +342,7 @@ function SupplierPageInner() {
         const res = await apiClient.put<SupplierRecord>(`/accounting/suppliers/${selectedId}`, payload());
         if (res.data) hydrate(res.data);
         setSuccess('تم تحديث المورد');
+        toast.success('تم حفظ المورد');
       } else {
         const createdRes = await apiClient.post<SupplierRecord>('/accounting/suppliers', payload());
         const created = createdRes.data;
@@ -363,18 +354,20 @@ function SupplierPageInner() {
             code: created.code,
             accountId: created.accountId,
           });
+          hydrate(created);
         }
-        setSuccess('تم حفظ المورد بنجاح — تقدر تضيف التالي');
-        setFormData(blankForm(bumpTrailingCode(formData.serial) || nextPartyCode));
-        setIsTaxInfoChecked(false);
-        setSelectedId(null);
-        setMode('create');
+        setSuccess('تم حفظ المورد');
+        toast.success('تم حفظ المورد');
       }
       invalidateQuery(['suppliers']);
+      invalidateQuery(['suppliers', 'guide']);
+      invalidateQuery(['supplier-categories']);
       invalidateQuery(['accounts']);
       invalidateQuery(['chart-of-accounts']);
     } catch (error: unknown) {
-      setError(error instanceof Error ? error.message : 'حدث خطأ أثناء الحفظ');
+      const message = error instanceof Error ? error.message : 'حدث خطأ أثناء الحفظ';
+      setError(message);
+      toast.error(message);
     } finally {
       setSaving(false);
     }
@@ -391,7 +384,7 @@ function SupplierPageInner() {
 
   const handleDelete = async () => {
     if (!selectedId) return;
-    if (!window.confirm('حذف بطاقة المورد الحالية؟')) return;
+    if (!(await confirmAction('حذف بطاقة المورد الحالية؟'))) return;
     setError('');
     try {
       await apiClient.delete(`/accounting/suppliers/${selectedId}`);
@@ -423,8 +416,20 @@ function SupplierPageInner() {
         saveLabel="حفظ"
         onSaveDraft={() => void handleSave()}
         savePending={saving}
-        canSave={!isReadOnly && !saving}
+        canSave={(!selectedId || !isReadOnly) && !saving}
         hideStandalonePost
+        extraActions={
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            className="gap-1.5"
+            onClick={() => void printPageContent('بطاقة مورد')}
+          >
+            <Printer className="h-3.5 w-3.5" />
+            طباعة
+          </Button>
+        }
         onEdit={() => {
           if (!selectedId) return;
           unlockForEdit();
@@ -455,20 +460,29 @@ function SupplierPageInner() {
           </div>
         }
       >
-        <form autoComplete="off" data-1p-ignore data-lpignore="true">
-          <fieldset disabled={isReadOnly} className="min-w-0 border-0 p-0">
+        <form
+          autoComplete="off"
+          data-1p-ignore
+          data-lpignore="true"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void handleSave();
+          }}
+        >
+          <fieldset disabled={Boolean(selectedId) && isReadOnly} className="min-w-0 border-0 p-0">
           <FormSectionCard title="البيانات الأساسية" subtitle="الحقول اللازمة لتعريف المورد" icon={Truck}>
             <CompactFormField
               label="المسلسل"
               value={formData.serial}
-              disabled
-              placeholder="تلقائي"
+              onChange={(e) => setFormData((prev) => ({ ...prev, serial: e.target.value }))}
+              placeholder="إدخل المسلسل"
             />
             <CompactFormField
               label="الكود"
+              required
               value={formData.code}
-              disabled
-              placeholder="تلقائي"
+              onChange={(e) => setFormData((prev) => ({ ...prev, code: e.target.value }))}
+              placeholder="إدخل الكود"
             />
             <CompactFormField
               label="الإسم العربي"
@@ -483,20 +497,14 @@ function SupplierPageInner() {
               onChange={(e) => setFormData((prev) => ({ ...prev, phone1: e.target.value }))}
               placeholder="إدخل رقم الهاتف"
             />
-            <CompactFormField label="مجموعة المورد">
-              <select
-                className={compactControlClass}
-                value={formData.supplierCategoryId}
-                onChange={(e) => setFormData((prev) => ({ ...prev, supplierCategoryId: e.target.value }))}
-              >
-                <option value="">بدون مجموعة</option>
-                {supplierCategories.map((cat) => (
-                  <option key={cat.id} value={cat.id}>
-                    {cat.code ? `${cat.code} — ${cat.arabicName}` : cat.arabicName}
-                  </option>
-                ))}
-              </select>
-            </CompactFormField>
+            <PartyGroupSelectField
+              kind="supplier"
+              label="مجموعة المورد"
+              value={formData.supplierCategoryId}
+              options={supplierCategories}
+              onChange={(id) => setFormData((prev) => ({ ...prev, supplierCategoryId: id }))}
+              onCreated={() => invalidateQuery(['supplier-categories'])}
+            />
             <CompactFormField label="نوع المورد" className="sm:col-span-2">
               <div className="flex flex-wrap gap-2">
                 {[

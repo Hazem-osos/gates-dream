@@ -17,6 +17,7 @@ import {
   compactControlClass,
 } from '@/components/ui';
 import { useApiQuery, useApiMutation, useInvalidateQuery } from '@/lib/hooks/useApi';
+import { confirmAction } from '@/lib/feedback/confirm';
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
 import {
@@ -311,13 +312,13 @@ export default function AdjustmentPage() {
   };
 
   // Handle delete
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!selectedAdjustmentId) {
       setError('يرجى اختيار تسوية أولاً');
       return;
     }
 
-    if (window.confirm('هل أنت متأكد من حذف هذه التسوية؟')) {
+    if (await confirmAction('هل أنت متأكد من حذف هذه التسوية؟')) {
       adjustmentDeleteMutation.mutate({});
     }
   };

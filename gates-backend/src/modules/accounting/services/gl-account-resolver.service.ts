@@ -184,8 +184,7 @@ export class GlAccountResolver {
   }
 
   /**
-   * Accounts flagged `requiresCostCenter` must carry a cost center from the
-   * document header or the line itself.
+   * Account card drives the rule: بدون forbids a cost center, إجباري requires one.
    */
   async enforceCostCenters(
     db: Db,

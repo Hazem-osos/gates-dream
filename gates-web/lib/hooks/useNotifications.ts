@@ -90,13 +90,14 @@ export function useNotifications(limit = 20) {
     '/notifications/mark-all-read',
     'POST',
     {
+      showSuccessToast: false,
       onSuccess: () => invalidate(['notifications']),
     }
   );
 
   const markRead = useCallback(
     async (id: string) => {
-      await apiClient.patch(`/notifications/${id}/read`, {});
+      await apiClient.patch(`/notifications/${id}/read`, {}, { skipSuccessNotify: true });
       await queryClient.invalidateQueries({ queryKey: ['notifications'] });
     },
     [queryClient]

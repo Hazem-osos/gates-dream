@@ -54,9 +54,15 @@ export class DelegateService {
 
   async createDelegate(companyId: string, data: CreateDelegateInput) {
     try {
-      const serial = await this.nextDelegateCode(companyId);
-      const code = serial;
-      await this.assertUniqueDelegateCode(companyId, code);
+      const requestedSerial = data.serial?.trim();
+      const requestedCode = data.code?.trim();
+      const serial =
+        requestedSerial || requestedCode || (await this.nextDelegateCode(companyId));
+      const code = requestedCode || requestedSerial || serial;
+      await this.assertUniqueDelegateCode(companyId, serial);
+      if (code !== serial) {
+        await this.assertUniqueDelegateCode(companyId, code);
+      }
       const role = data.role ?? 'DELEGATE';
       const delegate = await prisma.delegate.create({
         data: {

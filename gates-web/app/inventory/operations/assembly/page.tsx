@@ -18,6 +18,7 @@ import {
 } from '@/components/inventory/assembly/assembly-line-types';
 import { useApiMutation, useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
 import { apiClient } from '@/lib/api/client';
+import { confirmAction } from '@/lib/feedback/confirm';
 import { toHijriDate } from '@/lib/hijri-date';
 import type { ApiError } from '@/lib/api/types';
 import { printPageContent } from '@/lib/print/printHtml';
@@ -269,7 +270,7 @@ function AssemblyPageInner() {
       return;
     }
     if (entered.length > 0) {
-      const ok = window.confirm(
+      const ok = await confirmAction(
         'سيتم إعادة احتساب وتعبئة مكونات الصنف وفقاً لشجرة المنتجات والكمية المحددة، متابعة؟'
       );
       if (!ok) return;

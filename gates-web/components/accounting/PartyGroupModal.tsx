@@ -5,25 +5,31 @@ import { CenteredOverlay } from '@/components/erp/CenteredOverlay';
 import { CompactFormField, FormStickyFooter } from '@/components/ui';
 import { apiClient } from '@/lib/api/client';
 
+export type PartyGroupKind = 'customer' | 'supplier';
+
+export type PartyGroupSaved = {
+  id: string;
+  code?: string | null;
+  legacyCode?: string | null;
+  arabicName: string;
+};
+
+const COPY: Record<PartyGroupKind, { title: string; api: string }> = {
+  customer: { title: 'مجموعة عملاء', api: '/accounting/customer-categories' },
+  supplier: { title: 'مجموعة موردين', api: '/accounting/supplier-categories' },
+};
+
 type Props = {
   open: boolean;
-  parentId?: string | null;
-  parentLabel?: string | null;
+  kind: PartyGroupKind;
   initial?: { id: string; code: string; arabicName: string } | null;
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: (row: PartyGroupSaved) => void;
   onError: (msg: string) => void;
 };
 
-export function DistributionGroupModal({
-  open,
-  parentId,
-  parentLabel,
-  initial,
-  onClose,
-  onSaved,
-  onError,
-}: Props) {
+export function PartyGroupModal({ open, kind, initial, onClose, onSaved, onError }: Props) {
+  const copy = COPY[kind];
   const [code, setCode] = useState('');
   const [arabicName, setArabicName] = useState('');
   const [saving, setSaving] = useState(false);
@@ -45,19 +51,12 @@ export function DistributionGroupModal({
     }
     setSaving(true);
     try {
-      const payload = {
-        role: 'GROUP' as const,
-        arabicName: arabicName.trim(),
-        serial: code.trim() || undefined,
-        code: code.trim() || undefined,
-        groupId: parentId || null,
-      };
-      if (initial?.id) {
-        await apiClient.put(`/accounting/delegates/${initial.id}`, payload);
-      } else {
-        await apiClient.post('/accounting/delegates', payload);
-      }
-      onSaved();
+      const payload = { code: code.trim(), arabicName: arabicName.trim() };
+      const res = initial?.id
+        ? await apiClient.put<PartyGroupSaved>(`${copy.api}/${initial.id}`, payload)
+        : await apiClient.post<PartyGroupSaved>(copy.api, payload);
+      if (!res.data?.id) throw new Error('تعذّر حفظ المجموعة');
+      onSaved(res.data);
       onClose();
     } catch (e) {
       onError(e instanceof Error ? e.message : 'تعذّر حفظ المجموعة');
@@ -67,15 +66,14 @@ export function DistributionGroupModal({
   };
 
   return (
-    <CenteredOverlay open={open} onClose={onClose} width="md" labelledBy="distribution-group-title">
+    <CenteredOverlay open={open} onClose={onClose} width="md" labelledBy="party-group-title">
       <div className="flex min-h-0 flex-col" dir="rtl">
         <div className="p-6 pb-2">
-          <h2 id="distribution-group-title" className="text-lg font-bold text-[#0E79AA]">
-            {initial ? 'تعديل مجموعة' : 'إضافة مجموعة'}
+          <h2 id="party-group-title" className="text-lg font-bold text-[#0E79AA]">
+            {initial ? `تعديل ${copy.title}` : `إضافة ${copy.title}`}
           </h2>
           <p className="mt-1 mb-4 text-sm text-slate-500">
-            {parentLabel ? `تحت «${parentLabel}» — ` : ''}
-            كود واسم فقط، زي الحساب الرئيسي. الأفراد بيتضافوا بعدين من + فرعي.
+            كود واسم فقط. المجموعة تظهر في شجرة العملاء أو الموردين، وتقدر تضيف تحتها أفراد.
           </p>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <CompactFormField
@@ -90,6 +88,7 @@ export function DistributionGroupModal({
               required
               value={arabicName}
               onChange={(e) => setArabicName(e.target.value)}
+              placeholder="إدخل اسم المجموعة"
             />
           </div>
         </div>

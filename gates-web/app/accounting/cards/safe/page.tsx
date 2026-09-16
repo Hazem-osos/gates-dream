@@ -1,8 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { Wallet } from 'lucide-react';
-import { CompactFormField, FormSectionCard } from '@/components/ui';
+import { useCallback, useEffect, useState } from 'react';
 import { MasterCardShell } from '@/components/erp';
 import { useApiMutation, useInvalidateQuery } from '@/lib/hooks/useApi';
 import ErrorToast from '@/components/ErrorToast';
@@ -11,6 +9,11 @@ import type { ApiError } from '@/lib/api/types';
 import { bumpTrailingCode } from '@/lib/masters/nextNumericSerial';
 import { entityLabel } from '@/lib/quick-create/catalog';
 import { useQuickCreateHost } from '@/lib/quick-create/useQuickCreateTab';
+import {
+  EMPTY_SAFE_CARD,
+  SafeCardFields,
+  type SafeCardValues,
+} from '@/components/accounting/SafeCardForm';
 
 type SafeRow = {
   id: string;
@@ -21,15 +24,18 @@ type SafeRow = {
 export default function SafeCardPage() {
   const invalidateQuery = useInvalidateQuery();
   const quickCreate = useQuickCreateHost('safe');
-  const [arabicName, setArabicName] = useState('');
-  const [code, setCode] = useState('');
+  const [values, setValues] = useState<SafeCardValues>({ ...EMPTY_SAFE_CARD });
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
   useEffect(() => {
     if (!quickCreate.prefillName) return;
-    setArabicName((prev) => prev || quickCreate.prefillName);
+    setValues((prev) => (prev.arabicName ? prev : { ...prev, arabicName: quickCreate.prefillName }));
   }, [quickCreate.prefillName]);
+
+  const patch = useCallback((next: Partial<SafeCardValues>) => {
+    setValues((prev) => ({ ...prev, ...next }));
+  }, []);
 
   const mutation = useApiMutation<SafeRow, Record<string, unknown>>('/accounting/safes', 'POST', {
     onSuccess: (res) => {
@@ -44,22 +50,32 @@ export default function SafeCardPage() {
       }
       invalidateQuery(['safes']);
       setSuccess('تم حفظ الخزنة — تقدر تضيف التالي');
-      setArabicName('');
-      setCode(bumpTrailingCode(created?.code ?? ''));
+      setValues((prev) => ({
+        ...EMPTY_SAFE_CARD,
+        parentAccountId: prev.parentAccountId,
+        currencyCode: prev.currencyCode,
+        code: bumpTrailingCode(created?.code ?? ''),
+      }));
     },
     onError: (err: ApiError) => setError(err.message || 'تعذر حفظ الخزنة'),
   });
 
   const handleSave = () => {
     setError('');
-    if (!arabicName.trim()) {
+    if (!values.arabicName.trim()) {
       setError('اسم الخزنة مطلوب');
       return;
     }
+    if (!values.parentAccountId) {
+      setError('اختَر الحساب الأب (النقدية)');
+      return;
+    }
     mutation.mutate({
-      arabicName: arabicName.trim(),
-      code: code.trim() || undefined,
-      currencyCode: 'EGP',
+      arabicName: values.arabicName.trim(),
+      code: values.code.trim() || undefined,
+      englishName: values.englishName.trim() || undefined,
+      currencyCode: values.currencyCode || 'EGP',
+      parentAccountId: values.parentAccountId,
     });
   };
 
@@ -71,7 +87,7 @@ export default function SafeCardPage() {
         { label: 'البطاقات' },
         { label: 'خزنة' },
       ]}
-      docNumber={code || 'جديد'}
+      docNumber={values.code || 'جديد'}
       statusLabel="جديد"
       onSave={handleSave}
       savePending={mutation.isPending}
@@ -80,16 +96,7 @@ export default function SafeCardPage() {
     >
       {error ? <ErrorToast message={error} onClose={() => setError('')} /> : null}
       {success ? <SuccessToast message={success} onClose={() => setSuccess('')} /> : null}
-      <FormSectionCard title="البيانات الأساسية" icon={Wallet}>
-        <CompactFormField
-          label="اسم الخزنة"
-          required
-          value={arabicName}
-          onChange={(e) => setArabicName(e.target.value)}
-          autoFocus
-        />
-        <CompactFormField label="الكود (اختياري)" value={code} onChange={(e) => setCode(e.target.value)} />
-      </FormSectionCard>
+      <SafeCardFields values={values} onChange={patch} />
     </MasterCardShell>
   );
 }

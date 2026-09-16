@@ -17,6 +17,7 @@ import {
 } from '@/lib/hooks/useRowDetailPrefetch';
 import { JournalSourceBadge } from '@/components/accounting/JournalSourceBadge';
 import { toast } from '@/lib/feedback/toast';
+import { confirmAction } from '@/lib/feedback/confirm';
 import { deleteDraftDocument } from '@/lib/documents/deleteDraftDocument';
 import { apiClient } from '@/lib/api/client';
 import { useQueryClient } from '@tanstack/react-query';
@@ -260,7 +261,7 @@ export function JournalEntriesListSection({
                     disabled={restoringId === r.id}
                     onClick={async (e) => {
                       e.stopPropagation();
-                      if (!window.confirm('استعادة هذا القيد الملغي وترحيله من جديد؟')) return;
+                      if (!(await confirmAction('استعادة هذا القيد الملغي وترحيله من جديد؟'))) return;
                       setRestoringId(r.id);
                       try {
                         await apiClient.post(`/accounting/journal-entries/${r.id}/restore`, {});
@@ -283,7 +284,7 @@ export function JournalEntriesListSection({
                     disabled={deletingId === r.id}
                     onClick={async (e) => {
                       e.stopPropagation();
-                      if (!window.confirm('حذف هذا القيد غير المرحّل؟')) return;
+                      if (!(await confirmAction('حذف هذا القيد غير المرحّل؟'))) return;
                       setDeletingId(r.id);
                       try {
                         await deleteDraftDocument('/accounting/journal-entries', r.id);

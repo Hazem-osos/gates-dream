@@ -1,7 +1,8 @@
 'use client';
 
 import { OrderStatusBadge, type OrderExecutionStatus } from '@/components/accounting/orders/OrderStatusBadge';
-import { erpInputClass, erpInputErrorClass, erpLabelClass } from '@/components/erp/erpUiTokens';
+import { erpInputErrorClass, erpLabelClass } from '@/components/erp/erpUiTokens';
+import { SafeSelect } from '@/app/components/form/SafeSelect';
 
 export type PaymentOrderSafeOption = {
   id: string;
@@ -41,19 +42,15 @@ export function PaymentOrderHeader({
     <div className="flex flex-wrap items-end gap-3">
       <div className="w-full max-w-[var(--erp-field-max,32rem)] min-w-0 space-y-1">
         <label className={erpLabelClass}>الخزينة</label>
-        <select
-          className={`${erpInputClass} ${error ? erpInputErrorClass : ''}`}
-          disabled={disabled}
+        <SafeSelect
           value={value}
-          onChange={(e) => onChange(e.target.value)}
-        >
-          <option value="">اختر الخزينة...</option>
-          {safes.map((safe) => (
-            <option key={safe.id} value={safe.id}>
-              {safe.arabicName || safe.englishName || safe.id}
-            </option>
-          ))}
-        </select>
+          onChange={onChange}
+          disabled={disabled}
+          safes={safes}
+          placeholder="اختر الخزينة..."
+          emptyLabel="اختر الخزينة..."
+          className={error ? erpInputErrorClass : undefined}
+        />
         {error && errorMessage ? <p className="text-xs text-rose-600">{errorMessage}</p> : null}
       </div>
       <OrderStatusBadge orderType="PAYMENT_ORDER" status={executionStatus} />

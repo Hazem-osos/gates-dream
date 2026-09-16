@@ -60,7 +60,7 @@ export function useAcademyProgressSync() {
             academyProgress: readAcademyProgress(),
           },
         };
-        apiClient.put(`/companies/${companyId}/settings`, body).catch(() => {
+        apiClient.put(`/companies/${companyId}/settings`, body, { skipSuccessNotify: true }).catch(() => {
           /* best-effort — localStorage cache stays authoritative offline */
         });
       }, 1500);

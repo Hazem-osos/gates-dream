@@ -10,6 +10,7 @@ import { buildParentTree, type GuideTreeNode } from '@/lib/accounting/buildGuide
 import { useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
 import { apiClient } from '@/lib/api/client';
 import { toast } from '@/lib/feedback/toast';
+import { confirmAction } from '@/lib/feedback/confirm';
 import { NumberingModeControl } from '@/components/accounting/NumberingModeControl';
 import { useAccountingSettingsQuery } from '@/lib/hooks/useAccountingSettings';
 import { bumpTrailingCode, isCodeAfter } from '@/lib/masters/nextNumericSerial';
@@ -166,7 +167,7 @@ export default function CostCentersGuidePage() {
   };
 
   const handleDelete = async (node: GuideTreeNode) => {
-    if (!window.confirm(`حذف مركز التكلفة ${node.code} — ${node.name}؟`)) return;
+    if (!(await confirmAction(`حذف مركز التكلفة ${node.code} — ${node.name}؟`))) return;
     try {
       await apiClient.delete(`/accounting/cost-centers/${node.id}`);
       toast.success('تم حذف مركز التكلفة');

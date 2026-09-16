@@ -12,6 +12,8 @@ import { ExchangeRateInput } from '@/components/accounting/ExchangeRateInput';
 import { useCompanyBaseCurrency } from '@/lib/hooks/useCompanyBaseCurrency';
 import type { JournalLineFormValues } from '@/lib/validation/accounting.schema';
 import { VoucherAccountCombobox } from '@/components/accounting/vouchers/VoucherAccountCombobox';
+import { costCenterRuleFromAccount } from '@/lib/accounting/cost-center-rule';
+import { useAccountsQuery } from '@/lib/hooks/useMasterDataQueries';
 
 export type JournalLineCurrency = {
   id: string;
@@ -76,6 +78,10 @@ export function JournalLinesTable({
     ? [...JOURNAL_LINE_FIELD_ORDER]
     : JOURNAL_LINE_FIELD_ORDER.filter((field) => field !== 'currency' && field !== 'rate');
   const { code: companyBase, label: companyBaseLabel } = useCompanyBaseCurrency();
+  const { data: accountsRes } = useAccountsQuery(undefined, 500, { leafOnly: true });
+  const accounts = accountsRes?.data ?? [];
+  const ruleFor = (accountId?: string) =>
+    costCenterRuleFromAccount(accounts.find((a) => a.id === accountId));
   const headerCurrency = currencies.find((c) => c.id === defaultCurrencyId);
   const headerRate = rateForCurrency(headerCurrency?.code, companyBase, headerCurrency?.exchangeRate);
   const blankLine = () => emptyLine(defaultCurrencyId, headerRate);
@@ -159,6 +165,7 @@ export function JournalLinesTable({
                   accountId: pick.accountId,
                   partnerId: pick.kind === 'ACCOUNT' ? undefined : pick.partyId,
                   partnerType: pick.kind === 'ACCOUNT' ? undefined : pick.kind,
+                  costCenterId: ruleFor(pick.accountId) === 'none' ? '' : line.costCenterId,
                   ...(pick.kind === 'ACCOUNT'
                     ? { isTiedToInvoice: false, invoiceId: null, invoiceNumber: null }
                     : {}),
@@ -298,11 +305,14 @@ export function JournalLinesTable({
           );
         }
         if (columnId === 'costCenter') {
+          const rule = ruleFor(line.accountId);
           return (
             <CostCenterSelect
-              value={line.costCenterId || ''}
+              value={rule === 'none' ? '' : line.costCenterId || ''}
               onChange={(id) => updateLine(index, { costCenterId: id })}
-              disabled={disabled}
+              disabled={disabled || rule === 'none'}
+              allowEmpty={rule !== 'required'}
+              emptyLabel={rule === 'none' ? 'بدون — الحساب لا يقبل مركز' : rule === 'required' ? 'مطلوب' : 'اختياري'}
               className={dataEntryGridInputClass}
               nativeSelectProps={keyHandlers(index, 'costCenter')}
             />

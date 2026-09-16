@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ChevronDown, ChevronLeft, CornerDownLeft, FileText, Folder, FolderOpen } from 'lucide-react';
+import { ChevronDown, ChevronLeft, CornerDownLeft, Eye, FileText, Folder, FolderOpen } from 'lucide-react';
 import {
   collectExpandableIds,
   filterGuideTree,
@@ -36,6 +36,7 @@ function GuideTreeRow({
   onToggle,
   onAddChild,
   canAddChild,
+  onView,
   onEdit,
   onDelete,
 }: {
@@ -49,6 +50,7 @@ function GuideTreeRow({
   onToggle: () => void;
   onAddChild?: (n: GuideTreeNode) => void;
   canAddChild?: (n: GuideTreeNode) => boolean;
+  onView?: (n: GuideTreeNode) => void;
   onEdit?: (n: GuideTreeNode) => void;
   onDelete?: (n: GuideTreeNode) => void;
 }) {
@@ -122,27 +124,40 @@ function GuideTreeRow({
         ) : null}
       </div>
 
-      <div className="z-[1] ms-auto flex shrink-0 items-center gap-1 pl-2 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
-        {onAddChild && (canAddChild?.(node) ?? true) ? (
+      <div className="z-[1] ms-auto flex shrink-0 items-center gap-1 pl-2">
+        {onView && !isFolder && !node.synthetic ? (
           <button
             type="button"
-            title={`إضافة ${childNoun}`}
-            className="whitespace-nowrap rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] text-[#0E79AA] shadow-sm hover:bg-[#0E79AA]/10"
-            onClick={() => onAddChild(node)}
+            title="عرض البيانات"
+            aria-label="عرض البيانات"
+            className="rounded-md p-1.5 text-[#0E79AA] hover:bg-[#0E79AA]/10"
+            onClick={() => onView(node)}
           >
-            + فرعي
+            <Eye className="h-4 w-4" />
           </button>
         ) : null}
-        {onEdit && !node.synthetic ? (
-          <button type="button" title="تعديل" className="rounded-md p-1.5 hover:bg-slate-100" onClick={() => onEdit(node)}>
-            ✏️
-          </button>
-        ) : null}
-        {onDelete && !node.synthetic ? (
-          <button type="button" title="حذف" className="rounded-md p-1.5 hover:bg-red-50" onClick={() => onDelete(node)}>
-            🗑️
-          </button>
-        ) : null}
+        <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+          {onAddChild && (canAddChild?.(node) ?? true) ? (
+            <button
+              type="button"
+              title={`إضافة ${childNoun}`}
+              className="whitespace-nowrap rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] text-[#0E79AA] shadow-sm hover:bg-[#0E79AA]/10"
+              onClick={() => onAddChild(node)}
+            >
+              + فرعي
+            </button>
+          ) : null}
+          {onEdit && !node.synthetic ? (
+            <button type="button" title="تعديل" className="rounded-md p-1.5 hover:bg-slate-100" onClick={() => onEdit(node)}>
+              ✏️
+            </button>
+          ) : null}
+          {onDelete && !node.synthetic ? (
+            <button type="button" title="حذف" className="rounded-md p-1.5 hover:bg-red-50" onClick={() => onDelete(node)}>
+              🗑️
+            </button>
+          ) : null}
+        </div>
       </div>
     </div>
   );
@@ -159,6 +174,7 @@ function Branch({
   isLastSibling,
   onAddChild,
   canAddChild,
+  onView,
   onEdit,
   onDelete,
 }: {
@@ -172,6 +188,7 @@ function Branch({
   isLastSibling?: boolean;
   onAddChild?: (n: GuideTreeNode) => void;
   canAddChild?: (n: GuideTreeNode) => boolean;
+  onView?: (n: GuideTreeNode) => void;
   onEdit?: (n: GuideTreeNode) => void;
   onDelete?: (n: GuideTreeNode) => void;
 }) {
@@ -198,6 +215,7 @@ function Branch({
         onToggle={() => toggleId(node.id)}
         onAddChild={onAddChild}
         canAddChild={canAddChild}
+        onView={onView}
         onEdit={onEdit}
         onDelete={onDelete}
       />
@@ -241,6 +259,7 @@ function Branch({
                   isLastSibling={idx === node.children!.length - 1}
                   onAddChild={onAddChild}
                   canAddChild={canAddChild}
+                  onView={onView}
                   onEdit={onEdit}
                   onDelete={onDelete}
                 />
@@ -267,6 +286,7 @@ export function MasterGuideTree({
   childNoun = 'فرعي',
   onAddChild,
   canAddChild,
+  onView,
   onEdit,
   onDelete,
 }: {
@@ -277,6 +297,7 @@ export function MasterGuideTree({
   childNoun?: string;
   onAddChild?: (n: GuideTreeNode) => void;
   canAddChild?: (n: GuideTreeNode) => boolean;
+  onView?: (n: GuideTreeNode) => void;
   onEdit?: (n: GuideTreeNode) => void;
   onDelete?: (n: GuideTreeNode) => void;
 }) {
@@ -338,6 +359,7 @@ export function MasterGuideTree({
           isLastSibling={idx === filtered.length - 1}
           onAddChild={onAddChild}
           canAddChild={canAddChild}
+          onView={onView}
           onEdit={onEdit}
           onDelete={onDelete}
         />

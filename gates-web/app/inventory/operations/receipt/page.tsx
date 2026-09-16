@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useForm, type Resolver, type SubmitHandler, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
+import { confirmAction } from '@/lib/feedback/confirm';
 import { ErpDocumentLayout } from '@/components/erp/ErpDocumentLayout';
 import { ErpDocumentPageHeader } from '@/components/erp/ErpDocumentPageHeader';
 import { DocumentBrowseDrawer } from '@/components/erp/DocumentBrowseDrawer';
@@ -288,13 +289,13 @@ export default function ReceiptPage() {
   };
 
   // Handle delete
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!selectedReceiptId) {
       setError('يرجى اختيار إضافة أولاً');
       return;
     }
 
-    if (window.confirm('هل أنت متأكد من حذف هذه الإضافة؟')) {
+    if (await confirmAction('هل أنت متأكد من حذف هذه الإضافة؟')) {
       receiptDeleteMutation.mutate({});
     }
   };

@@ -129,7 +129,8 @@ export async function ensureSafeForCashAccount(
 
 export async function createCashGlForNewSafe(
   companyId: string,
-  arabicName: string
+  arabicName: string,
+  parentAccountId?: string | null
 ): Promise<string> {
   const cashMain = await prisma.account.findFirst({
     where: { companyId, code: SYSTEM_GL_CODES.cashMain, deletedAt: null },
@@ -140,7 +141,7 @@ export async function createCashGlForNewSafe(
       accountSide: true,
       accountNature: true,
       statementType: true,
-      parent: { select: { id: true, code: true } },
+      parent: { select: { id: true, code: true, arabicName: true } },
     },
   });
   if (!cashMain?.parentId || !cashMain.parent) {
@@ -150,7 +151,22 @@ export async function createCashGlForNewSafe(
     );
   }
 
-  const code = await nextSiblingAccountCode(companyId, cashMain.parentId, cashMain.parent.code);
+  let parentId = cashMain.parentId;
+  let parentCode = cashMain.parent.code;
+  if (parentAccountId && parentAccountId !== cashMain.parentId) {
+    const chosen = await prisma.account.findFirst({
+      where: { companyId, id: parentAccountId, deletedAt: null },
+      select: { id: true, code: true, arabicName: true, accountKind: true },
+    });
+    if (!chosen) {
+      throw new AppError(404, 'الحساب الأب غير موجود. الحل: اختَر حساب النقدية من الدليل.');
+    }
+    await assertNotCashPostingParent(companyId, chosen.id, chosen);
+    parentId = chosen.id;
+    parentCode = chosen.code;
+  }
+
+  const code = await nextSiblingAccountCode(companyId, parentId, parentCode);
   const clash = await prisma.account.findFirst({
     where: { companyId, code, deletedAt: null },
     select: { id: true },
@@ -165,7 +181,7 @@ export async function createCashGlForNewSafe(
       code,
       arabicName,
       accountType: cashMain.accountType ?? 'asset',
-      parentId: cashMain.parentId,
+      parentId,
       accountSide: cashMain.accountSide ?? 'مدين',
       accountNature: cashMain.accountNature ?? 'DEBIT',
       statementType: cashMain.statementType ?? 'BALANCE_SHEET',

@@ -13,6 +13,7 @@ import { apiClient } from '@/lib/api/client';
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
 import { nextNumericSerial } from '@/lib/masters/nextNumericSerial';
+import { confirmAction } from '@/lib/feedback/confirm';
 
 type FormState = {
   code: string;
@@ -186,7 +187,7 @@ function AccountingPeriodsPageInner() {
 
   const handleDelete = async () => {
     if (!selectedId) return;
-    if (!window.confirm('حذف الفترة المحاسبية الحالية؟')) return;
+    if (!(await confirmAction('حذف الفترة المحاسبية الحالية؟'))) return;
     setError('');
     try {
       await apiClient.delete(`/accounting/periods/${selectedId}`);

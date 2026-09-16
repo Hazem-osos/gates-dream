@@ -1,12 +1,13 @@
 'use client';
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { User } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { Printer, User } from 'lucide-react';
 import TaxInfoOverlay from '@/components/TaxInfoOverlay';
 import {
   CompactFormField,
   FormSectionCard,
   compactControlClass,
+  Button,
 } from '@/components/ui';
 import { useOwnTabSearchParams } from '@/lib/navigation/tab-route-lock';
 import { apiClient } from '@/lib/api/client';
@@ -24,9 +25,10 @@ import dynamic from 'next/dynamic';
 import { DynamicModalSkeleton } from '@/components/ui/DynamicChunkSkeleton';
 import { getTenantContext } from '@/lib/tenant/tenant-context-storage';
 import { printPageContent } from '@/lib/print/printHtml';
-import { bumpTrailingCode, isCodeAfter, nextNumericSerial } from '@/lib/masters/nextNumericSerial';
 import { entityLabel } from '@/lib/quick-create/catalog';
 import { useQuickCreateHost } from '@/lib/quick-create/useQuickCreateTab';
+import { toast } from '@/lib/feedback/toast';
+import { PartyGroupSelectField } from '@/components/accounting/PartyGroupSelectField';
 
 const CounterpartyOffsetModal = dynamic(
   () =>
@@ -199,26 +201,6 @@ export default function CustomerPage() {
   >(['suppliers'], '/accounting/suppliers', { limit: 500, isActive: true });
   const suppliers = suppliersResponse?.data || [];
 
-  const { data: customersResponse } = useApiQuery<{ serial?: string; code?: string }[]>(
-    ['customers'],
-    '/accounting/customers',
-    { limit: 1000, isActive: true }
-  );
-  const nextPartyCode = useMemo(
-    () => nextNumericSerial((customersResponse?.data ?? []).flatMap((row) => [row.serial, row.code])),
-    [customersResponse?.data]
-  );
-
-  useEffect(() => {
-    if (selectedId) return;
-    setFormData((prev) => {
-      const current = prev.serial || prev.code;
-      if (current && isCodeAfter(current, nextPartyCode)) return prev;
-      if (prev.serial === nextPartyCode && prev.code === nextPartyCode) return prev;
-      return { ...prev, serial: nextPartyCode, code: nextPartyCode };
-    });
-  }, [nextPartyCode, selectedId]);
-
   useEffect(() => {
     if (selectedId || !categoryFromUrl) return;
     setFormData((prev) => (prev.customerCategoryId ? prev : { ...prev, customerCategoryId: categoryFromUrl }));
@@ -308,48 +290,10 @@ export default function CustomerPage() {
             accountId: created.accountId,
           });
         }
-        setSuccess('تم حفظ العميل بنجاح — تقدر تضيف التالي');
+        setSuccess('تم حفظ العميل بنجاح');
         invalidateQuery(['customers']);
         invalidateQuery(['accounts']);
         invalidateQuery(['chart-of-accounts']);
-        setFormData({
-          serial: bumpTrailingCode(stayOpenRef.current.serial),
-          code: bumpTrailingCode(stayOpenRef.current.code),
-          arabicName: '',
-          englishName: '',
-          customerType: 'company',
-          how: 'local',
-          nationality: '',
-          taxData: false,
-          taxAuthority: '',
-          taxAuthorityName: '',
-          phone1: '',
-          phone2: '',
-          mobile: '',
-          fax: '',
-          email: '',
-          website: '',
-          country: '',
-          city: '',
-          area: '',
-          street: '',
-          postalCode: '',
-          poBox: '',
-          mainAccountId: '',
-          accountId: '',
-          representativeId: '',
-          priceListId: '',
-          sellingPrice: '',
-          transactionType: '',
-          warning: '',
-          estimatedBudget: '',
-          creditLimit: '',
-          customerCategoryId: stayOpenRef.current.customerCategoryId,
-          currencyCode: '',
-          priceTier: 'RETAIL',
-          linkedSupplierId: '',
-        });
-        setIsTaxInfoChecked(false);
       },
       onError: (error: ApiError) => {
         setError(error.message || 'حدث خطأ أثناء الحفظ');
@@ -374,40 +318,60 @@ export default function CustomerPage() {
   };
 
   const handleSave = async () => {
+    const code = formData.code.trim();
+    const arabicName = formData.arabicName.trim();
+    const phone = formData.phone1.trim() || formData.mobile.trim();
+    if (!code) {
+      setError('يرجى إدخال الكود');
+      toast.error('يرجى إدخال الكود');
+      return;
+    }
+    if (!arabicName) {
+      setError('يرجى إدخال الإسم العربي');
+      toast.error('يرجى إدخال الإسم العربي');
+      return;
+    }
+    if (!phone) {
+      setError('أدخل رقم هاتف أو موبايل على الأقل.');
+      toast.error('أدخل رقم هاتف أو موبايل على الأقل.');
+      return;
+    }
     const parsed = customerCardFormSchema.safeParse(formData);
     if (!parsed.success) {
-      setError(parsed.error.issues[0]?.message || 'يرجى مراجعة بيانات العميل');
+      const message = parsed.error.issues[0]?.message || 'يرجى مراجعة بيانات العميل';
+      setError(message);
+      toast.error(message);
       return;
     }
 
     const payload = {
-        serial: formData.serial || undefined,
-        code: formData.code || undefined,
-        arabicName: formData.arabicName,
-        englishName: formData.englishName || undefined,
+        serial: formData.serial.trim() || undefined,
+        code,
+        arabicName,
+        englishName: formData.englishName.trim() || undefined,
         customerType: formData.customerType,
         how: formData.how,
-        nationality: formData.nationality || undefined,
+        nationality: formData.nationality.trim() || undefined,
         taxData: formData.taxData,
-        taxAuthority: formData.taxAuthority || undefined,
-        taxAuthorityName: formData.taxAuthorityName || undefined,
-        phone1: formData.phone1 || undefined,
-        phone2: formData.phone2 || undefined,
-        mobile: formData.mobile || undefined,
-        fax: formData.fax || undefined,
-        email: formData.email || undefined,
-        website: formData.website || undefined,
-        country: formData.country || undefined,
-        city: formData.city || undefined,
-        area: formData.area || undefined,
-        street: formData.street || undefined,
-        postalCode: formData.postalCode || undefined,
-        poBox: formData.poBox || undefined,
+        taxAuthority: formData.taxAuthority.trim() || undefined,
+        taxAuthorityName: formData.taxAuthorityName.trim() || undefined,
+        phone1: formData.phone1.trim() || undefined,
+        phone2: formData.phone2.trim() || undefined,
+        mobile: formData.mobile.trim() || undefined,
+        fax: formData.fax.trim() || undefined,
+        email: formData.email.trim() || undefined,
+        website: formData.website.trim() || undefined,
+        country: formData.country.trim() || undefined,
+        city: formData.city.trim() || undefined,
+        area: formData.area.trim() || undefined,
+        street: formData.street.trim() || undefined,
+        postalCode: formData.postalCode.trim() || undefined,
+        poBox: formData.poBox.trim() || undefined,
         mainAccountId: formData.mainAccountId || undefined,
         accountId: formData.accountId || undefined,
         representativeId: formData.representativeId || undefined,
         priceListId: formData.priceListId || undefined,
-        sellingPrice: formData.sellingPrice || undefined,
+        sellingPrice: formData.sellingPrice.trim() || undefined,
         transactionType: formData.transactionType || undefined,
         warning: formData.warning || undefined,
         estimatedBudget: formData.estimatedBudget ? parseFloat(formData.estimatedBudget) : undefined,
@@ -420,14 +384,21 @@ export default function CustomerPage() {
 
     try {
       if (selectedId) {
-        await apiClient.put(`/accounting/customers/${selectedId}`, payload);
+        const res = await apiClient.put<CustomerRecord>(`/accounting/customers/${selectedId}`, payload);
+        if (res.data) hydrate(res.data);
         setSuccess('تم تحديث العميل بنجاح');
+        toast.success('تم حفظ العميل');
         invalidateQuery(['customers']);
         return;
       }
-      await customerMutation.mutateAsync(payload);
+      const created = await customerMutation.mutateAsync(payload);
+      const row = created?.data as CustomerRecord | undefined;
+      if (row?.id) hydrate(row);
+      toast.success('تم حفظ العميل');
     } catch (error: unknown) {
-      setError(error instanceof Error ? error.message : 'حدث خطأ أثناء الحفظ');
+      const message = error instanceof Error ? error.message : 'حدث خطأ أثناء الحفظ';
+      setError(message);
+      toast.error(message);
     }
   };
 
@@ -499,13 +470,16 @@ export default function CustomerPage() {
         moreMenuItems={[{ id: 'new', label: 'جديد', onClick: handleCancel }]}
         extraActions={
           <>
-            <button
+            <Button
               type="button"
-              className="text-[#2A63D0] hover:underline flex items-center gap-1 bg-transparent border-0 px-2 text-xs font-semibold"
+              variant="secondary"
+              size="sm"
+              className="gap-1.5"
               onClick={() => void printPageContent('بطاقة عميل')}
             >
+              <Printer className="h-3.5 w-3.5" />
               طباعة
-            </button>
+            </Button>
             {formData.linkedSupplierId && (savedCustomerId || partyDrawer?.id) ? (
               <button
                 type="button"
@@ -532,19 +506,28 @@ export default function CustomerPage() {
           </div>
         }
       >
-        <form autoComplete="off" data-1p-ignore data-lpignore="true">
+        <form
+          autoComplete="off"
+          data-1p-ignore
+          data-lpignore="true"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void handleSave();
+          }}
+        >
           <FormSectionCard title="البيانات الأساسية" subtitle="الحقول اللازمة لتعريف العميل" icon={User}>
             <CompactFormField
               label="المسلسل"
               value={formData.serial}
-              disabled
-              placeholder="تلقائي"
+              onChange={(e) => setFormData((prev) => ({ ...prev, serial: e.target.value }))}
+              placeholder="إدخل المسلسل"
             />
             <CompactFormField
               label="الكود"
+              required
               value={formData.code}
-              disabled
-              placeholder="تلقائي"
+              onChange={(e) => setFormData((prev) => ({ ...prev, code: e.target.value }))}
+              placeholder="إدخل الكود"
             />
             <CompactFormField
               label="الإسم العربي"
@@ -560,20 +543,14 @@ export default function CustomerPage() {
               onChange={(e) => setFormData((prev) => ({ ...prev, phone1: e.target.value }))}
               placeholder="إدخل رقم الهاتف أو الموبايل"
             />
-            <CompactFormField label="مجموعة العميل">
-              <select
-                className={compactControlClass}
-                value={formData.customerCategoryId}
-                onChange={(e) => setFormData((prev) => ({ ...prev, customerCategoryId: e.target.value }))}
-              >
-                <option value="">بدون مجموعة</option>
-                {customerCategories.map((cat) => (
-                  <option key={cat.id} value={cat.id}>
-                    {cat.code ? `${cat.code} — ${cat.arabicName}` : cat.arabicName}
-                  </option>
-                ))}
-              </select>
-            </CompactFormField>
+            <PartyGroupSelectField
+              kind="customer"
+              label="مجموعة العميل"
+              value={formData.customerCategoryId}
+              options={customerCategories}
+              onChange={(id) => setFormData((prev) => ({ ...prev, customerCategoryId: id }))}
+              onCreated={() => invalidateQuery(['customer-categories'])}
+            />
             <CompactFormField label="نوع العميل" className="sm:col-span-2">
               <div className="flex flex-wrap gap-2">
                 {[
@@ -650,7 +627,11 @@ export default function CustomerPage() {
                 </div>
               </CompactFormField>
               <CompactFormField label="الجنسية">
-                <select className={compactControlClass} defaultValue="مصري">
+                <select
+                  className={compactControlClass}
+                  value={formData.nationality || 'مصري'}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, nationality: e.target.value }))}
+                >
                   <option value="مصري">مصري</option>
                 </select>
               </CompactFormField>

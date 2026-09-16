@@ -9,6 +9,7 @@ import { buildParentTree, type GuideTreeNode } from '@/lib/accounting/buildGuide
 import { useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
 import { apiClient } from '@/lib/api/client';
 import { toast } from '@/lib/feedback/toast';
+import { confirmAction } from '@/lib/feedback/confirm';
 import { asWarehouseRows, type WarehouseRow } from '@/components/inventory/WarehousesListSection';
 import { bumpTrailingCode } from '@/lib/masters/nextNumericSerial';
 
@@ -142,7 +143,7 @@ export default function WarehouseGuidePage() {
   };
 
   const handleDelete = async (node: GuideTreeNode) => {
-    if (!window.confirm(`حذف المخزن ${node.code} — ${node.name}؟`)) return;
+    if (!(await confirmAction(`حذف المخزن ${node.code} — ${node.name}؟`))) return;
     try {
       await apiClient.delete(`/inventory/warehouses/${node.id}`);
       toast.success('تم حذف المخزن');

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { SafeSelect } from '@/app/components/form/SafeSelect';
 
 export type InvoiceCollectPayload = {
   amount: number;
@@ -110,19 +111,13 @@ export function InvoiceCollectModal({
           </label>
           <label className="block">
             <span className="mb-1 block text-xs font-semibold text-[#094C6B]">الخزينة</span>
-            <select
-              className="w-full rounded-lg border border-gray-300 p-2 text-sm"
+            <SafeSelect
               value={safeId}
-              onChange={(e) => setSafeId(e.target.value)}
-            >
-              <option value="">اختر الخزينة</option>
-              {safes.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.arabicName ?? s.code ?? s.id}
-                  {s.isDefault ? ' (رئيسية)' : ''}
-                </option>
-              ))}
-            </select>
+              onChange={setSafeId}
+              safes={safes}
+              placeholder="اختر الخزينة"
+              emptyLabel="اختر الخزينة"
+            />
           </label>
           <label className="block">
             <span className="mb-1 block text-xs font-semibold text-[#094C6B]">تاريخ التحصيل</span>

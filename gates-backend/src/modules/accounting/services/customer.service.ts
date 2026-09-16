@@ -94,8 +94,25 @@ export class CustomerService {
 
   async createCustomer(companyId: string, data: CreateCustomerData) {
     try {
-      const serial = await this.nextCustomerCode(companyId);
-      const code = serial;
+      const requestedSerial = data.serial?.trim();
+      const requestedCode = data.code?.trim();
+      const serial =
+        requestedSerial || requestedCode || (await this.nextCustomerCode(companyId));
+      const code = requestedCode || requestedSerial || serial;
+      const clash = await prisma.customer.findFirst({
+        where: {
+          companyId,
+          deletedAt: null,
+          isActive: true,
+          OR: [{ code }, { serial }],
+        },
+        select: { arabicName: true, code: true, serial: true },
+      });
+      if (clash) {
+        throw new Error(
+          `الكود «${code}» مستخدم على «${clash.arabicName}». غيّر الكود ثم احفظ.`
+        );
+      }
       if (data.mainAccountId) {
         const account = await prisma.account.findFirst({
           where: { id: data.mainAccountId, companyId, deletedAt: null },
@@ -170,8 +187,10 @@ export class CustomerService {
           requestedAccountId: data.mainAccountId ?? data.accountId,
         });
       } catch (ensureError) {
-        await prisma.customer.delete({ where: { id: customer.id } }).catch(() => undefined);
-        throw ensureError;
+        logger.warn(
+          { ensureError, companyId, customerId: customer.id },
+          'Customer saved without a ledger account'
+        );
       }
 
       const withLedger = await prisma.customer.findFirst({

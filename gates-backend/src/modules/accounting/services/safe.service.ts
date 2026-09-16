@@ -13,6 +13,7 @@ export interface CreateSafeData {
   arabicName: string;
   englishName?: string;
   currencyCode: string;
+  parentAccountId?: string;
 }
 
 export interface UpdateSafeData {
@@ -109,7 +110,7 @@ export class SafeService {
       }
     }
 
-    const glAccountId = await createCashGlForNewSafe(companyId, data.arabicName);
+    const glAccountId = await createCashGlForNewSafe(companyId, data.arabicName, data.parentAccountId);
 
     const created = await prisma.safe.create({
       data: {

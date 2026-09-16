@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { ActionButtons } from '@/components/ui/ActionButtons';
 import { useApiQuery } from '@/lib/hooks/useApi';
 import { pickDefaultSafeId } from '@/lib/hooks/useMasterDataQueries';
+import { SafeSelect } from '@/app/components/form/SafeSelect';
 import {
   type PaymentSplitLine,
   splitsMatchTotal,
@@ -204,22 +205,17 @@ export function MultiPaymentSplitterModal({
           <h3 className="mb-2 text-sm font-semibold text-slate-800">نقدية</h3>
           {cashRows.map((row, i) => (
             <div key={i} className="mb-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
-              <select
-                className="rounded-lg border border-gray-300 p-2 text-sm"
+              <SafeSelect
                 value={row.safeId}
-                onChange={(e) => {
+                onChange={(safeId) => {
                   const next = [...cashRows];
-                  next[i] = { type: 'CASH', safeId: e.target.value, amount: row.amount };
+                  next[i] = { type: 'CASH', safeId, amount: row.amount };
                   setCashRows(next);
                 }}
-              >
-                <option value="">اختر الخزينة</option>
-                {safes.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.arabicName}
-                  </option>
-                ))}
-              </select>
+                safes={safes}
+                placeholder="اختر الخزينة"
+                emptyLabel="اختر الخزينة"
+              />
               <input
                 type="number"
                 min={0}

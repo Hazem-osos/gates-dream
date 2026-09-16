@@ -83,8 +83,24 @@ export class SupplierService {
 
   async createSupplier(companyId: string, data: CreateSupplierData) {
     try {
-      const serial = await this.nextSupplierCode(companyId);
-      const code = serial;
+      const requestedSerial = data.serial?.trim();
+      const requestedCode = data.code?.trim();
+      const serial =
+        requestedSerial || requestedCode || (await this.nextSupplierCode(companyId));
+      const code = requestedCode || requestedSerial || serial;
+      const clash = await prisma.supplier.findFirst({
+        where: {
+          companyId,
+          isActive: true,
+          OR: [{ code }, { serial }],
+        },
+        select: { arabicName: true },
+      });
+      if (clash) {
+        throw new Error(
+          `الكود «${code}» مستخدم على «${clash.arabicName}». غيّر الكود ثم احفظ.`
+        );
+      }
       const supplier = await prisma.supplier.create({
         data: {
           companyId,
@@ -143,8 +159,10 @@ export class SupplierService {
           requestedAccountId: data.mainAccountId ?? data.accountId,
         });
       } catch (ensureError) {
-        await prisma.supplier.delete({ where: { id: supplier.id } }).catch(() => undefined);
-        throw ensureError;
+        logger.warn(
+          { ensureError, companyId, supplierId: supplier.id },
+          'Supplier saved without a ledger account'
+        );
       }
 
       const withLedger = await prisma.supplier.findFirst({

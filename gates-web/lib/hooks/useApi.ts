@@ -17,10 +17,6 @@ import { fetchApiQuery } from '../api/query-fetch';
 import { ApiResponse, QueryParams, ApiError } from '../api/types';
 import { useTenantContextReady, useCompanyContextReady } from './useTenantContextReady';
 import { getTenantContext, isMutationTenantReady } from '../tenant/tenant-context-storage';
-import {
-  DEFAULT_SAVE_SUCCESS_MESSAGE,
-  notifyApiSuccess,
-} from '../api/api-success-notify';
 import { bumpMasterCatalog, isMasterCatalogKey } from '@/lib/query/master-catalog-sync';
 
 export type UseApiMutationExtraOptions = {
@@ -115,9 +111,10 @@ export function useApiMutation<TData = unknown, TVariables = unknown>(
     ...restOptions
   } = options ?? {};
 
-  const shouldToast =
-    showSuccessToast !== false &&
-    (method === 'POST' || method === 'PUT' || method === 'PATCH');
+  const mutationNotify = {
+    skipSuccessNotify: showSuccessToast === false,
+    successMessage,
+  };
 
   return useMutation<ApiResponse<TData>, ApiError, TVariables>({
     mutationFn: async (variables: TVariables) => {
@@ -130,13 +127,13 @@ export function useApiMutation<TData = unknown, TVariables = unknown>(
       }
       switch (method) {
         case 'POST':
-          return apiClient.post<TData>(url, variables);
+          return apiClient.post<TData>(url, variables, mutationNotify);
         case 'PUT':
-          return apiClient.put<TData>(url, variables);
+          return apiClient.put<TData>(url, variables, mutationNotify);
         case 'PATCH':
-          return apiClient.patch<TData>(url, variables);
+          return apiClient.patch<TData>(url, variables, mutationNotify);
         case 'DELETE':
-          return apiClient.delete<TData>(url, variables as QueryParams);
+          return apiClient.delete<TData>(url, variables as QueryParams, mutationNotify);
         default:
           throw new Error(`Unsupported method: ${method}`);
       }
@@ -144,9 +141,6 @@ export function useApiMutation<TData = unknown, TVariables = unknown>(
     ...restOptions,
     onSuccess: (data, variables, onMutateResult, context) => {
       userOnSuccess?.(data, variables, onMutateResult, context);
-      if (shouldToast) {
-        notifyApiSuccess(successMessage ?? DEFAULT_SAVE_SUCCESS_MESSAGE);
-      }
     },
     onError: (error, variables, onMutateResult, context) => {
       userOnError?.(error, variables, onMutateResult, context);

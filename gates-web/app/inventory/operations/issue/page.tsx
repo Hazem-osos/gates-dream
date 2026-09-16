@@ -11,6 +11,7 @@ import {
 import { useForm, type Resolver, type SubmitHandler, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
+import { confirmAction } from '@/lib/feedback/confirm';
 import { ErpDocumentLayout } from '@/components/erp/ErpDocumentLayout';
 import { ErpDocumentPageHeader } from '@/components/erp/ErpDocumentPageHeader';
 import { DocumentBrowseDrawer } from '@/components/erp/DocumentBrowseDrawer';
@@ -344,13 +345,13 @@ function IssuePageInner() {
   };
 
   // Handle delete
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!selectedIssueId) {
       setError('يرجى اختيار صرف أولاً');
       return;
     }
 
-    if (window.confirm('هل أنت متأكد من حذف هذا الصرف؟')) {
+    if (await confirmAction('هل أنت متأكد من حذف هذا الصرف؟')) {
       issueDeleteMutation.mutate({});
     }
   };

@@ -5,6 +5,7 @@ export const createSafeSchema = z.object({
   arabicName: z.string().min(1, 'Arabic name is required'),
   englishName: z.string().optional(),
   currencyCode: z.string().min(1, 'Currency code is required'),
+  parentAccountId: z.string().optional(),
 });
 
 export const updateSafeSchema = createSafeSchema.partial().extend({

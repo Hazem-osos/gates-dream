@@ -93,6 +93,7 @@ type Account = {
   code: string;
   arabicName: string;
   costCenterRequired?: string | null;
+  requiresCostCenter?: boolean | null;
 };
 
 type Currency = {

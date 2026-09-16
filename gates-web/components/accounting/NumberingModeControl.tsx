@@ -5,6 +5,7 @@ import { useAccountingSettingsMutation } from '@/lib/hooks/useAccountingSettings
 import { apiClient } from '@/lib/api/client';
 import { useInvalidateQuery } from '@/lib/hooks/useApi';
 import { toast } from '@/lib/feedback/toast';
+import { confirmAction } from '@/lib/feedback/confirm';
 
 type Kind = 'accounts' | 'costCenters' | 'items';
 
@@ -41,9 +42,9 @@ export function NumberingModeControl({
 
   const resetRecords = async () => {
     if (
-      !window.confirm(
+      !(await confirmAction(
         `حذف سجلات ${KIND_LABEL[kind]} حتى تقدر تغيّر الترقيم؟ السجلات المرتبطة بحركة مش هتتمسح.`
-      )
+      ))
     ) {
       return;
     }

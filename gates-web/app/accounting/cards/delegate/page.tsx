@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { User } from 'lucide-react';
 import Image from 'next/image';
 import {
@@ -12,11 +12,11 @@ import {
 import { useOwnTabSearchParams } from '@/lib/navigation/tab-route-lock';
 import { apiClient } from '@/lib/api/client';
 import { DocumentBrowseDrawer, MasterCardShell } from '@/components/erp';
+import { DocumentModeProvider, useDocumentMode } from '@/components/common/document-shell';
 import { useApiQuery, useApiMutation, useInvalidateQuery } from '@/lib/hooks/useApi';
 import ErrorToast from '@/components/ErrorToast';
-import SuccessToast from '@/components/SuccessToast';
+import { toast } from '@/lib/feedback/toast';
 import type { ApiError } from '@/lib/api/types';
-import { bumpTrailingCode, isCodeAfter, nextNumericSerial } from '@/lib/masters/nextNumericSerial';
 
 interface PriceList {
   id: string;
@@ -81,19 +81,26 @@ type DelegateRecord = {
 };
 
 export default function DelegatePage() {
+  return (
+    <DocumentModeProvider initialMode="create">
+      <DelegatePageInner />
+    </DocumentModeProvider>
+  );
+}
+
+function DelegatePageInner() {
+  const { isReadOnly, unlockForEdit, lockToView, setMode } = useDocumentMode();
   const invalidateQuery = useInvalidateQuery();
   const searchParams = useOwnTabSearchParams();
   const idFromUrl = searchParams.get('id');
+  const modeFromUrl = searchParams.get('mode');
   const groupIdFromUrl = searchParams.get('groupId');
   
   const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
   const [showGuide, setShowGuide] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const [formData, setFormData] = useState(EMPTY_FORM);
-  const stayOpenRef = useRef({ serial: '', code: '' });
-  stayOpenRef.current = { serial: formData.serial, code: formData.code || formData.serial };
 
   // Fetch price lists
   const { data: priceListsResponse } = useApiQuery<PriceList[]>(
@@ -106,28 +113,15 @@ export default function DelegatePage() {
   const { data: delegatesResponse } = useApiQuery<
     { id: string; serial?: string; code?: string; arabicName?: string }[]
   >(['delegates'], '/accounting/delegates', { limit: 1000, isActive: true });
-  const nextDelegateCode = useMemo(
-    () => nextNumericSerial((delegatesResponse?.data ?? []).flatMap((row) => [row.serial, row.code])),
-    [delegatesResponse?.data]
-  );
-
   useEffect(() => {
-    if (selectedId) return;
-    setFormData((prev) => {
-      const nextGroup = groupIdFromUrl || prev.groupId;
-      const current = prev.serial || prev.code;
-      if (current && isCodeAfter(current, nextDelegateCode)) {
-        return nextGroup !== prev.groupId ? { ...prev, groupId: nextGroup } : prev;
-      }
-      if (prev.serial === nextDelegateCode && prev.code === nextDelegateCode) {
-        return nextGroup !== prev.groupId ? { ...prev, groupId: nextGroup } : prev;
-      }
-      return { ...prev, serial: nextDelegateCode, code: nextDelegateCode, groupId: nextGroup };
-    });
-  }, [nextDelegateCode, selectedId, groupIdFromUrl]);
+    if (selectedId || !groupIdFromUrl) return;
+    setFormData((prev) => (prev.groupId ? prev : { ...prev, groupId: groupIdFromUrl }));
+  }, [selectedId, groupIdFromUrl]);
 
   const hydrate = (row: DelegateRecord) => {
     setSelectedId(row.id);
+    if (modeFromUrl === 'edit') unlockForEdit();
+    else lockToView();
     setFormData({
       serial: row.serial || row.code || '',
       code: row.code || row.serial || '',
@@ -175,16 +169,16 @@ export default function DelegatePage() {
     '/accounting/delegates',
     'POST',
     {
+      showSuccessToast: false,
       onSuccess: () => {
-        setSuccess('تم حفظ المندوب بنجاح');
+        toast.success('تم حفظ المندوب بنجاح — تقدر تضيف التالي');
         invalidateQuery(['delegates']);
-        // Reset form
         setSelectedId(null);
         setFormData({
           ...EMPTY_FORM,
-          serial: bumpTrailingCode(stayOpenRef.current.serial),
-          code: bumpTrailingCode(stayOpenRef.current.code),
+          groupId: groupIdFromUrl || '',
         });
+        setMode('create');
       },
       onError: (error: ApiError) => {
         setError(error.message || 'حدث خطأ أثناء الحفظ');
@@ -193,6 +187,10 @@ export default function DelegatePage() {
   );
 
   const handleSave = async () => {
+    if (!formData.code.trim()) {
+      setError('يرجى إدخال الكود');
+      return;
+    }
     if (!formData.arabicName) {
       setError('يرجى إدخال الإسم العربي');
       return;
@@ -229,7 +227,8 @@ export default function DelegatePage() {
     try {
       if (selectedId) {
         await apiClient.put(`/accounting/delegates/${selectedId}`, payload);
-        setSuccess('تم تحديث المندوب بنجاح');
+        toast.success('تم تحديث المندوب بنجاح');
+        lockToView();
         invalidateQuery(['delegates']);
         return;
       }
@@ -243,7 +242,7 @@ export default function DelegatePage() {
     setSelectedId(null);
     setFormData(EMPTY_FORM);
     setError('');
-    setSuccess('');
+    setMode('create');
   };
 
   return (
@@ -254,29 +253,36 @@ export default function DelegatePage() {
         { label: 'البطاقات' },
         { label: 'مندوب' },
       ]}
-      docNumber={formData.serial || (selectedId ? 'تعديل' : 'جديد')}
-      statusLabel={selectedId ? 'تعديل' : 'جديد'}
+      docNumber={formData.serial || (selectedId ? (isReadOnly ? 'عرض' : 'تعديل') : 'جديد')}
+      statusLabel={selectedId ? (isReadOnly ? 'عرض' : 'تعديل') : 'جديد'}
       onSave={() => void handleSave()}
       savePending={delegateMutation.isPending}
-      canSave={!delegateMutation.isPending}
+      canSave={!isReadOnly && !delegateMutation.isPending}
       onNew={handleCancel}
+      onEdit={() => {
+        if (!selectedId) return;
+        unlockForEdit();
+      }}
+      editDisabled={!selectedId}
       currentId={selectedId}
       onBrowseList={() => setShowGuide(true)}
       favoriteHref="/accounting/cards/delegate"
     >
       <form className="w-full text-base">
+        <fieldset disabled={isReadOnly} className="min-w-0 border-0 p-0">
         <FormSectionCard title="البيانات الأساسية" subtitle="الحقول اللازمة لتعريف المندوب" icon={User}>
           <CompactFormField
             label="المسلسل"
             value={formData.serial}
-            disabled
-            placeholder="تلقائي"
+            onChange={(e) => setFormData((prev) => ({ ...prev, serial: e.target.value }))}
+            placeholder="إدخل المسلسل"
           />
           <CompactFormField
             label="الكود"
+            required
             value={formData.code}
-            disabled
-            placeholder="تلقائي"
+            onChange={(e) => setFormData((prev) => ({ ...prev, code: e.target.value }))}
+            placeholder="إدخل الكود"
           />
           <CompactFormField
             label="الإسم العربي"
@@ -451,11 +457,10 @@ export default function DelegatePage() {
               placeholder="إدخل نسبة العمولة"
             />
         </FormSectionCard>
-
+        </fieldset>
       </form>
 
       {error && <ErrorToast message={error} onClose={() => setError('')} />}
-      {success && <SuccessToast message={success} onClose={() => setSuccess('')} />}
 
       <DocumentBrowseDrawer open={showGuide} onClose={() => setShowGuide(false)} title="المندوبون السابقون">
         <AppTable
@@ -464,6 +469,7 @@ export default function DelegatePage() {
           emptyTitle="لا يوجد مندوبون"
           onRowClick={(row) => {
             setSelectedId(row.id);
+            lockToView();
             setFormData((prev) => ({
               ...prev,
               serial: row.serial || row.code || '',

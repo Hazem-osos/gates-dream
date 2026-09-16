@@ -6,6 +6,7 @@ import GlobalApiErrorToast from '@/components/GlobalApiErrorToast';
 import { VersionConflictDialog } from '@/components/concurrency/VersionConflictDialog';
 import GlobalApiSuccessToast from '@/components/GlobalApiSuccessToast';
 import { AppToaster } from '@/components/feedback/AppToaster';
+import { ConfirmDialogHost } from '@/components/feedback/ConfirmDialogHost';
 import { TenantBootstrap } from '@/lib/providers/TenantBootstrap';
 import { ClientSearchIndexSync } from '@/lib/providers/ClientSearchIndexSync';
 import { AbortRuntimeGuard } from '@/lib/providers/AbortRuntimeGuard';
@@ -25,6 +26,7 @@ export function QueryProvider({ children }: { children: ReactNode }) {
           {children}
           <MutationActivityPill />
           <AppToaster />
+          <ConfirmDialogHost />
           <GlobalApiErrorToast />
           <VersionConflictDialog />
           <GlobalApiSuccessToast />

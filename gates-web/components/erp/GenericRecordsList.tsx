@@ -7,6 +7,7 @@ import { useApiQuery } from '@/lib/hooks/useApi';
 import { useResourcePermissions } from '@/lib/hooks/useResourcePermissions';
 import type { ExportColumnDef } from '@/lib/export/export-utils';
 import { toast } from '@/lib/feedback/toast';
+import { confirmAction } from '@/lib/feedback/confirm';
 import { deleteDraftDocument, isDraftDocumentRow } from '@/lib/documents/deleteDraftDocument';
 import { BrowseDateRangeFilters, BrowseStatusFilter } from '@/components/erp/BrowseListFilters';
 import {
@@ -251,7 +252,7 @@ export function GenericRecordsList({
                     variant="danger"
                     disabled={deletingId === row.id}
                     onClick={async () => {
-                      if (!window.confirm('حذف هذه المسودة؟')) return;
+                      if (!(await confirmAction('حذف هذه المسودة؟'))) return;
                       setDeletingId(row.id);
                       try {
                         await deleteDraftDocument(apiPath, row.id);

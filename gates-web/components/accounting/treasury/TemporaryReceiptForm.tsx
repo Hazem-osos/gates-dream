@@ -5,6 +5,7 @@ import { useForm, type Resolver, type SubmitHandler, Controller } from 'react-ho
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Button, CompactFormField, compactControlClass } from '@/components/ui';
 import { toast } from '@/lib/feedback/toast';
+import { confirmAction } from '@/lib/feedback/confirm';
 import { deleteDraftDocument, isDraftDocumentRow } from '@/lib/documents/deleteDraftDocument';
 import { printOperationalDocument } from '@/lib/print/printOperationalDocument';
 import { ErpDocumentLayout } from '@/components/erp/ErpDocumentLayout';
@@ -15,6 +16,7 @@ import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
 import { useApiMutation, useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
 import { pickDefaultSafeId, useSafesQuery } from '@/lib/hooks/useMasterDataQueries';
+import { SafeSelect } from '@/app/components/form/SafeSelect';
 import { apiClient } from '@/lib/api/client';
 import { toHijriDate } from '@/lib/hijri-date';
 import type { ApiError } from '@/lib/api/types';
@@ -266,7 +268,7 @@ function TemporaryReceiptFormInner() {
 
   const handleCancelReceipt = async () => {
     if (!selectedId) return;
-    if (!window.confirm('هل تريد إلغاء هذا الإيصال المؤقت؟')) return;
+    if (!(await confirmAction('هل تريد إلغاء هذا الإيصال المؤقت؟'))) return;
     try {
       await apiClient.post(`/accounting/treasury-receipts/${selectedId}/cancel`);
       invalidateQuery(['treasury-receipts']);
@@ -347,19 +349,21 @@ function TemporaryReceiptFormInner() {
             row2={
               <>
                 <CompactFormField label="الصندوق" error={errors.safeId?.message}>
-                  <select
-                    className={`${compactControlClass} ${errors.safeId ? 'border-red-400' : ''}`}
-                    disabled={isReadOnly}
-                    {...register('safeId')}
-                  >
-                    <option value="">اختر الصندوق</option>
-                    {safes.map((safe) => (
-                      <option key={safe.id} value={safe.id}>
-                        {safe.arabicName || safe.englishName}
-                        {safe.isDefault ? ' (رئيسية)' : ''}
-                      </option>
-                    ))}
-                  </select>
+                  <Controller
+                    name="safeId"
+                    control={control}
+                    render={({ field }) => (
+                      <SafeSelect
+                        value={field.value || ''}
+                        onChange={field.onChange}
+                        disabled={isReadOnly}
+                        safes={safes}
+                        placeholder="اختر الصندوق"
+                        emptyLabel="اختر الصندوق"
+                        className={`${compactControlClass} ${errors.safeId ? 'border-red-400' : ''}`}
+                      />
+                    )}
+                  />
                 </CompactFormField>
                 <CompactFormField label="تم تصفيته / تأكيده">
                   <div className="flex h-9 items-center">
@@ -439,7 +443,7 @@ function TemporaryReceiptFormInner() {
                     size="sm"
                     variant="danger"
                     onClick={async () => {
-                      if (!window.confirm('حذف هذه المسودة؟')) return;
+                      if (!(await confirmAction('حذف هذه المسودة؟'))) return;
                       try {
                         await deleteDraftDocument('/accounting/treasury-receipts', row.id);
                         toast.success('تم حذف المسودة');

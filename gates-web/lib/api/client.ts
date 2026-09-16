@@ -25,6 +25,11 @@ import {
   notifyApiError,
   shouldBroadcastApiError,
 } from './api-error-notify';
+import {
+  DEFAULT_DELETE_SUCCESS_MESSAGE,
+  DEFAULT_SAVE_SUCCESS_MESSAGE,
+  queueApiSuccessToast,
+} from './api-success-notify';
 import { formatApiErrorMessage } from './format-api-error';
 import {
   isAbortError,
@@ -331,6 +336,22 @@ class ApiClient {
   /**
    * Make request with retry logic
    */
+  private broadcastSuccess(url: string, config: RequestConfig, data?: ApiResponse<unknown>): void {
+    if (config.skipSuccessNotify) return;
+    const method = config.method;
+    if (!method || method === 'GET') return;
+    if (isSilentSuccessUrl(url)) return;
+    const fromBody =
+      typeof data?.message === 'string' && /[\u0600-\u06FF]/.test(data.message)
+        ? data.message.trim()
+        : '';
+    const message =
+      config.successMessage?.trim() ||
+      fromBody ||
+      (method === 'DELETE' ? DEFAULT_DELETE_SUCCESS_MESSAGE : DEFAULT_SAVE_SUCCESS_MESSAGE);
+    queueApiSuccessToast(message);
+  }
+
   private broadcastFinalError(error: unknown, url?: string): void {
     if (isAbortError(error) || isRateLimitError(error)) return;
     if (!isApiError(error)) return;
@@ -354,6 +375,7 @@ class ApiClient {
     for (let attempt = 0; attempt <= retries; attempt++) {
       try {
         const response = await this.request<T>(url, config);
+        this.broadcastSuccess(url, config, response);
         return response;
       } catch (error) {
         lastError = error as Error | ApiError;
@@ -606,7 +628,9 @@ class ApiClient {
         body: form,
         signal: fetchSignal,
       });
-      return await this.handleResponse<T>(response);
+      const parsed = await this.handleResponse<T>(response);
+      this.broadcastSuccess(url, { method: 'POST', skipSuccessNotify: false }, parsed);
+      return parsed;
     } catch (error) {
       throw normalizeFetchFailure(error);
     }
@@ -644,6 +668,19 @@ class ApiClient {
       params,
     });
   }
+}
+
+function isSilentSuccessUrl(url: string): boolean {
+  const path = (url.split('?')[0] ?? url).replace(/\/$/, '');
+  if (path.endsWith('/last-rate')) return true;
+  if (path === '/users/me/ui-preferences') return true;
+  if (path === '/notifications/mark-all-read') return true;
+  if (/\/notifications\/[^/]+\/read$/.test(path)) return true;
+  if (path === '/onboarding/complete-tour') return true;
+  if (/\/ai\/insights\/[^/]+\/dismiss$/.test(path)) return true;
+  if (/\/ai\/actions\/[^/]+\/acknowledge$/.test(path)) return true;
+  if (/\/growth\/[^/]+\/(dismiss|review)$/.test(path)) return true;
+  return false;
 }
 
 // Export singleton instance

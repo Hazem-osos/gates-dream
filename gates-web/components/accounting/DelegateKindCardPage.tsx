@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Truck, UserRound } from 'lucide-react';
 import UserPermissionsBar from '@/components/UserPermissionsBar';
 import {
@@ -11,16 +11,17 @@ import {
 import { useOwnTabSearchParams } from '@/lib/navigation/tab-route-lock';
 import { apiClient } from '@/lib/api/client';
 import { DocumentBrowseDrawer, MasterCardShell } from '@/components/erp';
+import { DocumentModeProvider, useDocumentMode } from '@/components/common/document-shell';
 import { useApiMutation, useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
 import ErrorToast from '@/components/ErrorToast';
-import SuccessToast from '@/components/SuccessToast';
+import { toast } from '@/lib/feedback/toast';
 import type { ApiError } from '@/lib/api/types';
-import { bumpTrailingCode, isCodeAfter, nextNumericSerial } from '@/lib/masters/nextNumericSerial';
 
 export type DelegateKind = 'DISTRIBUTOR' | 'DRIVER';
 
 type CardForm = {
   serial: string;
+  code: string;
   groupId: string;
   arabicName: string;
   nationality: string;
@@ -42,6 +43,7 @@ type CardForm = {
 type SavedRow = {
   id: string;
   serial?: string | null;
+  code?: string | null;
   arabicName: string;
   phone1?: string | null;
   mobile?: string | null;
@@ -49,6 +51,7 @@ type SavedRow = {
 
 const EMPTY: CardForm = {
   serial: '',
+  code: '',
   groupId: '',
   arabicName: '',
   nationality: 'مصري',
@@ -90,18 +93,25 @@ const KIND_COPY: Record<
 };
 
 export function DelegateKindCardPage({ kind }: { kind: DelegateKind }) {
+  return (
+    <DocumentModeProvider initialMode="create">
+      <DelegateKindCardInner kind={kind} />
+    </DocumentModeProvider>
+  );
+}
+
+function DelegateKindCardInner({ kind }: { kind: DelegateKind }) {
   const copy = KIND_COPY[kind];
+  const { isReadOnly, unlockForEdit, lockToView, setMode } = useDocumentMode();
   const invalidateQuery = useInvalidateQuery();
   const searchParams = useOwnTabSearchParams();
   const idFromUrl = searchParams.get('id');
+  const modeFromUrl = searchParams.get('mode');
   const groupIdFromUrl = searchParams.get('groupId');
   const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
   const [showGuide, setShowGuide] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [formData, setFormData] = useState<CardForm>(EMPTY);
-  const stayOpenRef = useRef({ serial: '' });
-  stayOpenRef.current = { serial: formData.serial };
   const KindIcon = kind === 'DISTRIBUTOR' ? Truck : UserRound;
 
   const listKey = useMemo(() => ['delegates', kind] as const, [kind]);
@@ -111,33 +121,23 @@ export function DelegateKindCardPage({ kind }: { kind: DelegateKind }) {
     role: kind,
   });
   const rows = listResponse?.data ?? [];
-  const nextSerial = useMemo(
-    () => nextNumericSerial(rows.map((row) => row.serial)),
-    [rows]
-  );
 
   useEffect(() => {
-    if (selectedId) return;
-    setFormData((prev) => {
-      const nextGroup = groupIdFromUrl || prev.groupId;
-      if (prev.serial && isCodeAfter(prev.serial, nextSerial)) {
-        return nextGroup !== prev.groupId ? { ...prev, groupId: nextGroup } : prev;
-      }
-      if (prev.serial === nextSerial) {
-        return nextGroup !== prev.groupId ? { ...prev, groupId: nextGroup } : prev;
-      }
-      return { ...prev, serial: nextSerial, groupId: nextGroup };
-    });
-  }, [nextSerial, selectedId, groupIdFromUrl]);
+    if (selectedId || !groupIdFromUrl) return;
+    setFormData((prev) => (prev.groupId ? prev : { ...prev, groupId: groupIdFromUrl }));
+  }, [selectedId, groupIdFromUrl]);
 
   useEffect(() => {
     if (!idFromUrl) return;
     const row = rows.find((item) => item.id === idFromUrl);
     if (row) {
       setSelectedId(row.id);
+      if (modeFromUrl === 'edit') unlockForEdit();
+      else lockToView();
       setFormData((prev) => ({
         ...prev,
         serial: row.serial || '',
+        code: row.code || row.serial || '',
         arabicName: row.arabicName,
         phone1: row.phone1 || '',
         mobile: row.mobile || '',
@@ -148,9 +148,12 @@ export function DelegateKindCardPage({ kind }: { kind: DelegateKind }) {
     void apiClient.get<SavedRow & Partial<CardForm>>(`/accounting/delegates/${idFromUrl}`).then((res) => {
       if (cancelled || !res.data) return;
       setSelectedId(res.data.id);
+      if (modeFromUrl === 'edit') unlockForEdit();
+      else lockToView();
       setFormData((prev) => ({
         ...prev,
         serial: res.data.serial || '',
+        code: res.data.code || res.data.serial || '',
         arabicName: res.data.arabicName,
         phone1: res.data.phone1 || '',
         mobile: res.data.mobile || '',
@@ -173,18 +176,20 @@ export function DelegateKindCardPage({ kind }: { kind: DelegateKind }) {
     return () => {
       cancelled = true;
     };
-  }, [idFromUrl, rows]);
+  }, [idFromUrl, rows, modeFromUrl, lockToView, unlockForEdit]);
 
   const mutation = useApiMutation<unknown, Record<string, unknown>>(
     '/accounting/delegates',
     'POST',
     {
+      showSuccessToast: false,
       onSuccess: () => {
-        setSuccess(`${copy.success} — تقدر تضيف التالي`);
+        toast.success(`${copy.success} — تقدر تضيف التالي`);
         invalidateQuery(listKey);
         invalidateQuery(['delegates']);
         setSelectedId(null);
-        setFormData({ ...EMPTY, serial: bumpTrailingCode(stayOpenRef.current.serial) });
+        setFormData({ ...EMPTY, groupId: groupIdFromUrl || '' });
+        setMode('create');
       },
       onError: (err: ApiError) => {
         setError(err.message || 'حدث خطأ أثناء الحفظ');
@@ -198,14 +203,18 @@ export function DelegateKindCardPage({ kind }: { kind: DelegateKind }) {
 
   const handleSave = async () => {
     setError('');
-    setSuccess('');
+    if (!formData.code.trim()) {
+      setError('يرجى إدخال الكود');
+      return;
+    }
     if (!formData.arabicName.trim()) {
       setError(copy.required);
       return;
     }
     const payload = {
         role: kind,
-        serial: formData.serial.trim() || undefined,
+        serial: formData.serial.trim() || formData.code.trim() || undefined,
+        code: formData.code.trim() || undefined,
         groupId: formData.groupId || groupIdFromUrl || undefined,
         arabicName: formData.arabicName.trim(),
         nationality: formData.nationality.trim() || undefined,
@@ -229,7 +238,8 @@ export function DelegateKindCardPage({ kind }: { kind: DelegateKind }) {
     try {
       if (selectedId) {
         await apiClient.put(`/accounting/delegates/${selectedId}`, payload);
-        setSuccess(copy.success);
+        toast.success(copy.success);
+        lockToView();
         invalidateQuery(listKey);
         invalidateQuery(['delegates']);
         return;
@@ -244,7 +254,7 @@ export function DelegateKindCardPage({ kind }: { kind: DelegateKind }) {
     setSelectedId(null);
     setFormData(EMPTY);
     setError('');
-    setSuccess('');
+    setMode('create');
   };
 
   return (
@@ -255,12 +265,17 @@ export function DelegateKindCardPage({ kind }: { kind: DelegateKind }) {
         { label: 'البطاقات' },
         { label: copy.crumb },
       ]}
-      docNumber={formData.serial || (selectedId ? 'تعديل' : 'جديد')}
-      statusLabel={selectedId ? 'تعديل' : 'جديد'}
+      docNumber={formData.serial || (selectedId ? (isReadOnly ? 'عرض' : 'تعديل') : 'جديد')}
+      statusLabel={selectedId ? (isReadOnly ? 'عرض' : 'تعديل') : 'جديد'}
       onSave={() => void handleSave()}
       savePending={mutation.isPending}
-      canSave={!mutation.isPending}
+      canSave={!isReadOnly && !mutation.isPending}
       onNew={handleCancel}
+      onEdit={() => {
+        if (!selectedId) return;
+        unlockForEdit();
+      }}
+      editDisabled={!selectedId}
       currentId={selectedId}
       onBrowseList={() => setShowGuide(true)}
       favoriteHref={kind === 'DISTRIBUTOR' ? '/accounting/cards/distributor' : '/accounting/cards/driver'}
@@ -272,15 +287,23 @@ export function DelegateKindCardPage({ kind }: { kind: DelegateKind }) {
         className="w-full text-base"
         onSubmit={(e) => {
           e.preventDefault();
-          void handleSave();
+          if (!isReadOnly) void handleSave();
         }}
       >
+        <fieldset disabled={isReadOnly} className="min-w-0 border-0 p-0">
         <FormSectionCard title="البيانات الأساسية" subtitle={copy.subtitle} icon={KindIcon}>
           <CompactFormField
             label="المسلسل"
             value={formData.serial}
-            disabled
-            placeholder="تلقائي"
+            onChange={(e) => patch('serial', e.target.value)}
+            placeholder="إدخل المسلسل"
+          />
+          <CompactFormField
+            label="الكود"
+            required
+            value={formData.code}
+            onChange={(e) => patch('code', e.target.value)}
+            placeholder="إدخل الكود"
           />
           <CompactFormField
             label="الإسم العربي"
@@ -374,11 +397,10 @@ export function DelegateKindCardPage({ kind }: { kind: DelegateKind }) {
               placeholder="إدخل صندوق البريد"
             />
         </FormSectionCard>
-
+        </fieldset>
       </form>
 
       {error ? <ErrorToast message={error} onClose={() => setError('')} /> : null}
-      {success ? <SuccessToast message={success} onClose={() => setSuccess('')} /> : null}
 
       <DocumentBrowseDrawer open={showGuide} onClose={() => setShowGuide(false)} title={`${copy.title} — السابق`}>
         <AppTable<SavedRow>
@@ -387,9 +409,11 @@ export function DelegateKindCardPage({ kind }: { kind: DelegateKind }) {
           emptyTitle={copy.emptyList}
           onRowClick={(row) => {
             setSelectedId(row.id);
+            lockToView();
             setFormData((prev) => ({
               ...prev,
               serial: row.serial || '',
+              code: row.code || row.serial || '',
               arabicName: row.arabicName,
               phone1: row.phone1 || '',
               mobile: row.mobile || '',
@@ -397,7 +421,7 @@ export function DelegateKindCardPage({ kind }: { kind: DelegateKind }) {
             setShowGuide(false);
           }}
           columns={[
-            { id: 'serial', header: 'المسلسل', cell: (r) => r.serial || '—' },
+            { id: 'code', header: 'الكود', cell: (r) => r.code || r.serial || '—' },
             { id: 'name', header: 'الاسم', accessor: 'arabicName' },
             { id: 'phone', header: 'الهاتف', cell: (r) => r.mobile || r.phone1 || '—' },
           ]}

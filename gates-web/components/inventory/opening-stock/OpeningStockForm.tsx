@@ -25,6 +25,7 @@ import {
   type InventoryOpeningStockHeaderFormInput,
 } from '@/lib/validation/inventory.schema';
 import type { ApiError } from '@/lib/api/types';
+import { confirmAction } from '@/lib/feedback/confirm';
 import { onFieldErrors } from '@/lib/forms/on-field-errors';
 import { OpeningStockHeader } from './OpeningStockHeader';
 import { OpeningStockLinesTable } from './OpeningStockLinesTable';
@@ -352,7 +353,7 @@ function OpeningStockFormInner() {
         return;
       }
       if (entered.length > 0) {
-        const ok = window.confirm(`سيتم إدراج ${items.length} صنف في الجدول، هل ترغب في المتابعة؟`);
+        const ok = await confirmAction(`سيتم إدراج ${items.length} صنف في الجدول، هل ترغب في المتابعة؟`);
         if (!ok) return;
       }
       const existingIds = new Set(lines.map((line) => line.itemId).filter(Boolean));
@@ -373,7 +374,7 @@ function OpeningStockFormInner() {
   };
 
   const handlePost = async () => {
-    if (!window.confirm('هل تريد ترحيل كشف بضاعة أول المدة؟')) return;
+    if (!(await confirmAction('هل تريد ترحيل كشف بضاعة أول المدة؟'))) return;
     setLifecyclePending(true);
     try {
       let id = selectedId;
@@ -395,7 +396,7 @@ function OpeningStockFormInner() {
 
   const handleUnpost = async () => {
     if (!selectedId) return;
-    if (!window.confirm('هل تريد فك ترحيل هذا الكشف؟')) return;
+    if (!(await confirmAction('هل تريد فك ترحيل هذا الكشف؟'))) return;
     setLifecyclePending(true);
     try {
       await apiClient.post(`/inventory/opening-stock/${selectedId}/unpost`);
@@ -411,7 +412,7 @@ function OpeningStockFormInner() {
 
   const handleVoid = async () => {
     if (!selectedId) return;
-    if (!window.confirm('هل تريد إلغاء كشف بضاعة أول المدة؟')) return;
+    if (!(await confirmAction('هل تريد إلغاء كشف بضاعة أول المدة؟'))) return;
     setLifecyclePending(true);
     try {
       await apiClient.post(`/inventory/opening-stock/${selectedId}/cancel`);
@@ -441,9 +442,9 @@ function OpeningStockFormInner() {
     setMode('create');
   };
 
-  const handleClearAll = () => {
+  const handleClearAll = async () => {
     if (gridLocked) return;
-    if (!window.confirm('سيتم تفريغ جميع صفوف الجدول. هل تريد المتابعة؟')) return;
+    if (!(await confirmAction('سيتم تفريغ جميع صفوف الجدول. هل تريد المتابعة؟'))) return;
     setLines([emptyOpeningStockLine(defaultWarehouseId)]);
     clearDraft();
   };

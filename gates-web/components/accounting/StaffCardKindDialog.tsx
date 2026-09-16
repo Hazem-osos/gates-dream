@@ -35,12 +35,13 @@ export const STAFF_CARD_PATHS: Record<StaffCardKind, string> = {
 export function staffCardHref(
   kind: StaffCardKind,
   id?: string | null,
-  extra?: { groupId?: string | null }
+  extra?: { groupId?: string | null; mode?: 'view' | 'edit' }
 ) {
   const base = STAFF_CARD_PATHS[kind];
   const params = new URLSearchParams();
   if (id) params.set('id', id);
   if (extra?.groupId) params.set('groupId', extra.groupId);
+  if (extra?.mode) params.set('mode', extra.mode);
   const query = params.toString();
   return query ? `${base}?${query}` : base;
 }

@@ -18,6 +18,7 @@ import { apiClient } from '@/lib/api/client';
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
 import { nextNumericSerial } from '@/lib/masters/nextNumericSerial';
+import { confirmAction } from '@/lib/feedback/confirm';
 import { isEgyptianPound } from '@/lib/accounting/fx-base';
 import { useRememberCurrencyRate } from '@/lib/hooks/useRememberCurrencyRate';
 type FormState = {
@@ -164,7 +165,7 @@ function CurrenciesPageInner() {
 
   const handleDelete = async () => {
     if (!selectedId) return;
-    if (!window.confirm('حذف العملة الحالية؟')) return;
+    if (!(await confirmAction('حذف العملة الحالية؟'))) return;
     setError('');
     try {
       await apiClient.delete(`/accounting/currencies/${selectedId}`);

@@ -22,6 +22,8 @@ export type MasterCardPageHeaderProps = {
   extraActions?: ReactNode;
   moreMenuItems?: ErpHeaderMenuItem[];
   favoriteHref?: string;
+  onEdit?: () => void;
+  editDisabled?: boolean;
 };
 
 export function MasterCardPageHeader({
@@ -40,6 +42,8 @@ export function MasterCardPageHeader({
   extraActions,
   moreMenuItems,
   favoriteHref,
+  onEdit,
+  editDisabled,
 }: MasterCardPageHeaderProps) {
   const items: ErpHeaderMenuItem[] = [
     ...(onNew ? [{ id: 'new', label: 'جديد', onClick: onNew }] : []),
@@ -71,6 +75,8 @@ export function MasterCardPageHeader({
       savePending={savePending}
       canSave={canSave && !savePending}
       hideStandalonePost
+      onEdit={onEdit}
+      editDisabled={editDisabled}
       moreMenuItems={items}
       extraActions={extraActions}
       onBrowseList={onBrowseList}

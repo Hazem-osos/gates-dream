@@ -23,7 +23,7 @@ export default function ErrorToast({ message, onClose, duration = 5000 }: ErrorT
 
   return (
     <div
-      className="fixed top-4 right-4 z-50 bg-red-50 border border-red-200 text-red-800 px-6 py-4 rounded-lg shadow-lg flex items-center gap-3 min-w-[300px] max-w-[500px]"
+      className="fixed top-4 right-4 z-[200] bg-red-50 border border-red-200 text-red-800 px-6 py-4 rounded-lg shadow-lg flex items-center gap-3 min-w-[300px] max-w-[500px]"
       style={{ direction: 'rtl' }}
     >
       <div className="flex-1">

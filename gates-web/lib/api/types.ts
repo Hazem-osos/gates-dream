@@ -55,6 +55,10 @@ export interface RequestConfig {
   bypassConditionalGet?: boolean;
   /** Do not broadcast to the global error toast / AI explainer (used by diagnose-error). */
   skipErrorNotify?: boolean;
+  /** Do not broadcast the global green save toast (background sync, last-rate, favorites). */
+  skipSuccessNotify?: boolean;
+  /** Overrides the default «تم الحفظ» / «تم الحذف» toast. */
+  successMessage?: string;
 }
 
 /**

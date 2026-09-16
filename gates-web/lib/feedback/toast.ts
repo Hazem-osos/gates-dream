@@ -1,10 +1,22 @@
 'use client';
 
 import { toast as sonnerToast } from 'sonner';
+import { markApiSuccessToastShown } from '@/lib/api/api-success-notify';
 import { localizeApiErrorMessage } from '@/lib/api/localize-api-error-message';
 import { openVersionConflict } from '@/lib/concurrency/version-conflict';
 
-export { toast } from 'sonner';
+function success(
+  message: Parameters<typeof sonnerToast.success>[0],
+  data?: Parameters<typeof sonnerToast.success>[1]
+) {
+  markApiSuccessToastShown();
+  return sonnerToast.success(message, {
+    id: 'gates-api-success',
+    ...data,
+  });
+}
+
+export const toast = Object.assign(sonnerToast, { success });
 
 export function toastInvoiceSaveError(message: string) {
   sonnerToast.error('تعذر حفظ الفاتورة', {

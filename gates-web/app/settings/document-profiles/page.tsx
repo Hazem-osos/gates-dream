@@ -5,6 +5,7 @@ import { CommandCenter } from '@/components/dashboard-primitives/CommandCenter';
 import { useApiMutation, useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
 import { apiClient } from '@/lib/api/client';
 import { toast } from '@/lib/feedback/toast';
+import { confirmAction } from '@/lib/feedback/confirm';
 import { WarehouseSelect } from '@/components/form/WarehouseSelect';
 import { CostCenterSelect } from '@/components/form/CostCenterSelect';
 import {
@@ -219,7 +220,7 @@ export default function DocumentProfilesSettingsPage() {
                         type="button"
                         className="ms-3 text-rose-600 hover:underline"
                         onClick={async () => {
-                          if (!window.confirm('إيقاف هذا النمط؟')) return;
+                          if (!(await confirmAction('إيقاف هذا النمط؟'))) return;
                           try {
                             await apiClient.delete(`/document-profiles/${p.id}`);
                             toast.success('تم إيقاف النمط');

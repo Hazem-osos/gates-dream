@@ -13,6 +13,8 @@ export function AppToaster() {
       richColors
       closeButton
       duration={3500}
+      style={{ zIndex: 50000 }}
+      className="!z-[50000]"
       toastOptions={{
         classNames: {
           toast: toastSurfaceClass,
