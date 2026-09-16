@@ -18,6 +18,8 @@ import {
 import { useCompanyBaseCurrency } from '@/lib/hooks/useCompanyBaseCurrency';
 import { ExchangeRateInput } from '@/components/accounting/ExchangeRateInput';
 import { VoucherAccountCombobox } from './VoucherAccountCombobox';
+import { costCenterRuleFromAccount } from '@/lib/accounting/cost-center-rule';
+import { useAccountsQuery } from '@/lib/hooks/useMasterDataQueries';
 
 export type VoucherLineCurrency = {
   id: string;
@@ -73,6 +75,10 @@ export function VoucherLinesGrid({
   showFx = true,
 }: Props) {
   const { code: companyBase, label: companyBaseLabel } = useCompanyBaseCurrency();
+  const { data: accountsRes } = useAccountsQuery(undefined, 500, { leafOnly: true });
+  const accounts = accountsRes?.data ?? [];
+  const ruleFor = (accountId?: string) =>
+    costCenterRuleFromAccount(accounts.find((a) => a.id === accountId));
   const headerCode = headerCurrencyCode || companyBase;
   const fieldOrder = showFx
     ? ['account', 'description', 'amount', 'currency', 'rate', 'costCenter']
@@ -176,6 +182,7 @@ export function VoucherLinesGrid({
                   accountId: pick.accountId,
                   partyId: pick.kind === 'ACCOUNT' ? undefined : pick.partyId,
                   partyKind: pick.kind === 'ACCOUNT' ? undefined : pick.kind,
+                  costCenterId: ruleFor(pick.accountId) === 'none' ? '' : line.costCenterId,
                 })
               }
               inputProps={lineGridDataAttrs(GRID_ID, index, 'account')}
@@ -184,11 +191,14 @@ export function VoucherLinesGrid({
           );
         }
         if (columnId === 'costCenter') {
+          const rule = ruleFor(line.accountId);
           return (
             <CostCenterSelect
-              value={line.costCenterId || ''}
+              value={rule === 'none' ? '' : line.costCenterId || ''}
               onChange={(id) => updateLine(index, { costCenterId: id })}
-              disabled={disabled}
+              disabled={disabled || rule === 'none'}
+              allowEmpty={rule !== 'required'}
+              emptyLabel={rule === 'none' ? 'بدون — الحساب لا يقبل مركز' : rule === 'required' ? 'مطلوب' : 'اختياري'}
               className={dataEntryGridInputClass}
               nativeSelectProps={keyHandlers(index, 'costCenter')}
             />
