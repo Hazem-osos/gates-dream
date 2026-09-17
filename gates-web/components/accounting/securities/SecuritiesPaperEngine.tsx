@@ -16,7 +16,6 @@ import { ErpFormHeaderCard, ErpFieldError } from '@/components/erp/ErpFormHeader
 import { DocumentBrowseDrawer } from '@/components/erp/DocumentBrowseDrawer';
 import { GenericRecordsList } from '@/components/erp/GenericRecordsList';
 import { erpInputClass, erpInputErrorClass, erpLabelClass } from '@/components/erp/erpUiTokens';
-import { StatusBadge } from '@/components/ui/StatusBadge';
 import {
   DocumentSectionNumberPair,
   sectionNumberInputClass,
@@ -611,7 +610,7 @@ export function SecuritiesPaperEngine({ kind }: Props) {
         currentId={selectedId || loaded?.id || null}
         docNumber={docNumber}
         statusTone={status.tone}
-        statusLabel={status.label}
+        statusLabel={`حالة الورقة: ${status.label}`}
         saveLabel="حفظ"
         onSaveDraft={onSave}
         onCancel={() => void onCancelDoc()}
@@ -754,12 +753,6 @@ export function SecuritiesPaperEngine({ kind }: Props) {
         }
         row1={
           <>
-            <div>
-              <label className={erpLabelClass}>حالة الورقة</label>
-              <div className={`${erpInputClass} flex items-center bg-slate-50`}>
-                <StatusBadge variant={status.tone} label={status.label} compact />
-              </div>
-            </div>
             <div>
               <label className={erpLabelClass}>المسلسل</label>
               <input className={erpInputClass} placeholder="المسلسل" disabled={locked} {...register('serial')} />
