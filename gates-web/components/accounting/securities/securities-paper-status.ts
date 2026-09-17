@@ -54,7 +54,11 @@ export type SecuritiesPaperRecord = {
   isReceived?: boolean;
   journalEntryId?: string | null;
   entityName?: string | null;
+  entityId?: string | null;
+  entity?: { id: string; arabicName?: string | null } | null;
   destinationAccountId?: string | null;
+  depositAccountId?: string | null;
+  depositDate?: string | Date | null;
   commissionAmount?: number | string | null;
   commissionAccountId?: string | null;
   multiCollectionLines?: unknown[] | null;

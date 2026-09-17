@@ -45,6 +45,7 @@ describe('commercial paper journal builders', () => {
   it('labels every lifecycle entry type in Arabic', () => {
     expect(paperJournalLabel(PAPER_JOURNAL_ENTRY_TYPE.ISSUE, 'CK-1')).toBe('قيد تحرير — CK-1');
     expect(paperJournalLabel(PAPER_JOURNAL_ENTRY_TYPE.COLLECT)).toBe('قيد تحصيل');
+    expect(paperJournalLabel(PAPER_JOURNAL_ENTRY_TYPE.DEPOSIT)).toBe('قيد إيداع');
     expect(paperJournalLabel(PAPER_JOURNAL_ENTRY_TYPE.BOUNCE)).toBe('قيد ارتداد');
     expect(paperJournalLabel(PAPER_JOURNAL_ENTRY_TYPE.ENDORSE)).toBe('قيد تظهير');
     expect(paperJournalLabel(PAPER_JOURNAL_ENTRY_TYPE.MULTI)).toBe('قيد تحصيل متعدد');

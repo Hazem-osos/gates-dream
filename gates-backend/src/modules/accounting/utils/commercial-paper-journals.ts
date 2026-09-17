@@ -3,6 +3,7 @@ import type { JournalEntryLineData } from '../types/journal-entry.types';
 export const PAPER_JOURNAL_ENTRY_TYPE = {
   ISSUE: 'تحرير',
   COLLECT: 'تحصيل',
+  DEPOSIT: 'إيداع',
   BOUNCE: 'ارتداد',
   ENDORSE: 'تظهير',
   MULTI: 'تحصيل متعدد',
@@ -24,6 +25,7 @@ export type PaperLifecycleStatus = (typeof PAPER_LIFECYCLE)[keyof typeof PAPER_L
 export const PAPER_JOURNAL_LABELS: Record<string, string> = {
   [PAPER_JOURNAL_ENTRY_TYPE.ISSUE]: 'قيد تحرير',
   [PAPER_JOURNAL_ENTRY_TYPE.COLLECT]: 'قيد تحصيل',
+  [PAPER_JOURNAL_ENTRY_TYPE.DEPOSIT]: 'قيد إيداع',
   [PAPER_JOURNAL_ENTRY_TYPE.BOUNCE]: 'قيد ارتداد',
   [PAPER_JOURNAL_ENTRY_TYPE.ENDORSE]: 'قيد تظهير',
   [PAPER_JOURNAL_ENTRY_TYPE.MULTI]: 'قيد تحصيل متعدد',

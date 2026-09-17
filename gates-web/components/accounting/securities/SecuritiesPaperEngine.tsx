@@ -104,7 +104,7 @@ function makeFormSchema(kind: SecuritiesPaperKind) {
       amount: z.string(),
       paidTo: z.string().optional(),
       depositInBank: z.boolean(),
-      bankPortfolioId: z.string().optional(),
+      depositAccountId: z.string().optional(),
       bankIssueDate: z.string().optional(),
       bankHijriDate: z.string().optional(),
       department: z.string().optional(),
@@ -122,13 +122,6 @@ type FormValues = z.infer<ReturnType<typeof makeFormSchema>>;
 
 type Named = { id: string; code?: string; arabicName: string; englishName?: string };
 type Currency = Named & { code: string; exchangeRate?: number | string | null };
-type BankAccount = {
-  id: string;
-  accountNumber?: string;
-  arabicName?: string;
-  bank?: { arabicName?: string | null };
-};
-
 function todayIso(): string {
   return new Date().toISOString().split('T')[0];
 }
@@ -167,7 +160,7 @@ function emptyForm(
     amount: '',
     paidTo: '',
     depositInBank: false,
-    bankPortfolioId: '',
+    depositAccountId: '',
     bankIssueDate: '',
     bankHijriDate: '',
     department: '',
@@ -281,13 +274,6 @@ export function SecuritiesPaperEngine({ kind }: Props) {
     limit: 200,
   });
   const departments = useMemo(() => departmentsResponse?.data ?? [], [departmentsResponse?.data]);
-  const { data: banksResponse } = useApiQuery<BankAccount[]>(
-    ['bank-accounts'],
-    '/accounting/bank-accounts',
-    { isActive: true }
-  );
-  const bankAccounts = useMemo(() => banksResponse?.data ?? [], [banksResponse?.data]);
-
   const { data: recordResponse } = useApiQuery<SecuritiesPaperRecord>(
     [listKey, 'one', selectedId],
     selectedId ? `${apiPath}/${selectedId}` : apiPath,
@@ -337,6 +323,10 @@ export function SecuritiesPaperEngine({ kind }: Props) {
       partyType: partyIsSupplier ? 'supplier' : partyIsCustomer ? 'customer' : kind === 'payment' ? 'supplier' : 'customer',
       partyId: record.supplierId || record.customerId || '',
       accountId: record.destinationAccountId || '',
+      depositInBank: Boolean(record.depositAccountId),
+      depositAccountId: record.depositAccountId || '',
+      bankIssueDate: isoDateOnly(record.depositDate),
+      bankHijriDate: toHijri(isoDateOnly(record.depositDate)),
       securityType: (record.securityType as FormValues['securityType']) || 'check',
       serial: record.serial || '',
       documentNumber: record.paymentNumber || record.receiptNumber || '',
@@ -439,12 +429,17 @@ export function SecuritiesPaperEngine({ kind }: Props) {
         ? {
             paymentNumber: values.documentNumber || undefined,
             payeeName: values.partyName || undefined,
-            payeeBank: values.bankName || values.bankPortfolioId || undefined,
+            payeeBank: values.bankName || undefined,
           }
         : {
             receiptNumber: values.documentNumber || undefined,
             issuerName: values.partyName || undefined,
-            issuerBank: values.bankName || values.bankPortfolioId || undefined,
+            issuerBank: values.bankName || undefined,
+            depositAccountId: values.depositInBank ? values.depositAccountId || null : null,
+            depositDate:
+              values.depositInBank && values.bankIssueDate
+                ? new Date(values.bankIssueDate).toISOString()
+                : null,
           }),
     };
   };
@@ -467,6 +462,16 @@ export function SecuritiesPaperEngine({ kind }: Props) {
         if (!selectedId && !autoNumbering && !values.serial?.trim()) {
           setError('أدخل المسلسل يدوياً — الترقيم مضبوط على يدوي في إعدادات الورقة');
           return;
+        }
+        if (kind === 'receipt' && values.depositInBank) {
+          if (!values.depositAccountId?.trim()) {
+            setError('اختر حساب الإيداع في البنك');
+            return;
+          }
+          if (!values.bankIssueDate?.trim()) {
+            setError('أدخل تاريخ الإيداع في البنك');
+            return;
+          }
         }
         const body = buildPayload(values);
         if (selectedId) {
@@ -974,17 +979,19 @@ export function SecuritiesPaperEngine({ kind }: Props) {
       />
       </div>
 
+      {kind === 'receipt' ? (
       <div className="mt-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
         <label className="inline-flex items-center gap-2 text-sm font-semibold text-[#094C6B]">
           <input
             type="checkbox"
             className="h-4 w-4 accent-[#0E78AA]"
             checked={depositInBank}
+            disabled={locked}
             onChange={(e) => {
               const on = e.target.checked;
               setValue('depositInBank', on, { shouldValidate: false });
               if (!on) {
-                setValue('bankPortfolioId', '');
+                setValue('depositAccountId', '');
                 setValue('bankIssueDate', '');
                 setValue('bankHijriDate', '');
               } else if (!watch('bankIssueDate')) {
@@ -999,19 +1006,19 @@ export function SecuritiesPaperEngine({ kind }: Props) {
         {depositInBank ? (
           <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
-              <label className={erpLabelClass}>محفظة البنك</label>
-              <select className={erpInputClass} {...register('bankPortfolioId')}>
-                <option value="">اختر محفظة البنك</option>
-                {bankAccounts.map((bank) => (
-                  <option key={bank.id} value={bank.id}>
-                    {bank.accountNumber || bank.arabicName || bank.id}{' '}
-                    {bank.bank?.arabicName ? `— ${bank.bank.arabicName}` : ''}
-                  </option>
-                ))}
-              </select>
+              <label className={erpLabelClass}>حساب الإيداع</label>
+              <AccountSelect
+                value={watch('depositAccountId') || ''}
+                onChange={(id) => setValue('depositAccountId', id, { shouldValidate: false })}
+                className={erpInputClass}
+                leafOnly
+                disabled={locked}
+                placeholder="الحساب المدين في قيد الإيداع"
+                emptyLabel="اختر حساب البنك"
+              />
             </div>
             <SecuritiesDateHijriField
-              label="تاريخ التحرير"
+              label="تاريخ الإيداع"
               gregorian={bankIssueDate || ''}
               hijri={watch('bankHijriDate') || ''}
               onGregorianChange={(v) => setValue('bankIssueDate', v, { shouldValidate: false })}
@@ -1019,6 +1026,7 @@ export function SecuritiesPaperEngine({ kind }: Props) {
           </div>
         ) : null}
       </div>
+      ) : null}
 
       <ErpDocumentBottomSplit
         financialRows={[{ label: 'مبلغ الورقة', value: amountNum }]}

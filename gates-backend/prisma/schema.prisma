@@ -2195,6 +2195,8 @@ model SecuritiesReceipt {
   entityName             String?
   entityId               String?
   destinationAccountId   String?
+  depositAccountId       String?
+  depositDate            DateTime?
   commissionAmount       Decimal?  @db.Decimal(15, 2)
   commissionAccountId    String?
   // Status
@@ -2269,15 +2271,35 @@ model SecuritiesPayment {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
-  company  Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  customer Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
-  supplier Supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  company  Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  customer Customer?         @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  supplier Supplier?         @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  entity   SecuritiesEntity? @relation(fields: [entityId], references: [id], onDelete: SetNull)
 
   @@unique([companyId, paymentNumber])
   @@index([companyId, date])
   @@index([paymentNumber])
   @@index([securityType])
+  @@index([entityId])
   @@map("securities_payments")
+}
+
+/// دليل جهات أوراق القبض والدفع — يُختار لاحقاً ويُفلتر به في التقارير
+model SecuritiesEntity {
+  id         String   @id @default(uuid())
+  companyId  String
+  arabicName String
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  company  Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  receipts SecuritiesReceipt[]
+  payments SecuritiesPayment[]
+
+  @@unique([companyId, arabicName])
+  @@index([companyId, isActive])
+  @@map("securities_entities")
 }
 
 /// سجلات التحصيل المتعدد لأوراق القبض / الصرف

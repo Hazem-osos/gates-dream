@@ -35,6 +35,8 @@ export interface CreateSecuritiesReceiptData {
   customerId?: string;
   supplierId?: string;
   destinationAccountId?: string | null;
+  depositAccountId?: string | null;
+  depositDate?: Date | null;
   issuerName?: string;
   issuerBank?: string;
   securityNumber?: string;
@@ -56,6 +58,8 @@ export interface UpdateSecuritiesReceiptData {
   customerId?: string;
   supplierId?: string;
   destinationAccountId?: string | null;
+  depositAccountId?: string | null;
+  depositDate?: Date | null;
   issuerName?: string;
   issuerBank?: string;
   securityNumber?: string;
@@ -250,6 +254,8 @@ export class SecuritiesReceiptService {
         customerId: data.customerId,
         supplierId: data.supplierId,
         destinationAccountId,
+        depositAccountId: data.depositAccountId || null,
+        depositDate: data.depositDate || null,
         issuerName: data.issuerName,
         issuerBank: data.issuerBank,
         securityNumber: data.securityNumber,
@@ -269,10 +275,10 @@ export class SecuritiesReceiptService {
       return commercialPaperPostingService.decoratePaper(companyId, 'RECEIPT', created);
     }
     try {
-      return await commercialPaperPostingService.syncIssueJournal(
+      return await commercialPaperPostingService.syncIssueAndOptionalDeposit(
         { companyId, branchId: ctx.branchId ?? data.branchId ?? created.branchId, userId: ctx.userId },
-        'RECEIPT',
-        created.id
+        created.id,
+        { accountId: data.depositAccountId, date: data.depositDate }
       );
     } catch (error) {
       await prisma.securitiesReceipt.delete({ where: { id: created.id } }).catch(() => undefined);
@@ -325,6 +331,8 @@ export class SecuritiesReceiptService {
     if (data.customerId !== undefined) updateData.customerId = data.customerId;
     if (data.supplierId !== undefined) updateData.supplierId = data.supplierId;
     if (data.destinationAccountId !== undefined) updateData.destinationAccountId = data.destinationAccountId;
+    if (data.depositAccountId !== undefined) updateData.depositAccountId = data.depositAccountId;
+    if (data.depositDate !== undefined) updateData.depositDate = data.depositDate;
     if (data.issuerName !== undefined) updateData.issuerName = data.issuerName;
     if (data.issuerBank !== undefined) updateData.issuerBank = data.issuerBank;
     if (data.securityNumber !== undefined) updateData.securityNumber = data.securityNumber;
@@ -348,10 +356,14 @@ export class SecuritiesReceiptService {
     if (!ctx?.userId) {
       return commercialPaperPostingService.decoratePaper(companyId, 'RECEIPT', updated);
     }
-    return commercialPaperPostingService.syncIssueJournal(
+    return commercialPaperPostingService.syncIssueAndOptionalDeposit(
       { companyId, branchId: ctx.branchId ?? receipt.branchId, userId: ctx.userId },
-      'RECEIPT',
-      receiptId
+      receiptId,
+      {
+        accountId:
+          data.depositAccountId !== undefined ? data.depositAccountId : updated.depositAccountId,
+        date: data.depositDate !== undefined ? data.depositDate : updated.depositDate,
+      }
     );
   }
 
