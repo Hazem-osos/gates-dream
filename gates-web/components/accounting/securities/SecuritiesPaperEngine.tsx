@@ -54,6 +54,7 @@ import {
   type SecuritiesPaperKind,
   type SecuritiesPaperRecord,
 } from './securities-paper-status';
+import type { TransactionSettings } from '@/lib/transaction-settings/types';
 
 function formatPaperDate(iso?: string) {
   const raw = (iso || '').trim();
@@ -176,6 +177,12 @@ export function SecuritiesPaperEngine({ kind }: Props) {
   const title = securitiesPaperTitle(kind);
   const apiPath = kind === 'payment' ? '/accounting/securities-payments' : '/accounting/securities-receipts';
   const listKey = kind === 'payment' ? 'securities-payments' : 'securities-receipts';
+  const settingsDocumentType = kind === 'payment' ? 'SECURITIES_PAYMENT' : 'SECURITIES_RECEIPT';
+  const { data: txSettingsRes } = useApiQuery<TransactionSettings>(
+    ['transaction-settings', settingsDocumentType],
+    `/transaction-settings/${settingsDocumentType}`
+  );
+  const autoNumbering = txSettingsRes?.data?.numberingMode !== 'MANUAL';
   const bulkHref = '/treasury/papers/batch-receipt/new';
   const favoriteHref =
     kind === 'payment'
@@ -340,8 +347,7 @@ export function SecuritiesPaperEngine({ kind }: Props) {
 
   const createMutation = useApiMutation<SecuritiesPaperRecord, Record<string, unknown>>(apiPath, 'POST', {
     showSuccessToast: false,
-    onSuccess: (res) => {
-      const row = res.data;
+    onSuccess: () => {
       const message =
         kind === 'payment'
           ? 'تم حفظ ورقة المدفوعات وإنشاء قيد التحرير'
@@ -431,11 +437,16 @@ export function SecuritiesPaperEngine({ kind }: Props) {
     return 'أكمل الحقول المطلوبة قبل الحفظ';
   };
 
-  const onSave = () =>
+  const onSave = () => {
+    if (saving || createMutation.isPending) return;
     void handleSubmit(
       async (values) => {
         setError('');
         setSuccess('');
+        if (!selectedId && !autoNumbering && !values.serial?.trim()) {
+          setError('أدخل المسلسل يدوياً — الترقيم مضبوط على يدوي في إعدادات الورقة');
+          return;
+        }
         const body = buildPayload(values);
         if (selectedId) {
           setSaving(true);
@@ -472,6 +483,7 @@ export function SecuritiesPaperEngine({ kind }: Props) {
       },
       (errs) => setError(firstFormError(errs))
     )();
+  };
 
   const onPostDoc = async () => {
     const id = selectedId || loaded?.id;
@@ -504,10 +516,14 @@ export function SecuritiesPaperEngine({ kind }: Props) {
   const applyLoaded = (record: SecuritiesPaperRecord, fallbackId: string) => {
     setSelectedId(record.id || fallbackId);
     setLoaded(record);
+    const latestJournal =
+      record.journals?.[record.journals.length - 1]?.id || record.journalEntryId || null;
+    if (latestJournal) setSelectedJournalId(latestJournal);
     invalidateQuery([listKey]);
     invalidateQuery([`${listKey}-browse`]);
     invalidateQuery([listKey, 'one', record.id || fallbackId]);
     invalidateQuery(['journal-entry']);
+    if (latestJournal) invalidateQuery(['journal-entry', latestJournal]);
   };
 
   const undoPaperCase = async () => {
@@ -755,7 +771,12 @@ export function SecuritiesPaperEngine({ kind }: Props) {
           <>
             <div>
               <label className={erpLabelClass}>المسلسل</label>
-              <input className={erpInputClass} placeholder="المسلسل" disabled={locked} {...register('serial')} />
+              <input
+                className={erpInputClass}
+                placeholder={autoNumbering ? 'تلقائي' : 'أدخل المسلسل'}
+                disabled={locked || autoNumbering}
+                {...register('serial')}
+              />
             </div>
             <div>
               <label className={erpLabelClass}>
@@ -971,6 +992,7 @@ export function SecuritiesPaperEngine({ kind }: Props) {
         journalOptions={journals.map((row) => ({ id: row.id, label: row.label }))}
         onJournalIdChange={setSelectedJournalId}
         showJournalTab
+        journalEmptyTitle="لا يوجد قيد بعد. احفظ الورقة فيظهر قيد التحرير هنا، وبعد التحصيل أو الارتداد تقدر تختار القيد من القائمة."
         tabs={[]}
       />
 

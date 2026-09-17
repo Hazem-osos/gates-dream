@@ -16,6 +16,8 @@ const SCREEN_TITLES: Record<string, string> = {
   '/accounting/settings/transactions/receipt-voucher': 'إعدادات سند القبض',
   '/accounting/settings/transactions/bank-discount': 'إعدادات إشعار الخصم',
   '/accounting/settings/transactions/bank-addition': 'إعدادات إشعار الإضافة',
+  '/accounting/settings/transactions/securities-receipt': 'إعدادات ورقة المقبوضات',
+  '/accounting/settings/transactions/securities-payment': 'إعدادات ورقة المدفوعات',
   '/inventory/settings/transactions/sales-invoice': 'إعدادات فاتورة المبيعات',
   '/inventory/settings/transactions/purchase-invoice': 'إعدادات فاتورة المشتريات',
   '/inventory/settings/transactions/sales-return': 'إعدادات مردودات المبيعات',

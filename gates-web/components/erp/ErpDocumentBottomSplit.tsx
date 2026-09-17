@@ -25,6 +25,7 @@ type Props = {
   journalOptions?: { id: string; label: string }[];
   onJournalIdChange?: (id: string) => void;
   showJournalTab?: boolean;
+  journalEmptyTitle?: string;
 };
 
 export function ErpDocumentBottomSplit({
@@ -41,6 +42,7 @@ export function ErpDocumentBottomSplit({
   journalOptions,
   onJournalIdChange,
   showJournalTab = true,
+  journalEmptyTitle,
 }: Props) {
   const journalPreview = (
     <div className="space-y-2">
@@ -60,7 +62,12 @@ export function ErpDocumentBottomSplit({
           </select>
         </label>
       ) : null}
-      <LiveJournalPreviewTable journalEntryId={journalEntryId} title="" compact />
+      <LiveJournalPreviewTable
+        journalEntryId={journalEntryId}
+        title=""
+        compact
+        emptyTitle={journalEmptyTitle}
+      />
     </div>
   );
   const allTabs: ErpBottomTab[] = showJournalTab

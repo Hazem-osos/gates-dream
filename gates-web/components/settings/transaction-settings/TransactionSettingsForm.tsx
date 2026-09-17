@@ -19,6 +19,7 @@ import {
   type TransactionSettings,
   canLoadSourceOrder,
   isJournalLikeDocumentType,
+  isSecuritiesDocumentType,
   isTreasuryDocumentType,
 } from '@/lib/transaction-settings/types';
 import {
@@ -107,7 +108,8 @@ export function TransactionSettingsForm({
   const title = DOCUMENT_TYPE_TITLE[documentType];
   const treasury = isTreasuryDocumentType(documentType);
   const journalLike = isJournalLikeDocumentType(documentType);
-  const hideStockPolicies = treasury || journalLike;
+  const securities = isSecuritiesDocumentType(documentType);
+  const hideStockPolicies = treasury || journalLike || securities;
   const isBankAdvice = documentType === 'BANK_DEBIT_ADVICE' || documentType === 'BANK_CREDIT_ADVICE';
   const isReceiptLike = documentType === 'RECEIPT_VOUCHER' || documentType === 'BANK_CREDIT_ADVICE';
 

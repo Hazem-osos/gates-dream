@@ -306,6 +306,26 @@ export class CommercialPaperPostingService {
     };
   }
 
+  /** Open-from-browse: create the missing issue journal without failing the GET. */
+  async ensureIssueJournalIfMissing(
+    ctx: CommercialPaperPostingCtx,
+    paperKind: CommercialPaperKind,
+    paperId: string
+  ) {
+    const paper = await this.loadPaper(ctx.companyId, paperKind, paperId);
+    if (paper.isCancelled || isLifecycleBeyondIssue(paper.paperCase)) {
+      return this.decoratePaper(ctx.companyId, paperKind, paper);
+    }
+    if (await this.isJournalActive(ctx.companyId, paper.journalEntryId)) {
+      return this.decoratePaper(ctx.companyId, paperKind, paper);
+    }
+    try {
+      return await this.syncIssueJournal(ctx, paperKind, paperId);
+    } catch {
+      return this.decoratePaper(ctx.companyId, paperKind, paper);
+    }
+  }
+
   async syncIssueJournal(ctx: CommercialPaperPostingCtx, paperKind: CommercialPaperKind, paperId: string) {
     const paper = await this.loadPaper(ctx.companyId, paperKind, paperId);
     if (paper.isCancelled) {

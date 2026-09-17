@@ -10,7 +10,9 @@ export type TransactionDocumentType =
   | 'BANK_DEBIT_ADVICE'
   | 'BANK_CREDIT_ADVICE'
   | 'JOURNAL_ENTRY'
-  | 'OPENING_BALANCE';
+  | 'OPENING_BALANCE'
+  | 'SECURITIES_RECEIPT'
+  | 'SECURITIES_PAYMENT';
 
 export type NumberingMode = 'AUTOMATIC' | 'MANUAL';
 export type SequenceMode = 'CONTINUOUS' | 'ANNUAL_RESET';
@@ -76,6 +78,8 @@ export const DOCUMENT_TYPE_SLUG: Record<string, TransactionDocumentType> = {
   'bank-addition': 'BANK_CREDIT_ADVICE',
   'journal-entry': 'JOURNAL_ENTRY',
   'opening-balance': 'OPENING_BALANCE',
+  'securities-receipt': 'SECURITIES_RECEIPT',
+  'securities-payment': 'SECURITIES_PAYMENT',
 };
 
 export const DOCUMENT_TYPE_TITLE: Record<TransactionDocumentType, string> = {
@@ -91,6 +95,8 @@ export const DOCUMENT_TYPE_TITLE: Record<TransactionDocumentType, string> = {
   BANK_CREDIT_ADVICE: 'إعدادات إشعار الإضافة',
   JOURNAL_ENTRY: 'إعدادات قيد اليومية',
   OPENING_BALANCE: 'إعدادات الرصيد الافتتاحي',
+  SECURITIES_RECEIPT: 'إعدادات ورقة المقبوضات',
+  SECURITIES_PAYMENT: 'إعدادات ورقة المدفوعات',
 };
 
 export type TransactionSettingsModule = 'inventory' | 'accounting';
@@ -217,6 +223,24 @@ export const TRANSACTION_SETTINGS_CONTEXT: Record<
     sourceHref: '/accounting/operations/basic-operations/opening-balance',
     sourceLabel: 'الرصيد الإفتتاحي',
   },
+  SECURITIES_RECEIPT: {
+    slug: 'securities-receipt',
+    documentType: 'SECURITIES_RECEIPT',
+    title: DOCUMENT_TYPE_TITLE.SECURITIES_RECEIPT,
+    module: 'accounting',
+    moduleLabel: 'الحسابات العامة',
+    sourceHref: '/accounting/operations/securities/reciept',
+    sourceLabel: 'ورقة مقبوضات',
+  },
+  SECURITIES_PAYMENT: {
+    slug: 'securities-payment',
+    documentType: 'SECURITIES_PAYMENT',
+    title: DOCUMENT_TYPE_TITLE.SECURITIES_PAYMENT,
+    module: 'accounting',
+    moduleLabel: 'الحسابات العامة',
+    sourceHref: '/accounting/operations/securities/payment',
+    sourceLabel: 'ورقة مدفوعات',
+  },
 };
 
 export const TREASURY_DOCUMENT_TYPES: TransactionDocumentType[] = [
@@ -232,6 +256,10 @@ export function isTreasuryDocumentType(type: TransactionDocumentType): boolean {
 
 export function isJournalLikeDocumentType(type: TransactionDocumentType): boolean {
   return type === 'JOURNAL_ENTRY' || type === 'OPENING_BALANCE';
+}
+
+export function isSecuritiesDocumentType(type: TransactionDocumentType): boolean {
+  return type === 'SECURITIES_RECEIPT' || type === 'SECURITIES_PAYMENT';
 }
 
 export function canLoadSourceOrder(type: TransactionDocumentType): boolean {
@@ -276,6 +304,8 @@ export function settingsHrefForNav(href?: string): string | null {
   if (href.includes('/bank-addition')) return settingsPageHref('BANK_CREDIT_ADVICE');
   if (href.includes('/journal-entry')) return settingsPageHref('JOURNAL_ENTRY');
   if (href.includes('/opening-balance')) return settingsPageHref('OPENING_BALANCE');
+  if (href.includes('/securities/reciept')) return settingsPageHref('SECURITIES_RECEIPT');
+  if (href.includes('/securities/payment')) return settingsPageHref('SECURITIES_PAYMENT');
   if (href.includes('/payment-order')) return settingsPageHref('PAYMENT_VOUCHER');
   if (href.includes('/receipt-order')) return settingsPageHref('RECEIPT_VOUCHER');
   if (href.includes('/operations/issue')) return settingsPageHref('STOCK_ISSUE');

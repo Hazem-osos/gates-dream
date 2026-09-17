@@ -44,7 +44,11 @@ const EXACT: Record<string, string> = {
   'securities receipt not found': 'ورقة المقبوضات غير موجودة',
   'securities payment not found': 'ورقة المدفوعات غير موجودة',
   'cheque gl accounts are not fully configured in company accountdefinitions':
-    'اختر حساب التحصيل (خزينة أو بنك). حسابات الشيكات غير مضبوطة في إعدادات الشركة.',
+    'حسابات أوراق القبض/الدفع غير موجودة في الدليل. أضف «أوراق قبض تحت اليد» و«أوراق قبض برسم التحصيل» و«أوراق دفع» ثم أعد الحفظ.',
+  'receipt number already exists': 'رقم ورقة المقبوضات مستخدم من قبل. غيّر الرقم ثم احفظ.',
+  'payment number already exists': 'رقم ورقة المدفوعات مستخدم من قبل. غيّر الرقم ثم احفظ.',
+  'failed to create securities receipt': 'تعذّر حفظ ورقة المقبوضات. راجع البيانات ثم أعد المحاولة.',
+  'failed to create securities payment': 'تعذّر حفظ ورقة المدفوعات. راجع البيانات ثم أعد المحاولة.',
   'securities receipt is already posted': 'تم تحصيل ورقة المقبوضات مسبقاً',
   'securities payment is already posted': 'تم تحصيل ورقة المدفوعات مسبقاً',
   'securities receipt is already cancelled': 'ورقة المقبوضات مرتدة أو ملغاة بالفعل',
@@ -300,6 +304,10 @@ const RULES: Rule[] = [
   {
     test: /http 500|internal server error/i,
     ar: 'حدث خطأ غير متوقع. الحل: حدّث الصفحة وأعد المحاولة.',
+  },
+  {
+    test: /account not found for code\/id/i,
+    ar: 'حساب أوراق القبض غير موجود في الدليل. أضف الحساب أو اربطه من إعدادات الحسابات الافتراضية ثم أعد الحفظ.',
   },
   {
     test: /unique constraint|already exists/i,

@@ -7,6 +7,7 @@ import { useRegisterScreenChrome } from '@/components/erp/AppScreenChromeContext
 import { TransactionSettingsForm } from '@/components/settings/transaction-settings/TransactionSettingsForm';
 import {
   TRANSACTION_SETTINGS_CONTEXT,
+  isSecuritiesDocumentType,
   isTreasuryDocumentType,
   type TransactionDocumentType,
 } from '@/lib/transaction-settings/types';
@@ -42,7 +43,9 @@ export function TransactionSettingsScreen({
           <p className="mt-1 text-sm text-slate-500">
             {isTreasuryDocumentType(documentType)
               ? `اختَر الحسابات من شجرة هذه الشركة فقط — الصندوق أو البنك، الحساب المقابل، والعمولة. كل عميل يحدّد شجرته بنفسه لشاشة «${ctx.sourceLabel}».`
-              : `هذه السياسات خاصة بوحدة ${ctx.moduleLabel} وشاشة «${ctx.sourceLabel}» فقط.`}
+              : isSecuritiesDocumentType(documentType)
+                ? `ترقيم ورقة «${ctx.sourceLabel}» تلقائي من النظام، إلا لو اخترت يدوياً من نوع الترقيم.`
+                : `هذه السياسات خاصة بوحدة ${ctx.moduleLabel} وشاشة «${ctx.sourceLabel}» فقط.`}
           </p>
         </div>
         <Link

@@ -30,6 +30,7 @@ export type InvoiceJournalEntryLinesTableProps = {
   journalEntryId: string | null | undefined;
   title?: string;
   compact?: boolean;
+  emptyTitle?: string;
 };
 
 const UUID_RE =
@@ -43,6 +44,7 @@ export function InvoiceJournalEntryLinesTable({
   journalEntryId,
   title = 'القيد',
   compact = false,
+  emptyTitle = 'لا يوجد قيد محاسبي بعد.',
 }: InvoiceJournalEntryLinesTableProps) {
   const validId = isJournalEntryId(journalEntryId) ? journalEntryId : null;
   const { data: response, isLoading } = useApiQuery<JournalEntryPayload>(
@@ -81,7 +83,7 @@ export function InvoiceJournalEntryLinesTable({
           {!validId ? (
             <tr>
               <td colSpan={8} className="py-6">
-                <EmptyState title="لا يوجد قيد محاسبي — يظهر بعد ترحيل الفاتورة." />
+                <EmptyState title={emptyTitle} />
               </td>
             </tr>
           ) : isLoading ? (

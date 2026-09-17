@@ -8,6 +8,7 @@ import {
   assertPaperIssued,
   SECURITIES_PAPER_CASES,
 } from '../utils/securities-paper-case';
+import { resolveSecuritiesPaperNumbers } from '../utils/securities-numbering';
 
 export type CollectSecuritiesInput = {
   accountId: string;
@@ -135,7 +136,11 @@ export class SecuritiesReceiptService {
   /**
    * Get a single securities receipt by ID
    */
-  async getSecuritiesReceiptById(companyId: string, receiptId: string) {
+  async getSecuritiesReceiptById(
+    companyId: string,
+    receiptId: string,
+    ctx?: SecuritiesPostingCtx
+  ) {
     const receipt = await prisma.securitiesReceipt.findFirst({
       where: {
         id: receiptId,
@@ -148,9 +153,16 @@ export class SecuritiesReceiptService {
     });
 
     if (!receipt) {
-      throw new Error('Securities receipt not found');
+      throw new AppError(404, 'ورقة المقبوضات غير موجودة');
     }
 
+    if (ctx?.userId) {
+      return commercialPaperPostingService.ensureIssueJournalIfMissing(
+        { companyId, branchId: ctx.branchId ?? receipt.branchId, userId: ctx.userId },
+        'RECEIPT',
+        receiptId
+      );
+    }
     return commercialPaperPostingService.decoratePaper(companyId, 'RECEIPT', receipt);
   }
 
@@ -173,51 +185,48 @@ export class SecuritiesReceiptService {
       if (!account) throw new AppError(400, 'الحساب المختار غير موجود');
     }
 
-    // Check receipt number uniqueness
-    if (data.receiptNumber) {
-      const existing = await prisma.securitiesReceipt.findFirst({
-        where: {
+    const { serial, documentNumber: receiptNumber } = await resolveSecuritiesPaperNumbers({
+      companyId,
+      kind: 'RECEIPT',
+      serial: data.serial,
+      documentNumber: data.receiptNumber,
+      allocate: () =>
+        documentSequenceService.nextNumberForFamily({
           companyId,
-          receiptNumber: data.receiptNumber,
-        },
-      });
-
-      if (existing) {
-        throw new Error('Receipt number already exists');
-      }
-    }
-
-    // Legacy `CreateCKNum` numbers the received-securities voucher.
-    const receiptNumber =
-      data.receiptNumber?.trim() ||
-      (await documentSequenceService.nextNumberForFamily({
-        companyId,
-        branchId: data.branchId ?? null,
-        fiscalYearId: null,
-        docType: 'CK',
-        legacySuffix: 'CK01',
-        seedFromExisting: documentSequenceService.maxExistingNumber(async () => {
-          const rows = await prisma.securitiesReceipt.findMany({
-            where: { companyId },
-            select: { receiptNumber: true },
-          });
-          return rows.map((r) => r.receiptNumber);
+          branchId: data.branchId ?? null,
+          fiscalYearId: null,
+          docType: 'CK',
+          legacySuffix: 'CK01',
+          seedFromExisting: documentSequenceService.maxExistingNumber(async () => {
+            const rows = await prisma.securitiesReceipt.findMany({
+              where: { companyId },
+              select: { receiptNumber: true },
+            });
+            return rows.map((r) => r.receiptNumber);
+          }),
+          isAvailable: async (candidate) => {
+            const taken = await prisma.securitiesReceipt.findFirst({
+              where: { companyId, receiptNumber: candidate },
+              select: { id: true },
+            });
+            return !taken;
+          },
         }),
-        isAvailable: async (candidate) => {
-          const taken = await prisma.securitiesReceipt.findFirst({
-            where: { companyId, receiptNumber: candidate },
-            select: { id: true },
-          });
-          return !taken;
-        },
-      })) ||
-      null;
+    });
+
+    const existing = await prisma.securitiesReceipt.findFirst({
+      where: { companyId, receiptNumber },
+      select: { id: true },
+    });
+    if (existing) {
+      throw new Error('Receipt number already exists');
+    }
 
     const created = await prisma.securitiesReceipt.create({
       data: {
         companyId,
         branchId: data.branchId,
-        serial: data.serial,
+        serial,
         receiptNumber,
         date: data.date,
         hijriDate: data.hijriDate,
@@ -243,11 +252,16 @@ export class SecuritiesReceiptService {
     if (!ctx?.userId) {
       return commercialPaperPostingService.decoratePaper(companyId, 'RECEIPT', created);
     }
-    return commercialPaperPostingService.syncIssueJournal(
-      { companyId, branchId: ctx.branchId ?? data.branchId, userId: ctx.userId },
-      'RECEIPT',
-      created.id
-    );
+    try {
+      return await commercialPaperPostingService.syncIssueJournal(
+        { companyId, branchId: ctx.branchId ?? data.branchId, userId: ctx.userId },
+        'RECEIPT',
+        created.id
+      );
+    } catch (error) {
+      await prisma.securitiesReceipt.delete({ where: { id: created.id } }).catch(() => undefined);
+      throw error;
+    }
   }
 
   /**

@@ -76,12 +76,18 @@ router.get('/:id', authorize({ resource: 'securities-receipt', action: 'view' })
   try {
     const companyId = req.companyId || req.tenantId;
     if (!companyId) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
-    const receipt = await securitiesReceiptService.getSecuritiesReceiptById(companyId, req.params.id);
+    const receipt = await securitiesReceiptService.getSecuritiesReceiptById(companyId, req.params.id, {
+      branchId: req.branchId,
+      userId: req.user?.sub || '',
+    });
     return void res.json({ status: 'success', data: receipt });
   } catch (error) {
     logger.error({ error }, 'Error getting securities receipt');
-    const status = error instanceof Error && error.message === 'Securities receipt not found' ? 404 : 500;
-    return void res.status(status).json({ status: 'error', message: error instanceof Error ? error.message : 'Failed to get securities receipt' });
+    const status = error instanceof AppError ? error.statusCode : 500;
+    return void res.status(status).json({
+      status: 'error',
+      message: error instanceof Error ? error.message : 'Failed to get securities receipt',
+    });
   }
 });
 
@@ -96,8 +102,17 @@ router.post('/', authorize({ resource: 'securities-receipt', action: 'edit' }), 
     return void res.status(201).json({ status: 'success', message: 'Securities receipt created successfully', data: receipt });
   } catch (error) {
     logger.error({ error, body: req.body }, 'Error creating securities receipt');
-    const status = error instanceof Error && (error.message.includes('already exists') || error.message.includes('required')) ? 400 : 500;
-    return void res.status(status).json({ status: 'error', message: error instanceof Error ? error.message : 'Failed to create securities receipt' });
+    const status =
+      error instanceof AppError
+        ? error.statusCode
+        : error instanceof Error &&
+            (error.message.includes('already exists') || error.message.includes('required'))
+          ? 400
+          : 500;
+    return void res.status(status).json({
+      status: 'error',
+      message: error instanceof Error ? error.message : 'Failed to create securities receipt',
+    });
   }
 });
 
@@ -112,8 +127,19 @@ router.put('/:id', authorize({ resource: 'securities-receipt', action: 'edit' })
     return void res.json({ status: 'success', message: 'Securities receipt updated successfully', data: receipt });
   } catch (error) {
     logger.error({ error, body: req.body }, 'Error updating securities receipt');
-    const status = error instanceof Error && error.message === 'Securities receipt not found' ? 404 : error instanceof Error && (error.message.includes('already exists') || error.message.includes('Cannot update')) ? 400 : 500;
-    return void res.status(status).json({ status: 'error', message: error instanceof Error ? error.message : 'Failed to update securities receipt' });
+    const status =
+      error instanceof AppError
+        ? error.statusCode
+        : error instanceof Error && error.message === 'Securities receipt not found'
+          ? 404
+          : error instanceof Error &&
+              (error.message.includes('already exists') || error.message.includes('Cannot update'))
+            ? 400
+            : 500;
+    return void res.status(status).json({
+      status: 'error',
+      message: error instanceof Error ? error.message : 'Failed to update securities receipt',
+    });
   }
 });
 

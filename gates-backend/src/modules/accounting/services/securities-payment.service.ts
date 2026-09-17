@@ -8,6 +8,7 @@ import {
   assertPaperIssued,
   SECURITIES_PAPER_CASES,
 } from '../utils/securities-paper-case';
+import { resolveSecuritiesPaperNumbers } from '../utils/securities-numbering';
 import type { CollectSecuritiesInput } from './securities-receipt.service';
 
 /** Minimal context needed to post a real GL entry for a securities payment (H11). */
@@ -129,7 +130,11 @@ export class SecuritiesPaymentService {
   /**
    * Get a single securities payment by ID
    */
-  async getSecuritiesPaymentById(companyId: string, paymentId: string) {
+  async getSecuritiesPaymentById(
+    companyId: string,
+    paymentId: string,
+    ctx?: SecuritiesPostingCtx
+  ) {
     const payment = await prisma.securitiesPayment.findFirst({
       where: {
         id: paymentId,
@@ -142,9 +147,16 @@ export class SecuritiesPaymentService {
     });
 
     if (!payment) {
-      throw new Error('Securities payment not found');
+      throw new AppError(404, 'ورقة المدفوعات غير موجودة');
     }
 
+    if (ctx?.userId) {
+      return commercialPaperPostingService.ensureIssueJournalIfMissing(
+        { companyId, branchId: ctx.branchId ?? payment.branchId, userId: ctx.userId },
+        'PAYMENT',
+        paymentId
+      );
+    }
     return commercialPaperPostingService.decoratePaper(companyId, 'PAYMENT', payment);
   }
 
@@ -167,51 +179,48 @@ export class SecuritiesPaymentService {
       if (!account) throw new AppError(400, 'الحساب المختار غير موجود');
     }
 
-    // Check payment number uniqueness
-    if (data.paymentNumber) {
-      const existing = await prisma.securitiesPayment.findFirst({
-        where: {
+    const { serial, documentNumber: paymentNumber } = await resolveSecuritiesPaperNumbers({
+      companyId,
+      kind: 'PAYMENT',
+      serial: data.serial,
+      documentNumber: data.paymentNumber,
+      allocate: () =>
+        documentSequenceService.nextNumberForFamily({
           companyId,
-          paymentNumber: data.paymentNumber,
-        },
-      });
-
-      if (existing) {
-        throw new Error('Payment number already exists');
-      }
-    }
-
-    // Legacy `CreatePKNum` numbers the issued-securities voucher.
-    const paymentNumber =
-      data.paymentNumber?.trim() ||
-      (await documentSequenceService.nextNumberForFamily({
-        companyId,
-        branchId: data.branchId ?? null,
-        fiscalYearId: null,
-        docType: 'PK-SECURITIES',
-        legacySuffix: 'PK01',
-        seedFromExisting: documentSequenceService.maxExistingNumber(async () => {
-          const rows = await prisma.securitiesPayment.findMany({
-            where: { companyId },
-            select: { paymentNumber: true },
-          });
-          return rows.map((r) => r.paymentNumber);
+          branchId: data.branchId ?? null,
+          fiscalYearId: null,
+          docType: 'PK-SECURITIES',
+          legacySuffix: 'PK01',
+          seedFromExisting: documentSequenceService.maxExistingNumber(async () => {
+            const rows = await prisma.securitiesPayment.findMany({
+              where: { companyId },
+              select: { paymentNumber: true },
+            });
+            return rows.map((r) => r.paymentNumber);
+          }),
+          isAvailable: async (candidate) => {
+            const taken = await prisma.securitiesPayment.findFirst({
+              where: { companyId, paymentNumber: candidate },
+              select: { id: true },
+            });
+            return !taken;
+          },
         }),
-        isAvailable: async (candidate) => {
-          const taken = await prisma.securitiesPayment.findFirst({
-            where: { companyId, paymentNumber: candidate },
-            select: { id: true },
-          });
-          return !taken;
-        },
-      })) ||
-      null;
+    });
+
+    const existing = await prisma.securitiesPayment.findFirst({
+      where: { companyId, paymentNumber },
+      select: { id: true },
+    });
+    if (existing) {
+      throw new Error('Payment number already exists');
+    }
 
     const created = await prisma.securitiesPayment.create({
       data: {
         companyId,
         branchId: data.branchId,
-        serial: data.serial,
+        serial,
         paymentNumber,
         date: data.date,
         hijriDate: data.hijriDate,
@@ -237,11 +246,16 @@ export class SecuritiesPaymentService {
     if (!ctx?.userId) {
       return commercialPaperPostingService.decoratePaper(companyId, 'PAYMENT', created);
     }
-    return commercialPaperPostingService.syncIssueJournal(
-      { companyId, branchId: ctx.branchId ?? data.branchId, userId: ctx.userId },
-      'PAYMENT',
-      created.id
-    );
+    try {
+      return await commercialPaperPostingService.syncIssueJournal(
+        { companyId, branchId: ctx.branchId ?? data.branchId, userId: ctx.userId },
+        'PAYMENT',
+        created.id
+      );
+    } catch (error) {
+      await prisma.securitiesPayment.delete({ where: { id: created.id } }).catch(() => undefined);
+      throw error;
+    }
   }
 
   /**

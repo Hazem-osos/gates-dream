@@ -13,6 +13,8 @@ export const transactionDocumentTypeSchema = z.enum([
   'BANK_CREDIT_ADVICE',
   'JOURNAL_ENTRY',
   'OPENING_BALANCE',
+  'SECURITIES_RECEIPT',
+  'SECURITIES_PAYMENT',
 ]);
 
 export const numberingModeSchema = z.enum(['AUTOMATIC', 'MANUAL']);

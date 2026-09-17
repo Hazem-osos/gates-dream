@@ -2,6 +2,7 @@ import prisma from '../../../shared/database/prisma';
 import { AppError } from '../../../shared/middleware/error-handler';
 import { invoiceAccountResolverService } from '../../invoices/services/invoice-account-resolver.service';
 import { customerLedgerAccountService } from '../../accounting/services/customer-ledger-account.service';
+import { SYSTEM_GL_CODES } from '../../accounting/data/system-account-map';
 import {
   overlayColumnAccountIds,
   type AccountDefs,
@@ -76,6 +77,36 @@ export class TreasuryAccountResolverService {
     return invoiceAccountResolverService.resolveAccountId(companyId, code);
   }
 
+  private async resolveAccountOrFallback(
+    companyId: string,
+    configured: string | undefined,
+    fallbackCodes: string[],
+    fallbackNames: string[]
+  ): Promise<string | null> {
+    if (configured) {
+      try {
+        return await invoiceAccountResolverService.resolveAccountId(companyId, configured);
+      } catch {
+        // stale id/code — try the standard COA next
+      }
+    }
+    for (const code of fallbackCodes) {
+      const byCode = await prisma.account.findFirst({
+        where: { companyId, code, deletedAt: null },
+        select: { id: true },
+      });
+      if (byCode) return byCode.id;
+    }
+    for (const arabicName of fallbackNames) {
+      const byName = await prisma.account.findFirst({
+        where: { companyId, arabicName, deletedAt: null },
+        select: { id: true },
+      });
+      if (byName) return byName.id;
+    }
+    return null;
+  }
+
   async resolveChequeAccounts(companyId: string): Promise<
     Pick<
       ResolvedTreasuryAccounts,
@@ -98,19 +129,29 @@ export class TreasuryAccountResolverService {
     ]);
     const notesRaw = this.pick(defs, ['notesPayableAccount', 'issuedChequesAccount', 'chequesPayableAccount']);
 
-    if (!handRaw || !collectionRaw || !notesRaw) {
-      throw new AppError(
-        422,
-        'Cheque GL accounts are not fully configured in company accountDefinitions'
-      );
-    }
-
     const [chequesUnderHandAccountId, chequesUnderCollectionAccountId, notesPayableAccountId] =
       await Promise.all([
-        invoiceAccountResolverService.resolveAccountId(companyId, handRaw),
-        invoiceAccountResolverService.resolveAccountId(companyId, collectionRaw),
-        invoiceAccountResolverService.resolveAccountId(companyId, notesRaw),
+        this.resolveAccountOrFallback(companyId, handRaw, [SYSTEM_GL_CODES.chequesInHand], [
+          'أوراق قبض تحت اليد',
+        ]),
+        this.resolveAccountOrFallback(
+          companyId,
+          collectionRaw,
+          [SYSTEM_GL_CODES.chequesUnderCollection],
+          ['أوراق قبض برسم التحصيل']
+        ),
+        this.resolveAccountOrFallback(companyId, notesRaw, [SYSTEM_GL_CODES.notesPayable], [
+          'أوراق دفع للموردين',
+          'أوراق دفع',
+        ]),
       ]);
+
+    if (!chequesUnderHandAccountId || !chequesUnderCollectionAccountId || !notesPayableAccountId) {
+      throw new AppError(
+        422,
+        'حسابات أوراق القبض/الدفع غير موجودة في الدليل. الحل: أضف حساب «أوراق قبض تحت اليد» و«أوراق قبض برسم التحصيل» و«أوراق دفع»، أو اربطها من إعدادات الحسابات الافتراضية.'
+      );
+    }
 
     return {
       chequesUnderHandAccountId,

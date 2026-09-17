@@ -68,6 +68,8 @@ const PATH_LABEL_EXACT: Record<string, string> = {
   '/accounting/settings/transactions/opening-balance': 'إعدادات الرصيد الافتتاحي',
   '/accounting/settings/transactions/bank-discount': 'إعدادات إشعار الخصم',
   '/accounting/settings/transactions/bank-addition': 'إعدادات إشعار الإضافة',
+  '/accounting/settings/transactions/securities-receipt': 'إعدادات ورقة المقبوضات',
+  '/accounting/settings/transactions/securities-payment': 'إعدادات ورقة المدفوعات',
   '/contracting': 'لوحة المقاولات',
   '/contracting/extracts': 'مستخلصات العقود',
   '/contracting/projects': 'مساحة المشروع التنفيذية',
