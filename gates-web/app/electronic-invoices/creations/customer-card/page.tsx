@@ -77,10 +77,6 @@ export default function CustomerCardPage() {
       setError('يرجى إدخال الاسم العربي');
       return;
     }
-    if (!customerData.phone1?.trim() && !customerData.mobile?.trim()) {
-      setError('أدخل رقم هاتف أو موبايل على الأقل');
-      return;
-    }
     if (!customerData.taxAuthority?.trim()) {
       setError('يرجى إدخال الرقم الضريبي');
       return;
@@ -328,7 +324,7 @@ export default function CustomerCardPage() {
                 {/* Phone 1 */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    رقم الهاتف 1 <span className="text-red-500">*</span>
+                    رقم الهاتف 1
                   </label>
                   <input
                     type="text"

@@ -76,6 +76,7 @@ function PartySelectInner({
   useEffect(() => {
     if (!value) {
       setPinnedParty(null);
+      setSearch('');
       return;
     }
     if (seedParty?.id === value) {

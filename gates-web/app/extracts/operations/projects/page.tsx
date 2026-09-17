@@ -3,11 +3,15 @@
 import Image from 'next/image';
 
 import React, { useState, useEffect } from "react";
+import { FolderKanban } from 'lucide-react';
 import { ExtractsPageChrome } from '@/components/extracts/ExtractsPageChrome';
-import { DASH_PANEL } from '@/components/dashboard-primitives';
-import { Input } from "@/components/ui/input";
+import {
+  AppTable,
+  CompactFormField,
+  FormSectionCard,
+  compactControlClass,
+} from '@/components/ui';
 import { Button } from "@/components/ui/button";
-import { ActionButtons } from "@/components/ui/ActionButtons";
 import ProjectHeader, { type ProjectHeaderForm } from "@/components/ProjectHeader";
 import { apiClient } from "@/lib/api/client";
 import { useMutation } from "@tanstack/react-query";
@@ -186,49 +190,17 @@ function buildSavePayload(header: ProjectHeaderForm, fin: FinancialForm) {
   };
 }
 
-function WorkItemsTableBody({
-  workLoading,
-  workItems,
-}: {
-  workLoading: boolean;
-  workItems: ExtractWorkItemRow[];
-}) {
-  if (workLoading) {
-    return (
-      <tr>
-        <td colSpan={9} className="py-8 text-center text-gray-500">
-          جاري تحميل بنود الأعمال…
-        </td>
-      </tr>
-    );
-  }
-  if (!workItems.length) {
-    return (
-      <tr>
-        <td colSpan={9} className="py-8 text-center text-gray-500">
-          لا توجد بنود مسجّلة لهذا المشروع
-        </td>
-      </tr>
-    );
-  }
-  return (
-    <>
-      {workItems.map((w, idx: number) => (
-        <tr key={w.id} className="border-b border-slate-100 hover:bg-slate-50/80">
-          <td className="py-2 px-2 font-bold text-black">{idx + 1}</td>
-          <td className="py-2 px-2 text-black">{w.building?.unitNumber ?? '—'}</td>
-          <td className="py-2 px-2 text-black">{w.building?.modelNumber ?? '—'}</td>
-          <td className="py-2 px-2 text-black">{w.itemGroupCode ?? '—'}</td>
-          <td className="py-2 px-2 text-black">{w.itemGroupName ?? '—'}</td>
-          <td className="py-2 px-2 text-black">{w.itemNumber ?? '—'}</td>
-          <td className="py-2 px-2 text-black">{w.arabicName ?? '—'}</td>
-          <td className="py-2 px-2 text-black">{w.quantity != null ? String(w.quantity) : '—'}</td>
-          <td className="py-2 px-2 text-black">{w.unit ?? '—'}</td>
-        </tr>
-      ))}
-    </>
-  );
-}
+const WORK_ITEM_COLUMNS = [
+  { id: 'idx', header: 'م', cell: (_row: ExtractWorkItemRow, index: number) => index + 1 },
+  { id: 'unitNo', header: 'رقم الوحدة', cell: (w: ExtractWorkItemRow) => w.building?.unitNumber ?? '—' },
+  { id: 'model', header: 'رقم النموذج', cell: (w: ExtractWorkItemRow) => w.building?.modelNumber ?? '—' },
+  { id: 'groupCode', header: 'كود المجموعة', cell: (w: ExtractWorkItemRow) => w.itemGroupCode ?? '—' },
+  { id: 'group', header: 'مجموعة البند', cell: (w: ExtractWorkItemRow) => w.itemGroupName ?? '—' },
+  { id: 'itemNo', header: 'رقم البند', cell: (w: ExtractWorkItemRow) => w.itemNumber ?? '—' },
+  { id: 'name', header: 'إسم بند الأعمال', cell: (w: ExtractWorkItemRow) => w.arabicName ?? '—' },
+  { id: 'qty', header: 'الكمية', cell: (w: ExtractWorkItemRow) => (w.quantity != null ? String(w.quantity) : '—') },
+  { id: 'unit', header: 'الوحدة', cell: (w: ExtractWorkItemRow) => w.unit ?? '—' },
+];
 
 export default function ProjectsPage() {
   const invalidateQuery = useInvalidateQuery();
@@ -328,32 +300,54 @@ export default function ProjectsPage() {
     setSelectedProjectId(id);
   };
 
-  const handleCancel = () => {
-    setError('');
-    setSuccess('');
-    if (isNewProject && projects.length > 0) {
-      setIsNewProject(false);
-      setSelectedProjectId(projects[0].id);
-    }
-  };
-
   const patchFinancial = (patch: Partial<FinancialForm>) =>
     setFinancialForm((prev) => ({ ...prev, ...patch }));
 
   return (
-    <ExtractsPageChrome title="أرشيف مستندات">
-        <ProjectHeader
-          value={headerForm}
-          onChange={(patch) => setHeaderForm((prev) => ({ ...prev, ...patch }))}
-          readOnlyIdentity={Boolean(selectedProjectId) && !isNewProject}
-          onNewProject={handleNewProject}
-        />
-        <div className={`${DASH_PANEL} mb-5 flex flex-row-reverse flex-wrap items-center gap-3 p-5`}>
-          <label className="text-sm font-semibold text-[#094C6B]">المشروع المعروض</label>
+    <ExtractsPageChrome
+      title="إدارة المشاريع"
+      breadcrumbs={[
+        { href: '/extracts', label: 'المستخلصات' },
+        { label: 'العمليات' },
+        { label: 'إدارة المشاريع' },
+      ]}
+      onSave={handleSave}
+      savePending={saveProjectMutation.isPending}
+      onNew={handleNewProject}
+      statusLabel={isNewProject ? 'جديد' : selectedProjectId ? 'تعديل' : 'جديد'}
+      docNumber={headerForm.serial || undefined}
+      currentId={selectedProjectId || null}
+      favoriteHref="/extracts/operations/projects"
+      browseList={{
+        title: 'المشاريع السابقة',
+        apiPath: '/extracts/projects',
+        listKey: 'extract-projects-browse',
+        selectedId: selectedProjectId || null,
+        columns: [
+          { id: 'serial', header: 'المسلسل', getValue: (r) => String(r.serial || r.id) },
+          { id: 'name', header: 'الاسم', getValue: (r) => String(r.arabicName || r.englishName || '—') },
+        ],
+        onSelect: (id) => handleProjectSelect(id),
+      }}
+      extraActions={
+        selectedProjectId && !isNewProject ? (
+          <AiKnowledgeUploadButton
+            category="BOQ_SPECIFICATION"
+            referenceId={selectedProjectId}
+            title={headerForm.arabicName || undefined}
+          />
+        ) : null
+      }
+    >
+      {error ? <ErrorToast message={error} onClose={() => setError('')} /> : null}
+      {success ? <SuccessToast message={success} onClose={() => setSuccess('')} /> : null}
+
+      <FormSectionCard title="المشروع المعروض" icon={FolderKanban}>
+        <CompactFormField label="المشروع">
           <select
             value={isNewProject ? '' : selectedProjectId}
             onChange={(e) => handleProjectSelect(e.target.value)}
-            className="min-w-[220px] rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] px-3 py-2 text-right text-[#094C6B]"
+            className={compactControlClass}
           >
             <option value="">{isNewProject ? '— مشروع جديد —' : '— اختر مشروعاً —'}</option>
             {projects.map((p) => (
@@ -362,53 +356,50 @@ export default function ProjectsPage() {
               </option>
             ))}
           </select>
-          {selectedProjectId && !isNewProject ? (
-            <AiKnowledgeUploadButton
-              category="BOQ_SPECIFICATION"
-              referenceId={selectedProjectId}
-              title={headerForm.arabicName || undefined}
-            />
-          ) : null}
-        </div>
-        <div className="mb-5 flex justify-center">
-          <div className="flex flex-row-reverse flex-wrap gap-1.5 rounded-xl border border-slate-200/80 bg-slate-50/50 p-1.5">
-            {tabs.map((tab, idx) => (
-              <button
-                key={tab}
-                type="button"
-                onClick={() => setActiveTab(idx)}
-                className={`rounded-lg px-5 py-2 text-sm font-semibold transition-all duration-200 focus:outline-none
-                  ${activeTab === idx
-                    ? 'bg-slate-900 text-white shadow-sm'
-                    : 'text-slate-600 hover:bg-white hover:text-slate-900'}
-                `}
-              >
-                {tab}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className={`${DASH_PANEL} p-5`}>
+        </CompactFormField>
+      </FormSectionCard>
+
+      <ProjectHeader
+        value={headerForm}
+        onChange={(patch) => setHeaderForm((prev) => ({ ...prev, ...patch }))}
+        readOnlyIdentity={Boolean(selectedProjectId) && !isNewProject}
+      />
+
+      <div className="mb-4 flex flex-wrap items-center justify-center gap-1.5 rounded-xl border border-slate-200/80 bg-slate-50/50 p-1.5">
+        {tabs.map((tab, idx) => (
+          <button
+            key={tab}
+            type="button"
+            onClick={() => setActiveTab(idx)}
+            className={`rounded-lg px-4 py-1.5 text-sm font-semibold transition-colors ${
+              activeTab === idx ? 'bg-[#0E78AA] text-white' : 'text-slate-600 hover:bg-white'
+            }`}
+          >
+            {tab}
+          </button>
+        ))}
+      </div>
+
+      <div>
             {activeTab === 0 && (
               <>
                 {/* 5 Action Buttons */}
-                <div className="flex flex-row-reverse gap-4 mb-6 px-2">
+                <div className="mb-4 flex flex-wrap gap-2">
                   {[
-                    { icon: "/tabler_report.svg", label: "بنود الأعمال والحصر" },
-                    { icon: "/ic_outline-plus.svg", label: "إنشاء عقد مالك" },
-                    { icon: "/grommet-icons_view.svg", label: "تعريف شكل البناء" },
-                    { icon: "/tabler_report.svg", label: "مقاسه المشروع", onClick: () => router.push("/extracts/operations/projects/maqaysa") },
-                    { icon: "/tabler_report.svg", label: "عرض بنود الأعمال", onClick: () => router.push("/extracts/operations/projects/agenda-items") },
-                    { icon: "/tabler_report.svg", label: "البنود العامة للمستخلصات", onClick: () => router.push("/extracts/operations/general-extract-items") },
+                    { label: "بنود الأعمال والحصر" },
+                    { label: "إنشاء عقد مالك" },
+                    { label: "تعريف شكل البناء" },
+                    { label: "مقايسة المشروع", onClick: () => router.push("/extracts/operations/projects/maqaysa") },
+                    { label: "عرض بنود الأعمال", onClick: () => router.push("/extracts/operations/projects/agenda-items") },
+                    { label: "البنود العامة للمستخلصات", onClick: () => router.push("/extracts/operations/general-extract-items") },
                   ].map((btn) => (
                     <Button
                       key={btn.label}
-                      variant="outline"
-                      className="flex items-center gap-2 px-6 py-2 rounded-full border-[#D6EAF3] bg-white text-[#0E79AA] font-bold text-base shadow-md hover:bg-slate-50 hover:text-[#0E79AA] transition-all duration-200 min-w-[170px]"
-                      style={{ boxShadow: '0 2px 8px 0 rgba(14,121,170,0.08)' }}
+                      type="button"
+                      variant="secondary"
+                      size="sm"
                       onClick={btn.onClick}
                     >
-                      <Image src={btn.icon} alt={btn.label} width={20} height={20} className="w-5 h-5" />
                       {btn.label}
                     </Button>
                   ))}
@@ -416,53 +407,20 @@ export default function ProjectsPage() {
                 {/* Main Content: Grid + Summary Panel */}
                 <div className="flex gap-6">
                   {/* Right Summary Panel */}
-                  <div className="w-80 bg-slate-50 rounded-2xl p-6 flex flex-col gap-3 border border-[#D6EAF3]">
-                    <div className="flex flex-col gap-2">
-                      <label className="text-[#0E79AA] font-bold mb-1">إجمالى عام قيمة المشروع</label>
-                      <Input className="bg-white" value={financialForm.totalValue} onChange={(e) => patchFinancial({ totalValue: e.target.value })} />
-                    </div>
-                    <div className="flex flex-col gap-2">
-                      <label className="text-[#0E79AA] font-bold mb-1">نسبة الدفعة المقدمة %</label>
-                      <Input className="bg-white" value={financialForm.advancePaymentPercentage} onChange={(e) => patchFinancial({ advancePaymentPercentage: e.target.value })} />
-                    </div>
-                    <div className="flex flex-col gap-2">
-                      <label className="text-[#0E79AA] font-bold mb-1">قيمة الدفعة المقدمة</label>
-                      <Input className="bg-white" value={financialForm.advancePaymentValue} onChange={(e) => patchFinancial({ advancePaymentValue: e.target.value })} />
-                    </div>
-                    <div className="flex flex-col gap-2">
-                      <label className="text-[#0E79AA] font-bold mb-1">نسبة غرامة التأخير %</label>
-                      <Input className="bg-white" value={financialForm.latePenaltyPercentage} onChange={(e) => patchFinancial({ latePenaltyPercentage: e.target.value })} />
-                    </div>
-                    <div className="flex flex-col gap-2">
-                      <label className="text-[#0E79AA] font-bold mb-1">عن كل</label>
-                      <Input className="bg-white" value={financialForm.latePenaltyPerDays} onChange={(e) => patchFinancial({ latePenaltyPerDays: e.target.value })} />
-                    </div>
-                    <div className="flex flex-col gap-2">
-                      <label className="text-[#0E79AA] font-bold mb-1">نسبة شؤون الأعمال %</label>
-                      <Input className="bg-white" value={financialForm.businessAffairsPercentage} onChange={(e) => patchFinancial({ businessAffairsPercentage: e.target.value })} />
-                    </div>
-                    <div className="flex flex-col gap-2">
-                      <label className="text-[#0E79AA] font-bold mb-1">نسبة المرافق المستقطعة</label>
-                      <Input className="bg-white" value={financialForm.facilitiesDeductionPercentage} onChange={(e) => patchFinancial({ facilitiesDeductionPercentage: e.target.value })} />
-                    </div>
-                    <div className="flex flex-col gap-2">
-                      <label className="text-[#0E79AA] font-bold mb-1">حد أقصى</label>
-                      <Input className="bg-white" value={financialForm.facilitiesDeductionMax} onChange={(e) => patchFinancial({ facilitiesDeductionMax: e.target.value })} />
-                    </div>
-                    <div className="flex flex-col gap-2 mt-2">
-                      <label className="text-[#0E79AA] font-bold mb-1">إضافات أخرى</label>
-                      <Input className="bg-white" value={financialForm.otherAddition1} onChange={(e) => patchFinancial({ otherAddition1: e.target.value })} />
-                      <Input className="bg-white" value={financialForm.otherAddition2} onChange={(e) => patchFinancial({ otherAddition2: e.target.value })} />
-                    </div>
-                    <div className="flex flex-col gap-2 mt-2">
-                      <label className="text-[#0E79AA] font-bold mb-1">خصومات أخرى</label>
-                      <Input className="bg-white" value={financialForm.otherDeduction1} onChange={(e) => patchFinancial({ otherDeduction1: e.target.value })} />
-                      <Input className="bg-white" value={financialForm.otherDeduction2} onChange={(e) => patchFinancial({ otherDeduction2: e.target.value })} />
-                    </div>
-                    <Button type="button" className="bg-[#0E79AA] text-white mt-2" onClick={handleSave} disabled={saveProjectMutation.isPending}>
-                      {saveProjectMutation.isPending ? 'جاري الحفظ…' : 'حفظ'}
-                    </Button>
-                  </div>
+                  <FormSectionCard title="البيانات المالية" className="mb-0 w-full max-w-sm shrink-0" bodyClassName="grid-cols-1">
+                    <CompactFormField label="إجمالى عام قيمة المشروع" value={financialForm.totalValue} onChange={(e) => patchFinancial({ totalValue: e.target.value })} />
+                    <CompactFormField label="نسبة الدفعة المقدمة %" value={financialForm.advancePaymentPercentage} onChange={(e) => patchFinancial({ advancePaymentPercentage: e.target.value })} />
+                    <CompactFormField label="قيمة الدفعة المقدمة" value={financialForm.advancePaymentValue} onChange={(e) => patchFinancial({ advancePaymentValue: e.target.value })} />
+                    <CompactFormField label="نسبة غرامة التأخير %" value={financialForm.latePenaltyPercentage} onChange={(e) => patchFinancial({ latePenaltyPercentage: e.target.value })} />
+                    <CompactFormField label="عن كل" value={financialForm.latePenaltyPerDays} onChange={(e) => patchFinancial({ latePenaltyPerDays: e.target.value })} />
+                    <CompactFormField label="نسبة شؤون الأعمال %" value={financialForm.businessAffairsPercentage} onChange={(e) => patchFinancial({ businessAffairsPercentage: e.target.value })} />
+                    <CompactFormField label="نسبة المرافق المستقطعة" value={financialForm.facilitiesDeductionPercentage} onChange={(e) => patchFinancial({ facilitiesDeductionPercentage: e.target.value })} />
+                    <CompactFormField label="حد أقصى" value={financialForm.facilitiesDeductionMax} onChange={(e) => patchFinancial({ facilitiesDeductionMax: e.target.value })} />
+                    <CompactFormField label="إضافة أخرى 1" value={financialForm.otherAddition1} onChange={(e) => patchFinancial({ otherAddition1: e.target.value })} />
+                    <CompactFormField label="إضافة أخرى 2" value={financialForm.otherAddition2} onChange={(e) => patchFinancial({ otherAddition2: e.target.value })} />
+                    <CompactFormField label="خصم آخر 1" value={financialForm.otherDeduction1} onChange={(e) => patchFinancial({ otherDeduction1: e.target.value })} />
+                    <CompactFormField label="خصم آخر 2" value={financialForm.otherDeduction2} onChange={(e) => patchFinancial({ otherDeduction2: e.target.value })} />
+                  </FormSectionCard>
                   <div className="grid grid-cols-3 gap-6 flex-1">
                     {buildingsLoading ? (
                       <div className="col-span-3 py-8 text-center text-gray-500">جاري تحميل المباني…</div>
@@ -489,19 +447,10 @@ export default function ProjectsPage() {
                           </div>
                           <Image src="/3omara.png" alt="" width={128} height={128} className="w-32 h-32 object-cover rounded-xl mb-2" />
                           <div className="text-[#0E79AA] font-bold mb-2">{b.arabicName || 'مبنى'}</div>
-                          <div className="flex gap-2 w-full mb-2">
-                            <div className="flex-1">
-                              <label className="block text-xs text-gray-500 mb-1">المجموعة</label>
-                              <Input className="bg-white text-center" readOnly value={b.groupNumber ?? ''} />
-                            </div>
-                            <div className="flex-1">
-                              <label className="block text-xs text-gray-500 mb-1">النموذج</label>
-                              <Input className="bg-white text-center" readOnly value={b.modelNumber ?? ''} />
-                            </div>
-                            <div className="flex-1">
-                              <label className="block text-xs text-gray-500 mb-1">الوحدة</label>
-                              <Input className="bg-white text-center" readOnly value={b.unitNumber ?? ''} />
-                            </div>
+                          <div className="grid grid-cols-3 gap-2">
+                            <CompactFormField label="المجموعة" readOnly value={b.groupNumber ?? ''} />
+                            <CompactFormField label="النموذج" readOnly value={b.modelNumber ?? ''} />
+                            <CompactFormField label="الوحدة" readOnly value={b.unitNumber ?? ''} />
                           </div>
                         </div>
                       ))
@@ -512,312 +461,111 @@ export default function ProjectsPage() {
             )}
             {activeTab === 1 && (
               <>
-                {/* Filters and Table for إسناد بنود الأعمال لمقاول */}
-                <div className="flex flex-row-reverse gap-4 mb-4">
-                  <div className="flex flex-col gap-2 flex-1">
-                    <label className="text-[#0E79AA] font-bold mb-1">المقاول</label>
-                    <div className="flex gap-2">
-                      <Input className="bg-white" defaultValue="0000000001" />
-                      <Input className="bg-white" defaultValue="مقاول رقم 1" />
-                    </div>
-                  </div>
-                  <div className="flex flex-col gap-2 flex-1">
-                    <label className="text-[#0E79AA] font-bold mb-1">تاريخ الإسناد</label>
-                    <div className="flex gap-2">
-                      <Input className="bg-white" defaultValue="26-11-2025" />
-                    </div>
-                  </div>
-                </div>
-                <div className="flex flex-row-reverse gap-4 mb-4">
-                  <div className="flex flex-col gap-2 flex-1">
-                    <label className="text-[#0E79AA] font-bold mb-1">الهجري</label>
-                    <div className="flex gap-2">
-                      <Input className="bg-white" defaultValue="26-11-2025" />
-                    </div>
-                  </div>
-                  <div className="flex flex-col gap-2 flex-1">
-                    <label className="text-[#0E79AA] font-bold mb-1">ت. المقاول</label>
-                    <div className="flex gap-2">
-                      <Input className="bg-white" defaultValue="" placeholder="بحث..." />
-                    </div>
-                  </div>
-                </div>
-                {/* 6 Filter Buttons */}
-                <div className="flex flex-row-reverse gap-3 mb-4 px-2">
-                  {[
-                    "تجميع حسب الوحدات",
-                    "تجميع حسب المجموعات",
-                    "تجميع حسب بنود الأعمال",
-                    "إنشاء عقد مقاول باطن",
-                    "معاينة العقد"
-                  ].map((label) => (
-                    <Button
-                      key={label}
-                      variant="outline"
-                      className="flex items-center gap-2 px-6 py-2 rounded-full border-[#D6EAF3] bg-white text-[#0E79AA] font-bold text-base shadow-md hover:bg-slate-50 hover:text-[#0E79AA] transition-all duration-200 min-w-[150px]"
-                      style={{ boxShadow: '0 2px 8px 0 rgba(14,121,170,0.08)' }}
-                    >
+                <FormSectionCard title="إسناد بنود الأعمال">
+                  <CompactFormField label="كود المقاول" placeholder="كود المقاول" />
+                  <CompactFormField label="المقاول" placeholder="إسم المقاول" />
+                  <CompactFormField label="تاريخ الإسناد" type="date" />
+                  <CompactFormField label="ت. المقاول" placeholder="بحث..." />
+                </FormSectionCard>
+                <div className="mb-4 flex flex-wrap gap-2">
+                  {['تجميع حسب الوحدات', 'تجميع حسب المجموعات', 'تجميع حسب بنود الأعمال', 'إنشاء عقد مقاول باطن', 'معاينة العقد'].map((label) => (
+                    <Button key={label} type="button" variant="secondary" size="sm">
                       {label}
                     </Button>
                   ))}
                 </div>
-                {/* Table */}
-                <div className="overflow-x-auto rounded-2xl border border-[#E6F0F7] bg-white mb-6">
-                  <table className="min-w-full text-center border-separate border-spacing-0">
-                    <thead>
-                      <tr className="bg-slate-50/80 text-slate-600">
-                        <th className="py-3 px-2">م</th>
-                        <th className="py-3 px-2">رقم الوحدة</th>
-                        <th className="py-3 px-2">رقم النموذج</th>
-                        <th className="py-3 px-2">كود المجموعة</th>
-                        <th className="py-3 px-2">مجموعة البند</th>
-                        <th className="py-3 px-2">رقم البند</th>
-                        <th className="py-3 px-2">إسم بند الأعمال</th>
-                        <th className="py-3 px-2">الكمية</th>
-                        <th className="py-3 px-2">الوحدة</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <WorkItemsTableBody workLoading={workItemsLoading} workItems={workItems} />
-                    </tbody>
-                  </table>
-                </div>
-                {/* Summary Section */}
-                <div className="bg-slate-50 rounded-2xl p-6 flex flex-col gap-4 mb-6 border border-[#D6EAF3]">
-                  <div className="flex flex-row-reverse gap-4">
-                    <div className="flex flex-col flex-1 gap-2">
-                      <label className="text-[#0E79AA] font-bold mb-1">نسبة الدفعة المقدمة %</label>
-                      <Input className="bg-white" defaultValue="25.4456" />
-                    </div>
-                    <div className="flex flex-col flex-1 gap-2">
-                      <label className="text-[#0E79AA] font-bold mb-1">قيمة الدفعة المقدمة</label>
-                      <Input className="bg-white" defaultValue="25.4456" />
-                    </div>
-                    <div className="flex flex-col flex-1 gap-2">
-                      <label className="text-[#0E79AA] font-bold mb-1">نسبة تأمين الأعمال %</label>
-                      <Input className="bg-white" defaultValue="25.4456" />
-                    </div>
-                    <div className="flex flex-col flex-1 gap-2">
-                      <label className="text-[#0E79AA] font-bold mb-1">نسبة الضرائب المستقطعة %</label>
-                      <Input className="bg-white" defaultValue="25.4456" />
-                    </div>
-                    <div className="flex flex-col flex-1 gap-2">
-                      <label className="text-[#0E79AA] font-bold mb-1">الإجمالي</label>
-                      <Input className="bg-white" defaultValue="25.4456" />
-                    </div>
-                  </div>
-                </div>
-                {/* Bottom Section */}
-                <div className="bg-slate-50 rounded-2xl p-6 flex flex-col gap-4 border border-[#D6EAF3]">
-                  <div className="flex flex-row-reverse gap-4 mb-2">
-                    <div className="flex flex-col flex-1 gap-2">
-                      <label className="text-[#0E79AA] font-bold mb-1">عدد مقاولي الباطن المسند إليهم بنود المشروع</label>
-                      <Input className="bg-white" defaultValue="25.4456" />
-                    </div>
-                    <div className="flex flex-col flex-1 gap-2">
-                      <label className="text-[#0E79AA] font-bold mb-1">عدد بنود الأعمال التي لم تسند بعد</label>
-                      <Input className="bg-white" defaultValue="0000000001" />
-                    </div>
-                    <div className="flex flex-col flex-1 gap-2 justify-end">
-                      <Button variant="outline" className="flex items-center gap-2 px-6 py-2 rounded-full border-[#D6EAF3] bg-white text-[#0E79AA] font-bold text-base shadow-md hover:bg-slate-50 hover:text-[#0E79AA] transition-all duration-200 min-w-[100px] mt-auto">
-                        <Image src="/grommet-icons_view.svg" alt="عرض" width={20} height={20} className="w-5 h-5" />
-                        عرض
-                      </Button>
-                    </div>
-                  </div>
-                </div>
+                <AppTable
+                  columns={WORK_ITEM_COLUMNS}
+                  data={workItems}
+                  getRowKey={(row) => row.id}
+                  isLoading={workItemsLoading}
+                  emptyTitle="لا توجد بنود مسجّلة لهذا المشروع"
+                  exportFileName="project-assignment-items"
+                />
+                <FormSectionCard title="ملخص الإسناد" className="mt-4">
+                  <CompactFormField label="نسبة الدفعة المقدمة %" defaultValue="" />
+                  <CompactFormField label="قيمة الدفعة المقدمة" defaultValue="" />
+                  <CompactFormField label="نسبة تأمين الأعمال %" defaultValue="" />
+                  <CompactFormField label="نسبة الضرائب المستقطعة %" defaultValue="" />
+                  <CompactFormField label="عدد مقاولي الباطن" defaultValue="" />
+                  <CompactFormField label="بنود غير مسندة" defaultValue="" />
+                </FormSectionCard>
               </>
             )}
             {activeTab === 2 && (
               <>
-                {/* 4 Action Buttons */}
-                <div className="flex flex-row-reverse gap-4 mb-6 px-2">
-                  {[
-                    { label: "إنشاء مستخلص جديد", onClick: () => router.push("/extracts/operations/projects/make-extract") },
-                    { label: "معاينة المستخلصات السابقة" },
-                    { label: "نقل بنود الأعمال لمقاول آخر" },
-                   
-                  ].map((btn) => (
-                    <Button
-                      key={btn.label}
-                      variant="outline"
-                      className="flex items-center gap-2 px-6 py-2 rounded-full border-[#D6EAF3] bg-white text-[#0E79AA] font-bold text-base shadow-md hover:bg-slate-50 hover:text-[#0E79AA] transition-all duration-200 min-w-[170px]"
-                      style={{ boxShadow: '0 2px 8px 0 rgba(14,121,170,0.08)' }}
-                      onClick={btn.onClick}
-                    >
-                      {btn.label}
-                    </Button>
-                  ))}
+                <div className="mb-4 flex flex-wrap gap-2">
+                  <Button type="button" variant="secondary" size="sm" onClick={() => router.push('/extracts/operations/projects/make-extract')}>
+                    إنشاء مستخلص جديد
+                  </Button>
+                  <Button type="button" variant="secondary" size="sm">معاينة المستخلصات السابقة</Button>
+                  <Button type="button" variant="secondary" size="sm">نقل بنود الأعمال لمقاول آخر</Button>
                 </div>
-                {/* Table */}
-                <div className="overflow-x-auto rounded-2xl border border-[#E6F0F7] bg-white mb-6">
-                  <table className="min-w-full text-center border-separate border-spacing-0">
-                    <thead>
-                      <tr className="bg-slate-50/80 text-slate-600">
-                        <th className="py-3 px-2">م</th>
-                        <th className="py-3 px-2">رقم الوحدة</th>
-                        <th className="py-3 px-2">رقم النموذج</th>
-                        <th className="py-3 px-2">كود المجموعة</th>
-                        <th className="py-3 px-2">مجموعة البند</th>
-                        <th className="py-3 px-2">رقم البند</th>
-                        <th className="py-3 px-2">إسم بند الأعمال</th>
-                        <th className="py-3 px-2">الكمية</th>
-                        <th className="py-3 px-2">الوحدة</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <WorkItemsTableBody workLoading={workItemsLoading} workItems={workItems} />
-                    </tbody>
-                  </table>
-                </div>
-                {/* Summary Section */}
-                <div className="bg-slate-50 rounded-2xl p-6 flex flex-col gap-4 mb-6 border border-[#D6EAF3]">
-                  <div className="flex flex-row-reverse gap-4">
-                    <div className="flex flex-col flex-1 gap-2">
-                      <label className="text-[#0E79AA] font-bold mb-1">عدد مقاولي الباطن</label>
-                      <Input className="bg-white" defaultValue="25.4456" />
-                    </div>
-                    <div className="flex flex-col flex-1 gap-2">
-                      <label className="text-[#0E79AA] font-bold mb-1">رصيد متبقي</label>
-                      <Input className="bg-white" defaultValue="25.4456" />
-                    </div>
-                    <div className="flex flex-col flex-1 gap-2">
-                      <label className="text-[#0E79AA] font-bold mb-1">من إجمالي تكلفة</label>
-                      <Input className="bg-white" defaultValue="25.4456" />
-                    </div>
-                  </div>
-                </div>
-                <div className="bg-slate-50 rounded-2xl p-6 flex flex-col gap-4 border border-[#D6EAF3]">
-                  <div className="flex flex-row-reverse gap-4">
-                    <div className="flex flex-col flex-1 gap-2">
-                      <label className="text-[#0E79AA] font-bold mb-1">عدد المستخلصات المصدرة للمشروع</label>
-                      <Input className="bg-white" defaultValue="25" />
-                    </div>
-                    <div className="flex flex-col flex-1 gap-2">
-                      <label className="text-[#0E79AA] font-bold mb-1">بقيمة إجمالية</label>
-                      <Input className="bg-white" defaultValue="25.4456" />
-                    </div>
-
-                  </div>
-                </div>
+                <AppTable
+                  columns={WORK_ITEM_COLUMNS}
+                  data={workItems}
+                  getRowKey={(row) => row.id}
+                  isLoading={workItemsLoading}
+                  emptyTitle="لا توجد بنود مسجّلة لهذا المشروع"
+                  exportFileName="project-subcontractor-extracts"
+                />
+                <FormSectionCard title="ملخص المستخلصات" className="mt-4">
+                  <CompactFormField label="عدد مقاولي الباطن" readOnly value="—" />
+                  <CompactFormField label="رصيد متبقي" readOnly value="—" />
+                  <CompactFormField label="من إجمالي تكلفة" readOnly value="—" />
+                  <CompactFormField label="عدد المستخلصات المصدرة" readOnly value="—" />
+                  <CompactFormField label="بقيمة إجمالية" readOnly value="—" />
+                </FormSectionCard>
               </>
             )}
             {activeTab === 3 && (
               <>
-                {/* مستخلصات المالك - Owner's Extracts */}
-                <div className="grid grid-cols-2 gap-6 mb-6">
-                  {/* Right Section - Extract Details */}
-                  <div className="space-y-4">
-                    <div className="flex gap-2 items-center">
-                      <label className="w-28 text-zinc-800 text-right text-sm font-medium">الكود</label>
-                      <Input defaultValue="000000000001" className="bg-white text-right flex-1" readOnly />
-                    </div>
-                    <div className="flex gap-2 items-center">
-                      <label className="w-28 text-zinc-800 text-right text-sm font-medium">تاريخ المستخلص</label>
-                      <div className="relative flex-1">
-                        <Input defaultValue="26-11-2025" className="bg-white text-right pr-10" />
-                        <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500">📅</span>
-                      </div>
-                    </div>
-                    <div className="flex gap-2 items-start">
-                      <label className="w-28 text-zinc-800 text-right text-sm font-medium mt-3">البيان</label>
-                      <textarea 
-                        placeholder="أدخل البيان هنا..."
-                        className="bg-white text-right flex-1 p-3 rounded-lg border border-[#E6F0F7] min-h-[60px] resize-none"
-                      />
-                    </div>
-                    <div className="flex gap-4 mt-4">
-                      <Button className="bg-gray-200 text-gray-700 px-6 py-2 rounded-lg hover:bg-gray-300 transition flex-1">
-                        مستخلصات المقاولين
-                      </Button>
-                      <Button className="bg-gray-200 text-gray-700 px-6 py-2 rounded-lg hover:bg-gray-300 transition flex-1">
-                        تنفيذ ذاتي
-                      </Button>
-                    </div>
-                  </div>
-
-                  {/* Left Section - Filter/Search */}
-                  <div className="space-y-4">
- 
-                    <div className="flex gap-2 items-center">
-                      <label className="w-28 text-zinc-800 text-right text-sm font-medium">الهجري</label>
-                      <Input placeholder="الهجري" className="bg-white text-right flex-1" />
-                    </div>
-                    <div className="flex gap-2 items-center">
-                      <label className="w-28 text-zinc-800 text-right text-sm font-medium">نوع البيان</label>
-                      <div className="flex gap-3">
-                        <label className="flex items-center gap-2 cursor-pointer">
-                          <input type="radio" name="statementType" value="partial" defaultChecked className="w-4 h-4 text-[#0E78AA] bg-white border-2 border-gray-300 rounded-full focus:ring-[#0E78AA] focus:ring-2 focus:ring-offset-2" />
-                          <span className="text-zinc-800 text-sm">جزئي</span>
+                <FormSectionCard title="مستخلصات المالك">
+                  <CompactFormField label="الكود" defaultValue="000000000001" readOnly />
+                  <CompactFormField label="تاريخ المستخلص" type="date" />
+                  <CompactFormField label="نوع البيان">
+                    <div className="flex flex-wrap gap-2">
+                      {[
+                        { value: 'partial', label: 'جزئي' },
+                        { value: 'final', label: 'ختامي' },
+                      ].map((opt) => (
+                        <label
+                          key={opt.value}
+                          className="inline-flex cursor-pointer items-center rounded-full border border-[#D6EAF3] bg-white px-3 py-1.5 text-xs font-semibold text-[#0A3D5E] has-[:checked]:border-[#0E78AA] has-[:checked]:bg-[#0E78AA] has-[:checked]:text-white"
+                        >
+                          <input type="radio" name="statementType" value={opt.value} defaultChecked={opt.value === 'partial'} className="sr-only" />
+                          {opt.label}
                         </label>
-                        <label className="flex items-center gap-2 cursor-pointer">
-                          <input type="radio" name="statementType" value="final" className="w-4 h-4 text-[#0E78AA] bg-white border-2 border-gray-300 rounded-full focus:ring-[#0E78AA] focus:ring-2 focus:ring-offset-2" />
-                          <span className="text-zinc-800 text-sm">ختامي</span>
-                        </label>
-                      </div>
+                      ))}
                     </div>
-                  </div>
+                  </CompactFormField>
+                  <CompactFormField label="البيان" className="sm:col-span-2">
+                    <textarea
+                      placeholder="أدخل البيان هنا..."
+                      className={`${compactControlClass} h-20 max-w-none resize-none py-2`}
+                    />
+                  </CompactFormField>
+                </FormSectionCard>
+                <div className="mb-4 flex flex-wrap gap-2">
+                  <Button type="button" variant="secondary" size="sm">مستخلصات المقاولين</Button>
+                  <Button type="button" variant="secondary" size="sm">تنفيذ ذاتي</Button>
                 </div>
-
-                {/* Data Table */}
-                <div className="mb-6">
-                  <div className="overflow-x-auto rounded-2xl border border-[#E6F0F7] bg-white">
-                    <table className="min-w-full text-center border-separate border-spacing-0">
-                      <thead>
-                        <tr className="bg-slate-50/80 text-slate-600">
-                          <th className="py-3 px-4 text-sm font-bold">م</th>
-                          <th className="py-3 px-4 text-sm font-bold">رقم الوحدة</th>
-                          <th className="py-3 px-4 text-sm font-bold">رقم النموذج</th>
-                          <th className="py-3 px-4 text-sm font-bold">كود المجموعة</th>
-                          <th className="py-3 px-4 text-sm font-bold">مجموعة البند</th>
-                          <th className="py-3 px-4 text-sm font-bold">رقم البند</th>
-                          <th className="py-3 px-4 text-sm font-bold">إسم بند الأعمال</th>
-                          <th className="py-3 px-4 text-sm font-bold">الكمية</th>
-                          <th className="py-3 px-4 text-sm font-bold">الوحدة</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <WorkItemsTableBody workLoading={workItemsLoading} workItems={workItems} />
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-
-                {/* Summary Section */}
-                <div className="grid grid-cols-3 gap-4">
-                  <div className="flex gap-2 items-center">
-                    <label className="w-36 text-zinc-800 text-right text-sm font-medium">قيمة الدفعة المقدمة</label>
-                    <Input defaultValue="—" className="bg-white text-right flex-1 text-sm" readOnly />
-                  </div>
-                  <div className="flex gap-2 items-center">
-                    <label className="w-36 text-zinc-800 text-right text-sm font-medium">صافي أعمال الفترة (المستخلص الحالي)</label>
-                    <Input defaultValue="—" className="bg-white text-right flex-1 text-sm" readOnly />
-                  </div>
-                  <div className="flex gap-2 items-center">
-                    <label className="w-36 text-zinc-800 text-right text-sm font-medium">إجمالي الأعمال السابقة بعدد</label>
-                    <div className="flex gap-1">
-                      <Input defaultValue="0,00" className="bg-white text-right w-20 text-xs" readOnly />
-                      <span className="text-xs text-gray-600 mt-2">مستخلص</span>
-                    </div>
-                  </div>
-                </div>
-                <div className="flex gap-2 items-center mt-2">
-                  <label className="w-36 text-zinc-800 text-right text-sm font-medium">عدد المستخلصات</label>
-                  <Input defaultValue="—" className="bg-white text-right w-32 text-sm" readOnly />
-                </div>
+                <AppTable
+                  columns={WORK_ITEM_COLUMNS}
+                  data={workItems}
+                  getRowKey={(row) => row.id}
+                  isLoading={workItemsLoading}
+                  emptyTitle="لا توجد بنود مسجّلة لهذا المشروع"
+                  exportFileName="project-owner-extracts"
+                />
+                <FormSectionCard title="ملخص المالك" className="mt-4">
+                  <CompactFormField label="قيمة الدفعة المقدمة" readOnly value="—" />
+                  <CompactFormField label="صافي أعمال الفترة" readOnly value="—" />
+                  <CompactFormField label="إجمالي الأعمال السابقة" readOnly value="—" />
+                  <CompactFormField label="عدد المستخلصات" readOnly value="—" />
+                </FormSectionCard>
               </>
             )}
-            {error && <ErrorToast message={error} onClose={() => setError('')} />}
-            {success && <SuccessToast message={success} onClose={() => setSuccess('')} />}
-            
-            {/* Bottom Action Buttons */}
-            <div className="flex justify-end gap-4 mt-8">
-              <ActionButtons 
-                onSave={handleSave}
-                onCancel={handleCancel}
-                saveText={saveProjectMutation.isPending ? 'جاري الحفظ...' : 'حفظ'}
-              />
-            </div>
         </div>
     </ExtractsPageChrome>
   );

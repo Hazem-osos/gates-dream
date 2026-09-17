@@ -1,11 +1,12 @@
 'use client';
 
-import { memo, useCallback, useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import {
   useAccountsQuery,
   formatAccountLabel,
   isPostableLeafAccount,
   ACCOUNT_PICKER_PAGE_SIZE,
+  PICKER_UNLIMITED_VISIBLE,
   type AccountOption,
 } from '@/lib/hooks/useMasterDataQueries';
 import { SearchableCombobox } from '@/app/components/form/SearchableCombobox';
@@ -102,6 +103,10 @@ function AccountSelectInner({
     setSearch(q);
   }, []);
 
+  useEffect(() => {
+    if (!value) setSearch('');
+  }, [value]);
+
   const openQuickCreate = (query?: string) => {
     setQuickName(query?.trim() || '');
     setQuickOpen(true);
@@ -121,7 +126,7 @@ function AccountSelectInner({
         emptyMessage={isError ? 'تعذر تحميل الحسابات' : 'لا توجد نتائج'}
         valueLabel={valueLabel}
         onQueryChange={handleQueryChange}
-        maxVisible={ACCOUNT_PICKER_PAGE_SIZE}
+        maxVisible={PICKER_UNLIMITED_VISIBLE}
         portaled
         menuPlacement="auto"
         quickCreateLabel={enableQuickCreate ? '+ إضافة سريع' : undefined}

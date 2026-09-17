@@ -53,8 +53,6 @@ const SCREEN_TITLES: Record<string, string> = {
   '/sales/returns/new': 'مردود مبيعات جديد',
   '/purchases/invoices/new': 'فاتورة مشتريات',
   '/purchases/returns/new': 'مردود مشتريات',
-  '/accounting/cheques/incoming': 'الشيكات الواردة',
-  '/accounting/cheques/outgoing': 'الشيكات الصادرة',
   '/accounting/vouchers/payment/new': 'سند صرف',
   '/accounting/vouchers/receipt/new': 'سند قبض',
   '/accounting/tax/wht-certificates': 'إشعارات خصم المنبع',

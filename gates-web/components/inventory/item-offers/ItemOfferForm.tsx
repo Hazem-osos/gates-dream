@@ -2,9 +2,9 @@
 
 import { useMemo, useState } from 'react';
 import { ErpDocumentLayout } from '@/components/erp/ErpDocumentLayout';
+import { ErpDocumentPageHeader } from '@/components/erp/ErpDocumentPageHeader';
 import { DocumentBrowseDrawer } from '@/components/erp/DocumentBrowseDrawer';
 import { GenericRecordsList } from '@/components/erp/GenericRecordsList';
-import { DocumentHeaderBar } from '@/components/common/document-shell/DocumentHeaderBar';
 import { DatePickerWithHijri } from '@/components/ui/DatePickerWithHijri';
 import { ItemSelect } from '@/app/components/form/ItemSelect';
 import ErrorToast from '@/components/ErrorToast';
@@ -195,7 +195,9 @@ export function ItemOfferForm() {
   return (
     <ErpDocumentLayout>
       <div className="flex min-h-[calc(100dvh-3rem)] flex-col pb-4">
-        <DocumentHeaderBar
+        <ErpDocumentPageHeader
+          compact
+          lockWhenPosted={false}
           breadcrumbs={[
             { href: '/inventory', label: 'المخازن' },
             { label: 'العمليات' },
@@ -209,10 +211,12 @@ export function ItemOfferForm() {
           saveLabel="حفظ العرض"
           savePending={mutation.isPending}
           canSave
+          hideStandalonePost
           onBrowseList={() => setBrowseOpen(true)}
           browseListLabel="السابق"
           favoriteHref="/inventory/operations/item-offers"
           favoriteLabel="عروض الأصناف"
+          moreMenuItems={[{ id: 'new', label: 'جديد', onClick: resetForm }]}
         />
 
         {error ? <ErrorToast message={error} onClose={() => setError('')} /> : null}

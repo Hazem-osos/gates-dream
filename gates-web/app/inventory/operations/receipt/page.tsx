@@ -15,7 +15,6 @@ import {
   CompactFormField,
   AdvancedFieldsSection,
   FormStickyFooter,
-  StatusBadge,
   Button,
   IconButton,
   compactControlClass,
@@ -31,6 +30,10 @@ import {
   type InventoryWarehouseDocHeaderFormInput,
 } from '@/lib/validation/inventory.schema';
 import type { ApiError } from '@/lib/api/types';
+import {
+  postNamedDocumentAfterSave,
+  useRepostAfterUnpost,
+} from '@/lib/accounting/ensure-posted-after-save';
 import { onFieldErrors } from '@/lib/forms/on-field-errors';
 
 
@@ -95,6 +98,7 @@ function emptyReceiptFormDefaults(): InventoryWarehouseDocHeaderFormInput {
 
 export default function ReceiptPage() {
   const invalidateQuery = useInvalidateQuery();
+  const { markUnpostedForEdit, consumeShouldRepost, resetKeepPosted } = useRepostAfterUnpost();
 
   const inputCls = compactControlClass;
   const labelCls = compactLabelClass;
@@ -114,7 +118,6 @@ export default function ReceiptPage() {
   });
 
   const isPosted = watch('isPosted');
-  const isApproved = watch('isApproved');
 
   const [receiptLines, setReceiptLines] = useState<ReceiptLine[]>([]);
   const [error, setError] = useState('');
@@ -211,6 +214,19 @@ export default function ReceiptPage() {
     {
       onSuccess: () => {
         invalidateQuery(['receipts']);
+        const id = selectedReceiptId;
+        if (consumeShouldRepost() && id) {
+          void postNamedDocumentAfterSave(`/inventory/receipts/${id}/post`)
+            .then(() => {
+              handleNew();
+              setSuccess('تم حفظ التعديلات وترحيل الإضافة');
+            })
+            .catch((error: ApiError) => {
+              handleNew();
+              setError(error.message || 'تم الحفظ لكن تعذر ترحيل الإضافة');
+            });
+          return;
+        }
         handleNew();
         setSuccess('تم تحديث الإضافة بنجاح');
       },
@@ -263,6 +279,7 @@ export default function ReceiptPage() {
       onSuccess: () => {
         setSuccess('تم فك ترحيل الإضافة بنجاح');
         setValue('isPosted', false);
+        markUnpostedForEdit();
         invalidateQuery(['receipts']);
         invalidateQuery(['receipt', selectedReceiptId]);
       },
@@ -302,6 +319,7 @@ export default function ReceiptPage() {
 
   // Handle new receipt
   const handleNew = () => {
+    resetKeepPosted();
     setSelectedReceiptId(null);
     setReceiptLines([]);
     setError('');
@@ -398,25 +416,29 @@ export default function ReceiptPage() {
         onSaveDraft={() => void handleSubmit(onSaveValid, onFieldErrors(setError))()}
         onCancel={handleNew}
         cancelLabel="تراجع"
-        onPost={() => handlePostUnpost(true)}
-        postTriggerId="inventory-receipt.post-click"
+        hideStandalonePost
         savePending={loading}
         postPending={postReceiptMutation.isPending}
         canPost={!!selectedReceiptId && !isPosted}
-        onEdit={() => {
-          if (!selectedReceiptId) return;
-          if (isPosted) {
-            setError('فك الترحيل أولاً من قائمة (...) حتى يمكن التعديل');
-            return;
-          }
-        }}
-        editDisabled={!selectedReceiptId || isPosted}
-        moreMenuItems={[
-          { id: 'new', label: 'جديد', onClick: handleNew },
-          { id: 'del', label: 'حذف', onClick: handleDelete, destructive: true },
-        ]}
         onBrowseList={() => setShowList(true)}
         browseListLabel="السابق"
+        standardActions={{
+          hasDocument: Boolean(selectedReceiptId),
+          isPosted,
+          onEdit: () => {
+            if (!selectedReceiptId) return;
+            if (isPosted) {
+              setError('فك الترحيل أولاً من قائمة (...) حتى يمكن التعديل');
+            }
+          },
+          onPost: () => handlePostUnpost(true),
+          onUnpost: () => handlePostUnpost(false),
+          onVoid: handleDelete,
+          onNew: handleNew,
+          newLabel: 'جديد',
+          postPending: postReceiptMutation.isPending,
+          unpostPending: unpostReceiptMutation.isPending,
+        }}
       />
 
       <DocumentBrowseDrawer open={showList} onClose={() => setShowList(false)} title="أذون الإضافة السابقة">
@@ -434,55 +456,6 @@ export default function ReceiptPage() {
       </DocumentBrowseDrawer>
 
       <FormSectionCard title="بيانات الإذن" subtitle="المخزن والتاريخ والمرجع">
-          <div className="col-span-full flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-[#0A3D5E] font-medium">الترحيل:</span>
-                <div className="flex bg-gray-200 rounded-lg p-1">
-                  <button
-                    type="button"
-                    onClick={() => handlePostUnpost(true)}
-                    disabled={!selectedReceiptId || postReceiptMutation.isPending}
-                    className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${isPosted ? 'bg-[#0E78AA] text-white' : 'bg-white text-gray-600 hover:bg-gray-100'} ${!selectedReceiptId ? 'opacity-50 cursor-not-allowed' : ''}`}
-                  >
-                    {postReceiptMutation.isPending ? 'جاري...' : 'ترحيل'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handlePostUnpost(false)}
-                    disabled={!selectedReceiptId || unpostReceiptMutation.isPending}
-                    className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${!isPosted ? 'bg-[#0E78AA] text-white' : 'bg-white text-gray-600 hover:bg-gray-100'} ${!selectedReceiptId ? 'opacity-50 cursor-not-allowed' : ''}`}
-                  >
-                    {unpostReceiptMutation.isPending ? 'جاري...' : 'فك ترحيل'}
-                  </button>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-[#0A3D5E] font-medium">الموافقة:</span>
-                <div className="flex bg-gray-200 rounded-lg p-1">
-                  <button
-                    type="button"
-                    onClick={() => setValue('isApproved', true)}
-                    className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${isApproved ? 'bg-[#0E78AA] text-white' : 'bg-white text-gray-600 hover:bg-gray-100'}`}
-                  >
-                    موافق
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setValue('isApproved', false)}
-                    className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${!isApproved ? 'bg-[#0E78AA] text-white' : 'bg-white text-gray-600 hover:bg-gray-100'}`}
-                  >
-                    غير موافق
-                  </button>
-                </div>
-              </div>
-            </div>
-            <StatusBadge
-              variant={isPosted ? 'success' : 'warning'}
-              label={isPosted ? 'مرحّل' : 'مسودة'}
-            />
-          </div>
-
           <CompactFormField label="المسلسل" placeholder="إدخل رقم المسلسل" {...register('serialNumber')} />
           <CompactFormField
             label="التاريخ"

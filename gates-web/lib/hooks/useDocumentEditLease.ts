@@ -47,7 +47,10 @@ export function useDocumentEditLease(documentId?: string | number | null) {
       } catch (error) {
         const occupied = isDocumentOccupiedError(error);
         if (!cancelled && occupied && latestKey.current === resourceKey) {
-          setHolderName(occupied.holderName);
+          const self =
+            Boolean(displayName) &&
+            occupied.holderName.trim() === displayName.trim();
+          setHolderName(self ? null : occupied.holderName);
         }
       }
     };

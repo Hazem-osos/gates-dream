@@ -61,6 +61,22 @@ export const INVOICE_TYPE_BADGES: Record<string, { label: string; className: str
   PURCHASE_RETURN: { label: 'مرتجع مشتريات', className: 'bg-orange-100 text-orange-900' },
 };
 
+export const POS_PAYMENT_TYPE_BADGES: Record<string, { label: string; className: string }> = {
+  cash: { label: 'نقدي', className: 'bg-emerald-100 text-emerald-800' },
+  CASH: { label: 'نقدي', className: 'bg-emerald-100 text-emerald-800' },
+  نقدى: { label: 'نقدي', className: 'bg-emerald-100 text-emerald-800' },
+  نقدي: { label: 'نقدي', className: 'bg-emerald-100 text-emerald-800' },
+  كاش: { label: 'نقدي', className: 'bg-emerald-100 text-emerald-800' },
+  credit: { label: 'آجل / بطاقة', className: 'bg-sky-100 text-sky-800' },
+  CREDIT: { label: 'آجل / بطاقة', className: 'bg-sky-100 text-sky-800' },
+  card: { label: 'بطاقة', className: 'bg-indigo-100 text-indigo-800' },
+  CARD: { label: 'بطاقة', className: 'bg-indigo-100 text-indigo-800' },
+  visa: { label: 'فيزا', className: 'bg-indigo-100 text-indigo-800' },
+  VISA: { label: 'فيزا', className: 'bg-indigo-100 text-indigo-800' },
+  split: { label: 'مجزأ', className: 'bg-amber-100 text-amber-900' },
+  SPLIT: { label: 'مجزأ', className: 'bg-amber-100 text-amber-900' },
+};
+
 export const PAYMENT_STATUS_BADGES: Record<string, { label: string; className: string }> = {
   PAID: { label: 'مسددة', className: 'bg-green-100 text-green-800' },
   PARTIALLY_PAID: { label: 'مسددة جزئياً', className: 'bg-yellow-100 text-yellow-900' },

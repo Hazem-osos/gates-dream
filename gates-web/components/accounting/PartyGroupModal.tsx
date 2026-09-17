@@ -41,17 +41,13 @@ export function PartyGroupModal({ open, kind, initial, onClose, onSaved, onError
   }, [open, initial]);
 
   const submit = async () => {
-    if (!code.trim()) {
-      onError('الكود مطلوب للمجموعة');
-      return;
-    }
     if (!arabicName.trim()) {
       onError('الاسم العربي مطلوب للمجموعة');
       return;
     }
     setSaving(true);
     try {
-      const payload = { code: code.trim(), arabicName: arabicName.trim() };
+      const payload = { code: code.trim() || undefined, arabicName: arabicName.trim() };
       const res = initial?.id
         ? await apiClient.put<PartyGroupSaved>(`${copy.api}/${initial.id}`, payload)
         : await apiClient.post<PartyGroupSaved>(copy.api, payload);
@@ -78,10 +74,11 @@ export function PartyGroupModal({ open, kind, initial, onClose, onSaved, onError
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <CompactFormField
               label="الكود"
-              required
               value={code}
+              disabled={!initial?.id}
+              readOnly={!initial?.id}
               onChange={(e) => setCode(e.target.value)}
-              placeholder="إدخل الكود"
+              placeholder="تلقائي"
             />
             <CompactFormField
               label="الاسم العربي"

@@ -16,6 +16,7 @@ import { ErpFormHeaderCard, ErpFieldError } from '@/components/erp/ErpFormHeader
 import { DocumentBrowseDrawer } from '@/components/erp/DocumentBrowseDrawer';
 import { GenericRecordsList } from '@/components/erp/GenericRecordsList';
 import { erpInputClass, erpInputErrorClass, erpLabelClass } from '@/components/erp/erpUiTokens';
+import { StatusBadge } from '@/components/ui/StatusBadge';
 import {
   DocumentSectionNumberPair,
   sectionNumberInputClass,
@@ -25,7 +26,8 @@ import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
 import { AccountSelect } from '@/app/components/form/AccountSelect';
 import { CostCenterSelect } from '@/app/components/form/CostCenterSelect';
-import { CustomerSelect } from '@/app/components/form/PartySelect';
+import { CustomerSelect, SupplierSelect } from '@/app/components/form/PartySelect';
+import { RequiredDot } from '@/components/erp/RequiredDot';
 import { useApiMutation, useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
 import { useCurrenciesQuery } from '@/lib/hooks/useMasterDataQueries';
 import { pickCurrencyByCode, rateForCurrency } from '@/lib/accounting/fx-base';
@@ -33,6 +35,10 @@ import { useCompanyBaseCurrency } from '@/lib/hooks/useCompanyBaseCurrency';
 import { DocumentCurrencyRateFields } from '@/components/accounting/DocumentCurrencyRateFields';
 import { apiClient } from '@/lib/api/client';
 import type { ApiError } from '@/lib/api/types';
+import {
+  postNamedDocumentAfterSave,
+  useRepostAfterUnpost,
+} from '@/lib/accounting/ensure-posted-after-save';
 import { toHijri } from '@/lib/dates/hijri';
 import { MultiCollectionModal, type MultiCollectionPayload } from './MultiCollectionModal';
 import { SecuritiesDateHijriField } from './SecuritiesDateHijriField';
@@ -43,55 +49,74 @@ import {
 } from './SecuritiesLifecycleModals';
 import {
   isoDateOnly,
+  resolveSecuritiesPaperCase,
   securitiesPaperStatus,
   securitiesPaperTitle,
   type SecuritiesPaperKind,
   type SecuritiesPaperRecord,
 } from './securities-paper-status';
 
-const formSchema = z
-  .object({
-    date: z.string().min(1, 'يرجى إدخال تاريخ التحرير'),
-    hijriDate: z.string().optional(),
-    dueDate: z.string().optional(),
-    dueHijriDate: z.string().optional(),
-    currencyId: z.string().min(1, 'اختر العملة'),
-    exchangeRate: z.coerce.number().positive().optional(),
-    partyType: z.enum(['customer', 'account']),
-    partyId: z.string().optional(),
-    accountId: z.string().optional(),
-    costCenterId: z.string().optional(),
-    securityType: z.enum(['check', 'promissory-note', 'bond', 'other']),
-    serial: z.string().optional(),
-    documentNumber: z.string().optional(),
-    securityNumber: z.string().optional(),
-    description: z.string().optional(),
-    partyName: z.string().optional(),
-    entityName: z.string().optional(),
-    bankName: z.string().optional(),
-    amount: z.string(),
-    paidTo: z.string().optional(),
-    depositInBank: z.boolean(),
-    bankPortfolioId: z.string().optional(),
-    bankIssueDate: z.string().optional(),
-    bankHijriDate: z.string().optional(),
-    department: z.string().optional(),
-    refNumber: z.string().optional(),
-  })
-  .superRefine((d, ctx) => {
-    const amt = parseFloat(String(d.amount).replace(/,/g, ''));
-    if (!Number.isFinite(amt) || amt <= 0) {
-      ctx.addIssue({ code: 'custom', message: 'يرجى إدخال مبلغ صحيح', path: ['amount'] });
-    }
-    if (d.partyType === 'customer' && !d.partyId?.trim()) {
-      ctx.addIssue({ code: 'custom', message: 'يرجى اختيار العميل', path: ['partyId'] });
-    }
-    if (d.partyType === 'account' && !d.partyId?.trim()) {
-      ctx.addIssue({ code: 'custom', message: 'يرجى اختيار الحساب الآخر', path: ['partyId'] });
-    }
-  });
+function formatPaperDate(iso?: string) {
+  const raw = (iso || '').trim();
+  if (!raw) return '';
+  const [year, month, day] = raw.split('-');
+  return day && month && year ? `${day}/${month}/${year}` : raw;
+}
 
-type FormValues = z.infer<typeof formSchema>;
+export function buildSecuritiesPaperDescription(
+  kind: SecuritiesPaperKind,
+  chequeNumber: string,
+  partyName: string,
+  dueDate: string
+) {
+  const number = chequeNumber.trim();
+  const name = partyName.trim();
+  const due = formatPaperDate(dueDate);
+  if (!number || !name || !due) return '';
+  return kind === 'payment'
+    ? `شيك رقم ${number} إلى المورد ${name} يستحق بتاريخ ${due}`
+    : `شيك رقم ${number} من العميل ${name} يستحق بتاريخ ${due}`;
+}
+
+function makeFormSchema(kind: SecuritiesPaperKind) {
+  return z
+    .object({
+      date: z.string().min(1, 'يرجى إدخال تاريخ التحرير'),
+      hijriDate: z.string().optional(),
+      dueDate: z.string().min(1, 'يرجى إدخال تاريخ الاستحقاق'),
+      dueHijriDate: z.string().optional(),
+      currencyId: z.string().min(1, 'اختر العملة'),
+      exchangeRate: z.coerce.number().positive().optional(),
+      partyType: z.enum(['customer', 'supplier']),
+      partyId: z.string().min(1, kind === 'payment' ? 'يرجى اختيار المورد' : 'يرجى اختيار العميل'),
+      accountId: z.string().optional(),
+      costCenterId: z.string().optional(),
+      securityType: z.enum(['check', 'promissory-note', 'bond', 'other']),
+      serial: z.string().optional(),
+      documentNumber: z.string().optional(),
+      securityNumber: z.string().min(1, 'يرجى إدخال رقم الشيك'),
+      description: z.string().optional(),
+      partyName: z.string().optional(),
+      entityName: z.string().optional(),
+      bankName: z.string().optional(),
+      amount: z.string(),
+      paidTo: z.string().optional(),
+      depositInBank: z.boolean(),
+      bankPortfolioId: z.string().optional(),
+      bankIssueDate: z.string().optional(),
+      bankHijriDate: z.string().optional(),
+      department: z.string().optional(),
+      refNumber: z.string().optional(),
+    })
+    .superRefine((d, ctx) => {
+      const amt = parseFloat(String(d.amount).replace(/,/g, ''));
+      if (!Number.isFinite(amt) || amt <= 0) {
+        ctx.addIssue({ code: 'custom', message: 'يرجى إدخال مبلغ صحيح', path: ['amount'] });
+      }
+    });
+}
+
+type FormValues = z.infer<ReturnType<typeof makeFormSchema>>;
 
 type Named = { id: string; code?: string; arabicName: string; englishName?: string };
 type Currency = Named & { code: string; exchangeRate?: number | string | null };
@@ -111,7 +136,7 @@ function defaultCurrencyId(currencies: Currency[], companyBase = 'EGP'): string 
   return pickCurrencyByCode(currencies, companyBase)?.id || currencies[0].id;
 }
 
-function emptyForm(currencies: Currency[]): FormValues {
+function emptyForm(currencies: Currency[], kind: SecuritiesPaperKind = 'receipt'): FormValues {
   const date = todayIso();
   return {
     date,
@@ -120,7 +145,7 @@ function emptyForm(currencies: Currency[]): FormValues {
     dueHijriDate: '',
     currencyId: defaultCurrencyId(currencies),
     exchangeRate: 1,
-    partyType: 'customer',
+    partyType: kind === 'payment' ? 'supplier' : 'customer',
     partyId: '',
     accountId: '',
     costCenterId: '',
@@ -148,6 +173,7 @@ type Props = { kind: SecuritiesPaperKind };
 export function SecuritiesPaperEngine({ kind }: Props) {
   const router = useRouter();
   const invalidateQuery = useInvalidateQuery();
+  const { markUnpostedForEdit, consumeShouldRepost, resetKeepPosted } = useRepostAfterUnpost();
   const title = securitiesPaperTitle(kind);
   const apiPath = kind === 'payment' ? '/accounting/securities-payments' : '/accounting/securities-receipts';
   const listKey = kind === 'payment' ? 'securities-payments' : 'securities-receipts';
@@ -156,8 +182,9 @@ export function SecuritiesPaperEngine({ kind }: Props) {
     kind === 'payment'
       ? '/accounting/operations/securities/payment'
       : '/accounting/operations/securities/reciept';
-  const paidToLabel = kind === 'payment' ? 'مدفوع إلى' : 'مقبوض من';
-  const partyPlaceholder = kind === 'payment' ? 'اختر الطرف المستحق...' : 'اختر الساحب / العميل...';
+  const paidToLabel = kind === 'payment' ? 'مدفوع إلى مورد' : 'مقبوض من عميل';
+  const partyPlaceholder = kind === 'payment' ? 'اختر المورد...' : 'اختر العميل...';
+  const formSchema = useMemo(() => makeFormSchema(kind), [kind]);
 
   const [showList, setShowList] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -171,6 +198,8 @@ export function SecuritiesPaperEngine({ kind }: Props) {
   const [multiCollecting, setMultiCollecting] = useState(false);
   const [actionPaperId, setActionPaperId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [selectedJournalId, setSelectedJournalId] = useState<string | null>(null);
+  const [posting, setPosting] = useState(false);
 
   const {
     register,
@@ -181,7 +210,7 @@ export function SecuritiesPaperEngine({ kind }: Props) {
     formState: { errors },
   } = useForm<FormValues>({
     resolver: zodResolver(formSchema) as Resolver<FormValues>,
-    defaultValues: emptyForm([]),
+    defaultValues: emptyForm([], kind),
     mode: 'onTouched',
   });
 
@@ -197,6 +226,25 @@ export function SecuritiesPaperEngine({ kind }: Props) {
   const amountWatch = watch('amount');
   const securityNumber = watch('securityNumber');
   const documentNumber = watch('documentNumber');
+  const partyName = watch('partyName');
+
+  const { data: partyCardRes } = useApiQuery<{ arabicName?: string; englishName?: string }>(
+    [kind === 'payment' ? 'supplier-card' : 'customer-card', partyId],
+    partyId
+      ? kind === 'payment'
+        ? `/accounting/suppliers/${partyId}`
+        : `/accounting/customers/${partyId}`
+      : '/accounting/customers',
+    undefined,
+    { enabled: Boolean(partyId) }
+  );
+
+  useEffect(() => {
+    const name = partyCardRes?.data?.arabicName || partyCardRes?.data?.englishName || '';
+    if (!name) return;
+    setValue('partyName', name, { shouldValidate: false });
+    setValue('paidTo', name, { shouldValidate: false });
+  }, [partyCardRes?.data, setValue]);
 
   useEffect(() => {
     setValue('hijriDate', toHijri(date || ''), { shouldValidate: false });
@@ -245,16 +293,16 @@ export function SecuritiesPaperEngine({ kind }: Props) {
     const record = recordResponse?.data;
     if (!record || !selectedId || record.id !== selectedId) return;
     setLoaded(record);
+    const partyIsSupplier = Boolean(record.supplierId);
     const partyIsCustomer = Boolean(record.customerId);
-    const partyIsAccount = Boolean(record.destinationAccountId) && !record.customerId;
     const name =
       kind === 'payment'
-        ? record.payeeName || record.customer?.arabicName || record.supplier?.arabicName || ''
+        ? record.payeeName || record.supplier?.arabicName || record.customer?.arabicName || ''
         : record.issuerName || record.customer?.arabicName || record.supplier?.arabicName || '';
     const issue = isoDateOnly(record.date) || todayIso();
     const due = isoDateOnly(record.dueDate);
     reset({
-      ...emptyForm(currencies),
+      ...emptyForm(currencies, kind),
       date: issue,
       hijriDate: record.hijriDate || toHijri(issue),
       dueDate: due,
@@ -267,8 +315,8 @@ export function SecuritiesPaperEngine({ kind }: Props) {
         companyBaseCurrency,
         currencies.find((c) => c.code === record.currencyCode)?.exchangeRate
       ),
-      partyType: partyIsCustomer ? 'customer' : partyIsAccount ? 'account' : record.destinationAccountId ? 'account' : 'customer',
-      partyId: partyIsCustomer ? record.customerId || '' : record.destinationAccountId || '',
+      partyType: partyIsSupplier ? 'supplier' : partyIsCustomer ? 'customer' : kind === 'payment' ? 'supplier' : 'customer',
+      partyId: record.supplierId || record.customerId || '',
       accountId: record.destinationAccountId || '',
       securityType: (record.securityType as FormValues['securityType']) || 'check',
       serial: record.serial || '',
@@ -283,6 +331,7 @@ export function SecuritiesPaperEngine({ kind }: Props) {
   }, [recordResponse?.data, selectedId, currencies, companyBaseCurrency, kind, reset]);
 
   const applyParty = (id: string, name?: string) => {
+    setValue('partyType', kind === 'payment' ? 'supplier' : 'customer', { shouldValidate: false });
     setValue('partyId', id, { shouldValidate: true });
     if (name) {
       setValue('partyName', name, { shouldValidate: false });
@@ -292,9 +341,15 @@ export function SecuritiesPaperEngine({ kind }: Props) {
 
   const createMutation = useApiMutation<SecuritiesPaperRecord, Record<string, unknown>>(apiPath, 'POST', {
     showSuccessToast: false,
-    onSuccess: () => {
-      const message = kind === 'payment' ? 'تم حفظ ورقة المدفوعات بنجاح' : 'تم حفظ ورقة المقبوضات بنجاح';
+    onSuccess: (res) => {
+      const row = res.data;
+      const message =
+        kind === 'payment'
+          ? 'تم حفظ ورقة المدفوعات وإنشاء قيد التحرير'
+          : 'تم حفظ ورقة المقبوضات وإنشاء قيد التحرير';
       invalidateQuery([listKey]);
+      invalidateQuery([`${listKey}-browse`]);
+      invalidateQuery(['journal-entry']);
       resetNew();
       setSuccess(message);
     },
@@ -304,16 +359,36 @@ export function SecuritiesPaperEngine({ kind }: Props) {
   const status = securitiesPaperStatus(loaded);
   const docNumber = securityNumber || documentNumber || loaded?.securityNumber || '';
   const amountNum = parseFloat(String(amountWatch || '').replace(/,/g, '')) || 0;
-  const locked = Boolean(loaded?.isPosted || loaded?.isCancelled);
+  const paperCase = loaded?.id ? resolveSecuritiesPaperCase(loaded) : 'ISSUED';
+  const locked = Boolean(loaded?.id && paperCase !== 'ISSUED');
+  const journals = loaded?.journals ?? [];
+  const activeJournalId =
+    selectedJournalId && journals.some((row) => row.id === selectedJournalId)
+      ? selectedJournalId
+      : journals[journals.length - 1]?.id || loaded?.journalEntryId || null;
+
+  useEffect(() => {
+    if (locked) return;
+    const next = buildSecuritiesPaperDescription(
+      kind,
+      securityNumber || '',
+      partyName || '',
+      dueDate || ''
+    );
+    if (next) setValue('description', next, { shouldValidate: false });
+  }, [kind, securityNumber, partyName, dueDate, locked, setValue]);
+
   const advancedFilled = [watch('department'), watch('refNumber'), watch('costCenterId')].filter(
     (v) => String(v ?? '').trim()
   ).length;
   const actionId = actionPaperId || selectedId;
 
   const resetNew = () => {
+    resetKeepPosted();
     setSelectedId(null);
     setLoaded(null);
-    reset(emptyForm(currencies));
+    setSelectedJournalId(null);
+    reset(emptyForm(currencies, kind));
     setError('');
     setSuccess('');
   };
@@ -330,9 +405,8 @@ export function SecuritiesPaperEngine({ kind }: Props) {
       entityName: values.entityName || undefined,
       hijriDate: values.hijriDate || toHijri(values.date) || undefined,
       customerId: values.partyType === 'customer' ? values.partyId || null : null,
-      supplierId: null,
-      destinationAccountId:
-        values.partyType === 'account' ? values.partyId || null : values.accountId || null,
+      supplierId: values.partyType === 'supplier' ? values.partyId || null : null,
+      destinationAccountId: values.accountId || null,
       securityNumber: values.securityNumber || undefined,
       dueDate: values.dueDate ? new Date(values.dueDate).toISOString() : undefined,
       ...(kind === 'payment'
@@ -367,10 +441,27 @@ export function SecuritiesPaperEngine({ kind }: Props) {
         if (selectedId) {
           setSaving(true);
           try {
-            const res = await apiClient.put<SecuritiesPaperRecord>(`${apiPath}/${selectedId}`, body);
-            setLoaded(res.data ?? loaded);
-            setSuccess('تم تحديث الورقة بنجاح');
+            await apiClient.put<SecuritiesPaperRecord>(`${apiPath}/${selectedId}`, body);
             invalidateQuery([listKey]);
+            invalidateQuery([listKey, 'one', selectedId]);
+            invalidateQuery(['journal-entry']);
+            if (consumeShouldRepost() && selectedId) {
+              try {
+                await postNamedDocumentAfterSave(`${apiPath}/${selectedId}/post`);
+                resetNew();
+                setSuccess('تم حفظ التعديلات وترحيل الورقة');
+              } catch (repostErr) {
+                resetNew();
+                setError(
+                  repostErr instanceof Error
+                    ? repostErr.message
+                    : 'تم الحفظ لكن تعذر ترحيل الورقة'
+                );
+              }
+            } else {
+              resetNew();
+              setSuccess('تم تحديث الورقة وقيد التحرير');
+            }
           } catch (err) {
             setError(err instanceof Error ? err.message : 'حدث خطأ أثناء التحديث');
           } finally {
@@ -383,16 +474,69 @@ export function SecuritiesPaperEngine({ kind }: Props) {
       (errs) => setError(firstFormError(errs))
     )();
 
-  const onUnpostDoc = async () => {
-    if (!selectedId) return;
+  const onPostDoc = async () => {
+    const id = selectedId || loaded?.id;
+    if (!id) return;
+    setPosting(true);
     try {
-      const res = await apiClient.post<SecuritiesPaperRecord>(`${apiPath}/${selectedId}/unpost`, {});
-      setLoaded(res.data ?? { ...loaded, id: selectedId, isPosted: false });
-      setSuccess('تم فك ترحيل الورقة');
-      invalidateQuery([listKey]);
-      invalidateQuery([listKey, 'one', selectedId]);
+      const res = await apiClient.post<SecuritiesPaperRecord>(`${apiPath}/${id}/post`, {});
+      applyLoaded(res.data ?? { ...loaded, id, isPosted: true }, id);
+      setSuccess('تم ترحيل الورقة');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'تعذر ترحيل الورقة');
+    } finally {
+      setPosting(false);
+    }
+  };
+
+  const onUnpostDoc = async () => {
+    const id = selectedId || loaded?.id;
+    if (!id) return;
+    try {
+      const res = await apiClient.post<SecuritiesPaperRecord>(`${apiPath}/${id}/unpost`, {});
+      applyLoaded(res.data ?? { ...loaded, id, isPosted: false }, id);
+      markUnpostedForEdit();
+      setSuccess('تم فك ترحيل الورقة — يمكن التعديل الآن');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'تعذر فك ترحيل الورقة');
+    }
+  };
+
+  const applyLoaded = (record: SecuritiesPaperRecord, fallbackId: string) => {
+    setSelectedId(record.id || fallbackId);
+    setLoaded(record);
+    invalidateQuery([listKey]);
+    invalidateQuery([`${listKey}-browse`]);
+    invalidateQuery([listKey, 'one', record.id || fallbackId]);
+    invalidateQuery(['journal-entry']);
+  };
+
+  const undoPaperCase = async () => {
+    const id = selectedId || loaded?.id;
+    if (!id) return;
+    try {
+      if (paperCase === 'COLLECTED' || paperCase === 'MULTI_COLLECTED') {
+        const res = await apiClient.post<SecuritiesPaperRecord>(`${apiPath}/${id}/unpost`, {});
+        applyLoaded(res.data ?? { ...loaded, id, paperCase: 'ISSUED', isPosted: false }, id);
+        markUnpostedForEdit();
+        setSuccess(paperCase === 'MULTI_COLLECTED' ? 'تم فك التحصيل المتعدد وعادت الورقة محررة' : 'تم فك التحصيل وعادت الورقة محررة');
+        return;
+      }
+      if (paperCase === 'ENDORSED') {
+        const res = await apiClient.post<SecuritiesPaperRecord>(`${apiPath}/${id}/unendorse`, {});
+        applyLoaded(res.data ?? { ...loaded, id, paperCase: 'ISSUED', isPosted: false }, id);
+        setSuccess('تم فك التظهير وعادت الورقة محررة');
+        return;
+      }
+      if (paperCase === 'BOUNCED') {
+        const res = await apiClient.post<SecuritiesPaperRecord>(`${apiPath}/${id}/restore`, {});
+        applyLoaded(res.data ?? { ...loaded, id, paperCase: 'ISSUED', isCancelled: false }, id);
+        setSuccess('تم فك الارتداد وعادت الورقة محررة');
+        return;
+      }
+      setError('لا توجد حالة لفكها');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'تعذر فك حالة الورقة');
     }
   };
 
@@ -401,8 +545,8 @@ export function SecuritiesPaperEngine({ kind }: Props) {
       resetNew();
       return;
     }
-    if (loaded?.isPosted) {
-      setError('الورقة محصّلة — استخدم الارتداد لإلغائها');
+    if (paperCase !== 'ISSUED') {
+      setError('فك حالة الورقة أولاً قبل الإلغاء');
       return;
     }
     if (loaded?.isCancelled) return;
@@ -426,12 +570,9 @@ export function SecuritiesPaperEngine({ kind }: Props) {
     setError('');
     try {
       const res = await apiClient.post<SecuritiesPaperRecord>(`${apiPath}/${id}/multi-collect`, payload);
-      setLoaded(res.data ?? loaded);
-      setSelectedId(id);
+      applyLoaded(res.data ?? { ...loaded, id, paperCase: 'MULTI_COLLECTED', isPosted: true }, id);
       setShowMultiCollection(false);
-      setSuccess('تم تأكيد التحصيل المتعدد وترحيل القيد المحاسبي');
-      invalidateQuery([listKey]);
-      invalidateQuery([listKey, 'one', id]);
+      setSuccess('تم التحصيل المتعدد — حالتها تحصيل متعدد');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'تعذر تنفيذ التحصيل المتعدد');
     } finally {
@@ -453,8 +594,7 @@ export function SecuritiesPaperEngine({ kind }: Props) {
   };
 
   const savePending = saving || createMutation.isPending;
-  const rowActionClass =
-    'rounded-md border border-[#D6EAF3] bg-white px-2 py-1 text-[11px] font-semibold text-[#094C6B] hover:border-[#0E78AA] hover:text-[#0E78AA]';
+  const hasDocument = Boolean(selectedId || loaded?.id);
 
   return (
     <ErpDocumentLayout>
@@ -479,6 +619,9 @@ export function SecuritiesPaperEngine({ kind }: Props) {
         savePending={savePending}
         canSave={!savePending && !locked}
         hideStandalonePost
+        saveDisabledHint={
+          locked ? `الورقة حالتها «${status.label}» — فك الحالة أولاً حتى يمكن التعديل` : undefined
+        }
         favoriteHref={favoriteHref}
         favoriteLabel={title}
         onBrowseList={() => setShowList(true)}
@@ -499,36 +642,51 @@ export function SecuritiesPaperEngine({ kind }: Props) {
           hasDocument: Boolean(selectedId || loaded?.id),
           isPosted: Boolean(loaded?.isPosted),
           isCancelled: Boolean(loaded?.isCancelled),
-          hidePostActions: true,
+          postPending: posting,
           onNew: resetNew,
           newLabel: 'جديد',
+          onEdit: () => {
+            if (loaded?.isPosted) {
+              setError('فك الترحيل أولاً حتى يُفتح التعديل');
+              return;
+            }
+          },
+          onPost: () => void onPostDoc(),
           onUnpost: () => void onUnpostDoc(),
           extraItems: [
             {
               id: 'collect',
-              label: 'تحصيل',
-              disabled: Boolean(loaded?.isCancelled || loaded?.isPosted),
-              onClick: () => openLifecycle('collect'),
+              label: paperCase === 'COLLECTED' ? 'فك التحصيل' : 'تحصيل',
+              disabled: !hasDocument || (paperCase !== 'ISSUED' && paperCase !== 'COLLECTED'),
+              hint: paperCase !== 'ISSUED' && paperCase !== 'COLLECTED' ? `الورقة حالتها «${status.label}»` : undefined,
+              onClick: () => (paperCase === 'COLLECTED' ? void undoPaperCase() : openLifecycle('collect')),
             },
             {
               id: 'multi-collect',
-              label: 'تحصيل متعدد',
-              disabled: Boolean(loaded?.isCancelled),
-              onClick: () => openLifecycle('multi'),
+              label: paperCase === 'MULTI_COLLECTED' ? 'فك التحصيل المتعدد' : 'تحصيل متعدد',
+              disabled: !hasDocument || (paperCase !== 'ISSUED' && paperCase !== 'MULTI_COLLECTED'),
+              hint: paperCase !== 'ISSUED' && paperCase !== 'MULTI_COLLECTED' ? `الورقة حالتها «${status.label}»` : undefined,
+              onClick: () =>
+                paperCase === 'MULTI_COLLECTED' ? void undoPaperCase() : openLifecycle('multi'),
             },
             {
               id: 'bounce',
-              label: 'ارتداد',
-              disabled: Boolean(loaded?.isCancelled),
-              onClick: () => openLifecycle('bounce'),
+              label: paperCase === 'BOUNCED' ? 'فك الارتداد' : 'ارتداد',
+              disabled: !hasDocument || (paperCase !== 'ISSUED' && paperCase !== 'BOUNCED'),
+              hint: paperCase !== 'ISSUED' && paperCase !== 'BOUNCED' ? `الورقة حالتها «${status.label}»` : undefined,
+              onClick: () => (paperCase === 'BOUNCED' ? void undoPaperCase() : openLifecycle('bounce')),
             },
             ...(kind === 'receipt'
               ? [
                   {
                     id: 'endorse',
-                    label: 'تظهير',
-                    disabled: Boolean(loaded?.isCancelled),
-                    onClick: () => openLifecycle('endorse'),
+                    label: paperCase === 'ENDORSED' ? 'فك التظهير' : 'تظهير',
+                    disabled: !hasDocument || (paperCase !== 'ISSUED' && paperCase !== 'ENDORSED'),
+                    hint:
+                      paperCase !== 'ISSUED' && paperCase !== 'ENDORSED'
+                        ? `الورقة حالتها «${status.label}»`
+                        : undefined,
+                    onClick: () => (paperCase === 'ENDORSED' ? void undoPaperCase() : openLifecycle('endorse')),
                   },
                 ]
               : []),
@@ -597,17 +755,27 @@ export function SecuritiesPaperEngine({ kind }: Props) {
         row1={
           <>
             <div>
+              <label className={erpLabelClass}>حالة الورقة</label>
+              <div className={`${erpInputClass} flex items-center bg-slate-50`}>
+                <StatusBadge variant={status.tone} label={status.label} compact />
+              </div>
+            </div>
+            <div>
               <label className={erpLabelClass}>المسلسل</label>
               <input className={erpInputClass} placeholder="المسلسل" disabled={locked} {...register('serial')} />
             </div>
             <div>
-              <label className={erpLabelClass}>رقم الورقة</label>
+              <label className={erpLabelClass}>
+                رقم الشيك
+                <RequiredDot hint="رقم الشيك مطلوب" />
+              </label>
               <input
-                className={erpInputClass}
-                placeholder="رقم الورقة"
+                className={`${erpInputClass} ${errors.securityNumber ? erpInputErrorClass : ''}`}
+                placeholder="رقم الشيك"
                 disabled={locked}
                 {...register('securityNumber')}
               />
+              <ErpFieldError message={errors.securityNumber?.message} show={Boolean(errors.securityNumber)} />
             </div>
             <div>
               <label className={erpLabelClass}>نوع الورقة</label>
@@ -621,32 +789,29 @@ export function SecuritiesPaperEngine({ kind }: Props) {
             <div className="lg:col-span-2">
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                 <div className="space-y-1">
-                  <label className="text-xs font-semibold text-foreground">{paidToLabel}</label>
-                  <div className="mb-1.5 flex gap-2 text-xs">
-                    <button
-                      type="button"
+                  <label className="text-xs font-semibold text-foreground">
+                    {paidToLabel}
+                    <RequiredDot hint={kind === 'payment' ? 'المورد مطلوب' : 'العميل مطلوب'} />
+                  </label>
+                  {kind === 'payment' ? (
+                    <SupplierSelect
+                      value={partyId}
+                      onChange={(id) => applyParty(id)}
+                      className={erpInputClass}
                       disabled={locked}
-                      className={`rounded-md px-2 py-0.5 ${partyType === 'customer' ? 'bg-[#0E78AA] text-white' : 'bg-[#EAF6FB] text-[#094C6B]'}`}
-                      onClick={() => {
-                        setValue('partyType', 'customer', { shouldValidate: true });
-                        setValue('partyId', '', { shouldValidate: false });
-                      }}
-                    >
-                      عميل
-                    </button>
-                    <button
-                      type="button"
-                      disabled={locked}
-                      className={`rounded-md px-2 py-0.5 ${partyType === 'account' ? 'bg-[#0E78AA] text-white' : 'bg-[#EAF6FB] text-[#094C6B]'}`}
-                      onClick={() => {
-                        setValue('partyType', 'account', { shouldValidate: true });
-                        setValue('partyId', '', { shouldValidate: false });
-                      }}
-                    >
-                      حساب آخر
-                    </button>
-                  </div>
-                  {partyType === 'customer' ? (
+                      emptyLabel={partyPlaceholder}
+                      seedParty={
+                        loaded?.supplierId && loaded.supplier
+                          ? {
+                              id: loaded.supplierId,
+                              arabicName: loaded.supplier.arabicName || '',
+                              code: loaded.supplier.code,
+                              englishName: loaded.supplier.englishName,
+                            }
+                          : null
+                      }
+                    />
+                  ) : (
                     <CustomerSelect
                       value={partyId}
                       onChange={(id) => applyParty(id)}
@@ -663,16 +828,6 @@ export function SecuritiesPaperEngine({ kind }: Props) {
                             }
                           : null
                       }
-                    />
-                  ) : (
-                    <AccountSelect
-                      value={partyId}
-                      onChange={(id) => applyParty(id)}
-                      className={erpInputClass}
-                      disabled={locked}
-                      leafOnly
-                      placeholder="اختر حساب الحركة"
-                      emptyLabel="اختر حساب الحركة"
                     />
                   )}
                   <ErpFieldError message={errors.partyId?.message} show={Boolean(errors.partyId)} />
@@ -699,15 +854,21 @@ export function SecuritiesPaperEngine({ kind }: Props) {
               hijri={watch('hijriDate') || ''}
               onGregorianChange={(v) => setValue('date', v, { shouldValidate: true })}
               error={errors.date?.message}
+              required
             />
             <SecuritiesDateHijriField
               label="تاريخ الاستحقاق"
               gregorian={dueDate || ''}
               hijri={watch('dueHijriDate') || ''}
-              onGregorianChange={(v) => setValue('dueDate', v, { shouldValidate: false })}
+              onGregorianChange={(v) => setValue('dueDate', v, { shouldValidate: true })}
+              error={errors.dueDate?.message}
+              required
             />
             <div>
-              <label className={erpLabelClass}>المبلغ</label>
+              <label className={erpLabelClass}>
+                القيمة
+                <RequiredDot hint="القيمة مطلوبة" />
+              </label>
               <input
                 inputMode="decimal"
                 className={`${erpInputClass} ${errors.amount ? erpInputErrorClass : ''}`}
@@ -716,24 +877,35 @@ export function SecuritiesPaperEngine({ kind }: Props) {
                 {...register('amount')}
               />
               <ErpFieldError message={errors.amount?.message} show={Boolean(errors.amount)} />
-              <button
-                type="button"
-                className="mt-1.5 text-xs font-semibold text-[#0E78AA] hover:underline"
-                onClick={() => {
-                  if (!selectedId && !loaded?.id) {
-                    setError('احفظ الورقة أولاً قبل التحصيل المتعدد');
-                    return;
-                  }
-                  setActionPaperId(selectedId || loaded?.id || null);
-                  setShowMultiCollection(true);
-                }}
-              >
-                تحصيل متعدد
-              </button>
+              {paperCase === 'ISSUED' ? (
+                <button
+                  type="button"
+                  className="mt-1.5 text-xs font-semibold text-[#0E78AA] hover:underline disabled:opacity-40"
+                  disabled={!hasDocument}
+                  onClick={() => {
+                    if (!hasDocument) {
+                      setError('احفظ الورقة أولاً قبل التحصيل المتعدد');
+                      return;
+                    }
+                    openLifecycle('multi');
+                  }}
+                >
+                  تحصيل متعدد
+                </button>
+              ) : null}
             </div>
             <div>
               <label className={erpLabelClass}>الشرح / البيان</label>
-              <input className={erpInputClass} placeholder="الشرح" disabled={locked} {...register('description')} />
+              <input
+                className={erpInputClass}
+                placeholder={
+                  kind === 'payment'
+                    ? 'شيك رقم … إلى المورد … يستحق بتاريخ …'
+                    : 'شيك رقم … من العميل … يستحق بتاريخ …'
+                }
+                disabled={locked}
+                {...register('description')}
+              />
             </div>
             <div>
               <label className={erpLabelClass}>الحساب</label>
@@ -802,7 +974,9 @@ export function SecuritiesPaperEngine({ kind }: Props) {
         financialRows={[{ label: 'مبلغ الورقة', value: amountNum }]}
         netAmount={amountNum}
         netLabel="إجمالي الورقة"
-        journalEntryId={loaded?.journalEntryId}
+        journalEntryId={activeJournalId}
+        journalOptions={journals.map((row) => ({ id: row.id, label: row.label }))}
+        onJournalIdChange={setSelectedJournalId}
         showJournalTab
         tabs={[]}
       />
@@ -849,60 +1023,6 @@ export function SecuritiesPaperEngine({ kind }: Props) {
                 r.dueDate ? new Date(String(r.dueDate)).toLocaleDateString('ar-EG') : '—',
             },
           ]}
-          rowActions={(row) => (
-            <>
-              <button
-                type="button"
-                className={rowActionClass}
-                onClick={() => {
-                  setSelectedId(row.id);
-                  setActionPaperId(row.id);
-                  setShowList(false);
-                  setShowCollect(true);
-                }}
-              >
-                تحصيل
-              </button>
-              <button
-                type="button"
-                className={rowActionClass}
-                onClick={() => {
-                  setSelectedId(row.id);
-                  setActionPaperId(row.id);
-                  setShowList(false);
-                  setShowMultiCollection(true);
-                }}
-              >
-                تحصيل متعدد
-              </button>
-              <button
-                type="button"
-                className={rowActionClass}
-                onClick={() => {
-                  setSelectedId(row.id);
-                  setActionPaperId(row.id);
-                  setShowList(false);
-                  setShowReturn(true);
-                }}
-              >
-                ارتداد
-              </button>
-              {kind === 'receipt' ? (
-                <button
-                  type="button"
-                  className={rowActionClass}
-                  onClick={() => {
-                    setSelectedId(row.id);
-                    setActionPaperId(row.id);
-                    setShowList(false);
-                    setShowEndorse(true);
-                  }}
-                >
-                  تظهير
-                </button>
-              ) : null}
-            </>
-          )}
           onSelect={(id) => {
             setSelectedId(id);
             setShowList(false);
@@ -917,12 +1037,11 @@ export function SecuritiesPaperEngine({ kind }: Props) {
         apiPath={apiPath}
         paperId={actionId}
         amount={amountNum}
+        defaultAccountId={watch('accountId') || loaded?.destinationAccountId || ''}
         onClose={() => setShowCollect(false)}
         onDone={(record) => {
-          setSelectedId(record.id);
-          setLoaded(record);
-          setSuccess('تم تحصيل الورقة بنجاح');
-          invalidateQuery([listKey]);
+          applyLoaded(record, record.id);
+          setSuccess('تم تحصيل الورقة — حالتها محصلة');
         }}
       />
       <SecuritiesBounceModal
@@ -931,10 +1050,8 @@ export function SecuritiesPaperEngine({ kind }: Props) {
         paperId={actionId}
         onClose={() => setShowReturn(false)}
         onDone={(record) => {
-          setSelectedId(record.id);
-          setLoaded(record);
-          setSuccess('تم ارتداد الورقة بنجاح');
-          invalidateQuery([listKey]);
+          applyLoaded(record, record.id);
+          setSuccess('تم ارتداد الورقة — حالتها مرتدة');
         }}
       />
       {kind === 'receipt' ? (
@@ -944,10 +1061,8 @@ export function SecuritiesPaperEngine({ kind }: Props) {
           paperId={actionId}
           onClose={() => setShowEndorse(false)}
           onDone={(record) => {
-            setSelectedId(record.id);
-            setLoaded(record);
-            setSuccess('تم تظهير الورقة بنجاح');
-            invalidateQuery([listKey]);
+            applyLoaded(record, record.id);
+            setSuccess('تم تظهير الورقة — حالتها مظهرة');
           }}
         />
       ) : null}

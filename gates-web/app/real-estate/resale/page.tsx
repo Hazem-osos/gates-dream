@@ -4,10 +4,9 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/EmptyState';
-import { PageHeader } from '@/components/ui/PageHeader';
+import { RealEstatePageShell, ReCard, RealEstateWorkspaceHeader } from '@/components/real-estate/RealEstatePageShell';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { TableSkeleton } from '@/components/ui/TableSkeleton';
-import { RealEstatePageShell, ReCard } from '@/components/real-estate/RealEstatePageShell';
 import { ResaleLockBadge } from '@/components/real-estate/StatusBadges';
 import { useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
 import { queryKeys, staleTimes } from '@/lib/query/query-keys';
@@ -46,10 +45,14 @@ export default function ResalePage() {
 
   return (
     <RealEstatePageShell>
-      <PageHeader
+      <RealEstateWorkspaceHeader
         title="إعادة البيع ورسوم التنازل"
-        breadcrumbs={[{ label: 'العقاري', href: '/real-estate' }, { label: 'إعادة البيع' }]}
-        actions={<Button onClick={() => setRequestOpen(true)}>طلب إعادة بيع</Button>}
+        breadcrumbs={[
+          { label: 'الاستثمار العقاري', href: '/real-estate-investment' },
+          { label: 'إعادة البيع' },
+        ]}
+        favoriteHref="/real-estate/resale"
+        extraActions={<Button onClick={() => setRequestOpen(true)}>طلب إعادة بيع</Button>}
       />
       <ReCard>
         {isLoading ? (

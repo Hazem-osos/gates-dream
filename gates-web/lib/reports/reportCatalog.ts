@@ -5318,6 +5318,28 @@ const ACCOUNT_REPORT_CATALOG_FIXES: Record<string, ReportCatalogEntry> = {
     previewPath: '/accounting/account-reports/balances/cost-center-balancee/preview',
     filterPath: '/accounting/account-reports/balances/cost-center-balancee',
   },
+  '/pos/daily': {
+    urlPath: '/pos/daily',
+    registryPath: 'pos/daily',
+    reportKey: 'pos-daily',
+    titleAr: 'يومية نقاط البيع',
+    module: 'pos',
+    kind: 'filter',
+    status: 'active',
+    previewPath: '/pos/daily/preview',
+    filterPath: '/pos/daily',
+  },
+  '/pos/daily/preview': {
+    urlPath: '/pos/daily/preview',
+    registryPath: 'pos/daily',
+    reportKey: 'pos-daily',
+    titleAr: 'يومية نقاط البيع',
+    module: 'pos',
+    kind: 'preview',
+    status: 'active',
+    previewPath: '/pos/daily/preview',
+    filterPath: '/pos/daily',
+  },
 };
 
 export function getReportByUrlPath(urlPath: string): ReportCatalogEntry | undefined {

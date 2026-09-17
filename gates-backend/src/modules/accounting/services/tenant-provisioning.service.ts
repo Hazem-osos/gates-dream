@@ -34,7 +34,12 @@ const MIN_COA_FOR_SKIP = 15;
 export class TenantProvisioningService {
   async provisionStandardTenant(
     companyId: string,
-    options?: { force?: boolean; currencyCode?: string; industry?: CoaIndustryKey | string }
+    options?: {
+      force?: boolean;
+      currencyCode?: string;
+      industry?: CoaIndustryKey | string;
+      coaAutoNumbering?: boolean;
+    }
   ): Promise<TenantProvisionResult> {
     if (refuseProductionSeed()) {
       const count = await prisma.account.count({ where: { companyId, deletedAt: null } });
@@ -75,7 +80,12 @@ export class TenantProvisioningService {
   async provisionWithinTransaction(
     companyId: string,
     tx: Prisma.TransactionClient,
-    options?: { force?: boolean; currencyCode?: string; industry?: CoaIndustryKey | string }
+    options?: {
+      force?: boolean;
+      currencyCode?: string;
+      industry?: CoaIndustryKey | string;
+      coaAutoNumbering?: boolean;
+    }
   ): Promise<TenantProvisionResult> {
     const industry = options?.industry ?? 'general';
     const templateRows = sortCoaRows(getCoaTemplateRows(industry));
@@ -160,11 +170,18 @@ export class TenantProvisioningService {
       }
     }
 
-    const currencyCode =
-      options?.currencyCode ??
-      (await tx.companySettings.findUnique({ where: { companyId }, select: { defaultCurrency: true } }))
-        ?.defaultCurrency ??
-      'EGP';
+    const existingSettings = await tx.companySettings.findUnique({
+      where: { companyId },
+      select: { defaultCurrency: true, advancedSettings: true },
+    });
+    const currencyCode = options?.currencyCode ?? existingSettings?.defaultCurrency ?? 'EGP';
+    const advanced =
+      existingSettings?.advancedSettings &&
+      typeof existingSettings.advancedSettings === 'object' &&
+      !Array.isArray(existingSettings.advancedSettings)
+        ? { ...(existingSettings.advancedSettings as Record<string, unknown>) }
+        : {};
+    advanced.coaAutoNumbering = options?.coaAutoNumbering !== false;
 
     await tx.companySettings.upsert({
       where: { companyId },
@@ -173,11 +190,13 @@ export class TenantProvisioningService {
         defaultCurrency: currencyCode,
         accountDefinitions: buildAccountDefinitions(codeToId),
         retainedEarningsAccountId: codeToId.get(SYSTEM_GL_CODES.retainedEarnings)!,
+        advancedSettings: advanced,
       },
       update: {
         accountDefinitions: buildAccountDefinitions(codeToId),
         retainedEarningsAccountId: codeToId.get(SYSTEM_GL_CODES.retainedEarnings)!,
         defaultCurrency: currencyCode,
+        advancedSettings: advanced,
       },
     });
 

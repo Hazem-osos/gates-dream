@@ -3,10 +3,9 @@
 import { useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/EmptyState';
-import { PageHeader } from '@/components/ui/PageHeader';
+import { RealEstatePageShell, ReCard, ReMetric, RealEstateWorkspaceHeader } from '@/components/real-estate/RealEstatePageShell';
 import { TableSkeleton } from '@/components/ui/TableSkeleton';
 import { ChequePortfolioTable } from '@/components/real-estate/ChequePortfolioTable';
-import { RealEstatePageShell, ReCard, ReMetric } from '@/components/real-estate/RealEstatePageShell';
 import { useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
 import { queryKeys, staleTimes } from '@/lib/query/query-keys';
 import { formatEgp } from '@/lib/real-estate/format';
@@ -94,10 +93,14 @@ export default function ChequePortfolioPage() {
 
   return (
     <RealEstatePageShell>
-      <PageHeader
+      <RealEstateWorkspaceHeader
         title="محفظة الشيكات الآجلة"
-        breadcrumbs={[{ label: 'العقاري', href: '/real-estate' }, { label: 'الشيكات' }]}
-        actions={<Button onClick={() => setBatchOpen(true)}>تسجيل دفعة شيكات</Button>}
+        breadcrumbs={[
+          { label: 'الاستثمار العقاري', href: '/real-estate-investment' },
+          { label: 'الشيكات' },
+        ]}
+        favoriteHref="/real-estate/cheques"
+        extraActions={<Button onClick={() => setBatchOpen(true)}>تسجيل دفعة شيكات</Button>}
       />
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">

@@ -16,6 +16,7 @@ export type AccountHierarchyNode = {
   parentId?: string | null;
   defaultCostCenterId?: string | null;
   costCenterRequired?: string | null;
+  isActive?: boolean;
   children?: AccountHierarchyNode[];
 };
 
@@ -30,6 +31,7 @@ export type FlatAccountForHierarchy = {
   defaultCostCenterId?: string | null;
   costCenterRequired?: string | null;
   accountKind?: 'HEADER' | 'POSTING' | null;
+  isActive?: boolean;
 };
 
 function natureFromAccount(account: FlatAccountForHierarchy): 'DEBIT' | 'CREDIT' {
@@ -93,6 +95,7 @@ export function buildAccountHierarchyTree(
       currentBalance: childNodes.length > 0 ? childrenBalance : ownBalance,
       defaultCostCenterId: row.defaultCostCenterId ?? null,
       costCenterRequired: row.costCenterRequired ?? null,
+      isActive: row.isActive !== false,
     };
     if (childNodes.length > 0) {
       node.children = childNodes;

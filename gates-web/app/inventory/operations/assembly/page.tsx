@@ -21,6 +21,10 @@ import { apiClient } from '@/lib/api/client';
 import { confirmAction } from '@/lib/feedback/confirm';
 import { toHijriDate } from '@/lib/hijri-date';
 import type { ApiError } from '@/lib/api/types';
+import {
+  postNamedDocumentAfterSave,
+  useRepostAfterUnpost,
+} from '@/lib/accounting/ensure-posted-after-save';
 import { printPageContent } from '@/lib/print/printHtml';
 
 type AssemblyParentItem = {
@@ -75,6 +79,7 @@ function todayIso() {
 function AssemblyPageInner() {
   const searchParams = useOwnTabSearchParams();
   const invalidateQuery = useInvalidateQuery();
+  const { markUnpostedForEdit, consumeShouldRepost, resetKeepPosted } = useRepostAfterUnpost();
   const [selectedId, setSelectedId] = useState<string | null>(
     () => searchParams.get('id')?.trim() || null
   );
@@ -173,6 +178,19 @@ function AssemblyPageInner() {
       showSuccessToast: false,
       onSuccess: () => {
         invalidateQuery(['assemblies']);
+        const id = selectedId;
+        if (consumeShouldRepost() && id) {
+          void postNamedDocumentAfterSave(`/inventory/assemblies/${id}/post`)
+            .then(() => {
+              resetNew();
+              setSuccess('تم حفظ التعديلات وترحيل أمر التجميع');
+            })
+            .catch((err: ApiError) => {
+              resetNew();
+              setError(err.message || 'تم الحفظ لكن تعذر ترحيل التجميع');
+            });
+          return;
+        }
         resetNew();
         setSuccess('تم تحديث أمر التجميع');
       },
@@ -202,6 +220,7 @@ function AssemblyPageInner() {
       showSuccessToast: false,
       onSuccess: () => {
         setIsPosted(false);
+        markUnpostedForEdit();
         setSuccess('تم فك ترحيل التجميع');
         invalidateQuery(['assemblies']);
         invalidateQuery(['assembly', selectedId ?? '']);
@@ -309,6 +328,7 @@ function AssemblyPageInner() {
   };
 
   const resetNew = () => {
+    resetKeepPosted();
     setSelectedId(null);
     setSerial('');
     setDescription('');

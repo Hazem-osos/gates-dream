@@ -103,6 +103,9 @@ export function SearchableCombobox({
   const [resolvedPlacement, setResolvedPlacement] = useState<'bottom' | 'top'>('bottom');
   const [workerRankedIds, setWorkerRankedIds] = useState<string[] | null>(null);
   const searchGenRef = useRef(0);
+  const prevValueRef = useRef(value);
+  const onQueryChangeRef = useRef(onQueryChange);
+  onQueryChangeRef.current = onQueryChange;
 
   useEffect(() => {
     const q = query.trim();
@@ -122,14 +125,26 @@ export function SearchableCombobox({
   const selected = options.find((o) => o.value === value);
 
   useEffect(() => {
-    if (!open) {
-      if (selected && selected.value !== '') {
-        setQuery(selected.label);
-      } else if (value && valueLabel) {
-        setQuery(valueLabel);
-      } else if (!value) {
+    const valueChanged = prevValueRef.current !== value;
+    prevValueRef.current = value;
+    const selectedLabel = selected && selected.value !== '' ? selected.label : '';
+    const displayLabel = selectedLabel || (value ? valueLabel || '' : '');
+
+    if (valueChanged) {
+      if (!value) {
         setQuery('');
+        setOpen(false);
+        onQueryChangeRef.current?.('');
+        return;
       }
+      if (displayLabel) setQuery(displayLabel);
+      onQueryChangeRef.current?.('');
+      return;
+    }
+
+    if (!open) {
+      if (displayLabel) setQuery(displayLabel);
+      else if (!value) setQuery('');
     }
   }, [selected, value, open, valueLabel]);
 

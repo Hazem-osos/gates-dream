@@ -1,7 +1,7 @@
 'use client';
 
-import { createContext, useContext, useRef } from 'react';
-import { usePathname, useSearchParams } from 'next/navigation';
+import { createContext, useCallback, useContext, useRef } from 'react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { normalizeAppPath } from '@/lib/navigation/app-module-root';
 import { rememberTabSearch, recalledTabSearch } from '@/lib/navigation/tab-memory';
 
@@ -52,4 +52,24 @@ export function useOwnTabSearchParams() {
   }
   wasActive.current = false;
   return frozenObj.current;
+}
+
+/** After save: drop the open-record query so the tab is a blank «جديد». */
+export function useClearDocumentQuery() {
+  const router = useRouter();
+  const pathname = useOwnTabPathname();
+  const searchParams = useOwnTabSearchParams();
+  return useCallback(() => {
+    const params = new URLSearchParams(searchParams.toString());
+    let changed = false;
+    for (const key of ['id', 'mode', 'invoiceId'] as const) {
+      if (params.has(key)) {
+        params.delete(key);
+        changed = true;
+      }
+    }
+    if (!changed) return;
+    const qs = params.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  }, [pathname, router, searchParams]);
 }

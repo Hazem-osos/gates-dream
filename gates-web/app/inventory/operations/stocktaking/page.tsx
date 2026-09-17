@@ -3,18 +3,22 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useForm, type Resolver, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { PageHeader } from '@/components/ui/PageHeader';
-import CrudButtons from '@/components/ui/CrudButtons';
+import { ErpDocumentLayout, ErpDocumentPageHeader } from '@/components/erp';
 import {
   FormSectionCard,
   CompactFormField,
   AdvancedFieldsSection,
   FormStickyFooter,
-  StatusBadge,
   Button,
   IconButton,
   compactControlClass,
   compactLabelClass,
+  denseTableWrapClass,
+  denseTableClass,
+  denseTheadClass,
+  denseThClass,
+  denseTdClass,
+  denseTrClass,
 } from '@/components/ui';
 import { Plus, Trash2 } from 'lucide-react';
 import { useApiQuery, useApiMutation, useInvalidateQuery } from '@/lib/hooks/useApi';
@@ -81,6 +85,7 @@ export default function StocktakingPage() {
     reset,
     watch,
     control,
+    setValue,
     formState: { errors },
   } = useForm<InventoryStocktakingPageFormInput>({
     resolver: zodResolver(inventoryStocktakingPageFormSchema) as Resolver<InventoryStocktakingPageFormInput>,
@@ -141,53 +146,78 @@ export default function StocktakingPage() {
     reset((prev) => ({ ...prev, date: prev.date || todayStr }));
   }, [todayStr, reset]);
 
+  const handleNew = () => {
+    setError('');
+    setSuccess('');
+    setStocktakingLines([]);
+    reset(emptyStocktakingDefaults(new Date().toISOString().split('T')[0]));
+  };
+
+  const handleSave = () =>
+    void handleSubmit((values) => {
+      setError('');
+      setSuccess('');
+      if (stocktakingLines.length === 0) {
+        setError('يرجى إضافة أصناف لتسوية الجرد');
+        return;
+      }
+      stocktakingMutation.mutate({
+        serialNumber: values.serialNumber,
+        description: values.description,
+        date: values.date || new Date().toISOString(),
+        hijriDate: values.hijriDate,
+        warehouseId: values.warehouseId,
+        isPosted: values.isPosted,
+        useBarcode: values.useBarcode,
+        hideExistingQty: values.hideExistingQty,
+        excludeZeroValue: values.excludeZeroValue,
+        lines: stocktakingLines.map((line) => ({
+          itemId: line.itemId,
+          bookValue: line.bookValue,
+          actualValue: line.actualValue,
+          shortage: line.shortage,
+          surplus: line.surplus,
+          unitPrice: line.unitPrice,
+        })),
+      });
+    }, onFieldErrors(setError))();
+
   return (
-    <div className="p-6 bg-gradient-to-br from-gray-50 to-blue-50 min-h-screen" style={{ direction: 'rtl' }}>
+    <ErpDocumentLayout>
       {error && <ErrorToast message={error} onClose={() => setError('')} />}
       {success && <SuccessToast message={success} onClose={() => setSuccess('')} />}
 
-      <PageHeader
-        title="تسوية جرد مخزني"
+      <ErpDocumentPageHeader
+        compact
         breadcrumbs={[
-          { label: 'المخزون', href: '/inventory' },
-          { label: 'الحركات' },
-          { label: 'تسوية جرد مخزني' },
+          { href: '/inventory', label: 'المخزون' },
+          { label: 'العمليات' },
+          { label: 'جرد مخزني' },
         ]}
-        className="mb-4"
+        title="جرد مخزني"
+        docNumber={watch('serialNumber') || ''}
+        statusTone={isPosted ? 'success' : 'warning'}
+        statusLabel={isPosted ? 'مرحّل' : 'مسودة'}
+        saveLabel="حفظ"
+        onSaveDraft={handleSave}
+        savePending={loading}
+        canSave={!loading}
+        hideStandalonePost
+        hideBrowseList
+        favoriteHref="/inventory/operations/stocktaking"
+        standardActions={{
+          hasDocument: stocktakingLines.length > 0,
+          isPosted: Boolean(isPosted),
+          onPost: () => {
+            setValue('isPosted', true);
+            handleSave();
+          },
+          onUnpost: () => setValue('isPosted', false),
+          onNew: handleNew,
+          newLabel: 'جديد',
+        }}
       />
       <FormSectionCard title="فلتر الجرد" subtitle="المخزن والتاريخ">
-          <div className="col-span-full flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <label className="text-sm text-[#0A3D5E]">الترحيل:</label>
-              <Controller
-                name="isPosted"
-                control={control}
-                render={({ field: { value, onChange } }) => (
-                  <div className="flex bg-gray-200 rounded-lg p-1">
-                    <button
-                      type="button"
-                      onClick={() => onChange(true)}
-                      className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${value ? 'bg-[#0E78AA] text-white' : 'bg-white text-gray-600 hover:bg-gray-100'}`}
-                    >
-                      ترحيل
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onChange(false)}
-                      className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${!value ? 'bg-[#0E78AA] text-white' : 'bg-white text-gray-600 hover:bg-gray-100'}`}
-                    >
-                      فك ترحيل
-                    </button>
-                  </div>
-                )}
-              />
-            </div>
-            <StatusBadge
-              variant={isPosted ? 'success' : 'warning'}
-              label={isPosted ? 'مرحّل' : 'لم يتم تسويته'}
-            />
-          </div>
-
           <CompactFormField label="المسلسل" placeholder="إدخل رقم المسلسل" {...register('serialNumber')} />
           <CompactFormField
             label="التاريخ"
@@ -289,25 +319,10 @@ export default function StocktakingPage() {
         </div>
       </AdvancedFieldsSection>
 
-      <div className="mt-6 mb-4 flex items-center gap-4">
-        <button
-          type="button"
-          className="px-6 py-2 bg-gradient-to-r from-[#0E78AA] to-[#0A5F8A] text-white rounded-xl font-bold shadow-md hover:shadow-lg transition-all duration-300 hover:from-[#0A5F8A] hover:to-[#084A6B]"
-        >
-          تسوية الجرد
-        </button>
-        <button
-          type="button"
-          className="px-6 py-2 bg-gradient-to-r from-[#0E78AA] to-[#0A5F8A] text-white rounded-xl font-bold shadow-md hover:shadow-lg transition-all duration-300 hover:from-[#0A5F8A] hover:to-[#084A6B]"
-        >
-          إلغاء التسوية
-        </button>
-        <button
-          type="button"
-          className="px-6 py-2 bg-gradient-to-r from-[#0E78AA] to-[#0A5F8A] text-white rounded-xl font-bold shadow-md hover:shadow-lg transition-all duration-300 hover:from-[#0A5F8A] hover:to-[#084A6B]"
-        >
-          إستعادة
-        </button>
+      <div className="mb-4 mt-6 flex flex-wrap items-center gap-2">
+        <Button type="button" variant="secondary">تسوية الجرد</Button>
+        <Button type="button" variant="secondary">إلغاء التسوية</Button>
+        <Button type="button" variant="secondary">إستعادة</Button>
       </div>
 
       <FormSectionCard title="فروقات الجرد" subtitle="جدول إدخال — الكمية الفعلية تُحسب منها العجز/الزيادة وتُرسل مع الحفظ" bodyClassName="space-y-3">
@@ -328,20 +343,20 @@ export default function StocktakingPage() {
               إضافة صنف
             </Button>
           </div>
-          <div className="overflow-x-auto rounded-xl border border-[#D6EAF3] bg-white" data-tour-id="stocktaking-items-table">
-            <table className="min-w-full text-center border-separate border-spacing-0">
-              <thead>
+          <div className={denseTableWrapClass} data-tour-id="stocktaking-items-table">
+            <table className={denseTableClass}>
+              <thead className={denseTheadClass}>
                 <tr>
-                  <th className="bg-[#0E78AA] text-white py-2 px-2 text-xs font-bold border-r border-white/20">م</th>
-                  <th className="bg-[#0E78AA] text-white py-2 px-2 text-xs font-bold border-r border-white/20">الصنف</th>
-                  <th className="bg-[#0E78AA] text-white py-2 px-2 text-xs font-bold border-r border-white/20">القيمة الدفترية</th>
-                  <th className="bg-[#0E78AA] text-white py-2 px-2 text-xs font-bold border-r border-white/20">الكمية الفعلية</th>
-                  <th className="bg-[#0E78AA] text-white py-2 px-2 text-xs font-bold border-r border-white/20">العجز</th>
-                  <th className="bg-[#0E78AA] text-white py-2 px-2 text-xs font-bold border-r border-white/20">الزيادة</th>
-                  <th className="bg-[#0E78AA] text-white py-2 px-2 text-xs font-bold border-r border-white/20">السعر</th>
-                  <th className="bg-[#0E78AA] text-white py-2 px-2 text-xs font-bold border-r border-white/20">قيمة العجز</th>
-                  <th className="bg-[#0E78AA] text-white py-2 px-2 text-xs font-bold border-r border-white/20">قيمة الزيادة</th>
-                  <th className="bg-[#0E78AA] text-white py-2 px-2 text-xs font-bold"> </th>
+                  <th className={denseThClass}>م</th>
+                  <th className={denseThClass}>الصنف</th>
+                  <th className={denseThClass}>القيمة الدفترية</th>
+                  <th className={denseThClass}>الكمية الفعلية</th>
+                  <th className={denseThClass}>العجز</th>
+                  <th className={denseThClass}>الزيادة</th>
+                  <th className={denseThClass}>السعر</th>
+                  <th className={denseThClass}>قيمة العجز</th>
+                  <th className={denseThClass}>قيمة الزيادة</th>
+                  <th className={denseThClass}> </th>
                 </tr>
               </thead>
               <tbody>
@@ -485,59 +500,8 @@ export default function StocktakingPage() {
       </FormSectionCard>
 
       <FormStickyFooter
-        onCancel={() => {
-          setError('');
-          setSuccess('');
-          setStocktakingLines([]);
-          reset(emptyStocktakingDefaults(new Date().toISOString().split('T')[0]));
-        }}
-        onSave={() =>
-          void handleSubmit((values) => {
-            setError('');
-            setSuccess('');
-            if (stocktakingLines.length === 0) {
-              setError('يرجى إضافة أصناف لتسوية الجرد');
-              return;
-            }
-            stocktakingMutation.mutate({
-              serialNumber: values.serialNumber,
-              description: values.description,
-              date: values.date || new Date().toISOString(),
-              hijriDate: values.hijriDate,
-              warehouseId: values.warehouseId,
-              isPosted: values.isPosted,
-              useBarcode: values.useBarcode,
-              hideExistingQty: values.hideExistingQty,
-              excludeZeroValue: values.excludeZeroValue,
-              lines: stocktakingLines.map((line) => ({
-                itemId: line.itemId,
-                bookValue: line.bookValue,
-                actualValue: line.actualValue,
-                shortage: line.shortage,
-                surplus: line.surplus,
-                unitPrice: line.unitPrice,
-              })),
-            });
-          }, onFieldErrors(setError))()
-        }
-        saveLoading={loading}
-        saveTourId="stocktaking-save-btn"
         status={`${stocktakingLines.length} بند · زيادة ${formatMoneyAr(stockTotals.surplus)} · عجز ${formatMoneyAr(stockTotals.shortage)}`}
-        extraActions={
-          <CrudButtons
-            onAdd={() => {
-              setError('');
-              setSuccess('');
-              setStocktakingLines([]);
-              reset(emptyStocktakingDefaults(new Date().toISOString().split('T')[0]));
-            }}
-            extraItems={[
-              { id: 'preview', label: 'معاينة', onClick: () => {} },
-              { id: 'design', label: 'تصميم', onClick: () => {} },
-            ]}
-          />
-        }
       />
-    </div>
+    </ErpDocumentLayout>
   );
 }

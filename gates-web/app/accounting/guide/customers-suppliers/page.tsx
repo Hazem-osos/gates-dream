@@ -170,6 +170,9 @@ export default function CustomersSuppliersGuidePage() {
       toast.success(isGroup ? 'تم حذف المجموعة' : `تم حذف ال${noun}`);
       invalidate([partyKind]);
       invalidate([isCustomers ? 'customer-categories' : 'supplier-categories']);
+      invalidate(['accounts']);
+      invalidate(['chart-of-accounts']);
+      invalidate(['coa-tree']);
       void refetch();
     } catch (e) {
       toast.error(isGroup ? 'تعذّر حذف المجموعة' : `تعذّر حذف ال${noun}`, {

@@ -81,6 +81,7 @@ type Props = {
   lockCostCenter?: boolean;
   hasExistingLines?: boolean;
   sourceDisabled?: boolean;
+  fieldsDisabled?: boolean;
   onSourceHydrate?: (payload: SourceHydratePayload) => void;
   includeAllAccounts?: boolean;
 };
@@ -111,6 +112,7 @@ export function SalesInvoiceFormHeader({
   lockCostCenter = false,
   hasExistingLines = false,
   sourceDisabled = false,
+  fieldsDisabled = false,
   onSourceHydrate,
   includeAllAccounts = false,
 }: Props) {
@@ -377,6 +379,7 @@ export function SalesInvoiceFormHeader({
           onHydrate={onSourceHydrate}
         />
       ) : null}
+    <fieldset disabled={fieldsDisabled} className="m-0 min-w-0 border-0 p-0">
     <div className={erpFormGridClass}>
       <div>
         <label className={erpLabelClass}>المندوب</label>
@@ -610,8 +613,17 @@ export function SalesInvoiceFormHeader({
         </button>
       </div>
     </div>
+    </fieldset>
     </div>
   );
 
-  return <ErpFormHeaderCard row1={row1} row2={row2} extras={extras} headerActions={headerActions} />;
+  return (
+    <ErpFormHeaderCard
+      row1={row1}
+      row2={row2}
+      extras={extras}
+      headerActions={headerActions}
+      fieldsDisabled={fieldsDisabled}
+    />
+  );
 }

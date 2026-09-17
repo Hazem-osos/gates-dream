@@ -8,7 +8,12 @@ import { MasterGuideTree } from '@/components/accounting/guide/MasterGuideTree';
 import { DistributionAddDialog, type DistributionFolderRole } from '@/components/accounting/DistributionAddDialog';
 import { DistributionGroupModal } from '@/components/accounting/DistributionGroupModal';
 import { staffCardHref, type StaffCardKind } from '@/components/accounting/StaffCardKindDialog';
-import { buildParentTree, groupAsFolders, type GuideTreeNode } from '@/lib/accounting/buildGuideTree';
+import {
+  buildParentTree,
+  groupAsFolders,
+  sortGuideNodes,
+  type GuideTreeNode,
+} from '@/lib/accounting/buildGuideTree';
 import { useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
 import { apiClient } from '@/lib/api/client';
 import { toast } from '@/lib/feedback/toast';
@@ -187,7 +192,7 @@ export default function RepresentativesGuidePage() {
           name: folder.name,
           groupKey: folder.role,
           toneIndex,
-          children: [...folders, ...loose].map((child) => withTone(child, toneIndex)),
+          children: sortGuideNodes([...folders, ...loose].map((child) => withTone(child, toneIndex))),
         };
       }),
       { keepEmpty: true }
@@ -360,6 +365,8 @@ export default function RepresentativesGuidePage() {
           onSaved={() => {
             toast.success(editGroup ? 'تم تحديث المجموعة' : 'تم حفظ المجموعة');
             invalidate(['delegates']);
+            invalidate(['delegates', 'next-code']);
+            invalidate(['delegates', 'next-code', 'group']);
             void refetch();
           }}
           onError={(msg) => toast.error('تعذّر حفظ المجموعة', { description: msg })}

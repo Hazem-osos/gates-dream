@@ -19,6 +19,7 @@ export type SeedCoaResponse = {
 export type SeedCoaBody = {
   force?: boolean;
   industry?: string;
+  coaAutoNumbering?: boolean;
 };
 
 export function useSeedDefaultCoa(options?: {
@@ -35,6 +36,7 @@ export function useSeedDefaultCoa(options?: {
       onSuccess: (res) => {
         clearConditionalGetCache();
         invalidateMasterDataQueries(invalidate);
+        invalidate(['accounting-settings']);
         const payload = (res.data ?? res) as SeedCoaResponse;
         if (payload.branchId || payload.fiscalYearId) {
           setTenantContext({

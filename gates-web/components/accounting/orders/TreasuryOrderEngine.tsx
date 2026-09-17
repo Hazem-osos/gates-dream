@@ -51,6 +51,7 @@ import {
 import { parseDecimal, roundMoney2 } from '@/lib/money/parseDecimal';
 import type { ApiError } from '@/lib/api/types';
 import { toastVersionConflict } from '@/lib/feedback/toast';
+import { isOptimisticLockApiError } from '@/lib/concurrency/version-conflict';
 import { getTenantContext } from '@/lib/tenant/tenant-context-storage';
 import { useApiMutation, useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
 import {
@@ -297,8 +298,10 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
     () => ({ header: headerSnapshot, voucherLines, allocations }),
     [allocations, headerSnapshot, voucherLines]
   );
+  const defaultFundAppliedRef = useRef(false);
   const applyOrderDraft = useCallback(
     (payload: typeof orderDraftSnapshot) => {
+      defaultFundAppliedRef.current = true;
       if (payload.header) reset(payload.header);
       setVoucherLines(payload.voucherLines?.length ? payload.voucherLines : [emptyLine('EGP')]);
       setAllocations(Array.isArray(payload.allocations) ? payload.allocations : []);
@@ -318,8 +321,7 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
     applyRestore: applyOrderDraft,
     isEmpty: (draft) =>
       !draft.header?.description?.trim() &&
-      !draft.header?.fundId?.trim() &&
-      !(draft.voucherLines ?? []).some((line) => line.accountId) &&
+      !(draft.voucherLines ?? []).some((line) => line.accountId || Number(line.amount)) &&
       !(draft.allocations ?? []).length,
     restoreMessage: 'تم استعادة مسودة الأمر',
   });
@@ -327,7 +329,7 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
   const { data: accountsResponse } = useApiQuery<Account[]>(
     ['accounts', 'leaf'],
     '/accounting/accounts',
-    { limit: 500, isActive: true, leafOnly: true }
+    { limit: 20000, isActive: true, leafOnly: true }
   );
   const accounts = accountsResponse?.data || [];
 
@@ -346,16 +348,16 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
     { enabled: !isCashOrder && isBank, staleTime: 0, refetchOnMount: 'always' }
   );
   const funds = isCashOrder || !isBank ? safesResponse?.data || [] : banksResponse?.data || [];
-  const defaultFundAppliedRef = useRef(false);
 
   useEffect(() => {
     if (savedOrderId || isBank || defaultFundAppliedRef.current) return;
+    if (restoreOffer) return;
     if (!funds.length) return;
     defaultFundAppliedRef.current = true;
     if (fundId) return;
     const next = pickDefaultSafeId(safesResponse?.data);
     if (next) setValue('fundId', next, { shouldValidate: false });
-  }, [fundId, funds.length, isBank, safesResponse?.data, savedOrderId, setValue]);
+  }, [fundId, funds.length, isBank, restoreOffer, safesResponse?.data, savedOrderId, setValue]);
   const { data: liveFundResponse } = useLiveFundBalance({
     kind: isBank ? 'bank' : 'safe',
     id: fundId,
@@ -409,7 +411,7 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
         setSuccess(message);
       },
       onError: (err: ApiError) => {
-        if (err.code === '409') {
+        if (isOptimisticLockApiError(err)) {
           toastVersionConflict(err.message, () => {
             lastHydratedIdRef.current = null;
             invalidateQuery(['cash-order-detail', savedOrderId ?? 'none']);
@@ -434,7 +436,7 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
         setSuccess(message);
       },
       onError: (err: ApiError) => {
-        if (err.code === '409') {
+        if (isOptimisticLockApiError(err)) {
           toastVersionConflict(err.message, () => {
             lastHydratedIdRef.current = null;
             invalidateQuery(['cash-order-detail', savedOrderId ?? 'none']);
@@ -615,10 +617,11 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
     ? balanceNum.toLocaleString('ar-EG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
     : '0';
   const totalAmount = voucherLines.reduce((sum, line) => sum + lineBaseAmount(line), 0);
+  const documentNet = voucherLines.reduce((sum, line) => sum + (Number(line.amount) || 0), 0);
   const overdraftWarning =
     variant.transactionKind === 'PAYMENT' &&
     preventCashOverdraft &&
-    isCashAmountOverBalance(totalAmount, balanceNum);
+    isCashAmountOverBalance(documentNet, balanceNum);
   const { profile: companyProfile } = useCompanyPrintProfile();
   const completed = executionStatus === 'COMPLETED';
   const locked = isReadOnly || completed || isCancelled || busy;

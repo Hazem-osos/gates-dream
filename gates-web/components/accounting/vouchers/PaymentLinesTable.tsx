@@ -13,7 +13,7 @@ import { useCompanyBaseCurrency } from '@/lib/hooks/useCompanyBaseCurrency';
 import { lineBaseAmount, type PaymentVoucherLine } from '@/lib/treasury/payment-voucher-line';
 import { VoucherAccountCombobox } from './VoucherAccountCombobox';
 import { costCenterRuleFromAccount } from '@/lib/accounting/cost-center-rule';
-import { useAccountsQuery } from '@/lib/hooks/useMasterDataQueries';
+import { ACCOUNT_PICKER_PAGE_SIZE, useAccountsQuery } from '@/lib/hooks/useMasterDataQueries';
 import { useFollowHeaderDescription } from '@/lib/hooks/useFollowHeaderDescription';
 
 export type PaymentLineCurrency = { id: string; code: string; arabicName?: string; exchangeRate?: number | string | null };
@@ -65,7 +65,7 @@ export function PaymentLinesTable({
   partyEmptyHint,
   headerDescription = '',
 }: Props) {
-  const { data: accountsRes } = useAccountsQuery(undefined, 500, { leafOnly: true });
+  const { data: accountsRes } = useAccountsQuery(undefined, ACCOUNT_PICKER_PAGE_SIZE, { leafOnly: true });
   const accounts = accountsRes?.data ?? [];
   const costCenterRuleFor = (accountId: string) =>
     costCenterRuleFromAccount(accounts.find((a) => a.id === accountId));

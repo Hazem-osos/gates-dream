@@ -48,11 +48,6 @@ export default function DelegateGroupPage() {
   };
 
   const handleSave = () => {
-    if (!formData.serial.trim()) {
-      setSuccess('');
-      setError('أدخل كود المجموعة قبل الحفظ');
-      return;
-    }
     if (!formData.arabicName.trim()) {
       setSuccess('');
       setError('أدخل الاسم العربي لمجموعة المندوبين قبل الحفظ');
@@ -63,12 +58,16 @@ export default function DelegateGroupPage() {
     try {
       const key = 'gates:delegate-groups';
       const existing = readStoredGroups();
+      const serial =
+        formData.serial.trim() ||
+        String(existing.length + 1).padStart(3, '0');
       const next = [
-        ...existing.filter((row) => row.serial !== formData.serial || !formData.serial),
-        { ...formData },
+        ...existing.filter((row) => row.serial !== serial),
+        { ...formData, serial },
       ];
       window.localStorage.setItem(key, JSON.stringify(next));
-      setSuccess('تم حفظ مجموعة المندوبين');
+      setFormData({ ...EMPTY_FORM });
+      setSuccess('تم حفظ مجموعة المندوبين — تقدر تضيف التالي');
     } catch {
       setError('تعذر حفظ مجموعة المندوبين');
     } finally {
@@ -110,10 +109,10 @@ export default function DelegateGroupPage() {
         <FormSectionCard title="البيانات الأساسية" subtitle="الحقول اللازمة لتعريف مجموعة المندوبين" icon={Users}>
           <CompactFormField
             label="الكود"
-            required
             value={formData.serial}
-            onChange={(e) => setFormData((prev) => ({ ...prev, serial: e.target.value }))}
-            placeholder="إدخل الكود"
+            disabled
+            readOnly
+            placeholder="تلقائي"
           />
           <CompactFormField
             label="الإسم العربي"

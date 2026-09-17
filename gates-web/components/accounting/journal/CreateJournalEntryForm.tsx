@@ -23,12 +23,18 @@ import type { ApiError } from '@/lib/api/types';
 import { dispatchAcademyTrigger } from '@/lib/onboarding/tourCheckpoints';
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
-import { toastVersionConflict } from '@/lib/feedback/toast';
+import { toast, toastVersionConflict } from '@/lib/feedback/toast';
+import { isOptimisticLockApiError } from '@/lib/concurrency/version-conflict';
 import {
   journalEntrySchema,
   type JournalEntryFormValues,
 } from '@/lib/validation/accounting.schema';
-import { ACCOUNT_PICKER_PAGE_SIZE, useAccountsQuery, useCurrenciesQuery } from '@/lib/hooks/useMasterDataQueries';
+import {
+  ACCOUNT_PICKER_PAGE_SIZE,
+  invalidateTreasuryFundBalances,
+  useAccountsQuery,
+  useCurrenciesQuery,
+} from '@/lib/hooks/useMasterDataQueries';
 import { useCompanyPrintProfile } from '@/lib/hooks/useCompanyPrintProfile';
 import { PrintDocumentButton } from '@/app/components/print/PrintDocumentButton';
 import { printOperationalDocument } from '@/lib/print/printOperationalDocument';
@@ -50,6 +56,10 @@ import { resolveJournalSourceKind, type JournalSourceType } from '@/lib/accounti
 import { pickCurrencyByCode, rateForCurrency, toBaseAmount } from '@/lib/accounting/fx-base';
 import { costCenterRuleFromAccount } from '@/lib/accounting/cost-center-rule';
 import { useCompanyBaseCurrency } from '@/lib/hooks/useCompanyBaseCurrency';
+import {
+  postJournalAfterSave,
+  useRepostAfterUnpost,
+} from '@/lib/accounting/ensure-posted-after-save';
 import { DocumentCurrencyRateFields } from '@/components/accounting/DocumentCurrencyRateFields';
 import { ShowFxColumnsField } from '@/components/accounting/ShowFxColumnsField';
 import { useShowFxColumns } from '@/lib/transaction-settings/useShowFxColumns';
@@ -182,6 +192,7 @@ function CreateJournalEntryFormInner() {
   const skipUrlHydrateRef = useRef(false);
   const skipHeaderFxSyncRef = useRef(false);
   const [headerRateOverride, setHeaderRateOverride] = useState<number | null>(null);
+  const { markUnpostedForEdit, consumeShouldRepost, resetKeepPosted } = useRepostAfterUnpost();
 
   useEffect(() => {
     const id = journalEntryIdFromUrl?.trim();
@@ -351,15 +362,31 @@ function CreateJournalEntryFormInner() {
     'PUT',
     {
       onSuccess: () => {
-        const message = isCyclic ? 'تم حفظ التعديلات وتحديث القيد الدوري' : 'تم حفظ التعديلات بنجاح';
+        const id = savedJournalEntryId;
         invalidateQuery(['journal-entries']);
         invalidateQuery(['recurring-journal-entries']);
         invalidateQuery(['journal-entry-next-number']);
+        invalidateQuery(['journal-entry', id]);
+        if (consumeShouldRepost() && id) {
+          void postJournalAfterSave(id)
+            .then(() => {
+              invalidateQuery(['journal-entries']);
+              invalidateQuery(['journal-entry', id]);
+              invalidateTreasuryFundBalances(invalidateQuery);
+              startNewEntry();
+              setSuccess('تم حفظ التعديلات وترحيل القيد');
+            })
+            .catch((error: ApiError) => {
+              setError(error.message || 'تم الحفظ لكن تعذر ترحيل القيد');
+            });
+          return;
+        }
+        const message = isCyclic ? 'تم حفظ التعديلات وتحديث القيد الدوري' : 'تم حفظ التعديلات بنجاح';
         startNewEntry();
         setSuccess(message);
       },
       onError: (error: ApiError) => {
-        if (error.code === '409') {
+        if (isOptimisticLockApiError(error)) {
           toastVersionConflict(error.message, () =>
             invalidateQuery(['journal-entry', savedJournalEntryId])
           );
@@ -379,6 +406,7 @@ function CreateJournalEntryFormInner() {
         setVoucherStatus('مرحل');
         setSuccess('تم ترحيل القيد بنجاح');
         invalidateQuery(['journal-entries']);
+        invalidateTreasuryFundBalances(invalidateQuery);
         dispatchAcademyTrigger('API_SUCCESS', 'journal-entry.post-success');
       },
       onError: (error: ApiError) => {
@@ -396,10 +424,12 @@ function CreateJournalEntryFormInner() {
         setIsPosted(false);
         setIsApproved(false);
         setVoucherStatus('غير مرحل');
+        markUnpostedForEdit();
         setSuccess('تم فك ترحيل القيد');
         unlockForEdit();
         invalidateQuery(['journal-entries']);
         invalidateQuery(['journal-entry', savedJournalEntryId]);
+        invalidateTreasuryFundBalances(invalidateQuery);
       },
       onError: (error: ApiError) => {
         setError(error.message || 'حدث خطأ أثناء فك الترحيل');
@@ -650,19 +680,50 @@ function CreateJournalEntryFormInner() {
       ? String(errors.lines.message)
       : undefined;
 
+  const notifySaveBlock = (message: string) => {
+    setError(message);
+    toast.error(message, { id: 'gates-form-error', duration: 6000 });
+  };
+
+  const assertLinesReadyToSave = (lines: JournalEntryFormValues['lines']) => {
+    const meaningful = lines.filter(
+      (line) => line.accountId?.trim() || Number(line.debit) || Number(line.credit)
+    );
+    if (meaningful.length < 2) {
+      notifySaveBlock('أدخل سطرين على الأقل بحساب ومبلغ ثم احفظ');
+      return false;
+    }
+    for (let index = 0; index < lines.length; index += 1) {
+      const line = lines[index];
+      const hasAmount = Number(line.debit) > 0 || Number(line.credit) > 0;
+      if (hasAmount && !String(line.accountId ?? '').trim()) {
+        notifySaveBlock(`السطر ${index + 1}: يجب اختيار الحساب قبل الحفظ`);
+        return false;
+      }
+    }
+    return true;
+  };
+
+  const submitJournal = () => {
+    const lines = getValues('lines') ?? [];
+    if (!assertLinesReadyToSave(lines)) return;
+    void handleSubmit(onValidSubmit, onFieldErrors(setError))();
+  };
+
   const onValidSubmit = (data: JournalEntryFormValues) => {
     if (financialBusy) return;
+    if (!assertLinesReadyToSave(data.lines)) return;
     setError('');
     setSuccess('');
     for (const [index, line] of data.lines.entries()) {
       const account = accounts.find((a) => a.id === line.accountId);
       const rule = costCenterRuleFromAccount(account);
       if (rule === 'required' && !line.costCenterId) {
-        setError(`مركز التكلفة إجباري في السطر ${index + 1}${account?.code ? ` (${account.code})` : ''}`);
+        notifySaveBlock(`مركز التكلفة إجباري في السطر ${index + 1}${account?.code ? ` (${account.code})` : ''}`);
         return;
       }
       if (rule === 'none' && line.costCenterId) {
-        setError(`الحساب ${account?.code ?? index + 1} مربوط بدون مركز تكلفة — امسح المركز من السطر`);
+        notifySaveBlock(`الحساب ${account?.code ?? index + 1} مربوط بدون مركز تكلفة — امسح المركز من السطر`);
         return;
       }
     }
@@ -786,6 +847,7 @@ function CreateJournalEntryFormInner() {
     setHeaderRateOverride(null);
     resetFxToSetting();
     setIsPosted(false);
+    resetKeepPosted();
     setIsCancelled(false);
     setIsApproved(false);
     setVoucherStatus('غير مرحل');
@@ -846,7 +908,7 @@ function CreateJournalEntryFormInner() {
           isCancelled ? 'ملغي' : isPosted ? 'مرحّل' : savedJournalEntryId ? 'غير مرحل' : 'مسودة'
         }
         saveLabel="حفظ"
-        onSaveDraft={() => void handleSubmit(onValidSubmit, onFieldErrors(setError))()}
+        onSaveDraft={submitJournal}
         onPost={handlePost}
         savePending={financialBusy}
         postPending={postJournalMutation.isPending}
@@ -1085,7 +1147,7 @@ function CreateJournalEntryFormInner() {
         sourceType={sourceKind}
         sourceId={sourceId}
         sourceNumber={sourceNumber}
-        onSaveDraft={() => void handleSubmit(onValidSubmit, onFieldErrors(setError))()}
+        onSaveDraft={submitJournal}
         onPost={handlePost}
         onCancel={startNewEntry}
         savePending={financialBusy}

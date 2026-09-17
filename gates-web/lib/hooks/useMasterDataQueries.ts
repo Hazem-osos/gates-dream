@@ -121,8 +121,9 @@ export function isPostableLeafAccount(account: AccountOption): boolean {
   return account.accountKind === 'POSTING' || (account._count?.children ?? 0) === 0;
 }
 
-/** Account dropdowns need the posting list, not a 30-row first page. */
-export const ACCOUNT_PICKER_PAGE_SIZE = 500;
+/** Account/safe dropdowns must load the full posting list, not a first page. */
+export const ACCOUNT_PICKER_PAGE_SIZE = 20_000;
+export const PICKER_UNLIMITED_VISIBLE = Number.POSITIVE_INFINITY;
 
 export function useAccountsQuery(
   search?: string,
@@ -262,6 +263,34 @@ export function useSafesQuery(params?: { isActive?: boolean; enabled?: boolean }
   return useApiQuery<SafeOption[]>(
     queryKeys.safes(queryParams),
     '/accounting/safes',
+    queryParams,
+    {
+      staleTime: 0,
+      gcTime: staleTimes.masterGcMs,
+      refetchOnMount: 'always',
+      enabled: params?.enabled !== false,
+    }
+  );
+}
+
+export type BankAccountOption = {
+  id: string;
+  arabicName?: string;
+  englishName?: string | null;
+  code?: string | null;
+  accountNumber?: string | null;
+  balance?: number | string;
+  isDefault?: boolean;
+  glAccountCode?: string | null;
+  glAccount?: { id?: string; code?: string | null; arabicName?: string } | null;
+  bank?: { arabicName?: string; englishName?: string; code?: string | null } | null;
+};
+
+export function useBankAccountsQuery(params?: { isActive?: boolean; enabled?: boolean }) {
+  const queryParams = { isActive: params?.isActive ?? true };
+  return useApiQuery<BankAccountOption[]>(
+    queryKeys.bankAccounts(queryParams),
+    '/accounting/bank-accounts',
     queryParams,
     {
       staleTime: 0,

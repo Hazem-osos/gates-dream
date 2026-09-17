@@ -22,6 +22,8 @@ type Props = {
   activeTabId?: string;
   onActiveTabChange?: (tabId: string) => void;
   journalEntryId?: string | null;
+  journalOptions?: { id: string; label: string }[];
+  onJournalIdChange?: (id: string) => void;
   showJournalTab?: boolean;
 };
 
@@ -36,14 +38,37 @@ export function ErpDocumentBottomSplit({
   activeTabId,
   onActiveTabChange,
   journalEntryId,
+  journalOptions,
+  onJournalIdChange,
   showJournalTab = true,
 }: Props) {
+  const journalPreview = (
+    <div className="space-y-2">
+      {journalOptions && journalOptions.length > 0 ? (
+        <label className="flex items-center gap-2 text-xs font-semibold text-[#094C6B]">
+          <span className="shrink-0">القيد</span>
+          <select
+            className="h-8 min-w-0 flex-1 rounded-md border border-[#D6EAF3] bg-white px-2 text-xs"
+            value={journalEntryId || journalOptions[0]?.id || ''}
+            onChange={(e) => onJournalIdChange?.(e.target.value)}
+          >
+            {journalOptions.map((option) => (
+              <option key={option.id} value={option.id}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : null}
+      <LiveJournalPreviewTable journalEntryId={journalEntryId} title="" compact />
+    </div>
+  );
   const allTabs: ErpBottomTab[] = showJournalTab
     ? [
         {
           id: 'gl',
           label: 'معاينة القيد المحاسبي',
-          content: <LiveJournalPreviewTable journalEntryId={journalEntryId} title="" compact />,
+          content: journalPreview,
         },
         ...tabs.filter((t) => t.id !== 'gl'),
       ]

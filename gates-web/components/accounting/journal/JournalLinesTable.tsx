@@ -13,7 +13,7 @@ import { useCompanyBaseCurrency } from '@/lib/hooks/useCompanyBaseCurrency';
 import type { JournalLineFormValues } from '@/lib/validation/accounting.schema';
 import { VoucherAccountCombobox } from '@/components/accounting/vouchers/VoucherAccountCombobox';
 import { costCenterRuleFromAccount } from '@/lib/accounting/cost-center-rule';
-import { useAccountsQuery } from '@/lib/hooks/useMasterDataQueries';
+import { ACCOUNT_PICKER_PAGE_SIZE, useAccountsQuery } from '@/lib/hooks/useMasterDataQueries';
 import { seedLineDescription, useFollowHeaderDescription } from '@/lib/hooks/useFollowHeaderDescription';
 
 export type JournalLineCurrency = {
@@ -81,7 +81,7 @@ export function JournalLinesTable({
     ? [...JOURNAL_LINE_FIELD_ORDER]
     : JOURNAL_LINE_FIELD_ORDER.filter((field) => field !== 'currency' && field !== 'rate');
   const { code: companyBase, label: companyBaseLabel } = useCompanyBaseCurrency();
-  const { data: accountsRes } = useAccountsQuery(undefined, 500, { leafOnly: true });
+  const { data: accountsRes } = useAccountsQuery(undefined, ACCOUNT_PICKER_PAGE_SIZE, { leafOnly: true });
   const accounts = accountsRes?.data ?? [];
   const ruleFor = (accountId?: string) =>
     costCenterRuleFromAccount(accounts.find((a) => a.id === accountId));

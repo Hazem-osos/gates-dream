@@ -10,12 +10,14 @@ import { useAccountingSettingsQuery } from '@/lib/hooks/useAccountingSettings';
 import { useSeedDefaultCoa } from '@/lib/hooks/useSeedDefaultCoa';
 import { isSystemCashPostingAccount, type CoaHierarchyAccount } from '@/lib/accounting/mapCoaToTreeNodes';
 import { AccountTree, type CoaNatureFilter } from '@/components/accounting/chart-of-accounts/AccountTree';
-import { CoaEmptyState } from '@/components/accounting/chart-of-accounts/CoaEmptyState';
+import { CoaKindLegend } from '@/components/accounting/chart-of-accounts/AccountTreeNode';
+import { CoaEmptyState, type CoaNumberingMode } from '@/components/accounting/chart-of-accounts/CoaEmptyState';
 import { ChildAccountKindDialog } from '@/components/accounting/chart-of-accounts/ChildAccountKindDialog';
 import { DynamicModalSkeleton } from '@/components/ui/DynamicChunkSkeleton';
 import { toast } from '@/lib/feedback/toast';
 import { confirmAction } from '@/lib/feedback/confirm';
 import { NumberingModeControl } from '@/components/accounting/NumberingModeControl';
+import { apiClient } from '@/lib/api/client';
 
 const AccountFormModal = dynamic(
   () =>
@@ -67,6 +69,7 @@ export default function ChartOfAccountsPage() {
   const deleteMut = useDeleteAccountMutation();
   const [search, setSearch] = useState('');
   const [industry, setIndustry] = useState('general');
+  const [numberingMode, setNumberingMode] = useState<CoaNumberingMode>('auto');
   const [natureFilter, setNatureFilter] = useState<CoaNatureFilter>('all');
   const [expandToken, setExpandToken] = useState(0);
   const [collapseToken, setCollapseToken] = useState(0);
@@ -97,13 +100,24 @@ export default function ChartOfAccountsPage() {
     onError: (e) => toast.error('تعذر تهيئة الشجرة', { description: e.message }),
   });
 
+  const persistCoaNumbering = useCallback(async (auto: boolean) => {
+    await apiClient.put(
+      '/accounting/settings',
+      { general: { coaAutoNumbering: auto } },
+      { skipSuccessNotify: true }
+    );
+  }, []);
+
   const openCreateRoot = useCallback(() => {
+    if (isEmpty) {
+      void persistCoaNumbering(numberingMode !== 'manual').catch(() => undefined);
+    }
     setModalMode('create');
     setEditNode(null);
     setParentNode(null);
     setCreateKind('HEADER');
     setModalOpen(true);
-  }, []);
+  }, [isEmpty, numberingMode, persistCoaNumbering]);
 
   const allowSeed = isEmpty;
 
@@ -129,8 +143,11 @@ export default function ChartOfAccountsPage() {
     const ok = await confirmAction(`حذف الحساب ${node.code} — ${node.arabicName ?? node.nameAr}؟`);
     if (!ok) return;
     try {
-      await deleteMut.mutateAsync({ id: node.id });
-      toast.success('تم حذف الحساب');
+      const res = await deleteMut.mutateAsync({ id: node.id });
+      const cancelled = Boolean(
+        (res as { data?: { cancelled?: boolean } } | undefined)?.data?.cancelled
+      );
+      toast.success(cancelled ? 'الحساب ملغي ويظهر في الشجرة كملغي' : 'تم حذف الحساب');
     } catch (e) {
       toast.error('تعذّر الحذف', {
         description: e instanceof Error ? e.message : 'تحقق من وجود حسابات فرعية أو حركات.',
@@ -166,7 +183,18 @@ export default function ChartOfAccountsPage() {
             onIndustryChange={setIndustry}
             seeding={seedCoa.isPending}
             allowSeed={allowSeed}
-            onSeed={allowSeed ? () => seedCoa.mutate({ industry, force: false }) : undefined}
+            numberingMode={numberingMode}
+            onNumberingModeChange={setNumberingMode}
+            onSeed={
+              allowSeed
+                ? () =>
+                    seedCoa.mutate({
+                      industry,
+                      force: false,
+                      coaAutoNumbering: numberingMode !== 'manual',
+                    })
+                : undefined
+            }
             onCreateRoot={openCreateRoot}
           />
         </div>
@@ -197,6 +225,7 @@ export default function ChartOfAccountsPage() {
               <Button type="button" variant="ghost" size="sm" onClick={() => setCollapseToken((t) => t + 1)}>
                 ⊟ طي الكل
               </Button>
+              <CoaKindLegend className="mr-2" />
           <div className="flex flex-wrap gap-1 mr-auto">
                 {NATURE_FILTERS.map((f) => (
                   <button

@@ -1,19 +1,16 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { Plus, Tags, Trash2 } from 'lucide-react';
 import {
-  PageHeader,
   Button,
   CompactFormField,
-  FormStickyFooter,
   FormSectionCard,
   AppTable,
   FilterToolbar,
-  CrudButtons,
   compactControlClass,
 } from '@/components/ui';
+import { MasterCardShell } from '@/components/erp';
 import { ItemSelect } from '@/components/form/ItemSelect';
 import {
   PriceListsListSection,
@@ -194,7 +191,6 @@ function lineFromItem(item: CatalogItem, discount = ''): PriceLine {
 }
 
 export default function PriceListsPage() {
-  const router = useRouter();
   const invalidateQuery = useInvalidateQuery();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
@@ -479,10 +475,10 @@ export default function PriceListsPage() {
         `/inventory/price-lists/${id}/prices`,
         { replace: true, prices }
       );
-      if (saved.data) hydrateFromDetail(saved.data);
-      setSuccess('تم حفظ قائمة الأسعار');
       invalidateQuery(['price-lists']);
       invalidateQuery(['price-list']);
+      handleNew();
+      setSuccess('تم حفظ قائمة الأسعار — تقدر تضيف التالي');
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'حدث خطأ أثناء الحفظ');
     } finally {
@@ -510,35 +506,35 @@ export default function PriceListsPage() {
   const barcodeItemIds = lines.map((r) => r.itemId).filter(Boolean);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50 p-6" style={{ direction: 'rtl' }}>
+    <MasterCardShell
+      title="قوائم الأسعار"
+      breadcrumbs={[
+        { label: 'المخازن', href: '/inventory' },
+        { label: 'التعريفات' },
+        { label: 'قوائم الأسعار' },
+      ]}
+      docNumber={form.code || 'جديد'}
+      statusLabel={selectedId ? 'تعديل' : 'جديد'}
+      onSave={() => void handleSave()}
+      savePending={saving}
+      canSave={!saving}
+      onNew={handleNew}
+      onDelete={selectedId ? () => void handleDelete() : undefined}
+      currentId={selectedId}
+      favoriteHref="/inventory/creations/price-lists"
+      moreMenuItems={[
+        { id: 'pick-items', label: 'اختيار الأصناف', onClick: addItemRow },
+        {
+          id: 'print-barcode',
+          label: 'طباعة الباركود',
+          onClick: () => setShowPrint(true),
+          disabled: barcodeItemIds.length === 0,
+        },
+        { id: 'copy-list', label: 'نسخ من قائمة أسعار', onClick: () => setShowCopy(true) },
+      ]}
+    >
       {error && <ErrorToast message={error} onClose={() => setError('')} />}
       {success && <SuccessToast message={success} onClose={() => setSuccess('')} />}
-
-      <PageHeader
-        title="قوائم الأسعار"
-        breadcrumbs={[
-          { label: 'المخزون', href: '/inventory' },
-          { label: 'التعريفات' },
-          { label: 'قوائم الأسعار' },
-        ]}
-        actions={
-          <CrudButtons
-            onPrevious={() => router.back()}
-            onAdd={handleNew}
-            onDelete={selectedId ? () => void handleDelete() : undefined}
-            extraItems={[
-              { id: 'pick-items', label: 'اختيار الأصناف', onClick: addItemRow },
-              {
-                id: 'print-barcode',
-                label: 'طباعة الباركود',
-                onClick: () => setShowPrint(true),
-                disabled: barcodeItemIds.length === 0,
-              },
-              { id: 'copy-list', label: 'نسخ من قائمة أسعار', onClick: () => setShowCopy(true) },
-            ]}
-          />
-        }
-      />
 
       <PriceListsListSection onSelect={applyRow} selectedId={selectedId} />
 
@@ -830,14 +826,6 @@ export default function PriceListsPage() {
         />
       </section>
 
-      <FormStickyFooter
-        onCancel={() => router.back()}
-        onSave={() => void handleSave()}
-        saveLoading={saving}
-        saveDisabled={saving}
-        status={selectedId ? 'تعديل' : 'مسودة'}
-      />
-
       <BarcodePrintModal
         open={showPrint}
         onClose={() => setShowPrint(false)}
@@ -874,6 +862,6 @@ export default function PriceListsPage() {
           </div>
         </div>
       )}
-    </div>
+    </MasterCardShell>
   );
 }

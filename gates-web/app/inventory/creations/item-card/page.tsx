@@ -11,6 +11,12 @@ import {
   FormStickyFooter,
   FormSectionCard,
   compactControlClass,
+  denseTableWrapClass,
+  denseTableClass,
+  denseTheadClass,
+  denseThClass,
+  denseTdClass,
+  denseTrClass,
 } from '@/components/ui';
 import { ErpDocumentLayout, MasterCardPageHeader } from '@/components/erp';
 import { itemCardFormSchema } from '@/lib/validation/inventory.schema';
@@ -368,15 +374,25 @@ export default function ItemCardPage() {
 
   const persistItem = async (requestBody: Record<string, unknown>) => {
     if (activeItemId) {
-      const res = await apiClient.put<ItemDetail>(`/inventory/items/${activeItemId}`, requestBody);
-      const saved = res.data;
-      if (saved) {
-        hydrateFromItem(saved);
-        hydratedIdRef.current = saved.id ?? activeItemId;
-      }
-      setSuccess('تم تحديث الصنف');
+      await apiClient.put<ItemDetail>(`/inventory/items/${activeItemId}`, requestBody);
       invalidateQuery(['item', activeItemId]);
       invalidateQuery(['items']);
+      if (quickCreate.isQuickCreate) {
+        setSuccess('تم تحديث الصنف');
+        return;
+      }
+      const keepCategory = formData.categoryId;
+      hydratedIdRef.current = null;
+      setSavedItemId(null);
+      setFormData({
+        ...EMPTY_ITEM_FORM,
+        categoryId: keepCategory,
+        serial: bumpTrailingCode(formData.serial),
+      });
+      setAssemblyRows(parseAssemblyRows(undefined));
+      setSupplierRows(parseSupplierRows(undefined));
+      router.replace('/inventory/creations/item-card');
+      setSuccess('تم تحديث الصنف — تقدر تضيف التالي');
       return;
     }
     const res = await apiClient.post<ItemDetail>('/inventory/items', requestBody);
@@ -882,15 +898,15 @@ export default function ItemCardPage() {
           </div>
           ) : null}
 
-          <div className="overflow-x-auto rounded-2xl">
-            <table className="min-w-full border-separate border-spacing-0 text-center">
-              <thead>
-                <tr className="bg-gradient-to-b from-[#0E78AA] to-[#0A5F8A] text-white shadow-md">
-                  <th className="px-3 py-3 font-semibold">الوحدة</th>
-                  <th className="px-3 py-3 font-semibold">الباركود</th>
-                  <th className="px-3 py-3 font-semibold">المعامل</th>
-                  <th className="px-3 py-3 font-semibold">ثابت</th>
-                  <th className="px-3 py-3 font-semibold">سعر القائمة</th>
+          <div className={denseTableWrapClass}>
+            <table className={denseTableClass}>
+              <thead className={denseTheadClass}>
+                <tr>
+                  <th className={denseThClass}>الوحدة</th>
+                  <th className={denseThClass}>الباركود</th>
+                  <th className={denseThClass}>المعامل</th>
+                  <th className={denseThClass}>ثابت</th>
+                  <th className={denseThClass}>سعر القائمة</th>
                 </tr>
               </thead>
               <tbody>
@@ -925,16 +941,16 @@ export default function ItemCardPage() {
                         ? row.conversionFactor
                         : String(row.conversionFactor);
                     return (
-                      <tr key={uid || idx} className={idx % 2 === 0 ? 'bg-[#F6FBFD]' : 'bg-white'}>
-                        <td className="border-x border-[#D6EAF3] px-3 py-3 text-[#0A3D5E]">
+                      <tr key={uid || idx} className={denseTrClass}>
+                        <td className={`${denseTdClass} text-[#0A3D5E]`}>
                           {row.unit?.arabicName ?? '—'}
                           {row.isBaseUnit ? ' (أساسية)' : ''}
                         </td>
-                        <td className="border-x border-[#D6EAF3] px-3 py-3 text-[#0A3D5E]">
+                        <td className={`${denseTdClass} text-[#0A3D5E]`}>
                           {row.isBaseUnit ? formData.barcode || '—' : '—'}
                         </td>
-                        <td className="border-x border-[#D6EAF3] px-3 py-3">{factor}</td>
-                        <td className="border-x border-[#D6EAF3] px-3 py-3">
+                        <td className={denseTdClass}>{factor}</td>
+                        <td className={denseTdClass}>
                           <select
                             className="rounded-lg border border-[#D6EAF3] bg-white px-2 py-1 text-sm text-[#0A3D5E]"
                             disabled={!row.id || factorBusyId === row.id}
@@ -945,7 +961,7 @@ export default function ItemCardPage() {
                             <option value="variable">متغير</option>
                           </select>
                         </td>
-                        <td className="border-x border-[#D6EAF3] px-3 py-3">
+                        <td className={denseTdClass}>
                           {listedPrice != null ? formatMoneyAr(listedPrice) : '—'}
                         </td>
                       </tr>
@@ -1093,20 +1109,20 @@ export default function ItemCardPage() {
           ) : null}
           {formData.isAssembly ? (
           <>
-          <div className="overflow-x-auto rounded-2xl">
-            <table className="min-w-full border-separate border-spacing-0 text-center">
-              <thead>
-                <tr className="bg-gradient-to-b from-[#0E78AA] to-[#0A5F8A] text-white">
-                  <th className="px-3 py-3 font-semibold">الصنف</th>
-                  <th className="px-3 py-3 font-semibold">الكمية</th>
-                  <th className="px-3 py-3 font-semibold">التكلفة</th>
-                  <th className="w-12 px-2 py-3" />
+          <div className={denseTableWrapClass}>
+            <table className={denseTableClass}>
+              <thead className={denseTheadClass}>
+                <tr>
+                  <th className={denseThClass}>الصنف</th>
+                  <th className={denseThClass}>الكمية</th>
+                  <th className={denseThClass}>التكلفة</th>
+                  <th className={`${denseThClass} w-12`} />
                 </tr>
               </thead>
               <tbody>
                 {assemblyRows.map((row, idx) => (
-                  <tr key={idx} className={idx % 2 === 0 ? 'bg-[#F6FBFD]' : 'bg-white'}>
-                    <td className="border-x border-[#D6EAF3] px-2 py-2">
+                  <tr key={idx} className={denseTrClass}>
+                    <td className={denseTdClass}>
                       <input
                         className={inputCls}
                         value={row.itemName}
@@ -1118,7 +1134,7 @@ export default function ItemCardPage() {
                         placeholder="اسم المكوّن"
                       />
                     </td>
-                    <td className="border-x border-[#D6EAF3] px-2 py-2">
+                    <td className={denseTdClass}>
                       <input
                         className={inputCls}
                         type="number"
@@ -1131,7 +1147,7 @@ export default function ItemCardPage() {
                         }
                       />
                     </td>
-                    <td className="border-x border-[#D6EAF3] px-2 py-2">
+                    <td className={denseTdClass}>
                       <input
                         className={inputCls}
                         type="number"
@@ -1144,7 +1160,7 @@ export default function ItemCardPage() {
                         }
                       />
                     </td>
-                    <td className="px-2 py-2">
+                    <td className={denseTdClass}>
                       <button
                         type="button"
                         className="text-slate-400 hover:text-red-500"
@@ -1200,20 +1216,20 @@ export default function ItemCardPage() {
 
       {activeTab === 'order-plan' && (
         <TabPanel title="نقطة إعادة الطلب" hint="الموردون المفضلون والسعر ومدة التوريد. حد الطلب نفسه في تبويب الكميات.">
-          <div className="overflow-x-auto rounded-2xl">
-            <table className="min-w-full border-separate border-spacing-0 text-center">
-              <thead>
-                <tr className="bg-gradient-to-b from-[#0E78AA] to-[#0A5F8A] text-white">
-                  <th className="px-3 py-3 font-semibold">المورد</th>
-                  <th className="px-3 py-3 font-semibold">السعر</th>
-                  <th className="px-3 py-3 font-semibold">مدة التوريد</th>
-                  <th className="w-12 px-2 py-3" />
+          <div className={denseTableWrapClass}>
+            <table className={denseTableClass}>
+              <thead className={denseTheadClass}>
+                <tr>
+                  <th className={denseThClass}>المورد</th>
+                  <th className={denseThClass}>السعر</th>
+                  <th className={denseThClass}>مدة التوريد</th>
+                  <th className={`${denseThClass} w-12`} />
                 </tr>
               </thead>
               <tbody>
                 {supplierRows.map((row, idx) => (
-                  <tr key={idx} className={idx % 2 === 0 ? 'bg-[#F6FBFD]' : 'bg-white'}>
-                    <td className="border-x border-[#D6EAF3] px-2 py-2">
+                  <tr key={idx} className={denseTrClass}>
+                    <td className={denseTdClass}>
                       <input
                         className={inputCls}
                         value={row.supplierName}
@@ -1225,7 +1241,7 @@ export default function ItemCardPage() {
                         placeholder="اسم المورد"
                       />
                     </td>
-                    <td className="border-x border-[#D6EAF3] px-2 py-2">
+                    <td className={denseTdClass}>
                       <input
                         className={inputCls}
                         type="number"
@@ -1238,7 +1254,7 @@ export default function ItemCardPage() {
                         }
                       />
                     </td>
-                    <td className="border-x border-[#D6EAF3] px-2 py-2">
+                    <td className={denseTdClass}>
                       <input
                         className={inputCls}
                         value={row.leadTimeDays}
@@ -1250,7 +1266,7 @@ export default function ItemCardPage() {
                         placeholder="بالأيام"
                       />
                     </td>
-                    <td className="px-2 py-2">
+                    <td className={denseTdClass}>
                       <button
                         type="button"
                         className="text-slate-400 hover:text-red-500"

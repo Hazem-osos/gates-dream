@@ -9,6 +9,7 @@ export const createCostCenterSchema = z.object({
   quantityBudget: z.number().nonnegative().optional().nullable(),
   warning: z.enum(['مدين', 'دائن', 'بدون']).optional().nullable(),
   budget: z.number().nonnegative().optional().nullable(),
+  creditLimit: z.number().nonnegative().optional().nullable(),
   currencyCode: z.string().optional().nullable(),
   isActive: z.boolean().optional(),
 });

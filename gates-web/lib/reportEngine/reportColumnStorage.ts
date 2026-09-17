@@ -1,4 +1,4 @@
-const PREFIX = 'gates_report_cols_';
+const PREFIX = 'gates_report_cols_v2_';
 
 export function loadReportColumnVisibility(reportKey: string): string[] | null {
   if (typeof window === 'undefined') return null;
@@ -15,6 +15,7 @@ export function loadReportColumnVisibility(reportKey: string): string[] | null {
 
 export function saveReportColumnVisibility(reportKey: string, visibleIds: string[]): void {
   if (typeof window === 'undefined') return;
+  if (!visibleIds.length) return;
   try {
     localStorage.setItem(`${PREFIX}${reportKey}`, JSON.stringify(visibleIds));
   } catch {

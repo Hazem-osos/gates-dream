@@ -1,7 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { PageHeader, Button } from '@/components/ui';
+import { Button } from '@/components/ui';
+import { ErpDocumentLayout, ErpDocumentPageHeader } from '@/components/erp';
 import { ItemsCatalogListSection } from '@/components/inventory/ItemsCatalogListSection';
 import { NumberingModeControl } from '@/components/accounting/NumberingModeControl';
 import { useAccountingSettingsQuery } from '@/lib/hooks/useAccountingSettings';
@@ -11,15 +12,25 @@ export default function ItemsGuidePage() {
   const itemAuto = settingsRes?.data?.general?.itemAutoNumbering !== false;
   const itemRecordCount = settingsRes?.data?.general?.numberingRecordCounts?.items ?? 0;
   return (
-    <div className="p-6 bg-gradient-to-br from-gray-50 to-blue-50 min-h-screen" style={{ direction: 'rtl' }}>
-      <PageHeader
-        title="دليل الأصناف"
+    <ErpDocumentLayout>
+      <ErpDocumentPageHeader
+        compact
+        lockWhenPosted={false}
         breadcrumbs={[
-          { label: 'المخزون', href: '/inventory' },
+          { href: '/inventory', label: 'المخازن' },
           { label: 'الدليل' },
           { label: 'الأصناف' },
         ]}
-        actions={
+        title="دليل الأصناف"
+        showDocumentRef={false}
+        statusTone="info"
+        statusLabel="دليل"
+        hideStandalonePost
+        hideBrowseList
+        hideActionMenu
+        favoriteHref="/inventory/guide/items"
+        favoriteLabel="دليل الأصناف"
+        extraActions={
           <div className="flex flex-wrap gap-2">
             <NumberingModeControl
               kind="items"
@@ -40,6 +51,6 @@ export default function ItemsGuidePage() {
         ابحث وافتح أي صنف للانتقال إلى بطاقة التعريف. الدليل للقائمة فقط — التعديل يتم من بطاقة الصنف.
       </p>
       <ItemsCatalogListSection />
-    </div>
+    </ErpDocumentLayout>
   );
 }

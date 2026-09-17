@@ -3,6 +3,7 @@
 import { useEffect, useLayoutEffect, useRef } from 'react';
 import './global.css';
 import { isAbortError, shouldSuppressAbortNoise } from '@/lib/api/isAbortError';
+import { captureFatalError } from '@/lib/debug/gates-crash-probe';
 
 export default function GlobalError({
   error,
@@ -11,6 +12,7 @@ export default function GlobalError({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  captureFatalError(error, (error as Error & { componentStack?: string }).componentStack);
   const aborted = shouldSuppressAbortNoise(error) || isAbortError(error);
   const didAutoReset = useRef(false);
 
@@ -22,7 +24,7 @@ export default function GlobalError({
 
   useEffect(() => {
     if (aborted) return;
-    console.error(error);
+    captureFatalError(error, (error as Error & { componentStack?: string }).componentStack);
   }, [error, aborted]);
 
   if (aborted) {

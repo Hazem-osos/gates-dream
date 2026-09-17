@@ -1,13 +1,13 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import OuterCard from '@/components/OuterCard';
-import InnerCard from '@/components/InnerCard';
-import { ActionButtons } from '@/components/ui/ActionButtons';
+import { useEffect, useState } from 'react';
+import { FileCheck } from 'lucide-react';
+import { MasterCardShell } from '@/components/erp';
+import { FormSectionCard, CompactFormField, compactControlClass } from '@/components/ui';
+import { DatePickerWithHijri } from '@/components/ui/DatePickerWithHijri';
 import { useApiQuery, useApiMutation, useInvalidateQuery } from '@/lib/hooks/useApi';
 import { apiClient } from '@/lib/api/client';
-import ErrorToast from '@/components/ErrorToast';
-import SuccessToast from '@/components/SuccessToast';
+import { toast } from '@/lib/feedback/toast';
 import type { ApiError } from '@/lib/api/types';
 
 type LookupRow = {
@@ -15,25 +15,26 @@ type LookupRow = {
   arabicName?: string;
   englishName?: string;
   code?: string;
+  unitCode?: string;
+  status?: string;
 };
+
+const emptyForm = () => ({
+  propertyId: '',
+  unitId: '',
+  customerId: '',
+  closureDate: '',
+  salePrice: '',
+  paymentMethod: '',
+  notes: '',
+  useWave3Contract: false,
+});
 
 export default function ClosurePage() {
   const invalidateQuery = useInvalidateQuery();
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
-  const [formData, setFormData] = useState({
-    propertyId: '',
-    unitId: '',
-    customerId: '',
-    closureDate: '',
-    salePrice: '',
-    paymentMethod: '',
-    notes: '',
-    useWave3Contract: false,
-  });
+  const [formData, setFormData] = useState(emptyForm);
   const [pending, setPending] = useState(false);
 
-  // Fetch properties and customers
   const { data: propertiesResponse } = useApiQuery<LookupRow[]>(
     ['properties'],
     '/real-estate/properties',
@@ -56,59 +57,52 @@ export default function ClosurePage() {
   );
   const units = unitsResponse?.data || [];
 
-  // Closure mutation
   const closureMutation = useApiMutation<unknown, Record<string, unknown>>(
     '/real-estate/closures',
     'POST',
     {
       onSuccess: () => {
-        setSuccess('تم حفظ الإقفال بنجاح');
+        toast.success('تم حفظ الإقفال بنجاح');
         invalidateQuery(['closures']);
-        handleCancel();
+        handleNew();
       },
       onError: (error: ApiError) => {
-        setError(error.message || 'حدث خطأ أثناء الحفظ');
+        toast.error(error.message || 'حدث خطأ أثناء الحفظ');
       },
     }
   );
 
   useEffect(() => {
     const today = new Date().toISOString().split('T')[0];
-    setFormData(prev => ({ ...prev, closureDate: today }));
+    setFormData((prev) => ({ ...prev, closureDate: today }));
   }, []);
 
-  const handleInputChange = (field: string, value: string) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
+  const patch = (field: string, value: string) => {
+    setFormData((prev) => ({ ...prev, [field]: value }));
   };
 
   const handleSave = async () => {
-    setError('');
-    setSuccess('');
-
     if (!formData.customerId) {
-      setError('يرجى اختيار العميل');
+      toast.error('يرجى اختيار العميل');
       return;
     }
-
     if (!formData.closureDate) {
-      setError('يرجى تحديد تاريخ الإقفال');
+      toast.error('يرجى تحديد تاريخ الإقفال');
       return;
     }
-
     if (!formData.salePrice) {
-      setError('يرجى إدخال سعر البيع');
+      toast.error('يرجى إدخال سعر البيع');
       return;
     }
-
     const salePrice = parseFloat(formData.salePrice);
     if (!Number.isFinite(salePrice) || salePrice <= 0) {
-      setError('سعر البيع غير صالح');
+      toast.error('سعر البيع غير صالح');
       return;
     }
 
     if (formData.useWave3Contract) {
       if (!formData.unitId) {
-        setError('يرجى اختيار الوحدة (محرك Wave 3)');
+        toast.error('يرجى اختيار الوحدة');
         return;
       }
       setPending(true);
@@ -125,11 +119,10 @@ export default function ClosurePage() {
         });
         const contractId = contractRes.data.id;
         await apiClient.post(`/real-estate/contracts/${contractId}/post-contract`);
-        setSuccess('تم إنشاء وترحيل عقد Wave 3 بنجاح');
-        handleCancel();
+        toast.success('تم إنشاء وترحيل العقد بنجاح');
+        handleNew();
       } catch (e: unknown) {
-        const msg = e instanceof Error ? e.message : 'تعذر حفظ عقد Wave 3';
-        setError(msg);
+        toast.error(e instanceof Error ? e.message : 'تعذر حفظ العقد');
       } finally {
         setPending(false);
       }
@@ -137,183 +130,112 @@ export default function ClosurePage() {
     }
 
     if (!formData.propertyId) {
-      setError('يرجى اختيار العقار');
+      toast.error('يرجى اختيار العقار');
       return;
     }
 
-    const requestBody: Record<string, unknown> = {
+    closureMutation.mutate({
       propertyId: formData.propertyId,
       customerId: formData.customerId,
       closureDate: new Date(formData.closureDate).toISOString(),
       salePrice,
       paymentMethod: formData.paymentMethod || undefined,
       notes: formData.notes || undefined,
-    };
-
-    closureMutation.mutate(requestBody);
-  };
-
-  const handleCancel = () => {
-    setFormData({
-      propertyId: '',
-      unitId: '',
-      customerId: '',
-      closureDate: '',
-      salePrice: '',
-      paymentMethod: '',
-      notes: '',
-      useWave3Contract: false,
     });
-    setError('');
-    setSuccess('');
   };
 
-  const inputCls = "h-9 w-full rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] px-3 text-xs font-medium text-[#094C6B] placeholder:text-slate-400 transition-colors focus:border-[#0E78AA] focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#0E78AA]/15 disabled:cursor-not-allowed disabled:opacity-50 sm:text-sm";
+  const handleNew = () => {
+    const today = new Date().toISOString().split('T')[0];
+    setFormData({ ...emptyForm(), closureDate: today });
+  };
 
   return (
-    <div className="min-h-screen bg-white p-6" style={{ direction: 'rtl' }}>
-      <div className="w-full max-w-none">
-        <div className="text-right mb-6">
-          <h1 className="text-lg font-bold text-[#0E78AA] mb-1">إدارة الإقفالات</h1>
-          <div className="h-1 bg-sky-700 rounded w-full" />
-        </div>
-
-        <OuterCard>
-          <InnerCard>
-            <div className="space-y-6 mb-8">
-              <label className="flex items-center gap-2 text-sm text-[#094C6B]">
-                <input
-                  type="checkbox"
-                  checked={formData.useWave3Contract}
-                  onChange={(e) =>
-                    setFormData((prev) => ({
-                      ...prev,
-                      useWave3Contract: e.target.checked,
-                      propertyId: e.target.checked ? '' : prev.propertyId,
-                      unitId: e.target.checked ? prev.unitId : '',
-                    }))
-                  }
-                />
-                استخدام عقد Wave 3 (وحدات / أقساط)
-              </label>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {formData.useWave3Contract ? (
-                  <div>
-                    <label className="block text-sm text-[#094C6B] mb-2">الوحدة</label>
-                    <select
-                      value={formData.unitId}
-                      onChange={(e) => handleInputChange('unitId', e.target.value)}
-                      className={inputCls}
-                    >
-                      <option value="">اختر الوحدة</option>
-                      {units.map((u: { id: string; unitCode?: string; status?: string }) => (
-                        <option key={u.id} value={u.id}>
-                          {u.unitCode || u.id} {u.status ? `(${u.status})` : ''}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                ) : (
-                  <div>
-                    <label className="block text-sm text-[#094C6B] mb-2">العقار</label>
-                    <select
-                      value={formData.propertyId}
-                      onChange={(e) => handleInputChange('propertyId', e.target.value)}
-                      className={inputCls}
-                    >
-                      <option value="">اختر العقار</option>
-                      {properties.map((prop: { id: string; code?: string; arabicName?: string }) => (
-                        <option key={prop.id} value={prop.id}>
-                          {prop.code || prop.arabicName || prop.id}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-                <div>
-                  <label className="block text-sm text-[#094C6B] mb-2">العميل</label>
-                  <select
-                    value={formData.customerId}
-                    onChange={(e) => handleInputChange('customerId', e.target.value)}
-                    className={inputCls}
-                    required
-                  >
-                    <option value="">اختر العميل</option>
-                    {customers.map((cust) => (
-                      <option key={cust.id} value={cust.id}>
-                        {cust.arabicName || cust.code || cust.id}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                  <label className="block text-sm text-[#094C6B] mb-2">تاريخ الإقفال</label>
-                  <input
-                    type="date"
-                    value={formData.closureDate}
-                    onChange={(e) => handleInputChange('closureDate', e.target.value)}
-                    className={inputCls}
-                    required
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm text-[#094C6B] mb-2">سعر البيع</label>
-                  <input
-                    type="number"
-                    value={formData.salePrice}
-                    onChange={(e) => handleInputChange('salePrice', e.target.value)}
-                    className={inputCls}
-                    placeholder="إدخل سعر البيع"
-                    required
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm text-[#094C6B] mb-2">طريقة الدفع</label>
-                <select
-                  value={formData.paymentMethod}
-                  onChange={(e) => handleInputChange('paymentMethod', e.target.value)}
-                  className={inputCls}
-                >
-                  <option value="">اختر طريقة الدفع</option>
-                  <option value="cash">نقدي</option>
-                  <option value="bank">بنكي</option>
-                  <option value="installment">تقسيط</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm text-[#094C6B] mb-2">ملاحظات</label>
-                <textarea
-                  value={formData.notes}
-                  onChange={(e) => handleInputChange('notes', e.target.value)}
-                  className={inputCls + ' h-32 resize-none'}
-                  placeholder="أدخل الملاحظات هنا..."
-                />
-              </div>
-            </div>
-
-            {error && <ErrorToast message={error} onClose={() => setError('')} />}
-            {success && <SuccessToast message={success} onClose={() => setSuccess('')} />}
-
-            <div className="flex justify-end mt-6">
-              <ActionButtons
-                onSave={handleSave}
-                onCancel={handleCancel}
-                saveText={
-                  pending || closureMutation.isPending ? 'جاري الحفظ...' : 'حفظ'
-                }
-              />
-            </div>
-          </InnerCard>
-        </OuterCard>
-      </div>
-    </div>
+    <MasterCardShell
+      title="الإقفال"
+      breadcrumbs={[
+        { label: 'الاستثمار العقاري', href: '/real-estate-investment' },
+        { label: 'الإقفال' },
+      ]}
+      favoriteHref="/real-estate-investment/operations/closure"
+      onSave={handleSave}
+      savePending={pending || closureMutation.isPending}
+      onNew={handleNew}
+    >
+      <FormSectionCard title="بيانات الإقفال" subtitle="العميل والسعر وتاريخ الإقفال" icon={FileCheck}>
+        <label className="flex items-center gap-2 text-sm text-[#094C6B] sm:col-span-2">
+          <input
+            type="checkbox"
+            className="accent-[#0E78AA]"
+            checked={formData.useWave3Contract}
+            onChange={(e) =>
+              setFormData((prev) => ({
+                ...prev,
+                useWave3Contract: e.target.checked,
+                propertyId: e.target.checked ? '' : prev.propertyId,
+                unitId: e.target.checked ? prev.unitId : '',
+              }))
+            }
+          />
+          استخدام عقد الوحدة والأقساط
+        </label>
+        {formData.useWave3Contract ? (
+          <CompactFormField label="الوحدة">
+            <select className={compactControlClass} value={formData.unitId} onChange={(e) => patch('unitId', e.target.value)}>
+              <option value="">اختر الوحدة</option>
+              {units.map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.unitCode || u.id} {u.status ? `(${u.status})` : ''}
+                </option>
+              ))}
+            </select>
+          </CompactFormField>
+        ) : (
+          <CompactFormField label="العقار">
+            <select className={compactControlClass} value={formData.propertyId} onChange={(e) => patch('propertyId', e.target.value)}>
+              <option value="">اختر العقار</option>
+              {properties.map((prop) => (
+                <option key={prop.id} value={prop.id}>
+                  {prop.code || prop.arabicName || prop.id}
+                </option>
+              ))}
+            </select>
+          </CompactFormField>
+        )}
+        <CompactFormField label="العميل">
+          <select className={compactControlClass} value={formData.customerId} onChange={(e) => patch('customerId', e.target.value)}>
+            <option value="">اختر العميل</option>
+            {customers.map((cust) => (
+              <option key={cust.id} value={cust.id}>
+                {cust.arabicName || cust.code || cust.id}
+              </option>
+            ))}
+          </select>
+        </CompactFormField>
+        <DatePickerWithHijri label="تاريخ الإقفال" value={formData.closureDate} onChange={(v) => patch('closureDate', v)} />
+        <CompactFormField
+          label="سعر البيع"
+          type="number"
+          value={formData.salePrice}
+          onChange={(e) => patch('salePrice', e.target.value)}
+          placeholder="إدخل سعر البيع"
+        />
+        <CompactFormField label="طريقة الدفع">
+          <select className={compactControlClass} value={formData.paymentMethod} onChange={(e) => patch('paymentMethod', e.target.value)}>
+            <option value="">اختر طريقة الدفع</option>
+            <option value="cash">نقدي</option>
+            <option value="bank">بنكي</option>
+            <option value="installment">تقسيط</option>
+          </select>
+        </CompactFormField>
+        <CompactFormField label="ملاحظات" className="sm:col-span-2">
+          <textarea
+            value={formData.notes}
+            onChange={(e) => patch('notes', e.target.value)}
+            className={`${compactControlClass} h-24 resize-none`}
+            placeholder="أدخل الملاحظات هنا..."
+          />
+        </CompactFormField>
+      </FormSectionCard>
+    </MasterCardShell>
   );
 }
-

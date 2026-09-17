@@ -1,9 +1,73 @@
 'use client';
 
-import { ChevronDown, ChevronLeft, Folder, FolderOpen, FileText, CornerDownLeft } from 'lucide-react';
-import { isSystemCashPostingAccount, type CoaHierarchyAccount } from '@/lib/accounting/mapCoaToTreeNodes';
+import { ArrowLeftRight, ChevronDown, ChevronLeft, CornerDownLeft, FolderTree, Landmark } from 'lucide-react';
+import {
+  isSystemCashPostingAccount,
+  resolveCoaTreeRole,
+  type CoaHierarchyAccount,
+  type CoaTreeRole,
+} from '@/lib/accounting/mapCoaToTreeNodes';
 import { depthPaddingClass, getNodeStyling, getRootIconClass } from '@/lib/accounting/coaTreeTheme';
 import { cn } from '@/lib/utils';
+
+const ROLE_META: Record<
+  CoaTreeRole,
+  { label: string; chip: string; mark: string }
+> = {
+  ROOT: {
+    label: 'رئيسي',
+    chip: 'bg-sky-100 text-sky-900 ring-1 ring-sky-300',
+    mark: 'bg-white/90 ring-1 ring-black/10',
+  },
+  SUBHEADER: {
+    label: 'رئيسي فرعي',
+    chip: 'bg-indigo-100 text-indigo-900 ring-1 ring-indigo-300',
+    mark: 'bg-indigo-50 ring-1 ring-indigo-200',
+  },
+  POSTING: {
+    label: 'حركة',
+    chip: 'bg-teal-100 text-teal-900 ring-1 ring-teal-300',
+    mark: 'bg-teal-50 ring-1 ring-teal-200',
+  },
+};
+
+function CoaKindMark({ role, iconClass }: { role: CoaTreeRole; iconClass: string }) {
+  const meta = ROLE_META[role];
+  return (
+    <span
+      className={cn('inline-flex h-7 w-7 items-center justify-center rounded-lg shrink-0', meta.mark)}
+      title={meta.label}
+      aria-label={meta.label}
+    >
+      {role === 'ROOT' ? (
+        <Landmark className={cn('h-4 w-4', iconClass)} />
+      ) : role === 'SUBHEADER' ? (
+        <FolderTree className="h-4 w-4 text-indigo-600" />
+      ) : (
+        <ArrowLeftRight className="h-4 w-4 text-teal-700" />
+      )}
+    </span>
+  );
+}
+
+export function CoaKindLegend({ className }: { className?: string }) {
+  return (
+    <div className={cn('flex flex-wrap items-center gap-3 text-[11px] text-slate-600', className)} aria-label="مفتاح أنواع الحساب">
+      <span className="inline-flex items-center gap-1.5">
+        <CoaKindMark role="ROOT" iconClass="text-sky-700" />
+        <span className={cn('rounded-full px-2 py-0.5 font-semibold', ROLE_META.ROOT.chip)}>رئيسي</span>
+      </span>
+      <span className="inline-flex items-center gap-1.5">
+        <CoaKindMark role="SUBHEADER" iconClass="text-indigo-600" />
+        <span className={cn('rounded-full px-2 py-0.5 font-semibold', ROLE_META.SUBHEADER.chip)}>رئيسي فرعي</span>
+      </span>
+      <span className="inline-flex items-center gap-1.5">
+        <CoaKindMark role="POSTING" iconClass="text-teal-700" />
+        <span className={cn('rounded-full px-2 py-0.5 font-semibold', ROLE_META.POSTING.chip)}>حساب حركة</span>
+      </span>
+    </div>
+  );
+}
 
 function displayName(a: CoaHierarchyAccount) {
   return a.nameAr ?? a.arabicName;
@@ -58,9 +122,11 @@ export function AccountTreeNode({
   onLedger: (n: CoaHierarchyAccount) => void;
 }) {
   const hasChildren = Boolean(node.children?.length);
-  const isFolder = node.accountKind === 'HEADER' || node.type === 'HEADER' || node.isParent || hasChildren;
-  const isPosting = !isFolder;
-  const lockBranching = isPosting || isSystemCashPostingAccount(node);
+  const role = resolveCoaTreeRole(node, depth);
+  const isFolder = role !== 'POSTING';
+  const isPosting = role === 'POSTING';
+  const lockBranching = isPosting || isSystemCashPostingAccount(node) || node.isActive === false;
+  const roleMeta = ROLE_META[role];
   const childCount = node.children?.length ?? 0;
   const q = searchQuery.trim();
   const code = node.code;
@@ -102,21 +168,21 @@ export function AccountTreeNode({
           )}
         </button>
 
-        {isFolder ? (
-          expanded && hasChildren ? (
-            <FolderOpen className={cn('h-4 w-4 shrink-0', iconClass)} />
-          ) : (
-            <Folder className={cn('h-4 w-4 shrink-0', iconClass)} />
-          )
-        ) : (
-          <FileText className="h-4 w-4 shrink-0 text-slate-500" />
-        )}
+        <CoaKindMark role={role} iconClass={iconClass} />
 
         <span className="font-mono text-xs font-bold px-2 py-1 rounded bg-slate-100 text-slate-800 tabular-nums shrink-0 border border-slate-200/80">
           {highlightText(code, q)}
         </span>
 
-        <span className={cn('text-sm truncate min-w-0', styling.text)}>{highlightText(nameAr, q)}</span>
+        <span className={cn('text-sm truncate min-w-0', styling.text, node.isActive === false && 'line-through opacity-70')}>
+          {highlightText(nameAr, q)}
+        </span>
+
+        {node.isActive === false ? (
+          <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 bg-rose-100 text-rose-800">
+            ملغي
+          </span>
+        ) : null}
 
         {hasChildren ? (
           <span className={cn('text-[10px] px-2 py-0.5 rounded-full font-medium shrink-0', styling.badge)}>
@@ -135,13 +201,9 @@ export function AccountTreeNode({
           </span>
         ) : null}
 
-        {isFolder ? (
-          <span className="text-[11px] text-slate-500 font-medium shrink-0 hidden sm:inline">
-            {depth === 0 ? 'رئيسي' : 'رئيسي فرعي'}
-          </span>
-        ) : (
-          <span className="text-[11px] text-slate-500 font-medium shrink-0 hidden sm:inline">حساب حركة</span>
-        )}
+        <span className={cn('text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0', roleMeta.chip)}>
+          {roleMeta.label}
+        </span>
       </div>
 
       <span className="text-xs tabular-nums text-slate-700 shrink-0 hidden lg:inline z-[1]">

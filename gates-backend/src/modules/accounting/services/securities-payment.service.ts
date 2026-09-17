@@ -1,13 +1,14 @@
 import prisma from '../../../shared/database/prisma';
-import { logger } from '../../../shared/logger';
 import { Decimal } from '@prisma/client/runtime/library';
 import { AppError } from '../../../shared/middleware/error-handler';
 import { documentSequenceService } from '../../platform/services/document-sequence.service';
 import { journalPostingService } from './journal-posting.service';
-import { fiscalYearService } from '../../platform/services/fiscal-year.service';
-import { treasuryAccountResolverService } from '../../treasury/services/treasury-account-resolver.service';
 import { commercialPaperPostingService } from './commercial-paper-posting.service';
-import { resolveCompanyFxRate, toBaseAmount } from '../utils/company-fx-rate';
+import {
+  assertPaperIssued,
+  SECURITIES_PAPER_CASES,
+} from '../utils/securities-paper-case';
+import type { CollectSecuritiesInput } from './securities-receipt.service';
 
 /** Minimal context needed to post a real GL entry for a securities payment (H11). */
 export interface SecuritiesPostingCtx {
@@ -144,18 +145,17 @@ export class SecuritiesPaymentService {
       throw new Error('Securities payment not found');
     }
 
-    const multiCollectionLines = await commercialPaperPostingService.listLines(
-      companyId,
-      'PAYMENT',
-      paymentId
-    );
-    return { ...payment, multiCollectionLines };
+    return commercialPaperPostingService.decoratePaper(companyId, 'PAYMENT', payment);
   }
 
   /**
    * Create a new securities payment
    */
-  async createSecuritiesPayment(companyId: string, data: CreateSecuritiesPaymentData) {
+  async createSecuritiesPayment(
+    companyId: string,
+    data: CreateSecuritiesPaymentData,
+    ctx?: SecuritiesPostingCtx
+  ) {
     if (!data.customerId && !data.supplierId && !data.destinationAccountId) {
       throw new Error('اختر العميل أو حساباً آخر');
     }
@@ -207,7 +207,7 @@ export class SecuritiesPaymentService {
       })) ||
       null;
 
-    return prisma.securitiesPayment.create({
+    const created = await prisma.securitiesPayment.create({
       data: {
         companyId,
         branchId: data.branchId,
@@ -231,12 +231,17 @@ export class SecuritiesPaymentService {
         isPosted: false,
         isApproved: false,
         isCancelled: false,
-      },
-      include: {
-        customer: true,
-        supplier: true,
+        paperCase: SECURITIES_PAPER_CASES.ISSUED,
       },
     });
+    if (!ctx?.userId) {
+      return commercialPaperPostingService.decoratePaper(companyId, 'PAYMENT', created);
+    }
+    return commercialPaperPostingService.syncIssueJournal(
+      { companyId, branchId: ctx.branchId ?? data.branchId, userId: ctx.userId },
+      'PAYMENT',
+      created.id
+    );
   }
 
   /**
@@ -245,17 +250,18 @@ export class SecuritiesPaymentService {
   async updateSecuritiesPayment(
     companyId: string,
     paymentId: string,
-    data: UpdateSecuritiesPaymentData
+    data: UpdateSecuritiesPaymentData,
+    ctx?: SecuritiesPostingCtx
   ) {
     const payment = await this.getSecuritiesPaymentById(companyId, paymentId);
 
     if (payment.isPosted) {
-      throw new Error('Cannot update a posted securities payment');
+      throw new AppError(400, 'فك الترحيل أولاً قبل تعديل الورقة');
     }
-
     if (payment.isCancelled) {
-      throw new Error('Cannot update a cancelled securities payment');
+      throw new AppError(400, 'لا يمكن تعديل ورقة ملغاة');
     }
+    assertPaperIssued(payment, 'تعديل الورقة');
 
     // Check payment number uniqueness if changing
     if (data.paymentNumber && data.paymentNumber !== payment.paymentNumber) {
@@ -291,177 +297,64 @@ export class SecuritiesPaymentService {
     if (data.currencyCode !== undefined) updateData.currencyCode = data.currencyCode;
     if (data.entityName !== undefined) updateData.entityName = data.entityName;
 
-    return prisma.securitiesPayment.update({
+    const updated = await prisma.securitiesPayment.update({
       where: { id: paymentId },
       data: updateData,
-      include: {
-        customer: true,
-        supplier: true,
-      },
+      include: { customer: true, supplier: true },
     });
+    if (!ctx?.userId) {
+      return commercialPaperPostingService.decoratePaper(companyId, 'PAYMENT', updated);
+    }
+    return commercialPaperPostingService.syncIssueJournal(
+      { companyId, branchId: ctx.branchId ?? payment.branchId, userId: ctx.userId },
+      'PAYMENT',
+      paymentId
+    );
   }
 
-  /**
-   * Post a securities payment (H11): issuing a check/promissory-note/bond to a
-   * supplier or customer settles their AP/AR balance using a "notes payable"
-   * liability (reusing the Cheque module's account) instead of cash — and must
-   * post a real, reversible journal entry rather than just flipping a flag.
-   */
   async postSecuritiesPayment(companyId: string, paymentId: string, ctx: SecuritiesPostingCtx) {
-    const payment = await this.getSecuritiesPaymentById(companyId, paymentId);
-
-    if (payment.isCancelled) {
-      throw new Error('Cannot post a cancelled securities payment');
-    }
-
-    if (payment.isPosted) {
-      throw new Error('Securities payment is already posted');
-    }
-
-    if (!payment.customerId && !payment.supplierId && !payment.destinationAccountId) {
-      throw new AppError(422, 'اختر العميل أو حساباً آخر قبل ترحيل الورقة');
-    }
-
-    const amount = Number(payment.amount);
-    const { exchangeRate } = await resolveCompanyFxRate(companyId, payment.currencyCode);
-    const baseAmount = toBaseAmount(amount, exchangeRate);
-    const fiscalYearId = await fiscalYearService.assertOpenForDate(companyId, payment.date);
-    const chequeAccounts = await treasuryAccountResolverService.resolveChequeAccounts(companyId);
-    const partyAccountId = await treasuryAccountResolverService.resolvePartyAccountId({
-      companyId,
-      customerId: payment.customerId,
-      supplierId: payment.supplierId,
-      offsetAccountId: payment.destinationAccountId,
-    });
-
-    const posted = await prisma.$transaction(async (tx) => {
-      const je = await journalPostingService.createAndPostInTx(
-        tx,
-        { companyId, branchId: ctx.branchId ?? '', fiscalYearId, userId: ctx.userId },
-        {
-          fiscalYearId,
-          date: payment.date,
-          description:
-            payment.description ??
-            `Securities payment ${payment.paymentNumber ?? payment.id.slice(0, 8)} (${payment.securityType})`,
-          currencyCode: payment.currencyCode,
-          exchangeRate,
-          entryType: 'SecuritiesPayment',
-          sourceType: 'SECP',
-          sourceNumber: payment.paymentNumber ?? payment.id,
-          lines: [
-            { accountId: partyAccountId, debit: amount, credit: 0, lineOrder: 1 },
-            {
-              accountId: chequeAccounts.notesPayableAccountId,
-              debit: 0,
-              credit: amount,
-              lineOrder: 2,
-            },
-          ],
-        }
-      );
-
-      // Mirror treasury-posting.service's applyPaymentBalances direction convention.
-      if (payment.customerId) {
-        await tx.customer.update({
-          where: { id: payment.customerId },
-          data: { balance: { increment: new Decimal(baseAmount) } },
-        });
-      }
-      if (payment.supplierId) {
-        await tx.supplier.update({
-          where: { id: payment.supplierId },
-          data: { balance: { decrement: new Decimal(baseAmount) } },
-        });
-      }
-
-      return tx.securitiesPayment.update({
-        where: { id: paymentId },
-        data: {
-          isPosted: true,
-          postedAt: new Date(),
-          journalEntryId: je.id,
-        },
-      });
-    });
-
-    return posted;
+    return commercialPaperPostingService.postPaper(
+      { companyId, branchId: ctx.branchId, userId: ctx.userId },
+      'PAYMENT',
+      paymentId
+    );
   }
 
-  /**
-   * Unpost a securities payment (H11): reverses the posting journal entry via a
-   * dated contra entry and restores the party balance, mirroring cheque unpost.
-   */
+  async collectSecuritiesPayment(
+    companyId: string,
+    paymentId: string,
+    ctx: SecuritiesPostingCtx,
+    input: CollectSecuritiesInput
+  ) {
+    return commercialPaperPostingService.collectPaper(
+      { companyId, branchId: ctx.branchId, userId: ctx.userId },
+      'PAYMENT',
+      paymentId,
+      input
+    );
+  }
+
   async unpostSecuritiesPayment(companyId: string, paymentId: string, ctx: SecuritiesPostingCtx) {
-    const payment = await this.getSecuritiesPaymentById(companyId, paymentId);
-
-    if (!payment.isPosted) {
-      throw new Error('Securities payment is not posted');
-    }
-
-    const amount = Number(payment.amount);
-    const { exchangeRate } = await resolveCompanyFxRate(companyId, payment.currencyCode);
-    const baseAmount = toBaseAmount(amount, exchangeRate);
-    const fiscalYearId = await fiscalYearService.assertOpenForDate(companyId, new Date());
-
-    return prisma.$transaction(async (tx) => {
-      if (payment.journalEntryId) {
-        await journalPostingService.reverseJournalEntryInTx(
-          tx,
-          { companyId, branchId: ctx.branchId ?? '', fiscalYearId, userId: ctx.userId },
-          payment.journalEntryId,
-          { reason: 'Securities payment unposted' }
-        );
-      }
-
-      // Mirror treasury-posting.service's reversePaymentBalances direction convention.
-      if (payment.customerId) {
-        await tx.customer.update({
-          where: { id: payment.customerId },
-          data: { balance: { decrement: new Decimal(baseAmount) } },
-        });
-      }
-      if (payment.supplierId) {
-        await tx.supplier.update({
-          where: { id: payment.supplierId },
-          data: { balance: { increment: new Decimal(baseAmount) } },
-        });
-      }
-
-      return tx.securitiesPayment.update({
-        where: { id: paymentId },
-        data: {
-          isPosted: false,
-          postedAt: null,
-        },
-      });
-    });
+    return commercialPaperPostingService.unpostPaper(
+      { companyId, branchId: ctx.branchId, userId: ctx.userId },
+      'PAYMENT',
+      paymentId
+    );
   }
 
-  /**
-   * Bounce (ارتداد): reverse posting if needed, then cancel the paper.
-   */
   async bounceSecuritiesPayment(
     companyId: string,
     paymentId: string,
     ctx: SecuritiesPostingCtx,
-    description?: string
+    input: { description?: string; date?: Date; accountId?: string } | string = {}
   ) {
-    const payment = await this.getSecuritiesPaymentById(companyId, paymentId);
-    if (payment.isCancelled) {
-      throw new Error('Securities payment is already cancelled');
-    }
-    if (payment.isPosted) {
-      await this.unpostSecuritiesPayment(companyId, paymentId, ctx);
-    }
-    if (description?.trim()) {
-      const next = [payment.description, description.trim()].filter(Boolean).join(' — ');
-      await prisma.securitiesPayment.update({
-        where: { id: paymentId },
-        data: { description: next },
-      });
-    }
-    return this.cancelSecuritiesPayment(companyId, paymentId);
+    const body = typeof input === 'string' ? { description: input } : input;
+    return commercialPaperPostingService.bouncePaper(
+      { companyId, branchId: ctx.branchId, userId: ctx.userId },
+      'PAYMENT',
+      paymentId,
+      body
+    );
   }
 
   /**
@@ -492,6 +385,7 @@ export class SecuritiesPaymentService {
         data: {
           isCancelled: true,
           cancelledAt: new Date(),
+          paperCase: SECURITIES_PAPER_CASES.BOUNCED,
         },
       });
     });
@@ -500,20 +394,12 @@ export class SecuritiesPaymentService {
   /**
    * Restore a cancelled securities payment
    */
-  async restoreSecuritiesPayment(companyId: string, paymentId: string) {
-    const payment = await this.getSecuritiesPaymentById(companyId, paymentId);
-
-    if (!payment.isCancelled) {
-      throw new Error('Securities payment is not cancelled');
-    }
-
-    return prisma.securitiesPayment.update({
-      where: { id: paymentId },
-      data: {
-        isCancelled: false,
-        cancelledAt: null,
-      },
-    });
+  async restoreSecuritiesPayment(companyId: string, paymentId: string, ctx: SecuritiesPostingCtx) {
+    return commercialPaperPostingService.restorePaper(
+      { companyId, branchId: ctx.branchId, userId: ctx.userId },
+      'PAYMENT',
+      paymentId
+    );
   }
 }
 

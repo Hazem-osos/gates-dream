@@ -1,19 +1,16 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { Package, Plus, Trash2 } from 'lucide-react';
 import {
-  PageHeader,
   Button,
   CompactFormField,
-  FormStickyFooter,
   FormSectionCard,
   AppTable,
   FilterToolbar,
-  CrudButtons,
   compactControlClass,
 } from '@/components/ui';
+import { MasterCardShell } from '@/components/erp';
 import { ItemSelect } from '@/components/form/ItemSelect';
 import { WarehouseSelect } from '@/components/form/WarehouseSelect';
 import {
@@ -92,7 +89,6 @@ function lineFromApi(row: ApiLine): LimitLine {
 }
 
 export default function OrderLimitItemsPage() {
-  const router = useRouter();
   const invalidateQuery = useInvalidateQuery();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
@@ -169,15 +165,13 @@ export default function OrderLimitItemsPage() {
     setSaving(true);
     try {
       if (selectedId) {
-        const res = await apiClient.put<ApiDetail>(`/inventory/item-order-limits/${selectedId}`, payload);
-        if (res.data) hydrate(res.data);
-        setSuccess('تم تحديث حد الطلب');
+        await apiClient.put<ApiDetail>(`/inventory/item-order-limits/${selectedId}`, payload);
       } else {
-        const res = await apiClient.post<ApiDetail>('/inventory/item-order-limits', payload);
-        if (res.data) hydrate(res.data);
-        setSuccess('تم حفظ حد الطلب');
+        await apiClient.post<ApiDetail>('/inventory/item-order-limits', payload);
       }
       invalidateQuery(['item-order-limits']);
+      handleNew();
+      setSuccess('تم حفظ حد الطلب — تقدر تضيف التالي');
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'حدث خطأ أثناء الحفظ');
     } finally {
@@ -199,26 +193,26 @@ export default function OrderLimitItemsPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50 p-6" style={{ direction: 'rtl' }}>
+    <MasterCardShell
+      title="حد الطلب للأصناف"
+      breadcrumbs={[
+        { label: 'المخازن', href: '/inventory' },
+        { label: 'التعريفات' },
+        { label: 'حد الطلب للأصناف' },
+      ]}
+      docNumber={form.code || 'جديد'}
+      statusLabel={selectedId ? 'تعديل' : 'جديد'}
+      onSave={() => void handleSave()}
+      savePending={saving}
+      canSave={!saving}
+      onNew={handleNew}
+      onDelete={selectedId ? () => void handleDelete() : undefined}
+      currentId={selectedId}
+      favoriteHref="/inventory/creations/order-limit-items"
+      moreMenuItems={[{ id: 'add-item', label: 'إضافة صنف', onClick: addLine }]}
+    >
       {error && <ErrorToast message={error} onClose={() => setError('')} />}
       {success && <SuccessToast message={success} onClose={() => setSuccess('')} />}
-
-      <PageHeader
-        title="حد الطلب للأصناف"
-        breadcrumbs={[
-          { label: 'المخزون', href: '/inventory' },
-          { label: 'التعريفات' },
-          { label: 'حد الطلب للأصناف' },
-        ]}
-        actions={
-          <CrudButtons
-            onPrevious={() => router.back()}
-            onAdd={handleNew}
-            onDelete={selectedId ? () => void handleDelete() : undefined}
-            extraItems={[{ id: 'add-item', label: 'إضافة صنف', onClick: addLine }]}
-          />
-        }
-      />
 
       <OrderLimitListsSection onSelect={(row) => void loadList(row.id)} selectedId={selectedId} />
 
@@ -331,13 +325,6 @@ export default function OrderLimitItemsPage() {
         />
       </section>
 
-      <FormStickyFooter
-        onCancel={() => router.back()}
-        onSave={() => void handleSave()}
-        saveLoading={saving}
-        saveDisabled={saving}
-        status={selectedId ? 'تعديل' : 'مسودة'}
-      />
-    </div>
+    </MasterCardShell>
   );
 }

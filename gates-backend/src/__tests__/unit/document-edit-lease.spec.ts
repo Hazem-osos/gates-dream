@@ -39,4 +39,23 @@ describe('document edit lease', () => {
     });
     expect(second.granted).toBe(true);
   });
+
+  it('lets the same user refresh the lease from another session', async () => {
+    await service.acquire({
+      companyId: 'c1',
+      resourceKey: '/accounting/vouchers:doc-2',
+      userId: 'u1',
+      sessionId: 's1',
+      userName: 'أحمد',
+    });
+
+    const again = await service.acquire({
+      companyId: 'c1',
+      resourceKey: '/accounting/vouchers:doc-2',
+      userId: 'u1',
+      sessionId: 's2',
+      userName: 'أحمد',
+    });
+    expect(again.granted).toBe(true);
+  });
 });

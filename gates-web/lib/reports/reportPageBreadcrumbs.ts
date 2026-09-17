@@ -61,6 +61,11 @@ export function breadcrumbsForReportModule(
         { label: 'التقارير', href: '/subcontracts/reports' },
         current,
       ];
+    case 'pos':
+      return [
+        { label: 'نقاط البيع', href: '/pos' },
+        current,
+      ];
     default:
       return [current];
   }

@@ -89,6 +89,28 @@ export class CurrencyService {
     );
   }
 
+  private currencyTypeTakenMessage(row: { arabicName: string; code: string }) {
+    return `العملة «${row.arabicName}» (${row.code}) معرّفة بالفعل. عدّلها أو احذفها — لا يمكن تعريف نفس النوع مرتين.`;
+  }
+
+  private async assertUniqueCurrencyType(
+    companyId: string,
+    code: string,
+    exceptId?: string
+  ) {
+    const clash = await prisma.currency.findFirst({
+      where: {
+        companyId,
+        code,
+        ...(exceptId ? { id: { not: exceptId } } : {}),
+      },
+      select: { arabicName: true, code: true },
+    });
+    if (clash) {
+      throw new AppError(409, this.currencyTypeTakenMessage(clash));
+    }
+  }
+
   private async ensurePoundRateIsOne(companyId: string) {
     const settings = await prisma.companySettings.findUnique({
       where: { companyId },
@@ -115,10 +137,7 @@ export class CurrencyService {
 
   async createCurrency(companyId: string, data: CreateCurrencyData) {
     const code = data.code.trim().toUpperCase();
-    const clash = await prisma.currency.findFirst({ where: { companyId, code } });
-    if (clash) {
-      throw new AppError(409, 'رمز العملة مستخدم من قبل');
-    }
+    await this.assertUniqueCurrencyType(companyId, code);
 
     const serial = data.serial && data.serial > 0 ? data.serial : await this.nextSerial(companyId);
     const serialClash = await prisma.currency.findFirst({ where: { companyId, serial } });
@@ -234,12 +253,7 @@ export class CurrencyService {
     }
 
     if (data.code && data.code.trim().toUpperCase() !== existing.code) {
-      const clash = await prisma.currency.findFirst({
-        where: { companyId, code: data.code.trim().toUpperCase(), id: { not: currencyId } },
-      });
-      if (clash) {
-        throw new AppError(409, 'رمز العملة مستخدم من قبل');
-      }
+      await this.assertUniqueCurrencyType(companyId, data.code.trim().toUpperCase(), currencyId);
     }
 
     if (data.serial != null && data.serial !== existing.serial) {

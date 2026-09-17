@@ -5,6 +5,7 @@ import {
   createSecuritiesReceiptSchema,
   updateSecuritiesReceiptSchema,
   bounceSecuritiesReceiptSchema,
+  collectSecuritiesSchema,
   endorseSecuritiesReceiptSchema,
   securitiesReceiptQuerySchema,
 } from '../schemas/securities-receipt.schema';
@@ -88,7 +89,10 @@ router.post('/', authorize({ resource: 'securities-receipt', action: 'edit' }), 
   try {
     const companyId = req.companyId || req.tenantId;
     if (!companyId) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
-    const receipt = await securitiesReceiptService.createSecuritiesReceipt(companyId, req.body);
+    const receipt = await securitiesReceiptService.createSecuritiesReceipt(companyId, req.body, {
+      branchId: req.branchId,
+      userId: req.user?.sub || '',
+    });
     return void res.status(201).json({ status: 'success', message: 'Securities receipt created successfully', data: receipt });
   } catch (error) {
     logger.error({ error, body: req.body }, 'Error creating securities receipt');
@@ -101,7 +105,10 @@ router.put('/:id', authorize({ resource: 'securities-receipt', action: 'edit' })
   try {
     const companyId = req.companyId || req.tenantId;
     if (!companyId) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
-    const receipt = await securitiesReceiptService.updateSecuritiesReceipt(companyId, req.params.id, req.body);
+    const receipt = await securitiesReceiptService.updateSecuritiesReceipt(companyId, req.params.id, req.body, {
+      branchId: req.branchId,
+      userId: req.user?.sub || '',
+    });
     return void res.json({ status: 'success', message: 'Securities receipt updated successfully', data: receipt });
   } catch (error) {
     logger.error({ error, body: req.body }, 'Error updating securities receipt');
@@ -162,16 +169,18 @@ router.post('/:id/multi-collect', authorize({ resource: 'securities-receipt', ac
   }
 });
 
-router.post('/:id/collect', authorize({ resource: 'securities-receipt', action: 'post' }), async (req: AuthRequest, res: Response) => {
+router.post('/:id/collect', authorize({ resource: 'securities-receipt', action: 'post' }), validate({ body: collectSecuritiesSchema }), async (req: AuthRequest, res: Response) => {
   try {
     const companyId = req.companyId || req.tenantId;
     if (!companyId) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
     const userId = req.user?.sub || '';
-    const receipt = await securitiesReceiptService.postSecuritiesReceipt(companyId, req.params.id, {
-      branchId: req.branchId,
-      userId,
-    });
-    return void res.json({ status: 'success', message: 'Securities receipt collected successfully', data: receipt });
+    const receipt = await securitiesReceiptService.collectSecuritiesReceipt(
+      companyId,
+      req.params.id,
+      { branchId: req.branchId, userId },
+      req.body
+    );
+    return void res.json({ status: 'success', message: 'تم تحصيل ورقة المقبوضات', data: receipt });
   } catch (error) {
     logger.error({ error }, 'Error collecting securities receipt');
     const status = error instanceof AppError ? error.statusCode : error instanceof Error && error.message === 'Securities receipt not found' ? 404 : error instanceof Error && error.message.includes('already') ? 400 : 500;
@@ -187,7 +196,7 @@ router.post('/:id/bounce', authorize({ resource: 'securities-receipt', action: '
     const receipt = await securitiesReceiptService.bounceSecuritiesReceipt(companyId, req.params.id, {
       branchId: req.branchId,
       userId,
-    }, req.body.description);
+    }, req.body);
     return void res.json({ status: 'success', message: 'Securities receipt bounced successfully', data: receipt });
   } catch (error) {
     logger.error({ error }, 'Error bouncing securities receipt');
@@ -200,12 +209,33 @@ router.post('/:id/endorse', authorize({ resource: 'securities-receipt', action: 
   try {
     const companyId = req.companyId || req.tenantId;
     if (!companyId) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
-    const receipt = await securitiesReceiptService.endorseSecuritiesReceipt(companyId, req.params.id, req.body);
+    const receipt = await securitiesReceiptService.endorseSecuritiesReceipt(
+      companyId,
+      req.params.id,
+      { branchId: req.branchId, userId: req.user?.sub || '' },
+      req.body
+    );
     return void res.json({ status: 'success', message: 'Securities receipt endorsed successfully', data: receipt });
   } catch (error) {
     logger.error({ error }, 'Error endorsing securities receipt');
     const status = error instanceof Error && error.message === 'Securities receipt not found' ? 404 : error instanceof Error && (error.message.includes('before') || error.message.includes('Cannot') || error.message.includes('not found')) ? 400 : 500;
     return void res.status(status).json({ status: 'error', message: error instanceof Error ? error.message : 'Failed to endorse securities receipt' });
+  }
+});
+
+router.post('/:id/unendorse', authorize({ resource: 'securities-receipt', action: 'edit' }), async (req: AuthRequest, res: Response) => {
+  try {
+    const companyId = req.companyId || req.tenantId;
+    if (!companyId) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+    const receipt = await securitiesReceiptService.unendorseSecuritiesReceipt(companyId, req.params.id, {
+      branchId: req.branchId,
+      userId: req.user?.sub || '',
+    });
+    return void res.json({ status: 'success', message: 'تم فك تظهير الورقة', data: receipt });
+  } catch (error) {
+    logger.error({ error }, 'Error unendorsing securities receipt');
+    const status = error instanceof AppError ? error.statusCode : error instanceof Error && error.message === 'Securities receipt not found' ? 404 : 500;
+    return void res.status(status).json({ status: 'error', message: error instanceof Error ? error.message : 'Failed to unendorse securities receipt' });
   }
 });
 
@@ -226,7 +256,10 @@ router.post('/:id/restore', authorize({ resource: 'securities-receipt', action: 
   try {
     const companyId = req.companyId || req.tenantId;
     if (!companyId) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
-    const receipt = await securitiesReceiptService.restoreSecuritiesReceipt(companyId, req.params.id);
+    const receipt = await securitiesReceiptService.restoreSecuritiesReceipt(companyId, req.params.id, {
+      branchId: req.branchId,
+      userId: req.user?.sub || '',
+    });
     return void res.json({ status: 'success', message: 'Securities receipt restored successfully', data: receipt });
   } catch (error) {
     logger.error({ error }, 'Error restoring securities receipt');

@@ -10,6 +10,31 @@ export type GuideTreeNode = {
   children?: GuideTreeNode[];
 };
 
+function serialRank(code: string): number | null {
+  const raw = String(code ?? '').trim();
+  if (!/^\d+$/.test(raw)) return null;
+  const n = Number.parseInt(raw, 10);
+  return Number.isFinite(n) ? n : null;
+}
+
+export function compareGuideNodes(a: GuideTreeNode, b: GuideTreeNode): number {
+  const aRank = serialRank(a.code);
+  const bRank = serialRank(b.code);
+  if (aRank != null && bRank != null && aRank !== bRank) return aRank - bRank;
+  if (aRank != null && bRank == null) return -1;
+  if (aRank == null && bRank != null) return 1;
+  return a.name.localeCompare(b.name, 'ar') || a.code.localeCompare(b.code, 'ar');
+}
+
+export function sortGuideNodes(nodes: GuideTreeNode[]): GuideTreeNode[] {
+  return [...nodes]
+    .map((node) => ({
+      ...node,
+      children: node.children?.length ? sortGuideNodes(node.children) : node.children,
+    }))
+    .sort(compareGuideNodes);
+}
+
 export function buildParentTree<T extends { id: string; parentId?: string | null }>(
   items: T[],
   mapNode: (item: T, children: GuideTreeNode[]) => GuideTreeNode
@@ -32,17 +57,17 @@ export function buildParentTree<T extends { id: string; parentId?: string | null
       return [mapNode(item, walk(item.id))];
     });
 
-  const rooted = walk(null);
+  const rooted = sortGuideNodes(walk(null));
   const leftovers = items.filter((item) => !seen.has(item.id));
   if (leftovers.length === 0) return rooted;
-  return [
+  return sortGuideNodes([
     ...rooted,
     ...leftovers.flatMap((item) => {
       if (seen.has(item.id)) return [];
       seen.add(item.id);
       return [mapNode(item, walk(item.id))];
     }),
-  ];
+  ]);
 }
 
 export function groupAsFolders(
@@ -66,7 +91,7 @@ export function groupAsFolders(
       synthetic: true,
       groupKey: g.groupKey,
       toneIndex: g.toneIndex,
-      children: g.children,
+      children: sortGuideNodes(g.children),
     }));
 }
 

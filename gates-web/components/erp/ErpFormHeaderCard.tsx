@@ -17,17 +17,28 @@ type Props = {
   extrasLabel?: string;
   /** Shown beside the extras toggle (e.g. internal notes). */
   headerActions?: ReactNode;
+  /** Locks header fields after loading a source order, without locking القسم والرقم. */
+  fieldsDisabled?: boolean;
 };
 
 /** 2×4 grid card + collapsible extras (collapsed by default). */
-export function ErpFormHeaderCard({ row1, row2, extras, extrasLabel = 'خيارات إضافية', headerActions }: Props) {
+export function ErpFormHeaderCard({
+  row1,
+  row2,
+  extras,
+  extrasLabel = 'خيارات إضافية',
+  headerActions,
+  fieldsDisabled = false,
+}: Props) {
   const [extrasOpen, setExtrasOpen] = useState(false);
 
   return (
     <Card className="mt-2 min-w-0 max-w-full overflow-hidden rounded-xl border-slate-200 shadow-sm">
       <CardContent className="space-y-3 p-3">
-        <div className={erpFormGridClass}>{row1}</div>
-        <div className={erpFormGridClass}>{row2}</div>
+        <fieldset disabled={fieldsDisabled} className="m-0 min-w-0 space-y-3 border-0 p-0">
+          <div className={erpFormGridClass}>{row1}</div>
+          <div className={erpFormGridClass}>{row2}</div>
+        </fieldset>
         {extras ? (
           <>
             <div className="flex w-full flex-wrap items-center justify-start gap-2 pt-1">

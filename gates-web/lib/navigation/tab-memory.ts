@@ -1,5 +1,6 @@
 import { normalizeAppPath } from '@/lib/navigation/app-module-root';
 import { flushPageDrafts } from '@/lib/drafts/page-drafts';
+import { probeCount, probeNavUrl } from '@/lib/debug/gates-crash-probe';
 
 const HREF_KEY = 'gates:tab-hrefs';
 const SEARCH_KEY = 'gates:tab-search';
@@ -80,6 +81,10 @@ export function resolveAppTabHref(href: string): string {
 
 /** Pin the page you are leaving, then go to the destination as given. */
 export function destinationAppTabHref(href: string): string {
+  probeCount('destinationAppTabHref', { href });
+  if (typeof window !== 'undefined') {
+    probeNavUrl(`${window.location.pathname}${window.location.search}`, href);
+  }
   flushPageDrafts();
   pinCurrentWindowHref();
   return resolveAppTabHref(href);

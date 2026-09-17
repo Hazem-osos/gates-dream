@@ -59,6 +59,7 @@ const PARAM_KEYS = [
   'totalReport',
   'showUnposted',
   'minValue',
+  'date',
 ];
 
 export type UniversalReportViewerProps = {

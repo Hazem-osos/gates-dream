@@ -25,6 +25,7 @@ export const queryKeys = {
   clothingCombos: () => ['clothing-combos'] as const,
   currencies: ['currencies'] as const,
   safes: (params?: Record<string, unknown>) => ['safes', params ?? {}] as const,
+  bankAccounts: (params?: Record<string, unknown>) => ['bank-accounts', params ?? {}] as const,
   branches: (params?: Record<string, unknown>) => ['company-branches', params ?? {}] as const,
   taxRules: (params?: Record<string, unknown>) => ['tax-rules', params ?? {}] as const,
   journalEntries: (page: number, filters?: Record<string, unknown>) =>

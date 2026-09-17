@@ -58,45 +58,67 @@ export class BankBoxRightsService {
     safeId?: string | null;
     bankAccountId?: string | null;
   }): Promise<void> {
-    const scoped = await prisma.bankBoxRight.count({
-      where: { companyId: params.companyId, userId: params.userId },
-    });
-    if (scoped === 0) {
-      return;
-    }
-
-    const or: Array<{ safeId?: string; bankAccountId?: string }> = [];
-    if (params.safeId) or.push({ safeId: params.safeId });
-    if (params.bankAccountId) or.push({ bankAccountId: params.bankAccountId });
-
-    if (or.length === 0) {
+    if (!params.safeId && !params.bankAccountId) {
       throw new AppError(403, 'Treasury posting requires a cash safe or bank account');
     }
 
-    const grant = await prisma.bankBoxRight.findFirst({
-      where: {
-        companyId: params.companyId,
-        userId: params.userId,
-        canPost: true,
-        OR: or,
-      },
-    });
+    if (params.safeId) {
+      const safeScoped = await prisma.bankBoxRight.count({
+        where: {
+          companyId: params.companyId,
+          userId: params.userId,
+          safeId: { not: null },
+        },
+      });
+      if (safeScoped > 0) {
+        const grant = await prisma.bankBoxRight.findFirst({
+          where: {
+            companyId: params.companyId,
+            userId: params.userId,
+            safeId: params.safeId,
+            canPost: true,
+          },
+        });
+        if (!grant) {
+          throw new AppError(403, 'User is not allowed to post to this cash box or bank account');
+        }
+      }
+    }
 
-    if (!grant) {
-      throw new AppError(403, 'User is not allowed to post to this cash box or bank account');
+    if (params.bankAccountId) {
+      const bankScoped = await prisma.bankBoxRight.count({
+        where: {
+          companyId: params.companyId,
+          userId: params.userId,
+          bankAccountId: { not: null },
+        },
+      });
+      if (bankScoped > 0) {
+        const grant = await prisma.bankBoxRight.findFirst({
+          where: {
+            companyId: params.companyId,
+            userId: params.userId,
+            bankAccountId: params.bankAccountId,
+            canPost: true,
+          },
+        });
+        if (!grant) {
+          throw new AppError(403, 'User is not allowed to post to this cash box or bank account');
+        }
+      }
     }
   }
 
   /**
-   * `null` = unrestricted (admin or user has no BankBoxRight rows yet).
-   * Otherwise only the granted safe IDs may be listed.
+   * `null` = unrestricted (no safe-specific grants). Bank-only grants must
+   * not hide every cash box.
    */
   async listViewableSafeIds(
     companyId: string,
     userId: string
   ): Promise<string[] | null> {
     const scoped = await prisma.bankBoxRight.count({
-      where: { companyId, userId },
+      where: { companyId, userId, safeId: { not: null } },
     });
     if (scoped === 0) return null;
 
@@ -113,15 +135,15 @@ export class BankBoxRightsService {
   }
 
   /**
-   * `null` = unrestricted (admin or user has no BankBoxRight rows yet).
-   * Otherwise only the granted bank account IDs may be listed.
+   * `null` = unrestricted (no bank-specific grants). Safe-only grants must
+   * not hide every bank account on إشعار خصم / إشعار إضافة.
    */
   async listViewableBankAccountIds(
     companyId: string,
     userId: string
   ): Promise<string[] | null> {
     const scoped = await prisma.bankBoxRight.count({
-      where: { companyId, userId },
+      where: { companyId, userId, bankAccountId: { not: null } },
     });
     if (scoped === 0) return null;
 

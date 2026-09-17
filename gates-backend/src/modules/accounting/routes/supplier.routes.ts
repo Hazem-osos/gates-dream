@@ -211,6 +211,12 @@ router.put(
         data: supplier,
       });
     } catch (error) {
+      if (error instanceof AppError) {
+        return void res.status(error.statusCode).json({
+          status: 'error',
+          message: error.message,
+        });
+      }
       logger.error({ error, supplierId: req.params.id }, 'Error updating supplier');
       const status =
         error instanceof Error && error.message === 'Supplier not found'
@@ -246,6 +252,12 @@ router.delete(
 
       return void res.status(204).send();
     } catch (error) {
+      if (error instanceof AppError) {
+        return void res.status(error.statusCode).json({
+          status: 'error',
+          message: error.message,
+        });
+      }
       logger.error({ error, supplierId: req.params.id }, 'Error deleting supplier');
       const status =
         error instanceof Error && error.message === 'Supplier not found'

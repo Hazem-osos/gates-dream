@@ -1,19 +1,18 @@
 'use client';
 
-import Image from 'next/image';
-
 import { useState, useEffect, useMemo } from 'react';
+import { Banknote, Printer } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { CrudButtons } from '@/components/ui/CrudButtons';
-import { Input } from '@/components/ui/input';
 import { ExtractsPageChrome } from '@/components/extracts/ExtractsPageChrome';
-import { DASH_PANEL } from '@/components/dashboard-primitives';
-import { Pagination } from '@/components/ui/Pagination';
-import { ActionButtons } from '@/components/ui/ActionButtons';
+import {
+  AppTable,
+  CompactFormField,
+  FormSectionCard,
+  compactControlClass,
+} from '@/components/ui';
 import { useApiQuery, useApiMutation, useInvalidateQuery } from '@/lib/hooks/useApi';
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
-import { EmptyState } from '@/components/ui/EmptyState';
 import { formatMoneyAr } from '@/lib/formatMoney';
 import {
   exportExtractReportRows,
@@ -58,9 +57,9 @@ export default function ExtractPaymentPage() {
     contractorId: '',
     date: '',
     amount: '',
+    chequeNumber: '',
   });
 
-  // Fetch projects and contractors (for form selects)
   const { data: projectsResponse } = useApiQuery<ExtractProjectOption[]>(
     ['projects'],
     '/extracts/projects',
@@ -108,7 +107,6 @@ export default function ExtractPaymentPage() {
     return sum;
   }, [paymentRows]);
 
-  // Payment mutation
   const paymentMutation = useApiMutation<unknown, Record<string, unknown>>(
     '/extracts/payments',
     'POST',
@@ -118,15 +116,15 @@ export default function ExtractPaymentPage() {
         invalidateQuery(['extract-payments']);
         handleCancel();
       },
-      onError: (error: ApiError) => {
-        setError(error.message || 'حدث خطأ أثناء الحفظ');
+      onError: (apiError: ApiError) => {
+        setError(apiError.message || 'حدث خطأ أثناء الحفظ');
       },
     }
   );
 
   useEffect(() => {
     const today = new Date().toISOString().split('T')[0];
-    setFormData(prev => ({ ...prev, date: today }));
+    setFormData((prev) => ({ ...prev, date: today }));
   }, []);
 
   const handleSave = () => {
@@ -148,16 +146,14 @@ export default function ExtractPaymentPage() {
       return;
     }
 
-    const requestBody: Record<string, unknown> = {
+    paymentMutation.mutate({
       serial: formData.serial || undefined,
       description: formData.description || undefined,
       projectId: formData.projectId,
       contractorId: formData.contractorId,
       date: new Date(formData.date).toISOString(),
       amount: formData.amount ? parseFloat(formData.amount) : undefined,
-    };
-
-    paymentMutation.mutate(requestBody);
+    });
   };
 
   const handleCancel = () => {
@@ -168,6 +164,7 @@ export default function ExtractPaymentPage() {
       contractorId: '',
       date: new Date().toISOString().split('T')[0],
       amount: '',
+      chequeNumber: '',
     });
     setSelectedPaymentIds([]);
     setError('');
@@ -182,6 +179,7 @@ export default function ExtractPaymentPage() {
       contractorId: prev.contractorId,
       date: new Date().toISOString().split('T')[0],
       amount: '',
+      chequeNumber: '',
     }));
     setSelectedPaymentIds([]);
     setError('');
@@ -204,20 +202,6 @@ export default function ExtractPaymentPage() {
           : '',
     }));
     setError('');
-  };
-
-  const toggleRowSelection = (id: string) => {
-    setSelectedPaymentIds((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
-    );
-  };
-
-  const toggleSelectAll = () => {
-    if (selectedPaymentIds.length === paymentRows.length) {
-      setSelectedPaymentIds([]);
-    } else {
-      setSelectedPaymentIds(paymentRows.map((r) => r.id));
-    }
   };
 
   const rowsForExport = useMemo(() => {
@@ -247,278 +231,172 @@ export default function ExtractPaymentPage() {
   };
 
   return (
-    <ExtractsPageChrome title="سداد المستخلص">
-      <div className={`${DASH_PANEL} p-5`}>
-            <div className="flex gap-2 items-center mb-4"> 
-                              <Button className="bg-[#0E78AA] text-white px-6 py-2 rounded-lg hover:bg-[#094C6B] transition-colors">
-                  القيد
-                </Button>
-              <Input defaultValue="0000012345" className="text-right w-48" readOnly />
-            </div>
-            <div className="mb-4 flex justify-between items-center gap-4">
-             <div>
-             <Pagination page={page} pageSize={pageSize} total={paymentRowsTotal} onPageChange={setPage} />
-             </div>
-             </div>
+    <ExtractsPageChrome
+      title="سداد المستخلص"
+      breadcrumbs={[
+        { href: '/extracts', label: 'المستخلصات' },
+        { label: 'العمليات' },
+        { label: 'سداد المستخلص' },
+      ]}
+      onSave={handleSave}
+      savePending={paymentMutation.isPending}
+      onNew={handleAddNew}
+      statusLabel={formData.projectId ? 'تعديل' : 'جديد'}
+      favoriteHref="/extracts/operations/extract-payment"
+      currentId={selectedPaymentIds[0] ?? null}
+      browseList={{
+        title: 'سندات السداد السابقة',
+        apiPath: '/extracts/payments',
+        listKey: 'extract-payments-browse',
+        selectedId: selectedPaymentIds[0] ?? null,
+        columns: [
+          { id: 'extract', header: 'المستخلص', getValue: (r) => String((r.extract as { extractNumber?: string } | undefined)?.extractNumber || r.id) },
+          { id: 'amount', header: 'المبلغ', getValue: (r) => String(r.paymentAmount ?? '—') },
+          { id: 'notes', header: 'البيان', getValue: (r) => String(r.description || r.notes || '—') },
+        ],
+        onSelect: (id, row) => {
+          setSelectedPaymentIds([id]);
+          setFormData((prev) => ({
+            ...prev,
+            serial: String(row.notes ?? ''),
+            description: String(row.description ?? ''),
+            amount: row.paymentAmount != null && row.paymentAmount !== '' ? String(row.paymentAmount) : '',
+          }));
+        },
+      }}
+      extraActions={
+        <>
+          <Button type="button" variant="secondary" size="sm" onClick={handleEditSelected}>
+            تعديل المحدد
+          </Button>
+          <Button type="button" variant="secondary" size="sm" onClick={() => void handleExport()}>
+            تصدير
+          </Button>
+          <Button type="button" variant="secondary" size="sm" className="gap-1.5" onClick={handlePrint}>
+            <Printer className="h-3.5 w-3.5" />
+            طباعة
+          </Button>
+        </>
+      }
+    >
+      {error ? <ErrorToast message={error} onClose={() => setError('')} /> : null}
+      {success ? <SuccessToast message={success} onClose={() => setSuccess('')} /> : null}
 
-            {/* Main Form Section */}
-            <div className="bg-white rounded-2xl p-6 border border-[#E6F0F7] mb-6">
-              <div className="grid grid-cols-2 gap-6">
-                {/* Left Column - Extract Details */}
-                <div className="space-y-4">
-                  <div className="flex gap-2 items-center">
-                    <label className="w-20 text-zinc-800 text-right text-sm font-medium">الكود</label>
-                    <Input defaultValue="0000012345" className="text-right flex-1" readOnly />
-                  </div>
-                  <div className="flex gap-2 items-start">
-                    <label className="w-20 text-zinc-800 text-right text-sm font-medium mt-3">الشرح</label>
-                    <textarea 
-                      placeholder="إدخل الشرح"
-                      className="text-right flex-1 p-3 rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] text-[#094C6B] min-h-[80px] resize-none focus:border-[#0E79AA] focus:ring-[#0E79AA]"
-                    />
-                  </div>
-                  <div className="flex gap-2 items-center">
-                    <label className="w-20 text-zinc-800 text-right text-sm font-medium">المشروع</label>
-                    <select
-                      className="text-right flex-1 p-2 rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] text-[#094C6B]"
-                      value={formData.projectId}
-                      onChange={(e) =>
-                        setFormData((prev) => ({ ...prev, projectId: e.target.value }))
-                      }
-                    >
-                      <option value="">— اختر مشروعاً —</option>
-                      {projects.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.arabicName ?? p.serial ?? p.id}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="flex gap-2 items-center">
-                    <label className="w-20 text-zinc-800 text-right text-sm font-medium">المقاول</label>
-                    <select
-                      className="text-right flex-1 p-2 rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] text-[#094C6B]"
-                      value={formData.contractorId}
-                      onChange={(e) =>
-                        setFormData((prev) => ({ ...prev, contractorId: e.target.value }))
-                      }
-                    >
-                      <option value="">— اختر مقاولاً —</option>
-                      {contractors.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.arabicName ?? c.serial ?? c.id}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
+      <FormSectionCard title="بيانات السداد" subtitle="المشروع والمقاول وقيمة السند" icon={Banknote}>
+        <CompactFormField
+          label="الكود"
+          placeholder="تلقائي"
+          value={formData.serial}
+          onChange={(e) => setFormData((p) => ({ ...p, serial: e.target.value }))}
+        />
+        <CompactFormField
+          label="التاريخ"
+          type="date"
+          value={formData.date}
+          onChange={(e) => setFormData((p) => ({ ...p, date: e.target.value }))}
+        />
+        <CompactFormField label="المشروع" required>
+          <select
+            className={compactControlClass}
+            value={formData.projectId}
+            onChange={(e) => setFormData((p) => ({ ...p, projectId: e.target.value }))}
+          >
+            <option value="">— اختر مشروعاً —</option>
+            {projects.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.arabicName ?? p.serial ?? p.id}
+              </option>
+            ))}
+          </select>
+        </CompactFormField>
+        <CompactFormField label="المقاول" required>
+          <select
+            className={compactControlClass}
+            value={formData.contractorId}
+            onChange={(e) => setFormData((p) => ({ ...p, contractorId: e.target.value }))}
+          >
+            <option value="">— اختر مقاولاً —</option>
+            {contractors.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.arabicName ?? c.serial ?? c.id}
+              </option>
+            ))}
+          </select>
+        </CompactFormField>
+        <CompactFormField
+          label="قيمة السند"
+          type="number"
+          min={0}
+          step="0.01"
+          placeholder="0.00"
+          value={formData.amount}
+          onChange={(e) => setFormData((p) => ({ ...p, amount: e.target.value }))}
+        />
+        <CompactFormField
+          label="رقم الشيك"
+          placeholder="إدخل رقم الشيك"
+          value={formData.chequeNumber}
+          onChange={(e) => setFormData((p) => ({ ...p, chequeNumber: e.target.value }))}
+        />
+        <CompactFormField label="الشرح" className="sm:col-span-2">
+          <textarea
+            placeholder="إدخل الشرح"
+            value={formData.description}
+            onChange={(e) => setFormData((p) => ({ ...p, description: e.target.value }))}
+            className={`${compactControlClass} h-20 max-w-none resize-none py-2`}
+          />
+        </CompactFormField>
+      </FormSectionCard>
 
-                {/* Right Column - Payment Details */}
-                <div className="space-y-4">
-                  <div className="flex gap-2 items-center">
-                    <label className="w-20 text-zinc-800 text-right text-sm font-medium">التاريخ</label>
-                    <div className="relative flex-1">
-                      <Input defaultValue="26-11-2025" className="text-right pr-10" />
-                      <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500">📅</span>
-                    </div>
-                  </div>
-                  <div className="flex gap-2 items-center">
-                    <label className="w-20 text-zinc-800 text-right text-sm font-medium">الصندوق</label>
-                    <div className="flex gap-2 flex-1">
-                      <div className="relative flex-1">
-                        <Input defaultValue="صندوق رقم 1" className="text-right pr-10" readOnly />
-                        <Image src="/magnifying-glass-1.svg" alt="بحث" width={16} height={16} className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4" />
-                      </div>
-                      <Input defaultValue="00000000000001" className="text-right flex-1" readOnly />
-                    </div>
-                  </div>
-                  <div className="flex gap-2 items-center">
-                    <label className="w-20 text-zinc-800 text-right text-sm font-medium">تاريخ الإستحقاق</label>
-                    <div className="relative flex-1">
-                      <Input defaultValue="26-11-2025" className="text-right pr-10" />
-                      <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500">📅</span>
-                    </div>
-                  </div>
-                  <div className="flex gap-2 items-center">
-                    <label className="w-20 text-zinc-800 text-right text-sm font-medium">الهجري</label>
-                    <Input defaultValue="26-11-2025" className="text-right flex-1" />
-                  </div>
-                  <div className="flex gap-2 items-center">
-                    <label className="w-20 text-zinc-800 text-right text-sm font-medium">رقم الشيك</label>
-                    <Input placeholder="إدخل رقم الشيك" className="text-right flex-1" />
-                  </div>
-                  <div className="flex gap-2 items-center">
-                    <label className="w-20 text-zinc-800 text-right text-sm font-medium">الهجري</label>
-                    <Input defaultValue="26-11-2025" className="text-right flex-1" />
-                  </div>
-                </div>
-              </div>
+      <AppTable
+        columns={[
+          { id: 'idx', header: 'م', cell: (_row, index) => index + 1 },
+          { id: 'extract', header: 'المستخلص', cell: (row) => row.extract?.extractNumber ?? '—' },
+          { id: 'contractorSerial', header: 'المقاول', cell: (row) => row.contractor?.serial ?? '—' },
+          { id: 'contractorName', header: 'إسم المقاول', cell: (row) => row.contractor?.arabicName ?? '—' },
+          { id: 'group', header: 'مجموعة البند', accessor: 'itemGroup' },
+          {
+            id: 'value',
+            header: 'القيمة',
+            numeric: true,
+            cell: (row) => {
+              const amount =
+                typeof row.paymentAmount === 'string'
+                  ? parseFloat(row.paymentAmount)
+                  : Number(row.paymentAmount);
+              return formatMoneyAr(amount);
+            },
+          },
+          { id: 'notes', header: 'ملاحظات', cell: (row) => row.notes ?? row.description ?? '—' },
+        ]}
+        data={paymentRows}
+        getRowKey={(row) => row.id}
+        isLoading={paymentsLoading}
+        emptyTitle={!formData.projectId ? 'اختر المشروع (والمقاول) لعرض سجلات السداد.' : 'لا توجد دفعات مسجلة لهذا الاختيار.'}
+        exportFileName="extract-payments"
+        onRowClick={(row) =>
+          setSelectedPaymentIds((prev) =>
+            prev.includes(row.id) ? prev.filter((id) => id !== row.id) : [...prev, row.id]
+          )
+        }
+        rowClassName={(row) => (selectedPaymentIds.includes(row.id) ? 'bg-[#E8F4FA]' : undefined)}
+        pagination={{
+          page,
+          pageSize,
+          totalItems: paymentRowsTotal,
+          onPageChange: setPage,
+        }}
+      />
 
-              {/* Next Button and Total */}
-              <div className="flex justify-center items-center gap-4 mt-6">
-                <div className="bg-gray-100 px-4 py-2 rounded-lg">
-                  <span className="text-gray-700 text-sm">—</span>
-                </div>
-                <Button className="bg-[#0E78AA] text-white px-8 py-3 rounded-lg hover:bg-[#094C6B] transition-colors">
-                  التالي
-                </Button>
-              </div>
-            </div>
-
-            {/* Data Table */}
-            <div className="mb-6">
-              <div className="overflow-x-auto border border-[#E6F0F7] rounded-lg">
-                <table id="extract-payment-table" className="w-full text-center">
-                  <thead>
-                    <tr className="bg-slate-50/80 text-slate-600 font-semibold">
-                      <th className="py-4 px-2 text-sm w-10">
-                        <input
-                          type="checkbox"
-                          checked={paymentRows.length > 0 && selectedPaymentIds.length === paymentRows.length}
-                          onChange={toggleSelectAll}
-                          aria-label="تحديد الكل"
-                          className="rounded border-white"
-                        />
-                      </th>
-                      <th className="py-4 px-4 text-sm">ملاحظات</th>
-                      <th className="py-4 px-4 text-sm">يدفع</th>
-                      <th className="py-4 px-4 text-sm">ما دفع</th>
-                      <th className="py-4 px-4 text-sm">مجموعة البند</th>
-                      <th className="py-4 px-4 text-sm">القيمة</th>
-                      <th className="py-4 px-4 text-sm">إسم المقاول</th>
-                      <th className="py-4 px-4 text-sm">المقاول</th>
-                      <th className="py-4 px-4 text-sm">المستخلص</th>
-                      <th className="py-4 px-4 text-sm">م</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {!formData.projectId ? (
-                      <tr>
-                        <td colSpan={10} className="py-6">
-                          <EmptyState title="اختر المشروع (والمقاول) لعرض سجلات السداد." />
-                        </td>
-                      </tr>
-                    ) : paymentsLoading ? (
-                      <tr>
-                        <td colSpan={9} className="py-6 text-sm text-gray-600">جاري التحميل…</td>
-                      </tr>
-                    ) : paymentRows.length === 0 ? (
-                      <tr>
-                        <td colSpan={10} className="py-6">
-                          <EmptyState title="لا توجد دفعات مسجلة لهذا الاختيار." />
-                        </td>
-                      </tr>
-                    ) : (
-                      paymentRows.map((row, index) => {
-                        const amount =
-                          typeof row.paymentAmount === 'string'
-                            ? parseFloat(row.paymentAmount)
-                            : Number(row.paymentAmount);
-                        return (
-                          <tr
-                            key={row.id}
-                            className={`border-b border-slate-100 hover:bg-slate-50/80 ${
-                              selectedPaymentIds.includes(row.id) ? 'ring-1 ring-[#0E78AA]/40' : ''
-                            }`}
-                          >
-                            <td className="py-4 px-2">
-                              <input
-                                type="checkbox"
-                                checked={selectedPaymentIds.includes(row.id)}
-                                onChange={() => toggleRowSelection(row.id)}
-                                aria-label={`تحديد سجل ${index + 1}`}
-                              />
-                            </td>
-                            <td className="py-4 px-4 text-sm text-black">{row.notes ?? row.description ?? '—'}</td>
-                            <td className="py-4 px-4 text-sm text-black">—</td>
-                            <td className="py-4 px-4 text-sm text-black">{formatMoneyAr(amount)}</td>
-                            <td className="py-4 px-4 text-sm text-black">{row.itemGroup ?? '—'}</td>
-                            <td className="py-4 px-4 text-sm text-black">{formatMoneyAr(amount)}</td>
-                            <td className="py-4 px-4 text-sm text-black">{row.contractor?.arabicName ?? '—'}</td>
-                            <td className="py-4 px-4 text-sm text-black">{row.contractor?.serial ?? '—'}</td>
-                            <td className="py-4 px-4 text-sm text-black">{row.extract?.extractNumber ?? '—'}</td>
-                            <td className="py-4 px-4 text-sm text-black">{index + 1}</td>
-                          </tr>
-                        );
-                      })
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            {/* Summary Section */}
-            <div className="bg-white rounded-2xl p-6 border border-[#E6F0F7] mb-6">
-              <div className="flex justify-between items-start">
-                {/* Left Side - Totals */}
-                <div className="space-y-4">
-                  <div className="flex gap-2 items-center">
-                    <label className="w-32 text-zinc-800 text-right text-sm font-medium">إجمالي المستخلصات</label>
-                    <Input value={formatMoneyAr(paymentTotal)} className="text-right w-32 text-sm" readOnly />
-                  </div>
-                  <div className="flex gap-2 items-center">
-                    <label className="w-32 text-zinc-800 text-right text-sm font-medium">إجمالي الدفوع سابقاً</label>
-                    <Input value={formatMoneyAr(paymentTotal)} className="text-right w-32 text-sm" readOnly />
-                  </div>
-                  <div className="flex gap-2 items-center">
-                    <label className="w-32 text-zinc-800 text-right text-sm font-medium">إجمالي السند</label>
-                    <Input
-                      value={formData.amount ? formatMoneyAr(parseFloat(formData.amount)) : '—'}
-                      className="text-right w-32 text-sm"
-                      readOnly
-                    />
-                    <Button className="bg-[#0E78AA] text-white px-4 py-2 rounded-md hover:bg-[#094C6B] transition-colors text-sm">
-                      التوزيع
-                    </Button>
-                  </div>
-                </div>
-
-                {/* Right Side - Action Buttons */}
-                <div className="flex gap-2 flex-wrap items-center">
-                  <CrudButtons
-                    onAdd={handleAddNew}
-                    onEdit={handleEditSelected}
-                    onPrevious={() =>
-                      document.getElementById('extract-payment-table')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-                    }
-                  />
-                  <Button
-                    type="button"
-                    onClick={handleCancel}
-                    className="bg-[#0E78AA] text-white hover:bg-[#094C6B] px-4 py-2 rounded-md flex items-center gap-2 transition-colors"
-                  >
-                    <span className="text-lg">✕</span> إلغاء
-                  </Button>
-                  <Button
-                    type="button"
-                    onClick={() => void handleExport()}
-                    className="bg-[#0E78AA] text-white hover:bg-[#094C6B] px-4 py-2 rounded-md flex items-center gap-2 transition-colors"
-                  >
-                    تصدير
-                  </Button>
-                  <Button
-                    type="button"
-                    onClick={handlePrint}
-                    className="bg-[#0E78AA] text-white hover:bg-[#094C6B] px-4 py-2 rounded-md flex items-center gap-2 transition-colors"
-                  >
-                    <span className="text-lg">🖨️</span> طباعة
-                  </Button>
-                </div>
-              </div>
-            </div>
-
-            {error && <ErrorToast message={error} onClose={() => setError('')} />}
-            {success && <SuccessToast message={success} onClose={() => setSuccess('')} />}
-            
-            {/* Bottom Action Buttons */}
-            <div className="flex flex-row-reverse mt-10">
-            <ActionButtons 
-              onSave={handleSave}
-              onCancel={handleCancel}
-              saveText={paymentMutation.isPending ? 'جاري الحفظ...' : 'حفظ'}
-            />
-          </div>
-      </div>
+      <FormSectionCard title="الإجماليات">
+        <CompactFormField label="إجمالي المستخلصات" readOnly value={formatMoneyAr(paymentTotal)} />
+        <CompactFormField label="إجمالي المدفوع سابقاً" readOnly value={formatMoneyAr(paymentTotal)} />
+        <CompactFormField
+          label="إجمالي السند"
+          readOnly
+          value={formData.amount ? formatMoneyAr(parseFloat(formData.amount)) : '—'}
+        />
+      </FormSectionCard>
     </ExtractsPageChrome>
   );
-} 
+}

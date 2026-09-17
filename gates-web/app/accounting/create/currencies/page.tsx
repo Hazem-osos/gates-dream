@@ -19,6 +19,7 @@ import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
 import { nextNumericSerial } from '@/lib/masters/nextNumericSerial';
 import { confirmAction } from '@/lib/feedback/confirm';
+import { toast } from '@/lib/feedback/toast';
 import { isEgyptianPound } from '@/lib/accounting/fx-base';
 import { useRememberCurrencyRate } from '@/lib/hooks/useRememberCurrencyRate';
 type FormState = {
@@ -66,6 +67,10 @@ function CurrenciesPageInner() {
     { staleTime: 15_000 }
   );
   const currencies = useMemo(() => currenciesRes?.data ?? [], [currenciesRes?.data]);
+  const definedCodes = useMemo(
+    () => new Set(currencies.map((row) => String(row.code ?? '').trim().toUpperCase()).filter(Boolean)),
+    [currencies]
+  );
   const nextSerial = nextSerialFrom(currencies);
 
   const patch = (next: Partial<FormState>) => setForm((prev) => ({ ...prev, ...next }));
@@ -106,6 +111,17 @@ function CurrenciesPageInner() {
 
   const applyCatalog = (code: string) => {
     const item = findCurrencyCatalog(code);
+    const taken = currencies.find(
+      (row) => String(row.code ?? '').trim().toUpperCase() === code.trim().toUpperCase()
+    );
+    if (taken && taken.id !== selectedId) {
+      toast.error(
+        `العملة «${taken.arabicName}» (${taken.code}) معرّفة بالفعل. عدّلها أو احذفها — لا يمكن تعريف نفس النوع مرتين.`
+      );
+      hydrate(taken);
+      unlockForEdit();
+      return;
+    }
     if (!item) {
       patch({ code });
       return;
@@ -123,11 +139,26 @@ function CurrenciesPageInner() {
     setError('');
     setSuccess('');
     if (!form.code.trim()) {
-      setError('يرجى اختيار رمز العملة');
+      const message = 'يرجى اختيار رمز العملة';
+      setError(message);
+      toast.error(message);
       return;
     }
     if (!form.arabicName.trim()) {
-      setError('يرجى إدخال الاسم العربي');
+      const message = 'يرجى إدخال الاسم العربي';
+      setError(message);
+      toast.error(message);
+      return;
+    }
+    const duplicate = currencies.find(
+      (row) =>
+        row.id !== selectedId &&
+        String(row.code ?? '').trim().toUpperCase() === form.code.trim().toUpperCase()
+    );
+    if (duplicate) {
+      const message = `العملة «${duplicate.arabicName}» (${duplicate.code}) معرّفة بالفعل. عدّلها أو احذفها — لا يمكن تعريف نفس النوع مرتين.`;
+      setError(message);
+      toast.error(message);
       return;
     }
 
@@ -157,7 +188,9 @@ function CurrenciesPageInner() {
       invalidateQuery(['currencies']);
       resetNew();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'حدث خطأ أثناء الحفظ');
+      const message = err instanceof Error ? err.message : 'حدث خطأ أثناء الحفظ';
+      setError(message);
+      toast.error(message);
     } finally {
       setSaving(false);
     }
@@ -243,11 +276,15 @@ function CurrenciesPageInner() {
             onChange={(e) => applyCatalog(e.target.value)}
           >
             <option value="">اختر رمز العملة</option>
-            {CURRENCY_CATALOG.map((item) => (
-              <option key={item.code} value={item.code}>
-                {item.symbol} — {item.arabicName} ({item.code})
-              </option>
-            ))}
+            {CURRENCY_CATALOG.map((item) => {
+              const taken = definedCodes.has(item.code) && form.code !== item.code;
+              return (
+                <option key={item.code} value={item.code} disabled={taken}>
+                  {item.symbol} — {item.arabicName} ({item.code})
+                  {taken ? ' — معرّفة' : ''}
+                </option>
+              );
+            })}
           </select>
         </CompactFormField>
         <CompactFormField

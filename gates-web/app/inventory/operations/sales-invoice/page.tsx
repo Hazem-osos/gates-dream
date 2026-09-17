@@ -11,7 +11,7 @@ import { Button } from '@/components/ui';
 import { DynamicModalSkeleton, LineGridSkeleton } from '@/components/ui/DynamicChunkSkeleton';
 import { useApiQuery, useApiMutation, useInvalidateQuery } from '@/lib/hooks/useApi';
 import { apiClient } from '@/lib/api/client';
-import type { TransactionSettings } from '@/lib/transaction-settings/types';
+import { shouldLockLoadedSource, type TransactionSettings } from '@/lib/transaction-settings/types';
 import { TransactionSettingsDrawer } from '@/components/settings/transaction-settings/TransactionSettingsDrawer';
 import { dispatchAutoPrintAfterSave } from '@/lib/printer/print-prefs';
 import { useAccountingSettingsQuery } from '@/lib/hooks/useAccountingSettings';
@@ -24,6 +24,11 @@ import {
 import type { SalesInvoiceDetail } from '@/lib/inventory/transaction-types';
 import { resolveUnitPrice, type PriceTier } from '@/lib/inventory/pricing-engine';
 import { toast, toastInvoiceSaveError, toastVersionConflict } from '@/lib/feedback/toast';
+import { isOptimisticLockApiError } from '@/lib/concurrency/version-conflict';
+import {
+  postInvoiceAfterSave,
+  useRepostAfterUnpost,
+} from '@/lib/accounting/ensure-posted-after-save';
 import { confirmAction } from '@/lib/feedback/confirm';
 import { dispatchAcademyTrigger } from '@/lib/onboarding/tourCheckpoints';
 import { AutoSaveStatusIndicator } from '@/components/feedback/AutoSaveStatusIndicator';
@@ -369,6 +374,7 @@ export default function SalesInvoicePage() {
 function SalesInvoicePageInner() {
   const router = useRouter();
   const { lockToView, setMode, unlockForEdit, isReadOnly, isEditing } = useDocumentMode();
+  const { markUnpostedForEdit, consumeShouldRepost, resetKeepPosted } = useRepostAfterUnpost();
   const { companyId } = useFirstCompany();
   const searchParams = useOwnTabSearchParams();
   const ownPathname = useOwnTabPathname();
@@ -444,6 +450,8 @@ function SalesInvoicePageInner() {
   const developmentFeeFixedAmountW = watch('developmentFeeFixedAmount');
   const exchangeRateW = watch('exchangeRate');
   const descriptionW = watch('description');
+  const sourceIdW = watch('sourceId');
+  const lockLoadedSource = shouldLockLoadedSource(txSettings, sourceIdW);
 
   useEffect(() => {
     if (allowReturnW) {
@@ -1195,6 +1203,7 @@ function SalesInvoicePageInner() {
       currencyId: cur || '',
     });
     setIsPosted(false);
+    resetKeepPosted();
     setIsApproved(false);
     setPaymentSplits([]);
     setPaymentInstallments([]);
@@ -1203,7 +1212,7 @@ function SalesInvoicePageInner() {
     setInternalNotes([]);
     setCustomerSeed(null);
     setConditions(['']);
-  }, [getValues, openInvoice, reset]);
+  }, [getValues, openInvoice, reset, resetKeepPosted]);
 
   const resolveInvoiceNumber = useCallback(() => {
     return (
@@ -1247,17 +1256,34 @@ function SalesInvoicePageInner() {
       showSuccessToast: false,
       onSuccess: () => {
         const num = resolveInvoiceNumber();
-        toast.success('تم حفظ المسودة', {
-          description: `تم حفظ فاتورة رقم ${num}. الصفحة جاهزة لفاتورة جديدة.`,
-        });
-        invalidateQuery(['invoices']);
-        if (txSettings?.autoPrintOnSave) {
-          dispatchAutoPrintAfterSave();
+        const id = selectedInvoiceId;
+        const finish = (posted: boolean) => {
+          toast.success(posted ? 'تم حفظ التعديلات وترحيل الفاتورة' : 'تم حفظ المسودة', {
+            description: posted
+              ? `تم حفظ وترحيل فاتورة رقم ${num}.`
+              : `تم حفظ فاتورة رقم ${num}. الصفحة جاهزة لفاتورة جديدة.`,
+          });
+          invalidateQuery(['invoices']);
+          if (txSettings?.autoPrintOnSave) {
+            dispatchAutoPrintAfterSave();
+          }
+          afterSaveReset();
+        };
+        if (consumeShouldRepost() && id) {
+          void postInvoiceAfterSave(id)
+            .then(() => finish(true))
+            .catch((error: ApiError) => {
+              toast.error('تم الحفظ لكن تعذر ترحيل الفاتورة', {
+                description: error.message || 'أعد الترحيل من قائمة (...)',
+              });
+              finish(false);
+            });
+          return;
         }
-        afterSaveReset();
+        finish(false);
       },
       onError: (error: ApiError) => {
-        if (error.code === '409') {
+        if (isOptimisticLockApiError(error)) {
           toastVersionConflict(error.message, () => {
             invalidateQuery(['invoice', selectedInvoiceId]);
           });
@@ -1325,6 +1351,7 @@ function SalesInvoicePageInner() {
       onSuccess: () => {
         toast.success('تم فك ترحيل الفاتورة بنجاح');
         setIsPosted(false);
+        markUnpostedForEdit();
         invalidateQuery(['invoices']);
         invalidateQuery(['invoice', selectedInvoiceId]);
       },
@@ -1858,6 +1885,7 @@ function SalesInvoicePageInner() {
         errors={errors}
         hasExistingLines={fields.some((line) => Boolean(line.itemId))}
         sourceDisabled={isPosted || isReadOnly}
+        fieldsDisabled={lockLoadedSource}
         onSourceHydrate={handleSourceHydrate}
         paymentMethod={paymentMethodW ?? 'cash'}
         onConfigureSplit={() => setSplitModalOpen(true)}
@@ -1883,13 +1911,13 @@ function SalesInvoicePageInner() {
             <InternalNotesScratchpad
               notes={internalNotes}
               onChange={setInternalNotes}
-              disabled={isPosted}
+              disabled={isPosted || lockLoadedSource}
               className="inline-flex"
             />
             <ElectronicInvoiceDetailsButton
               control={control}
               register={register}
-              disabled={isPosted}
+              disabled={isPosted || lockLoadedSource}
               className="inline-flex"
             />
           </div>
@@ -1944,11 +1972,13 @@ function SalesInvoicePageInner() {
       ) : null}
 
       <div className="mt-2">
+        <fieldset disabled={lockLoadedSource} className="m-0 min-w-0 border-0 p-0">
         <CustomerFrequentItemsBar
             items={frequentItems}
             loading={frequentLoading}
             onInsert={handleFrequentItemInsert}
           />
+        </fieldset>
           <SalesInvoiceLinesGrid
             gridId={SALES_INVOICE_LINE_GRID}
             storageKey="gates:columns:sales-invoice"
@@ -1973,7 +2003,7 @@ function SalesInvoicePageInner() {
             clipboardItems={clipboardItems}
             onClipboardLines={handleClipboardLines}
             customerId={customerIdW}
-            readOnly={isReadOnly}
+            readOnly={isReadOnly || lockLoadedSource}
             lockUnitPrice={txSettings?.allowItemPriceOverride === false}
             enforceBelowCost={txSettings?.preventSellingBelowCost !== false}
             headerDescription={descriptionW}
@@ -1990,7 +2020,7 @@ function SalesInvoicePageInner() {
         defaultCurrency={currencies.find((c) => c.id === currencyIdW)?.code ?? 'EGP'}
         defaultExchangeRate={Number(exchangeRateW) > 0 ? Number(exchangeRateW) : 1}
         defaultCostCenterId={getValues('costCenterId') || ''}
-        disabled={isReadOnly}
+        disabled={isReadOnly || lockLoadedSource}
         count={extrasToApi(invoiceExtras).length}
         headerDescription={descriptionW}
       />

@@ -13,8 +13,6 @@ import {
 const links = [
   { href: "/accounting/orders/payment-order/new", label: "أمر صرف نقدية" },
   { href: "/accounting/orders/receipt-order/new", label: "أمر توريد نقدية" },
-  { href: "/accounting/cheques/incoming", label: "أوراق القبض" },
-  { href: "/accounting/cheques/outgoing", label: "أوراق الدفع" },
   { href: "/accounting/operations/treasury/payment-voucher", label: "سند صرف نقدية" },
   { href: "/accounting/operations/treasury/receipt-voucher", label: "سند قبض نقدية" },
   { href: "/accounting/operations/treasury/temp-receipt", label: "إيصال مؤقت" },

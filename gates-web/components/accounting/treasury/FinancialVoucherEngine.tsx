@@ -53,6 +53,7 @@ import { useCompanyPrintProfile } from '@/lib/hooks/useCompanyPrintProfile';
 import { useApiQuery, useApiMutation, useInvalidateQuery } from '@/lib/hooks/useApi';
 import {
   invalidateTreasuryFundBalances,
+  useBankAccountsQuery,
   useLiveFundBalance,
   useSafesQuery,
 } from '@/lib/hooks/useMasterDataQueries';
@@ -71,14 +72,19 @@ import {
 } from '@/lib/validation/accounting.schema';
 import { parseDecimal, roundMoney2 } from '@/lib/money/parseDecimal';
 import type { ApiError } from '@/lib/api/types';
+import {
+  postCashVoucherAfterSave,
+  useRepostAfterUnpost,
+} from '@/lib/accounting/ensure-posted-after-save';
 import { toastVersionConflict } from '@/lib/feedback/toast';
+import { isOptimisticLockApiError } from '@/lib/concurrency/version-conflict';
 import { dispatchAcademyTrigger } from '@/lib/onboarding/tourCheckpoints';
 import { getTenantContext } from '@/lib/tenant/tenant-context-storage';
 import {
   FINANCIAL_VOUCHER_VARIANTS,
   type FinancialVoucherVariantId,
 } from '@/lib/treasury/financial-voucher.variant';
-import type { TransactionSettings } from '@/lib/transaction-settings/types';
+import { shouldLockLoadedSource, type TransactionSettings } from '@/lib/transaction-settings/types';
 import { useShowFxColumns } from '@/lib/transaction-settings/useShowFxColumns';
 import { ShowFxColumnsField } from '@/components/accounting/ShowFxColumnsField';
 import { consumeAiTransactionDraft, peekAiTransactionDraft } from '@/lib/ai/ai-draft-storage';
@@ -277,6 +283,7 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
   const invalidateQuery = useInvalidateQuery();
   const lastHydratedIdRef = useRef<string | null>(null);
   const aiDraftAppliedRef = useRef(false);
+  const { markUnpostedForEdit, consumeShouldRepost, resetKeepPosted } = useRepostAfterUnpost();
   const todayStr = new Date().toISOString().split('T')[0];
   const companyId = getTenantContext().companyId;
   const isBank = variant.fundType === 'BANK_ACCOUNT';
@@ -427,7 +434,6 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
     applyRestore: applyVoucherDraft,
     isEmpty: (draft) =>
       !draft.header?.description?.trim() &&
-      !draft.header?.fundId?.trim() &&
       !(draft.voucherLines ?? []).some((line) => line.accountId) &&
       !(draft.creditLines ?? []).some((line) => line.accountId) &&
       !(draft.allocations ?? []).length,
@@ -437,7 +443,7 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
   const { data: accountsResponse } = useApiQuery<Account[]>(
     ['accounts', 'leaf'],
     '/accounting/accounts',
-    { limit: 500, isActive: true, leafOnly: true }
+    { limit: 20000, isActive: true, leafOnly: true }
   );
   const accounts = accountsResponse?.data || [];
 
@@ -449,12 +455,7 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
   const currencies = useMemo(() => currenciesResponse?.data || [], [currenciesResponse?.data]);
 
   const { data: safesResponse } = useSafesQuery({ enabled: !isBank });
-  const { data: banksResponse } = useApiQuery<FundOption[]>(
-    ['bank-accounts'],
-    '/accounting/bank-accounts',
-    { isActive: true },
-    { enabled: isBank, staleTime: 0, refetchOnMount: 'always' }
-  );
+  const { data: banksResponse } = useBankAccountsQuery({ enabled: isBank });
   const funds = isBank ? banksResponse?.data || [] : safesResponse?.data || [];
   const { data: liveFundResponse } = useLiveFundBalance({
     kind: isBank ? 'bank' : 'safe',
@@ -577,26 +578,11 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
         invalidateQuery(['journal-entries']);
         invalidateTreasuryFundBalances(invalidateQuery);
         dispatchAcademyTrigger('API_SUCCESS', variant.academyTrigger);
-        if (row?.id) {
-          lastHydratedIdRef.current = null;
-          clearDraft();
-          openVoucher(row.id);
-          setIsPosted(Boolean(row.isPosted));
-          setIsCancelled(Boolean(row.isCancelled));
-          setDocumentVersion(typeof row.version === 'number' ? row.version : documentVersion + 1);
-          setJournalEntryId(row.journalEntryId ?? row.journalEntry?.id ?? null);
-          setJournalNumber(row.journalEntry?.voucherNumber ?? null);
-          setIsEditing(false);
-          if (row.isPosted || row.isCancelled) lockToView();
-          else setMode('edit');
-          setSuccess(message);
-          return;
-        }
         resetForm();
         setSuccess(message);
       },
       onError: (err: ApiError) => {
-        if (err.code === '409') {
+        if (isOptimisticLockApiError(err)) {
           toastVersionConflict(err.message, () => {
             lastHydratedIdRef.current = null;
             invalidateQuery(['cash-voucher-detail', savedVoucherId ?? 'none']);
@@ -614,9 +600,6 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
     {
       onSuccess: (res: { data?: CashTxRow }) => {
         const row = res?.data;
-        const message = row?.isPosted
-          ? `تم حفظ تعديلات ${variant.title} وتحديث القيد`
-          : `تم حفظ تعديلات ${variant.title} بنجاح`;
         invalidateQuery(['treasury-cash-transactions']);
         invalidateQuery(['cash-voucher-detail']);
         invalidateQuery(['cash-order-detail']);
@@ -625,22 +608,32 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
         invalidateQuery(['journal-entries']);
         invalidateTreasuryFundBalances(invalidateQuery);
         dispatchAcademyTrigger('API_SUCCESS', variant.academyTrigger);
-        if (row?.id) {
-          lastHydratedIdRef.current = null;
-          clearDraft();
-          setIsPosted(Boolean(row.isPosted));
-          setIsCancelled(Boolean(row.isCancelled));
-          setDocumentVersion(typeof row.version === 'number' ? row.version : documentVersion + 1);
-          setJournalEntryId(row.journalEntryId ?? row.journalEntry?.id ?? null);
-          setJournalNumber(row.journalEntry?.voucherNumber ?? null);
-          setIsEditing(false);
-          if (row.isPosted || row.isCancelled) lockToView();
-          else setMode('edit');
+        if (row?.id && !row.isPosted && consumeShouldRepost()) {
+          void postCashVoucherAfterSave(row.id)
+            .then(() => {
+              invalidateQuery(['treasury-cash-transactions']);
+              invalidateQuery(['cash-voucher-detail']);
+              invalidateQuery(['journal-entry']);
+              invalidateQuery(['journal-entries']);
+              invalidateTreasuryFundBalances(invalidateQuery);
+              resetForm();
+              setSuccess(`تم حفظ تعديلات ${variant.title} وترحيل القيد`);
+            })
+            .catch((err: ApiError) => {
+              resetForm();
+              setError(err.message || 'تم الحفظ لكن تعذر ترحيل القيد');
+            });
+          return;
         }
-        setSuccess(message);
+        resetForm();
+        setSuccess(
+          row?.isPosted
+            ? `تم حفظ تعديلات ${variant.title} وتحديث القيد`
+            : `تم حفظ تعديلات ${variant.title} بنجاح`
+        );
       },
       onError: (err: ApiError) => {
-        if (err.code === '409') {
+        if (isOptimisticLockApiError(err)) {
           toastVersionConflict(err.message, () => {
             lastHydratedIdRef.current = null;
             invalidateQuery(['cash-voucher-detail', savedVoucherId ?? 'none']);
@@ -668,7 +661,7 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
         lockToView();
       },
       onError: (err: ApiError) => {
-        if (err.code === '409') {
+        if (isOptimisticLockApiError(err)) {
           toastVersionConflict(err.message, () => {
             lastHydratedIdRef.current = null;
             invalidateQuery(['cash-voucher-detail', savedVoucherId ?? 'none']);
@@ -723,6 +716,7 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
       onSuccess: (res: { data?: CashTxRow }) => {
         const row = res?.data;
         setIsPosted(false);
+        markUnpostedForEdit();
         setIsCancelled(Boolean(row?.isCancelled));
         if (typeof row?.version === 'number') setDocumentVersion(row.version);
         setJournalEntryId(row?.journalEntryId ?? row?.journalEntry?.id ?? null);
@@ -964,10 +958,14 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
   const totalAmount = isModernVoucher
     ? mainTotal - otherTotal
     : voucherLines.reduce((sum, line) => sum + (Number(line.amount) || 0), 0);
+  const documentNet = isModernVoucher
+    ? voucherLines.reduce((sum, line) => sum + (Number(line.amount) || 0), 0) -
+      creditLines.reduce((sum, line) => sum + (Number(line.amount) || 0), 0)
+    : voucherLines.reduce((sum, line) => sum + (Number(line.amount) || 0), 0);
   const overdraftWarning =
     variant.transactionKind === 'PAYMENT' &&
     preventCashOverdraft &&
-    isCashAmountOverBalance(totalAmount, balanceNum);
+    isCashAmountOverBalance(documentNet, balanceNum);
   const { profile: companyProfile } = useCompanyPrintProfile();
 
   useEffect(() => {
@@ -1075,9 +1073,11 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
     return !isPayable ? settlementPartyId : '';
   }, [isPayable, settlementPartyId, voucherLines]);
 
-  const locked = isReadOnly || isCancelled || financialBusy;
+  const lockLoadedOrder = shouldLockLoadedSource(txSettings, sourceOrderId);
+  const locked = isReadOnly || isCancelled || financialBusy || lockLoadedOrder;
 
   const resetForm = () => {
+    resetKeepPosted();
     const fundAccountId = isBank ? txSettings?.defaultBankGlAccountId : txSettings?.defaultCashAccountId;
     const nextFundId = fundIdForGlAccount(funds, fundAccountId);
     const costCenter = txSettings?.defaultCostCenterId ?? '';
@@ -1207,7 +1207,10 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
         allocations: allocations.length ? allocations : undefined,
       };
       if (savedVoucherId) {
-        updateMutation.mutate({ ...payload, expectedVersion: documentVersion });
+        updateMutation.mutate({
+          ...payload,
+          ...(documentVersion > 0 ? { expectedVersion: documentVersion } : {}),
+        });
         return;
       }
       saveMutation.mutate(payload);
@@ -1350,7 +1353,7 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
               orders.find((o) => o.id === sourceOrderId)?.voucherNumber ||
               undefined
             }
-            disabled={locked}
+            disabled={isReadOnly || isCancelled || financialBusy}
             onChange={(id) => {
               setValue('sourceOrderId', id, { shouldDirty: true, shouldValidate: false });
               if (id) {
@@ -1551,6 +1554,7 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
                 <button
                   type="button"
                   className={advancedActionClass}
+                  disabled={locked}
                   onClick={() => setShowPaymentsModal(true)}
                 >
                   توزيع السدادات على الفواتير
@@ -1560,11 +1564,11 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
                     </span>
                   ) : null}
                 </button>
-                <button type="button" className={advancedActionClass} onClick={() => setShowRecurringModal(true)}>
+                <button type="button" className={advancedActionClass} disabled={locked} onClick={() => setShowRecurringModal(true)}>
                   سند دوري
                 </button>
                 {postingMode === 'MULTI' ? (
-                  <button type="button" className={advancedActionClass} onClick={() => setShowApprovalsModal(true)}>
+                  <button type="button" className={advancedActionClass} disabled={locked} onClick={() => setShowApprovalsModal(true)}>
                     حالة الاعتماد
                   </button>
                 ) : null}
@@ -1581,6 +1585,7 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
           <button
             type="button"
             className={advancedActionClass}
+            disabled={locked}
             onClick={() => setShowPaymentsModal(true)}
           >
             توزيع السدادات على الفواتير
@@ -1590,11 +1595,11 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
               </span>
             ) : null}
           </button>
-          <button type="button" className={advancedActionClass} onClick={() => setShowRecurringModal(true)}>
+          <button type="button" className={advancedActionClass} disabled={locked} onClick={() => setShowRecurringModal(true)}>
             سند دوري
           </button>
           {postingMode === 'MULTI' && (
-            <button type="button" className={advancedActionClass} onClick={() => setShowApprovalsModal(true)}>
+            <button type="button" className={advancedActionClass} disabled={locked} onClick={() => setShowApprovalsModal(true)}>
               حالة الاعتماد
             </button>
           )}
@@ -1604,6 +1609,7 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
 
       <div data-tour-id={variant.tourLines}>
         <FormSectionCard title="بنود السند" bodyClassName="grid-cols-1 sm:grid-cols-1 lg:grid-cols-1">
+          <div key={orderRefResetKey}>
           {isCashPayment || isBankDebit ? (
             <>
               {isBankDebit ? (
@@ -1703,6 +1709,7 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
               headerDescription={descriptionW}
             />
           )}
+          </div>
         </FormSectionCard>
       </div>
       </DocumentFormLock>

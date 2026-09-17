@@ -19,7 +19,7 @@ import { useCompanyBaseCurrency } from '@/lib/hooks/useCompanyBaseCurrency';
 import { ExchangeRateInput } from '@/components/accounting/ExchangeRateInput';
 import { VoucherAccountCombobox } from './VoucherAccountCombobox';
 import { costCenterRuleFromAccount } from '@/lib/accounting/cost-center-rule';
-import { useAccountsQuery } from '@/lib/hooks/useMasterDataQueries';
+import { ACCOUNT_PICKER_PAGE_SIZE, useAccountsQuery } from '@/lib/hooks/useMasterDataQueries';
 import { useFollowHeaderDescription } from '@/lib/hooks/useFollowHeaderDescription';
 
 export type VoucherLineCurrency = {
@@ -78,7 +78,7 @@ export function VoucherLinesGrid({
   headerDescription = '',
 }: Props) {
   const { code: companyBase, label: companyBaseLabel } = useCompanyBaseCurrency();
-  const { data: accountsRes } = useAccountsQuery(undefined, 500, { leafOnly: true });
+  const { data: accountsRes } = useAccountsQuery(undefined, ACCOUNT_PICKER_PAGE_SIZE, { leafOnly: true });
   const accounts = accountsRes?.data ?? [];
   const ruleFor = (accountId?: string) =>
     costCenterRuleFromAccount(accounts.find((a) => a.id === accountId));

@@ -1,17 +1,20 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { Percent, Plus, Trash2 } from 'lucide-react';
 import {
-  PageHeader,
   Button,
   CompactFormField,
-  FormStickyFooter,
   FormSectionCard,
   compactControlClass,
-  CrudButtons,
+  denseTableWrapClass,
+  denseTableClass,
+  denseTheadClass,
+  denseThClass,
+  denseTdClass,
+  denseTrClass,
 } from '@/components/ui';
+import { MasterCardShell } from '@/components/erp';
 import { AccountSelect } from '@/components/form/AccountSelect';
 import { ItemSelect } from '@/components/form/ItemSelect';
 import { CustomerSelect, SupplierSelect } from '@/components/form/PartySelect';
@@ -88,7 +91,6 @@ function asPercent(value: number | string | null | undefined): string {
 }
 
 export default function OtherAdditionsDiscountsPage() {
-  const router = useRouter();
   const invalidateQuery = useInvalidateQuery();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
@@ -206,16 +208,15 @@ export default function OtherAdditionsDiscountsPage() {
     try {
       if (selectedId) {
         await apiClient.put(`/inventory/other-addition-discount-types/${selectedId}`, body);
-        setSuccess('تم تحديث الإضافة / الخصم');
       } else {
-        const res = await apiClient.post<OtherAdditionRow>(
+        await apiClient.post<OtherAdditionRow>(
           '/inventory/other-addition-discount-types',
           body
         );
-        if (res.data?.id) setSelectedId(res.data.id);
-        setSuccess('تم حفظ الإضافة / الخصم');
       }
       invalidateQuery(['other-addition-discount-types']);
+      handleNew();
+      setSuccess('تم حفظ الإضافة / الخصم — تقدر تضيف التالي');
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'حدث خطأ أثناء الحفظ');
     } finally {
@@ -242,31 +243,31 @@ export default function OtherAdditionsDiscountsPage() {
   const activeHint = SCOPE_TABS.find((t) => t.id === activeTab)?.hint ?? '';
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50 p-6" style={{ direction: 'rtl' }}>
+    <MasterCardShell
+      title="إضافات وخصومات أخرى"
+      breadcrumbs={[
+        { label: 'المخازن', href: '/inventory' },
+        { label: 'العمليات' },
+        { label: 'إضافات وخصومات أخرى' },
+      ]}
+      docNumber={form.serial || form.name || 'جديد'}
+      statusLabel={selectedId ? (form.isActive ? 'نشط' : 'موقوف') : 'جديد'}
+      onSave={() => void handleSave()}
+      savePending={saving}
+      canSave={!saving}
+      onNew={handleNew}
+      currentId={selectedId}
+      favoriteHref="/inventory/operations/other-additions-discounts"
+      moreMenuItems={[
+        {
+          id: 'archive',
+          label: selectedId && !form.isActive ? 'تفعيل' : 'إيقاف',
+          onClick: () => patch({ isActive: !form.isActive }),
+        },
+      ]}
+    >
       {error && <ErrorToast message={error} onClose={() => setError('')} />}
       {success && <SuccessToast message={success} onClose={() => setSuccess('')} />}
-
-      <PageHeader
-        title="إضافات وخصومات أخرى"
-        breadcrumbs={[
-          { label: 'المخزون', href: '/inventory' },
-          { label: 'العمليات' },
-          { label: 'إضافات وخصومات أخرى' },
-        ]}
-        actions={
-          <CrudButtons
-            onPrevious={() => router.back()}
-            onAdd={handleNew}
-            extraItems={[
-              {
-                id: 'archive',
-                label: selectedId && !form.isActive ? 'تفعيل' : 'إيقاف',
-                onClick: () => patch({ isActive: !form.isActive }),
-              },
-            ]}
-          />
-        }
-      />
 
       <OtherAdditionsListSection onSelect={applyRow} selectedId={selectedId} />
 
@@ -457,19 +458,19 @@ export default function OtherAdditionsDiscountsPage() {
           ))}
         </div>
 
-        <div className="overflow-x-auto rounded-2xl">
-          <table className="min-w-full border-separate border-spacing-0 text-center">
-            <thead>
-              <tr className="bg-gradient-to-b from-[#0E78AA] to-[#0A5F8A] text-white">
-                <th className="px-3 py-3 font-semibold">المصدر</th>
-                <th className="w-40 px-3 py-3 font-semibold">النسبة %</th>
-                <th className="w-12 px-2 py-3" />
+        <div className={denseTableWrapClass}>
+          <table className={denseTableClass}>
+            <thead className={denseTheadClass}>
+              <tr>
+                <th className={denseThClass}>المصدر</th>
+                <th className={`${denseThClass} w-40`}>النسبة %</th>
+                <th className={`${denseThClass} w-12`} />
               </tr>
             </thead>
             <tbody>
               {scopeRows[activeTab].map((row, idx) => (
-                <tr key={`${activeTab}-${idx}`} className={idx % 2 === 0 ? 'bg-[#F6FBFD]' : 'bg-white'}>
-                  <td className="border-x border-[#D6EAF3] px-2 py-2 text-right">
+                <tr key={`${activeTab}-${idx}`} className={denseTrClass}>
+                  <td className={`${denseTdClass} text-right`}>
                     {activeTab === 'activities' && (
                       <select
                         className={compactControlClass}
@@ -539,7 +540,7 @@ export default function OtherAdditionsDiscountsPage() {
                       />
                     )}
                   </td>
-                  <td className="border-x border-[#D6EAF3] px-2 py-2">
+                  <td className={denseTdClass}>
                     <input
                       className={compactControlClass}
                       type="number"
@@ -550,7 +551,7 @@ export default function OtherAdditionsDiscountsPage() {
                       onChange={(e) => updateScope(activeTab, idx, { percentage: e.target.value })}
                     />
                   </td>
-                  <td className="px-2 py-2">
+                  <td className={denseTdClass}>
                     <button
                       type="button"
                       className="text-slate-400 hover:text-red-500"
@@ -590,13 +591,6 @@ export default function OtherAdditionsDiscountsPage() {
         </Button>
       </section>
 
-      <FormStickyFooter
-        onCancel={() => router.back()}
-        onSave={() => void handleSave()}
-        saveLoading={saving}
-        saveDisabled={saving}
-        status={selectedId ? 'تعديل' : 'مسودة'}
-      />
-    </div>
+    </MasterCardShell>
   );
 }

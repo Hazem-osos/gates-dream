@@ -183,7 +183,7 @@ export class JournalEntryService {
       if (options.entryType) {
         where.entryType = options.entryType;
       } else {
-        where.NOT = { entryType: 'OPENING_BALANCE' };
+        where.NOT = { entryType: { in: ['OPENING_BALANCE', 'REVERSAL'] } };
       }
 
       const includeLines = options.includeLines === true;

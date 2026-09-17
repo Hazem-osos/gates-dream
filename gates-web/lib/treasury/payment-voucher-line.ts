@@ -50,6 +50,18 @@ export function splitPaymentLineTotals(lines: PaymentVoucherLine[]) {
   return { debitTotal, creditTotal, netCash: debitTotal - creditTotal };
 }
 
+/** Document-currency totals — overdraft must use these vs the FX-converted safe balance. */
+export function splitPaymentLineForeignTotals(lines: PaymentVoucherLine[]) {
+  let debitTotal = 0;
+  let creditTotal = 0;
+  for (const line of lines) {
+    const amount = Number(line.amount) || 0;
+    if ((line.entrySide ?? 'DEBIT') === 'CREDIT') creditTotal += amount;
+    else debitTotal += amount;
+  }
+  return { debitTotal, creditTotal, netCash: debitTotal - creditTotal };
+}
+
 export function toCashPayloadLine(line: PaymentVoucherLine, headerCurrency: string) {
   const exchangeRate = Number(line.exchangeRate ?? 1) || 1;
   const amount = Number(line.amount);

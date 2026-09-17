@@ -18,7 +18,7 @@ import {
 } from './cash-transaction.service';
 import type { TreasuryPostingContext } from '../types/treasury.types';
 import { cashDisbursementWorkflowService } from './cash-disbursement-workflow.service';
-import { splitVoucherLineTotals } from '../types/vouchers.dto';
+import { splitVoucherLineForeignTotals, splitVoucherLineTotals } from '../types/vouchers.dto';
 import { asFxRate } from '../../accounting/utils/company-fx-rate';
 
 type CashTx = Prisma.CashTransactionGetPayload<{
@@ -130,8 +130,19 @@ export class TreasuryPostingService {
         (sum, line) => sum + line.credit * asFxRate(line.exchangeRate, 1),
         0
       );
-      const netCash = creditTotal - debitTotal;
-      if (netCash <= 0) {
+      const netCashBase = creditTotal - debitTotal;
+      const headerRate = asFxRate(tx.exchangeRate, 1);
+      const netCashForeign = splitVoucherLineForeignTotals(
+        voucherLines.map((line) => ({
+          amount: Number(line.amount),
+          entrySide:
+            (line as { entrySide?: string }).entrySide === 'DEBIT' && hasCreditLeg
+              ? 'DEBIT'
+              : 'CREDIT',
+        })),
+        'RECEIPT'
+      ).netCash;
+      if (netCashBase <= 0 || netCashForeign <= 0) {
         throw new AppError(
           422,
           tx.bankAccountId
@@ -141,14 +152,14 @@ export class TreasuryPostingService {
       }
       let lineOrder = 1;
       return {
-        amount: netCash,
+        amount: netCashBase,
         lines: [
           {
             accountId: destAccountId,
-            debit: netCash,
+            debit: netCashForeign,
             credit: 0,
             lineOrder: lineOrder++,
-            exchangeRate: 1,
+            exchangeRate: headerRate,
           },
           ...debitLegs.map((line) => ({ ...line, lineOrder: lineOrder++ })),
           ...creditLegs.map((line) => ({ ...line, lineOrder: lineOrder++ })),
@@ -238,8 +249,16 @@ export class TreasuryPostingService {
         (sum, line) => sum + line.credit * asFxRate(line.exchangeRate, 1),
         0
       );
-      const netCash = debitTotal - creditTotal;
-      if (netCash <= 0) {
+      const netCashBase = debitTotal - creditTotal;
+      const headerRate = asFxRate(tx.exchangeRate, 1);
+      const netCashForeign = splitVoucherLineForeignTotals(
+        voucherLines.map((line) => ({
+          amount: Number(line.amount),
+          entrySide: (line as { entrySide?: string }).entrySide === 'CREDIT' ? 'CREDIT' : 'DEBIT',
+        })),
+        'PAYMENT'
+      ).netCash;
+      if (netCashBase <= 0 || netCashForeign <= 0) {
         throw new AppError(
           422,
           tx.bankAccountId
@@ -248,16 +267,16 @@ export class TreasuryPostingService {
         );
       }
       return {
-        amount: netCash,
+        amount: netCashBase,
         lines: [
           ...debitLegs,
           ...creditLegs,
           {
             accountId: sourceAccountId,
             debit: 0,
-            credit: netCash,
+            credit: netCashForeign,
             lineOrder: order,
-            exchangeRate: 1,
+            exchangeRate: headerRate,
           },
         ],
       };
@@ -644,29 +663,11 @@ export class TreasuryPostingService {
 
     if (row.isPosted) {
       if (row.journalEntryId) {
-        // P1 fix: this used to gate *only* the GL contra entry behind the
-        // `GLUnPost` company flag while unconditionally reversing safe/bank
-        // and customer/supplier balances above/below — when `GLUnPost` was
-        // false, the subledger balances unwound but the GL entry stayed
-        // posted forever, permanently diverging from the party/safe
-        // balances. `GLUnPost` (see `journalPostingService.unpostJournalEntry`)
-        // is a permission gate on the *manual, top-level* "unpost this GL
-        // entry" action; this method is called from cascading internal
-        // unwinds (e.g. unposting the parent invoice that auto-settled this
-        // cash transaction), which must stay atomic with everything else
-        // that unwinds alongside it. So the GL contra entry is now always
-        // reversed together with the balances instead of being skippable.
         if (isReceipt) {
           await this.reverseReceiptBalances(tx, row, amount);
         } else {
           await this.reversePaymentBalances(tx, row, amount);
         }
-        // C11 fix: reverse the cash-transaction JE with a dated contra
-        // entry instead of flag-flipping it back to "unposted".
-        await journalPostingService.reverseJournalEntryInTx(tx, ctx, row.journalEntryId, {
-          date: row.date,
-          reason: `Cash transaction ${row.voucherNumber ?? row.id.slice(0, 8)} unposted`,
-        });
         await journalPostingService.cascadeSourceJournalInTx(
           tx,
           ctx.companyId,

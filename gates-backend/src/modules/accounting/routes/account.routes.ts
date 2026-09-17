@@ -53,7 +53,17 @@ async function handleSeedDefaults(req: AuthRequest, res: Response) {
       typeof req.body?.industry === 'string' && req.body.industry.trim()
         ? req.body.industry.trim()
         : undefined;
-    const result = await coaSeederService.seedDefaults(companyId, { force, industry });
+    const coaAutoNumbering =
+      typeof req.body?.coaAutoNumbering === 'boolean'
+        ? req.body.coaAutoNumbering
+        : req.body?.numberingMode === 'manual'
+          ? false
+          : true;
+    const result = await coaSeederService.seedDefaults(companyId, {
+      force,
+      industry,
+      coaAutoNumbering,
+    });
 
     return void res.json({
       status: 'success',
@@ -364,7 +374,7 @@ router.put(
 
 /**
  * DELETE /api/v1/accounting/accounts/:id
- * Delete account (soft delete)
+ * Delete unused account, or mark cancelled-only accounts as ملغي.
  */
 router.delete(
   '/:id',
@@ -379,9 +389,12 @@ router.delete(
         });
       }
 
-      await accountService.deleteAccount(companyId, req.params.id);
+      const result = await accountService.deleteAccount(companyId, req.params.id);
 
-      return void res.status(204).send();
+      return void res.json({
+        status: 'success',
+        data: result,
+      });
     } catch (error) {
       if (!(error instanceof AppError) || error.statusCode >= 500) {
         logger.error({ error, accountId: req.params.id }, 'Error deleting account');

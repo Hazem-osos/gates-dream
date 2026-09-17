@@ -1,17 +1,14 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { Plus, Trash2 } from 'lucide-react';
 import {
-  PageHeader,
   Button,
-  FormStickyFooter,
   AppTable,
   FilterToolbar,
-  CrudButtons,
   compactControlClass,
 } from '@/components/ui';
+import { MasterCardShell } from '@/components/erp';
 import { ItemSelect } from '@/components/form/ItemSelect';
 import { useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
 import { apiClient } from '@/lib/api/client';
@@ -93,7 +90,6 @@ function toRow(line: ApiLine): QtyRow {
 }
 
 export default function RepresentativesCommissionQuantitiesPage() {
-  const router = useRouter();
   const invalidateQuery = useInvalidateQuery();
   const hydrated = useRef(false);
   const [lines, setLines] = useState<QtyRow[]>([emptyRow(), emptyRow(), emptyRow()]);
@@ -175,25 +171,24 @@ export default function RepresentativesCommissionQuantitiesPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50 p-6" style={{ direction: 'rtl' }}>
+    <MasterCardShell
+      title="تعريف سياسة عمولات المندوبين كميات"
+      breadcrumbs={[
+        { label: 'المخازن', href: '/inventory' },
+        { label: 'التعريفات' },
+        { label: 'عمولات المندوبين كميات' },
+      ]}
+      docNumber="جدول العمولات"
+      statusLabel="تعديل"
+      onSave={() => void handleSave()}
+      savePending={saving}
+      canSave={!saving}
+      onNew={handleClear}
+      favoriteHref="/inventory/creations/representatives-commission-quantities"
+      moreMenuItems={[{ id: 'add-item', label: 'إضافة صنف', onClick: handleNew }]}
+    >
       {error && <ErrorToast message={error} onClose={() => setError('')} />}
       {success && <SuccessToast message={success} onClose={() => setSuccess('')} />}
-
-      <PageHeader
-        title="تعريف سياسة عمولات المندوبين كميات"
-        breadcrumbs={[
-          { label: 'المخزون', href: '/inventory' },
-          { label: 'التعريفات' },
-          { label: 'عمولات المندوبين كميات' },
-        ]}
-        actions={
-          <CrudButtons
-            onPrevious={() => router.back()}
-            onAdd={handleNew}
-            extraItems={[{ id: 'clear', label: 'مسح الجدول', onClick: handleClear }]}
-          />
-        }
-      />
 
       <p className="mb-3 text-sm font-semibold text-[#0A3D5E]">الأصناف الخاضعة للعمولات</p>
 
@@ -386,13 +381,6 @@ export default function RepresentativesCommissionQuantitiesPage() {
         />
       </div>
 
-      <FormStickyFooter
-        onCancel={() => router.back()}
-        onSave={() => void handleSave()}
-        saveLoading={saving}
-        saveDisabled={saving}
-        status="الأصناف الخاضعة للعمولات"
-      />
-    </div>
+    </MasterCardShell>
   );
 }

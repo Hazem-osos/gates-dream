@@ -4,9 +4,8 @@ import { useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/EmptyState';
-import { PageHeader } from '@/components/ui/PageHeader';
+import { RealEstatePageShell, ReCard, ReMetric, ReSkeleton, RealEstateWorkspaceHeader } from '@/components/real-estate/RealEstatePageShell';
 import { ContractInstallmentsTable } from '@/components/real-estate/ContractInstallmentsTable';
-import { RealEstatePageShell, ReCard, ReMetric, ReSkeleton } from '@/components/real-estate/RealEstatePageShell';
 import { ContractStatusBadge, ResaleLockBadge } from '@/components/real-estate/StatusBadges';
 import { useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
 import { queryKeys, staleTimes } from '@/lib/query/query-keys';
@@ -89,15 +88,18 @@ export default function ContractWorkspacePage() {
 
   return (
     <RealEstatePageShell>
-      <PageHeader
+      <RealEstateWorkspaceHeader
         title={contract ? `عقد ${contract.contractNumber}` : 'عقد الوحدة'}
         breadcrumbs={[
-          { label: 'العقاري', href: '/real-estate' },
+          { label: 'الاستثمار العقاري', href: '/real-estate-investment' },
           { label: 'العقود', href: '/real-estate/contracts' },
           { label: contract?.contractNumber ?? 'تفاصيل' },
         ]}
-        statusBadge={contract ? <ContractStatusBadge status={contract.status} /> : undefined}
-        actions={
+        favoriteHref="/real-estate/contracts"
+        statusLabel="عقد"
+        docNumber={contract?.contractNumber}
+        currentId={contract?.id}
+        extraActions={
           contract && contract.status === 'ACTIVE' ? (
             <div className="flex flex-wrap gap-2">
               <Button size="sm" onClick={() => setScheduleOpen(true)}>توليد جدول الأقساط</Button>

@@ -7,6 +7,7 @@ const SUMMARY_KEY_LABELS: Record<string, string> = {
   totalQuantity: 'إجمالي الكميات',
   totalReturns: 'إجمالي المرتجعات',
   totalPaid: 'إجمالي المدفوع',
+  totalRemaining: 'المتبقي',
   totalProfit: 'إجمالي الربح',
   totalCost: 'إجمالي التكلفة',
   netSales: 'صافي المبيعات',

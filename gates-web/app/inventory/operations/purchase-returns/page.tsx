@@ -7,9 +7,14 @@ import { InventoryInvoicesListSection } from '@/components/inventory/InventoryIn
 import { useApiQuery, useApiMutation, useInvalidateQuery } from '@/lib/hooks/useApi';
 import { apiClient } from '@/lib/api/client';
 import type { ApiError } from '@/lib/api/types';
+import {
+  postInvoiceAfterSave,
+  useRepostAfterUnpost,
+} from '@/lib/accounting/ensure-posted-after-save';
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
 import { toastVersionConflict } from '@/lib/feedback/toast';
+import { isOptimisticLockApiError } from '@/lib/concurrency/version-conflict';
 import { mapSalesFormToM5CreateBody, mapSalesFormToM5UpdateBody } from '@/lib/invoices/mapFormToM5Invoice';
 import { computeInvoiceFinancialSummary } from '@/lib/invoices/computeInvoiceFinancialSummary';
 import { ErpDocumentLayout } from '@/components/erp/ErpDocumentLayout';
@@ -54,6 +59,7 @@ export default function PurchaseReturnsPage() {
     () => invoiceIdParam?.trim() || null
   );
   const [isPosted, setIsPosted] = useState(false);
+  const { markUnpostedForEdit, consumeShouldRepost, resetKeepPosted } = useRepostAfterUnpost();
   const [showList, setShowList] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -233,6 +239,7 @@ export default function PurchaseReturnsPage() {
   }, [returnableRes?.data, sourcePurchaseInvoiceId, selectedReturnId]);
 
   const resetForm = useCallback(() => {
+    resetKeepPosted();
     setSelectedReturnId(null);
     setIsPosted(false);
     setInvoiceNumber('');
@@ -242,7 +249,7 @@ export default function PurchaseReturnsPage() {
     setSourcePurchaseInvoiceId('');
     setReturnLines([]);
     setDate(new Date().toISOString().split('T')[0]);
-  }, [txSettings?.defaultWarehouseId]);
+  }, [resetKeepPosted, txSettings?.defaultWarehouseId]);
 
   const sourceRefLabel = () => {
     const ref = purchaseInvoices.find((i) => i.id === sourcePurchaseInvoiceId);
@@ -306,11 +313,24 @@ export default function PurchaseReturnsPage() {
       showSuccessToast: false,
       onSuccess: () => {
         invalidateQuery(['invoices']);
+        const id = selectedReturnId;
+        if (consumeShouldRepost() && id) {
+          void postInvoiceAfterSave(id)
+            .then(() => {
+              resetForm();
+              setSuccess('تم حفظ التعديلات وترحيل المردود');
+            })
+            .catch((error: ApiError) => {
+              resetForm();
+              setError(error.message || 'تم الحفظ لكن تعذر ترحيل المردود');
+            });
+          return;
+        }
         resetForm();
         setSuccess('تم تحديث المردود');
       },
       onError: (error: ApiError) => {
-        if (error.code === '409') {
+        if (isOptimisticLockApiError(error)) {
           toastVersionConflict(error.message, () => invalidateQuery(['invoice', selectedReturnId]));
           return;
         }
@@ -341,6 +361,7 @@ export default function PurchaseReturnsPage() {
     {
       onSuccess: () => {
         setIsPosted(false);
+        markUnpostedForEdit();
         setSuccess('تم فك ترحيل المردود');
         invalidateQuery(['invoices']);
       },

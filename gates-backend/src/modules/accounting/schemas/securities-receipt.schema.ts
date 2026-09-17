@@ -32,11 +32,30 @@ export const updateSecuritiesReceiptSchema = securitiesReceiptFieldsSchema.parti
 
 export const bounceSecuritiesReceiptSchema = z.object({
   description: z.string().optional(),
+  date: z
+    .string()
+    .optional()
+    .transform((val) => (val ? new Date(val) : undefined)),
+  accountId: z.string().uuid().optional(),
+});
+
+export const collectSecuritiesSchema = z.object({
+  accountId: z.string().uuid('اختر حساب التحصيل'),
+  date: z
+    .string()
+    .optional()
+    .transform((val) => (val ? new Date(val) : undefined)),
+  description: z.string().optional(),
+  costCenterId: z.string().uuid().optional().nullable(),
 });
 
 export const endorseSecuritiesReceiptSchema = z.object({
   supplierId: z.string().uuid('اختر المظهَّر إليه'),
   description: z.string().optional(),
+  date: z
+    .string()
+    .optional()
+    .transform((val) => (val ? new Date(val) : undefined)),
 });
 
 export const securitiesReceiptQuerySchema = z.object({
@@ -53,6 +72,7 @@ export const securitiesReceiptQuerySchema = z.object({
 export type CreateSecuritiesReceiptInput = z.infer<typeof createSecuritiesReceiptSchema>;
 export type UpdateSecuritiesReceiptInput = z.infer<typeof updateSecuritiesReceiptSchema>;
 export type BounceSecuritiesReceiptInput = z.infer<typeof bounceSecuritiesReceiptSchema>;
+export type CollectSecuritiesInput = z.infer<typeof collectSecuritiesSchema>;
 export type EndorseSecuritiesReceiptInput = z.infer<typeof endorseSecuritiesReceiptSchema>;
 export type SecuritiesReceiptQueryInput = z.infer<typeof securitiesReceiptQuerySchema>;
 

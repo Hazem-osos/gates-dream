@@ -2,7 +2,8 @@
 
 import { useMemo, useState } from 'react';
 import { Warehouse } from 'lucide-react';
-import { PageHeader, FilterToolbar, Button, CompactFormField } from '@/components/ui';
+import { FilterToolbar, Button, CompactFormField } from '@/components/ui';
+import { ErpDocumentLayout, ErpDocumentPageHeader } from '@/components/erp';
 import { MasterGuideTree } from '@/components/accounting/guide/MasterGuideTree';
 import { GuideEntityModal } from '@/components/accounting/guide/GuideEntityModal';
 import { buildParentTree, type GuideTreeNode } from '@/lib/accounting/buildGuideTree';
@@ -160,19 +161,24 @@ export default function WarehouseGuidePage() {
   const isEmpty = !isLoading && rows.length === 0;
 
   return (
-    <div className="coa-page min-h-full bg-white text-slate-900" dir="rtl" style={{ colorScheme: 'light' }}>
-      <PageHeader
+    <ErpDocumentLayout className="coa-page">
+      <ErpDocumentPageHeader
+        compact
+        lockWhenPosted={false}
+        breadcrumbs={[
+          { href: '/inventory', label: 'المخازن' },
+          { label: 'الدليل' },
+          { label: 'دليل المخازن' },
+        ]}
         title="دليل المخازن"
-        description="شجرة المخازن — بحث، إضافة فرعي، تعديل وحذف"
+        showDocumentRef={false}
+        statusTone="info"
+        statusLabel="دليل"
+        hideStandalonePost
+        hideBrowseList
+        hideActionMenu
         favoriteHref="/inventory/guide"
         favoriteLabel="دليل المخازن"
-        className="[&_h1]:text-xl [&_h1]:font-bold [&_h1]:!text-slate-900 [&_p]:!text-slate-600"
-        statusBadge={
-          <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600">
-            دليل المخازن
-          </span>
-        }
-        actions={null}
       />
 
       {isEmpty ? (
@@ -254,6 +260,6 @@ export default function WarehouseGuidePage() {
           />
         </div>
       </GuideEntityModal>
-    </div>
+    </ErpDocumentLayout>
   );
 }

@@ -7,6 +7,7 @@ import type { PriceTier } from '@prisma/client';
 import { applyFullTextIds, findFullTextIds } from '../../../shared/database/fulltext-search';
 import { customerLedgerAccountService } from './customer-ledger-account.service';
 import { nextNumericCode } from '../../../shared/utils/next-numeric-code';
+import { AppError } from '../../../shared/middleware/error-handler';
 
 /** Lean projection for dropdowns / list screens (avoids joining mainAccount). */
 const CUSTOMER_LIST_SELECT = {
@@ -109,7 +110,8 @@ export class CustomerService {
         select: { arabicName: true, code: true, serial: true },
       });
       if (clash) {
-        throw new Error(
+        throw new AppError(
+          409,
           `الكود «${code}» مستخدم على «${clash.arabicName}». غيّر الكود ثم احفظ.`
         );
       }
@@ -118,9 +120,16 @@ export class CustomerService {
           where: { id: data.mainAccountId, companyId, deletedAt: null },
         });
         if (!account) {
-          throw new Error('Invalid mainAccountId for company');
+          throw new AppError(400, 'الحساب المختار غير موجود. الحل: اختر حساباً من الدليل أو اتركه ليُنشأ تلقائياً.');
         }
       }
+
+      await customerLedgerAccountService.assertLedgerAvailable({
+        side: 'CUSTOMER',
+        companyId,
+        arabicName: data.arabicName,
+        requestedAccountId: data.mainAccountId ?? data.accountId,
+      });
 
       const customer = await prisma.customer.create({
         data: {
@@ -187,10 +196,20 @@ export class CustomerService {
           requestedAccountId: data.mainAccountId ?? data.accountId,
         });
       } catch (ensureError) {
-        logger.warn(
-          { ensureError, companyId, customerId: customer.id },
-          'Customer saved without a ledger account'
-        );
+        try {
+          await prisma.customer.delete({ where: { id: customer.id } });
+        } catch {
+          await prisma.customer.update({
+            where: { id: customer.id },
+            data: {
+              deletedAt: new Date(),
+              isActive: false,
+              mainAccountId: null,
+              accountId: null,
+            },
+          });
+        }
+        throw ensureError;
       }
 
       const withLedger = await prisma.customer.findFirst({
@@ -223,6 +242,7 @@ export class CustomerService {
         where: {
           id: customerId,
           companyId,
+          deletedAt: null,
         },
         include: {
           mainAccount: {
@@ -270,6 +290,7 @@ export class CustomerService {
 
       const where: any = {
         companyId,
+        deletedAt: null,
       };
 
       if (options.search) {
@@ -346,12 +367,21 @@ export class CustomerService {
   ) {
     try {
       const existing = await prisma.customer.findFirst({
-        where: { id: customerId, companyId },
+        where: { id: customerId, companyId, deletedAt: null },
       });
 
       if (!existing) {
         throw new Error('Customer not found');
       }
+
+      await customerLedgerAccountService.assertLedgerAvailable({
+        side: 'CUSTOMER',
+        companyId,
+        arabicName: data.arabicName ?? existing.arabicName,
+        requestedAccountId: data.mainAccountId ?? data.accountId ?? existing.mainAccountId,
+        exceptPartyId: customerId,
+        exceptAccountId: existing.mainAccountId ?? existing.accountId,
+      });
 
       const updateData: Record<string, unknown> = {};
 
@@ -455,27 +485,23 @@ export class CustomerService {
   }
 
   /**
-   * Delete customer (soft delete)
+   * Delete customer. Blocked if the party or its personal GL account has movements.
+   * Unused personal accounts are removed from the chart of accounts.
    */
   async deleteCustomer(companyId: string, customerId: string) {
     try {
-      const customer = await prisma.customer.findFirst({
-        where: { id: customerId, companyId },
-      });
-
-      if (!customer) {
-        throw new Error('Customer not found');
-      }
-
-      await prisma.customer.update({
-        where: { id: customerId, companyId },
-        data: { isActive: false },
+      await customerLedgerAccountService.retirePartyAndLedger({
+        side: 'CUSTOMER',
+        companyId,
+        partyId: customerId,
       });
 
       logger.info({ companyId, customerId }, 'Customer deleted');
       return { success: true };
     } catch (error) {
-      logger.error({ error, companyId, customerId }, 'Error deleting customer');
+      if (!(error instanceof AppError)) {
+        logger.error({ error, companyId, customerId }, 'Error deleting customer');
+      }
       throw error;
     }
   }

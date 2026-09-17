@@ -22,7 +22,6 @@ import {
   CompactFormField,
   AdvancedFieldsSection,
   FormStickyFooter,
-  StatusBadge,
   Button,
   IconButton,
   compactControlClass,
@@ -41,6 +40,10 @@ import {
   type InventoryTransferHeaderFormInput,
 } from '@/lib/validation/inventory.schema';
 import type { ApiError } from '@/lib/api/types';
+import {
+  postNamedDocumentAfterSave,
+  useRepostAfterUnpost,
+} from '@/lib/accounting/ensure-posted-after-save';
 import { onFieldErrors } from '@/lib/forms/on-field-errors';
 
 
@@ -92,6 +95,7 @@ export default function TransferPage() {
 function TransferPageInner() {
   const searchParams = useOwnTabSearchParams();
   const { lockToView, setMode, unlockForEdit, isReadOnly } = useDocumentMode();
+  const { markUnpostedForEdit, consumeShouldRepost, resetKeepPosted } = useRepostAfterUnpost();
   const invalidateQuery = useInvalidateQuery();
   const todayStr = new Date().toISOString().split('T')[0];
 
@@ -220,6 +224,19 @@ function TransferPageInner() {
     {
       onSuccess: () => {
         invalidateQuery(['transfers']);
+        const id = selectedTransferId;
+        if (consumeShouldRepost() && id) {
+          void postNamedDocumentAfterSave(`/inventory/transfers/${id}/post`)
+            .then(() => {
+              handleNew();
+              setSuccess('تم حفظ التعديلات وترحيل النقل المخزني');
+            })
+            .catch((error: ApiError) => {
+              handleNew();
+              setError(error.message || 'تم الحفظ لكن تعذر ترحيل النقل');
+            });
+          return;
+        }
         handleNew();
         setSuccess('تم تحديث النقل المخزني بنجاح');
       },
@@ -272,6 +289,7 @@ function TransferPageInner() {
       onSuccess: () => {
         setSuccess('تم فك ترحيل النقل المخزني بنجاح');
         setValue('statusPosted', false);
+        markUnpostedForEdit();
         invalidateQuery(['transfers']);
         invalidateQuery(['transfer', selectedTransferId]);
       },
@@ -311,6 +329,7 @@ function TransferPageInner() {
 
   // Handle new transfer
   const handleNew = () => {
+    resetKeepPosted();
     openTransfer(null);
     setTransferLines([]);
     setError('');
@@ -436,34 +455,6 @@ function TransferPageInner() {
       <DocumentReadOnlyBanner />
       <DocumentFormLock>
       <FormSectionCard title="بيانات التحويل" subtitle="المسلسل والتاريخ والمخازن">
-          <div className="col-span-full flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-[#0A3D5E] font-medium">الترحيل:</span>
-                <div className="flex bg-gray-200 rounded-lg p-1">
-                  <button 
-                    onClick={() => handlePostUnpost(true)}
-                    disabled={!selectedTransferId || postTransferMutation.isPending}
-                    className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${statusPosted ? 'bg-[#0E78AA] text-white' : 'bg-white text-gray-600 hover:bg-gray-100'} ${!selectedTransferId ? 'opacity-50 cursor-not-allowed' : ''}`}
-                  >
-                    {postTransferMutation.isPending ? 'جاري...' : 'ترحيل'}
-                  </button>
-                  <button 
-                    onClick={() => handlePostUnpost(false)}
-                    disabled={!selectedTransferId || unpostTransferMutation.isPending}
-                    className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${!statusPosted ? 'bg-[#0E78AA] text-white' : 'bg-white text-gray-600 hover:bg-gray-100'} ${!selectedTransferId ? 'opacity-50 cursor-not-allowed' : ''}`}
-                  >
-                    {unpostTransferMutation.isPending ? 'جاري...' : 'فك ترحيل'}
-                  </button>
-                </div>
-              </div>
-            </div>
-            <StatusBadge
-              variant={statusPosted ? 'success' : 'warning'}
-              label={statusPosted ? 'مرحّل' : 'مسودة'}
-            />
-          </div>
-
           <CompactFormField label="المسلسل" placeholder="إدخل رقم المسلسل" {...register('serialNumber')} />
           <CompactFormField
             label="التاريخ"

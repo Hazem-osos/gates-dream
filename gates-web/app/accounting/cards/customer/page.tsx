@@ -9,7 +9,7 @@ import {
   compactControlClass,
   Button,
 } from '@/components/ui';
-import { useOwnTabSearchParams } from '@/lib/navigation/tab-route-lock';
+import { useClearDocumentQuery, useOwnTabSearchParams } from '@/lib/navigation/tab-route-lock';
 import { apiClient } from '@/lib/api/client';
 import { DocumentBrowseDrawer } from '@/components/erp/DocumentBrowseDrawer';
 import { ErpDocumentLayout, ErpDocumentPageHeader } from '@/components/erp';
@@ -28,6 +28,7 @@ import { printPageContent } from '@/lib/print/printHtml';
 import { entityLabel } from '@/lib/quick-create/catalog';
 import { useQuickCreateHost } from '@/lib/quick-create/useQuickCreateTab';
 import { toast } from '@/lib/feedback/toast';
+import { confirmAction } from '@/lib/feedback/confirm';
 import { PartyGroupSelectField } from '@/components/accounting/PartyGroupSelectField';
 import { useNextMasterSerial } from '@/lib/hooks/useNextMasterSerial';
 
@@ -103,6 +104,7 @@ export default function CustomerPage() {
   const invalidateQuery = useInvalidateQuery();
   const quickCreate = useQuickCreateHost('customer');
   const searchParams = useOwnTabSearchParams();
+  const clearDocumentQuery = useClearDocumentQuery();
   const idFromUrl = searchParams.get('id');
   const categoryFromUrl = searchParams.get('categoryId');
   
@@ -286,6 +288,7 @@ export default function CustomerPage() {
     '/accounting/customers',
     'POST',
     {
+      showSuccessToast: false,
       onSuccess: (res) => {
         const created = res?.data as {
           id?: string;
@@ -303,11 +306,11 @@ export default function CustomerPage() {
             accountId: created.accountId,
           });
         }
-        setSuccess('تم حفظ العميل بنجاح');
         invalidateQuery(['customers']);
         invalidateQuery(['customers', 'next-code']);
         invalidateQuery(['accounts']);
         invalidateQuery(['chart-of-accounts']);
+        invalidateQuery(['coa-tree']);
       },
       onError: (error: ApiError) => {
         setError(error.message || 'حدث خطأ أثناء الحفظ');
@@ -334,33 +337,22 @@ export default function CustomerPage() {
   const handleSave = async () => {
     const code = formData.code.trim();
     const arabicName = formData.arabicName.trim();
-    const phone = formData.phone1.trim() || formData.mobile.trim();
-    if (!code) {
-      setError('يرجى إدخال الكود');
-      toast.error('يرجى إدخال الكود');
-      return;
-    }
+    setError('');
+    setSuccess('');
     if (!arabicName) {
-      setError('يرجى إدخال الإسم العربي');
       toast.error('يرجى إدخال الإسم العربي');
-      return;
-    }
-    if (!phone) {
-      setError('أدخل رقم هاتف أو موبايل على الأقل.');
-      toast.error('أدخل رقم هاتف أو موبايل على الأقل.');
       return;
     }
     const parsed = customerCardFormSchema.safeParse(formData);
     if (!parsed.success) {
       const message = parsed.error.issues[0]?.message || 'يرجى مراجعة بيانات العميل';
-      setError(message);
       toast.error(message);
       return;
     }
 
     const payload = {
         serial: formData.serial.trim() || undefined,
-        code,
+        code: code || undefined,
         arabicName,
         englishName: formData.englishName.trim() || undefined,
         customerType: formData.customerType,
@@ -398,21 +390,23 @@ export default function CustomerPage() {
 
     try {
       if (selectedId) {
-        const res = await apiClient.put<CustomerRecord>(`/accounting/customers/${selectedId}`, payload);
-        if (res.data) hydrate(res.data);
-        setSuccess('تم تحديث العميل بنجاح');
-        toast.success('تم حفظ العميل');
+        await apiClient.put<CustomerRecord>(`/accounting/customers/${selectedId}`, payload, {
+          skipSuccessNotify: true,
+        });
+        toast.success('تم حفظ العميل — تقدر تضيف التالي');
         invalidateQuery(['customers']);
+        invalidateQuery(['accounts']);
+        invalidateQuery(['chart-of-accounts']);
+        invalidateQuery(['coa-tree']);
+        handleCancel();
         return;
       }
-      const created = await customerMutation.mutateAsync(payload);
-      const row = created?.data as CustomerRecord | undefined;
-      if (row?.id) hydrate(row);
-      toast.success('تم حفظ العميل');
+      await customerMutation.mutateAsync(payload);
+      toast.success('تم حفظ العميل — تقدر تضيف التالي');
+      if (!quickCreate.isQuickCreate) handleCancel();
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'حدث خطأ أثناء الحفظ';
       setError(message);
-      toast.error(message);
     }
   };
 
@@ -451,13 +445,34 @@ export default function CustomerPage() {
       warning: '',
       estimatedBudget: '',
       creditLimit: '',
-      customerCategoryId: '',
+      customerCategoryId: categoryFromUrl || '',
       currencyCode: '',
       priceTier: 'RETAIL',
       linkedSupplierId: '',
     });
     setIsTaxInfoChecked(false);
     setError('');
+    clearDocumentQuery();
+  };
+
+  const handleDelete = async () => {
+    if (!selectedId) return;
+    if (!(await confirmAction('حذف بطاقة العميل الحالية؟'))) return;
+    setError('');
+    try {
+      await apiClient.delete(`/accounting/customers/${selectedId}`, undefined, {
+        skipSuccessNotify: true,
+      });
+      toast.success('تم حذف العميل');
+      invalidateQuery(['customers']);
+      invalidateQuery(['accounts']);
+      invalidateQuery(['chart-of-accounts']);
+      invalidateQuery(['coa-tree']);
+      handleCancel();
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'تعذر الحذف';
+      setError(message);
+    }
   };
 
   const [showGuide, setShowGuide] = useState(false);
@@ -481,7 +496,16 @@ export default function CustomerPage() {
         savePending={customerMutation.isPending}
         canSave={!customerMutation.isPending}
         hideStandalonePost
-        moreMenuItems={[{ id: 'new', label: 'جديد', onClick: handleCancel }]}
+        moreMenuItems={[
+          { id: 'new', label: 'جديد', onClick: handleCancel },
+          {
+            id: 'del',
+            label: 'حذف',
+            onClick: () => void handleDelete(),
+            disabled: !selectedId,
+            destructive: true,
+          },
+        ]}
         extraActions={
           <>
             <Button
@@ -539,10 +563,9 @@ export default function CustomerPage() {
             />
             <CompactFormField
               label="الكود"
-              required
               value={formData.code}
               onChange={(e) => setFormData((prev) => ({ ...prev, code: e.target.value }))}
-              placeholder="إدخل الكود"
+              placeholder="اختياري"
             />
             <CompactFormField
               label="الإسم العربي"
@@ -553,7 +576,6 @@ export default function CustomerPage() {
             />
             <CompactFormField
               label="رقم الهاتف 1"
-              required
               value={formData.phone1}
               onChange={(e) => setFormData((prev) => ({ ...prev, phone1: e.target.value }))}
               placeholder="إدخل رقم الهاتف أو الموبايل"

@@ -1,5 +1,6 @@
 import { normalizeAppPath } from '@/lib/navigation/app-module-root';
 import type { DraftMode } from '@/lib/drafts/draft-key';
+import { probeCount } from '@/lib/debug/gates-crash-probe';
 
 export const FLUSH_DRAFTS_EVENT = 'gates:flush-drafts';
 export const QC_RETURN_KEY = 'gates:qc-return-path';
@@ -28,6 +29,7 @@ export type DraftWriteMeta = {
 
 export function flushPageDrafts() {
   if (typeof window === 'undefined') return;
+  probeCount('flushPageDrafts');
   window.dispatchEvent(new Event(FLUSH_DRAFTS_EVENT));
 }
 

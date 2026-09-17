@@ -12,9 +12,13 @@ export const COA_INDUSTRY_OPTIONS: CoaIndustryOption[] = [
   { id: 'contracting', label: 'مقاولات وتشييد' },
 ];
 
+export type CoaNumberingMode = 'auto' | 'manual';
+
 type Props = {
   industry: string;
   onIndustryChange: (id: string) => void;
+  numberingMode: CoaNumberingMode;
+  onNumberingModeChange: (mode: CoaNumberingMode) => void;
   onSeed?: () => void;
   onCreateRoot?: () => void;
   seeding: boolean;
@@ -24,6 +28,8 @@ type Props = {
 export function CoaEmptyState({
   industry,
   onIndustryChange,
+  numberingMode,
+  onNumberingModeChange,
   onSeed,
   onCreateRoot,
   seeding,
@@ -41,20 +47,36 @@ export function CoaEmptyState({
           : 'أضف أول حساب رئيسي لبناء الدليل يدوياً.'}
       </p>
       {allowSeed ? (
-        <label className="block mt-6 max-w-sm mx-auto text-right text-sm">
-          <span className="text-slate-600 font-medium">نوع النشاط</span>
-          <select
-            className="mt-1.5 h-9 w-full rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] px-3 text-xs font-medium text-[#094C6B] sm:text-sm"
-            value={industry}
-            onChange={(e) => onIndustryChange(e.target.value)}
-          >
-            {COA_INDUSTRY_OPTIONS.map((o) => (
-              <option key={o.id} value={o.id}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-        </label>
+        <div className="mt-6 mx-auto grid max-w-sm gap-4 text-right text-sm">
+          <label className="block">
+            <span className="text-slate-600 font-medium">نوع النشاط</span>
+            <select
+              className="mt-1.5 h-9 w-full rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] px-3 text-xs font-medium text-[#094C6B] sm:text-sm"
+              value={industry}
+              onChange={(e) => onIndustryChange(e.target.value)}
+            >
+              {COA_INDUSTRY_OPTIONS.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block">
+            <span className="text-slate-600 font-medium">ترقيم الحسابات</span>
+            <select
+              className="mt-1.5 h-9 w-full rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] px-3 text-xs font-medium text-[#094C6B] sm:text-sm"
+              value={numberingMode}
+              onChange={(e) => onNumberingModeChange(e.target.value === 'manual' ? 'manual' : 'auto')}
+            >
+              <option value="auto">تلقائي (افتراضي)</option>
+              <option value="manual">يدوي</option>
+            </select>
+            <span className="mt-1 block text-[11px] font-medium text-slate-500">
+              الافتراضي تلقائي. اختَر يدوي لو هتدخل أرقام الحسابات بنفسك بعد التنزيل.
+            </span>
+          </label>
+        </div>
       ) : null}
       <div className="mt-5 flex flex-col items-center gap-3">
         {allowSeed && onSeed ? (

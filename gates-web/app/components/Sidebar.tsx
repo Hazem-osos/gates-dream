@@ -292,16 +292,6 @@ export const accountingModules: ModuleWithChildren[] = [
         ]
       },
       {
-        key: 'cheques',
-        icon: '📑',
-        label: 'الشيكات',
-        color: '#0E79AA',
-        children: [
-          { key: 'cheques-in', icon: '📑', label: 'أوراق القبض', color: '#0E79AA', href: '/accounting/cheques/incoming' },
-          { key: 'cheques-out', icon: '📒', label: 'أوراق الدفع', color: '#0E79AA', href: '/accounting/cheques/outgoing' },
-        ]
-      },
-      {
         key: 'banks',
         icon: '🏦',
         label: 'البنوك',

@@ -9,8 +9,6 @@ export const AI_SCREEN_ROUTES: AiScreenRoute[] = [
   { label: 'مردودات المبيعات', href: '/sales/returns/new' },
   { label: 'فواتير المشتريات', href: '/purchases/invoices/new' },
   { label: 'فواتير المبيعات', href: '/sales/invoices/new' },
-  { label: 'الشيكات الواردة', href: '/accounting/cheques/incoming' },
-  { label: 'الشيكات الصادرة', href: '/accounting/cheques/outgoing' },
   { label: 'سندات الصرف', href: '/accounting/vouchers/payment/new' },
   { label: 'سندات القبض', href: '/accounting/vouchers/receipt/new' },
   { label: 'أوراق القبض', href: '/accounting/operations/securities/reciept' },

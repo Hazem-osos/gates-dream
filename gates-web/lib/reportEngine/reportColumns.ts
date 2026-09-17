@@ -2,9 +2,10 @@ import type { ReportCellFormat } from './reportFormatters';
 import {
   INVOICE_TYPE_BADGES,
   PAYMENT_STATUS_BADGES,
+  POS_PAYMENT_TYPE_BADGES,
   resolveInvoiceDisplayStatus,
 } from './reportFormatters';
-import { COLUMN_LABELS_AR } from './reportColumnLabels';
+import { labelForAutoColumn } from './reportColumnLabels';
 
 export type ReportColumnDef<T extends Record<string, unknown> = Record<string, unknown>> = {
   id: string;
@@ -50,6 +51,10 @@ export const TECHNICAL_COLUMN_IDS = new Set([
   'internalNotes',
   'taxSignature',
   'taxHash',
+  'lineId',
+  'version',
+  'expectedVersion',
+  'deletedAt',
 ]);
 
 export type SalesInvoiceReportRow = Record<string, unknown>;
@@ -111,73 +116,173 @@ export const SALES_REPORT_COLUMNS: ReportColumnDef<SalesInvoiceReportRow>[] = [
     label: 'العميل',
     accessor: 'customer',
     format: 'relation',
-    defaultVisible: false,
+    defaultVisible: true,
   },
   {
     id: 'warehouse',
     label: 'المخزن',
     accessor: 'warehouse',
     format: 'relation',
-    defaultVisible: false,
+    defaultVisible: true,
   },
   {
     id: 'delegate',
     label: 'المندوب',
     accessor: 'delegate',
     format: 'relation',
-    defaultVisible: false,
+    defaultVisible: true,
   },
   {
     id: 'netAmount',
     label: 'صافي الفاتورة',
     accessor: 'netAmount',
     format: 'money',
-    defaultVisible: false,
+    defaultVisible: true,
   },
   {
     id: 'paidAmount',
     label: 'المحصل',
     accessor: 'paidAmount',
     format: 'money',
-    defaultVisible: false,
+    defaultVisible: true,
   },
   {
     id: 'remainingAmount',
     label: 'المتبقي',
     accessor: 'remainingAmount',
     format: 'money',
-    defaultVisible: false,
+    defaultVisible: true,
   },
   {
     id: 'discountAmount',
     label: 'الخصم',
     accessor: 'discountAmount',
     format: 'money',
-    defaultVisible: false,
+    defaultVisible: true,
   },
   {
     id: 'taxAmount',
     label: 'الضريبة',
     accessor: 'taxAmount',
     format: 'money',
-    defaultVisible: false,
+    defaultVisible: true,
   },
   {
     id: 'postedAt',
     label: 'تاريخ الترحيل',
     accessor: 'postedAt',
     format: 'datetime',
-    defaultVisible: false,
+    defaultVisible: true,
+  },
+];
+
+export const POS_DAILY_REPORT_COLUMNS: ReportColumnDef<SalesInvoiceReportRow>[] = [
+  {
+    id: 'invoiceNumber',
+    label: 'رقم الفاتورة',
+    accessor: 'invoiceNumber',
+    format: 'text',
+    defaultVisible: true,
+  },
+  {
+    id: 'date',
+    label: 'التاريخ',
+    accessor: 'date',
+    format: 'datetime',
+    defaultVisible: true,
+  },
+  {
+    id: 'warehouse',
+    label: 'المخزن',
+    accessor: 'warehouse',
+    format: 'relation',
+    defaultVisible: true,
+  },
+  {
+    id: 'customer',
+    label: 'العميل',
+    accessor: 'customer',
+    format: 'relation',
+    defaultVisible: true,
+  },
+  {
+    id: 'paymentType',
+    label: 'طريقة الدفع',
+    getValue: (row) => row.paymentType ?? row.paymentMethod,
+    format: 'badge',
+    badgeMap: POS_PAYMENT_TYPE_BADGES,
+    defaultVisible: true,
+  },
+  {
+    id: 'description',
+    label: 'البيان',
+    accessor: 'description',
+    format: 'text',
+    defaultVisible: true,
+  },
+  {
+    id: 'currencyCode',
+    label: 'العملة',
+    accessor: 'currencyCode',
+    format: 'text',
+    defaultVisible: true,
+  },
+  {
+    id: 'totalAmount',
+    label: 'إجمالي الفاتورة',
+    accessor: 'totalAmount',
+    format: 'money',
+    defaultVisible: true,
+  },
+  {
+    id: 'discountAmount',
+    label: 'الخصم',
+    accessor: 'discountAmount',
+    format: 'money',
+    defaultVisible: true,
+  },
+  {
+    id: 'taxAmount',
+    label: 'الضريبة',
+    accessor: 'taxAmount',
+    format: 'money',
+    defaultVisible: true,
+  },
+  {
+    id: 'netAmount',
+    label: 'صافي المبيعات',
+    accessor: 'netAmount',
+    format: 'money',
+    defaultVisible: true,
+  },
+  {
+    id: 'paidAmount',
+    label: 'المحصل',
+    accessor: 'paidAmount',
+    format: 'money',
+    defaultVisible: true,
+  },
+  {
+    id: 'remainingAmount',
+    label: 'المتبقي',
+    accessor: 'remainingAmount',
+    format: 'money',
+    defaultVisible: true,
+  },
+  {
+    id: 'status',
+    label: 'الحالة',
+    getValue: (row) => resolveInvoiceDisplayStatus(row),
+    format: 'badge',
+    badgeMap: PAYMENT_STATUS_BADGES,
+    defaultVisible: true,
   },
 ];
 
 const REPORT_COLUMNS_BY_PATH: Record<string, ReportColumnDef[]> = {
   'inventory/reports/sales-reports': SALES_REPORT_COLUMNS,
+  'pos/daily': POS_DAILY_REPORT_COLUMNS,
 };
-
-function labelForAutoColumn(key: string): string {
-  return COLUMN_LABELS_AR[key] ?? key.replace(/([A-Z])/g, ' $1').replace(/_/g, ' ').trim();
-}
 
 function guessFormat(key: string): ReportCellFormat {
   if (/date|At$/i.test(key) && key !== 'updatedAt') return key.endsWith('At') ? 'datetime' : 'date';
@@ -215,10 +320,9 @@ export function getReportColumnsForPath(
   }));
 }
 
+/** Every non-technical column — reports open with the full grid. */
 export function getDefaultVisibleColumnIds(columns: ReportColumnDef[]): string[] {
-  const recommended = columns.filter((c) => c.defaultVisible && !c.technical).map((c) => c.id);
-  if (recommended.length) return recommended;
-  return columns.filter((c) => !c.technical).slice(0, 7).map((c) => c.id);
+  return columns.filter((c) => !c.technical).map((c) => c.id);
 }
 
 export function getRowCellValue<T extends Record<string, unknown>>(

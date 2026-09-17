@@ -28,8 +28,13 @@ import { NavigationProgressBar } from '@/components/feedback/NavigationProgressB
 import { AutoHijriDateCaption } from '@/components/ui/AutoHijriDateCaption';
 import { AppScreenChromeFallback, AppScreenChromeProvider } from '@/components/erp';
 import { TabPageCache } from '@/components/erp/TabPageCache';
+import { installCrashProbe } from '@/lib/debug/gates-crash-probe';
 
 export function ErpApp({ children }: { children: ReactNode }) {
+  useEffect(() => {
+    installCrashProbe();
+  }, []);
+
   const [rightSidebarOpen, setRightSidebarOpen] = useState(false);
   const [showMenuRow, setShowMenuRow] = useState(false);
   const sidebarRef = useRef<HTMLDivElement>(null);

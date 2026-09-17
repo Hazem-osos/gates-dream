@@ -92,7 +92,11 @@ export function PartyGroupCardPage({ kind }: { kind: Kind }) {
     selectedId ? `${config.api}/${selectedId}` : config.api,
     'PUT',
     {
-      onSuccess: () => invalidateQuery(config.queryKey),
+      onSuccess: () => {
+        invalidateQuery(config.queryKey);
+        setSelectedId(null);
+        setFormData(emptyForm());
+      },
       onError: (err: ApiError) => setError(err.message || 'حدث خطأ أثناء الحفظ'),
     }
   );
@@ -100,17 +104,13 @@ export function PartyGroupCardPage({ kind }: { kind: Kind }) {
   const loading = createMutation.isPending || updateMutation.isPending || deleting;
 
   const requestBody = () => ({
-    code: formData.code.trim(),
+    code: formData.code.trim() || undefined,
     arabicName: formData.arabicName.trim(),
     englishName: formData.englishName.trim() || undefined,
   });
 
   const handleSave = () => {
     setError('');
-    if (!formData.code.trim()) {
-      setError('كود المجموعة مطلوب');
-      return;
-    }
     if (!formData.arabicName.trim()) {
       setError('اسم المجموعة مطلوب');
       return;
@@ -211,10 +211,11 @@ export function PartyGroupCardPage({ kind }: { kind: Kind }) {
       >
         <CompactFormField
           label="كود المجموعة"
-          required
           value={formData.code}
+          disabled={!selectedId}
+          readOnly={!selectedId}
           onChange={(e) => setFormData((prev) => ({ ...prev, code: e.target.value }))}
-          placeholder="إدخل كود المجموعة"
+          placeholder="تلقائي"
         />
         <CompactFormField
           label="اسم المجموعة"

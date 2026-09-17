@@ -7,6 +7,7 @@ import {
   bounceSecuritiesPaymentSchema,
   securitiesPaymentQuerySchema,
 } from '../schemas/securities-payment.schema';
+import { collectSecuritiesSchema } from '../schemas/securities-receipt.schema';
 import { executeMultiCollectionSchema } from '../schemas/multi-collection.schema';
 import { securitiesPaymentService } from '../services/securities-payment.service';
 import { commercialPaperPostingService } from '../services/commercial-paper-posting.service';
@@ -54,7 +55,10 @@ router.post('/', authorize({ resource: 'securities-payment', action: 'edit' }), 
   try {
     const companyId = req.companyId || req.tenantId;
     if (!companyId) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
-    const payment = await securitiesPaymentService.createSecuritiesPayment(companyId, req.body);
+    const payment = await securitiesPaymentService.createSecuritiesPayment(companyId, req.body, {
+      branchId: req.branchId,
+      userId: req.user?.sub || '',
+    });
     return void res.status(201).json({ status: 'success', message: 'Securities payment created successfully', data: payment });
   } catch (error) {
     logger.error({ error, body: req.body }, 'Error creating securities payment');
@@ -67,7 +71,10 @@ router.put('/:id', authorize({ resource: 'securities-payment', action: 'edit' })
   try {
     const companyId = req.companyId || req.tenantId;
     if (!companyId) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
-    const payment = await securitiesPaymentService.updateSecuritiesPayment(companyId, req.params.id, req.body);
+    const payment = await securitiesPaymentService.updateSecuritiesPayment(companyId, req.params.id, req.body, {
+      branchId: req.branchId,
+      userId: req.user?.sub || '',
+    });
     return void res.json({ status: 'success', message: 'Securities payment updated successfully', data: payment });
   } catch (error) {
     logger.error({ error, body: req.body }, 'Error updating securities payment');
@@ -128,16 +135,18 @@ router.post('/:id/multi-collect', authorize({ resource: 'securities-payment', ac
   }
 });
 
-router.post('/:id/collect', authorize({ resource: 'securities-payment', action: 'post' }), async (req: AuthRequest, res: Response) => {
+router.post('/:id/collect', authorize({ resource: 'securities-payment', action: 'post' }), validate({ body: collectSecuritiesSchema }), async (req: AuthRequest, res: Response) => {
   try {
     const companyId = req.companyId || req.tenantId;
     if (!companyId) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
     const userId = req.user?.sub || '';
-    const payment = await securitiesPaymentService.postSecuritiesPayment(companyId, req.params.id, {
-      branchId: req.branchId,
-      userId,
-    });
-    return void res.json({ status: 'success', message: 'Securities payment collected successfully', data: payment });
+    const payment = await securitiesPaymentService.collectSecuritiesPayment(
+      companyId,
+      req.params.id,
+      { branchId: req.branchId, userId },
+      req.body
+    );
+    return void res.json({ status: 'success', message: 'تم تحصيل ورقة المدفوعات', data: payment });
   } catch (error) {
     logger.error({ error }, 'Error collecting securities payment');
     const status = error instanceof AppError ? error.statusCode : error instanceof Error && error.message === 'Securities payment not found' ? 404 : error instanceof Error && error.message.includes('already') ? 400 : 500;
@@ -153,7 +162,7 @@ router.post('/:id/bounce', authorize({ resource: 'securities-payment', action: '
     const payment = await securitiesPaymentService.bounceSecuritiesPayment(companyId, req.params.id, {
       branchId: req.branchId,
       userId,
-    }, req.body.description);
+    }, req.body);
     return void res.json({ status: 'success', message: 'Securities payment bounced successfully', data: payment });
   } catch (error) {
     logger.error({ error }, 'Error bouncing securities payment');
@@ -179,7 +188,10 @@ router.post('/:id/restore', authorize({ resource: 'securities-payment', action: 
   try {
     const companyId = req.companyId || req.tenantId;
     if (!companyId) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
-    const payment = await securitiesPaymentService.restoreSecuritiesPayment(companyId, req.params.id);
+    const payment = await securitiesPaymentService.restoreSecuritiesPayment(companyId, req.params.id, {
+      branchId: req.branchId,
+      userId: req.user?.sub || '',
+    });
     return void res.json({ status: 'success', message: 'Securities payment restored successfully', data: payment });
   } catch (error) {
     logger.error({ error }, 'Error restoring securities payment');

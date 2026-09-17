@@ -250,6 +250,12 @@ router.put(
         data: customer,
       });
     } catch (error) {
+      if (error instanceof AppError) {
+        return void res.status(error.statusCode).json({
+          status: 'error',
+          message: error.message,
+        });
+      }
       logger.error({ error }, 'Error updating customer');
       const status =
         error instanceof Error && error.message === 'Customer not found'
@@ -285,6 +291,12 @@ router.delete(
 
       return void res.status(204).send();
     } catch (error) {
+      if (error instanceof AppError) {
+        return void res.status(error.statusCode).json({
+          status: 'error',
+          message: error.message,
+        });
+      }
       logger.error({ error }, 'Error deleting customer');
       const status =
         error instanceof Error && error.message === 'Customer not found'

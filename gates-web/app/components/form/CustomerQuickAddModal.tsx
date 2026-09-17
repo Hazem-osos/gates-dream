@@ -147,12 +147,6 @@ export function CustomerQuickAddModal({ open, initialName, onClose, onCreated }:
       toast.error(msg);
       return;
     }
-    if (!form.mobile.trim()) {
-      const msg = 'رقم الموبايل مطلوب';
-      setError(msg);
-      toast.error(msg);
-      return;
-    }
     const body: Record<string, unknown> = {
       arabicName: form.arabicName.trim(),
       englishName: form.englishName.trim() || undefined,
@@ -234,7 +228,6 @@ export function CustomerQuickAddModal({ open, initialName, onClose, onCreated }:
           </CompactFormField>
           <CompactFormField
             label="الموبايل"
-            required
             value={form.mobile}
             onChange={(e) => set('mobile', e.target.value)}
           />

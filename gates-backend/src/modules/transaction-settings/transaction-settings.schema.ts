@@ -57,6 +57,7 @@ export const updateTransactionSettingsSchema = z.object({
   allowStandaloneReturns: z.boolean().optional(),
   enforceOriginalPrice: z.boolean().optional(),
   showFxColumns: z.boolean().optional(),
+  allowEditLoadedOrder: z.boolean().optional(),
 });
 
 export const documentTypeParamsSchema = z.object({

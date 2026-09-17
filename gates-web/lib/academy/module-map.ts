@@ -8,12 +8,6 @@ export const ACADEMY_MISSIONS: AcademyMissionCard[] = [
     href: '/sales/invoices/new',
   },
   {
-    slug: 'cheque-endorsement',
-    titleAr: 'تظهير الشيكات',
-    descriptionAr: 'اختيار شيك وارد من المحفظة وتظهيره لمورد دون المساس برصيد البنك.',
-    href: '/accounting/cheques/incoming',
-  },
-  {
     slug: 'purchase-landed-cost',
     titleAr: 'تسوية تكلفة الشحن',
     descriptionAr: 'إضافات فاتورة المشتريات، التكلفة الفعلية، وخصم المنبع.',
@@ -29,7 +23,6 @@ export const ACADEMY_MISSIONS: AcademyMissionCard[] = [
 
 const ROUTE_SLUGS: Array<{ test: RegExp; slug: string }> = [
   { test: /sales-invoice|\/sales\/invoices/i, slug: 'sales-invoice' },
-  { test: /securities\/reciept|cheques\/incoming|cheque-endors/i, slug: 'cheque-endorsement' },
   { test: /final-purchase-invoice|purchases\/invoices|landed-cost/i, slug: 'purchase-landed-cost' },
   { test: /document-profiles|settings\/transactions/i, slug: 'document-settings' },
 ];

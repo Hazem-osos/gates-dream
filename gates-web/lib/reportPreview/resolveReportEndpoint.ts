@@ -136,6 +136,10 @@ export function resolveReportApiPath(
     return null;
   }
 
+  if (registryPath === 'pos/daily' || registryPath.startsWith('pos/')) {
+    return '/pos/daily-report';
+  }
+
   return null;
 }
 
@@ -180,6 +184,7 @@ export function localTodayIso(d = new Date()): string {
 
 /** Inventory + accounting reports 400 if fromDate/toDate (or start/end) are missing. */
 export function reportPreviewNeedsDateRange(registryPath: string): boolean {
+  if (registryPath === 'pos/daily' || registryPath.startsWith('pos/')) return false;
   if (registryPath.startsWith('inventory/reports/')) {
     const seg = registryPath.slice('inventory/reports/'.length);
     return seg !== 'price-list';
@@ -192,8 +197,13 @@ export function ensureReportPreviewDates(
   params: Record<string, string>,
   registryPath: string
 ): Record<string, string> {
-  if (!reportPreviewNeedsDateRange(registryPath)) return params;
   const today = localTodayIso();
+  if (registryPath === 'pos/daily' || registryPath.startsWith('pos/')) {
+    const out = { ...params };
+    if (!out.date) out.date = out.fromDate || out.toDate || today;
+    return out;
+  }
+  if (!reportPreviewNeedsDateRange(registryPath)) return params;
   const out = { ...params };
   if (!out.fromDate) out.fromDate = today;
   if (!out.toDate) out.toDate = today;

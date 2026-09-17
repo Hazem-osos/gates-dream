@@ -1,16 +1,13 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { Palette, Shirt } from 'lucide-react';
 import {
-  PageHeader,
   Button,
-  FormStickyFooter,
   AppTable,
-  CrudButtons,
   compactControlClass,
 } from '@/components/ui';
+import { MasterCardShell } from '@/components/erp';
 import { ColorDefinitionModal, type ClothingColor } from '@/components/inventory/ColorDefinitionModal';
 import { SizeDefinitionModal, type ClothingSize } from '@/components/inventory/SizeDefinitionModal';
 import { useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
@@ -51,7 +48,6 @@ function suggestBarcode(color?: ClothingColor, size?: ClothingSize) {
 }
 
 export default function ColorSizeMatrixPage() {
-  const router = useRouter();
   const invalidateQuery = useInvalidateQuery();
   const [selectedColors, setSelectedColors] = useState<Set<string>>(new Set());
   const [selectedSizes, setSelectedSizes] = useState<Set<string>>(new Set());
@@ -225,30 +221,29 @@ export default function ColorSizeMatrixPage() {
   const visibleCombos = useMemo(() => combos, [combos]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50 p-6" style={{ direction: 'rtl' }}>
+    <MasterCardShell
+      title="تركيب الألوان والمقاسات"
+      breadcrumbs={[
+        { label: 'المخازن', href: '/inventory' },
+        { label: 'التعريفات' },
+        { label: 'تركيب الألوان والمقاسات' },
+      ]}
+      docNumber={combos.length ? `${combos.length} تركيبة` : 'جديد'}
+      statusLabel={combos.length ? 'تعديل' : 'جديد'}
+      onSave={() => void handleSave()}
+      savePending={saving}
+      canSave={!saving}
+      onNew={handleNew}
+      favoriteHref="/inventory/creations/color-size-matrix"
+      moreMenuItems={[
+        { id: 'colors', label: 'تعريف الألوان', onClick: () => setShowColors(true) },
+        { id: 'sizes', label: 'تعريف المقاسات', onClick: () => setShowSizes(true) },
+        { id: 'generate', label: 'توليد التركيبة', onClick: generate },
+        { id: 'print', label: 'طباعة الباركود', onClick: printBarcodes, disabled: combos.length === 0 },
+      ]}
+    >
       {error && <ErrorToast message={error} onClose={() => setError('')} />}
       {success && <SuccessToast message={success} onClose={() => setSuccess('')} />}
-
-      <PageHeader
-        title="تركيب الألوان والمقاسات"
-        breadcrumbs={[
-          { label: 'المخزون', href: '/inventory' },
-          { label: 'التعريفات' },
-          { label: 'تركيب الألوان والمقاسات' },
-        ]}
-        actions={
-          <CrudButtons
-            onPrevious={() => router.back()}
-            onAdd={handleNew}
-            extraItems={[
-              { id: 'colors', label: 'تعريف الألوان', onClick: () => setShowColors(true) },
-              { id: 'sizes', label: 'تعريف المقاسات', onClick: () => setShowSizes(true) },
-              { id: 'generate', label: 'توليد التركيبة', onClick: generate },
-              { id: 'print', label: 'طباعة الباركود', onClick: printBarcodes, disabled: combos.length === 0 },
-            ]}
-          />
-        }
-      />
 
       <p className="mb-4 text-sm text-[#0A3D5E]">
         اختَر الألوان والمقاسات اللي بتبيعها، ولّد التركيبة، وبعدين احفظ. كل صف يبقى لون × مقاس مع باركود للملابس.
@@ -360,16 +355,8 @@ export default function ColorSizeMatrixPage() {
         />
       </section>
 
-      <FormStickyFooter
-        onCancel={() => router.back()}
-        onSave={() => void handleSave()}
-        saveLoading={saving}
-        saveDisabled={saving}
-        status={combos.length ? `${combos.length} تركيبة` : 'مسودة'}
-      />
-
       <ColorDefinitionModal open={showColors} onClose={() => setShowColors(false)} colors={colors} />
       <SizeDefinitionModal open={showSizes} onClose={() => setShowSizes(false)} sizes={sizes} />
-    </div>
+    </MasterCardShell>
   );
 }

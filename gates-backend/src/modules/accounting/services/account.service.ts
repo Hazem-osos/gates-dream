@@ -15,9 +15,14 @@ import {
 import {
   assertNotCashPostingParent,
   ensureBankFolderIsHeader,
+  ensureCashMainPosting,
   ensureSafeForCashAccount,
 } from './cash-safe-sync';
 import { resolveCreateAccountKind, statementTypeFromAccountType } from '../utils/account-kind';
+import {
+  assertUniqueAccountName,
+  normalizeAccountName,
+} from '../utils/account-name-uniqueness';
 
 export interface CreateAccountData {
   code: string;
@@ -501,6 +506,8 @@ export class AccountService {
 
       await this.vacateDeletedAccountCode(companyId, code);
       await this.assertUniqueAccountCode(companyId, code);
+      const arabicName = normalizeAccountName(data.arabicName);
+      await assertUniqueAccountName(companyId, arabicName);
 
       let defaultCostCenterId = data.defaultCostCenterId ?? null;
       if (defaultCostCenterId) {
@@ -526,7 +533,7 @@ export class AccountService {
         data: {
           companyId,
           code,
-          arabicName: data.arabicName,
+          arabicName,
           englishName: data.englishName,
           accountType: data.accountType,
           parentId: data.parentId,
@@ -566,6 +573,7 @@ export class AccountService {
         code: account.code,
         arabicName: account.arabicName,
         parentCode: account.parent?.code ?? null,
+        accountKind: account.accountKind,
       });
       return account;
     } catch (error) {
@@ -638,7 +646,7 @@ export class AccountService {
     try {
       await ensureBankFolderIsHeader(companyId);
       const page = options.page || 1;
-      const limit = Math.min(options.limit || 50, 1000);
+      const limit = Math.min(options.limit || 50, 50_000);
       const skip = (page - 1) * limit;
 
       const where: any = {
@@ -666,9 +674,7 @@ export class AccountService {
         where.parentId = options.parentId;
       }
 
-      if (options.isActive !== undefined) {
-        where.isActive = options.isActive;
-      }
+      where.isActive = options.isActive !== undefined ? options.isActive : true;
 
       if (options.leafOnly) {
         where.accountKind = 'POSTING';
@@ -733,6 +739,18 @@ export class AccountService {
 
       const parentChanging =
         data.parentId !== undefined && data.parentId !== existing.parentId;
+      const nextArabicName =
+        data.arabicName !== undefined
+          ? normalizeAccountName(data.arabicName)
+          : existing.arabicName;
+      if (
+        data.arabicName !== undefined &&
+        nextArabicName !== normalizeAccountName(existing.arabicName)
+      ) {
+        await assertUniqueAccountName(companyId, nextArabicName, {
+          exceptAccountId: accountId,
+        });
+      }
       if (parentChanging) {
         await this.assertNoParentCycle(companyId, accountId, data.parentId);
         await this.assertParentCanReceiveChild(companyId, data.parentId);
@@ -769,8 +787,7 @@ export class AccountService {
       const updateData: any = {};
 
       if (data.code !== undefined && !parentChanging) updateData.code = data.code.trim();
-      if (data.arabicName !== undefined)
-        updateData.arabicName = data.arabicName;
+      if (data.arabicName !== undefined) updateData.arabicName = nextArabicName;
       if (data.englishName !== undefined)
         updateData.englishName = data.englishName;
       if (data.accountType !== undefined)
@@ -859,6 +876,7 @@ export class AccountService {
         code: account.code,
         arabicName: account.arabicName,
         parentCode: account.parent?.code ?? null,
+        accountKind: account.accountKind,
       });
 
       logger.info({ companyId, accountId }, 'Account updated');
@@ -873,9 +891,9 @@ export class AccountService {
   }
 
   /**
-   * Delete account (soft delete)
+   * Delete account. Unused accounts are removed. Cancelled-only history stays visible as ملغي.
    */
-  async deleteAccount(companyId: string, accountId: string) {
+  async deleteAccount(companyId: string, accountId: string): Promise<{ success: true; cancelled: boolean }> {
     try {
       const account = await prisma.account.findFirst({
         where: { id: accountId, companyId, deletedAt: null },
@@ -898,25 +916,51 @@ export class AccountService {
         );
       }
 
-      const postedLineCount = await prisma.journalEntryLine.count({
-        where: {
-          accountId,
-          journalEntry: {
-            companyId,
-            isCancelled: false,
-            deletedAt: null,
+      const [liveLineCount, anyLineCount] = await Promise.all([
+        prisma.journalEntryLine.count({
+          where: {
+            accountId,
+            journalEntry: {
+              companyId,
+              isCancelled: false,
+              deletedAt: null,
+            },
           },
-        },
-      });
+        }),
+        prisma.journalEntryLine.count({
+          where: {
+            accountId,
+            journalEntry: { companyId },
+          },
+        }),
+      ]);
 
       const netBalance = balanceMap.get(accountId) ?? 0;
 
-      if (postedLineCount > 0 || Math.abs(netBalance) > 0.0001) {
+      if (liveLineCount > 0 || Math.abs(netBalance) > 0.0001) {
         throw new AppError(
           409,
           `لا يمكن حذف ${accountLabel(account)} لأن عليه حركات مالية. الحل: انقل الحركات من شاشة «نقل حركة حساب» أو ألغِ القيود أولاً ثم احذف.`
         );
       }
+
+      if (anyLineCount > 0) {
+        await prisma.account.update({
+          where: { id: accountId },
+          data: { isActive: false },
+        });
+        logger.info({ companyId, accountId }, 'Account cancelled in chart');
+        await invalidateTenantCache(tenantCacheKeys.coaTree(companyId));
+        return { success: true, cancelled: true };
+      }
+
+      await prisma.accountPeriodBalance.deleteMany({
+        where: { companyId, accountId },
+      });
+      await prisma.safe.updateMany({
+        where: { companyId, glAccountId: accountId },
+        data: { glAccountId: null },
+      });
 
       try {
         await prisma.account.delete({ where: { id: accountId } });
@@ -929,17 +973,16 @@ export class AccountService {
         }
         await prisma.account.update({
           where: { id: accountId },
-          data: {
-            isActive: false,
-            deletedAt: new Date(),
-            code: retiredAccountCode(account.code, accountId),
-          },
+          data: { isActive: false },
         });
+        logger.info({ companyId, accountId }, 'Account cancelled because related rows remain');
+        await invalidateTenantCache(tenantCacheKeys.coaTree(companyId));
+        return { success: true, cancelled: true };
       }
 
       logger.info({ companyId, accountId }, 'Account deleted');
       await invalidateTenantCache(tenantCacheKeys.coaTree(companyId));
-      return { success: true };
+      return { success: true, cancelled: false };
     } catch (error) {
       if (!(error instanceof AppError)) {
         logger.error({ error, companyId, accountId }, 'Error deleting account');
@@ -957,10 +1000,10 @@ export class AccountService {
   ): Promise<AccountHierarchyNode[]> {
     try {
       await ensureBankFolderIsHeader(companyId);
+      await ensureCashMainPosting(companyId);
       const accounts = await prisma.account.findMany({
         where: {
           companyId,
-          isActive: true,
           deletedAt: null,
         },
         select: {
@@ -974,6 +1017,7 @@ export class AccountService {
           defaultCostCenterId: true,
           costCenterRequired: true,
           accountKind: true,
+          isActive: true,
         },
         orderBy: [{ code: 'asc' }],
       });

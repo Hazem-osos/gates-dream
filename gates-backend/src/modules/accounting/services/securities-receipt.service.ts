@@ -1,13 +1,20 @@
 import prisma from '../../../shared/database/prisma';
-import { logger } from '../../../shared/logger';
 import { Decimal } from '@prisma/client/runtime/library';
 import { documentSequenceService } from '../../platform/services/document-sequence.service';
 import { AppError } from '../../../shared/middleware/error-handler';
 import { journalPostingService } from './journal-posting.service';
-import { fiscalYearService } from '../../platform/services/fiscal-year.service';
-import { treasuryAccountResolverService } from '../../treasury/services/treasury-account-resolver.service';
 import { commercialPaperPostingService } from './commercial-paper-posting.service';
-import { resolveCompanyFxRate, toBaseAmount } from '../utils/company-fx-rate';
+import {
+  assertPaperIssued,
+  SECURITIES_PAPER_CASES,
+} from '../utils/securities-paper-case';
+
+export type CollectSecuritiesInput = {
+  accountId: string;
+  date?: Date;
+  description?: string;
+  costCenterId?: string | null;
+};
 
 /** Minimal context needed to post a real GL entry for a securities receipt (H11). */
 export interface SecuritiesPostingCtx {
@@ -144,18 +151,17 @@ export class SecuritiesReceiptService {
       throw new Error('Securities receipt not found');
     }
 
-    const multiCollectionLines = await commercialPaperPostingService.listLines(
-      companyId,
-      'RECEIPT',
-      receiptId
-    );
-    return { ...receipt, multiCollectionLines };
+    return commercialPaperPostingService.decoratePaper(companyId, 'RECEIPT', receipt);
   }
 
   /**
    * Create a new securities receipt
    */
-  async createSecuritiesReceipt(companyId: string, data: CreateSecuritiesReceiptData) {
+  async createSecuritiesReceipt(
+    companyId: string,
+    data: CreateSecuritiesReceiptData,
+    ctx?: SecuritiesPostingCtx
+  ) {
     if (!data.customerId && !data.supplierId && !data.destinationAccountId) {
       throw new Error('اختر العميل أو حساباً آخر');
     }
@@ -207,7 +213,7 @@ export class SecuritiesReceiptService {
       })) ||
       null;
 
-    return prisma.securitiesReceipt.create({
+    const created = await prisma.securitiesReceipt.create({
       data: {
         companyId,
         branchId: data.branchId,
@@ -231,12 +237,17 @@ export class SecuritiesReceiptService {
         isPosted: false,
         isApproved: false,
         isCancelled: false,
-      },
-      include: {
-        customer: true,
-        supplier: true,
+        paperCase: SECURITIES_PAPER_CASES.ISSUED,
       },
     });
+    if (!ctx?.userId) {
+      return commercialPaperPostingService.decoratePaper(companyId, 'RECEIPT', created);
+    }
+    return commercialPaperPostingService.syncIssueJournal(
+      { companyId, branchId: ctx.branchId ?? data.branchId, userId: ctx.userId },
+      'RECEIPT',
+      created.id
+    );
   }
 
   /**
@@ -245,17 +256,18 @@ export class SecuritiesReceiptService {
   async updateSecuritiesReceipt(
     companyId: string,
     receiptId: string,
-    data: UpdateSecuritiesReceiptData
+    data: UpdateSecuritiesReceiptData,
+    ctx?: SecuritiesPostingCtx
   ) {
     const receipt = await this.getSecuritiesReceiptById(companyId, receiptId);
 
     if (receipt.isPosted) {
-      throw new Error('Cannot update a posted securities receipt');
+      throw new AppError(400, 'فك الترحيل أولاً قبل تعديل الورقة');
     }
-
     if (receipt.isCancelled) {
-      throw new Error('Cannot update a cancelled securities receipt');
+      throw new AppError(400, 'لا يمكن تعديل ورقة ملغاة');
     }
+    assertPaperIssued(receipt, 'تعديل الورقة');
 
     // Check receipt number uniqueness if changing
     if (data.receiptNumber && data.receiptNumber !== receipt.receiptNumber) {
@@ -291,14 +303,19 @@ export class SecuritiesReceiptService {
     if (data.currencyCode !== undefined) updateData.currencyCode = data.currencyCode;
     if (data.entityName !== undefined) updateData.entityName = data.entityName;
 
-    return prisma.securitiesReceipt.update({
+    const updated = await prisma.securitiesReceipt.update({
       where: { id: receiptId },
       data: updateData,
-      include: {
-        customer: true,
-        supplier: true,
-      },
+      include: { customer: true, supplier: true },
     });
+    if (!ctx?.userId) {
+      return commercialPaperPostingService.decoratePaper(companyId, 'RECEIPT', updated);
+    }
+    return commercialPaperPostingService.syncIssueJournal(
+      { companyId, branchId: ctx.branchId ?? receipt.branchId, userId: ctx.userId },
+      'RECEIPT',
+      receiptId
+    );
   }
 
   /**
@@ -309,84 +326,29 @@ export class SecuritiesReceiptService {
    * Posts a real, reversible 2-line journal instead of flipping a flag.
    */
   async postSecuritiesReceipt(companyId: string, receiptId: string, ctx: SecuritiesPostingCtx) {
-    const receipt = await this.getSecuritiesReceiptById(companyId, receiptId);
+    return commercialPaperPostingService.postPaper(
+      { companyId, branchId: ctx.branchId, userId: ctx.userId },
+      'RECEIPT',
+      receiptId
+    );
+  }
 
-    if (receipt.isCancelled) {
-      throw new Error('Cannot post a cancelled securities receipt');
-    }
-
-    if (receipt.isPosted) {
-      throw new Error('Securities receipt is already posted');
-    }
-
-    if (!receipt.customerId && !receipt.supplierId && !receipt.destinationAccountId) {
-      throw new AppError(422, 'اختر العميل أو حساباً آخر قبل ترحيل الورقة');
-    }
-
-    const amount = Number(receipt.amount);
-    const { exchangeRate } = await resolveCompanyFxRate(companyId, receipt.currencyCode);
-    const baseAmount = toBaseAmount(amount, exchangeRate);
-    const fiscalYearId = await fiscalYearService.assertOpenForDate(companyId, receipt.date);
-    const chequeAccounts = await treasuryAccountResolverService.resolveChequeAccounts(companyId);
-    const partyAccountId = await treasuryAccountResolverService.resolvePartyAccountId({
-      companyId,
-      customerId: receipt.customerId,
-      supplierId: receipt.supplierId,
-      offsetAccountId: receipt.destinationAccountId,
-    });
-
-    const posted = await prisma.$transaction(async (tx) => {
-      const je = await journalPostingService.createAndPostInTx(
-        tx,
-        { companyId, branchId: ctx.branchId ?? '', fiscalYearId, userId: ctx.userId },
-        {
-          fiscalYearId,
-          date: receipt.date,
-          description:
-            receipt.description ??
-            `Securities receipt ${receipt.receiptNumber ?? receipt.id.slice(0, 8)} (${receipt.securityType})`,
-          currencyCode: receipt.currencyCode,
-          exchangeRate,
-          entryType: 'SecuritiesReceipt',
-          sourceType: 'SECR',
-          sourceNumber: receipt.receiptNumber ?? receipt.id,
-          lines: [
-            {
-              accountId: chequeAccounts.chequesUnderHandAccountId,
-              debit: amount,
-              credit: 0,
-              lineOrder: 1,
-            },
-            { accountId: partyAccountId, debit: 0, credit: amount, lineOrder: 2 },
-          ],
-        }
-      );
-
-      // Mirror treasury-posting.service's applyReceiptBalances direction convention.
-      if (receipt.customerId) {
-        await tx.customer.update({
-          where: { id: receipt.customerId },
-          data: { balance: { decrement: new Decimal(baseAmount) } },
-        });
-      }
-      if (receipt.supplierId) {
-        await tx.supplier.update({
-          where: { id: receipt.supplierId },
-          data: { balance: { increment: new Decimal(baseAmount) } },
-        });
-      }
-
-      return tx.securitiesReceipt.update({
-        where: { id: receiptId },
-        data: {
-          isPosted: true,
-          postedAt: new Date(),
-          journalEntryId: je.id,
-        },
-      });
-    });
-
-    return posted;
+  /**
+   * Collect (تحصيل): cash/bank the user picked vs the party — not the unused
+   * cheque-defaults path. Immediate collection of an unposted paper.
+   */
+  async collectSecuritiesReceipt(
+    companyId: string,
+    receiptId: string,
+    ctx: SecuritiesPostingCtx,
+    input: CollectSecuritiesInput
+  ) {
+    return commercialPaperPostingService.collectPaper(
+      { companyId, branchId: ctx.branchId, userId: ctx.userId },
+      'RECEIPT',
+      receiptId,
+      input
+    );
   }
 
   /**
@@ -394,49 +356,11 @@ export class SecuritiesReceiptService {
    * dated contra entry and restores the party balance, mirroring cheque unpost.
    */
   async unpostSecuritiesReceipt(companyId: string, receiptId: string, ctx: SecuritiesPostingCtx) {
-    const receipt = await this.getSecuritiesReceiptById(companyId, receiptId);
-
-    if (!receipt.isPosted) {
-      throw new Error('Securities receipt is not posted');
-    }
-
-    const amount = Number(receipt.amount);
-    const { exchangeRate } = await resolveCompanyFxRate(companyId, receipt.currencyCode);
-    const baseAmount = toBaseAmount(amount, exchangeRate);
-    const fiscalYearId = await fiscalYearService.assertOpenForDate(companyId, new Date());
-
-    return prisma.$transaction(async (tx) => {
-      if (receipt.journalEntryId) {
-        await journalPostingService.reverseJournalEntryInTx(
-          tx,
-          { companyId, branchId: ctx.branchId ?? '', fiscalYearId, userId: ctx.userId },
-          receipt.journalEntryId,
-          { reason: 'Securities receipt unposted' }
-        );
-      }
-
-      // Mirror treasury-posting.service's reverseReceiptBalances direction convention.
-      if (receipt.customerId) {
-        await tx.customer.update({
-          where: { id: receipt.customerId },
-          data: { balance: { increment: new Decimal(baseAmount) } },
-        });
-      }
-      if (receipt.supplierId) {
-        await tx.supplier.update({
-          where: { id: receipt.supplierId },
-          data: { balance: { decrement: new Decimal(baseAmount) } },
-        });
-      }
-
-      return tx.securitiesReceipt.update({
-        where: { id: receiptId },
-        data: {
-          isPosted: false,
-          postedAt: null,
-        },
-      });
-    });
+    return commercialPaperPostingService.unpostPaper(
+      { companyId, branchId: ctx.branchId, userId: ctx.userId },
+      'RECEIPT',
+      receiptId
+    );
   }
 
   /**
@@ -446,23 +370,14 @@ export class SecuritiesReceiptService {
     companyId: string,
     receiptId: string,
     ctx: SecuritiesPostingCtx,
-    description?: string
+    input: { description?: string; date?: Date; accountId?: string } = {}
   ) {
-    const receipt = await this.getSecuritiesReceiptById(companyId, receiptId);
-    if (receipt.isCancelled) {
-      throw new Error('Securities receipt is already cancelled');
-    }
-    if (receipt.isPosted) {
-      await this.unpostSecuritiesReceipt(companyId, receiptId, ctx);
-    }
-    if (description?.trim()) {
-      const next = [receipt.description, description.trim()].filter(Boolean).join(' — ');
-      await prisma.securitiesReceipt.update({
-        where: { id: receiptId },
-        data: { description: next },
-      });
-    }
-    return this.cancelSecuritiesReceipt(companyId, receiptId);
+    return commercialPaperPostingService.bouncePaper(
+      { companyId, branchId: ctx.branchId, userId: ctx.userId },
+      'RECEIPT',
+      receiptId,
+      input
+    );
   }
 
   /**
@@ -471,34 +386,21 @@ export class SecuritiesReceiptService {
   async endorseSecuritiesReceipt(
     companyId: string,
     receiptId: string,
-    input: { supplierId: string; description?: string }
+    ctx: SecuritiesPostingCtx,
+    input: { supplierId: string; description?: string; date?: Date }
   ) {
-    const receipt = await this.getSecuritiesReceiptById(companyId, receiptId);
-    if (receipt.isCancelled) {
-      throw new Error('Cannot endorse a cancelled securities receipt');
-    }
-    if (receipt.isPosted) {
-      throw new Error('Unpost the securities receipt before endorsing it');
-    }
-    const supplier = await prisma.supplier.findFirst({
-      where: { id: input.supplierId, companyId },
-      select: { id: true, arabicName: true },
-    });
-    if (!supplier) {
-      throw new Error('Supplier not found');
-    }
-    const note = input.description?.trim();
-    return prisma.securitiesReceipt.update({
-      where: { id: receiptId },
-      data: {
-        supplierId: supplier.id,
-        issuerName: supplier.arabicName ?? receipt.issuerName,
-        description: note
-          ? [receipt.description, `تظهير إلى ${supplier.arabicName}: ${note}`].filter(Boolean).join(' — ')
-          : receipt.description,
-      },
-      include: { customer: true, supplier: true },
-    });
+    return commercialPaperPostingService.endorsePaper(
+      { companyId, branchId: ctx.branchId, userId: ctx.userId },
+      receiptId,
+      input
+    );
+  }
+
+  async unendorseSecuritiesReceipt(companyId: string, receiptId: string, ctx: SecuritiesPostingCtx) {
+    return commercialPaperPostingService.unendorsePaper(
+      { companyId, branchId: ctx.branchId, userId: ctx.userId },
+      receiptId
+    );
   }
 
   /**
@@ -529,6 +431,7 @@ export class SecuritiesReceiptService {
         data: {
           isCancelled: true,
           cancelledAt: new Date(),
+          paperCase: SECURITIES_PAPER_CASES.BOUNCED,
         },
       });
     });
@@ -537,20 +440,12 @@ export class SecuritiesReceiptService {
   /**
    * Restore a cancelled securities receipt
    */
-  async restoreSecuritiesReceipt(companyId: string, receiptId: string) {
-    const receipt = await this.getSecuritiesReceiptById(companyId, receiptId);
-
-    if (!receipt.isCancelled) {
-      throw new Error('Securities receipt is not cancelled');
-    }
-
-    return prisma.securitiesReceipt.update({
-      where: { id: receiptId },
-      data: {
-        isCancelled: false,
-        cancelledAt: null,
-      },
-    });
+  async restoreSecuritiesReceipt(companyId: string, receiptId: string, ctx: SecuritiesPostingCtx) {
+    return commercialPaperPostingService.restorePaper(
+      { companyId, branchId: ctx.branchId, userId: ctx.userId },
+      'RECEIPT',
+      receiptId
+    );
   }
 }
 

@@ -1,6 +1,6 @@
 'use client';
 
-import { memo, useCallback, useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import {
   formatItemLabel,
   useItemsQuery,
@@ -108,6 +108,10 @@ function ItemSelectInner({
   const handleQueryChange = useCallback((q: string) => {
     setSearch(q);
   }, []);
+
+  useEffect(() => {
+    if (!value) setSearch('');
+  }, [value]);
 
   const openQuickCreate = useOpenQuickCreateTab('item', (entity) => {
     const item = {

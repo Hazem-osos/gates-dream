@@ -907,6 +907,7 @@ model CostCenter {
   quantityBudget Decimal? @db.Decimal(15, 2)
   warning        String? // مدين/دائن/بدون
   budget         Decimal? @db.Decimal(15, 2)
+  creditLimit    Decimal? @db.Decimal(18, 4)
   currencyCode   String?
   isActive       Boolean  @default(true)
   createdAt      DateTime @default(now())
@@ -2200,6 +2201,8 @@ model SecuritiesReceipt {
   approvedAt     DateTime?
   isCancelled    Boolean   @default(false)
   cancelledAt    DateTime?
+  /// ISSUED | COLLECTED | BOUNCED | ENDORSED | MULTI_COLLECTED
+  paperCase String @default("ISSUED") @db.VarChar(24)
   // H11: real GL posting on post/unpost, mirroring the Cheque lifecycle instead
   // of a phantom isPosted flag with no accounting effect.
   journalEntryId String?
@@ -2251,6 +2254,8 @@ model SecuritiesPayment {
   approvedAt     DateTime?
   isCancelled    Boolean   @default(false)
   cancelledAt    DateTime?
+  /// ISSUED | COLLECTED | MULTI_COLLECTED | ENDORSED | BOUNCED — one case at a time
+  paperCase      String    @default("ISSUED") @db.VarChar(24)
   // H11: real GL posting on post/unpost, mirroring the Cheque lifecycle instead
   // of a phantom isPosted flag with no accounting effect.
   journalEntryId String?
@@ -4158,6 +4163,8 @@ model TransactionSettings {
   enforceOriginalPrice   Boolean @default(true)
   /// إظهار أعمدة العملة وسعر الصرف افتراضياً — يمكن تجاوزه من الخيارات الإضافية للحركة
   showFxColumns          Boolean @default(true)
+  /// بعد تحميل أمر/مستند من القسم والرقم: السماح بتعديل الخانات أو قفلها
+  allowEditLoadedOrder   Boolean @default(true)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

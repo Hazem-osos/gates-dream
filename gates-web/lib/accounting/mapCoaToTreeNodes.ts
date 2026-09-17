@@ -17,20 +17,44 @@ export type CoaHierarchyAccount = {
   parentId?: string | null;
   defaultCostCenterId?: string | null;
   costCenterRequired?: string | null;
+  isActive?: boolean;
   children?: CoaHierarchyAccount[];
 };
 
-/** Default company cash box — posting leaf, never a parent. */
+export type CoaTreeRole = 'ROOT' | 'SUBHEADER' | 'POSTING';
+
+export function resolveCoaTreeRole(
+  node: Pick<CoaHierarchyAccount, 'accountKind' | 'type' | 'isParent' | 'parentId' | 'children'>,
+  depth = 0
+): CoaTreeRole {
+  const isHeader =
+    node.accountKind === 'HEADER' ||
+    node.type === 'HEADER' ||
+    (node.accountKind !== 'POSTING' &&
+      node.type !== 'DETAIL' &&
+      (node.isParent === true || Boolean(node.children?.length)));
+  if (!isHeader) return 'POSTING';
+  if (depth <= 0) return 'ROOT';
+  return 'SUBHEADER';
+}
+
+/** Default company cash box — posting leaf, never a parent. Cash folders stay branchable. */
 export function isSystemCashPostingAccount(node: {
   code?: string | null;
   arabicName?: string | null;
   nameAr?: string | null;
+  accountKind?: string | null;
+  type?: string | null;
+  isParent?: boolean;
   children?: unknown[] | null;
 }): boolean {
-  const code = String(node.code ?? '').trim();
-  if (code === '1111') return true;
-  const name = `${node.arabicName ?? ''} ${node.nameAr ?? ''}`;
-  return name.includes('الخزينة الرئيسية') && !node.children?.length;
+  const isHeader =
+    node.accountKind === 'HEADER' ||
+    node.type === 'HEADER' ||
+    node.isParent === true ||
+    Boolean(node.children?.length);
+  if (isHeader) return false;
+  return String(node.code ?? '').trim() === '1111';
 }
 
 function displayName(acc: CoaHierarchyAccount): string {

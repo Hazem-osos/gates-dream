@@ -3,6 +3,10 @@ import { AppError } from '../../../shared/middleware/error-handler';
 import { logger } from '../../../shared/logger';
 import { companySettingService } from '../../platform/services/company-setting.service';
 import { accountService } from './account.service';
+import {
+  assertUniqueAccountName,
+  partyAccountTakenMessage,
+} from '../utils/account-name-uniqueness';
 
 type AccountDefs = Record<string, string | undefined>;
 export type PartyLedgerSide = 'CUSTOMER' | 'SUPPLIER';
@@ -45,6 +49,26 @@ const SUPPLIER_NAMES = [
   'الموردين',
   'الموردون والدائنون',
 ];
+
+type PartyLedgerRecord = {
+  id: string;
+  arabicName: string;
+  englishName?: string | null;
+  isActive: boolean;
+  mainAccountId: string | null;
+  accountId: string | null;
+};
+
+function uniqueIds(...ids: Array<string | null | undefined>): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const id of ids) {
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
+  }
+  return out;
+}
 
 /**
  * Creates a personal GL leaf under عملاء / موردين using the next tree code.
@@ -130,6 +154,41 @@ export class PartyLedgerAccountService {
     });
   }
 
+  async assertLedgerAvailable(params: {
+    side: PartyLedgerSide;
+    companyId: string;
+    arabicName: string;
+    requestedAccountId?: string | null;
+    exceptPartyId?: string;
+    exceptAccountId?: string | null;
+    branchId?: string | null;
+  }): Promise<void> {
+    const requested = params.requestedAccountId?.trim();
+    const controlIds = await this.resolveControlAccountIds(
+      params.companyId,
+      params.branchId,
+      params.side
+    );
+    const controlSet = new Set(controlIds);
+
+    if (requested && !controlSet.has(requested)) {
+      await this.assertAccountExclusiveToParty(
+        params.companyId,
+        requested,
+        params.exceptPartyId ?? ''
+      );
+      await assertUniqueAccountName(params.companyId, params.arabicName, {
+        exceptAccountId: requested,
+      });
+      return;
+    }
+
+    if (!(requested && controlSet.has(requested)) && !controlIds[0]) return;
+    await assertUniqueAccountName(params.companyId, params.arabicName, {
+      exceptAccountId: params.exceptAccountId ?? undefined,
+    });
+  }
+
   private async ensureForParty(params: {
     side: PartyLedgerSide;
     companyId: string;
@@ -145,6 +204,7 @@ export class PartyLedgerAccountService {
               id: true,
               arabicName: true,
               englishName: true,
+              isActive: true,
               mainAccountId: true,
               accountId: true,
             },
@@ -155,6 +215,7 @@ export class PartyLedgerAccountService {
               id: true,
               arabicName: true,
               englishName: true,
+              isActive: true,
               mainAccountId: true,
               accountId: true,
             },
@@ -186,7 +247,9 @@ export class PartyLedgerAccountService {
       if (!exists) continue;
       const underControl = exists.parentId ? controlSet.has(exists.parentId) : false;
       if (!underControl && controlIds.length > 0) continue;
+      await this.assertAccountExclusiveToParty(params.companyId, exists.id, party.id);
       await this.linkPartyAccount(params.side, party.id, exists.id);
+      await this.syncLinkedAccountFromParty(params.companyId, exists.id, party);
       return exists.id;
     }
 
@@ -209,11 +272,217 @@ export class PartyLedgerAccountService {
     });
 
     await this.linkPartyAccount(params.side, party.id, created.id);
+    await this.syncLinkedAccountFromParty(params.companyId, created.id, party);
     logger.info(
       { companyId: params.companyId, partyId: party.id, accountId: created.id, side: params.side },
       'Created personal party ledger account'
     );
     return created.id;
+  }
+
+  async retirePartyAndLedger(params: {
+    side: PartyLedgerSide;
+    companyId: string;
+    partyId: string;
+  }): Promise<void> {
+    const party = await this.loadPartyRecord(params.side, params.companyId, params.partyId);
+    if (!party) {
+      throw new AppError(404, params.side === 'CUSTOMER' ? 'العميل غير موجود' : 'المورد غير موجود');
+    }
+
+    await this.assertPartyCanBeDeleted(params.side, params.companyId, params.partyId, party);
+
+    const accountIds = uniqueIds(party.mainAccountId, party.accountId);
+    const now = new Date();
+
+    if (params.side === 'CUSTOMER') {
+      await prisma.customer.update({
+        where: { id: party.id },
+        data: {
+          isActive: false,
+          deletedAt: now,
+          mainAccountId: null,
+          accountId: null,
+        },
+      });
+    } else {
+      await prisma.supplier.update({
+        where: { id: party.id },
+        data: {
+          isActive: false,
+          mainAccountId: null,
+          accountId: null,
+        },
+      });
+    }
+
+    for (const accountId of accountIds) {
+      const stillLinked = await this.countOtherPartyLinks(params.companyId, accountId, party.id);
+      if (stillLinked > 0) continue;
+      await accountService.deleteAccount(params.companyId, accountId);
+    }
+  }
+
+  private async loadPartyRecord(
+    side: PartyLedgerSide,
+    companyId: string,
+    partyId: string
+  ): Promise<PartyLedgerRecord | null> {
+    if (side === 'CUSTOMER') {
+      return prisma.customer.findFirst({
+        where: { id: partyId, companyId, deletedAt: null },
+        select: {
+          id: true,
+          arabicName: true,
+          englishName: true,
+          isActive: true,
+          mainAccountId: true,
+          accountId: true,
+        },
+      });
+    }
+    return prisma.supplier.findFirst({
+      where: { id: partyId, companyId },
+      select: {
+        id: true,
+        arabicName: true,
+        englishName: true,
+        isActive: true,
+        mainAccountId: true,
+        accountId: true,
+      },
+    });
+  }
+
+  private async assertPartyCanBeDeleted(
+    side: PartyLedgerSide,
+    companyId: string,
+    partyId: string,
+    party: PartyLedgerRecord
+  ) {
+    const accountIds = uniqueIds(party.mainAccountId, party.accountId);
+    const partyFilter =
+      side === 'CUSTOMER' ? { customerId: partyId } : { supplierId: partyId };
+
+    const [invoices, cashTx, journalLines, purchaseOrders] = await Promise.all([
+      prisma.invoice.count({
+        where: { companyId, isCancelled: false, ...partyFilter },
+      }),
+      prisma.cashTransaction.count({
+        where: { companyId, isCancelled: false, ...partyFilter },
+      }),
+      accountIds.length
+        ? prisma.journalEntryLine.count({
+            where: {
+              accountId: { in: accountIds },
+              journalEntry: {
+                companyId,
+                isCancelled: false,
+                deletedAt: null,
+              },
+            },
+          })
+        : Promise.resolve(0),
+      side === 'SUPPLIER'
+        ? prisma.purchaseOrder.count({
+            where: { companyId, supplierId: partyId, isCancelled: false },
+          })
+        : Promise.resolve(0),
+    ]);
+
+    if (invoices + cashTx + journalLines + purchaseOrders > 0) {
+      throw new AppError(
+        409,
+        side === 'CUSTOMER'
+          ? 'لا يمكن حذف العميل لأن عليه حركات مالية. الحل: ألغِ أو انقل الحركات أولاً ثم احذف.'
+          : 'لا يمكن حذف المورد لأن عليه حركات مالية. الحل: ألغِ أو انقل الحركات أولاً ثم احذف.'
+      );
+    }
+  }
+
+  private async assertAccountExclusiveToParty(
+    companyId: string,
+    accountId: string,
+    exceptPartyId: string
+  ) {
+    const [customer, supplier] = await Promise.all([
+      prisma.customer.findFirst({
+        where: {
+          companyId,
+          deletedAt: null,
+          id: { not: exceptPartyId },
+          OR: [{ mainAccountId: accountId }, { accountId }],
+        },
+        select: { arabicName: true, code: true },
+      }),
+      prisma.supplier.findFirst({
+        where: {
+          companyId,
+          isActive: true,
+          id: { not: exceptPartyId },
+          OR: [{ mainAccountId: accountId }, { accountId }],
+        },
+        select: { arabicName: true, code: true },
+      }),
+    ]);
+
+    if (customer) {
+      throw new AppError(
+        409,
+        partyAccountTakenMessage('CUSTOMER', customer.arabicName, customer.code)
+      );
+    }
+    if (supplier) {
+      throw new AppError(
+        409,
+        partyAccountTakenMessage('SUPPLIER', supplier.arabicName, supplier.code)
+      );
+    }
+  }
+
+  private async countOtherPartyLinks(companyId: string, accountId: string, exceptPartyId: string) {
+    const [customers, suppliers] = await Promise.all([
+      prisma.customer.count({
+        where: {
+          companyId,
+          deletedAt: null,
+          id: { not: exceptPartyId },
+          OR: [{ mainAccountId: accountId }, { accountId }],
+        },
+      }),
+      prisma.supplier.count({
+        where: {
+          companyId,
+          isActive: true,
+          id: { not: exceptPartyId },
+          OR: [{ mainAccountId: accountId }, { accountId }],
+        },
+      }),
+    ]);
+    return customers + suppliers;
+  }
+
+  private async syncLinkedAccountFromParty(
+    companyId: string,
+    accountId: string,
+    party: Pick<PartyLedgerRecord, 'arabicName' | 'englishName' | 'isActive'>
+  ) {
+    const account = await prisma.account.findFirst({
+      where: { id: accountId, companyId, deletedAt: null },
+      select: { id: true, arabicName: true, englishName: true, isActive: true },
+    });
+    if (!account) return;
+
+    const arabicName = party.arabicName.trim() || account.arabicName;
+    const englishName = party.englishName?.trim() || undefined;
+    const patch: { arabicName?: string; englishName?: string; isActive?: boolean } = {};
+
+    if (account.arabicName !== arabicName) patch.arabicName = arabicName;
+    if (englishName && account.englishName !== englishName) patch.englishName = englishName;
+    if (account.isActive !== party.isActive) patch.isActive = party.isActive;
+
+    if (Object.keys(patch).length === 0) return;
+    await accountService.updateAccount(companyId, accountId, patch);
   }
 
   private async linkPartyAccount(side: PartyLedgerSide, partyId: string, accountId: string) {
@@ -315,6 +584,11 @@ export class PartyLedgerAccountService {
           allowParentWithMovements: true,
         });
       } catch (error) {
+        const isCodeClash =
+          error instanceof AppError &&
+          error.statusCode === 409 &&
+          error.message.includes('رقم الحساب');
+        if (!isCodeClash) throw error;
         lastError = error;
         logger.warn(
           { error, code, companyId: params.companyId, side: params.side },

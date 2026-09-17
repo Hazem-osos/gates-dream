@@ -67,6 +67,7 @@ type Props = {
   onSourceHydrate?: (payload: SourceHydratePayload) => void;
   hasExistingLines?: boolean;
   sourceDisabled?: boolean;
+  fieldsDisabled?: boolean;
 };
 
 export function PurchaseInvoiceFormHeader(props: Props) {
@@ -113,6 +114,7 @@ export function PurchaseInvoiceFormHeader(props: Props) {
     onSourceHydrate,
     hasExistingLines = false,
     sourceDisabled = false,
+    fieldsDisabled = false,
   } = props;
 
   const mounted = useClientMounted();
@@ -227,6 +229,7 @@ export function PurchaseInvoiceFormHeader(props: Props) {
           onHydrate={onSourceHydrate}
         />
       ) : null}
+    <fieldset disabled={fieldsDisabled} className="m-0 min-w-0 border-0 p-0">
     <div className={erpFormGridClass}>
       <div>
         <label className={erpLabelClass}>رقم فاتورة المورد</label>
@@ -300,8 +303,9 @@ export function PurchaseInvoiceFormHeader(props: Props) {
         </div>
       </div>
     </div>
+    </fieldset>
     </div>
   );
 
-  return <ErpFormHeaderCard row1={row1} row2={row2} extras={extras} />;
+  return <ErpFormHeaderCard row1={row1} row2={row2} extras={extras} fieldsDisabled={fieldsDisabled} />;
 }

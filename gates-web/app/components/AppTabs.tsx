@@ -5,6 +5,7 @@ import { normalizeAppPath } from '@/lib/navigation/app-module-root';
 import { resolveTabLabel } from '@/lib/navigation/tab-labels';
 import { useAppTabs } from './AppTabsContext';
 import { flushPageDrafts } from '@/lib/drafts/page-drafts';
+import { probeCount, probeNavUrl } from '@/lib/debug/gates-crash-probe';
 
 export default function AppTabs() {
   const pathname = usePathname();
@@ -21,10 +22,16 @@ export default function AppTabs() {
     if (path === activeTab) {
       if (remaining.length > 0) {
         const last = remaining[remaining.length - 1];
-        router.push(last.href || last.path);
+        const dest = last.href || last.path;
+        probeCount('router.push');
+        probeNavUrl(`${window.location.pathname}${window.location.search}`, dest);
+        router.push(dest);
       } else {
         const currentRoot = pathname.split('/')[1];
-        router.push(currentRoot ? `/${currentRoot}` : '/');
+        const dest = currentRoot ? `/${currentRoot}` : '/';
+        probeCount('router.push');
+        probeNavUrl(`${window.location.pathname}${window.location.search}`, dest);
+        router.push(dest);
       }
     }
   };
@@ -49,7 +56,10 @@ export default function AppTabs() {
                 flushPageDrafts();
                 ctx?.pinCurrentTab();
               }
-              router.push(tab.href || tab.path);
+              const dest = tab.href || tab.path;
+              probeCount('router.push');
+              probeNavUrl(`${window.location.pathname}${window.location.search}`, dest);
+              router.push(dest);
             }}
             className={`relative flex items-center gap-3 px-5 py-2 rounded-2xl text-sm transition-all backdrop-blur-sm
               ${isActive

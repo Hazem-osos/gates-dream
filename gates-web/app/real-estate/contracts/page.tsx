@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useMemo, useState } from 'react';
-import { PageHeader } from '@/components/ui/PageHeader';
+import { RealEstatePageShell, ReCard, RealEstateWorkspaceHeader } from '@/components/real-estate/RealEstatePageShell';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { TableSkeleton } from '@/components/ui/TableSkeleton';
 import { FilterToolbar } from '@/components/ui/FilterToolbar';
@@ -15,7 +15,6 @@ import {
   denseTdClass,
   denseTrClass,
 } from '@/components/ui';
-import { RealEstatePageShell, ReCard } from '@/components/real-estate/RealEstatePageShell';
 import { ContractStatusBadge, ResaleLockBadge } from '@/components/real-estate/StatusBadges';
 import { useApiQuery } from '@/lib/hooks/useApi';
 import { queryKeys, staleTimes } from '@/lib/query/query-keys';
@@ -63,9 +62,13 @@ export default function RealEstateContractsPage() {
 
   return (
     <RealEstatePageShell>
-      <PageHeader
+      <RealEstateWorkspaceHeader
         title="عقود الوحدات"
-        breadcrumbs={[{ label: 'العقاري', href: '/real-estate' }, { label: 'العقود' }]}
+        breadcrumbs={[
+          { label: 'الاستثمار العقاري', href: '/real-estate-investment' },
+          { label: 'العقود' },
+        ]}
+        favoriteHref="/real-estate/contracts"
       />
       <ReCard>
         <FilterToolbar

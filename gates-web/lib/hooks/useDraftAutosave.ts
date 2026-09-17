@@ -13,11 +13,12 @@ import {
   shouldAutoRestoreDraft,
   writeDraft,
 } from '@/lib/drafts/page-drafts';
+import { toast } from '@/lib/feedback/toast';
 import { TabOwnPathContext } from '@/lib/navigation/tab-route-lock';
 import { normalizeAppPath } from '@/lib/navigation/app-module-root';
 import { recalledTabSearch } from '@/lib/navigation/tab-memory';
 import { getTenantContext } from '@/lib/tenant/tenant-context-storage';
-import { toast } from '@/lib/feedback/toast';
+import { probeCount } from '@/lib/debug/gates-crash-probe';
 
 export type UseDraftAutosaveConfig<T> = {
   documentType: string;
@@ -45,9 +46,7 @@ export function useDraftAutosave<T>(config: UseDraftAutosaveConfig<T>) {
     documentId,
     value,
     enabled,
-    applyRestore,
     isEmpty,
-    restoreMessage,
   } = config;
 
   const companyId = resolveCompanyId(companyIdProp);
@@ -73,8 +72,6 @@ export function useDraftAutosave<T>(config: UseDraftAutosaveConfig<T>) {
   const valueRef = useRef(value);
   const enabledRef = useRef(enabled);
   const isEmptyRef = useRef(isEmpty);
-  const applyRestoreRef = useRef(applyRestore);
-  const restoreMessageRef = useRef(restoreMessage);
   const wasActiveRef = useRef(false);
   const isActiveRef = useRef(false);
   const clearedRef = useRef(false);
@@ -82,14 +79,16 @@ export function useDraftAutosave<T>(config: UseDraftAutosaveConfig<T>) {
   const restoredKeyRef = useRef('');
   const keyRef = useRef(storageKey);
   const metaRef = useRef({ companyId, documentType, mode, variantId: variantId ?? undefined });
+  const applyRestoreRef = useRef(config.applyRestore);
+  const restoreMessageRef = useRef(config.restoreMessage);
 
   valueRef.current = value;
   enabledRef.current = enabled && persistReady;
   isEmptyRef.current = isEmpty;
-  applyRestoreRef.current = applyRestore;
-  restoreMessageRef.current = restoreMessage;
   keyRef.current = storageKey;
   metaRef.current = { companyId, documentType, mode, variantId: variantId ?? undefined };
+  applyRestoreRef.current = config.applyRestore;
+  restoreMessageRef.current = config.restoreMessage;
 
   const pathname = usePathname();
   const ownPath = useContext(TabOwnPathContext);
@@ -105,6 +104,7 @@ export function useDraftAutosave<T>(config: UseDraftAutosaveConfig<T>) {
   }, []);
 
   const persistNow = useCallback((payload: T) => {
+    probeCount('persistNow');
     if (clearedRef.current) return false;
     if (!enabledRef.current) return false;
     if (isEmptyRef.current?.(payload)) return false;
@@ -164,29 +164,19 @@ export function useDraftAutosave<T>(config: UseDraftAutosaveConfig<T>) {
       return;
     }
 
-    const apply = applyRestoreRef.current;
-    const qcReturn = consumeQcReturn(homePath);
-    const auto = shouldAutoRestoreDraft(parsed, companyId) || qcReturn;
-    if (auto && apply) {
-      try {
-        skipNextSave.current = true;
-        apply(parsed.payload);
-        restoredKeyRef.current = storageKey;
-        setRestoreOffer(null);
-        if (qcReturn && !shouldAutoRestoreDraft(parsed, companyId)) {
-          toast.success(restoreMessageRef.current || 'تم استعادة المسودة المحفوظة');
-        }
-        return;
-      } catch (error) {
-        skipNextSave.current = false;
-        console.error(error);
-        setRestoreOffer(parsed.payload);
-        restoredKeyRef.current = storageKey;
-        return;
-      }
-    }
-    setRestoreOffer(parsed.payload);
+    consumeQcReturn(homePath);
     restoredKeyRef.current = storageKey;
+
+    const announce = restoreMessageRef.current || 'يوجد مسودة غير محفوظة على هذه الصفحة';
+    if (shouldAutoRestoreDraft(parsed, companyId) && applyRestoreRef.current) {
+      skipNextSave.current = true;
+      applyRestoreRef.current(parsed.payload);
+      toast.success(announce, { id: 'gates-page-draft', duration: 6000 });
+      return;
+    }
+
+    setRestoreOffer(parsed.payload);
+    toast.warning(announce, { id: 'gates-page-draft', duration: 8000 });
   }, [companyId, enabled, homePath, persistReady, storageKey]);
 
   useEffect(() => {

@@ -21,6 +21,10 @@ import { apiClient } from '@/lib/api/client';
 import { confirmAction } from '@/lib/feedback/confirm';
 import { toHijriDate } from '@/lib/hijri-date';
 import type { ApiError } from '@/lib/api/types';
+import {
+  postNamedDocumentAfterSave,
+  useRepostAfterUnpost,
+} from '@/lib/accounting/ensure-posted-after-save';
 import { printPageContent } from '@/lib/print/printHtml';
 
 type ParentItem = {
@@ -80,6 +84,7 @@ function todayIso() {
 function DisassemblyPageInner() {
   const searchParams = useOwnTabSearchParams();
   const invalidateQuery = useInvalidateQuery();
+  const { markUnpostedForEdit, consumeShouldRepost, resetKeepPosted } = useRepostAfterUnpost();
   const [selectedId, setSelectedId] = useState<string | null>(
     () => searchParams.get('id')?.trim() || null
   );
@@ -181,6 +186,19 @@ function DisassemblyPageInner() {
       showSuccessToast: false,
       onSuccess: () => {
         invalidateQuery(['disassemblies']);
+        const id = selectedId;
+        if (consumeShouldRepost() && id) {
+          void postNamedDocumentAfterSave(`/inventory/disassemblies/${id}/post`)
+            .then(() => {
+              resetNew();
+              setSuccess('تم حفظ التعديلات وترحيل أمر التفكيك');
+            })
+            .catch((err: ApiError) => {
+              resetNew();
+              setError(err.message || 'تم الحفظ لكن تعذر ترحيل التفكيك');
+            });
+          return;
+        }
         resetNew();
         setSuccess('تم تحديث أمر التفكيك');
       },
@@ -210,6 +228,7 @@ function DisassemblyPageInner() {
       showSuccessToast: false,
       onSuccess: () => {
         setIsPosted(false);
+        markUnpostedForEdit();
         setSuccess('تم فك ترحيل التفكيك');
         invalidateQuery(['disassemblies']);
         invalidateQuery(['disassembly', selectedId ?? '']);
@@ -325,6 +344,7 @@ function DisassemblyPageInner() {
   };
 
   const resetNew = () => {
+    resetKeepPosted();
     setSelectedId(null);
     setSerial('');
     setDescription('');

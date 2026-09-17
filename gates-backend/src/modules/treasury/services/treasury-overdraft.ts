@@ -1,10 +1,10 @@
 import prisma from '../../../shared/database/prisma';
 import { AppError } from '../../../shared/middleware/error-handler';
+import { overlayFundBalanceFromLedger } from './fund-ledger-balance';
 
 /**
- * Same number the voucher picker shows (`safes.balance` / `bank_accounts.balance`).
- * Do not use GL period totals — they drift from the cash box after opening
- * balances, settlements, and safes that share a control account.
+ * Same number the voucher picker shows: posted GL net on the safe/bank account
+ * (includes opening and daily journals, plus سند قبض/صرف).
  */
 export async function assertCashOverdraftAllowed(params: {
   companyId: string;
@@ -28,22 +28,24 @@ export async function assertCashOverdraftAllowed(params: {
   if (params.safeId) {
     const safe = await prisma.safe.findFirst({
       where: { id: params.safeId, companyId: params.companyId },
-      select: { balance: true, arabicName: true },
+      select: { balance: true, arabicName: true, glAccountId: true },
     });
     if (!safe) {
       throw new AppError(404, 'الخزينة غير موجودة');
     }
-    balance = Number(safe.balance ?? 0);
+    const live = await overlayFundBalanceFromLedger(params.companyId, safe);
+    balance = live.balance;
     label = safe.arabicName?.trim() || 'الخزينة';
   } else if (params.bankAccountId) {
     const bank = await prisma.bankAccount.findFirst({
       where: { id: params.bankAccountId, companyId: params.companyId },
-      select: { balance: true, arabicName: true },
+      select: { balance: true, arabicName: true, glAccountId: true },
     });
     if (!bank) {
       throw new AppError(404, 'الحساب البنكي غير موجود');
     }
-    balance = Number(bank.balance ?? 0);
+    const live = await overlayFundBalanceFromLedger(params.companyId, bank);
+    balance = live.balance;
     label = bank.arabicName?.trim() || 'البنك';
   } else {
     return;

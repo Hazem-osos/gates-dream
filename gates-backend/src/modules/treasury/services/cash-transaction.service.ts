@@ -10,6 +10,11 @@ import { splitVoucherLineTotals } from '../types/vouchers.dto';
 import { journalPostingService } from '../../accounting/services/journal-posting.service';
 import { persistFxDecimal } from '../../accounting/utils/company-fx-rate';
 
+function emptyToNull(value?: string | null): string | null {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+}
+
 export interface CreateCashTransactionLineInput {
   accountId: string;
   description?: string;
@@ -447,7 +452,9 @@ export class CashTransactionService {
       }
 
       const isVoucherDoc = existing.documentRole !== 'ORDER';
-      const nextSourceOrderId = isVoucherDoc ? input.sourceOrderId ?? null : existing.sourceOrderId;
+      const nextSourceOrderId = isVoucherDoc
+        ? emptyToNull(input.sourceOrderId)
+        : existing.sourceOrderId;
       const prevSourceOrderId = existing.sourceOrderId ?? null;
       if (isVoucherDoc && nextSourceOrderId) {
         await this.assertSourceOrderAvailable(tx, companyId, nextSourceOrderId, {
@@ -476,15 +483,15 @@ export class CashTransactionService {
           description: input.description,
           amount: new Decimal(input.amount),
           currencyCode: input.currencyCode,
-          customerId: input.customerId ?? null,
-          supplierId: input.supplierId ?? null,
-          offsetAccountId: input.offsetAccountId ?? lines[0]?.accountId ?? null,
-          safeId: input.safeId ?? null,
-          bankAccountId: input.bankAccountId ?? null,
+          customerId: emptyToNull(input.customerId),
+          supplierId: emptyToNull(input.supplierId),
+          offsetAccountId: emptyToNull(input.offsetAccountId) ?? lines[0]?.accountId ?? null,
+          safeId: emptyToNull(input.safeId),
+          bankAccountId: emptyToNull(input.bankAccountId),
           exchangeRate: persistFxDecimal(input.currencyCode, input.exchangeRate),
           isRecurring: input.isRecurring ?? existing.isRecurring,
-          departmentId: input.departmentId ?? null,
-          sourceOrderId: nextSourceOrderId,
+          departmentId: emptyToNull(input.departmentId),
+          sourceOrderId: emptyToNull(nextSourceOrderId),
           bankReference: input.bankReference ?? null,
           valueDate: input.valueDate ?? null,
           version: { increment: 1 },
@@ -498,11 +505,11 @@ export class CashTransactionService {
           data: {
             date: input.date,
             description: input.description,
-            customerId: input.customerId,
-            supplierId: input.supplierId,
-            accountId: input.offsetAccountId,
-            safeId: input.safeId,
-            bankAccountId: input.bankAccountId,
+            customerId: emptyToNull(input.customerId),
+            supplierId: emptyToNull(input.supplierId),
+            accountId: emptyToNull(input.offsetAccountId),
+            safeId: emptyToNull(input.safeId),
+            bankAccountId: emptyToNull(input.bankAccountId),
             amount: new Decimal(input.amount),
             currencyCode: input.currencyCode,
           },
@@ -514,11 +521,11 @@ export class CashTransactionService {
           data: {
             date: input.date,
             description: input.description,
-            customerId: input.customerId,
-            supplierId: input.supplierId,
-            accountId: input.offsetAccountId,
-            safeId: input.safeId,
-            bankAccountId: input.bankAccountId,
+            customerId: emptyToNull(input.customerId),
+            supplierId: emptyToNull(input.supplierId),
+            accountId: emptyToNull(input.offsetAccountId),
+            safeId: emptyToNull(input.safeId),
+            bankAccountId: emptyToNull(input.bankAccountId),
             amount: new Decimal(input.amount),
             currencyCode: input.currencyCode,
           },
@@ -539,7 +546,7 @@ export class CashTransactionService {
             line.currencyCode ?? input.currencyCode,
             line.exchangeRate ?? input.exchangeRate
           ),
-            costCenterId: line.costCenterId ?? null,
+            costCenterId: emptyToNull(line.costCenterId),
             entrySide:
             line.entrySide === 'CREDIT'
               ? 'CREDIT'
@@ -549,7 +556,7 @@ export class CashTransactionService {
                   ? 'CREDIT'
                   : 'DEBIT',
             isTiedToInvoice: Boolean(line.isTiedToInvoice && line.invoiceId),
-            invoiceId: line.invoiceId || null,
+            invoiceId: emptyToNull(line.invoiceId),
             lineOrder: index + 1,
           })),
         });

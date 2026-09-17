@@ -2,6 +2,7 @@
 
 import { useEffect, useLayoutEffect, useRef } from 'react';
 import { isAbortError, shouldSuppressAbortNoise } from '@/lib/api/isAbortError';
+import { captureFatalError } from '@/lib/debug/gates-crash-probe';
 
 export default function Error({
   error,
@@ -10,6 +11,8 @@ export default function Error({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  // Capture before abort classification — a recursive walker there can hide the original.
+  captureFatalError(error, (error as Error & { componentStack?: string }).componentStack);
   const aborted = shouldSuppressAbortNoise(error) || isAbortError(error);
   const didAutoReset = useRef(false);
 
@@ -21,7 +24,7 @@ export default function Error({
 
   useEffect(() => {
     if (aborted) return;
-    console.error(error);
+    captureFatalError(error, (error as Error & { componentStack?: string }).componentStack);
   }, [error, aborted]);
 
   if (aborted) {

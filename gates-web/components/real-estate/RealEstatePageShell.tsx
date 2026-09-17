@@ -1,21 +1,53 @@
 'use client';
 
-import { DASHBOARD_CONTENT_CLASS, DASHBOARD_PAGE_CLASS } from '@/components/dashboard';
+import type { ReactNode } from 'react';
+import { ErpDocumentLayout, ErpDocumentPageHeader } from '@/components/erp';
 import { cn } from '@/lib/utils';
 import { PageSkeleton } from '@/components/ui/skeletons';
 
 export function RealEstatePageShell({ children }: { children: React.ReactNode }) {
   return (
-    <div
-      className={cn(
-        'gates-content-enter',
-        DASHBOARD_PAGE_CLASS,
-        'font-[family-name:var(--font-real-estate),Cairo,Tajawal,sans-serif]'
-      )}
-      dir="rtl"
-    >
-      <div className={cn(DASHBOARD_CONTENT_CLASS, 'space-y-5')}>{children}</div>
-    </div>
+    <ErpDocumentLayout>
+      <div className="space-y-4">{children}</div>
+    </ErpDocumentLayout>
+  );
+}
+
+export function RealEstateWorkspaceHeader({
+  title,
+  breadcrumbs,
+  extraActions,
+  statusLabel = 'قائمة',
+  docNumber,
+  currentId,
+  favoriteHref,
+}: {
+  title: string;
+  breadcrumbs: { href?: string; label: string }[];
+  extraActions?: ReactNode;
+  statusLabel?: string;
+  docNumber?: string;
+  currentId?: string | null;
+  favoriteHref?: string;
+}) {
+  return (
+    <ErpDocumentPageHeader
+      compact
+      lockWhenPosted={false}
+      breadcrumbs={breadcrumbs}
+      title={title}
+      showDocumentRef={Boolean(docNumber)}
+      docNumber={docNumber}
+      statusTone="info"
+      statusLabel={statusLabel}
+      hideStandalonePost
+      hideBrowseList
+      extraActions={extraActions}
+      hideActionMenu
+      currentId={currentId}
+      favoriteHref={favoriteHref}
+      favoriteLabel={title}
+    />
   );
 }
 

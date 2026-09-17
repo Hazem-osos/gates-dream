@@ -12,6 +12,7 @@ const FILTER_LABELS: Record<string, string> = {
   branchId: 'الفرع',
   delegateId: 'المندوب',
   representativeId: 'المندوب',
+  sellerId: 'البائع',
   itemId: 'الصنف',
   accountId: 'الحساب',
   costCenterId: 'مركز التكلفة',
@@ -29,6 +30,10 @@ export function buildReportFilterBadges(
   resolvedNames?: Record<string, string>
 ): ReportFilterBadge[] {
   const badges: ReportFilterBadge[] = [];
+
+  if (params.date && !params.fromDate && !params.toDate && !params.startDate && !params.endDate) {
+    badges.push({ icon: '📅', label: `التاريخ: ${formatDateParam(params.date)}` });
+  }
 
   const from = params.fromDate ?? params.startDate;
   const to = params.toDate ?? params.endDate;

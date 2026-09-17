@@ -8,10 +8,17 @@ import { useOwnTabPathname, useOwnTabSearchParams } from '@/lib/navigation/tab-r
 import { Button } from '@/components/ui';
 import { DynamicModalSkeleton, LineGridSkeleton } from '@/components/ui/DynamicChunkSkeleton';
 import { useApiQuery, useApiMutation, useInvalidateQuery } from '@/lib/hooks/useApi';
+import { shouldLockLoadedSource, type TransactionSettings } from '@/lib/transaction-settings/types';
 import { pickDefaultSafeId } from '@/lib/hooks/useMasterDataQueries';
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
 import { toastVersionConflict } from '@/lib/feedback/toast';
+import { isOptimisticLockApiError } from '@/lib/concurrency/version-conflict';
+import {
+  postInvoiceAfterSave,
+  useRepostAfterUnpost,
+} from '@/lib/accounting/ensure-posted-after-save';
+import type { ApiError } from '@/lib/api/types';
 import { confirmAction } from '@/lib/feedback/confirm';
 import { firstPartyPhone } from '@/lib/whatsapp-share';
 import { inventorySupplierInvoiceFormSchema } from '@/lib/validation/inventory.schema';
@@ -169,8 +176,13 @@ function FinalPurchaseInvoicePageInner() {
   const searchParams = useOwnTabSearchParams();
   const ownPathname = useOwnTabPathname();
   const { lockToView, setMode, unlockForEdit, isReadOnly } = useDocumentMode();
+  const { markUnpostedForEdit, consumeShouldRepost, resetKeepPosted } = useRepostAfterUnpost();
   const invalidateQuery = useInvalidateQuery();
   const { companyId } = useFirstCompany();
+  const { data: txSettingsRes } = useApiQuery<TransactionSettings>(
+    ['transaction-settings', 'PURCHASE_INVOICE'],
+    '/transaction-settings/PURCHASE_INVOICE'
+  );
   
   const [isPosted, setIsPosted] = useState(false);
   const [isSalesTaxInvoice, setIsSalesTaxInvoice] = useState(true);
@@ -199,6 +211,7 @@ function FinalPurchaseInvoicePageInner() {
   const [sourceType, setSourceType] = useState('');
   const [sourceId, setSourceId] = useState('');
   const [sourceNumber, setSourceNumber] = useState('');
+  const lockLoadedSource = shouldLockLoadedSource(txSettingsRes?.data, sourceId);
   const [freightAmount, setFreightAmount] = useState(0);
   const [supplierDiscountAmount, setSupplierDiscountAmount] = useState(0);
   const prevPurchaseWarehouseRef = useRef(warehouseId);
@@ -611,6 +624,7 @@ function FinalPurchaseInvoicePageInner() {
     setError('');
     setSuccess('');
     setIsPosted(false);
+    resetKeepPosted();
     const today = new Date().toISOString().split('T')[0];
     setDate(today);
     setPaymentType('cash');
@@ -624,7 +638,7 @@ function FinalPurchaseInvoicePageInner() {
       parsePricingCalculationBasis(companySettingsRes?.data?.pricingCalculationBasis)
     );
     clearDraft();
-  }, [clearDraft, companySettingsRes?.data?.pricingCalculationBasis, openInvoice]);
+  }, [clearDraft, companySettingsRes?.data?.pricingCalculationBasis, openInvoice, resetKeepPosted]);
 
   const handleRestoreDraft = () => {
     const payload = acceptRestore() as PurchaseInvoiceDraft | null;
@@ -649,11 +663,24 @@ function FinalPurchaseInvoicePageInner() {
     {
       onSuccess: () => {
         invalidateQuery(['invoices']);
+        const id = selectedInvoiceId;
+        if (consumeShouldRepost() && id) {
+          void postInvoiceAfterSave(id)
+            .then(() => {
+              handleNew();
+              setSuccess('تم حفظ التعديلات وترحيل فاتورة المشتريات');
+            })
+            .catch((err: ApiError) => {
+              handleNew();
+              setError(err.message || 'تم الحفظ لكن تعذر ترحيل الفاتورة');
+            });
+          return;
+        }
         handleNew();
         setSuccess('تم تحديث فاتورة المشتريات بنجاح');
       },
       onError: (err) => {
-        if (err.code === '409') {
+        if (isOptimisticLockApiError(err)) {
           toastVersionConflict(err.message, () => invalidateQuery(['invoice', selectedInvoiceId]));
           return;
         }
@@ -699,6 +726,7 @@ function FinalPurchaseInvoicePageInner() {
       onSuccess: () => {
         setSuccess('تم فك ترحيل فاتورة المشتريات بنجاح');
         setIsPosted(false);
+        markUnpostedForEdit();
         invalidateQuery(['invoices']);
         invalidateQuery(['invoice', selectedInvoiceId]);
       },
@@ -1070,6 +1098,7 @@ function FinalPurchaseInvoicePageInner() {
         sourceNumber={sourceNumber}
         hasExistingLines={invoiceLines.some((line) => Boolean(line.itemId))}
         sourceDisabled={isPosted || isReadOnly}
+        fieldsDisabled={lockLoadedSource}
         onSourceTypeChange={(type) => {
           setSourceType(type);
           setSourceId('');
@@ -1082,7 +1111,7 @@ function FinalPurchaseInvoicePageInner() {
         <InternalNotesScratchpad
           notes={internalNotes}
           onChange={setInternalNotes}
-          disabled={isPosted}
+          disabled={isPosted || lockLoadedSource}
         />
       </div>
 
@@ -1126,7 +1155,7 @@ function FinalPurchaseInvoicePageInner() {
           clipboardItems={clipboardItems}
           onClipboardLines={handlePurchaseClipboardLines}
           pricingCalculationBasis={pricingCalculationBasis}
-          readOnly={isReadOnly}
+          readOnly={isReadOnly || lockLoadedSource}
           landedCostExtras={{ freightAmount, supplierDiscountAmount }}
           headerDescription={description}
         />
@@ -1155,7 +1184,7 @@ function FinalPurchaseInvoicePageInner() {
         supplierDiscountAmount={supplierDiscountAmount}
         onFreightAmountChange={setFreightAmount}
         onSupplierDiscountAmountChange={setSupplierDiscountAmount}
-        extrasReadOnly={isReadOnly}
+        extrasReadOnly={isReadOnly || lockLoadedSource}
       />
     </ErpDocumentLayout>
   );

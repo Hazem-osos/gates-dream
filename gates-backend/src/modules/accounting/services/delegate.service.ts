@@ -162,7 +162,7 @@ export class DelegateService {
       prisma.$queryRaw<Array<Record<string, unknown>>>`
         SELECT * FROM \`delegates\`
         WHERE ${whereSql}
-        ORDER BY arabicName ASC
+        ORDER BY CAST(IFNULL(serial, code) AS UNSIGNED) ASC, createdAt ASC, arabicName ASC
         LIMIT ${limit} OFFSET ${skip}
       `,
       prisma.$queryRaw<Array<{ total: bigint | number }>>`

@@ -8,7 +8,7 @@ import { isFxRateLocked, rateForCurrency } from '@/lib/accounting/fx-base';
 import { ExchangeRateInput } from '@/components/accounting/ExchangeRateInput';
 import { useCompanyBaseCurrency } from '@/lib/hooks/useCompanyBaseCurrency';
 import { costCenterRuleFromAccount } from '@/lib/accounting/cost-center-rule';
-import { useAccountsQuery } from '@/lib/hooks/useMasterDataQueries';
+import { ACCOUNT_PICKER_PAGE_SIZE, useAccountsQuery } from '@/lib/hooks/useMasterDataQueries';
 import { seedLineDescription, useFollowHeaderDescription } from '@/lib/hooks/useFollowHeaderDescription';
 
 export type EditableJournalLine = {
@@ -58,7 +58,7 @@ export function EditableJournalLinesTable({
   headerDescription = '',
 }: Props) {
   const { code: companyBase } = useCompanyBaseCurrency();
-  const { data: accountsRes } = useAccountsQuery(undefined, 500, { leafOnly: true });
+  const { data: accountsRes } = useAccountsQuery(undefined, ACCOUNT_PICKER_PAGE_SIZE, { leafOnly: true });
   const accounts = accountsRes?.data ?? [];
   const ruleFor = (accountId?: string) =>
     costCenterRuleFromAccount(accounts.find((a) => a.id === accountId));

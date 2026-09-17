@@ -22,6 +22,7 @@ import { useAccountingSettingsQuery } from '@/lib/hooks/useAccountingSettings';
 import { entityLabel } from '@/lib/quick-create/catalog';
 import { useQuickCreateHost } from '@/lib/quick-create/useQuickCreateTab';
 import { bumpTrailingCode, isCodeAfter } from '@/lib/masters/nextNumericSerial';
+import { toast } from '@/lib/feedback/toast';
 
 const EMPTY_COST_CENTER_FORM = {
   code: '',
@@ -30,8 +31,9 @@ const EMPTY_COST_CENTER_FORM = {
   parentId: '',
   costCenterKind: 'HEADER' as 'HEADER' | 'POSTING',
   quantityBudget: '',
-  warning: '' as 'مدين' | 'دائن' | 'بدون' | '',
+  warning: 'بدون' as 'مدين' | 'دائن' | 'بدون',
   budget: '',
+  creditLimit: '',
   currencyCode: '',
   isActive: true,
 };
@@ -43,6 +45,12 @@ interface CostCenter {
   englishName?: string;
   parentId?: string | null;
   costCenterKind?: 'HEADER' | 'POSTING' | null;
+  warning?: 'مدين' | 'دائن' | 'بدون' | null;
+  budget?: number | string | null;
+  creditLimit?: number | string | null;
+  quantityBudget?: number | string | null;
+  currencyCode?: string | null;
+  isActive?: boolean;
 }
 
 interface Currency {
@@ -138,7 +146,9 @@ function CostCenterPage() {
         setCodeTouched(false);
       },
       onError: (error: ApiError) => {
-        setError(error.message || 'حدث خطأ أثناء الحفظ');
+        const message = error.message || 'حدث خطأ أثناء الحفظ';
+        setError(message);
+        toast.error(message);
       },
     }
   );
@@ -168,11 +178,15 @@ function CostCenterPage() {
 
     const parsed = costCenterCardFormSchema.safeParse(formData);
     if (!parsed.success) {
-      setError(parsed.error.issues[0]?.message || 'يرجى مراجعة بيانات مركز التكلفة');
+      const message = parsed.error.issues[0]?.message || 'يرجى مراجعة بيانات مركز التكلفة';
+      setError(message);
+      toast.error(message);
       return;
     }
     if (!costCenterAuto && !formData.code.trim()) {
-      setError('رقم المركز مطلوب — الترقيم يدوي');
+      const message = 'رقم المركز مطلوب — الترقيم يدوي';
+      setError(message);
+      toast.error(message);
       return;
     }
 
@@ -183,8 +197,9 @@ function CostCenterPage() {
       parentId: formData.parentId || undefined,
       costCenterKind: formData.costCenterKind,
       quantityBudget: formData.quantityBudget ? parseFloat(formData.quantityBudget) : undefined,
-      warning: formData.warning || undefined,
+      warning: formData.warning || 'بدون',
       budget: formData.budget ? parseFloat(formData.budget) : undefined,
+      creditLimit: formData.creditLimit ? parseFloat(formData.creditLimit) : undefined,
       currencyCode: formData.currencyCode || undefined,
       isActive: formData.isActive,
     };
@@ -205,8 +220,9 @@ function CostCenterPage() {
   const advancedFilledCount = [
     formData.englishName,
     formData.quantityBudget,
-    formData.warning,
+    formData.warning && formData.warning !== 'بدون' ? formData.warning : '',
     formData.budget,
+    formData.creditLimit,
     formData.currencyCode,
     formData.isActive ? '' : '1',
   ].filter((v) => String(v ?? '').trim().length > 0).length;
@@ -349,6 +365,40 @@ function CostCenterPage() {
               />
             </CompactFormField>
           )}
+          <CompactFormField
+            label="الحد الائتماني"
+            type="number"
+            min="0"
+            step="0.01"
+            value={formData.creditLimit}
+            onChange={(e) => setFormData({ ...formData, creditLimit: e.target.value })}
+            placeholder="0"
+          />
+          <CompactFormField label="جهة التحذير">
+            <select
+              className={compactControlClass}
+              value={formData.warning || 'بدون'}
+              onChange={(e) =>
+                setFormData({
+                  ...formData,
+                  warning: e.target.value as 'مدين' | 'دائن' | 'بدون',
+                })
+              }
+            >
+              <option value="بدون">بدون</option>
+              <option value="مدين">مدين</option>
+              <option value="دائن">دائن</option>
+            </select>
+          </CompactFormField>
+          <CompactFormField
+            label="موازنة تقديرية"
+            type="number"
+            min="0"
+            step="0.01"
+            value={formData.budget}
+            onChange={(e) => setFormData({ ...formData, budget: e.target.value })}
+            placeholder="0"
+          />
         </FormSectionCard>
 
         <AdvancedFieldsSection title="الحقول والإعدادات المتقدمة" badgeCount={advancedFilledCount}>
@@ -373,13 +423,6 @@ function CostCenterPage() {
               onChange={(e) => setFormData({ ...formData, quantityBudget: e.target.value })}
               placeholder="0"
             />
-            <CompactFormField
-              label="موازنة تقديرية"
-              type="number"
-              value={formData.budget}
-              onChange={(e) => setFormData({ ...formData, budget: e.target.value })}
-              placeholder="إدخل الموازنة التقديرية"
-            />
             <CompactFormField label="رمز العملة">
               <select
                 className={compactControlClass}
@@ -393,33 +436,6 @@ function CostCenterPage() {
                   </option>
                 ))}
               </select>
-            </CompactFormField>
-            <CompactFormField label="تحذير" className="sm:col-span-2">
-              <div className="flex flex-wrap gap-2">
-                {[
-                  { value: 'مدين' as const, label: 'مدين' },
-                  { value: 'دائن' as const, label: 'دائن' },
-                  { value: 'بدون' as const, label: 'بدون' },
-                ].map((opt) => (
-                  <label
-                    key={opt.value}
-                    className={`${
-                      formData.warning === opt.value
-                        ? 'bg-[#0E78AA] text-white border-[#0E78AA]'
-                        : 'bg-white text-[#0A3D5E] border-[#D6EAF3]'
-                    } inline-flex cursor-pointer items-center rounded-full border px-3 py-1.5 text-xs font-semibold`}
-                  >
-                    <input
-                      type="radio"
-                      name="warning"
-                      className="sr-only"
-                      checked={formData.warning === opt.value}
-                      onChange={() => setFormData({ ...formData, warning: opt.value })}
-                    />
-                    {opt.label}
-                  </label>
-                ))}
-              </div>
             </CompactFormField>
           </div>
         </AdvancedFieldsSection>
@@ -440,6 +456,12 @@ function CostCenterPage() {
               englishName: cc.englishName || '',
               parentId: cc.parentId ?? '',
               costCenterKind: cc.costCenterKind === 'HEADER' ? 'HEADER' : cc.parentId ? 'POSTING' : 'HEADER',
+              warning: cc.warning || 'بدون',
+              budget: cc.budget != null ? String(cc.budget) : '',
+              creditLimit: cc.creditLimit != null ? String(cc.creditLimit) : '',
+              quantityBudget: cc.quantityBudget != null ? String(cc.quantityBudget) : '',
+              currencyCode: cc.currencyCode || '',
+              isActive: cc.isActive !== false,
             }));
             setShowGuide(false);
           }}

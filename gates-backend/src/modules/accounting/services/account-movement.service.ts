@@ -236,6 +236,8 @@ export class AccountMovementService {
               companyId,
               deletedAt: null,
               date: { gte: fromDate, lte: toDate },
+              reversalOfJournalEntryId: null,
+              NOT: { entryType: 'REVERSAL' },
             },
           },
           select: {
@@ -263,7 +265,12 @@ export class AccountMovementService {
         prisma.journalEntryLine.aggregate({
           where: {
             accountId,
-            journalEntry: { companyId, deletedAt: null },
+            journalEntry: {
+              companyId,
+              deletedAt: null,
+              reversalOfJournalEntryId: null,
+              NOT: { entryType: 'REVERSAL' },
+            },
           },
           _sum: { debitBase: true, creditBase: true },
         }),

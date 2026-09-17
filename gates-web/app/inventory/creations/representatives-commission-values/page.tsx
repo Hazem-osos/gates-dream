@@ -1,18 +1,15 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { Percent, Plus, Trash2 } from 'lucide-react';
 import {
-  PageHeader,
   Button,
   CompactFormField,
-  FormStickyFooter,
   FormSectionCard,
   AppTable,
-  CrudButtons,
   compactControlClass,
 } from '@/components/ui';
+import { MasterCardShell } from '@/components/erp';
 import {
   CommissionValuesListSection,
   type CommissionValueRow,
@@ -58,7 +55,6 @@ function num(value: string): number | null {
 }
 
 export default function RepresentativesCommissionValuesPage() {
-  const router = useRouter();
   const invalidateQuery = useInvalidateQuery();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
@@ -117,16 +113,15 @@ export default function RepresentativesCommissionValuesPage() {
     try {
       if (selectedId) {
         await apiClient.put(`/inventory/representatives-commissions-values/${selectedId}`, body);
-        setSuccess('تم تحديث سياسة العمولة');
       } else {
-        const res = await apiClient.post<CommissionValueRow>(
+        await apiClient.post<CommissionValueRow>(
           '/inventory/representatives-commissions-values',
           body
         );
-        if (res.data?.id) setSelectedId(res.data.id);
-        setSuccess('تم حفظ سياسة العمولة');
       }
       invalidateQuery(['representatives-commissions-values']);
+      handleNew();
+      setSuccess('تم حفظ سياسة العمولة — تقدر تضيف التالي');
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'حدث خطأ أثناء الحفظ');
     } finally {
@@ -148,27 +143,25 @@ export default function RepresentativesCommissionValuesPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50 p-6" style={{ direction: 'rtl' }}>
+    <MasterCardShell
+      title="تعريف سياسة عمولات المندوبين قيم"
+      breadcrumbs={[
+        { label: 'المخازن', href: '/inventory' },
+        { label: 'التعريفات' },
+        { label: 'عمولات المندوبين قيم' },
+      ]}
+      docNumber={form.serial || form.name || 'جديد'}
+      statusLabel={selectedId ? 'تعديل' : 'جديد'}
+      onSave={() => void handleSave()}
+      savePending={saving}
+      canSave={!saving}
+      onNew={handleNew}
+      onDelete={selectedId ? () => void handleDelete() : undefined}
+      currentId={selectedId}
+      favoriteHref="/inventory/creations/representatives-commission-values"
+    >
       {error && <ErrorToast message={error} onClose={() => setError('')} />}
       {success && <SuccessToast message={success} onClose={() => setSuccess('')} />}
-
-      <PageHeader
-        title="تعريف سياسة عمولات المندوبين قيم"
-        breadcrumbs={[
-          { label: 'المخزون', href: '/inventory' },
-          { label: 'التعريفات' },
-          { label: 'عمولات المندوبين قيم' },
-        ]}
-        actions={
-          <CrudButtons
-            onPrevious={() => router.back()}
-            onAdd={handleNew}
-            extraItems={[
-              { id: 'delete', label: 'حذف', onClick: () => void handleDelete(), disabled: !selectedId, destructive: true },
-            ]}
-          />
-        }
-      />
 
       <CommissionValuesListSection onSelect={applyRow} selectedId={selectedId} />
 
@@ -288,13 +281,6 @@ export default function RepresentativesCommissionValuesPage() {
         />
       </section>
 
-      <FormStickyFooter
-        onCancel={() => router.back()}
-        onSave={() => void handleSave()}
-        saveLoading={saving}
-        saveDisabled={saving}
-        status={selectedId ? 'تعديل' : 'مسودة'}
-      />
-    </div>
+    </MasterCardShell>
   );
 }

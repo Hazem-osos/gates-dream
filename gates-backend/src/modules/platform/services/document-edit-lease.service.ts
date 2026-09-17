@@ -28,8 +28,8 @@ function isLive(lease: DocumentEditLease | null, now = Date.now()): lease is Doc
   return Boolean(lease && lease.expiresAt > now);
 }
 
-function isSameHolder(lease: DocumentEditLease, userId: string, sessionId: string): boolean {
-  return lease.userId === userId && lease.sessionId === sessionId;
+function isSameHolder(lease: DocumentEditLease, userId: string, _sessionId?: string): boolean {
+  return lease.userId === userId;
 }
 
 export class DocumentEditLeaseService {

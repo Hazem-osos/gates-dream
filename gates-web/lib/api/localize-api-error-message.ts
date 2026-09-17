@@ -43,6 +43,8 @@ const EXACT: Record<string, string> = {
   'supplier not found': 'المورد غير موجود',
   'securities receipt not found': 'ورقة المقبوضات غير موجودة',
   'securities payment not found': 'ورقة المدفوعات غير موجودة',
+  'cheque gl accounts are not fully configured in company accountdefinitions':
+    'اختر حساب التحصيل (خزينة أو بنك). حسابات الشيكات غير مضبوطة في إعدادات الشركة.',
   'securities receipt is already posted': 'تم تحصيل ورقة المقبوضات مسبقاً',
   'securities payment is already posted': 'تم تحصيل ورقة المدفوعات مسبقاً',
   'securities receipt is already cancelled': 'ورقة المقبوضات مرتدة أو ملغاة بالفعل',

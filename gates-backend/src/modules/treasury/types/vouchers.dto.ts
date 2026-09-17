@@ -79,3 +79,23 @@ export function splitVoucherLineTotals(
     netCash: kind === 'RECEIPT' ? creditTotal - debitTotal : debitTotal - creditTotal,
   };
 }
+
+/** Same split in document currency — do not multiply by FX. */
+export function splitVoucherLineForeignTotals(
+  lines: { amount: number; entrySide?: string }[],
+  kind: 'PAYMENT' | 'RECEIPT' = 'PAYMENT'
+) {
+  let debitTotal = 0;
+  let creditTotal = 0;
+  for (const line of lines) {
+    const amount = Number(line.amount) || 0;
+    const defaultSide = kind === 'RECEIPT' ? 'CREDIT' : 'DEBIT';
+    if ((line.entrySide ?? defaultSide) === 'CREDIT') creditTotal += amount;
+    else debitTotal += amount;
+  }
+  return {
+    debitTotal,
+    creditTotal,
+    netCash: kind === 'RECEIPT' ? creditTotal - debitTotal : debitTotal - creditTotal,
+  };
+}

@@ -1,19 +1,16 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { FileText, Plus, Trash2 } from 'lucide-react';
 import {
-  PageHeader,
   Button,
   CompactFormField,
-  FormStickyFooter,
   FormSectionCard,
   AppTable,
   FilterToolbar,
-  CrudButtons,
   compactControlClass,
 } from '@/components/ui';
+import { MasterCardShell } from '@/components/erp';
 import { CustomerSelect } from '@/components/form/PartySelect';
 import {
   CustomerContractsListSection,
@@ -108,7 +105,6 @@ function lineFromApi(row: ApiGroup): GroupLine {
 }
 
 export default function CustomerContractPage() {
-  const router = useRouter();
   const invalidateQuery = useInvalidateQuery();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
@@ -223,15 +219,13 @@ export default function CustomerContractPage() {
     setSaving(true);
     try {
       if (selectedId) {
-        const res = await apiClient.put<ApiDetail>(`/inventory/customer-contracts/${selectedId}`, body);
-        if (res.data) hydrate(res.data);
-        setSuccess('تم تحديث التعاقد');
+        await apiClient.put<ApiDetail>(`/inventory/customer-contracts/${selectedId}`, body);
       } else {
-        const res = await apiClient.post<ApiDetail>('/inventory/customer-contracts', body);
-        if (res.data) hydrate(res.data);
-        setSuccess('تم حفظ التعاقد');
+        await apiClient.post<ApiDetail>('/inventory/customer-contracts', body);
       }
       invalidateQuery(['customer-contracts']);
+      handleNew();
+      setSuccess('تم حفظ التعاقد — تقدر تضيف التالي');
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'حدث خطأ أثناء الحفظ');
     } finally {
@@ -253,26 +247,26 @@ export default function CustomerContractPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50 p-6" style={{ direction: 'rtl' }}>
+    <MasterCardShell
+      title="تعاقد عميل"
+      breadcrumbs={[
+        { label: 'المخازن', href: '/inventory' },
+        { label: 'التعريفات' },
+        { label: 'تعاقد عميل' },
+      ]}
+      docNumber={form.code || 'جديد'}
+      statusLabel={selectedId ? 'تعديل' : 'جديد'}
+      onSave={() => void handleSave()}
+      savePending={saving}
+      canSave={!saving}
+      onNew={handleNew}
+      onDelete={selectedId ? () => void handleDelete() : undefined}
+      currentId={selectedId}
+      favoriteHref="/inventory/creations/customer-contract"
+      moreMenuItems={[{ id: 'add-group', label: 'إضافة مجموعة', onClick: addGroup }]}
+    >
       {error && <ErrorToast message={error} onClose={() => setError('')} />}
       {success && <SuccessToast message={success} onClose={() => setSuccess('')} />}
-
-      <PageHeader
-        title="تعاقد عميل"
-        breadcrumbs={[
-          { label: 'المخزون', href: '/inventory' },
-          { label: 'التعريفات' },
-          { label: 'تعاقد عميل' },
-        ]}
-        actions={
-          <CrudButtons
-            onPrevious={() => router.back()}
-            onAdd={handleNew}
-            onDelete={selectedId ? () => void handleDelete() : undefined}
-            extraItems={[{ id: 'add-group', label: 'إضافة مجموعة', onClick: addGroup }]}
-          />
-        }
-      />
 
       <CustomerContractsListSection
         onSelect={(row) => void loadContract(row.id)}
@@ -446,13 +440,6 @@ export default function CustomerContractPage() {
         />
       </section>
 
-      <FormStickyFooter
-        onCancel={() => router.back()}
-        onSave={() => void handleSave()}
-        saveLoading={saving}
-        saveDisabled={saving}
-        status={selectedId ? 'تعديل' : 'مسودة'}
-      />
-    </div>
+    </MasterCardShell>
   );
 }

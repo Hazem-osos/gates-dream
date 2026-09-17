@@ -32,6 +32,11 @@ export const updateSecuritiesPaymentSchema = securitiesPaymentFieldsSchema.parti
 
 export const bounceSecuritiesPaymentSchema = z.object({
   description: z.string().optional(),
+  date: z
+    .string()
+    .optional()
+    .transform((val) => (val ? new Date(val) : undefined)),
+  accountId: z.string().uuid().optional(),
 });
 
 export const securitiesPaymentQuerySchema = z.object({

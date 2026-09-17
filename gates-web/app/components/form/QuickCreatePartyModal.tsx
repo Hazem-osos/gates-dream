@@ -97,10 +97,6 @@ export function QuickCreatePartyModal({
       setError('الاسم مطلوب');
       return;
     }
-    if (kind === 'CUSTOMER' && !mobile.trim()) {
-      setError('رقم الموبايل مطلوب');
-      return;
-    }
     const body: Record<string, unknown> = {
       arabicName: name.trim(),
       mobile: mobile.trim() || undefined,
@@ -140,7 +136,6 @@ export function QuickCreatePartyModal({
           />
           <CompactFormField
             label="الموبايل"
-            required={kind === 'CUSTOMER'}
             value={mobile}
             onChange={(e) => setMobile(e.target.value)}
           />

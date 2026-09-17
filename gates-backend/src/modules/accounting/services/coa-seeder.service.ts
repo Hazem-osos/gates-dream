@@ -9,6 +9,8 @@ export type SeedDefaultCoaResult = TenantProvisionResult;
 export type SeedCoaOptions = {
   force?: boolean;
   industry?: CoaIndustryKey | string;
+  /** First-time tree download: default automatic when omitted. */
+  coaAutoNumbering?: boolean;
 };
 
 export class CoaSeederService {

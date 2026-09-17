@@ -544,13 +544,14 @@ export const costCenterCardFormSchema = z.object({
   quantityBudget: z.string().optional(),
   warning: z.enum(['مدين', 'دائن', 'بدون', '']).optional(),
   budget: z.string().optional(),
+  creditLimit: z.string().optional(),
   currencyCode: z.string().optional(),
   isActive: z.boolean(),
 });
 
 export type CostCenterCardFormInput = z.infer<typeof costCenterCardFormSchema>;
 
-/** بطاقة عميل — الاسم + وسيلة اتصال على الأقل. */
+/** بطاقة عميل — الاسم مطلوب. الكود والهاتف اختياريان. */
 export const customerCardFormSchema = z
   .object({
     arabicName: z.string().trim().min(1, 'يرجى إدخال الإسم العربي'),
@@ -561,13 +562,6 @@ export const customerCardFormSchema = z
     taxAuthorityName: z.string().optional(),
   })
   .superRefine((value, ctx) => {
-    if (!value.phone1?.trim() && !value.mobile?.trim()) {
-      ctx.addIssue({
-        code: 'custom',
-        path: ['phone1'],
-        message: 'أدخل رقم هاتف أو موبايل على الأقل.',
-      });
-    }
     if (value.taxData && !value.taxAuthority?.trim() && !value.taxAuthorityName?.trim()) {
       ctx.addIssue({
         code: 'custom',

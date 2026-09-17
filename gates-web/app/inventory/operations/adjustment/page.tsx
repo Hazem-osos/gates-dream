@@ -4,17 +4,21 @@ import { useState, useEffect } from 'react';
 import { useForm, type Resolver, type SubmitHandler, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Pagination } from '@/components/ui/Pagination';
-import { PageHeader } from '@/components/ui/PageHeader';
-import CrudButtons from '@/components/ui/CrudButtons';
+import { ErpDocumentLayout, ErpDocumentPageHeader, DocumentBrowseDrawer } from '@/components/erp';
+import { GenericRecordsList } from '@/components/erp/GenericRecordsList';
 import {
   FormSectionCard,
   CompactFormField,
   AdvancedFieldsSection,
   FormStickyFooter,
-  StatusBadge,
   Button,
   compactControlClass,
+  denseTableWrapClass,
+  denseTableClass,
+  denseTheadClass,
+  denseThClass,
+  denseTdClass,
+  denseTrClass,
 } from '@/components/ui';
 import { useApiQuery, useApiMutation, useInvalidateQuery } from '@/lib/hooks/useApi';
 import { confirmAction } from '@/lib/feedback/confirm';
@@ -59,15 +63,6 @@ interface AdjustmentLine {
   unitPrice?: number;
   adjustmentQuantity?: number;
   adjustmentTotal?: number;
-}
-
-interface AdjustmentListItem {
-  id: string;
-  serialNumber?: string;
-  serial?: string;
-  date?: string;
-  warehouse?: { arabicName?: string };
-  isPosted?: boolean;
 }
 
 type AdjustmentDetail = Record<string, unknown> & {
@@ -121,13 +116,11 @@ export default function AdjustmentPage() {
   });
 
   const isPosted = watch('isPosted');
-  const isApproved = watch('isApproved');
 
   const [adjustmentLines, setAdjustmentLines] = useState<AdjustmentLine[]>([]);
-  const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize] = useState(10);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [showList, setShowList] = useState(false);
   const [selectedAdjustmentId, setSelectedAdjustmentId] = useState<string | null>(null);
 
   // Fetch warehouses
@@ -153,19 +146,6 @@ export default function AdjustmentPage() {
     { limit: 1000, isActive: true }
   );
   const locations = locationsResponse?.data || [];
-
-  // Fetch adjustments for pagination
-  const { data: adjustmentsResponse } = useApiQuery<AdjustmentListItem[]>(
-    ['adjustments', String(currentPage), String(isPosted)],
-    '/inventory/adjustments',
-    { 
-      page: currentPage, 
-      limit: pageSize,
-      isPosted: isPosted ? true : undefined,
-    }
-  );
-  const adjustments = adjustmentsResponse?.data || [];
-  const adjustmentsTotal = adjustmentsResponse?.pagination?.total ?? adjustmentsResponse?.meta?.total ?? adjustments.length;
 
   // Fetch single adjustment for editing
   const { data: adjustmentResponse } = useApiQuery<AdjustmentDetail>(
@@ -408,134 +388,80 @@ export default function AdjustmentPage() {
   const totalAdjustment = adjustmentLines.reduce((sum, line) => sum + (line.adjustmentTotal || 0), 0);
 
   return (
-    <div className="p-6 bg-gradient-to-br from-gray-50 to-blue-50 min-h-screen" style={{ direction: 'rtl' }}>
-      {/* Error and Success Toasts */}
+    <ErpDocumentLayout>
       {error && <ErrorToast message={error} onClose={() => setError('')} />}
       {success && <SuccessToast message={success} onClose={() => setSuccess('')} />}
 
-      <PageHeader
-        title="تسوية مخزنية"
+      <ErpDocumentPageHeader
+        compact
         breadcrumbs={[
-          { label: 'المخزون', href: '/inventory' },
-          { label: 'الحركات' },
+          { href: '/inventory', label: 'المخزون' },
+          { label: 'العمليات' },
           { label: 'تسوية مخزنية' },
         ]}
-        actions={<Pagination page={currentPage} pageSize={pageSize} total={adjustmentsTotal} onPageChange={setCurrentPage} />}
-        className="mb-4"
+        title="تسوية مخزنية"
+        docNumber={watch('serialNumber') || ''}
+        statusTone={isPosted ? 'success' : 'warning'}
+        statusLabel={isPosted ? 'مرحّل' : 'مسودة'}
+        saveLabel="حفظ"
+        onSaveDraft={() => void handleSubmit(onSaveValid, onFieldErrors(setError))()}
+        savePending={loading}
+        canSave={!isPosted}
+        hideStandalonePost
+        onBrowseList={() => setShowList(true)}
+        browseListLabel="السابق"
+        currentId={selectedAdjustmentId}
+        favoriteHref="/inventory/operations/adjustment"
+        standardActions={{
+          hasDocument: Boolean(selectedAdjustmentId),
+          isPosted,
+          onEdit: () => {
+            if (isPosted) setError('فك الترحيل أولاً من قائمة (...) حتى يمكن التعديل');
+          },
+          onPost: () => void handlePostUnpost(true),
+          onUnpost: () => void handlePostUnpost(false),
+          onVoid: handleDelete,
+          onNew: handleNew,
+          newLabel: 'جديد',
+          postPending: postAdjustmentMutation.isPending,
+          unpostPending: unpostAdjustmentMutation.isPending,
+        }}
       />
 
-      {/* Adjustments List Section */}
-      {adjustments.length > 0 && (
-        <div className="mb-6 bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-          <div className="px-4 py-3 bg-gradient-to-r from-[#0E78AA] to-[#0A5F8A]">
-            <h2 className="text-white font-semibold">قائمة التسويات المخزنية</h2>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-4 py-3 text-right text-sm font-semibold text-gray-700">المسلسل</th>
-                  <th className="px-4 py-3 text-right text-sm font-semibold text-gray-700">التاريخ</th>
-                  <th className="px-4 py-3 text-right text-sm font-semibold text-gray-700">المخزن</th>
-                  <th className="px-4 py-3 text-right text-sm font-semibold text-gray-700">الترحيل</th>
-                  <th className="px-4 py-3 text-right text-sm font-semibold text-gray-700">الإجراءات</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200">
-                {adjustments.map((adjustment) => (
-                  <tr 
-                    key={adjustment.id}
-                    className={`hover:bg-gray-50 cursor-pointer transition-colors ${
-                      selectedAdjustmentId === adjustment.id ? 'bg-blue-50' : ''
-                    }`}
-                    onClick={() => setSelectedAdjustmentId(adjustment.id)}
-                  >
-                    <td className="px-4 py-3 text-sm text-gray-900">{adjustment.serialNumber || adjustment.serial || adjustment.id}</td>
-                    <td className="px-4 py-3 text-sm text-gray-600">
-                      {adjustment.date ? new Date(adjustment.date).toLocaleDateString('ar-SA') : '-'}
-                    </td>
-                    <td className="px-4 py-3 text-sm text-gray-600">
-                      {adjustment.warehouse?.arabicName || '-'}
-                    </td>
-                    <td className="px-4 py-3 text-sm">
-                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                        adjustment.isPosted 
-                          ? 'bg-green-100 text-green-800' 
-                          : 'bg-gray-100 text-gray-800'
-                      }`}>
-                        {adjustment.isPosted ? 'مرحل' : 'غير مرحل'}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-sm">
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSelectedAdjustmentId(adjustment.id);
-                        }}
-                        className="text-[#0E78AA] hover:text-[#0A5F8A] font-medium"
-                      >
-                        تعديل
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
+      <DocumentBrowseDrawer open={showList} onClose={() => setShowList(false)} title="التسويات المخزنية السابقة">
+        <GenericRecordsList
+          apiPath="/inventory/adjustments"
+          listKey="adjustments-browse"
+          selectedId={selectedAdjustmentId}
+          columns={[
+            { id: 'serial', header: 'المسلسل', getValue: (r) => String(r.serialNumber || r.serial || r.id) },
+            {
+              id: 'date',
+              header: 'التاريخ',
+              getValue: (r) => (r.date ? new Date(String(r.date)).toLocaleDateString('ar-EG') : '—'),
+            },
+            {
+              id: 'warehouse',
+              header: 'المخزن',
+              getValue: (r) => {
+                const w = r.warehouse as { arabicName?: string } | undefined;
+                return w?.arabicName || '—';
+              },
+            },
+            {
+              id: 'posted',
+              header: 'الحالة',
+              getValue: (r) => (r.isPosted ? 'مرحّل' : 'مسودة'),
+            },
+          ]}
+          onSelect={(id) => {
+            setSelectedAdjustmentId(id);
+            setShowList(false);
+          }}
+        />
+      </DocumentBrowseDrawer>
 
       <FormSectionCard title="بيانات التسوية" subtitle="المخزن والتاريخ والمرجع">
-          <div className="col-span-full flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-[#0A3D5E] font-medium">الترحيل:</span>
-                <div className="flex bg-gray-200 rounded-lg p-1">
-                  <button
-                    type="button"
-                    onClick={() => handlePostUnpost(true)}
-                    disabled={!selectedAdjustmentId || postAdjustmentMutation.isPending}
-                    className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${isPosted ? 'bg-[#0E78AA] text-white' : 'bg-white text-gray-600 hover:bg-gray-100'} ${!selectedAdjustmentId ? 'opacity-50 cursor-not-allowed' : ''}`}
-                  >
-                    {postAdjustmentMutation.isPending ? 'جاري...' : 'ترحيل'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handlePostUnpost(false)}
-                    disabled={!selectedAdjustmentId || unpostAdjustmentMutation.isPending}
-                    className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${!isPosted ? 'bg-[#0E78AA] text-white' : 'bg-white text-gray-600 hover:bg-gray-100'} ${!selectedAdjustmentId ? 'opacity-50 cursor-not-allowed' : ''}`}
-                  >
-                    {unpostAdjustmentMutation.isPending ? 'جاري...' : 'فك ترحيل'}
-                  </button>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-[#0A3D5E] font-medium">الموافقة:</span>
-                <div className="flex bg-gray-200 rounded-lg p-1">
-                  <button
-                    type="button"
-                    onClick={() => setValue('isApproved', true)}
-                    className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${isApproved ? 'bg-[#0E78AA] text-white' : 'bg-white text-gray-600 hover:bg-gray-100'}`}
-                  >
-                    موافق
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setValue('isApproved', false)}
-                    className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${!isApproved ? 'bg-[#0E78AA] text-white' : 'bg-white text-gray-600 hover:bg-gray-100'}`}
-                  >
-                    غير موافق
-                  </button>
-                </div>
-              </div>
-            </div>
-            <StatusBadge
-              variant={isPosted ? 'success' : 'warning'}
-              label={isPosted ? 'مرحّل' : 'مسودة'}
-            />
-          </div>
-
           <CompactFormField label="المسلسل" placeholder="إدخل رقم المسلسل" {...register('serialNumber')} />
           <CompactFormField
             label="التاريخ"
@@ -603,33 +529,33 @@ export default function AdjustmentPage() {
               إضافة صنف
             </Button>
           </div>
-          <div className="overflow-x-auto rounded-2xl border border-[#D6EAF3] bg-white">
-            <table className="min-w-full text-center border-separate border-spacing-0">
-              <thead>
+          <div className={denseTableWrapClass}>
+            <table className={denseTableClass}>
+              <thead className={denseTheadClass}>
                 <tr>
-                  <th className="bg-gradient-to-b from-[#0E78AA] to-[#0A5F8A] text-white py-4 px-3 font-bold shadow-md border-r border-white/20">م</th>
-                  <th className="bg-gradient-to-b from-[#0E78AA] to-[#0A5F8A] text-white py-4 px-3 font-bold shadow-md border-r border-white/20">الصنف</th>
-                  <th className="bg-gradient-to-b from-[#0E78AA] to-[#0A5F8A] text-white py-4 px-3 font-bold shadow-md border-r border-white/20">الموقع</th>
-                  <th className="bg-gradient-to-b from-[#0E78AA] to-[#0A5F8A] text-white py-4 px-3 font-bold shadow-md border-r border-white/20">الكمية الدفترية</th>
-                  <th className="bg-gradient-to-b from-[#0E78AA] to-[#0A5F8A] text-white py-4 px-3 font-bold shadow-md border-r border-white/20">الكمية الفعلية</th>
-                  <th className="bg-gradient-to-b from-[#0E78AA] to-[#0A5F8A] text-white py-4 px-3 font-bold shadow-md border-r border-white/20">كمية التسوية</th>
-                  <th className="bg-gradient-to-b from-[#0E78AA] to-[#0A5F8A] text-white py-4 px-3 font-bold shadow-md border-r border-white/20">السعر</th>
-                  <th className="bg-gradient-to-b from-[#0E78AA] to-[#0A5F8A] text-white py-4 px-3 font-bold shadow-md border-r border-white/20">إجمالي التسوية</th>
-                  <th className="bg-gradient-to-b from-[#0E78AA] to-[#0A5F8A] text-white py-4 px-3 font-bold shadow-md">إجراءات</th>
+                  <th className={denseThClass}>م</th>
+                  <th className={denseThClass}>الصنف</th>
+                  <th className={denseThClass}>الموقع</th>
+                  <th className={denseThClass}>الكمية الدفترية</th>
+                  <th className={denseThClass}>الكمية الفعلية</th>
+                  <th className={denseThClass}>كمية التسوية</th>
+                  <th className={denseThClass}>السعر</th>
+                  <th className={denseThClass}>إجمالي التسوية</th>
+                  <th className={denseThClass}>إجراءات</th>
                 </tr>
               </thead>
               <tbody>
                 {adjustmentLines.length === 0 ? (
-                  <tr>
-                    <td colSpan={9} className="py-8 text-gray-500">
+                  <tr className={denseTrClass}>
+                    <td colSpan={9} className={`${denseTdClass} py-8 text-center text-slate-500`}>
                       لا توجد أصناف. اضغط على &quot;إضافة صنف&quot; لإضافة صنف جديد.
                     </td>
                   </tr>
                 ) : (
                   adjustmentLines.map((line, index) => (
-                    <tr key={index} className={index % 2 === 0 ? 'bg-[#F6FBFD]' : 'bg-white'}>
-                      <td className="py-3 px-2 border-x border-[#D6EAF3]">{index + 1}</td>
-                      <td className="py-3 px-2 border-x border-[#D6EAF3]">
+                    <tr key={index} className={denseTrClass}>
+                      <td className={denseTdClass}>{index + 1}</td>
+                      <td className={denseTdClass}>
                         <select
                           className={inputCls}
                           value={line.itemId}
@@ -644,7 +570,7 @@ export default function AdjustmentPage() {
                           ))}
                         </select>
                       </td>
-                      <td className="py-3 px-2 border-x border-[#D6EAF3]">
+                      <td className={denseTdClass}>
                         {locations.length > 0 ? (
                           <select
                             className={inputCls}
@@ -662,7 +588,7 @@ export default function AdjustmentPage() {
                           <span className="text-gray-400">-</span>
                         )}
                       </td>
-                      <td className="py-3 px-2 border-x border-[#D6EAF3]">
+                      <td className={denseTdClass}>
                         <input
                           type="number"
                           className={inputCls}
@@ -672,7 +598,7 @@ export default function AdjustmentPage() {
                           step="0.01"
                         />
                       </td>
-                      <td className="py-3 px-2 border-x border-[#D6EAF3]">
+                      <td className={denseTdClass}>
                         <input
                           type="number"
                           className={inputCls}
@@ -682,7 +608,7 @@ export default function AdjustmentPage() {
                           step="0.01"
                         />
                       </td>
-                      <td className="py-3 px-2 border-x border-[#D6EAF3]">
+                      <td className={denseTdClass}>
                         <input
                           type="number"
                           className={`${inputCls} ${(line.adjustmentQuantity || 0) > 0 ? 'bg-green-50' : (line.adjustmentQuantity || 0) < 0 ? 'bg-red-50' : ''}`}
@@ -690,7 +616,7 @@ export default function AdjustmentPage() {
                           readOnly
                         />
                       </td>
-                      <td className="py-3 px-2 border-x border-[#D6EAF3]">
+                      <td className={denseTdClass}>
                         <input
                           type="number"
                           className={inputCls}
@@ -700,7 +626,7 @@ export default function AdjustmentPage() {
                           step="0.01"
                         />
                       </td>
-                      <td className="py-3 px-2 border-x border-[#D6EAF3]">
+                      <td className={denseTdClass}>
                         <input
                           type="number"
                           className={inputCls}
@@ -708,14 +634,10 @@ export default function AdjustmentPage() {
                           readOnly
                         />
                       </td>
-                      <td className="py-3 px-2 border-x border-[#D6EAF3]">
-                        <button
-                          type="button"
-                          onClick={() => removeAdjustmentLine(index)}
-                          className="px-3 py-1 bg-red-500 text-white rounded hover:bg-red-600 transition-colors"
-                        >
+                      <td className={denseTdClass}>
+                        <Button type="button" variant="secondary" size="sm" onClick={() => removeAdjustmentLine(index)}>
                           حذف
-                        </button>
+                        </Button>
                       </td>
                     </tr>
                   ))
@@ -730,25 +652,7 @@ export default function AdjustmentPage() {
       </FormSectionCard>
 
       <FormStickyFooter
-        onCancel={handleNew}
-        onSave={() => void handleSubmit(onSaveValid, onFieldErrors(setError))()}
-        saveLoading={loading}
         status={`${adjustmentLines.length} بند · ${totalAdjustment.toLocaleString('ar-EG')} ج.م`}
-        extraActions={
-          <CrudButtons
-            onAdd={handleNew}
-            onEdit={() => {
-              if (!selectedAdjustmentId) {
-                setError('يرجى اختيار تسوية للتعديل');
-              }
-            }}
-            onDelete={handleDelete}
-            extraItems={[
-              { id: 'preview', label: 'معاينة', onClick: () => {} },
-              { id: 'design', label: 'تصميم', onClick: () => {} },
-            ]}
-          />
-        }
       />
 
       <StockMovementBottomSplit
@@ -757,7 +661,7 @@ export default function AdjustmentPage() {
         journalEntryId={selectedAdjustment?.journalEntryId}
         documentId={selectedAdjustmentId}
       />
-    </div>
+    </ErpDocumentLayout>
   );
 }
 

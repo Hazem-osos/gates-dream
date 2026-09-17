@@ -19,6 +19,7 @@ export interface CreateCostCenterData {
   quantityBudget?: number | null;
   warning?: 'مدين' | 'دائن' | 'بدون' | null;
   budget?: number | null;
+  creditLimit?: number | null;
   currencyCode?: string | null;
   isActive?: boolean;
 }
@@ -229,6 +230,7 @@ export class CostCenterService {
           quantityBudget: data.quantityBudget,
           warning: data.warning,
           budget: data.budget,
+          creditLimit: data.creditLimit,
           currencyCode: data.currencyCode,
           isActive: data.isActive ?? true,
         },
@@ -415,6 +417,7 @@ export class CostCenterService {
           ...(data.quantityBudget !== undefined && { quantityBudget: data.quantityBudget }),
           ...(data.warning !== undefined && { warning: data.warning }),
           ...(data.budget !== undefined && { budget: data.budget }),
+          ...(data.creditLimit !== undefined && { creditLimit: data.creditLimit }),
           ...(data.currencyCode !== undefined && { currencyCode: data.currencyCode }),
           ...(data.isActive !== undefined && { isActive: data.isActive }),
         },

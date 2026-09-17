@@ -56,16 +56,9 @@ const customerFields = {
 };
 
 function refineCustomerMinimum(
-  value: { phone1?: string; mobile?: string; taxData?: boolean; taxAuthority?: string; taxAuthorityName?: string },
+  value: { taxData?: boolean; taxAuthority?: string; taxAuthorityName?: string },
   ctx: z.RefinementCtx
 ) {
-  if (!value.phone1?.trim() && !value.mobile?.trim()) {
-    ctx.addIssue({
-      code: 'custom',
-      path: ['phone1'],
-      message: 'أدخل رقم هاتف أو موبايل على الأقل.',
-    });
-  }
   if (value.taxData && !value.taxAuthority?.trim() && !value.taxAuthorityName?.trim()) {
     ctx.addIssue({
       code: 'custom',

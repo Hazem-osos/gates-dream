@@ -88,6 +88,7 @@ export function SecuritiesCollectModal({
   apiPath,
   paperId,
   amount,
+  defaultAccountId,
   onClose,
   onDone,
 }: {
@@ -96,15 +97,25 @@ export function SecuritiesCollectModal({
   apiPath: string;
   paperId: string | null;
   amount: number;
+  defaultAccountId?: string;
   onClose: () => void;
   onDone: (record: SecuritiesPaperRecord) => void;
 }) {
   const [date, setDate] = useState(todayIso);
   const [description, setDescription] = useState('');
-  const [accountId, setAccountId] = useState('');
+  const [accountId, setAccountId] = useState(defaultAccountId ?? '');
   const [costCenterId, setCostCenterId] = useState('');
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!open) return;
+    setDate(todayIso());
+    setDescription('');
+    setAccountId(defaultAccountId ?? '');
+    setCostCenterId('');
+    setError('');
+  }, [open, defaultAccountId]);
 
   if (!open) return null;
   if (!paperId) {
@@ -120,13 +131,19 @@ export function SecuritiesCollectModal({
   }
 
   const save = async () => {
+    if (!accountId) {
+      setError('اختر حساب التحصيل (خزينة أو بنك)');
+      return;
+    }
     setPending(true);
     setError('');
     try {
-      if (description.trim()) {
-        await apiClient.put(`${apiPath}/${paperId}`, { description: description.trim() });
-      }
-      const res = await apiClient.post<SecuritiesPaperRecord>(`${apiPath}/${paperId}/collect`, {});
+      const res = await apiClient.post<SecuritiesPaperRecord>(`${apiPath}/${paperId}/collect`, {
+        accountId,
+        date,
+        description: description.trim() || undefined,
+        costCenterId: costCenterId || undefined,
+      });
       onDone(res.data ?? { id: paperId, isPosted: true, amount });
       onClose();
     } catch (err) {
@@ -201,6 +218,7 @@ export function SecuritiesBounceModal({
     try {
       const res = await apiClient.post<SecuritiesPaperRecord>(`${apiPath}/${paperId}/bounce`, {
         description: description.trim() || undefined,
+        date,
       });
       onDone(res.data ?? { id: paperId, isCancelled: true });
       onClose();
@@ -270,6 +288,7 @@ export function SecuritiesEndorseModal({
       const res = await apiClient.post<SecuritiesPaperRecord>(`${apiPath}/${paperId}/endorse`, {
         supplierId,
         description: description.trim() || undefined,
+        date,
       });
       onDone(res.data ?? { id: paperId });
       onClose();

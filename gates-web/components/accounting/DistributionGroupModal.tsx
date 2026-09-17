@@ -4,8 +4,16 @@ import { useEffect, useState } from 'react';
 import { CenteredOverlay } from '@/components/erp/CenteredOverlay';
 import { CompactFormField, FormStickyFooter } from '@/components/ui';
 import { apiClient } from '@/lib/api/client';
+import { useNextMasterSerial } from '@/lib/hooks/useNextMasterSerial';
 
 export type DistributionFolderRole = 'DRIVER' | 'DISTRIBUTOR' | 'DELEGATE';
+
+export type DistributionGroupSaved = {
+  id: string;
+  code?: string | null;
+  serial?: string | null;
+  arabicName: string;
+};
 
 type Props = {
   open: boolean;
@@ -14,11 +22,11 @@ type Props = {
   folderRole: DistributionFolderRole;
   initial?: { id: string; code: string; arabicName: string; folderRole?: DistributionFolderRole } | null;
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: (row: DistributionGroupSaved) => void;
   onError: (msg: string) => void;
 };
 
-function groupRoleForFolder(folder: DistributionFolderRole) {
+export function groupRoleForFolder(folder: DistributionFolderRole) {
   if (folder === 'DRIVER') return 'GROUP_DRIVER' as const;
   if (folder === 'DISTRIBUTOR') return 'GROUP_DISTRIBUTOR' as const;
   return 'GROUP_DELEGATE' as const;
@@ -37,6 +45,13 @@ export function DistributionGroupModal({
   const [code, setCode] = useState('');
   const [arabicName, setArabicName] = useState('');
   const [saving, setSaving] = useState(false);
+  const isEdit = Boolean(initial?.id);
+  const { data: nextSerialResponse } = useNextMasterSerial(
+    ['delegates', 'next-code', 'group'],
+    '/accounting/delegates/next-code',
+    open && !isEdit
+  );
+  const nextSerial = nextSerialResponse?.data?.serial || '';
 
   useEffect(() => {
     if (!open) return;
@@ -44,30 +59,31 @@ export function DistributionGroupModal({
     setArabicName(initial?.arabicName || '');
   }, [open, initial]);
 
+  useEffect(() => {
+    if (!open || isEdit || !nextSerial) return;
+    setCode(nextSerial);
+  }, [isEdit, nextSerial, open]);
+
   const submit = async () => {
-    if (!code.trim()) {
-      onError('الكود مطلوب للمجموعة');
-      return;
-    }
     if (!arabicName.trim()) {
       onError('الاسم العربي مطلوب للمجموعة');
       return;
     }
     setSaving(true);
     try {
+      const autoCode = code.trim() || nextSerial || undefined;
       const payload = {
         role: groupRoleForFolder(initial?.folderRole || folderRole),
         arabicName: arabicName.trim(),
-        serial: code.trim() || undefined,
-        code: code.trim() || undefined,
+        serial: autoCode,
+        code: autoCode,
         ...(initial?.id ? {} : { groupId: parentId || null }),
       };
-      if (initial?.id) {
-        await apiClient.put(`/accounting/delegates/${initial.id}`, payload);
-      } else {
-        await apiClient.post('/accounting/delegates', payload);
-      }
-      onSaved();
+      const res = initial?.id
+        ? await apiClient.put<DistributionGroupSaved>(`/accounting/delegates/${initial.id}`, payload)
+        : await apiClient.post<DistributionGroupSaved>('/accounting/delegates', payload);
+      if (!res.data?.id) throw new Error('تعذّر حفظ المجموعة');
+      onSaved(res.data);
       onClose();
     } catch (e) {
       onError(e instanceof Error ? e.message : 'تعذّر حفظ المجموعة');
@@ -90,10 +106,10 @@ export function DistributionGroupModal({
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <CompactFormField
               label="الكود"
-              required
               value={code}
-              onChange={(e) => setCode(e.target.value)}
-              placeholder="إدخل الكود"
+              disabled
+              readOnly
+              placeholder="تلقائي"
             />
             <CompactFormField
               label="الاسم العربي"

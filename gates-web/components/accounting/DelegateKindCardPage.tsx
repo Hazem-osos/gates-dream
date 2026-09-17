@@ -8,7 +8,7 @@ import {
   FormSectionCard,
   AppTable,
 } from '@/components/ui';
-import { useOwnTabSearchParams } from '@/lib/navigation/tab-route-lock';
+import { useClearDocumentQuery, useOwnTabSearchParams } from '@/lib/navigation/tab-route-lock';
 import { apiClient } from '@/lib/api/client';
 import { DocumentBrowseDrawer, MasterCardShell } from '@/components/erp';
 import { DocumentModeProvider, useDocumentMode } from '@/components/common/document-shell';
@@ -17,6 +17,8 @@ import ErrorToast from '@/components/ErrorToast';
 import { toast } from '@/lib/feedback/toast';
 import type { ApiError } from '@/lib/api/types';
 import { useNextMasterSerial } from '@/lib/hooks/useNextMasterSerial';
+import { DistributionGroupSelectField } from '@/components/accounting/DistributionGroupSelectField';
+import { groupRoleForFolder } from '@/components/accounting/DistributionGroupModal';
 
 export type DelegateKind = 'DISTRIBUTOR' | 'DRIVER';
 
@@ -48,6 +50,26 @@ type SavedRow = {
   arabicName: string;
   phone1?: string | null;
   mobile?: string | null;
+  groupId?: string | null;
+  nationality?: string | null;
+  barcode?: string | null;
+  phone2?: string | null;
+  fax?: string | null;
+  email?: string | null;
+  website?: string | null;
+  country?: string | null;
+  city?: string | null;
+  area?: string | null;
+  street?: string | null;
+  postalCode?: string | null;
+  poBox?: string | null;
+};
+
+type GroupOption = {
+  id: string;
+  code?: string | null;
+  serial?: string | null;
+  arabicName: string;
 };
 
 const EMPTY: CardForm = {
@@ -106,6 +128,7 @@ function DelegateKindCardInner({ kind }: { kind: DelegateKind }) {
   const { isReadOnly, unlockForEdit, lockToView, setMode } = useDocumentMode();
   const invalidateQuery = useInvalidateQuery();
   const searchParams = useOwnTabSearchParams();
+  const clearDocumentQuery = useClearDocumentQuery();
   const idFromUrl = searchParams.get('id');
   const modeFromUrl = searchParams.get('mode');
   const groupIdFromUrl = searchParams.get('groupId');
@@ -122,6 +145,13 @@ function DelegateKindCardInner({ kind }: { kind: DelegateKind }) {
     role: kind,
   });
   const rows = listResponse?.data ?? [];
+  const groupsKey = useMemo(() => ['delegates', 'groups', kind] as const, [kind]);
+  const { data: groupsResponse } = useApiQuery<GroupOption[]>(groupsKey, '/accounting/delegates', {
+    limit: 1000,
+    isActive: true,
+    role: groupRoleForFolder(kind),
+  });
+  const groups = groupsResponse?.data ?? [];
 
   const { data: nextSerialResponse } = useNextMasterSerial(
     ['delegates', 'next-code'],
@@ -151,6 +181,7 @@ function DelegateKindCardInner({ kind }: { kind: DelegateKind }) {
         ...prev,
         serial: row.serial || '',
         code: row.code || row.serial || '',
+        groupId: row.groupId || '',
         arabicName: row.arabicName,
         phone1: row.phone1 || '',
         mobile: row.mobile || '',
@@ -167,6 +198,7 @@ function DelegateKindCardInner({ kind }: { kind: DelegateKind }) {
         ...prev,
         serial: res.data.serial || '',
         code: res.data.code || res.data.serial || '',
+        groupId: res.data.groupId || '',
         arabicName: res.data.arabicName,
         phone1: res.data.phone1 || '',
         mobile: res.data.mobile || '',
@@ -199,11 +231,14 @@ function DelegateKindCardInner({ kind }: { kind: DelegateKind }) {
       onSuccess: () => {
         toast.success(`${copy.success} — تقدر تضيف التالي`);
         invalidateQuery(listKey);
+        invalidateQuery(groupsKey);
         invalidateQuery(['delegates']);
+        invalidateQuery(['delegates', 'guide']);
         invalidateQuery(['delegates', 'next-code']);
         setSelectedId(null);
         setFormData({ ...EMPTY, groupId: groupIdFromUrl || '' });
         setMode('create');
+        clearDocumentQuery();
       },
       onError: (err: ApiError) => {
         setError(err.message || 'حدث خطأ أثناء الحفظ');
@@ -217,10 +252,6 @@ function DelegateKindCardInner({ kind }: { kind: DelegateKind }) {
 
   const handleSave = async () => {
     setError('');
-    if (!formData.code.trim()) {
-      setError('يرجى إدخال الكود');
-      return;
-    }
     if (!formData.arabicName.trim()) {
       setError(copy.required);
       return;
@@ -229,7 +260,7 @@ function DelegateKindCardInner({ kind }: { kind: DelegateKind }) {
         role: kind,
         serial: formData.serial.trim() || formData.code.trim() || undefined,
         code: formData.code.trim() || undefined,
-        groupId: formData.groupId || groupIdFromUrl || undefined,
+        groupId: formData.groupId || groupIdFromUrl || null,
         arabicName: formData.arabicName.trim(),
         nationality: formData.nationality.trim() || undefined,
         barcode: formData.barcode.trim() || undefined,
@@ -251,11 +282,18 @@ function DelegateKindCardInner({ kind }: { kind: DelegateKind }) {
     };
     try {
       if (selectedId) {
-        await apiClient.put(`/accounting/delegates/${selectedId}`, payload);
-        toast.success(copy.success);
-        lockToView();
+        await apiClient.put(`/accounting/delegates/${selectedId}`, payload, {
+          skipSuccessNotify: true,
+        });
+        toast.success(`${copy.success} — تقدر تضيف التالي`);
         invalidateQuery(listKey);
+        invalidateQuery(groupsKey);
         invalidateQuery(['delegates']);
+        invalidateQuery(['delegates', 'guide']);
+        setSelectedId(null);
+        setFormData({ ...EMPTY, groupId: groupIdFromUrl || '' });
+        setMode('create');
+        clearDocumentQuery();
         return;
       }
       await mutation.mutateAsync(payload);
@@ -266,9 +304,10 @@ function DelegateKindCardInner({ kind }: { kind: DelegateKind }) {
 
   const handleCancel = () => {
     setSelectedId(null);
-    setFormData(EMPTY);
+    setFormData({ ...EMPTY, groupId: groupIdFromUrl || '' });
     setError('');
     setMode('create');
+    clearDocumentQuery();
   };
 
   return (
@@ -315,10 +354,9 @@ function DelegateKindCardInner({ kind }: { kind: DelegateKind }) {
           />
           <CompactFormField
             label="الكود"
-            required
             value={formData.code}
             onChange={(e) => patch('code', e.target.value)}
-            placeholder="إدخل الكود"
+            placeholder="اختياري"
           />
           <CompactFormField
             label="الإسم العربي"
@@ -326,6 +364,17 @@ function DelegateKindCardInner({ kind }: { kind: DelegateKind }) {
             value={formData.arabicName}
             onChange={(e) => patch('arabicName', e.target.value)}
             placeholder="إدخل الإسم بالعربي"
+          />
+          <DistributionGroupSelectField
+            folderRole={kind}
+            value={formData.groupId}
+            options={groups}
+            onChange={(id) => patch('groupId', id)}
+            onCreated={() => {
+              invalidateQuery(groupsKey);
+              invalidateQuery(['delegates']);
+              invalidateQuery(['delegates', 'guide']);
+            }}
           />
           <CompactFormField
             label="الجنسية"
@@ -429,6 +478,7 @@ function DelegateKindCardInner({ kind }: { kind: DelegateKind }) {
               ...prev,
               serial: row.serial || '',
               code: row.code || row.serial || '',
+              groupId: row.groupId || '',
               arabicName: row.arabicName,
               phone1: row.phone1 || '',
               mobile: row.mobile || '',

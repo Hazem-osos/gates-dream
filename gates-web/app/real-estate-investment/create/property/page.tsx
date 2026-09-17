@@ -5,19 +5,16 @@ import { Building2 } from 'lucide-react';
 import {
   CompactFormField,
   AdvancedFieldsSection,
-  FormStickyFooter,
   FormSectionCard,
   compactControlClass,
 } from '@/components/ui';
+import { MasterCardShell } from '@/components/erp';
 import { useApiMutation, useInvalidateQuery } from '@/lib/hooks/useApi';
-import ErrorToast from '@/components/ErrorToast';
-import SuccessToast from '@/components/SuccessToast';
+import { toast } from '@/lib/feedback/toast';
 import type { ApiError } from '@/lib/api/types';
 
 export default function PropertyPage() {
   const invalidateQuery = useInvalidateQuery();
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
   const [formData, setFormData] = useState({
     code: '',
     arabicName: '',
@@ -34,12 +31,12 @@ export default function PropertyPage() {
     'POST',
     {
       onSuccess: () => {
-        setSuccess('تم حفظ العقار بنجاح');
+        toast.success('تم حفظ العقار بنجاح');
         invalidateQuery(['properties']);
         handleCancel();
       },
       onError: (error: ApiError) => {
-        setError(error.message || 'حدث خطأ أثناء الحفظ');
+        toast.error(error.message || 'حدث خطأ أثناء الحفظ');
       },
     }
   );
@@ -49,11 +46,8 @@ export default function PropertyPage() {
   };
 
   const handleSave = () => {
-    setError('');
-    setSuccess('');
-
     if (!formData.arabicName) {
-      setError('يرجى إدخال الاسم العربي');
+      toast.error('يرجى إدخال الاسم العربي');
       return;
     }
 
@@ -82,8 +76,6 @@ export default function PropertyPage() {
       location: '',
       notes: '',
     });
-    setError('');
-    setSuccess('');
   };
 
   const advancedFilledCount = [
@@ -95,13 +87,17 @@ export default function PropertyPage() {
   ].filter((v) => String(v ?? '').trim().length > 0).length;
 
   return (
-    <div className="min-h-screen bg-white p-6" style={{ direction: 'rtl' }}>
-      <div className="mx-auto max-w-7xl">
-        <div className="mb-6 text-right">
-          <h1 className="mb-1 text-lg font-bold text-[#0E78AA]">تعريف العقار</h1>
-          <div className="h-1 w-full rounded bg-sky-700" />
-        </div>
-
+    <MasterCardShell
+      title="تعريف العقار"
+      breadcrumbs={[
+        { label: 'الاستثمار العقاري', href: '/real-estate-investment' },
+        { label: 'العقار' },
+      ]}
+      favoriteHref="/real-estate-investment/create/property"
+      onSave={handleSave}
+      savePending={propertyMutation.isPending}
+      onNew={handleCancel}
+    >
         <FormSectionCard title="البيانات الأساسية" subtitle="الحقول اللازمة لتعريف العقار" icon={Building2}>
           <CompactFormField
             label="الكود"
@@ -171,16 +167,6 @@ export default function PropertyPage() {
           </div>
         </AdvancedFieldsSection>
 
-        <FormStickyFooter
-          onCancel={handleCancel}
-          onSave={handleSave}
-          saveLoading={propertyMutation.isPending}
-          status="مسودة"
-        />
-
-        {error && <ErrorToast message={error} onClose={() => setError('')} />}
-        {success && <SuccessToast message={success} onClose={() => setSuccess('')} />}
-      </div>
-    </div>
+    </MasterCardShell>
   );
 }

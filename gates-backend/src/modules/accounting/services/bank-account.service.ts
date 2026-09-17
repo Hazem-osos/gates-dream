@@ -1,5 +1,10 @@
 import prisma from '../../../shared/database/prisma';
 import { logger } from '../../../shared/logger';
+import { overlayFundBalanceFromLedger, overlayFundBalancesFromLedger } from '../../treasury/services/fund-ledger-balance';
+import {
+  ensureBankAccountsFromChart,
+  grantBankToExistingRightHolders,
+} from './cash-safe-sync';
 
 export interface CreateBankAccountData {
   bankId: string;
@@ -29,6 +34,10 @@ export class BankAccountService {
     companyId: string,
     options?: { bankId?: string; isActive?: boolean; allowedBankAccountIds?: string[] | null }
   ) {
+    await ensureBankAccountsFromChart(companyId).catch((error) => {
+      logger.warn({ error, companyId }, 'ensureBankAccountsFromChart skipped');
+    });
+
     const where: any = { companyId };
     if (options?.bankId) {
       where.bankId = options.bankId;
@@ -36,11 +45,12 @@ export class BankAccountService {
     if (options?.isActive !== undefined) {
       where.isActive = options.isActive;
     }
-    if (options?.allowedBankAccountIds) {
+    if (options?.allowedBankAccountIds != null) {
+      if (options.allowedBankAccountIds.length === 0) return [];
       where.id = { in: options.allowedBankAccountIds };
     }
 
-    return prisma.bankAccount.findMany({
+    const rows = await prisma.bankAccount.findMany({
       where,
       include: {
         bank: true,
@@ -48,6 +58,7 @@ export class BankAccountService {
       },
       orderBy: { arabicName: 'asc' },
     });
+    return overlayFundBalancesFromLedger(companyId, rows);
   }
 
   /**
@@ -68,7 +79,7 @@ export class BankAccountService {
       throw new Error('Bank account not found');
     }
 
-    return bankAccount;
+    return overlayFundBalanceFromLedger(companyId, bankAccount);
   }
 
   /**
@@ -101,7 +112,7 @@ export class BankAccountService {
       }
     }
 
-    return prisma.bankAccount.create({
+    const created = await prisma.bankAccount.create({
       data: {
         companyId,
         bankId: data.bankId,
@@ -118,6 +129,8 @@ export class BankAccountService {
         bank: true,
       },
     });
+    await grantBankToExistingRightHolders(companyId, created.id);
+    return created;
   }
 
   /**

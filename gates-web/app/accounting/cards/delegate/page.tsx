@@ -9,7 +9,7 @@ import {
   compactControlClass,
   AppTable,
 } from '@/components/ui';
-import { useOwnTabSearchParams } from '@/lib/navigation/tab-route-lock';
+import { useClearDocumentQuery, useOwnTabSearchParams } from '@/lib/navigation/tab-route-lock';
 import { apiClient } from '@/lib/api/client';
 import { DocumentBrowseDrawer, MasterCardShell } from '@/components/erp';
 import { DocumentModeProvider, useDocumentMode } from '@/components/common/document-shell';
@@ -18,6 +18,7 @@ import ErrorToast from '@/components/ErrorToast';
 import { toast } from '@/lib/feedback/toast';
 import type { ApiError } from '@/lib/api/types';
 import { useNextMasterSerial } from '@/lib/hooks/useNextMasterSerial';
+import { DistributionGroupSelectField } from '@/components/accounting/DistributionGroupSelectField';
 
 interface PriceList {
   id: string;
@@ -93,6 +94,7 @@ function DelegatePageInner() {
   const { isReadOnly, unlockForEdit, lockToView, setMode } = useDocumentMode();
   const invalidateQuery = useInvalidateQuery();
   const searchParams = useOwnTabSearchParams();
+  const clearDocumentQuery = useClearDocumentQuery();
   const idFromUrl = searchParams.get('id');
   const modeFromUrl = searchParams.get('mode');
   const groupIdFromUrl = searchParams.get('groupId');
@@ -114,6 +116,15 @@ function DelegatePageInner() {
   const { data: delegatesResponse } = useApiQuery<
     { id: string; serial?: string; code?: string; arabicName?: string }[]
   >(['delegates'], '/accounting/delegates', { limit: 1000, isActive: true });
+
+  const { data: groupsResponse } = useApiQuery<
+    { id: string; code?: string | null; serial?: string | null; arabicName: string }[]
+  >(['delegates', 'groups', 'DELEGATE'], '/accounting/delegates', {
+    limit: 1000,
+    isActive: true,
+    role: 'GROUP_DELEGATE',
+  });
+  const groups = groupsResponse?.data || [];
 
   const { data: nextSerialResponse } = useNextMasterSerial(
     ['delegates', 'next-code'],
@@ -187,6 +198,8 @@ function DelegatePageInner() {
       onSuccess: () => {
         toast.success('تم حفظ المندوب بنجاح — تقدر تضيف التالي');
         invalidateQuery(['delegates']);
+        invalidateQuery(['delegates', 'groups', 'DELEGATE']);
+        invalidateQuery(['delegates', 'guide']);
         invalidateQuery(['delegates', 'next-code']);
         setSelectedId(null);
         setFormData({
@@ -194,6 +207,7 @@ function DelegatePageInner() {
           groupId: groupIdFromUrl || '',
         });
         setMode('create');
+        clearDocumentQuery();
       },
       onError: (error: ApiError) => {
         setError(error.message || 'حدث خطأ أثناء الحفظ');
@@ -202,10 +216,6 @@ function DelegatePageInner() {
   );
 
   const handleSave = async () => {
-    if (!formData.code.trim()) {
-      setError('يرجى إدخال الكود');
-      return;
-    }
     if (!formData.arabicName) {
       setError('يرجى إدخال الإسم العربي');
       return;
@@ -234,17 +244,27 @@ function DelegatePageInner() {
         address: formData.address || undefined,
         commissionPercentage: formData.commissionPercentage ? parseFloat(formData.commissionPercentage) : undefined,
         commissionPolicyId: formData.commissionPolicyId || undefined,
-        groupId: formData.groupId || undefined,
+        groupId: formData.groupId || null,
         salesCommissionsId: formData.salesCommissionsId || undefined,
         priceListId: formData.priceListId || undefined,
     };
 
     try {
       if (selectedId) {
-        await apiClient.put(`/accounting/delegates/${selectedId}`, payload);
-        toast.success('تم تحديث المندوب بنجاح');
-        lockToView();
+        await apiClient.put(`/accounting/delegates/${selectedId}`, payload, {
+          skipSuccessNotify: true,
+        });
+        toast.success('تم حفظ المندوب بنجاح — تقدر تضيف التالي');
         invalidateQuery(['delegates']);
+        invalidateQuery(['delegates', 'groups', 'DELEGATE']);
+        invalidateQuery(['delegates', 'guide']);
+        setSelectedId(null);
+        setFormData({
+          ...EMPTY_FORM,
+          groupId: groupIdFromUrl || '',
+        });
+        setMode('create');
+        clearDocumentQuery();
         return;
       }
       await delegateMutation.mutateAsync(payload);
@@ -255,9 +275,13 @@ function DelegatePageInner() {
 
   const handleCancel = () => {
     setSelectedId(null);
-    setFormData(EMPTY_FORM);
+    setFormData({
+      ...EMPTY_FORM,
+      groupId: groupIdFromUrl || '',
+    });
     setError('');
     setMode('create');
+    clearDocumentQuery();
   };
 
   return (
@@ -295,10 +319,9 @@ function DelegatePageInner() {
           />
           <CompactFormField
             label="الكود"
-            required
             value={formData.code}
             onChange={(e) => setFormData((prev) => ({ ...prev, code: e.target.value }))}
-            placeholder="إدخل الكود"
+            placeholder="اختياري"
           />
           <CompactFormField
             label="الإسم العربي"
@@ -306,6 +329,17 @@ function DelegatePageInner() {
             value={formData.arabicName}
             onChange={(e) => setFormData((prev) => ({ ...prev, arabicName: e.target.value }))}
             placeholder="إدخل الإسم بالعربي"
+          />
+          <DistributionGroupSelectField
+            folderRole="DELEGATE"
+            value={formData.groupId}
+            options={groups}
+            onChange={(id) => setFormData((prev) => ({ ...prev, groupId: id }))}
+            onCreated={() => {
+              invalidateQuery(['delegates', 'groups', 'DELEGATE']);
+              invalidateQuery(['delegates']);
+              invalidateQuery(['delegates', 'guide']);
+            }}
           />
           <CompactFormField
             label="رقم الهاتف 1"
@@ -416,23 +450,6 @@ function DelegatePageInner() {
                   className={`${compactControlClass} pl-10`}
                   value={formData.commissionPolicyId}
                   onChange={(e) => setFormData((prev) => ({ ...prev, commissionPolicyId: e.target.value }))}
-                />
-                <button
-                  type="button"
-                  className="absolute left-1.5 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-lg bg-blue-200"
-                >
-                  <Image src="/magnifying-glass-1.svg" alt="search" width={16} height={16} />
-                </button>
-              </div>
-            </CompactFormField>
-            <CompactFormField label="المجموعة">
-              <div className="relative">
-                <input
-                  type="text"
-                  placeholder="إدخل المجموعة"
-                  className={`${compactControlClass} pl-10`}
-                  value={formData.groupId}
-                  onChange={(e) => setFormData((prev) => ({ ...prev, groupId: e.target.value }))}
                 />
                 <button
                   type="button"

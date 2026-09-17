@@ -17,6 +17,7 @@ import {
   type SequenceMode,
   type TransactionDocumentType,
   type TransactionSettings,
+  canLoadSourceOrder,
   isJournalLikeDocumentType,
   isTreasuryDocumentType,
 } from '@/lib/transaction-settings/types';
@@ -341,6 +342,17 @@ export function TransactionSettingsForm({
           />
         )}
       </Section>
+
+      {canLoadSourceOrder(documentType) ? (
+        <Section title="تحميل الأمر من القسم والرقم">
+          <SwitchRow
+            checked={form.allowEditLoadedOrder !== false}
+            onChange={(v) => patch('allowEditLoadedOrder', v)}
+            label="السماح بتعديل الأمر بعد التحميل"
+            hint="لو مقفولة، الأمر بيتحمّل في الصفحة وكل الخانات تقفل. لو مفتوحة تقدر تعدّل بعد التحميل عادي."
+          />
+        </Section>
+      ) : null}
 
       <Section title="العملة وسعر الصرف">
         <SwitchRow

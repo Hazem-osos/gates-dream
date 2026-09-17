@@ -2,11 +2,20 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
-import Link from 'next/link';
 import { useApiQuery, useApiMutation, useInvalidateQuery } from '@/lib/hooks/useApi';
 import { apiClient } from '@/lib/api/client';
-import OuterCard from '@/components/OuterCard';
-import InnerCard from '@/components/InnerCard';
+import { ExtractsPageChrome } from '@/components/extracts/ExtractsPageChrome';
+import {
+  CompactFormField,
+  FormSectionCard,
+  compactControlClass,
+  denseTableWrapClass,
+  denseTableClass,
+  denseTheadClass,
+  denseThClass,
+  denseTdClass,
+  denseTrClass,
+} from '@/components/ui';
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
 import {
@@ -16,7 +25,6 @@ import {
 } from '@/lib/contracting/computeExtractTotals';
 import { InternalNotesScratchpad } from '@/components/documents/InternalNotesScratchpad';
 import { WhatsAppShareButton } from '@/components/share/WhatsAppShareButton';
-import { Button } from '@/components/ui';
 import { buildContractExtractWhatsAppMessage } from '@/lib/whatsapp/messageTemplates';
 import type { InternalNoteEntry } from '@/lib/invoices/payment-split.types';
 import { printPageContent } from '@/lib/print/printHtml';
@@ -282,66 +290,60 @@ export default function ContractExtractEditorPage() {
 
   const status = extractRes?.data?.status;
 
-  return (
-    <div className="min-h-screen bg-[#E3F6FC] p-4 print:bg-white print:p-0" dir="rtl" data-print-root="">
-      <div className="mx-auto grid w-full max-w-none grid-cols-1 gap-4 lg:grid-cols-[1fr_320px]">
-        <OuterCard>
-          <InnerCard>
-            <div className="flex justify-between items-start mb-4 print:hidden">
-              <div>
-                <Link href="/contracting/extracts" className="text-sm text-[#0E78AA]">
-                  ← قائمة المستخلصات
-                </Link>
-                <h1 className="text-xl font-bold text-[#0E78AA] mt-2">
-                  {isNew ? 'مستخلص جديد' : `مستخلص ${extractNumber}`}
-                </h1>
-              </div>
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={handlePrint}
-                  className="px-3 py-2 border rounded-lg text-sm"
-                >
-                  طباعة A4
-                </button>
-                <WhatsAppShareButton
-                  phone={(context?.project?.customer as { mobile?: string } | undefined)?.mobile}
-                  message={whatsAppExtractMessage}
-                />
-                {status !== 'POSTED' && (
-                  <>
-                    <Button
-                      size="sm"
-                      isLoading={saveMutation.isPending}
-                      disabled={postMutation.isPending}
-                      onClick={() => void handleSave()}
-                    >
-                      حفظ
-                    </Button>
-                    {!isNew && (
-                      <Button
-                        size="sm"
-                        className="bg-emerald-700 hover:bg-emerald-800"
-                        isLoading={postMutation.isPending}
-                        disabled={saveMutation.isPending}
-                        onClick={() => void handlePost()}
-                      >
-                        ترحيل GL
-                      </Button>
-                    )}
-                  </>
-                )}
-              </div>
-            </div>
+  const isPosted = status === 'POSTED';
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4 print:hidden">
-              <label className="text-sm">
-                المشروع
+  return (
+    <ExtractsPageChrome
+      title={isNew ? 'مستخلص جديد' : 'مستخلص عقود'}
+      breadcrumbs={[
+        { href: '/extracts', label: 'المستخلصات' },
+        { href: '/contracting/extracts', label: 'مستخلصات العقود' },
+        { label: isNew ? 'جديد' : extractNumber || 'مستخلص' },
+      ]}
+      docNumber={extractNumber || 'جديد'}
+      statusLabel={isPosted ? 'مرحّل' : isNew ? 'جديد' : 'تعديل'}
+      onSave={() => void handleSave()}
+      savePending={saveMutation.isPending}
+      canSave={!isPosted}
+      onNew={() => router.push('/contracting/extracts/new')}
+      currentId={isNew ? null : extractId}
+      favoriteHref="/contracting/extracts"
+      extraActions={
+        <WhatsAppShareButton
+          phone={(context?.project?.customer as { mobile?: string } | undefined)?.mobile}
+          message={whatsAppExtractMessage}
+        />
+      }
+      moreMenuItems={[
+        { id: 'print', label: 'طباعة A4', onClick: handlePrint },
+        ...(!isNew && !isPosted
+          ? [{ id: 'post', label: 'ترحيل', onClick: () => void handlePost() }]
+          : []),
+      ]}
+      browseList={{
+        title: 'المستخلصات السابقة',
+        apiPath: '/contracting/extracts',
+        listKey: 'contract-extracts-browse',
+        selectedId: isNew ? null : extractId,
+        columns: [
+          { id: 'number', header: 'الرقم', getValue: (r) => String(r.extractNumber || r.id) },
+          { id: 'status', header: 'الحالة', getValue: (r) => String(r.status || '—') },
+        ],
+        onSelect: (id) => router.push(`/contracting/extracts/${id}`),
+      }}
+    >
+      {error ? <ErrorToast message={error} onClose={() => setError('')} /> : null}
+      {success ? <SuccessToast message={success} onClose={() => setSuccess('')} /> : null}
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_320px]" data-print-root="">
+        <div>
+            <FormSectionCard title="بيانات المستخلص" subtitle="المشروع والطرف ورقم المستند">
+              <CompactFormField label="المشروع" required>
                 <select
-                  className="w-full mt-1 border rounded-lg p-2 bg-[#F6FBFD]"
+                  className={compactControlClass}
                   value={projectId}
                   onChange={(e) => setProjectId(e.target.value)}
-                  disabled={!isNew && status === 'POSTED'}
+                  disabled={!isNew && isPosted}
                 >
                   <option value="">—</option>
                   {projects.map((p) => (
@@ -350,11 +352,10 @@ export default function ContractExtractEditorPage() {
                     </option>
                   ))}
                 </select>
-              </label>
-              <label className="text-sm">
-                نوع المستخلص
+              </CompactFormField>
+              <CompactFormField label="نوع المستخلص">
                 <select
-                  className="w-full mt-1 border rounded-lg p-2 bg-[#F6FBFD]"
+                  className={compactControlClass}
                   value={extractType}
                   onChange={(e) => setExtractType(e.target.value as 'CLIENT' | 'SUBCONTRACTOR')}
                   disabled={!isNew}
@@ -362,12 +363,11 @@ export default function ContractExtractEditorPage() {
                   <option value="CLIENT">عميل</option>
                   <option value="SUBCONTRACTOR">مقاول باطن</option>
                 </select>
-              </label>
-              {extractType === 'SUBCONTRACTOR' && context?.project && (
-                <label className="text-sm md:col-span-2">
-                  مقاول الباطن
+              </CompactFormField>
+              {extractType === 'SUBCONTRACTOR' && context?.project ? (
+                <CompactFormField label="مقاول الباطن">
                   <select
-                    className="w-full mt-1 border rounded-lg p-2 bg-[#F6FBFD]"
+                    className={compactControlClass}
                     value={partyId}
                     onChange={(e) => setPartyId(e.target.value)}
                   >
@@ -378,17 +378,14 @@ export default function ContractExtractEditorPage() {
                       </option>
                     ))}
                   </select>
-                </label>
-              )}
-              <label className="text-sm">
-                رقم المستخلص
-                <input
-                  className="w-full mt-1 border rounded-lg p-2 bg-[#F6FBFD]"
-                  value={extractNumber}
-                  onChange={(e) => setExtractNumber(e.target.value)}
-                />
-              </label>
-            </div>
+                </CompactFormField>
+              ) : null}
+              <CompactFormField
+                label="رقم المستخلص"
+                value={extractNumber}
+                onChange={(e) => setExtractNumber(e.target.value)}
+              />
+            </FormSectionCard>
 
             <InternalNotesScratchpad notes={internalNotes} onChange={setInternalNotes} disabled={status === 'POSTED'} />
 
@@ -406,19 +403,19 @@ export default function ContractExtractEditorPage() {
               </div>
             )}
 
-            <div className="overflow-x-auto border rounded-xl">
-              <table className="w-full text-xs md:text-sm text-center min-w-[900px]">
-                <thead>
-                  <tr className="bg-[#0E78AA] text-white">
-                    <th className="p-2">كود البند</th>
-                    <th className="p-2">بيان الأعمال</th>
-                    <th className="p-2">الوحدة</th>
-                    <th className="p-2">سعر الفئة</th>
-                    <th className="p-2">كمية سابقة</th>
-                    <th className="p-2">كمية حالية</th>
-                    <th className="p-2">كمية إجمالية</th>
-                    <th className="p-2">% إنجاز</th>
-                    <th className="p-2">إجمالي القيمة</th>
+            <div className={denseTableWrapClass}>
+              <table className={denseTableClass}>
+                <thead className={denseTheadClass}>
+                  <tr>
+                    <th className={denseThClass}>كود البند</th>
+                    <th className={denseThClass}>بيان الأعمال</th>
+                    <th className={denseThClass}>الوحدة</th>
+                    <th className={denseThClass}>سعر الفئة</th>
+                    <th className={denseThClass}>كمية سابقة</th>
+                    <th className={denseThClass}>كمية حالية</th>
+                    <th className={denseThClass}>كمية إجمالية</th>
+                    <th className={denseThClass}>% إنجاز</th>
+                    <th className={denseThClass}>إجمالي القيمة</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -430,40 +427,39 @@ export default function ContractExtractEditorPage() {
                         ? Math.min(100, (cum / line.contractQuantity) * 100)
                         : 0;
                     return (
-                      <tr key={line.boqItemId} className="border-t">
-                        <td className="p-2">{line.itemNumber}</td>
-                        <td className="p-2 text-right">{line.description}</td>
-                        <td className="p-2">{line.unit ?? '—'}</td>
-                        <td className="p-2">{fmtMoney(line.unitPrice)}</td>
-                        <td className="p-2 bg-gray-50">{line.previousQuantity}</td>
-                        <td className="p-2">
+                      <tr key={line.boqItemId} className={denseTrClass}>
+                        <td className={denseTdClass}>{line.itemNumber}</td>
+                        <td className={denseTdClass}>{line.description}</td>
+                        <td className={denseTdClass}>{line.unit ?? '—'}</td>
+                        <td className={denseTdClass}>{fmtMoney(line.unitPrice)}</td>
+                        <td className={denseTdClass}>{line.previousQuantity}</td>
+                        <td className={denseTdClass}>
                           <input
                             type="number"
                             min={0}
                             step="0.0001"
-                            className="w-24 border rounded p-1 text-center"
+                            className={compactControlClass}
                             value={line.currentQuantity || ''}
                             onChange={(e) =>
                               updateCurrentQty(line.boqItemId, Number(e.target.value) || 0)
                             }
-                            disabled={status === 'POSTED'}
+                            disabled={isPosted}
                           />
                         </td>
-                        <td className="p-2">{cum.toFixed(4)}</td>
-                        <td className="p-2">{pct.toFixed(2)}%</td>
-                        <td className="p-2 font-medium">{fmtMoney(lineTotal)}</td>
+                        <td className={denseTdClass}>{cum.toFixed(4)}</td>
+                        <td className={denseTdClass}>{pct.toFixed(2)}%</td>
+                        <td className={`${denseTdClass} font-medium`}>{fmtMoney(lineTotal)}</td>
                       </tr>
                     );
                   })}
                 </tbody>
               </table>
             </div>
-          </InnerCard>
-        </OuterCard>
+        </div>
 
         <aside className="print:hidden">
-          <div className="bg-white border border-[#E6F0F7] rounded-xl p-4 sticky top-4 space-y-3 text-sm">
-            <h2 className="font-bold text-[#0E78AA]">ملخص مالي</h2>
+          <div className="sticky top-4 space-y-3 rounded-xl border border-[#E6F0F7] bg-white p-4 text-sm">
+            <h2 className="font-bold text-[#0A3D5E]">ملخص مالي</h2>
             {preview ? (
               <>
                 <Row label="إجمالي سابق" value={fmtMoney(preview.previousExecutedAmount)} />
@@ -477,7 +473,7 @@ export default function ContractExtractEditorPage() {
                   غرامات / فروق
                   <input
                     type="number"
-                    className="w-full border rounded p-2 mt-1"
+                    className={`${compactControlClass} mt-1`}
                     value={penalties || ''}
                     onChange={(e) => setPenalties(Number(e.target.value) || 0)}
                   />
@@ -487,14 +483,12 @@ export default function ContractExtractEditorPage() {
                 <Row label="الصافي المستحق" value={fmtMoney(preview.netPayableAmount)} bold />
               </>
             ) : (
-              <p className="text-gray-500">اختر مشروعاً لعرض الحسابات</p>
+              <p className="text-slate-500">اختر مشروعاً لعرض الحسابات</p>
             )}
           </div>
         </aside>
       </div>
-      <ErrorToast message={error} onClose={() => setError('')} />
-      <SuccessToast message={success} onClose={() => setSuccess('')} />
-    </div>
+    </ExtractsPageChrome>
   );
 }
 

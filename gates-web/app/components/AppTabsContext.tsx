@@ -25,6 +25,7 @@ import {
   type PersistedAppTab,
 } from '@/lib/navigation/tab-memory';
 import { flushPageDrafts } from '@/lib/drafts/page-drafts';
+import { probeCount, probeNavUrl } from '@/lib/debug/gates-crash-probe';
 
 export type AppTab = PersistedAppTab;
 
@@ -73,6 +74,7 @@ export function AppTabsProvider({ children }: { children: ReactNode }) {
     } else if (opts?.fresh) {
       rememberTabSearch(next.path, '');
     }
+    probeCount('tab state updates');
     setTabs((prev) => {
       const index = prev.findIndex((tab) => tab.path === next.path);
       if (index === -1) return [...prev, next];
@@ -105,6 +107,7 @@ export function AppTabsProvider({ children }: { children: ReactNode }) {
 
   const closeTab = useCallback((path: string) => {
     const normalized = normalizeAppPath(path);
+    probeCount('tab state updates');
     setTabs((prev) => prev.filter((tab) => tab.path !== normalized));
   }, []);
 
@@ -130,6 +133,7 @@ export function AppTabsProvider({ children }: { children: ReactNode }) {
 
   const openAppTab = useCallback(
     (href: string) => {
+      probeCount('openAppTab', { href });
       flushPageDrafts();
       pinCurrentTab();
       const dest = resolveAppTabHref(href);
@@ -144,6 +148,8 @@ export function AppTabsProvider({ children }: { children: ReactNode }) {
       window.setTimeout(() => {
         setJustOpenedPath((current) => (current === path ? null : current));
       }, 1600);
+      probeCount('router.push');
+      probeNavUrl(`${window.location.pathname}${window.location.search}`, dest);
       router.push(dest);
     },
     [pinCurrentTab, remountPage, router, upsertTab]
@@ -151,6 +157,7 @@ export function AppTabsProvider({ children }: { children: ReactNode }) {
 
   const openFreshPage = useCallback(
     (href: string) => {
+      probeCount('openFreshPage', { href });
       flushPageDrafts();
       pinCurrentTab();
       const dest = resolveAppTabHref(href);
@@ -158,6 +165,8 @@ export function AppTabsProvider({ children }: { children: ReactNode }) {
       rememberFreshPage(path);
       remountPage(path);
       upsertTab(dest, { fresh: true });
+      probeCount('router.push');
+      probeNavUrl(`${window.location.pathname}${window.location.search}`, dest);
       router.push(dest);
     },
     [pinCurrentTab, remountPage, router, upsertTab]

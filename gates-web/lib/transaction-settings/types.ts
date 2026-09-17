@@ -52,6 +52,7 @@ export type TransactionSettings = {
   allowStandaloneReturns: boolean;
   enforceOriginalPrice: boolean;
   showFxColumns: boolean;
+  allowEditLoadedOrder: boolean;
   defaultSalesAccount?: NamedRef | null;
   defaultPurchaseReturnAccount?: NamedRef | null;
   defaultCashAccount?: NamedRef | null;
@@ -231,6 +232,21 @@ export function isTreasuryDocumentType(type: TransactionDocumentType): boolean {
 
 export function isJournalLikeDocumentType(type: TransactionDocumentType): boolean {
   return type === 'JOURNAL_ENTRY' || type === 'OPENING_BALANCE';
+}
+
+export function canLoadSourceOrder(type: TransactionDocumentType): boolean {
+  return (
+    isTreasuryDocumentType(type) ||
+    type === 'SALES_INVOICE' ||
+    type === 'PURCHASE_INVOICE'
+  );
+}
+
+export function shouldLockLoadedSource(
+  settings: { allowEditLoadedOrder?: boolean } | undefined,
+  sourceId?: string | null
+): boolean {
+  return settings?.allowEditLoadedOrder === false && Boolean(sourceId);
 }
 
 export function settingsPageHref(documentType: TransactionDocumentType): string {

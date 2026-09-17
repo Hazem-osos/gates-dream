@@ -3,9 +3,8 @@
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/EmptyState';
-import { PageHeader } from '@/components/ui/PageHeader';
+import { RealEstatePageShell, ReCard, RealEstateWorkspaceHeader } from '@/components/real-estate/RealEstatePageShell';
 import { TableSkeleton } from '@/components/ui/TableSkeleton';
-import { RealEstatePageShell, ReCard } from '@/components/real-estate/RealEstatePageShell';
 import { useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
 import { queryKeys, staleTimes } from '@/lib/query/query-keys';
 import { formatDateAr, formatEgp, rateToPercent } from '@/lib/real-estate/format';
@@ -31,9 +30,13 @@ export default function RentalPoolsPage() {
 
   return (
     <RealEstatePageShell>
-      <PageHeader
+      <RealEstateWorkspaceHeader
         title="توزيع إيجار المجمع التجاري"
-        breadcrumbs={[{ label: 'العقاري', href: '/real-estate' }, { label: 'مجمع الإيجار' }]}
+        breadcrumbs={[
+          { label: 'الاستثمار العقاري', href: '/real-estate-investment' },
+          { label: 'مجمع الإيجار' },
+        ]}
+        favoriteHref="/real-estate/rental-pools"
       />
       <ReCard>
         {isLoading ? (

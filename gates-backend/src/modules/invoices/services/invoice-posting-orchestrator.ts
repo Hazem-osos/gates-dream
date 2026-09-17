@@ -1177,17 +1177,6 @@ export class InvoicePostingOrchestrator {
         true
       );
       if (glUnPost) {
-        // C11 fix: unposting an invoice no longer flag-flips the original
-        // revenue/COGS journal entries back to "unposted" — it reverses
-        // them with dated contra entries, so both the original post and
-        // its reversal remain permanently visible in the ledger.
-        for (const jeId of [invoice.journalEntryId, invoice.costJournalEntryId]) {
-          if (!jeId) continue;
-          await journalPostingService.reverseJournalEntryInTx(tx, ctx, jeId, {
-            date: invoice.date,
-            reason: `Invoice ${sourceNum} unposted`,
-          });
-        }
         await journalPostingService.cascadeSourceJournalInTx(
           tx,
           ctx.companyId,

@@ -22,7 +22,6 @@ import {
   CompactFormField,
   AdvancedFieldsSection,
   FormStickyFooter,
-  StatusBadge,
   Button,
   IconButton,
   compactControlClass,
@@ -38,6 +37,10 @@ import {
   type InventoryWarehouseDocHeaderFormInput,
 } from '@/lib/validation/inventory.schema';
 import type { ApiError } from '@/lib/api/types';
+import {
+  postNamedDocumentAfterSave,
+  useRepostAfterUnpost,
+} from '@/lib/accounting/ensure-posted-after-save';
 import { onFieldErrors } from '@/lib/forms/on-field-errors';
 import { useIssueTourPrepare } from '@/lib/onboarding/useIssueTourPrepare';
 import { consumeAiTransactionDraft } from '@/lib/ai/ai-draft-storage';
@@ -114,6 +117,7 @@ export default function IssuePage() {
 function IssuePageInner() {
   const searchParams = useOwnTabSearchParams();
   const { lockToView, setMode, unlockForEdit, isReadOnly } = useDocumentMode();
+  const { markUnpostedForEdit, consumeShouldRepost, resetKeepPosted } = useRepostAfterUnpost();
   useIssueTourPrepare();
   const invalidateQuery = useInvalidateQuery();
 
@@ -135,7 +139,6 @@ function IssuePageInner() {
   });
 
   const isPosted = watch('isPosted');
-  const isApproved = watch('isApproved');
 
   const [issueLines, setIssueLines] = useState<IssueLine[]>([]);
   const [error, setError] = useState('');
@@ -267,6 +270,19 @@ function IssuePageInner() {
     {
       onSuccess: () => {
         invalidateQuery(['issues']);
+        const id = selectedIssueId;
+        if (consumeShouldRepost() && id) {
+          void postNamedDocumentAfterSave(`/inventory/issues/${id}/post`)
+            .then(() => {
+              handleNew();
+              setSuccess('تم حفظ التعديلات وترحيل الصرف');
+            })
+            .catch((error: ApiError) => {
+              handleNew();
+              setError(error.message || 'تم الحفظ لكن تعذر ترحيل الصرف');
+            });
+          return;
+        }
         handleNew();
         setSuccess('تم تحديث الصرف بنجاح');
       },
@@ -319,6 +335,7 @@ function IssuePageInner() {
       onSuccess: () => {
         setSuccess('تم فك ترحيل الصرف بنجاح');
         setValue('isPosted', false);
+        markUnpostedForEdit();
         invalidateQuery(['issues']);
         invalidateQuery(['issue', selectedIssueId]);
       },
@@ -358,6 +375,7 @@ function IssuePageInner() {
 
   // Handle new receipt
   const handleNew = () => {
+    resetKeepPosted();
     openIssue(null);
     setIssueLines([]);
     setError('');
@@ -500,54 +518,6 @@ function IssuePageInner() {
       <DocumentReadOnlyBanner />
       <DocumentFormLock>
       <FormSectionCard title="بيانات الإذن" subtitle="المخزن والتاريخ والمرجع">
-          <div className="col-span-full flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2" data-tour="stock-movement-types">
-                <span className="text-sm text-[#0A3D5E] font-medium">الترحيل:</span>
-                <div className="flex bg-gray-200 rounded-lg p-1">
-                  <button
-                    type="button"
-                    onClick={() => handlePostUnpost(true)}
-                    disabled={!selectedIssueId || postIssueMutation.isPending}
-                    className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${isPosted ? 'bg-[#0E78AA] text-white' : 'bg-white text-gray-600 hover:bg-gray-100'} ${!selectedIssueId ? 'opacity-50 cursor-not-allowed' : ''}`}
-                  >
-                    {postIssueMutation.isPending ? 'جاري...' : 'ترحيل'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handlePostUnpost(false)}
-                    disabled={!selectedIssueId || unpostIssueMutation.isPending}
-                    className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${!isPosted ? 'bg-[#0E78AA] text-white' : 'bg-white text-gray-600 hover:bg-gray-100'} ${!selectedIssueId ? 'opacity-50 cursor-not-allowed' : ''}`}
-                  >
-                    {unpostIssueMutation.isPending ? 'جاري...' : 'فك ترحيل'}
-                  </button>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-[#0A3D5E] font-medium">الموافقة:</span>
-                <div className="flex bg-gray-200 rounded-lg p-1">
-                  <button
-                    type="button"
-                    onClick={() => setValue('isApproved', true)}
-                    className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${isApproved ? 'bg-[#0E78AA] text-white' : 'bg-white text-gray-600 hover:bg-gray-100'}`}
-                  >
-                    موافق
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setValue('isApproved', false)}
-                    className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${!isApproved ? 'bg-[#0E78AA] text-white' : 'bg-white text-gray-600 hover:bg-gray-100'}`}
-                  >
-                    غير موافق
-                  </button>
-                </div>
-              </div>
-            </div>
-            <StatusBadge
-              variant={isPosted ? 'success' : 'warning'}
-              label={isPosted ? 'مرحّل' : 'مسودة'}
-            />
-          </div>
 
           <CompactFormField label="المسلسل" placeholder="إدخل رقم المسلسل" {...register('serialNumber')} />
           <CompactFormField

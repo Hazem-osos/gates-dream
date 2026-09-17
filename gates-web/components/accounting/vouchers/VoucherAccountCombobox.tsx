@@ -1,12 +1,13 @@
 'use client';
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { SearchableCombobox } from '@/app/components/form/SearchableCombobox';
 import {
   formatAccountLabel,
   isPostableLeafAccount,
   ACCOUNT_PICKER_PAGE_SIZE,
   PICKER_PAGE_SIZE,
+  PICKER_UNLIMITED_VISIBLE,
   useAccountsQuery,
   useCustomersQuery,
   useSuppliersQuery,
@@ -98,6 +99,13 @@ export function VoucherAccountCombobox({
           ? `acct:${value}`
           : '';
 
+  useEffect(() => {
+    if (!value && !partyId) {
+      setSearch('');
+      setPinnedLabel(undefined);
+    }
+  }, [value, partyId]);
+
   const handleChange = useCallback(
     (raw: string) => {
       if (!raw) {
@@ -144,7 +152,7 @@ export function VoucherAccountCombobox({
         emptyMessage="لا توجد نتائج"
         valueLabel={pinnedLabel || valueLabel}
         onQueryChange={setSearch}
-        maxVisible={PICKER_PAGE_SIZE}
+        maxVisible={PICKER_UNLIMITED_VISIBLE}
         portaled
         menuPlacement="auto"
         inputProps={inputProps}

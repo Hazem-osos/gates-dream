@@ -10,7 +10,7 @@ import {
   compactControlClass,
   Button,
 } from '@/components/ui';
-import { useOwnTabSearchParams } from '@/lib/navigation/tab-route-lock';
+import { useClearDocumentQuery, useOwnTabSearchParams } from '@/lib/navigation/tab-route-lock';
 import { DocumentBrowseDrawer } from '@/components/erp/DocumentBrowseDrawer';
 import { ErpDocumentLayout, ErpDocumentPageHeader } from '@/components/erp';
 import { DocumentModeProvider, useDocumentMode } from '@/components/common/document-shell';
@@ -83,6 +83,7 @@ function SupplierPageInner() {
   const invalidateQuery = useInvalidateQuery();
   const quickCreate = useQuickCreateHost('supplier');
   const searchParams = useOwnTabSearchParams();
+  const clearDocumentQuery = useClearDocumentQuery();
   const idFromUrl = searchParams.get('id');
   const categoryFromUrl = searchParams.get('categoryId');
 
@@ -337,27 +338,26 @@ function SupplierPageInner() {
   const handleSave = async () => {
     const code = formData.code.trim();
     const arabicName = formData.arabicName.trim();
-    if (!code) {
-      setError('يرجى إدخال الكود');
-      toast.error('يرجى إدخال الكود');
-      return;
-    }
     if (!arabicName) {
-      setError('يرجى إدخال الإسم العربي');
       toast.error('يرجى إدخال الإسم العربي');
       return;
     }
 
     setSaving(true);
     setError('');
+    setSuccess('');
     try {
       if (selectedId) {
-        const res = await apiClient.put<SupplierRecord>(`/accounting/suppliers/${selectedId}`, payload());
-        if (res.data) hydrate(res.data);
-        setSuccess('تم تحديث المورد');
-        toast.success('تم حفظ المورد');
+        await apiClient.put<SupplierRecord>(
+          `/accounting/suppliers/${selectedId}`,
+          payload(),
+          { skipSuccessNotify: true }
+        );
+        toast.success('تم حفظ المورد — تقدر تضيف التالي');
       } else {
-        const createdRes = await apiClient.post<SupplierRecord>('/accounting/suppliers', payload());
+        const createdRes = await apiClient.post<SupplierRecord>('/accounting/suppliers', payload(), {
+          skipSuccessNotify: true,
+        });
         const created = createdRes.data;
         if (created?.id) {
           quickCreate.complete({
@@ -367,10 +367,8 @@ function SupplierPageInner() {
             code: created.code,
             accountId: created.accountId,
           });
-          hydrate(created);
         }
-        setSuccess('تم حفظ المورد');
-        toast.success('تم حفظ المورد');
+        toast.success('تم حفظ المورد — تقدر تضيف التالي');
       }
       invalidateQuery(['suppliers']);
       invalidateQuery(['suppliers', 'next-code']);
@@ -378,10 +376,11 @@ function SupplierPageInner() {
       invalidateQuery(['supplier-categories']);
       invalidateQuery(['accounts']);
       invalidateQuery(['chart-of-accounts']);
+      invalidateQuery(['coa-tree']);
+      if (!quickCreate.isQuickCreate) handleNew();
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'حدث خطأ أثناء الحفظ';
       setError(message);
-      toast.error(message);
     } finally {
       setSaving(false);
     }
@@ -394,6 +393,7 @@ function SupplierPageInner() {
     setError('');
     setSuccess('');
     setMode('create');
+    clearDocumentQuery();
   };
 
   const handleDelete = async () => {
@@ -401,9 +401,14 @@ function SupplierPageInner() {
     if (!(await confirmAction('حذف بطاقة المورد الحالية؟'))) return;
     setError('');
     try {
-      await apiClient.delete(`/accounting/suppliers/${selectedId}`);
-      setSuccess('تم حذف المورد');
+      await apiClient.delete(`/accounting/suppliers/${selectedId}`, undefined, {
+        skipSuccessNotify: true,
+      });
+      toast.success('تم حذف المورد');
       invalidateQuery(['suppliers']);
+      invalidateQuery(['accounts']);
+      invalidateQuery(['chart-of-accounts']);
+      invalidateQuery(['coa-tree']);
       handleNew();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'تعذر الحذف');
@@ -494,10 +499,9 @@ function SupplierPageInner() {
             />
             <CompactFormField
               label="الكود"
-              required
               value={formData.code}
               onChange={(e) => setFormData((prev) => ({ ...prev, code: e.target.value }))}
-              placeholder="إدخل الكود"
+              placeholder="اختياري"
             />
             <CompactFormField
               label="الإسم العربي"

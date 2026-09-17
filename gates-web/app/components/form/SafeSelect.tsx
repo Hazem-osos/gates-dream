@@ -3,12 +3,20 @@
 import { memo, useMemo, useState } from 'react';
 import { SearchableCombobox } from '@/app/components/form/SearchableCombobox';
 import { compactControlClass } from '@/components/ui/forms/formTokens';
-import { useSafesQuery, type SafeOption } from '@/lib/hooks/useMasterDataQueries';
+import { PICKER_UNLIMITED_VISIBLE, useSafesQuery, type SafeOption } from '@/lib/hooks/useMasterDataQueries';
 import { QuickCreateSafeModal } from '@/app/components/form/QuickCreateSafeModal';
 
-function safeLabel(row: { code?: string | null; arabicName?: string; englishName?: string; isDefault?: boolean }) {
-  const name = row.arabicName || row.englishName || '';
-  const base = row.code ? `[${row.code}] ${name}` : name;
+function safeLabel(row: {
+  code?: string | null;
+  arabicName?: string;
+  englishName?: string;
+  isDefault?: boolean;
+  glAccountCode?: string | null;
+  glAccount?: { code?: string | null; arabicName?: string } | null;
+}) {
+  const name = row.glAccount?.arabicName || row.arabicName || row.englishName || '';
+  const code = row.glAccount?.code || row.glAccountCode || row.code;
+  const base = code ? `[${code}] ${name}` : name;
   return row.isDefault ? `${base} (رئيسية)` : base;
 }
 
@@ -44,7 +52,7 @@ function SafeSelectInner({
     const list = merged.map((row) => ({
       value: row.id,
       label: safeLabel(row),
-      searchText: `${row.code ?? ''} ${row.arabicName ?? ''} ${row.englishName ?? ''}`,
+      searchText: `${row.glAccount?.code ?? ''} ${row.glAccountCode ?? ''} ${row.code ?? ''} ${row.glAccount?.arabicName ?? ''} ${row.arabicName ?? ''} ${row.englishName ?? ''}`,
     }));
     if (allowEmpty) {
       return [{ value: '', label: emptyLabel || placeholder, searchText: '' }, ...list];
@@ -71,6 +79,7 @@ function SafeSelectInner({
         error={!safes && isError}
         emptyMessage="لا توجد خزائن"
         valueLabel={valueLabel}
+        maxVisible={PICKER_UNLIMITED_VISIBLE}
         portaled
         menuPlacement="auto"
         quickCreateLabel={enableQuickCreate ? '+ إضافة سريع' : undefined}

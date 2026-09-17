@@ -7,10 +7,15 @@ import { InventoryInvoicesListSection } from '@/components/inventory/InventoryIn
 import { useApiQuery, useApiMutation, useInvalidateQuery } from '@/lib/hooks/useApi';
 import { apiClient } from '@/lib/api/client';
 import type { ApiError } from '@/lib/api/types';
+import {
+  postInvoiceAfterSave,
+  useRepostAfterUnpost,
+} from '@/lib/accounting/ensure-posted-after-save';
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
 import { mapSalesFormToM5CreateBody, mapSalesFormToM5UpdateBody } from '@/lib/invoices/mapFormToM5Invoice';
 import { toastVersionConflict } from '@/lib/feedback/toast';
+import { isOptimisticLockApiError } from '@/lib/concurrency/version-conflict';
 import { computeInvoiceFinancialSummary } from '@/lib/invoices/computeInvoiceFinancialSummary';
 import { ErpDocumentLayout } from '@/components/erp/ErpDocumentLayout';
 import { ERP_INVOICE_DOCUMENT_LAYOUT_CLASS } from '@/components/erp/erpUiTokens';
@@ -54,6 +59,7 @@ export default function SalesReturnsPage() {
     () => invoiceIdParam?.trim() || null
   );
   const [isPosted, setIsPosted] = useState(false);
+  const { markUnpostedForEdit, consumeShouldRepost, resetKeepPosted } = useRepostAfterUnpost();
   const [showList, setShowList] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -244,6 +250,7 @@ export default function SalesReturnsPage() {
   }, [returnableRes?.data, sourceSaleInvoiceId, selectedReturnId]);
 
   const resetForm = useCallback(() => {
+    resetKeepPosted();
     setSelectedReturnId(null);
     setIsPosted(false);
     setInvoiceNumber('');
@@ -253,7 +260,7 @@ export default function SalesReturnsPage() {
     setSourceSaleInvoiceId('');
     setReturnLines([]);
     setDate(new Date().toISOString().split('T')[0]);
-  }, []);
+  }, [resetKeepPosted]);
 
   const buildPayload = () => {
     if (!warehouseId) throw new Error('يرجى اختيار المخزن');
@@ -311,11 +318,24 @@ export default function SalesReturnsPage() {
       showSuccessToast: false,
       onSuccess: () => {
         invalidateQuery(['invoices']);
+        const id = selectedReturnId;
+        if (consumeShouldRepost() && id) {
+          void postInvoiceAfterSave(id)
+            .then(() => {
+              resetForm();
+              setSuccess('تم حفظ التعديلات وترحيل المردود');
+            })
+            .catch((error: ApiError) => {
+              resetForm();
+              setError(error.message || 'تم الحفظ لكن تعذر ترحيل المردود');
+            });
+          return;
+        }
         resetForm();
         setSuccess('تم تحديث المردود');
       },
       onError: (error: ApiError) => {
-        if (error.code === '409') {
+        if (isOptimisticLockApiError(error)) {
           toastVersionConflict(error.message, () => invalidateQuery(['invoice', selectedReturnId]));
           return;
         }
@@ -346,6 +366,7 @@ export default function SalesReturnsPage() {
     {
       onSuccess: () => {
         setIsPosted(false);
+        markUnpostedForEdit();
         setSuccess('تم فك ترحيل المردود');
         invalidateQuery(['invoices']);
       },

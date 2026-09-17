@@ -1,18 +1,16 @@
 'use client';
 
-import Link from 'next/link';
-import { Button } from '@/components/ui/button';
-import { EmptyState } from '@/components/ui/EmptyState';
-import { PageHeader } from '@/components/ui/PageHeader';
-import { TableSkeleton } from '@/components/ui/TableSkeleton';
-import { ContractingProjectPageShell, ProjectCard } from '@/components/contracting/ContractingProjectPageShell';
+import { useRouter } from 'next/navigation';
+import { ExtractsPageChrome } from '@/components/extracts/ExtractsPageChrome';
+import { AppTable, Button } from '@/components/ui';
 import { useApiQuery } from '@/lib/hooks/useApi';
 import { queryKeys, staleTimes } from '@/lib/query/query-keys';
 import type { ContractingProject } from '@/lib/contracting/types';
 import { formatEgp } from '@/lib/subcontracts/money';
 
 export default function ContractingProjectsPage() {
-  const { data, isLoading, isError } = useApiQuery<ContractingProject[]>(
+  const router = useRouter();
+  const { data, isLoading } = useApiQuery<ContractingProject[]>(
     queryKeys.contracting.projects(),
     '/contracting/projects',
     undefined,
@@ -21,50 +19,59 @@ export default function ContractingProjectsPage() {
   const projects = data?.data ?? [];
 
   return (
-    <ContractingProjectPageShell>
-      <PageHeader
-        title="مساحة المشروع التنفيذية"
-        description="المكتب الفني، مستخلصات المالك، خطابات الضمان، ومراقبة التكاليف."
-        breadcrumbs={[{ label: 'المقاولات', href: '/contracting/extracts' }, { label: 'المشاريع' }]}
+    <ExtractsPageChrome
+      title="مساحة المشروع التنفيذية"
+      breadcrumbs={[
+        { href: '/extracts', label: 'المستخلصات' },
+        { href: '/contracting', label: 'المقاولات' },
+        { label: 'المشاريع' },
+      ]}
+      statusLabel="عرض"
+      favoriteHref="/contracting/projects"
+      browseList={{
+        title: 'المشاريع السابقة',
+        apiPath: '/contracting/projects',
+        listKey: 'contracting-projects-browse',
+        columns: [
+          { id: 'code', header: 'الكود', getValue: (r) => String(r.projectCode || r.id) },
+          { id: 'name', header: 'الاسم', getValue: (r) => String(r.projectName || '—') },
+        ],
+        onSelect: (id) => router.push(`/contracting/projects/${id}/technical-office`),
+      }}
+    >
+      <AppTable
+        columns={[
+          { id: 'code', header: 'الكود', accessor: 'projectCode' },
+          { id: 'name', header: 'اسم المشروع', accessor: 'projectName' },
+          {
+            id: 'customer',
+            header: 'العميل',
+            cell: (r) => r.customer?.arabicName ?? '—',
+          },
+          {
+            id: 'value',
+            header: 'قيمة العقد',
+            numeric: true,
+            cell: (r) => formatEgp(r.contractValue),
+          },
+          {
+            id: 'open',
+            header: '',
+            cell: (r) => (
+              <Button size="sm" onClick={() => router.push(`/contracting/projects/${r.id}/technical-office`)}>
+                فتح المساحة
+              </Button>
+            ),
+          },
+        ]}
+        data={projects}
+        getRowKey={(r) => r.id}
+        isLoading={isLoading}
+        emptyTitle="لا توجد مشاريع"
+        emptyDescription="أنشئ مشروعاً من إدارة المشاريع ثم افتح مساحة العمل التنفيذية."
+        onRowClick={(r) => router.push(`/contracting/projects/${r.id}/technical-office`)}
+        exportFileName="contracting-projects"
       />
-      <ProjectCard>
-        {isLoading ? (
-          <TableSkeleton rows={6} columns={4} />
-        ) : isError ? (
-          <EmptyState title="تعذر تحميل المشاريع" description="تحقق من سياق الشركة والفرع ثم أعد المحاولة." />
-        ) : projects.length === 0 ? (
-          <EmptyState title="لا توجد مشاريع" description="أنشئ مشروعاً من إدارة المشاريع ثم افتح مساحة العمل التنفيذية." />
-        ) : (
-          <div className="overflow-x-auto rounded-xl border border-[#E6F0F7]">
-            <table className="w-full text-center text-sm">
-              <thead>
-                <tr className="bg-[#F6FBFD] text-[#094C6B]">
-                  <th className="px-3 py-2">الكود</th>
-                  <th className="px-3 py-2">اسم المشروع</th>
-                  <th className="px-3 py-2">العميل</th>
-                  <th className="px-3 py-2">قيمة العقد</th>
-                  <th className="px-3 py-2">فتح</th>
-                </tr>
-              </thead>
-              <tbody>
-                {projects.map((project) => (
-                  <tr key={project.id} className="border-t border-slate-100">
-                    <td className="px-3 py-2 font-semibold">{project.projectCode}</td>
-                    <td className="px-3 py-2">{project.projectName}</td>
-                    <td className="px-3 py-2">{project.customer?.arabicName ?? '—'}</td>
-                    <td className="px-3 py-2 tabular-nums">{formatEgp(project.contractValue)}</td>
-                    <td className="px-3 py-2">
-                      <Link href={`/contracting/projects/${project.id}/technical-office`}>
-                        <Button size="sm">فتح المساحة</Button>
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </ProjectCard>
-    </ContractingProjectPageShell>
+    </ExtractsPageChrome>
   );
 }

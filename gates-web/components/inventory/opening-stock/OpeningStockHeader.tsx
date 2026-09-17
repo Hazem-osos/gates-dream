@@ -1,7 +1,7 @@
 'use client';
 
 import { Download } from 'lucide-react';
-import { DocumentHeaderBar } from '@/components/common/document-shell/DocumentHeaderBar';
+import { ErpDocumentPageHeader } from '@/components/erp/ErpDocumentPageHeader';
 import { DatePickerWithHijri } from '@/components/ui/DatePickerWithHijri';
 import { Button } from '@/components/ui';
 
@@ -60,7 +60,8 @@ export function OpeningStockHeader({
 }: Props) {
   return (
     <>
-      <DocumentHeaderBar
+      <ErpDocumentPageHeader
+        compact
         breadcrumbs={[
           { href: '/inventory', label: 'المخازن' },
           { label: 'العمليات' },
@@ -74,6 +75,7 @@ export function OpeningStockHeader({
         saveLabel="حفظ"
         savePending={savePending}
         canSave={canSave}
+        hideStandalonePost
         onBrowseList={onBrowseList}
         browseListLabel="السابق"
         favoriteHref="/inventory/operations/opening-stock"

@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { useOwnTabSearchParams } from '@/lib/navigation/tab-route-lock';
 import { useForm, type Resolver, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { PageHeader } from '@/components/ui/PageHeader';
+import { ErpDocumentLayout, ErpDocumentPageHeader } from '@/components/erp';
 import { DocumentBrowseDrawer } from '@/components/erp/DocumentBrowseDrawer';
 import { GenericRecordsList } from '@/components/erp/GenericRecordsList';
 import CrudButtons from '@/components/ui/CrudButtons';
@@ -13,9 +13,12 @@ import {
   CompactFormField,
   AdvancedFieldsSection,
   FormStickyFooter,
-  StatusBadge,
   compactControlClass,
   compactLabelClass,
+  denseTableWrapClass,
+  denseTableClass,
+  denseTheadClass,
+  denseThClass,
 } from '@/components/ui';
 import { useApiQuery, useApiMutation, useInvalidateQuery } from '@/lib/hooks/useApi';
 import ErrorToast from '@/components/ErrorToast';
@@ -240,20 +243,74 @@ export default function PurchaseOrderPage() {
     setConditions(updatedConditions);
   };
 
+  const handleNew = () => {
+    setSelectedOrderId(null);
+    setError('');
+    setSuccess('');
+    setOrderLines([]);
+    reset(emptyPurchaseOrderHeader(new Date().toISOString().split('T')[0]));
+  };
+
   return (
-    <div className="p-6 bg-gradient-to-br from-gray-50 to-blue-50 min-h-screen" style={{ direction: 'rtl' }}>
-      {/* Error and Success Toasts */}
+    <ErpDocumentLayout>
       {error && <ErrorToast message={error} onClose={() => setError('')} />}
       {success && <SuccessToast message={success} onClose={() => setSuccess('')} />}
 
-      <PageHeader
-        title="أمر الشراء"
+      <ErpDocumentPageHeader
+        compact
         breadcrumbs={[
-          { label: 'المخزون', href: '/inventory' },
-          { label: 'الحركات' },
+          { href: '/inventory', label: 'المخزون' },
+          { label: 'العمليات' },
           { label: 'أمر الشراء' },
         ]}
-        className="mb-4"
+        title="أمر الشراء"
+        docNumber={watch('orderNumber') || ''}
+        statusTone={isPosted ? 'success' : 'warning'}
+        statusLabel={isPosted ? 'مرحّل' : 'مسودة'}
+        saveLabel="حفظ"
+        onSaveDraft={() =>
+          void handleSubmit((header) => {
+            setError('');
+            setSuccess('');
+            const parsed = inventoryPurchaseOrderFormSchema.safeParse({
+              ...header,
+              lines: orderLines,
+            });
+            if (!parsed.success) {
+              setError(parsed.error.issues[0]?.message ?? 'خطأ في البيانات');
+              return;
+            }
+            const d = parsed.data;
+            purchaseOrderMutation.mutate({
+              orderNumber: d.orderNumber,
+              description: d.description,
+              date: d.date || new Date().toISOString(),
+              hijriDate: d.hijriDate,
+              supplierId: d.supplierId,
+              warehouseId: d.warehouseId,
+              costCenterId: d.costCenterId,
+              currencyId: d.currencyId,
+              isPosted: d.isPosted,
+              isApproved: d.isApproved,
+              lines: d.lines,
+            });
+          }, onFieldErrors(setError))()
+        }
+        savePending={loading}
+        canSave={!isPosted && !loading}
+        hideStandalonePost
+        onBrowseList={() => setShowList(true)}
+        browseListLabel="السابق"
+        currentId={selectedOrderId}
+        favoriteHref="/inventory/operations/purchase-order"
+        standardActions={{
+          hasDocument: Boolean(selectedOrderId),
+          isPosted: Boolean(isPosted),
+          onPost: () => setValue('isPosted', true),
+          onUnpost: () => setValue('isPosted', false),
+          onNew: handleNew,
+          newLabel: 'جديد',
+        }}
       />
 
       <DocumentBrowseDrawer open={showList} onClose={() => setShowList(false)} title="أوامر الشراء السابقة">
@@ -326,70 +383,6 @@ export default function PurchaseOrderPage() {
         title="بيانات أمر الشراء"
         subtitle="المورد والتاريخ والعملة والمخزن"
       >
-        <div className="col-span-full flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-4">
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-[#0A3D5E] font-medium">الترحيل:</span>
-              <Controller
-                name="isPosted"
-                control={control}
-                render={({ field: { value, onChange } }) => (
-                  <div className="flex bg-gray-200 rounded-lg p-1">
-                    <button
-                      type="button"
-                      onClick={() => onChange(true)}
-                      className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${
-                        value ? 'bg-[#0E78AA] text-white' : 'text-gray-600 hover:bg-gray-300'
-                      }`}
-                    >
-                      ترحيل
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onChange(false)}
-                      className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${
-                        !value ? 'bg-[#0E78AA] text-white' : 'text-gray-600 hover:bg-gray-300'
-                      }`}
-                    >
-                      فك ترحيل
-                    </button>
-                  </div>
-                )}
-              />
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-[#0A3D5E] font-medium">الاعتماد:</span>
-              <Controller
-                name="isApproved"
-                control={control}
-                render={({ field: { value, onChange } }) => (
-                  <div className="flex bg-gray-200 rounded-lg p-1">
-                    <button
-                      type="button"
-                      onClick={() => onChange(true)}
-                      className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${
-                        value ? 'bg-[#0E78AA] text-white' : 'text-gray-600 hover:bg-gray-300'
-                      }`}
-                    >
-                      اعتماد
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onChange(false)}
-                      className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${
-                        !value ? 'bg-[#0E78AA] text-white' : 'text-gray-600 hover:bg-gray-300'
-                      }`}
-                    >
-                      إلغاء اعتماد
-                    </button>
-                  </div>
-                )}
-              />
-            </div>
-          </div>
-          <StatusBadge variant={isPosted ? 'success' : 'warning'} label={isPosted ? 'مرحل' : 'غير مرحل'} />
-        </div>
-
         <CompactFormField label="رقم الفاتورة" placeholder="إدخل رقم السند" {...register('orderNumber')} />
         <CompactFormField
           label="التاريخ"
@@ -464,22 +457,22 @@ export default function PurchaseOrderPage() {
       </AdvancedFieldsSection>
 
       <FormSectionCard title="أصناف أمر الشراء" subtitle="الصنف والكمية والسعر" bodyClassName="grid-cols-1 sm:grid-cols-1 lg:grid-cols-1">
-        <div className="overflow-x-auto rounded-xl border border-[#D6EAF3] bg-white [&_input]:h-9 [&_select]:h-9">
-          <table className="min-w-full text-center border-separate border-spacing-0">
-            <thead>
+        <div className={`${denseTableWrapClass} [&_input]:h-8 [&_select]:h-8`}>
+          <table className={denseTableClass}>
+            <thead className={denseTheadClass}>
               <tr>
-                <th className="bg-gradient-to-b from-[#0E78AA] to-[#0A5F8A] text-white py-2 px-3 text-xs font-bold shadow-md border-r border-white/20">م</th>
-                <th className="bg-gradient-to-b from-[#0E78AA] to-[#0A5F8A] text-white py-2 px-3 text-xs font-bold shadow-md border-r border-white/20">الصنف</th>
-                <th className="bg-gradient-to-b from-[#0E78AA] to-[#0A5F8A] text-white py-2 px-3 text-xs font-bold shadow-md border-r border-white/20">الوحدة</th>
-                <th className="bg-gradient-to-b from-[#0E78AA] to-[#0A5F8A] text-white py-2 px-3 text-xs font-bold shadow-md border-r border-white/20">الكمية</th>
-                <th className="bg-gradient-to-b from-[#0E78AA] to-[#0A5F8A] text-white py-2 px-3 text-xs font-bold shadow-md border-r border-white/20">الوحدة الأساسية</th>
-                <th className="bg-gradient-to-b from-[#0E78AA] to-[#0A5F8A] text-white py-2 px-3 text-xs font-bold shadow-md border-r border-white/20">الكمية</th>
-                <th className="bg-gradient-to-b from-[#0E78AA] to-[#0A5F8A] text-white py-2 px-3 text-xs font-bold shadow-md border-r border-white/20">السعر</th>
-                <th className="bg-gradient-to-b from-[#0E78AA] to-[#0A5F8A] text-white py-2 px-3 text-xs font-bold shadow-md border-r border-white/20">الإجمالي</th>
-                <th className="bg-gradient-to-b from-[#0E78AA] to-[#0A5F8A] text-white py-2 px-3 text-xs font-bold shadow-md border-r border-white/20">خصم %</th>
-                <th className="bg-gradient-to-b from-[#0E78AA] to-[#0A5F8A] text-white py-2 px-3 text-xs font-bold shadow-md border-r border-white/20">خصم قيمة</th>
-                <th className="bg-gradient-to-b from-[#0E78AA] to-[#0A5F8A] text-white py-2 px-3 text-xs font-bold shadow-md border-r border-white/20">ض. مبيعات %</th>
-                <th className="bg-gradient-to-b from-[#0E78AA] to-[#0A5F8A] text-white py-2 px-3 text-xs font-bold shadow-md">قيمتها</th>
+                <th className={denseThClass}>م</th>
+                <th className={denseThClass}>الصنف</th>
+                <th className={denseThClass}>الوحدة</th>
+                <th className={denseThClass}>الكمية</th>
+                <th className={denseThClass}>الوحدة الأساسية</th>
+                <th className={denseThClass}>الكمية</th>
+                <th className={denseThClass}>السعر</th>
+                <th className={denseThClass}>الإجمالي</th>
+                <th className={denseThClass}>خصم %</th>
+                <th className={denseThClass}>خصم قيمة</th>
+                <th className={denseThClass}>ض. مبيعات %</th>
+                <th className={denseThClass}>قيمتها</th>
               </tr>
             </thead>
             <tbody>
@@ -811,6 +804,6 @@ export default function PurchaseOrderPage() {
           </div>
         </div>
       )}
-    </div>
+    </ErpDocumentLayout>
   );
 }

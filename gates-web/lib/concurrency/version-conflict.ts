@@ -6,7 +6,7 @@ export const VERSION_CONFLICT_BODY =
 export const VERSION_CONFLICT_ACTION = '🔄 إعادة تحميل المستند';
 
 const CONFLICT_MESSAGE =
-  /تعذر الحفظ|تنبيه تعارض|زميل آخر|مستخدم آخر|تم تعديل هذا المستند|expectedVersion/i;
+  /قام (زميل|مستخدم) آخر بتعديل|تنبيه تعارض|expectedVersion|منذ لحظات/i;
 
 export function isVersionConflictError(payload: {
   httpStatus?: number;
@@ -17,6 +17,14 @@ export function isVersionConflictError(payload: {
   const status = payload.httpStatus ?? Number.parseInt(payload.code ?? '', 10);
   if (status !== 409) return false;
   return CONFLICT_MESSAGE.test(payload.message ?? '');
+}
+
+export function isOptimisticLockApiError(error: { code?: string; message?: string }): boolean {
+  return isVersionConflictError({
+    code: error.code,
+    message: error.message,
+    httpStatus: Number.parseInt(error.code ?? '', 10),
+  });
 }
 
 type VersionConflictState = {

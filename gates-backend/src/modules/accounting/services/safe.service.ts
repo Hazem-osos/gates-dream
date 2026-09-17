@@ -5,8 +5,10 @@ import {
   createCashGlForNewSafe,
   ensureSafesFromChart,
   grantSafeToExistingRightHolders,
+  isTreasuryMovementAccount,
   nextSafeCode,
 } from './cash-safe-sync';
+import { overlayFundBalanceFromLedger, overlayFundBalancesFromLedger } from '../../treasury/services/fund-ledger-balance';
 
 export interface CreateSafeData {
   code?: string;
@@ -39,7 +41,8 @@ export class SafeService {
     if (options?.isActive !== undefined) {
       where.isActive = options.isActive;
     }
-    if (options?.allowedSafeIds) {
+    if (options?.allowedSafeIds != null) {
+      if (options.allowedSafeIds.length === 0) return [];
       where.id = { in: options.allowedSafeIds };
     }
 
@@ -49,7 +52,14 @@ export class SafeService {
         orderBy: { arabicName: 'asc' },
         include: {
           glAccount: {
-            select: { id: true, code: true, arabicName: true, englishName: true },
+            select: {
+              id: true,
+              code: true,
+              arabicName: true,
+              englishName: true,
+              accountKind: true,
+              parent: { select: { code: true } },
+            },
           },
         },
       }),
@@ -63,10 +73,21 @@ export class SafeService {
       defaultBranch?.defaultSafeId && rows.some((row) => row.id === defaultBranch.defaultSafeId)
         ? defaultBranch.defaultSafeId
         : null;
+    const treasuryRows = rows.filter((row) =>
+      isTreasuryMovementAccount({
+        code: row.glAccount?.code,
+        accountKind: row.glAccount?.accountKind,
+        parentCode: row.glAccount?.parent?.code,
+      })
+    );
     const cashMainSafeId =
-      rows.find((row) => row.glAccount?.code === SYSTEM_GL_CODES.cashMain)?.id ?? null;
-    const defaultSafeId = branchDefaultId ?? cashMainSafeId;
-    return rows
+      treasuryRows.find((row) => row.glAccount?.code === SYSTEM_GL_CODES.cashMain)?.id ?? null;
+    const defaultSafeId =
+      (branchDefaultId && treasuryRows.some((row) => row.id === branchDefaultId)
+        ? branchDefaultId
+        : null) ?? cashMainSafeId;
+    const withLedgerBalance = await overlayFundBalancesFromLedger(companyId, treasuryRows);
+    return withLedgerBalance
       .map((row) => ({
         ...row,
         isDefault: Boolean(defaultSafeId && row.id === defaultSafeId),
@@ -89,7 +110,7 @@ export class SafeService {
       throw new Error('Safe not found');
     }
 
-    return safe;
+    return overlayFundBalanceFromLedger(companyId, safe);
   }
 
   /**

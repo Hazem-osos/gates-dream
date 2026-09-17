@@ -18,6 +18,7 @@ export function useReportColumnVisibility(
     () => columns.filter((c) => !c.technical),
     [columns]
   );
+  const pickableKey = pickable.map((c) => c.id).join('|');
 
   const defaultIds = useMemo(
     () => getDefaultVisibleColumnIds(pickable),
@@ -28,18 +29,25 @@ export function useReportColumnVisibility(
   const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
+    if (!pickable.length) {
+      setHydrated(false);
+      return;
+    }
     const stored = loadReportColumnVisibility(reportKey);
+    const allIds = pickable.map((c) => c.id);
     if (stored?.length) {
       const valid = stored.filter((id) => pickable.some((c) => c.id === id));
-      if (valid.length) setVisibleIds(valid);
+      setVisibleIds(valid.length ? valid : allIds);
+    } else {
+      setVisibleIds(allIds);
     }
     setHydrated(true);
-  }, [reportKey, pickable]);
+  }, [reportKey, pickable, pickableKey]);
 
   useEffect(() => {
-    if (!hydrated) return;
+    if (!hydrated || !pickable.length) return;
     saveReportColumnVisibility(reportKey, visibleIds);
-  }, [reportKey, visibleIds, hydrated]);
+  }, [reportKey, visibleIds, hydrated, pickable.length]);
 
   const visibleColumns = useMemo(
     () => pickable.filter((c) => visibleIds.includes(c.id)),

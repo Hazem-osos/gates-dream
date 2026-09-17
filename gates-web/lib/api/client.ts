@@ -369,10 +369,12 @@ class ApiClient {
     const rawMessage = (error.message ?? '').toLowerCase();
     if (
       httpStatus === 404 ||
+      error.code === 'DOCUMENT_OCCUPIED' ||
       rawMessage === 'journal entry not found' ||
       rawMessage === 'error getting journal entry' ||
       rawMessage === 'failed to get journal entry' ||
-      rawMessage === 'القيد غير موجود'
+      rawMessage === 'القيد غير موجود' ||
+      (error.message ?? '').includes('السند مفتوح حالياً عند')
     ) {
       return;
     }

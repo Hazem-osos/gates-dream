@@ -4,6 +4,7 @@ import { Decimal } from '@prisma/client/runtime/library';
 import { applyFullTextIds, findFullTextIds } from '../../../shared/database/fulltext-search';
 import { supplierLedgerAccountService } from './party-ledger-account.service';
 import { nextNumericCode } from '../../../shared/utils/next-numeric-code';
+import { AppError } from '../../../shared/middleware/error-handler';
 
 const SUPPLIER_LIST_SELECT = {
   id: true,
@@ -97,10 +98,17 @@ export class SupplierService {
         select: { arabicName: true },
       });
       if (clash) {
-        throw new Error(
+        throw new AppError(
+          409,
           `الكود «${code}» مستخدم على «${clash.arabicName}». غيّر الكود ثم احفظ.`
         );
       }
+      await supplierLedgerAccountService.assertLedgerAvailable({
+        side: 'SUPPLIER',
+        companyId,
+        arabicName: data.arabicName,
+        requestedAccountId: data.mainAccountId ?? data.accountId,
+      });
       const supplier = await prisma.supplier.create({
         data: {
           companyId,
@@ -159,10 +167,15 @@ export class SupplierService {
           requestedAccountId: data.mainAccountId ?? data.accountId,
         });
       } catch (ensureError) {
-        logger.warn(
-          { ensureError, companyId, supplierId: supplier.id },
-          'Supplier saved without a ledger account'
-        );
+        try {
+          await prisma.supplier.delete({ where: { id: supplier.id } });
+        } catch {
+          await prisma.supplier.update({
+            where: { id: supplier.id },
+            data: { isActive: false, mainAccountId: null, accountId: null },
+          });
+        }
+        throw ensureError;
       }
 
       const withLedger = await prisma.supplier.findFirst({
@@ -316,6 +329,15 @@ export class SupplierService {
         throw new Error('Supplier not found');
       }
 
+      await supplierLedgerAccountService.assertLedgerAvailable({
+        side: 'SUPPLIER',
+        companyId,
+        arabicName: data.arabicName ?? existing.arabicName,
+        requestedAccountId: data.mainAccountId ?? data.accountId ?? existing.mainAccountId,
+        exceptPartyId: supplierId,
+        exceptAccountId: existing.mainAccountId ?? existing.accountId,
+      });
+
       const updateData: any = {};
 
       if (data.code !== undefined) updateData.code = data.code;
@@ -371,27 +393,23 @@ export class SupplierService {
   }
 
   /**
-   * Delete supplier (soft delete)
+   * Delete supplier. Blocked if the party or its personal GL account has movements.
+   * Unused personal accounts are removed from the chart of accounts.
    */
   async deleteSupplier(companyId: string, supplierId: string) {
     try {
-      const supplier = await prisma.supplier.findFirst({
-        where: { id: supplierId, companyId },
-      });
-
-      if (!supplier) {
-        throw new Error('Supplier not found');
-      }
-
-      await prisma.supplier.update({
-        where: { id: supplierId },
-        data: { isActive: false },
+      await supplierLedgerAccountService.retirePartyAndLedger({
+        side: 'SUPPLIER',
+        companyId,
+        partyId: supplierId,
       });
 
       logger.info({ companyId, supplierId }, 'Supplier deleted');
       return { success: true };
     } catch (error) {
-      logger.error({ error, companyId, supplierId }, 'Error deleting supplier');
+      if (!(error instanceof AppError)) {
+        logger.error({ error, companyId, supplierId }, 'Error deleting supplier');
+      }
       throw error;
     }
   }

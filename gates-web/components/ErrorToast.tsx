@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useEffect, useMemo } from 'react';
-import { X } from 'lucide-react';
+import { useEffect, useMemo } from 'react';
 import { localizeApiErrorMessage } from '@/lib/api/localize-api-error-message';
+import { toast } from '@/lib/feedback/toast';
 
 interface ErrorToastProps {
   message: string;
@@ -10,34 +10,19 @@ interface ErrorToastProps {
   duration?: number;
 }
 
+/** Bridges legacy local error state to the root sonner toaster (z-index 50000). */
 export default function ErrorToast({ message, onClose, duration = 5000 }: ErrorToastProps) {
   const displayMessage = useMemo(() => localizeApiErrorMessage(message), [message]);
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      onClose();
-    }, duration);
-
+    if (!String(displayMessage ?? '').trim()) return;
+    toast.error(displayMessage, {
+      id: 'gates-form-error',
+      duration,
+    });
+    const timer = setTimeout(onClose, duration);
     return () => clearTimeout(timer);
-  }, [duration, onClose]);
+  }, [displayMessage, duration]); // onClose is setError('') from the page — do not retrigger on each render
 
-  return (
-    <div
-      className="fixed top-4 right-4 z-[200] bg-red-50 border border-red-200 text-red-800 px-6 py-4 rounded-lg shadow-lg flex items-center gap-3 min-w-[300px] max-w-[500px]"
-      style={{ direction: 'rtl' }}
-    >
-      <div className="flex-1">
-        <div className="font-semibold mb-1">خطأ</div>
-        <div className="text-sm">{displayMessage}</div>
-      </div>
-      <button
-        onClick={onClose}
-        className="text-red-600 hover:text-red-800 transition-colors"
-        aria-label="إغلاق"
-      >
-        <X size={20} />
-      </button>
-    </div>
-  );
+  return null;
 }
-
