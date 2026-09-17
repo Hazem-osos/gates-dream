@@ -1086,7 +1086,14 @@ export function SecuritiesPaperEngine({ kind }: Props) {
         paperId={actionId}
         amount={amountNum}
         chequeNumber={securityNumber || loaded?.securityNumber || ''}
-        partyName={partyName || loaded?.issuerName || loaded?.payeeName || ''}
+        partyName={
+          partyName ||
+          loaded?.payeeName ||
+          loaded?.issuerName ||
+          loaded?.supplier?.arabicName ||
+          loaded?.customer?.arabicName ||
+          ''
+        }
         dueDate={dueDate || isoDateOnly(loaded?.dueDate)}
         onClose={() => setShowCollect(false)}
         onDone={(record) => {

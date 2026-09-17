@@ -13,14 +13,13 @@ import { resolveCompanyFxRate, toBaseAmount } from '../utils/company-fx-rate';
 import {
   PAPER_JOURNAL_ENTRY_TYPE,
   PAPER_LIFECYCLE,
-  buildCollectedBounceLines,
   buildEndorseLines,
-  buildEndorsedBounceLines,
   buildIssuedBounceLines,
   buildPaymentCollectLines,
   buildPaymentIssueLines,
   buildReceiptCollectLines,
   buildReceiptIssueLines,
+  invertJournalLines,
   isLifecycleBeyondIssue,
   paperJournalLabel,
 } from '../utils/commercial-paper-journals';
@@ -610,20 +609,20 @@ export class CommercialPaperPostingService {
     if (paper.paperCase !== PAPER_LIFECYCLE.ISSUED) {
       throw new AppError(400, 'الورقة محصّلة أو مغلقة مسبقاً');
     }
-    if (!input.accountId) throw new AppError(400, 'اختر حساب البنك');
+    if (!input.accountId) {
+      throw new AppError(400, 'اختر حساب البنك');
+    }
 
     const account = await prisma.account.findFirst({
       where: { id: input.accountId, companyId: ctx.companyId, deletedAt: null },
       select: { id: true },
     });
     if (!account) throw new AppError(400, 'حساب التحصيل غير موجود');
-    if (paperKind === 'RECEIPT') {
-      const bankLink = await prisma.bankAccount.findFirst({
-        where: { companyId: ctx.companyId, glAccountId: input.accountId, isActive: true },
-        select: { id: true },
-      });
-      if (!bankLink) throw new AppError(400, 'اختر حساب بنك من دليل البنوك');
-    }
+    const bankLink = await prisma.bankAccount.findFirst({
+      where: { companyId: ctx.companyId, glAccountId: input.accountId, isActive: true },
+      select: { id: true },
+    });
+    if (!bankLink) throw new AppError(400, 'اختر حساب بنك من دليل البنوك');
 
     if (!(await this.isJournalActive(ctx.companyId, paper.journalEntryId))) {
       await this.syncIssueJournal(ctx, paperKind, paperId);
@@ -796,85 +795,101 @@ export class CommercialPaperPostingService {
     paperId: string,
     input: PaperLifecycleInput
   ) {
-    const paper = await this.loadPaper(ctx.companyId, paperKind, paperId);
+    let paper = await this.loadPaper(ctx.companyId, paperKind, paperId);
     assertPaperIssued(paper, 'الارتداد');
+
+    if (!(await this.isJournalActive(ctx.companyId, paper.journalEntryId))) {
+      await this.syncIssueJournal(ctx, paperKind, paperId);
+      paper = await this.loadPaper(ctx.companyId, paperKind, paperId);
+    }
 
     const amount = money(Number(paper.amount));
     const { exchangeRate } = await resolveCompanyFxRate(ctx.companyId, paper.currencyCode);
     const baseAmount = toBaseAmount(amount, exchangeRate);
-    const notesAccountId = await this.notesAccountId(
-      ctx.companyId,
-      paperKind,
-      paper.destinationAccountId
-    );
-    const partyAccountId = await this.partyAccountId(ctx.companyId, paperKind, paper);
     const date = asDate(input.date);
     const number = paperNumberOf(paper);
-    const status = paper.paperCase || PAPER_LIFECYCLE.ISSUED;
-
-    let lines: JournalEntryLineData[];
-    if (status === PAPER_LIFECYCLE.ENDORSED && paperKind === 'RECEIPT' && paper.supplierId) {
-      const supplierAccountId = await this.partyAccountId(
-        ctx.companyId,
-        paperKind,
-        paper,
-        paper.supplierId
-      );
-      lines = buildEndorsedBounceLines({
-        notesAccountId,
-        partyAccountId,
-        supplierAccountId,
-        amount,
-        description: input.description,
-      });
-    } else if (status === PAPER_LIFECYCLE.COLLECTED || status === PAPER_LIFECYCLE.MULTI_COLLECTED) {
-      const bankAccountId =
-        input.accountId ||
-        ('depositAccountId' in paper ? paper.depositAccountId : null) ||
-        paper.destinationAccountId ||
-        undefined;
-      lines = buildCollectedBounceLines(paperKind, {
-        notesAccountId,
-        partyAccountId,
-        bankAccountId,
-        amount,
-        description: input.description,
-      });
-    } else {
-      lines = buildIssuedBounceLines(paperKind, {
-        notesAccountId,
-        partyAccountId,
-        amount,
-        description: input.description,
-      });
-    }
+    const note = input.description?.trim();
 
     const posted = await prisma.$transaction(async (tx) => {
-      await this.postPaperJournal(tx, ctx, {
-        paperKind,
-        paper,
-        date,
-        description: input.description || `ارتداد ورقة ${number}`,
-        entryType: PAPER_JOURNAL_ENTRY_TYPE.BOUNCE,
-        lines,
-        claimActiveSourceKey: false,
+      const invertTypes =
+        paperKind === 'RECEIPT'
+          ? [PAPER_JOURNAL_ENTRY_TYPE.DEPOSIT, PAPER_JOURNAL_ENTRY_TYPE.ISSUE]
+          : [PAPER_JOURNAL_ENTRY_TYPE.ISSUE];
+      const sources = await tx.journalEntry.findMany({
+        where: {
+          companyId: ctx.companyId,
+          sourceId: paper.id,
+          deletedAt: null,
+          isCancelled: false,
+          entryType: { in: invertTypes },
+        },
+        include: { lines: { orderBy: { lineOrder: 'asc' } } },
+        orderBy: { createdAt: 'asc' },
       });
-      await this.applyPartyBalances(tx, paperKind, paper, baseAmount, true);
-      if (status === PAPER_LIFECYCLE.ENDORSED && paper.supplierId) {
-        await tx.supplier.update({
-          where: { id: paper.supplierId },
-          data: { balance: { increment: new Decimal(baseAmount) } },
+
+      const active: typeof sources = [];
+      for (const journal of sources) {
+        if (journal.reversalOfJournalEntryId) continue;
+        const reversed = await tx.journalEntry.findFirst({
+          where: { companyId: ctx.companyId, reversalOfJournalEntryId: journal.id },
+          select: { id: true },
         });
+        if (!reversed) active.push(journal);
       }
+
+      const ordered = [
+        ...active.filter((row) => row.entryType === PAPER_JOURNAL_ENTRY_TYPE.DEPOSIT),
+        ...active.filter((row) => row.entryType === PAPER_JOURNAL_ENTRY_TYPE.ISSUE),
+      ];
+
+      if (ordered.length === 0) {
+        const notesAccountId = await this.notesAccountId(
+          ctx.companyId,
+          paperKind,
+          paper.destinationAccountId
+        );
+        const partyAccountId = await this.partyAccountId(ctx.companyId, paperKind, paper);
+        await this.postPaperJournal(tx, ctx, {
+          paperKind,
+          paper,
+          date,
+          description: note || `عكس قيد التحرير — ورقة ${number}`,
+          entryType: PAPER_JOURNAL_ENTRY_TYPE.BOUNCE,
+          lines: buildIssuedBounceLines(paperKind, {
+            notesAccountId,
+            partyAccountId,
+            amount,
+            description: note,
+          }),
+          claimActiveSourceKey: false,
+        });
+      } else {
+        for (const source of ordered) {
+          const label =
+            source.entryType === PAPER_JOURNAL_ENTRY_TYPE.DEPOSIT
+              ? `عكس قيد الإيداع — ورقة ${number}`
+              : `عكس قيد التحرير — ورقة ${number}`;
+          await this.postPaperJournal(tx, ctx, {
+            paperKind,
+            paper,
+            date,
+            description: note ? `${label} — ${note}` : label,
+            entryType: PAPER_JOURNAL_ENTRY_TYPE.BOUNCE,
+            lines: invertJournalLines(source.lines),
+            claimActiveSourceKey: false,
+          });
+        }
+      }
+
+      await this.applyPartyBalances(tx, paperKind, paper, baseAmount, true);
+
       const patch = {
         paperCase: PAPER_LIFECYCLE.BOUNCED,
         isCancelled: true,
         cancelledAt: new Date(),
         isPosted: true,
         postedAt: paper.postedAt ?? new Date(),
-        description: input.description?.trim()
-          ? [paper.description, input.description.trim()].filter(Boolean).join(' — ')
-          : paper.description,
+        description: note ? [paper.description, note].filter(Boolean).join(' — ') : paper.description,
       };
       if (paperKind === 'PAYMENT') {
         return tx.securitiesPayment.update({

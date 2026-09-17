@@ -149,7 +149,7 @@ export function SecuritiesCollectModal({
 
   const save = async () => {
     if (!accountId) {
-      setError(kind === 'receipt' ? 'اختر حساب البنك' : 'اختر حساب التحصيل');
+      setError('اختر حساب البنك');
       return;
     }
     setPending(true);
@@ -191,16 +191,16 @@ export function SecuritiesCollectModal({
       </div>
       <DatePickerWithHijri label="التاريخ" value={date} onChange={setDate} />
       <div className="sm:col-span-2">
-        <label className={erpLabelClass}>{kind === 'receipt' ? 'حساب البنك' : 'الحساب'}</label>
+        <label className={erpLabelClass}>حساب البنك</label>
         <AccountSelect
           value={accountId}
           onChange={setAccountId}
           className={erpInputClass}
           leafOnly
-          bankOnly={kind === 'receipt'}
+          bankOnly
           allowEmpty
-          emptyLabel={kind === 'receipt' ? 'اختر حساب البنك' : 'اختر الحساب'}
-          placeholder={kind === 'receipt' ? 'اختر حساب البنك' : 'اختر الحساب'}
+          emptyLabel="اختر حساب البنك"
+          placeholder="اختر حساب البنك"
         />
       </div>
       <div className="sm:col-span-2">

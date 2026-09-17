@@ -96,7 +96,7 @@ export function buildReceiptCollectLines(opts: LineOpts): JournalEntryLineData[]
   ];
 }
 
-/** تحصيل مدفوعات: مدين أوراق دفع / دائن البنك */
+/** تحصيل مدفوعات: مدين حساب أوراق الدفع المختار فوق / دائن حساب البنك في شاشة التحصيل */
 export function buildPaymentCollectLines(opts: LineOpts): JournalEntryLineData[] {
   if (!opts.bankAccountId) throw new Error('حساب التحصيل مطلوب');
   return [
@@ -105,12 +105,37 @@ export function buildPaymentCollectLines(opts: LineOpts): JournalEntryLineData[]
   ];
 }
 
+/** عكس بنود قيد قائم: المدين يصبح دائناً والدائن يصبح مديناً */
+export function invertJournalLines(
+  lines: Array<{
+    accountId: string;
+    costCenterId?: string | null;
+    debit?: number | string | null;
+    credit?: number | string | null;
+    exchangeRate?: number | string | null;
+    description?: string | null;
+    lineOrder?: number | null;
+  }>
+): JournalEntryLineData[] {
+  return lines.map((line, index) => ({
+    accountId: line.accountId,
+    costCenterId: line.costCenterId || undefined,
+    debit: Number(line.credit) || 0,
+    credit: Number(line.debit) || 0,
+    exchangeRate: line.exchangeRate != null ? Number(line.exchangeRate) : undefined,
+    description: line.description ?? undefined,
+    lineOrder: line.lineOrder ?? index + 1,
+  }));
+}
+
 /** ارتداد ورقة محررة فقط: عكس التحرير */
 export function buildIssuedBounceLines(
   paperKind: 'RECEIPT' | 'PAYMENT',
   opts: LineOpts
 ): JournalEntryLineData[] {
-  return paperKind === 'RECEIPT' ? buildPaymentIssueLines(opts) : buildReceiptIssueLines(opts);
+  return invertJournalLines(
+    paperKind === 'RECEIPT' ? buildReceiptIssueLines(opts) : buildPaymentIssueLines(opts)
+  );
 }
 
 /** ارتداد بعد التحصيل: مدين الطرف / دائن البنك (مقبوضات) أو العكس (مدفوعات) */
