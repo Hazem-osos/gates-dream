@@ -8,6 +8,7 @@ import type { JournalEntryLineData } from '../types/journal-entry.types';
 import { journalPostingService } from './journal-posting.service';
 import { fiscalYearService } from '../../platform/services/fiscal-year.service';
 import { treasuryAccountResolverService } from '../../treasury/services/treasury-account-resolver.service';
+import { customerLedgerAccountService } from './customer-ledger-account.service';
 import { resolveCompanyFxRate, toBaseAmount } from '../utils/company-fx-rate';
 import {
   PAPER_JOURNAL_ENTRY_TYPE,
@@ -125,22 +126,68 @@ export class CommercialPaperPostingService {
     return paper;
   }
 
-  private async notesAccountId(companyId: string, paperKind: CommercialPaperKind): Promise<string> {
+  private async notesAccountId(
+    companyId: string,
+    paperKind: CommercialPaperKind,
+    selectedId?: string | null
+  ): Promise<string> {
+    const chosen = selectedId?.trim();
+    if (chosen) {
+      const account = await prisma.account.findFirst({
+        where: { id: chosen, companyId, deletedAt: null },
+        select: { id: true },
+      });
+      if (account) return account.id;
+    }
+    return this.resolveDefaultNotesAccount(companyId, paperKind);
+  }
+
+  async resolveDefaultNotesAccount(companyId: string, paperKind: CommercialPaperKind): Promise<string> {
+    const documentType = paperKind === 'PAYMENT' ? 'SECURITIES_PAYMENT' : 'SECURITIES_RECEIPT';
+    const settings = await prisma.transactionSettings.findFirst({
+      where: { companyId, documentType },
+      select: { defaultOffsetAccountId: true },
+    });
+    if (settings?.defaultOffsetAccountId) {
+      const configured = await prisma.account.findFirst({
+        where: { id: settings.defaultOffsetAccountId, companyId, deletedAt: null },
+        select: { id: true },
+      });
+      if (configured) return configured.id;
+    }
     const accounts = await treasuryAccountResolverService.resolveChequeAccounts(companyId);
     return paperKind === 'PAYMENT' ? accounts.notesPayableAccountId : accounts.chequesUnderHandAccountId;
   }
 
-  private async partyAccountId(companyId: string, paper: {
-    customerId?: string | null;
-    supplierId?: string | null;
-    destinationAccountId?: string | null;
-  }, overrideSupplierId?: string | null) {
-    return treasuryAccountResolverService.resolvePartyAccountId({
-      companyId,
-      customerId: paper.customerId,
-      supplierId: overrideSupplierId ?? paper.supplierId,
-      offsetAccountId: paper.destinationAccountId,
-    });
+  private async partyAccountId(
+    companyId: string,
+    paperKind: CommercialPaperKind,
+    paper: {
+      customerId?: string | null;
+      supplierId?: string | null;
+    },
+    overrideSupplierId?: string | null
+  ) {
+    const customerId = paper.customerId;
+    const supplierId = overrideSupplierId ?? paper.supplierId;
+    if (customerId) {
+      return customerLedgerAccountService.ensureForCustomer({ companyId, customerId });
+    }
+    if (supplierId) {
+      const supplier = await prisma.supplier.findFirst({
+        where: { id: supplierId, companyId, deletedAt: null },
+        select: { mainAccountId: true, accountId: true },
+      });
+      const accountId = supplier?.mainAccountId ?? supplier?.accountId;
+      if (!accountId) {
+        throw new AppError(422, 'اربط حساباً في كارت المورد قبل إنشاء قيد الورقة');
+      }
+      return accountId;
+    }
+    throw new AppError(
+      422,
+      paperKind === 'PAYMENT' ? 'اختر المورد قبل إنشاء قيد الورقة' : 'اختر العميل قبل إنشاء قيد الورقة'
+    );
   }
 
   private async applyPartyBalances(
@@ -375,15 +422,24 @@ export class CommercialPaperPostingService {
     if (isLifecycleBeyondIssue(paper.paperCase)) {
       throw new AppError(400, 'لا يمكن تعديل قيد التحرير بعد حدث لاحق على الورقة');
     }
-    if (!paper.customerId && !paper.supplierId && !paper.destinationAccountId) {
-      throw new AppError(422, 'اختر العميل أو حساباً آخر قبل إنشاء قيد التحرير');
+    if (!paper.customerId && !paper.supplierId) {
+      throw new AppError(
+        422,
+        paperKind === 'PAYMENT'
+          ? 'اختر المورد قبل إنشاء قيد التحرير'
+          : 'اختر العميل قبل إنشاء قيد التحرير'
+      );
     }
 
     const amount = money(Number(paper.amount));
     const { exchangeRate } = await resolveCompanyFxRate(ctx.companyId, paper.currencyCode);
     const baseAmount = toBaseAmount(amount, exchangeRate);
-    const notesAccountId = await this.notesAccountId(ctx.companyId, paperKind);
-    const partyAccountId = await this.partyAccountId(ctx.companyId, paper);
+    const notesAccountId = await this.notesAccountId(
+      ctx.companyId,
+      paperKind,
+      paper.destinationAccountId
+    );
+    const partyAccountId = await this.partyAccountId(ctx.companyId, paperKind, paper);
     const lines =
       paperKind === 'PAYMENT'
         ? buildPaymentIssueLines({ notesAccountId, partyAccountId, amount })
@@ -429,6 +485,7 @@ export class CommercialPaperPostingService {
       const patch = {
         journalEntryId: je.id,
         paperCase: PAPER_LIFECYCLE.ISSUED,
+        destinationAccountId: notesAccountId,
       };
       if (paperKind === 'PAYMENT') {
         return tx.securitiesPayment.update({
@@ -534,8 +591,12 @@ export class CommercialPaperPostingService {
     }
 
     const amount = money(Number(paper.amount));
-    const notesAccountId = await this.notesAccountId(ctx.companyId, paperKind);
-    const partyAccountId = await this.partyAccountId(ctx.companyId, paper);
+    const notesAccountId = await this.notesAccountId(
+      ctx.companyId,
+      paperKind,
+      paper.destinationAccountId
+    );
+    const partyAccountId = await this.partyAccountId(ctx.companyId, paperKind, paper);
     const date = asDate(input.date);
     const lines =
       paperKind === 'PAYMENT'
@@ -604,15 +665,24 @@ export class CommercialPaperPostingService {
     const amount = money(Number(paper.amount));
     const { exchangeRate } = await resolveCompanyFxRate(ctx.companyId, paper.currencyCode);
     const baseAmount = toBaseAmount(amount, exchangeRate);
-    const notesAccountId = await this.notesAccountId(ctx.companyId, paperKind);
-    const partyAccountId = await this.partyAccountId(ctx.companyId, paper);
+    const notesAccountId = await this.notesAccountId(
+      ctx.companyId,
+      paperKind,
+      paper.destinationAccountId
+    );
+    const partyAccountId = await this.partyAccountId(ctx.companyId, paperKind, paper);
     const date = asDate(input.date);
     const number = paperNumberOf(paper);
     const status = paper.paperCase || PAPER_LIFECYCLE.ISSUED;
 
     let lines: JournalEntryLineData[];
     if (status === PAPER_LIFECYCLE.ENDORSED && paperKind === 'RECEIPT' && paper.supplierId) {
-      const supplierAccountId = await this.partyAccountId(ctx.companyId, paper, paper.supplierId);
+      const supplierAccountId = await this.partyAccountId(
+        ctx.companyId,
+        paperKind,
+        paper,
+        paper.supplierId
+      );
       lines = buildEndorsedBounceLines({
         notesAccountId,
         partyAccountId,
@@ -707,9 +777,13 @@ export class CommercialPaperPostingService {
     const amount = money(Number(paper.amount));
     const { exchangeRate } = await resolveCompanyFxRate(ctx.companyId, paper.currencyCode);
     const baseAmount = toBaseAmount(amount, exchangeRate);
-    const notesAccountId = await this.notesAccountId(ctx.companyId, paperKind);
-    const partyAccountId = await this.partyAccountId(ctx.companyId, paper);
-    const supplierAccountId = await this.partyAccountId(ctx.companyId, paper, supplier.id);
+    const notesAccountId = await this.notesAccountId(
+      ctx.companyId,
+      paperKind,
+      paper.destinationAccountId
+    );
+    const partyAccountId = await this.partyAccountId(ctx.companyId, paperKind, paper);
+    const supplierAccountId = await this.partyAccountId(ctx.companyId, paperKind, paper, supplier.id);
     const date = asDate(input.date);
     const number = paperNumberOf(paper);
     const note = input.description?.trim();

@@ -51,6 +51,21 @@ router.post(
   }
 );
 
+router.get('/defaults', authorize({ resource: 'securities-receipt', action: 'view' }), async (req: AuthRequest, res: Response) => {
+  try {
+    const companyId = req.companyId || req.tenantId;
+    if (!companyId) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+    const notesAccountId = await commercialPaperPostingService.resolveDefaultNotesAccount(companyId, 'RECEIPT');
+    return void res.json({ status: 'success', data: { notesAccountId } });
+  } catch (error) {
+    const status = error instanceof AppError ? error.statusCode : 500;
+    return void res.status(status).json({
+      status: 'error',
+      message: error instanceof Error ? error.message : 'Failed to resolve default receipt account',
+    });
+  }
+});
+
 router.get('/', authorize({ resource: 'securities-receipt', action: 'view' }), validate({ query: securitiesReceiptQuerySchema }), async (req: AuthRequest, res: Response) => {
   try {
     const companyId = req.companyId || req.tenantId;
@@ -61,6 +76,7 @@ router.get('/', authorize({ resource: 'securities-receipt', action: 'view' }), v
       securityType: req.query.securityType as string | undefined,
       customerId: req.query.customerId as string | undefined,
       supplierId: req.query.supplierId as string | undefined,
+      entityId: req.query.entityId as string | undefined,
       isPosted: req.query.isPosted as boolean | undefined,
       page: req.query.page as number | undefined,
       limit: req.query.limit as number | undefined,

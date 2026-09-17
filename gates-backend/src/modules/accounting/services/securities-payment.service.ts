@@ -9,6 +9,7 @@ import {
   SECURITIES_PAPER_CASES,
 } from '../utils/securities-paper-case';
 import { resolveSecuritiesPaperNumbers } from '../utils/securities-numbering';
+import { resolveSecuritiesEntity } from './securities-entity.service';
 import type { CollectSecuritiesInput } from './securities-receipt.service';
 
 /** Minimal context needed to post a real GL entry for a securities payment (H11). */
@@ -35,6 +36,7 @@ export interface CreateSecuritiesPaymentData {
   amount: number;
   currencyCode: string;
   entityName?: string | null;
+  entityId?: string | null;
 }
 
 export interface UpdateSecuritiesPaymentData {
@@ -55,6 +57,7 @@ export interface UpdateSecuritiesPaymentData {
   amount?: number;
   currencyCode?: string;
   entityName?: string | null;
+  entityId?: string | null;
 }
 
 export class SecuritiesPaymentService {
@@ -69,6 +72,7 @@ export class SecuritiesPaymentService {
       securityType?: string;
       customerId?: string;
       supplierId?: string;
+      entityId?: string;
       isPosted?: boolean;
       page?: number;
       limit?: number;
@@ -101,6 +105,9 @@ export class SecuritiesPaymentService {
     if (options?.isPosted !== undefined) {
       where.isPosted = options.isPosted;
     }
+    if (options?.entityId) {
+      where.entityId = options.entityId;
+    }
 
     const [payments, total] = await Promise.all([
       prisma.securitiesPayment.findMany({
@@ -111,6 +118,7 @@ export class SecuritiesPaymentService {
         include: {
           customer: { select: { id: true, arabicName: true, code: true } },
           supplier: { select: { id: true, arabicName: true, code: true } },
+          entity: { select: { id: true, arabicName: true } },
         },
       }),
       prisma.securitiesPayment.count({ where }),
@@ -143,6 +151,7 @@ export class SecuritiesPaymentService {
       include: {
         customer: true,
         supplier: true,
+        entity: { select: { id: true, arabicName: true } },
       },
     });
 
@@ -168,16 +177,17 @@ export class SecuritiesPaymentService {
     data: CreateSecuritiesPaymentData,
     ctx?: SecuritiesPostingCtx
   ) {
-    if (!data.customerId && !data.supplierId && !data.destinationAccountId) {
-      throw new Error('اختر العميل أو حساباً آخر');
+    if (!data.customerId && !data.supplierId) {
+      throw new AppError(422, 'اختر المورد قبل حفظ ورقة المدفوعات');
     }
-    if (data.destinationAccountId) {
-      const account = await prisma.account.findFirst({
-        where: { id: data.destinationAccountId, companyId },
-        select: { id: true },
-      });
-      if (!account) throw new AppError(400, 'الحساب المختار غير موجود');
-    }
+    const destinationAccountId =
+      data.destinationAccountId ||
+      (await commercialPaperPostingService.resolveDefaultNotesAccount(companyId, 'PAYMENT'));
+    const account = await prisma.account.findFirst({
+      where: { id: destinationAccountId, companyId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!account) throw new AppError(400, 'الحساب المختار غير موجود');
 
     const { serial, documentNumber: paymentNumber } = await resolveSecuritiesPaperNumbers({
       companyId,
@@ -216,6 +226,11 @@ export class SecuritiesPaymentService {
       throw new Error('Payment number already exists');
     }
 
+    const entity = await resolveSecuritiesEntity(companyId, {
+      entityId: data.entityId,
+      entityName: data.entityName,
+    });
+
     const created = await prisma.securitiesPayment.create({
       data: {
         companyId,
@@ -228,14 +243,15 @@ export class SecuritiesPaymentService {
         securityType: data.securityType,
         customerId: data.customerId,
         supplierId: data.supplierId,
-        destinationAccountId: data.destinationAccountId,
+        destinationAccountId,
         payeeName: data.payeeName,
         payeeBank: data.payeeBank,
         securityNumber: data.securityNumber,
         dueDate: data.dueDate,
         amount: new Decimal(data.amount),
         currencyCode: data.currencyCode,
-        entityName: data.entityName,
+        entityId: entity?.id,
+        entityName: entity?.arabicName ?? data.entityName,
         isPaid: true,
         isPosted: false,
         isApproved: false,
@@ -309,12 +325,19 @@ export class SecuritiesPaymentService {
     if (data.dueDate !== undefined) updateData.dueDate = data.dueDate;
     if (data.amount !== undefined) updateData.amount = new Decimal(data.amount);
     if (data.currencyCode !== undefined) updateData.currencyCode = data.currencyCode;
-    if (data.entityName !== undefined) updateData.entityName = data.entityName;
+    if (data.entityId !== undefined || data.entityName !== undefined) {
+      const entity = await resolveSecuritiesEntity(companyId, {
+        entityId: data.entityId,
+        entityName: data.entityName,
+      });
+      updateData.entityId = entity?.id ?? null;
+      updateData.entityName = entity?.arabicName ?? data.entityName ?? null;
+    }
 
     const updated = await prisma.securitiesPayment.update({
       where: { id: paymentId },
       data: updateData,
-      include: { customer: true, supplier: true },
+      include: { customer: true, supplier: true, entity: { select: { id: true, arabicName: true } } },
     });
     if (!ctx?.userId) {
       return commercialPaperPostingService.decoratePaper(companyId, 'PAYMENT', updated);

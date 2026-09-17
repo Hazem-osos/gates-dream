@@ -9,6 +9,7 @@ import {
   SECURITIES_PAPER_CASES,
 } from '../utils/securities-paper-case';
 import { resolveSecuritiesPaperNumbers } from '../utils/securities-numbering';
+import { resolveSecuritiesEntity } from './securities-entity.service';
 
 export type CollectSecuritiesInput = {
   accountId: string;
@@ -41,6 +42,7 @@ export interface CreateSecuritiesReceiptData {
   amount: number;
   currencyCode: string;
   entityName?: string | null;
+  entityId?: string | null;
 }
 
 export interface UpdateSecuritiesReceiptData {
@@ -61,6 +63,7 @@ export interface UpdateSecuritiesReceiptData {
   amount?: number;
   currencyCode?: string;
   entityName?: string | null;
+  entityId?: string | null;
 }
 
 export class SecuritiesReceiptService {
@@ -75,6 +78,7 @@ export class SecuritiesReceiptService {
       securityType?: string;
       customerId?: string;
       supplierId?: string;
+      entityId?: string;
       isPosted?: boolean;
       page?: number;
       limit?: number;
@@ -107,6 +111,9 @@ export class SecuritiesReceiptService {
     if (options?.isPosted !== undefined) {
       where.isPosted = options.isPosted;
     }
+    if (options?.entityId) {
+      where.entityId = options.entityId;
+    }
 
     const [receipts, total] = await Promise.all([
       prisma.securitiesReceipt.findMany({
@@ -117,6 +124,7 @@ export class SecuritiesReceiptService {
         include: {
           customer: { select: { id: true, arabicName: true, code: true } },
           supplier: { select: { id: true, arabicName: true, code: true } },
+          entity: { select: { id: true, arabicName: true } },
         },
       }),
       prisma.securitiesReceipt.count({ where }),
@@ -149,6 +157,7 @@ export class SecuritiesReceiptService {
       include: {
         customer: true,
         supplier: true,
+        entity: { select: { id: true, arabicName: true } },
       },
     });
 
@@ -174,16 +183,17 @@ export class SecuritiesReceiptService {
     data: CreateSecuritiesReceiptData,
     ctx?: SecuritiesPostingCtx
   ) {
-    if (!data.customerId && !data.supplierId && !data.destinationAccountId) {
-      throw new Error('اختر العميل أو حساباً آخر');
+    if (!data.customerId && !data.supplierId) {
+      throw new AppError(422, 'اختر العميل قبل حفظ ورقة المقبوضات');
     }
-    if (data.destinationAccountId) {
-      const account = await prisma.account.findFirst({
-        where: { id: data.destinationAccountId, companyId },
-        select: { id: true },
-      });
-      if (!account) throw new AppError(400, 'الحساب المختار غير موجود');
-    }
+    const destinationAccountId =
+      data.destinationAccountId ||
+      (await commercialPaperPostingService.resolveDefaultNotesAccount(companyId, 'RECEIPT'));
+    const account = await prisma.account.findFirst({
+      where: { id: destinationAccountId, companyId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!account) throw new AppError(400, 'الحساب المختار غير موجود');
 
     const { serial, documentNumber: receiptNumber } = await resolveSecuritiesPaperNumbers({
       companyId,
@@ -222,6 +232,11 @@ export class SecuritiesReceiptService {
       throw new Error('Receipt number already exists');
     }
 
+    const entity = await resolveSecuritiesEntity(companyId, {
+      entityId: data.entityId,
+      entityName: data.entityName,
+    });
+
     const created = await prisma.securitiesReceipt.create({
       data: {
         companyId,
@@ -234,14 +249,15 @@ export class SecuritiesReceiptService {
         securityType: data.securityType,
         customerId: data.customerId,
         supplierId: data.supplierId,
-        destinationAccountId: data.destinationAccountId,
+        destinationAccountId,
         issuerName: data.issuerName,
         issuerBank: data.issuerBank,
         securityNumber: data.securityNumber,
         dueDate: data.dueDate,
         amount: new Decimal(data.amount),
         currencyCode: data.currencyCode,
-        entityName: data.entityName,
+        entityId: entity?.id,
+        entityName: entity?.arabicName ?? data.entityName,
         isReceived: true,
         isPosted: false,
         isApproved: false,
@@ -315,12 +331,19 @@ export class SecuritiesReceiptService {
     if (data.dueDate !== undefined) updateData.dueDate = data.dueDate;
     if (data.amount !== undefined) updateData.amount = new Decimal(data.amount);
     if (data.currencyCode !== undefined) updateData.currencyCode = data.currencyCode;
-    if (data.entityName !== undefined) updateData.entityName = data.entityName;
+    if (data.entityId !== undefined || data.entityName !== undefined) {
+      const entity = await resolveSecuritiesEntity(companyId, {
+        entityId: data.entityId,
+        entityName: data.entityName,
+      });
+      updateData.entityId = entity?.id ?? null;
+      updateData.entityName = entity?.arabicName ?? data.entityName ?? null;
+    }
 
     const updated = await prisma.securitiesReceipt.update({
       where: { id: receiptId },
       data: updateData,
-      include: { customer: true, supplier: true },
+      include: { customer: true, supplier: true, entity: { select: { id: true, arabicName: true } } },
     });
     if (!ctx?.userId) {
       return commercialPaperPostingService.decoratePaper(companyId, 'RECEIPT', updated);

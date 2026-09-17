@@ -365,6 +365,22 @@ export function TransactionSettingsForm({
         />
       </Section>
 
+      {securities ? (
+        <Section title="الحساب الافتراضي لقيد التحرير">
+          <p className="text-xs leading-5 text-slate-500">
+            {documentType === 'SECURITIES_RECEIPT'
+              ? 'هذا الحساب يظهر في خانة الحساب على ورقة المقبوضات ويبقى المدين، والدائن حساب العميل.'
+              : 'هذا الحساب يظهر في خانة الحساب على ورقة المدفوعات ويبقى الدائن، والمدين حساب المورد.'}
+          </p>
+          {accountField(
+            'defaultOffsetAccountId',
+            'defaultOffsetAccount',
+            documentType === 'SECURITIES_RECEIPT' ? 'حساب أوراق القبض الافتراضي' : 'حساب أوراق الدفع الافتراضي',
+            'لو المستخدم ما اختارش حساب على الورقة، القيد بيستخدم الحساب ده.'
+          )}
+        </Section>
+      ) : null}
+
       {treasury ? (
         <Section title="3. الحسابات من شجرة هذه الشركة">
           <p className="text-xs leading-5 text-slate-500">

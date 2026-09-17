@@ -55,6 +55,7 @@ import {
   type SecuritiesPaperRecord,
 } from './securities-paper-status';
 import type { TransactionSettings } from '@/lib/transaction-settings/types';
+import { SecuritiesEntitySelect } from './SecuritiesEntitySelect';
 
 function formatPaperDate(iso?: string) {
   const raw = (iso || '').trim();
@@ -98,6 +99,7 @@ function makeFormSchema(kind: SecuritiesPaperKind) {
       description: z.string().optional(),
       partyName: z.string().optional(),
       entityName: z.string().optional(),
+      entityId: z.string().optional(),
       bankName: z.string().optional(),
       amount: z.string(),
       paidTo: z.string().optional(),
@@ -136,7 +138,11 @@ function defaultCurrencyId(currencies: Currency[], companyBase = 'EGP'): string 
   return pickCurrencyByCode(currencies, companyBase)?.id || currencies[0].id;
 }
 
-function emptyForm(currencies: Currency[], kind: SecuritiesPaperKind = 'receipt'): FormValues {
+function emptyForm(
+  currencies: Currency[],
+  kind: SecuritiesPaperKind = 'receipt',
+  defaultAccountId = ''
+): FormValues {
   const date = todayIso();
   return {
     date,
@@ -147,7 +153,7 @@ function emptyForm(currencies: Currency[], kind: SecuritiesPaperKind = 'receipt'
     exchangeRate: 1,
     partyType: kind === 'payment' ? 'supplier' : 'customer',
     partyId: '',
-    accountId: '',
+    accountId: defaultAccountId,
     costCenterId: '',
     securityType: 'check',
     serial: '',
@@ -156,6 +162,7 @@ function emptyForm(currencies: Currency[], kind: SecuritiesPaperKind = 'receipt'
     description: '',
     partyName: '',
     entityName: '',
+    entityId: '',
     bankName: '',
     amount: '',
     paidTo: '',
@@ -182,6 +189,12 @@ export function SecuritiesPaperEngine({ kind }: Props) {
     ['transaction-settings', settingsDocumentType],
     `/transaction-settings/${settingsDocumentType}`
   );
+  const { data: defaultsRes } = useApiQuery<{ notesAccountId?: string }>(
+    [listKey, 'defaults'],
+    `${apiPath}/defaults`
+  );
+  const defaultAccountId =
+    txSettingsRes?.data?.defaultOffsetAccountId || defaultsRes?.data?.notesAccountId || '';
   const autoNumbering = txSettingsRes?.data?.numberingMode !== 'MANUAL';
   const bulkHref = '/treasury/papers/batch-receipt/new';
   const favoriteHref =
@@ -330,7 +343,8 @@ export function SecuritiesPaperEngine({ kind }: Props) {
       securityNumber: record.securityNumber || '',
       description: record.description || '',
       partyName: name,
-      entityName: record.entityName || '',
+      entityName: record.entityName || record.entity?.arabicName || '',
+      entityId: record.entityId || record.entity?.id || '',
       bankName: (kind === 'payment' ? record.payeeBank : record.issuerBank) || '',
       amount: record.amount != null ? String(record.amount) : '',
     });
@@ -393,10 +407,16 @@ export function SecuritiesPaperEngine({ kind }: Props) {
     setSelectedId(null);
     setLoaded(null);
     setSelectedJournalId(null);
-    reset(emptyForm(currencies, kind));
+    reset(emptyForm(currencies, kind, defaultAccountId));
     setError('');
     setSuccess('');
   };
+
+  useEffect(() => {
+    if (locked) return;
+    if (!defaultAccountId || watch('accountId')) return;
+    setValue('accountId', defaultAccountId, { shouldValidate: false });
+  }, [defaultAccountId, locked, setValue, watch]);
 
   const buildPayload = (values: FormValues): Record<string, unknown> => {
     const selectedCurrency = currencies.find((c) => c.id === values.currencyId);
@@ -408,6 +428,7 @@ export function SecuritiesPaperEngine({ kind }: Props) {
       serial: values.serial || undefined,
       description: values.description || undefined,
       entityName: values.entityName || undefined,
+      entityId: values.entityId || undefined,
       hijriDate: values.hijriDate || toHijri(values.date) || undefined,
       customerId: values.partyType === 'customer' ? values.partyId || null : null,
       supplierId: values.partyType === 'supplier' ? values.partyId || null : null,
@@ -848,12 +869,14 @@ export function SecuritiesPaperEngine({ kind }: Props) {
                 </div>
                 <div className="space-y-1">
                   <label className="text-xs font-semibold text-foreground">الجهة</label>
-                  <input
-                    type="text"
+                  <SecuritiesEntitySelect
+                    value={watch('entityId') || ''}
+                    valueLabel={watch('entityName') || ''}
                     disabled={locked}
-                    className="h-9 w-full rounded-md border border-input bg-background px-3 text-xs focus-visible:ring-1 focus-visible:ring-primary"
-                    placeholder="اسم المؤسسة / الشركة / الجهة التابع لها"
-                    {...register('entityName')}
+                    onChange={(id, name) => {
+                      setValue('entityId', id, { shouldValidate: false });
+                      setValue('entityName', name, { shouldValidate: false });
+                    }}
                   />
                 </div>
               </div>
@@ -922,16 +945,29 @@ export function SecuritiesPaperEngine({ kind }: Props) {
               />
             </div>
             <div>
-              <label className={erpLabelClass}>الحساب</label>
+              <label className={erpLabelClass}>
+                {kind === 'payment' ? 'حساب أوراق الدفع' : 'حساب أوراق القبض'}
+              </label>
               <AccountSelect
                 value={watch('accountId') || ''}
                 onChange={(id) => setValue('accountId', id, { shouldValidate: false })}
                 className={erpInputClass}
                 leafOnly
                 disabled={locked}
-                placeholder="اختر حساب الحركة"
-                emptyLabel="اختر حساب الحركة"
+                placeholder={
+                  kind === 'payment'
+                    ? 'الحساب الدائن في قيد التحرير'
+                    : 'الحساب المدين في قيد التحرير'
+                }
+                emptyLabel={
+                  kind === 'payment' ? 'الحساب الدائن الافتراضي' : 'الحساب المدين الافتراضي'
+                }
               />
+              <p className="mt-1 text-[11px] leading-4 text-slate-500">
+                {kind === 'payment'
+                  ? 'المدين المورد، والدائن الحساب المختار. لو سيبتها فاضية بيتستخدم الافتراضي الظاهر هنا.'
+                  : 'المدين الحساب المختار، والدائن العميل. لو سيبتها فاضية بيتستخدم الافتراضي الظاهر هنا.'}
+              </p>
             </div>
           </>
         }
@@ -1018,6 +1054,16 @@ export function SecuritiesPaperEngine({ kind }: Props) {
               header: 'المبلغ',
               getValue: (r) =>
                 Number(r.amount ?? 0).toLocaleString('ar-EG', { minimumFractionDigits: 2 }),
+            },
+            {
+              id: 'entity',
+              header: 'الجهة',
+              getValue: (r) =>
+                String(
+                  r.entityName ??
+                    (r.entity as { arabicName?: string } | undefined)?.arabicName ??
+                    '—'
+                ),
             },
             {
               id: 'name',
