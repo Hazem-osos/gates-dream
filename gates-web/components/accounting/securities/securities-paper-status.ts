@@ -143,3 +143,12 @@ export function buildSecuritiesCollectDescription(
   const base = buildSecuritiesPaperDescription(kind, chequeNumber, partyName, dueDate);
   return base ? `تحصيل ${base}` : '';
 }
+
+export function buildSecuritiesEndorseDescription(
+  chequeNumber: string,
+  partyName: string,
+  dueDate: string
+) {
+  const base = buildSecuritiesPaperDescription('receipt', chequeNumber, partyName, dueDate);
+  return base ? `تظهير ${base}` : '';
+}

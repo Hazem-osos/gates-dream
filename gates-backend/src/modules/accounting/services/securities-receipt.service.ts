@@ -436,7 +436,7 @@ export class SecuritiesReceiptService {
     companyId: string,
     receiptId: string,
     ctx: SecuritiesPostingCtx,
-    input: { supplierId: string; description?: string; date?: Date }
+    input: { accountId: string; description?: string; date?: Date }
   ) {
     return commercialPaperPostingService.endorsePaper(
       { companyId, branchId: ctx.branchId, userId: ctx.userId },

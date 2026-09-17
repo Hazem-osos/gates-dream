@@ -1116,6 +1116,14 @@ export function SecuritiesPaperEngine({ kind }: Props) {
           open={showEndorse}
           apiPath={apiPath}
           paperId={actionId}
+          chequeNumber={securityNumber || loaded?.securityNumber || ''}
+          partyName={
+            partyName ||
+            loaded?.issuerName ||
+            loaded?.customer?.arabicName ||
+            ''
+          }
+          dueDate={dueDate || isoDateOnly(loaded?.dueDate)}
           onClose={() => setShowEndorse(false)}
           onDone={(record) => {
             applyLoaded(record, record.id);

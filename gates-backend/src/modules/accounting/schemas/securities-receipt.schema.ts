@@ -57,7 +57,7 @@ export const collectSecuritiesSchema = z.object({
 });
 
 export const endorseSecuritiesReceiptSchema = z.object({
-  supplierId: z.string().uuid('اختر المظهَّر إليه'),
+  accountId: z.string().uuid('اختر الحساب'),
   description: z.string().optional(),
   date: z
     .string()

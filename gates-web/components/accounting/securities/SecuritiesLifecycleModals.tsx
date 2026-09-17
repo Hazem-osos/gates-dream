@@ -4,7 +4,6 @@ import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { AccountSelect } from '@/app/components/form/AccountSelect';
 import { CostCenterSelect } from '@/app/components/form/CostCenterSelect';
-import { SupplierSelect } from '@/app/components/form/PartySelect';
 import { Button } from '@/components/ui/button';
 import { formActionButtonClass } from '@/components/ui/forms/formTokens';
 import { erpInputClass, erpLabelClass } from '@/components/erp/erpUiTokens';
@@ -12,6 +11,7 @@ import { DatePickerWithHijri } from '@/components/ui/DatePickerWithHijri';
 import { apiClient } from '@/lib/api/client';
 import {
   buildSecuritiesCollectDescription,
+  buildSecuritiesEndorseDescription,
   type SecuritiesPaperRecord,
 } from './securities-paper-status';
 
@@ -270,6 +270,9 @@ export function SecuritiesBounceModal({
       onClose={onClose}
       footer={<ActionFooter pending={pending} saveLabel="حفظ الارتداد" onSave={() => void save()} onClose={onClose} />}
     >
+      <p className="sm:col-span-2 text-sm leading-6 text-slate-600">
+        الارتداد بيعكس قيد التحرير: المدين يبقى دائن والدائن يبقى مدين. لو الورقة عليها إيداع، بيتعمل قيدين عكس: قيد الإيداع ثم قيد التحرير.
+      </p>
       <div className="sm:col-span-2">
         <label className={erpLabelClass}>الشرح</label>
         <input className={erpInputClass} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="سبب الارتداد" />
@@ -284,20 +287,39 @@ export function SecuritiesEndorseModal({
   open,
   apiPath,
   paperId,
+  chequeNumber,
+  partyName,
+  dueDate,
   onClose,
   onDone,
 }: {
   open: boolean;
   apiPath: string;
   paperId: string | null;
+  chequeNumber?: string;
+  partyName?: string;
+  dueDate?: string;
   onClose: () => void;
   onDone: (record: SecuritiesPaperRecord) => void;
 }) {
   const [date, setDate] = useState(todayIso);
   const [description, setDescription] = useState('');
-  const [supplierId, setSupplierId] = useState('');
+  const [accountId, setAccountId] = useState('');
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!open) return;
+    setDate(todayIso());
+    setAccountId('');
+    setError('');
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const next = buildSecuritiesEndorseDescription(chequeNumber || '', partyName || '', dueDate || '');
+    if (next) setDescription(next);
+  }, [open, chequeNumber, partyName, dueDate]);
 
   if (!open) return null;
   if (!paperId) {
@@ -313,15 +335,15 @@ export function SecuritiesEndorseModal({
   }
 
   const save = async () => {
-    if (!supplierId) {
-      setError('اختر المظهَّر إليه من دليل الموردين');
+    if (!accountId) {
+      setError('اختر الحساب');
       return;
     }
     setPending(true);
     setError('');
     try {
       const res = await apiClient.post<SecuritiesPaperRecord>(`${apiPath}/${paperId}/endorse`, {
-        supplierId,
+        accountId,
         description: description.trim() || undefined,
         date,
       });
@@ -341,15 +363,26 @@ export function SecuritiesEndorseModal({
       footer={<ActionFooter pending={pending} saveLabel="حفظ التظهير" onSave={() => void save()} onClose={onClose} />}
     >
       <div className="sm:col-span-2">
-        <label className={erpLabelClass}>المظهَّر إليه</label>
-        <div data-tour="supplier-select">
-          <SupplierSelect value={supplierId} onChange={setSupplierId} className={erpInputClass} emptyLabel="اختر المورد" />
-        </div>
+        <label className={erpLabelClass}>الشرح</label>
+        <input
+          className={erpInputClass}
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          placeholder="تظهير شيك رقم … من العميل … يستحق بتاريخ …"
+        />
       </div>
       <DatePickerWithHijri label="تاريخ التظهير" value={date} onChange={setDate} />
       <div className="sm:col-span-2">
-        <label className={erpLabelClass}>الشرح</label>
-        <input className={erpInputClass} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="الشرح" />
+        <label className={erpLabelClass}>الحساب</label>
+        <AccountSelect
+          value={accountId}
+          onChange={setAccountId}
+          className={erpInputClass}
+          leafOnly
+          allowEmpty
+          emptyLabel="اختر الحساب"
+          placeholder="اختر الحساب من الدليل"
+        />
       </div>
       {error ? <p className="sm:col-span-2 text-sm text-red-600">{error}</p> : null}
     </Shell>
