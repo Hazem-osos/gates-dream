@@ -392,6 +392,7 @@ app.use('/api/v1', licenseRouteGate());
 // Vertical engines resolve company / branch / fiscal year from the tenant headers; without this
 // their posting endpoints never see X-Fiscal-Year-Id and reject every request from the UI.
 for (const verticalPrefix of [
+  '/api/v1/accounting',
   '/api/v1/manufacturing',
   '/api/v1/contracting',
   '/api/v1/real-estate',

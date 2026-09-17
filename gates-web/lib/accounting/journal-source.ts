@@ -11,6 +11,8 @@ export const JOURNAL_SOURCE_TYPES = [
   'DEPRECIATION',
   'CHEQUE_ENDORSEMENT',
   'CLOSING_ENTRY',
+  'SECURITIES_RECEIPT',
+  'SECURITIES_PAYMENT',
 ] as const;
 
 export type JournalSourceType = (typeof JOURNAL_SOURCE_TYPES)[number];
@@ -26,6 +28,9 @@ const AUTO_GL_TO_KIND: Record<string, JournalSourceType> = {
   CKC: 'CHEQUE_ENDORSEMENT',
   CKB: 'CHEQUE_ENDORSEMENT',
   CKE: 'CHEQUE_ENDORSEMENT',
+  SECR: 'SECURITIES_RECEIPT',
+  SECP: 'SECURITIES_PAYMENT',
+  SECREN: 'SECURITIES_RECEIPT',
   GI: 'STOCK_TRANSACTION',
   GR: 'STOCK_TRANSACTION',
   TRF: 'STOCK_TRANSACTION',
@@ -43,9 +48,12 @@ export function resolveJournalSourceKind(
   sourceType?: string | null,
   sourceKind?: string | null
 ): JournalSourceType {
-  if (sourceKind && KIND_SET.has(sourceKind)) return sourceKind as JournalSourceType;
-  if (sourceType && KIND_SET.has(sourceType)) return sourceType as JournalSourceType;
   if (sourceType && AUTO_GL_TO_KIND[sourceType]) return AUTO_GL_TO_KIND[sourceType];
+  if (sourceKind && KIND_SET.has(sourceKind) && sourceKind !== 'MANUAL') {
+    return sourceKind as JournalSourceType;
+  }
+  if (sourceType && KIND_SET.has(sourceType)) return sourceType as JournalSourceType;
+  if (sourceKind && KIND_SET.has(sourceKind)) return sourceKind as JournalSourceType;
   return 'MANUAL';
 }
 
@@ -121,6 +129,10 @@ export function journalSourceHref(
       return stockSourceHref(sourceType, sourceId);
     case 'CHEQUE_ENDORSEMENT':
       return `/accounting/operations/securities`;
+    case 'SECURITIES_RECEIPT':
+      return `/accounting/operations/securities/reciept?id=${q}`;
+    case 'SECURITIES_PAYMENT':
+      return `/accounting/operations/securities/payment?id=${q}`;
     default:
       return null;
   }

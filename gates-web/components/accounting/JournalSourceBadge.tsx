@@ -56,6 +56,14 @@ const SOURCE_CONFIG: Record<
     label: 'تظهير شيك',
     color: 'bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300',
   },
+  SECURITIES_RECEIPT: {
+    label: 'ورقة مقبوضات',
+    color: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300',
+  },
+  SECURITIES_PAYMENT: {
+    label: 'ورقة مدفوعات',
+    color: 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300',
+  },
   CLOSING_ENTRY: {
     label: 'قيد إقفال',
     color: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300',

@@ -406,7 +406,7 @@ export class SecuritiesRenewalService {
 
       const je = await journalPostingService.createAndPostInTx(
         tx,
-        { companyId, branchId: ctx.branchId ?? '', fiscalYearId, userId: ctx.userId },
+        { companyId, branchId: ctx.branchId?.trim() || undefined, fiscalYearId, userId: ctx.userId },
         {
           fiscalYearId,
           date: renewal.date,
@@ -478,7 +478,7 @@ export class SecuritiesRenewalService {
     return prisma.$transaction(async (tx) => {
       await journalPostingService.reverseJournalEntryInTx(
         tx,
-        { companyId, branchId: ctx.branchId ?? '', fiscalYearId, userId: ctx.userId },
+        { companyId, branchId: ctx.branchId?.trim() || undefined, fiscalYearId, userId: ctx.userId },
         renewal.journalEntryId!,
         { reason: 'Securities renewal unposted' }
       );

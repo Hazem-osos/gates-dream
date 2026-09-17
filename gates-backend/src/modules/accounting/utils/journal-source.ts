@@ -12,6 +12,9 @@ const AUTO_GL_TO_KIND: Record<string, JournalSourceType> = {
   [AUTO_GL_SOURCE.CHECK_COLLECT]: JournalSourceType.CHEQUE_ENDORSEMENT,
   [AUTO_GL_SOURCE.CHECK_BOUNCE]: JournalSourceType.CHEQUE_ENDORSEMENT,
   [AUTO_GL_SOURCE.CHECK_ENDORSE]: JournalSourceType.CHEQUE_ENDORSEMENT,
+  [AUTO_GL_SOURCE.SECURITIES_RECEIPT]: JournalSourceType.SECURITIES_RECEIPT,
+  [AUTO_GL_SOURCE.SECURITIES_PAYMENT]: JournalSourceType.SECURITIES_PAYMENT,
+  [AUTO_GL_SOURCE.SECURITIES_RENEWAL]: JournalSourceType.SECURITIES_RECEIPT,
 };
 
 const KIND_VALUES = new Set<string>(Object.values(JournalSourceType));
@@ -28,9 +31,9 @@ export function resolveJournalSourceKind(
   sourceType?: string | null,
   sourceKind?: string | null
 ): JournalSourceType {
-  if (isJournalSourceKind(sourceKind)) return sourceKind;
-  if (isJournalSourceKind(sourceType)) return sourceType;
   if (sourceType && AUTO_GL_TO_KIND[sourceType]) return AUTO_GL_TO_KIND[sourceType];
+  if (isJournalSourceKind(sourceKind) && sourceKind !== JournalSourceType.MANUAL) return sourceKind;
+  if (isJournalSourceKind(sourceType)) return sourceType;
   return JournalSourceType.MANUAL;
 }
 

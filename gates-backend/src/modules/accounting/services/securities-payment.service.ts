@@ -219,7 +219,7 @@ export class SecuritiesPaymentService {
     const created = await prisma.securitiesPayment.create({
       data: {
         companyId,
-        branchId: data.branchId,
+        branchId: data.branchId ?? ctx?.branchId,
         serial,
         paymentNumber,
         date: data.date,
@@ -248,7 +248,7 @@ export class SecuritiesPaymentService {
     }
     try {
       return await commercialPaperPostingService.syncIssueJournal(
-        { companyId, branchId: ctx.branchId ?? data.branchId, userId: ctx.userId },
+        { companyId, branchId: ctx.branchId ?? data.branchId ?? created.branchId, userId: ctx.userId },
         'PAYMENT',
         created.id
       );

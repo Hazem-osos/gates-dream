@@ -190,6 +190,7 @@ model Company {
   SecuritiesReceipt                         SecuritiesReceipt[]
   SecuritiesPayment                         SecuritiesPayment[]
   SecuritiesRenewal                         SecuritiesRenewal[]
+  securitiesEntities                        SecuritiesEntity[]
   projects                                  Project[]
   contractors                               Contractor[]
   subcontractors                            Subcontractor[]
@@ -990,6 +991,8 @@ enum JournalSourceType {
   DEPRECIATION
   CHEQUE_ENDORSEMENT
   CLOSING_ENTRY
+  SECURITIES_RECEIPT
+  SECURITIES_PAYMENT
 }
 
 enum RecurringFrequency {
@@ -2190,6 +2193,7 @@ model SecuritiesReceipt {
   currencyCode   String
   /// الجهة التابع لها الساحب / العميل
   entityName             String?
+  entityId               String?
   destinationAccountId   String?
   commissionAmount       Decimal?  @db.Decimal(15, 2)
   commissionAccountId    String?
@@ -2209,14 +2213,16 @@ model SecuritiesReceipt {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
-  company  Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  customer Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
-  supplier Supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  company  Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  customer Customer?         @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  supplier Supplier?         @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  entity   SecuritiesEntity? @relation(fields: [entityId], references: [id], onDelete: SetNull)
 
   @@unique([companyId, receiptNumber])
   @@index([companyId, date])
   @@index([receiptNumber])
   @@index([securityType])
+  @@index([entityId])
   @@map("securities_receipts")
 }
 
@@ -2243,6 +2249,7 @@ model SecuritiesPayment {
   currencyCode   String
   /// الجهة التابع لها المستفيد
   entityName             String?
+  entityId               String?
   destinationAccountId   String?
   commissionAmount       Decimal?  @db.Decimal(15, 2)
   commissionAccountId    String?

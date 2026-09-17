@@ -225,7 +225,7 @@ export class SecuritiesReceiptService {
     const created = await prisma.securitiesReceipt.create({
       data: {
         companyId,
-        branchId: data.branchId,
+        branchId: data.branchId ?? ctx?.branchId,
         serial,
         receiptNumber,
         date: data.date,
@@ -254,7 +254,7 @@ export class SecuritiesReceiptService {
     }
     try {
       return await commercialPaperPostingService.syncIssueJournal(
-        { companyId, branchId: ctx.branchId ?? data.branchId, userId: ctx.userId },
+        { companyId, branchId: ctx.branchId ?? data.branchId ?? created.branchId, userId: ctx.userId },
         'RECEIPT',
         created.id
       );

@@ -47,11 +47,16 @@ function journalNumberKeys(value: string | null | undefined): string[] {
 
 export interface JournalPostingContext {
   companyId: string;
-  branchId: string;
+  branchId?: string | null;
   fiscalYearId?: string;
   userId: string;
   /** JWT `admin` role — bypasses per-user `AdvancedRights` (GLPost/GLUnPost). */
   isAdmin?: boolean;
+}
+
+function optionalBranchId(id?: string | null): string | undefined {
+  const value = String(id ?? '').trim();
+  return value || undefined;
 }
 
 export class JournalPostingService {
@@ -264,7 +269,7 @@ export class JournalPostingService {
     let legacyGlNum = await documentSequenceService.nextGlNumber(
       {
         companyId: ctx.companyId,
-        branchId: ctx.branchId,
+        branchId: optionalBranchId(ctx.branchId) ?? '',
         fiscalYearId,
       },
       requestedNumber,
@@ -285,7 +290,7 @@ export class JournalPostingService {
       const created = await tx.journalEntry.create({
         data: {
           companyId: ctx.companyId,
-          branchId: ctx.branchId,
+          branchId: optionalBranchId(ctx.branchId),
           fiscalYearId,
           legacyGlNum,
           voucherNumber: persistedNumber,
@@ -424,12 +429,31 @@ export class JournalPostingService {
       data.lines = await glAccountResolver.enforceCostCenters(tx, ctx.companyId, data.lines);
     }
 
+    const requestedNumber = data.voucherNumber?.trim() || undefined;
+    const existingLegacy = data.legacyGlNum?.trim() || undefined;
+    const legacyGlNum =
+      existingLegacy ||
+      (await documentSequenceService.nextGlNumberInTx(
+        tx,
+        {
+          companyId: ctx.companyId,
+          branchId: optionalBranchId(ctx.branchId) ?? '',
+          fiscalYearId: data.fiscalYearId,
+        },
+        requestedNumber,
+        { forceAutomatic: !requestedNumber }
+      ));
+    const voucherNumber = requestedNumber || legacyGlNum;
+    const sourceKind = resolveJournalSourceKind(data.sourceType, data.sourceKind);
+    const sourceType = persistJournalSourceType(data.sourceType, sourceKind);
+
     const created = await tx.journalEntry.create({
       data: {
         companyId: ctx.companyId,
-        branchId: ctx.branchId,
+        branchId: optionalBranchId(ctx.branchId),
         fiscalYearId: data.fiscalYearId,
-        legacyGlNum: data.legacyGlNum,
+        legacyGlNum,
+        voucherNumber,
         date: data.date,
         hijriDate: resolveHijriDate(data.date, data.hijriDate),
         description: data.description,
@@ -443,17 +467,17 @@ export class JournalPostingService {
         isCyclic: false,
         isCancelled: false,
         entryType: data.entryType ?? 'Invoice',
-        sourceType: data.sourceType,
+        sourceType,
         sourceNumber: data.sourceNumber,
         sourceYearId: data.sourceYearId,
         sourceId: data.sourceId,
-        sourceKind: resolveJournalSourceKind(data.sourceType),
+        sourceKind,
         activeSourceKey:
           data.claimActiveSourceKey === false
             ? undefined
             : this.buildActiveSourceKey(
                 ctx.companyId,
-                data.sourceType,
+                sourceType,
                 data.sourceNumber,
                 data.sourceYearId
               ),

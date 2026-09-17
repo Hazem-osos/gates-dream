@@ -13,6 +13,9 @@ export const AUTO_GL_SOURCE = {
   CHECK_COLLECT: 'CKC',
   CHECK_BOUNCE: 'CKB',
   CHECK_ENDORSE: 'CKE',
+  SECURITIES_RECEIPT: 'SECR',
+  SECURITIES_PAYMENT: 'SECP',
+  SECURITIES_RENEWAL: 'SECREN',
 } as const;
 
 export type AutoGlSourceName = keyof typeof AUTO_GL_SOURCE;

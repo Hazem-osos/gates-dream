@@ -77,12 +77,41 @@ function sourceTypeOf(kind: CommercialPaperKind): 'SECP' | 'SECR' {
 
 export class CommercialPaperPostingService {
   private postingCtx(ctx: CommercialPaperPostingCtx, fiscalYearId: string) {
+    const branchId = ctx.branchId?.trim();
+    if (!branchId) {
+      throw new AppError(422, 'حدد الفرع قبل إنشاء قيد الورقة');
+    }
     return {
       companyId: ctx.companyId,
-      branchId: ctx.branchId ?? '',
+      branchId,
       fiscalYearId,
       userId: ctx.userId,
     };
+  }
+
+  private async withResolvedBranch(
+    ctx: CommercialPaperPostingCtx,
+    paperBranchId?: string | null
+  ): Promise<CommercialPaperPostingCtx> {
+    const preferred = [ctx.branchId, paperBranchId]
+      .map((id) => id?.trim())
+      .find((id): id is string => Boolean(id));
+    if (preferred) {
+      const match = await prisma.branch.findFirst({
+        where: { id: preferred, companyId: ctx.companyId, deletedAt: null },
+        select: { id: true },
+      });
+      if (match) return { ...ctx, branchId: match.id };
+    }
+    const fallback = await prisma.branch.findFirst({
+      where: { companyId: ctx.companyId, deletedAt: null },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true },
+    });
+    if (!fallback) {
+      throw new AppError(422, 'أضف فرعاً من إعدادات الشركة قبل إنشاء قيد الورقة');
+    }
+    return { ...ctx, branchId: fallback.id };
   }
 
   private async loadPaper(companyId: string, paperKind: CommercialPaperKind, paperId: string) {
@@ -172,6 +201,7 @@ export class CommercialPaperPostingService {
     entryTypes: string[],
     reason: string
   ) {
+    ctx = await this.withResolvedBranch(ctx);
     const journals = await tx.journalEntry.findMany({
       where: {
         companyId: ctx.companyId,
@@ -220,6 +250,7 @@ export class CommercialPaperPostingService {
         id: string;
         date: Date;
         currencyCode: string;
+        branchId?: string | null;
         paymentNumber?: string | null;
         receiptNumber?: string | null;
         description?: string | null;
@@ -231,6 +262,7 @@ export class CommercialPaperPostingService {
       claimActiveSourceKey: boolean;
     }
   ) {
+    ctx = await this.withResolvedBranch(ctx, params.paper.branchId);
     const fiscalYearId = await fiscalYearService.assertOpenForDate(ctx.companyId, params.date);
     const { exchangeRate } = await resolveCompanyFxRate(ctx.companyId, params.paper.currencyCode);
     return journalPostingService.createAndPostInTx(tx, this.postingCtx(ctx, fiscalYearId), {
@@ -262,6 +294,7 @@ export class CommercialPaperPostingService {
         id: true,
         entryType: true,
         voucherNumber: true,
+        legacyGlNum: true,
         date: true,
         description: true,
         isPosted: true,
@@ -277,16 +310,19 @@ export class CommercialPaperPostingService {
         seen.add(row.id);
         return true;
       })
-      .map((row) => ({
-        id: row.id,
-        entryType: row.entryType,
-        label: paperJournalLabel(row.entryType, row.voucherNumber),
-        voucherNumber: row.voucherNumber,
-        date: row.date,
-        description: row.description,
-        isPosted: row.isPosted,
-        isReversal: Boolean(row.reversalOfJournalEntryId) || row.entryType === 'REVERSAL',
-      }));
+      .map((row) => {
+        const serial = row.voucherNumber || row.legacyGlNum || null;
+        return {
+          id: row.id,
+          entryType: row.entryType,
+          label: paperJournalLabel(row.entryType, serial),
+          voucherNumber: serial,
+          date: row.date,
+          description: row.description,
+          isPosted: row.isPosted,
+          isReversal: Boolean(row.reversalOfJournalEntryId) || row.entryType === 'REVERSAL',
+        };
+      });
   }
 
   async decoratePaper<T extends { id: string; journalEntryId?: string | null }>(
@@ -328,6 +364,11 @@ export class CommercialPaperPostingService {
 
   async syncIssueJournal(ctx: CommercialPaperPostingCtx, paperKind: CommercialPaperKind, paperId: string) {
     const paper = await this.loadPaper(ctx.companyId, paperKind, paperId);
+    ctx = await this.withResolvedBranch(ctx, paper.branchId);
+    if (!paper.branchId && ctx.branchId) {
+      await this.updatePaper(paperKind, paperId, { branchId: ctx.branchId });
+      paper.branchId = ctx.branchId;
+    }
     if (paper.isCancelled) {
       throw new AppError(400, 'لا يمكن إنشاء قيد تحرير لورقة ملغاة');
     }
@@ -794,6 +835,7 @@ export class CommercialPaperPostingService {
     input: ExecuteMultiCollectionDto
   ) {
     const paper = await this.loadPaper(ctx.companyId, paperKind, paperId);
+    ctx = await this.withResolvedBranch(ctx, paper.branchId);
 
     if (paper.isCancelled) {
       throw new AppError(400, 'لا يمكن تحصيل ورقة ملغاة');
