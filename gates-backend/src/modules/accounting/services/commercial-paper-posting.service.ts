@@ -50,6 +50,7 @@ export type PaperJournalSummary = {
   date: Date;
   description: string | null;
   isPosted: boolean;
+  isCancelled: boolean;
   isReversal: boolean;
 };
 
@@ -241,6 +242,35 @@ export class CommercialPaperPostingService {
     };
   }
 
+  private async cancelActiveJournalsOfType(
+    tx: Prisma.TransactionClient,
+    ctx: CommercialPaperPostingCtx,
+    paperId: string,
+    entryTypes: string[]
+  ) {
+    const journals = await tx.journalEntry.findMany({
+      where: {
+        companyId: ctx.companyId,
+        sourceId: paperId,
+        deletedAt: null,
+        isCancelled: false,
+        entryType: { in: entryTypes },
+      },
+      select: { id: true, reversalOfJournalEntryId: true },
+    });
+    const ids = journals
+      .filter((row) => !row.reversalOfJournalEntryId)
+      .map((row) => row.id);
+    if (!ids.length) return;
+    await journalPostingService.cascadeSourceJournalInTx(
+      tx,
+      ctx.companyId,
+      ids,
+      'cancel',
+      ctx.userId
+    );
+  }
+
   private async reverseActiveJournalsOfType(
     tx: Prisma.TransactionClient,
     ctx: CommercialPaperPostingCtx,
@@ -345,6 +375,7 @@ export class CommercialPaperPostingService {
         date: true,
         description: true,
         isPosted: true,
+        isCancelled: true,
         reversalOfJournalEntryId: true,
         createdAt: true,
       },
@@ -359,14 +390,16 @@ export class CommercialPaperPostingService {
       })
       .map((row) => {
         const serial = row.voucherNumber || row.legacyGlNum || null;
+        const baseLabel = paperJournalLabel(row.entryType, serial);
         return {
           id: row.id,
           entryType: row.entryType,
-          label: paperJournalLabel(row.entryType, serial),
+          label: row.isCancelled ? `${baseLabel} — ملغي` : baseLabel,
           voucherNumber: serial,
           date: row.date,
           description: row.description,
           isPosted: row.isPosted,
+          isCancelled: row.isCancelled,
           isReversal: Boolean(row.reversalOfJournalEntryId) || row.entryType === 'REVERSAL',
         };
       });
@@ -538,14 +571,13 @@ export class CommercialPaperPostingService {
     if (paperCase === PAPER_LIFECYCLE.COLLECTED || paperCase === PAPER_LIFECYCLE.MULTI_COLLECTED) {
       const isMulti = paperCase === PAPER_LIFECYCLE.MULTI_COLLECTED;
       const updated = await prisma.$transaction(async (tx) => {
-        await this.reverseActiveJournalsOfType(
+        await this.cancelActiveJournalsOfType(
           tx,
           ctx,
           paper.id,
           isMulti
             ? [PAPER_JOURNAL_ENTRY_TYPE.MULTI, 'MULTI_COLLECTION']
-            : [PAPER_JOURNAL_ENTRY_TYPE.COLLECT, PAPER_JOURNAL_ENTRY_TYPE.DEPOSIT],
-          isMulti ? 'فك التحصيل المتعدد' : 'فك التحصيل'
+            : [PAPER_JOURNAL_ENTRY_TYPE.COLLECT]
         );
         await tx.multiCollectionLine.deleteMany({
           where: { companyId: ctx.companyId, paperKind, paperId: paper.id },
@@ -571,21 +603,27 @@ export class CommercialPaperPostingService {
     ctx: CommercialPaperPostingCtx,
     paperKind: CommercialPaperKind,
     paperId: string,
-    input: PaperLifecycleInput,
-    opts?: { asBankDeposit?: boolean }
+    input: PaperLifecycleInput
   ) {
     const paper = await this.loadPaper(ctx.companyId, paperKind, paperId);
     if (paper.isCancelled) throw new AppError(400, 'لا يمكن تحصيل ورقة ملغاة');
     if (paper.paperCase !== PAPER_LIFECYCLE.ISSUED) {
       throw new AppError(400, 'الورقة محصّلة أو مغلقة مسبقاً');
     }
-    if (!input.accountId) throw new AppError(400, 'اختر حساب التحصيل');
+    if (!input.accountId) throw new AppError(400, 'اختر حساب البنك');
 
     const account = await prisma.account.findFirst({
       where: { id: input.accountId, companyId: ctx.companyId, deletedAt: null },
       select: { id: true },
     });
     if (!account) throw new AppError(400, 'حساب التحصيل غير موجود');
+    if (paperKind === 'RECEIPT') {
+      const bankLink = await prisma.bankAccount.findFirst({
+        where: { companyId: ctx.companyId, glAccountId: input.accountId, isActive: true },
+        select: { id: true },
+      });
+      if (!bankLink) throw new AppError(400, 'اختر حساب بنك من دليل البنوك');
+    }
 
     if (!(await this.isJournalActive(ctx.companyId, paper.journalEntryId))) {
       await this.syncIssueJournal(ctx, paperKind, paperId);
@@ -597,6 +635,11 @@ export class CommercialPaperPostingService {
       paperKind,
       paper.destinationAccountId
     );
+    const depositedAccountId =
+      paperKind === 'RECEIPT' && 'depositAccountId' in paper
+        ? paper.depositAccountId?.trim() || null
+        : null;
+    const creditAccountId = depositedAccountId || notesAccountId;
     const partyAccountId = await this.partyAccountId(ctx.companyId, paperKind, paper);
     const date = asDate(input.date);
     const lines =
@@ -610,7 +653,7 @@ export class CommercialPaperPostingService {
             description: input.description,
           })
         : buildReceiptCollectLines({
-            notesAccountId,
+            notesAccountId: creditAccountId,
             partyAccountId,
             bankAccountId: input.accountId,
             amount,
@@ -618,18 +661,14 @@ export class CommercialPaperPostingService {
             description: input.description,
           });
     const number = paperNumberOf(paper);
-    const asDeposit = Boolean(opts?.asBankDeposit) && paperKind === 'RECEIPT';
-    const entryType = asDeposit ? PAPER_JOURNAL_ENTRY_TYPE.DEPOSIT : PAPER_JOURNAL_ENTRY_TYPE.COLLECT;
 
     const posted = await prisma.$transaction(async (tx) => {
       await this.postPaperJournal(tx, ctx, {
         paperKind,
         paper,
         date,
-        description:
-          input.description ||
-          (asDeposit ? `إيداع ورقة ${number} في البنك` : `تحصيل ورقة ${number}`),
-        entryType,
+        description: input.description || `تحصيل ورقة ${number}`,
+        entryType: PAPER_JOURNAL_ENTRY_TYPE.COLLECT,
         lines,
         claimActiveSourceKey: false,
       });
@@ -637,9 +676,6 @@ export class CommercialPaperPostingService {
         paperCase: PAPER_LIFECYCLE.COLLECTED,
         isPosted: true,
         postedAt: new Date(),
-        description: input.description?.trim()
-          ? [paper.description, input.description.trim()].filter(Boolean).join(' — ')
-          : paper.description,
       };
       if (paperKind === 'PAYMENT') {
         return tx.securitiesPayment.update({
@@ -653,8 +689,6 @@ export class CommercialPaperPostingService {
         data: {
           ...patch,
           destinationAccountId: paper.destinationAccountId || notesAccountId,
-          depositAccountId: input.accountId,
-          depositDate: date,
         },
         include: { customer: true, supplier: true },
       });
@@ -667,24 +701,93 @@ export class CommercialPaperPostingService {
     paperId: string,
     deposit?: { accountId?: string | null; date?: Date | null }
   ) {
-    const issued = await this.syncIssueJournal(ctx, 'RECEIPT', paperId);
+    await this.syncIssueJournal(ctx, 'RECEIPT', paperId);
+    return this.syncDepositJournal(ctx, paperId, deposit);
+  }
+
+  private async hasActiveJournalOfType(companyId: string, paperId: string, entryType: string) {
+    const rows = await prisma.journalEntry.findMany({
+      where: {
+        companyId,
+        sourceId: paperId,
+        entryType,
+        deletedAt: null,
+        isCancelled: false,
+      },
+      select: { id: true, reversalOfJournalEntryId: true },
+    });
+    for (const row of rows) {
+      if (row.reversalOfJournalEntryId) continue;
+      if (await this.isJournalActive(companyId, row.id)) return true;
+    }
+    return false;
+  }
+
+  async syncDepositJournal(
+    ctx: CommercialPaperPostingCtx,
+    paperId: string,
+    deposit?: { accountId?: string | null; date?: Date | null }
+  ) {
     const depositAccountId = deposit?.accountId?.trim();
-    if (!depositAccountId) return issued;
+    if (!depositAccountId) {
+      return this.decoratePaper(
+        ctx.companyId,
+        'RECEIPT',
+        await this.loadPaper(ctx.companyId, 'RECEIPT', paperId)
+      );
+    }
     const paper = await this.loadPaper(ctx.companyId, 'RECEIPT', paperId);
     if (paper.paperCase !== PAPER_LIFECYCLE.ISSUED) {
       return this.decoratePaper(ctx.companyId, 'RECEIPT', paper);
     }
-    return this.collectPaper(
-      ctx,
+    if (await this.hasActiveJournalOfType(ctx.companyId, paper.id, PAPER_JOURNAL_ENTRY_TYPE.DEPOSIT)) {
+      return this.decoratePaper(ctx.companyId, 'RECEIPT', paper);
+    }
+
+    const account = await prisma.account.findFirst({
+      where: { id: depositAccountId, companyId: ctx.companyId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!account) throw new AppError(400, 'حساب الإيداع غير موجود');
+
+    const amount = money(Number(paper.amount));
+    const notesAccountId = await this.notesAccountId(
+      ctx.companyId,
       'RECEIPT',
-      paperId,
-      {
-        accountId: depositAccountId,
-        date: deposit?.date ?? undefined,
-        description: 'إيداع في البنك',
-      },
-      { asBankDeposit: true }
+      paper.destinationAccountId
     );
+    const date = asDate(deposit?.date ?? paper.date);
+    const number = paperNumberOf(paper);
+    const lines = buildReceiptCollectLines({
+      notesAccountId,
+      partyAccountId: notesAccountId,
+      bankAccountId: depositAccountId,
+      amount,
+      description: `إيداع ورقة ${number} في البنك`,
+    });
+
+    const posted = await prisma.$transaction(async (tx) => {
+      await this.postPaperJournal(tx, ctx, {
+        paperKind: 'RECEIPT',
+        paper,
+        date,
+        description: `إيداع ورقة ${number} في البنك`,
+        entryType: PAPER_JOURNAL_ENTRY_TYPE.DEPOSIT,
+        lines,
+        claimActiveSourceKey: false,
+      });
+      return tx.securitiesReceipt.update({
+        where: { id: paper.id },
+        data: {
+          destinationAccountId: paper.destinationAccountId || notesAccountId,
+          depositAccountId,
+          depositDate: date,
+          paperCase: PAPER_LIFECYCLE.ISSUED,
+        },
+        include: { customer: true, supplier: true },
+      });
+    });
+    return this.decoratePaper(ctx.companyId, 'RECEIPT', posted);
   }
 
   async bouncePaper(

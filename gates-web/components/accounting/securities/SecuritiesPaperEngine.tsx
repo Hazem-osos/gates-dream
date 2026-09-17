@@ -47,6 +47,7 @@ import {
   SecuritiesEndorseModal,
 } from './SecuritiesLifecycleModals';
 import {
+  buildSecuritiesPaperDescription,
   isoDateOnly,
   resolveSecuritiesPaperCase,
   securitiesPaperStatus,
@@ -56,28 +57,6 @@ import {
 } from './securities-paper-status';
 import type { TransactionSettings } from '@/lib/transaction-settings/types';
 import { SecuritiesEntitySelect } from './SecuritiesEntitySelect';
-
-function formatPaperDate(iso?: string) {
-  const raw = (iso || '').trim();
-  if (!raw) return '';
-  const [year, month, day] = raw.split('-');
-  return day && month && year ? `${day}/${month}/${year}` : raw;
-}
-
-export function buildSecuritiesPaperDescription(
-  kind: SecuritiesPaperKind,
-  chequeNumber: string,
-  partyName: string,
-  dueDate: string
-) {
-  const number = chequeNumber.trim();
-  const name = partyName.trim();
-  const due = formatPaperDate(dueDate);
-  if (!number || !name || !due) return '';
-  return kind === 'payment'
-    ? `شيك رقم ${number} إلى المورد ${name} يستحق بتاريخ ${due}`
-    : `شيك رقم ${number} من العميل ${name} يستحق بتاريخ ${due}`;
-}
 
 function makeFormSchema(kind: SecuritiesPaperKind) {
   return z
@@ -1106,7 +1085,9 @@ export function SecuritiesPaperEngine({ kind }: Props) {
         apiPath={apiPath}
         paperId={actionId}
         amount={amountNum}
-        defaultAccountId={watch('accountId') || loaded?.destinationAccountId || ''}
+        chequeNumber={securityNumber || loaded?.securityNumber || ''}
+        partyName={partyName || loaded?.issuerName || loaded?.payeeName || ''}
+        dueDate={dueDate || isoDateOnly(loaded?.dueDate)}
         onClose={() => setShowCollect(false)}
         onDone={(record) => {
           applyLoaded(record, record.id);

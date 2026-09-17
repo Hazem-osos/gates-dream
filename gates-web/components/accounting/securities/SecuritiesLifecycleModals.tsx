@@ -10,7 +10,10 @@ import { formActionButtonClass } from '@/components/ui/forms/formTokens';
 import { erpInputClass, erpLabelClass } from '@/components/erp/erpUiTokens';
 import { DatePickerWithHijri } from '@/components/ui/DatePickerWithHijri';
 import { apiClient } from '@/lib/api/client';
-import type { SecuritiesPaperRecord } from './securities-paper-status';
+import {
+  buildSecuritiesCollectDescription,
+  type SecuritiesPaperRecord,
+} from './securities-paper-status';
 
 type PaperKind = 'payment' | 'receipt';
 
@@ -88,7 +91,9 @@ export function SecuritiesCollectModal({
   apiPath,
   paperId,
   amount,
-  defaultAccountId,
+  chequeNumber,
+  partyName,
+  dueDate,
   onClose,
   onDone,
 }: {
@@ -97,13 +102,15 @@ export function SecuritiesCollectModal({
   apiPath: string;
   paperId: string | null;
   amount: number;
-  defaultAccountId?: string;
+  chequeNumber?: string;
+  partyName?: string;
+  dueDate?: string;
   onClose: () => void;
   onDone: (record: SecuritiesPaperRecord) => void;
 }) {
   const [date, setDate] = useState(todayIso);
   const [description, setDescription] = useState('');
-  const [accountId, setAccountId] = useState(defaultAccountId ?? '');
+  const [accountId, setAccountId] = useState('');
   const [costCenterId, setCostCenterId] = useState('');
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
@@ -111,11 +118,21 @@ export function SecuritiesCollectModal({
   useEffect(() => {
     if (!open) return;
     setDate(todayIso());
-    setDescription('');
-    setAccountId(defaultAccountId ?? '');
+    setAccountId('');
     setCostCenterId('');
     setError('');
-  }, [open, defaultAccountId]);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const next = buildSecuritiesCollectDescription(
+      kind,
+      chequeNumber || '',
+      partyName || '',
+      dueDate || ''
+    );
+    if (next) setDescription(next);
+  }, [open, kind, chequeNumber, partyName, dueDate]);
 
   if (!open) return null;
   if (!paperId) {
@@ -132,7 +149,7 @@ export function SecuritiesCollectModal({
 
   const save = async () => {
     if (!accountId) {
-      setError('اختر حساب التحصيل (خزينة أو بنك)');
+      setError(kind === 'receipt' ? 'اختر حساب البنك' : 'اختر حساب التحصيل');
       return;
     }
     setPending(true);
@@ -161,12 +178,30 @@ export function SecuritiesCollectModal({
     >
       <div className="sm:col-span-2">
         <label className={erpLabelClass}>الشرح</label>
-        <input className={erpInputClass} value={description} onChange={(e) => setDescription(e.target.value)} placeholder="الشرح" />
+        <input
+          className={erpInputClass}
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          placeholder={
+            kind === 'payment'
+              ? 'تحصيل شيك رقم … إلى المورد … يستحق بتاريخ …'
+              : 'تحصيل شيك رقم … من العميل … يستحق بتاريخ …'
+          }
+        />
       </div>
       <DatePickerWithHijri label="التاريخ" value={date} onChange={setDate} />
       <div className="sm:col-span-2">
-        <label className={erpLabelClass}>الحساب</label>
-        <AccountSelect value={accountId} onChange={setAccountId} className={erpInputClass} leafOnly placeholder="اختر الحساب" />
+        <label className={erpLabelClass}>{kind === 'receipt' ? 'حساب البنك' : 'الحساب'}</label>
+        <AccountSelect
+          value={accountId}
+          onChange={setAccountId}
+          className={erpInputClass}
+          leafOnly
+          bankOnly={kind === 'receipt'}
+          allowEmpty
+          emptyLabel={kind === 'receipt' ? 'اختر حساب البنك' : 'اختر الحساب'}
+          placeholder={kind === 'receipt' ? 'اختر حساب البنك' : 'اختر الحساب'}
+        />
       </div>
       <div className="sm:col-span-2">
         <label className={erpLabelClass}>مركز التكلفة</label>

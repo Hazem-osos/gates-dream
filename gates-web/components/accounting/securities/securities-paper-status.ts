@@ -111,3 +111,35 @@ export function isoDateOnly(value?: string | Date | null): string {
   const raw = typeof value === 'string' ? value : value.toISOString();
   return raw.slice(0, 10);
 }
+
+function formatPaperDate(iso?: string) {
+  const raw = (iso || '').trim();
+  if (!raw) return '';
+  const [year, month, day] = raw.split('-');
+  return day && month && year ? `${day}/${month}/${year}` : raw;
+}
+
+export function buildSecuritiesPaperDescription(
+  kind: SecuritiesPaperKind,
+  chequeNumber: string,
+  partyName: string,
+  dueDate: string
+) {
+  const number = chequeNumber.trim();
+  const name = partyName.trim();
+  const due = formatPaperDate(dueDate);
+  if (!number || !name || !due) return '';
+  return kind === 'payment'
+    ? `شيك رقم ${number} إلى المورد ${name} يستحق بتاريخ ${due}`
+    : `شيك رقم ${number} من العميل ${name} يستحق بتاريخ ${due}`;
+}
+
+export function buildSecuritiesCollectDescription(
+  kind: SecuritiesPaperKind,
+  chequeNumber: string,
+  partyName: string,
+  dueDate: string
+) {
+  const base = buildSecuritiesPaperDescription(kind, chequeNumber, partyName, dueDate);
+  return base ? `تحصيل ${base}` : '';
+}

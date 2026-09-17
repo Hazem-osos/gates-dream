@@ -12,6 +12,7 @@ import {
 import { SearchableCombobox } from '@/app/components/form/SearchableCombobox';
 import { compactControlClass } from '@/components/ui/forms/formTokens';
 import { QuickCreateAccountModal } from '@/app/components/form/QuickCreateAccountModal';
+import { useApiQuery } from '@/lib/hooks/useApi';
 
 const selectCls = compactControlClass;
 
@@ -27,6 +28,7 @@ function AccountSelectInner({
   headerOnly = false,
   excludeIds,
   statementType,
+  bankOnly = false,
   selectedAccount,
   nativeSelectProps,
   enableQuickCreate = true,
@@ -42,6 +44,7 @@ function AccountSelectInner({
   headerOnly?: boolean;
   excludeIds?: string[];
   statementType?: 'BALANCE_SHEET' | 'INCOME_STATEMENT';
+  bankOnly?: boolean;
   selectedAccount?: { id: string; code: string; arabicName: string } | null;
   nativeSelectProps?: React.SelectHTMLAttributes<HTMLSelectElement> &
     Record<`data-${string}`, string | undefined>;
@@ -60,6 +63,17 @@ function AccountSelectInner({
     headerOnly,
     statementType,
   });
+  const { data: banksRes } = useApiQuery<
+    Array<{ glAccountId?: string | null; glAccount?: { id?: string | null } | null }>
+  >(['bank-accounts', 'picker'], '/accounting/bank-accounts', { isActive: true }, { enabled: bankOnly });
+  const bankGlIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const bank of banksRes?.data ?? []) {
+      const id = bank.glAccountId || bank.glAccount?.id;
+      if (id) ids.add(id);
+    }
+    return ids;
+  }, [banksRes?.data]);
   const accounts = data?.data ?? [];
 
   const options = useMemo(() => {
@@ -71,6 +85,7 @@ function AccountSelectInner({
     const list = merged
       .filter((a: AccountOption) => {
         if (blocked.has(a.id)) return false;
+        if (bankOnly && !bankGlIds.has(a.id)) return false;
         if (headerOnly) return a.accountKind !== 'POSTING';
         if (leafOnly) return isPostableLeafAccount(a);
         return true;
@@ -84,7 +99,7 @@ function AccountSelectInner({
       return [{ value: '', label: emptyLabel || placeholder, searchText: '' }, ...list];
     }
     return list;
-  }, [accounts, allowEmpty, emptyLabel, excludeIds, headerOnly, leafOnly, placeholder, pinnedAccount]);
+  }, [accounts, allowEmpty, bankGlIds, bankOnly, emptyLabel, excludeIds, headerOnly, leafOnly, placeholder, pinnedAccount]);
 
   const valueLabel = useMemo(() => {
     if (!value) return undefined;
@@ -129,8 +144,8 @@ function AccountSelectInner({
         maxVisible={PICKER_UNLIMITED_VISIBLE}
         portaled
         menuPlacement="auto"
-        quickCreateLabel={enableQuickCreate ? '+ إضافة سريع' : undefined}
-        onQuickCreate={enableQuickCreate ? (query) => openQuickCreate(query) : undefined}
+        quickCreateLabel={enableQuickCreate && !bankOnly ? '+ إضافة سريع' : undefined}
+        onQuickCreate={enableQuickCreate && !bankOnly ? (query) => openQuickCreate(query) : undefined}
         inputProps={{
           'aria-label': nativeSelectProps?.['aria-label'],
           title: nativeSelectProps?.title,
