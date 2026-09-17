@@ -11,6 +11,8 @@ import { getTreeGuideClasses } from '@/lib/accounting/coaTreeTheme';
 import { cn } from '@/lib/utils';
 import { AccountTreeNode } from './AccountTreeNode';
 
+const EMPTY_TRAIL: ReadonlySet<string> = new Set();
+
 function displayName(a: CoaHierarchyAccount) {
   return a.nameAr ?? a.arabicName;
 }
@@ -20,11 +22,17 @@ function nodeMatches(node: CoaHierarchyAccount, q: string): boolean {
   return blob.includes(q);
 }
 
-function filterTree(nodes: CoaHierarchyAccount[], q: string): CoaHierarchyAccount[] {
+function filterTree(
+  nodes: CoaHierarchyAccount[],
+  q: string,
+  seen = new Set<string>()
+): CoaHierarchyAccount[] {
   if (!q) return nodes;
   const out: CoaHierarchyAccount[] = [];
   for (const node of nodes) {
-    const children = node.children?.length ? filterTree(node.children, q) : [];
+    if (seen.has(node.id)) continue;
+    seen.add(node.id);
+    const children = node.children?.length ? filterTree(node.children, q, seen) : [];
     if (nodeMatches(node, q) || children.length > 0) {
       out.push({ ...node, children: children.length ? children : node.children });
     }
@@ -32,26 +40,38 @@ function filterTree(nodes: CoaHierarchyAccount[], q: string): CoaHierarchyAccoun
   return out;
 }
 
-function filterByRootNature(nodes: CoaHierarchyAccount[], rootCode: string | null): CoaHierarchyAccount[] {
+function filterByRootNature(
+  nodes: CoaHierarchyAccount[],
+  rootCode: string | null,
+  seen = new Set<string>()
+): CoaHierarchyAccount[] {
   if (!rootCode) return nodes;
   const out: CoaHierarchyAccount[] = [];
   for (const node of nodes) {
+    if (seen.has(node.id)) continue;
+    seen.add(node.id);
     if (node.code === rootCode || node.code.startsWith(rootCode)) {
       out.push(node);
       continue;
     }
     if (node.children?.length) {
-      out.push(...filterByRootNature(node.children, rootCode));
+      out.push(...filterByRootNature(node.children, rootCode, seen));
     }
   }
   return out;
 }
 
-function collectExpandableIds(nodes: CoaHierarchyAccount[], out: Set<string>) {
+function collectExpandableIds(
+  nodes: CoaHierarchyAccount[],
+  out: Set<string>,
+  seen = new Set<string>()
+) {
   for (const n of nodes) {
+    if (seen.has(n.id)) continue;
+    seen.add(n.id);
     if (n.children?.length) {
       out.add(n.id);
-      collectExpandableIds(n.children, out);
+      collectExpandableIds(n.children, out, seen);
     }
   }
 }
@@ -73,6 +93,7 @@ function TreeBranch({
   onEdit,
   onDelete,
   onLedger,
+  trail,
 }: {
   node: CoaHierarchyAccount;
   depth: number;
@@ -85,7 +106,11 @@ function TreeBranch({
   onEdit: (n: CoaHierarchyAccount) => void;
   onDelete: (n: CoaHierarchyAccount) => void;
   onLedger: (n: CoaHierarchyAccount) => void;
+  trail: ReadonlySet<string>;
 }) {
+  if (trail.has(node.id)) return null;
+  const nextTrail = new Set(trail);
+  nextTrail.add(node.id);
   const hasChildren = Boolean(node.children?.length);
   const forceOpen = Boolean(searchQuery.trim());
   const expanded = forceOpen || expandedIds.has(node.id);
@@ -152,6 +177,7 @@ function TreeBranch({
                 onEdit={onEdit}
                 onDelete={onDelete}
                 onLedger={onLedger}
+                trail={nextTrail}
               />
             </div>
           ))}
@@ -336,6 +362,7 @@ export function AccountTree({
           onEdit={onEdit}
           onDelete={onDelete}
           onLedger={onLedger}
+          trail={EMPTY_TRAIL}
         />
       ))}
     </div>

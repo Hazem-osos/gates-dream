@@ -294,13 +294,14 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
   const isBank = fundKind === 'BANK_ACCOUNT';
   const headerSnapshot = useWatch({ control }) as TreasuryOrderHeaderFormInput;
   const orderDraftSnapshot = useMemo(
-    () => ({ header: headerSnapshot, voucherLines }),
-    [headerSnapshot, voucherLines]
+    () => ({ header: headerSnapshot, voucherLines, allocations }),
+    [allocations, headerSnapshot, voucherLines]
   );
   const applyOrderDraft = useCallback(
     (payload: typeof orderDraftSnapshot) => {
       if (payload.header) reset(payload.header);
       setVoucherLines(payload.voucherLines?.length ? payload.voucherLines : [emptyLine('EGP')]);
+      setAllocations(Array.isArray(payload.allocations) ? payload.allocations : []);
     },
     [reset]
   );
@@ -309,12 +310,17 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
     acceptRestore,
     dismissRestore,
     clearDraft,
-  } = useDraftAutosave(`gates:draft:treasury-order:${variantId}`, orderDraftSnapshot, !savedOrderId, {
+  } = useDraftAutosave({
+    documentType: 'treasury-order',
+    variantId,
+    value: orderDraftSnapshot,
+    enabled: !savedOrderId,
     applyRestore: applyOrderDraft,
     isEmpty: (draft) =>
       !draft.header?.description?.trim() &&
       !draft.header?.fundId?.trim() &&
-      !(draft.voucherLines ?? []).some((line) => line.accountId),
+      !(draft.voucherLines ?? []).some((line) => line.accountId) &&
+      !(draft.allocations ?? []).length,
     restoreMessage: 'تم استعادة مسودة الأمر',
   });
 

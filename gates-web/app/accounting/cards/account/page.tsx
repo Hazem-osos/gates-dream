@@ -78,10 +78,16 @@ interface Currency {
 }
 
 function collectAccountFamilyIds(accounts: Account[], rootId: string): string[] {
-  const ids = [rootId];
-  for (const row of accounts) {
-    if (row.parentId === rootId) {
-      ids.push(...collectAccountFamilyIds(accounts, row.id));
+  const ids: string[] = [];
+  const seen = new Set<string>();
+  const stack = [rootId];
+  while (stack.length) {
+    const id = stack.pop()!;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    ids.push(id);
+    for (const row of accounts) {
+      if (row.parentId === id && row.id !== id) stack.push(row.id);
     }
   }
   return ids;

@@ -55,55 +55,61 @@ export const authenticate: RequestHandler = async (
     }
 
     // 2. Cryptographically verify the token (HS256 dev or RS256 Keycloak)
-    const payload = await jwtVerificationService.verifyToken(token);
+    let payload;
+    try {
+      payload = await jwtVerificationService.verifyToken(token);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.warn({ message }, 'Authentication rejected');
+      return next(new AppError(401, 'Invalid or expired token'));
+    }
 
     // 3. Use jti if present, fall back to sub so we can track session/blacklist
     const tokenId =
       ((payload as unknown) as Record<string, unknown>).jti as string | undefined
       ?? payload.sub;
 
-    // 4. Reject revoked tokens
-    const isBlacklisted = await isTokenBlacklisted(tokenId);
-    if (isBlacklisted) {
-      return next(new AppError(401, 'Token has been revoked'));
+    // Session/lockout must not log out a valid JWT if Redis/DB blips.
+    try {
+      const isBlacklisted = await isTokenBlacklisted(tokenId);
+      if (isBlacklisted) {
+        return next(new AppError(401, 'Token has been revoked'));
+      }
+
+      const lockoutInfo = await isAccountLocked(payload.sub);
+      if (lockoutInfo) {
+        const remainingMinutes = Math.ceil(
+          (lockoutInfo.lockedUntil - Date.now()) / 60_000
+        );
+        return next(
+          new AppError(
+            423,
+            `Account is locked due to repeated failed authentication attempts. Try again in ${remainingMinutes} minute(s).`
+          )
+        );
+      }
+
+      await clearFailedAttempts(payload.sub);
+      await updateSessionActivity(payload.sub, tokenId);
+      const existingSession = await getSession(payload.sub, tokenId);
+      if (!existingSession) {
+        const ipAddress =
+          req.ip ??
+          (req.headers['x-forwarded-for'] as string | undefined)
+            ?.split(',')[0]
+            ?.trim() ??
+          'unknown';
+        await createSession(
+          payload.sub,
+          tokenId,
+          ipAddress,
+          req.headers['user-agent']
+        );
+      }
+    } catch (err) {
+      logger.warn({ err }, 'Authentication session checks failed — continuing with verified token');
     }
 
-    // 5. Reject locked accounts
-    const lockoutInfo = await isAccountLocked(payload.sub);
-    if (lockoutInfo) {
-      const remainingMinutes = Math.ceil(
-        (lockoutInfo.lockedUntil - Date.now()) / 60_000
-      );
-      return next(
-        new AppError(
-          423,
-          `Account is locked due to repeated failed authentication attempts. Try again in ${remainingMinutes} minute(s).`
-        )
-      );
-    }
-
-    // 6. Clear failed-attempt counter on successful auth
-    await clearFailedAttempts(payload.sub);
-
-    // 7. Upsert session (create if this token has no active session yet)
-    await updateSessionActivity(payload.sub, tokenId);
-    const existingSession = await getSession(payload.sub, tokenId);
-    if (!existingSession) {
-      const ipAddress =
-        req.ip ??
-        (req.headers['x-forwarded-for'] as string | undefined)
-          ?.split(',')[0]
-          ?.trim() ??
-        'unknown';
-      await createSession(
-        payload.sub,
-        tokenId,
-        ipAddress,
-        req.headers['user-agent']
-      );
-    }
-
-    // 8. Attach user context to request
     req.user = payload;
     req.tenantId = payload.tenant_id ?? payload.company_id;
     req.companyId = payload.company_id;
@@ -120,17 +126,7 @@ export const authenticate: RequestHandler = async (
       return next(err);
     }
     const message = err instanceof Error ? err.message : String(err);
-    const expectedAuth =
-      /invalid or expired token|invalid token|missing kid|jwt expired|jwt malformed|not initialised|failed to fetch signing key/i.test(
-        message
-      );
-    if (expectedAuth) {
-      logger.warn({ message }, 'Authentication rejected');
-    } else if (/disconnect|server has gone away|closed|Can't reach database|Prisma/i.test(message)) {
-      logger.warn({ err }, 'Authentication skipped — database connection dropped');
-    } else {
-      logger.error({ err }, 'Unexpected error during authentication');
-    }
+    logger.warn({ message }, 'Authentication rejected');
     next(new AppError(401, 'Invalid or expired token'));
   }
 };

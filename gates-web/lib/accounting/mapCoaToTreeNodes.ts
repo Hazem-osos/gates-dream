@@ -37,18 +37,25 @@ function displayName(acc: CoaHierarchyAccount): string {
   return acc.nameAr ?? acc.arabicName;
 }
 
-export function mapCoaAccountsToTreeNodes(accounts: CoaHierarchyAccount[]): TreeNode[] {
-  return accounts.map((acc) => {
-    const childNodes = acc.children?.length ? mapCoaAccountsToTreeNodes(acc.children) : undefined;
+export function mapCoaAccountsToTreeNodes(
+  accounts: CoaHierarchyAccount[],
+  seen = new Set<string>()
+): TreeNode[] {
+  return accounts.flatMap((acc) => {
+    if (seen.has(acc.id)) return [];
+    seen.add(acc.id);
+    const childNodes = acc.children?.length ? mapCoaAccountsToTreeNodes(acc.children, seen) : undefined;
     const isFolder =
       acc.accountKind === 'HEADER' || acc.isParent || acc.type === 'HEADER' || Boolean(childNodes?.length);
-    return {
-      key: acc.id,
-      label: `${acc.code} — ${displayName(acc)}`,
-      data: isFolder ? 'folder' : 'file',
-      expanded: isFolder,
-      children: childNodes,
-    };
+    return [
+      {
+        key: acc.id,
+        label: `${acc.code} — ${displayName(acc)}`,
+        data: isFolder ? 'folder' : 'file',
+        expanded: isFolder,
+        children: childNodes,
+      },
+    ];
   });
 }
 
@@ -58,51 +65,66 @@ export function collectAncestorIds(
 ): string[] {
   const walk = (
     nodes: CoaHierarchyAccount[],
-    trail: string[]
+    trail: string[],
+    seen: Set<string>
   ): string[] | null => {
     for (const node of nodes) {
+      if (seen.has(node.id)) continue;
+      seen.add(node.id);
       if (node.id === accountId) return trail;
       if (node.children?.length) {
-        const hit = walk(node.children, [...trail, node.id]);
+        const hit = walk(node.children, [...trail, node.id], seen);
         if (hit) return hit;
       }
     }
     return null;
   };
-  return walk(roots, []) ?? [];
+  return walk(roots, [], new Set()) ?? [];
 }
 
 export function collectIdsToDepth(
   nodes: CoaHierarchyAccount[],
   maxDepth: number,
   depth = 0,
-  out: string[] = []
+  out: string[] = [],
+  seen = new Set<string>()
 ): string[] {
   if (depth >= maxDepth) return out;
   for (const node of nodes) {
+    if (seen.has(node.id)) continue;
+    seen.add(node.id);
     if (node.children?.length) {
       out.push(node.id);
-      collectIdsToDepth(node.children, maxDepth, depth + 1, out);
+      collectIdsToDepth(node.children, maxDepth, depth + 1, out, seen);
     }
   }
   return out;
 }
 
-export function collectAccountAndDescendantIds(node: CoaHierarchyAccount | null | undefined): string[] {
-  if (!node) return [];
+export function collectAccountAndDescendantIds(
+  node: CoaHierarchyAccount | null | undefined,
+  seen = new Set<string>()
+): string[] {
+  if (!node || seen.has(node.id)) return [];
+  seen.add(node.id);
   const ids = [node.id];
   for (const child of node.children ?? []) {
-    ids.push(...collectAccountAndDescendantIds(child));
+    ids.push(...collectAccountAndDescendantIds(child, seen));
   }
   return ids;
 }
 
 /** Leaf accounts under a folder node (direct children that are files). */
-export function leafAccountsFromFolder(node: CoaHierarchyAccount): CoaHierarchyAccount[] {
+export function leafAccountsFromFolder(
+  node: CoaHierarchyAccount,
+  seen = new Set<string>()
+): CoaHierarchyAccount[] {
+  if (seen.has(node.id)) return [];
+  seen.add(node.id);
   const isHeader =
     node.accountKind === 'HEADER' || node.type === 'HEADER' || node.isParent || Boolean(node.children?.length);
   if (isHeader) {
-    return (node.children ?? []).flatMap((child) => leafAccountsFromFolder(child));
+    return (node.children ?? []).flatMap((child) => leafAccountsFromFolder(child, seen));
   }
   return [node];
 }

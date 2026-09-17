@@ -43,12 +43,15 @@ const NATURE_FILTERS: { id: CoaNatureFilter; label: string }[] = [
 
 function findParentAccount(
   nodes: CoaHierarchyAccount[],
-  childId: string
+  childId: string,
+  seen = new Set<string>()
 ): CoaHierarchyAccount | null {
   for (const node of nodes) {
+    if (seen.has(node.id)) continue;
+    seen.add(node.id);
     if (node.children?.some((child) => child.id === childId)) return node;
     if (node.children?.length) {
-      const found = findParentAccount(node.children, childId);
+      const found = findParentAccount(node.children, childId, seen);
       if (found) return found;
     }
   }

@@ -20,12 +20,16 @@ export function flattenVisibleCoaRows(
   const forceOpen = Boolean(searchQuery.trim());
   const out: FlatCoaRow[] = [];
 
+  const seen = new Set<string>();
+
   function walk(
     list: CoaHierarchyAccount[],
     depth: number,
     inheritedRoot: string
   ) {
     list.forEach((node, idx) => {
+      if (seen.has(node.id)) return;
+      seen.add(node.id);
       const branchRoot = rootDigitForNode(node, inheritedRoot);
       const hasChildren = Boolean(node.children?.length);
       const expanded = forceOpen || expandedIds.has(node.id);

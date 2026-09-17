@@ -50,6 +50,7 @@ export function buildAccountHierarchyTree(
 
   for (const account of accounts) {
     let parentKey: string | null = account.parentId;
+    if (parentKey === account.id) parentKey = null;
     if (parentKey && !idSet.has(parentKey)) {
       parentKey = null;
     }
@@ -61,52 +62,74 @@ export function buildAccountHierarchyTree(
   const sortByCode = (a: FlatAccountForHierarchy, b: FlatAccountForHierarchy) =>
     a.code.localeCompare(b.code, undefined, { numeric: true });
 
-  const buildLevel = (parentId: string | null, level: number): AccountHierarchyNode[] => {
-    const rows = (childrenByParent.get(parentId) ?? []).slice().sort(sortByCode);
-    return rows.map((row) => {
-      const childNodes = buildLevel(row.id, level + 1);
-      const ownBalance = balanceByAccountId?.get(row.id) ?? 0;
-      const childrenBalance = childNodes.reduce((s, c) => s + c.currentBalance, 0);
-      const isHeader = row.accountKind === 'HEADER' || childNodes.length > 0;
-      const node: AccountHierarchyNode = {
-        id: row.id,
-        code: row.code,
-        nameAr: row.arabicName,
-        nameEn: row.englishName,
-        arabicName: row.arabicName,
-        englishName: row.englishName,
-        nature: natureFromAccount(row),
-        type: isHeader ? 'HEADER' : 'DETAIL',
-        accountKind: isHeader ? 'HEADER' : 'POSTING',
-        accountType: row.accountType ?? '',
-        isParent: isHeader,
-        level,
-        parentId: row.parentId,
-        currentBalance:
-          childNodes.length > 0 ? childrenBalance : ownBalance,
-        defaultCostCenterId: row.defaultCostCenterId ?? null,
-        costCenterRequired: row.costCenterRequired ?? null,
-      };
-      if (childNodes.length > 0) {
-        node.children = childNodes;
-      }
-      return node;
-    });
+  const visited = new Set<string>();
+  const buildNode = (row: FlatAccountForHierarchy, level: number): AccountHierarchyNode | null => {
+    if (visited.has(row.id)) return null;
+    visited.add(row.id);
+    const childNodes = (childrenByParent.get(row.id) ?? [])
+      .slice()
+      .sort(sortByCode)
+      .flatMap((child) => {
+        const node = buildNode(child, level + 1);
+        return node ? [node] : [];
+      });
+    const ownBalance = balanceByAccountId?.get(row.id) ?? 0;
+    const childrenBalance = childNodes.reduce((s, c) => s + c.currentBalance, 0);
+    const isHeader = row.accountKind === 'HEADER' || childNodes.length > 0;
+    const node: AccountHierarchyNode = {
+      id: row.id,
+      code: row.code,
+      nameAr: row.arabicName,
+      nameEn: row.englishName,
+      arabicName: row.arabicName,
+      englishName: row.englishName,
+      nature: natureFromAccount(row),
+      type: isHeader ? 'HEADER' : 'DETAIL',
+      accountKind: isHeader ? 'HEADER' : 'POSTING',
+      accountType: row.accountType ?? '',
+      isParent: isHeader,
+      level,
+      parentId: row.parentId === row.id ? null : row.parentId,
+      currentBalance: childNodes.length > 0 ? childrenBalance : ownBalance,
+      defaultCostCenterId: row.defaultCostCenterId ?? null,
+      costCenterRequired: row.costCenterRequired ?? null,
+    };
+    if (childNodes.length > 0) {
+      node.children = childNodes;
+    }
+    return node;
   };
 
-  return buildLevel(null, 1);
+  const roots = (childrenByParent.get(null) ?? [])
+    .slice()
+    .sort(sortByCode)
+    .flatMap((row) => {
+      const node = buildNode(row, 1);
+      return node ? [node] : [];
+    });
+
+  for (const account of accounts.slice().sort(sortByCode)) {
+    if (visited.has(account.id)) continue;
+    const node = buildNode(account, 1);
+    if (node) roots.push(node);
+  }
+
+  return roots;
 }
 
 export function findHierarchySubtree(
   roots: AccountHierarchyNode[],
-  parentId: string
+  parentId: string,
+  seen = new Set<string>()
 ): AccountHierarchyNode[] | null {
   for (const node of roots) {
+    if (seen.has(node.id)) continue;
+    seen.add(node.id);
     if (node.id === parentId) {
       return node.children ?? [];
     }
     if (node.children?.length) {
-      const hit = findHierarchySubtree(node.children, parentId);
+      const hit = findHierarchySubtree(node.children, parentId, seen);
       if (hit) return hit;
     }
   }

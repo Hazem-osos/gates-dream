@@ -159,6 +159,8 @@ function GuideTreeRow({
   );
 }
 
+const EMPTY_TRAIL: ReadonlySet<string> = new Set();
+
 function Branch({
   node,
   depth,
@@ -173,6 +175,7 @@ function Branch({
   onView,
   onEdit,
   onDelete,
+  trail,
 }: {
   node: GuideTreeNode;
   depth: number;
@@ -187,7 +190,11 @@ function Branch({
   onView?: (n: GuideTreeNode) => void;
   onEdit?: (n: GuideTreeNode) => void;
   onDelete?: (n: GuideTreeNode) => void;
+  trail: ReadonlySet<string>;
 }) {
+  if (trail.has(node.id)) return null;
+  const nextTrail = new Set(trail);
+  nextTrail.add(node.id);
   const hasChildren = Boolean(node.children?.length);
   const isFolder = hasChildren || Boolean(node.folder);
   const forceOpen = Boolean(searchQuery.trim());
@@ -258,6 +265,7 @@ function Branch({
                   onView={onView}
                   onEdit={onEdit}
                   onDelete={onDelete}
+                  trail={nextTrail}
                 />
               </div>
             ))
@@ -358,6 +366,7 @@ export function MasterGuideTree({
           onView={onView}
           onEdit={onEdit}
           onDelete={onDelete}
+          trail={EMPTY_TRAIL}
         />
       ))}
     </div>

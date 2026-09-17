@@ -159,7 +159,10 @@ export function SalesOrderForm() {
     acceptRestore,
     dismissRestore,
     clearDraft,
-  } = useDraftAutosave('gates:draft:sales-order', salesOrderDraft, !selectedId, {
+  } = useDraftAutosave({
+    documentType: 'sales-order',
+    value: salesOrderDraft,
+    enabled: !selectedId,
     applyRestore: applySalesOrderDraft,
     isEmpty: (draft) =>
       !draft.customerId?.trim() &&

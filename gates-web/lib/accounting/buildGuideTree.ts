@@ -15,26 +15,33 @@ export function buildParentTree<T extends { id: string; parentId?: string | null
   mapNode: (item: T, children: GuideTreeNode[]) => GuideTreeNode
 ): GuideTreeNode[] {
   const byParent = new Map<string | null, T[]>();
+  const known = new Set(items.map((i) => i.id));
   for (const item of items) {
-    const key = item.parentId ?? null;
+    const raw = item.parentId ?? null;
+    const key = !raw || raw === item.id || !known.has(raw) ? null : raw;
     const list = byParent.get(key) ?? [];
     list.push(item);
     byParent.set(key, list);
   }
 
+  const seen = new Set<string>();
   const walk = (parentId: string | null): GuideTreeNode[] =>
-    (byParent.get(parentId) ?? []).map((item) => {
-      const children = walk(item.id);
-      return mapNode(item, children);
+    (byParent.get(parentId) ?? []).flatMap((item) => {
+      if (seen.has(item.id)) return [];
+      seen.add(item.id);
+      return [mapNode(item, walk(item.id))];
     });
 
   const rooted = walk(null);
-  const known = new Set(items.map((i) => i.id));
-  const orphans = items.filter((i) => i.parentId && !known.has(i.parentId));
-  if (orphans.length === 0) return rooted;
+  const leftovers = items.filter((item) => !seen.has(item.id));
+  if (leftovers.length === 0) return rooted;
   return [
     ...rooted,
-    ...orphans.map((item) => mapNode(item, walk(item.id))),
+    ...leftovers.flatMap((item) => {
+      if (seen.has(item.id)) return [];
+      seen.add(item.id);
+      return [mapNode(item, walk(item.id))];
+    }),
   ];
 }
 
@@ -63,12 +70,18 @@ export function groupAsFolders(
     }));
 }
 
-export function filterGuideTree(nodes: GuideTreeNode[], q: string): GuideTreeNode[] {
+export function filterGuideTree(
+  nodes: GuideTreeNode[],
+  q: string,
+  seen = new Set<string>()
+): GuideTreeNode[] {
   if (!q) return nodes;
   const needle = q.toLowerCase();
   const out: GuideTreeNode[] = [];
   for (const node of nodes) {
-    const children = node.children?.length ? filterGuideTree(node.children, q) : [];
+    if (seen.has(node.id)) continue;
+    seen.add(node.id);
+    const children = node.children?.length ? filterGuideTree(node.children, q, seen) : [];
     const blob = `${node.code} ${node.name} ${node.subtitle ?? ''}`.toLowerCase();
     if (blob.includes(needle) || children.length > 0) {
       out.push({ ...node, children: children.length ? children : node.children });
@@ -77,11 +90,17 @@ export function filterGuideTree(nodes: GuideTreeNode[], q: string): GuideTreeNod
   return out;
 }
 
-export function collectExpandableIds(nodes: GuideTreeNode[], out: Set<string>) {
+export function collectExpandableIds(
+  nodes: GuideTreeNode[],
+  out: Set<string>,
+  seen = new Set<string>()
+) {
   for (const n of nodes) {
+    if (seen.has(n.id)) continue;
+    seen.add(n.id);
     if (n.children?.length) {
       out.add(n.id);
-      collectExpandableIds(n.children, out);
+      collectExpandableIds(n.children, out, seen);
     }
   }
 }

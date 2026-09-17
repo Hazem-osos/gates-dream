@@ -85,10 +85,10 @@ export function AccountFormModal({
   const [parentTouched, setParentTouched] = useState(false);
   const initialParentId = parentAccount?.id ?? initial?.parentId ?? null;
   const parentIdForSuggest = parentTouched
-    ? form.parentId ?? null
+    ? (form.parentId ?? null)
     : mode === 'create'
-      ? parentAccount?.id ?? null
-      : form.parentId ?? parentAccount?.id ?? null;
+      ? (parentAccount?.id ?? null)
+      : (form.parentId ?? parentAccount?.id ?? null);
   const parentChanged =
     mode === 'edit' && parentTouched && (form.parentId ?? null) !== initialParentId;
 
@@ -136,7 +136,7 @@ export function AccountFormModal({
       setForm({
         ...emptyForm,
         arabicName: initialArabicName.trim(),
-        parentId: lockAsRoot ? null : parentAccount?.id ?? null,
+        parentId: lockAsRoot ? null : (parentAccount?.id ?? null),
         accountType: normalizeGlAccountType(parentAccount?.accountType),
         accountSide: inheritedSide,
         accountKind: pickerMode || (parentAccount && !lockAsRoot) ? effectiveCreateKind : 'HEADER',
@@ -201,7 +201,11 @@ export function AccountFormModal({
         ...form,
         englishName: form.englishName || undefined,
         accountType: form.accountType || undefined,
-        parentId: lockAsRoot ? null : lockParent ? parentAccount?.id ?? form.parentId || null : form.parentId || null,
+        parentId: lockAsRoot
+          ? null
+          : lockParent
+            ? (parentAccount?.id ?? form.parentId ?? null)
+            : (form.parentId || null),
         accountSide: form.accountSide || undefined,
         statementType: form.statementType ?? statementTypeFromAccountType(form.accountType),
         accountKind: lockAsRoot || !form.parentId ? 'HEADER' : pickerMode ? 'POSTING' : form.accountKind,

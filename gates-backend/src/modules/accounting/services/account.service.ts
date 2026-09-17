@@ -325,13 +325,16 @@ export class AccountService {
     });
     const childrenOf = new Map<string, typeof all>();
     for (const row of all) {
-      if (!row.parentId) continue;
+      if (!row.parentId || row.parentId === row.id) continue;
       const bucket = childrenOf.get(row.parentId) ?? [];
       bucket.push(row);
       childrenOf.set(row.parentId, bucket);
     }
     const out: Array<{ id: string; code: string }> = [];
+    const seen = new Set<string>();
     const walk = (id: string) => {
+      if (seen.has(id)) return;
+      seen.add(id);
       const row = all.find((account) => account.id === id);
       if (!row) return;
       out.push({ id: row.id, code: row.code });

@@ -24,6 +24,7 @@ import {
   splitTabHref,
   type PersistedAppTab,
 } from '@/lib/navigation/tab-memory';
+import { flushPageDrafts } from '@/lib/drafts/page-drafts';
 
 export type AppTab = PersistedAppTab;
 
@@ -129,6 +130,7 @@ export function AppTabsProvider({ children }: { children: ReactNode }) {
 
   const openAppTab = useCallback(
     (href: string) => {
+      flushPageDrafts();
       pinCurrentTab();
       const dest = resolveAppTabHref(href);
       const path = splitTabHref(dest).path;
@@ -149,6 +151,7 @@ export function AppTabsProvider({ children }: { children: ReactNode }) {
 
   const openFreshPage = useCallback(
     (href: string) => {
+      flushPageDrafts();
       pinCurrentTab();
       const dest = resolveAppTabHref(href);
       const path = splitTabHref(dest).path;

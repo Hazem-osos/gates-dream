@@ -278,9 +278,30 @@ function blankSalesInvoiceLine(
   };
 }
 
-function isSalesInvoiceDraftEmpty(draft: SalesInvoiceFormValues) {
-  const hasLine = (draft.lines ?? []).some((line) => Boolean(line.itemId?.trim()));
-  return !draft.customerId?.trim() && !draft.description?.trim() && !hasLine;
+type SalesInvoiceDraft = {
+  form: SalesInvoiceFormValues;
+  paymentSplits: PaymentSplitLine[];
+  invoiceExtras: InvoiceExtraRow[];
+  paymentInstallments: PaymentInstallmentRow[];
+  internalNotes: InternalNoteEntry[];
+  customerSeed: { id: string; arabicName: string; code?: string | null } | null;
+  conditions: string[];
+  isSalesTaxInvoice: boolean;
+};
+
+function isSalesInvoiceDraftEmpty(draft: SalesInvoiceDraft) {
+  const form = draft.form;
+  const hasLine = (form.lines ?? []).some((line) => Boolean(line.itemId?.trim()));
+  const hasExtras = (draft.invoiceExtras ?? []).some(
+    (row) =>
+      Boolean(row.accountId?.trim()) ||
+      Boolean(row.description?.trim()) ||
+      Number(row.discountValue) !== 0 ||
+      Number(row.additionValue) !== 0
+  );
+  const hasSplits = (draft.paymentSplits ?? []).length > 0;
+  const hasNotes = (draft.internalNotes ?? []).some((note) => String(note.body ?? '').trim());
+  return !form.customerId?.trim() && !form.description?.trim() && !hasLine && !hasExtras && !hasSplits && !hasNotes;
 }
 
 function emptySalesInvoiceDefaults(): SalesInvoiceFormValues {
@@ -322,6 +343,18 @@ function emptySalesInvoiceDefaults(): SalesInvoiceFormValues {
     developmentFeeRate: 1,
     developmentFeeFixedAmount: undefined,
     lines: [blankSalesInvoiceLine()],
+  };
+}
+
+function mergeSalesInvoiceDraft(payload: Partial<SalesInvoiceFormValues> | null | undefined): SalesInvoiceFormValues {
+  const base = emptySalesInvoiceDefaults();
+  const lines = Array.isArray(payload?.lines) && payload.lines.length
+    ? payload.lines.map((line) => ({ ...blankSalesInvoiceLine(), ...line }))
+    : base.lines;
+  return {
+    ...base,
+    ...payload,
+    lines,
   };
 }
 
@@ -549,14 +582,52 @@ function SalesInvoicePageInner() {
   } | null>(null);
 
   const draftEnabled = !selectedInvoiceId && !isPosted;
+  const salesInvoiceDraft = useMemo<SalesInvoiceDraft>(
+    () => ({
+      form: formSnapshot,
+      paymentSplits,
+      invoiceExtras,
+      paymentInstallments,
+      internalNotes,
+      customerSeed,
+      conditions,
+      isSalesTaxInvoice,
+    }),
+    [
+      conditions,
+      customerSeed,
+      formSnapshot,
+      internalNotes,
+      invoiceExtras,
+      isSalesTaxInvoice,
+      paymentInstallments,
+      paymentSplits,
+    ]
+  );
+  const applySalesInvoiceDraft = useCallback(
+    (payload: SalesInvoiceDraft) => {
+      reset(mergeSalesInvoiceDraft(payload.form));
+      setPaymentSplits(Array.isArray(payload.paymentSplits) ? payload.paymentSplits : []);
+      setInvoiceExtras(Array.isArray(payload.invoiceExtras) ? payload.invoiceExtras : []);
+      setPaymentInstallments(Array.isArray(payload.paymentInstallments) ? payload.paymentInstallments : []);
+      setInternalNotes(Array.isArray(payload.internalNotes) ? payload.internalNotes : []);
+      setCustomerSeed(payload.customerSeed ?? null);
+      setConditions(payload.conditions?.length ? payload.conditions : ['']);
+      setIsSalesTaxInvoice(Boolean(payload.isSalesTaxInvoice));
+    },
+    [reset]
+  );
   const {
     autosaveStatus,
     restoreOffer,
     acceptRestore,
     dismissRestore,
     clearDraft,
-  } = useDraftAutosave('gates:draft:sales-invoice', formSnapshot, draftEnabled, {
-    applyRestore: (payload) => reset(payload),
+  } = useDraftAutosave({
+    documentType: 'sales-invoice',
+    value: salesInvoiceDraft,
+    enabled: draftEnabled,
+    applyRestore: applySalesInvoiceDraft,
     isEmpty: isSalesInvoiceDraftEmpty,
     restoreMessage: 'تم استعادة المسودة المحفوظة',
   });
@@ -1087,6 +1158,10 @@ function SalesInvoicePageInner() {
 
   useEffect(() => {
     if (selectedInvoiceId || !txSettings) return;
+    const hasWork =
+      Boolean(getValues('customerId')?.trim()) ||
+      (getValues('lines') ?? []).some((line) => Boolean(line.itemId?.trim()));
+    if (hasWork) return;
     setIsSalesTaxInvoice(txSettings.autoApplyVat);
     persistSalesInvoiceVatDefault(txSettings.autoApplyVat);
     if (txSettings.defaultWarehouseId && !getValues('warehouseId')) {
@@ -1126,6 +1201,8 @@ function SalesInvoicePageInner() {
     setInvoiceExtras([]);
     setExtrasOpen(false);
     setInternalNotes([]);
+    setCustomerSeed(null);
+    setConditions(['']);
   }, [getValues, openInvoice, reset]);
 
   const resolveInvoiceNumber = useCallback(() => {
@@ -1598,9 +1675,14 @@ function SalesInvoicePageInner() {
 
   const handleRestoreDraft = () => {
     const payload = acceptRestore();
-    if (payload) {
-      reset(payload);
+    if (!payload) return;
+    try {
+      applySalesInvoiceDraft(payload);
       toast.success('تم استعادة المسودة المحفوظة');
+    } catch (error) {
+      toast.error('تعذر استعادة المسودة', {
+        description: error instanceof Error ? error.message : 'المسودة تالفة. تجاهلها وأنشئ فاتورة جديدة.',
+      });
     }
   };
 

@@ -55,11 +55,11 @@ export default function Error({
         <p className="text-sm text-slate-600 leading-relaxed mb-6">
           لم نتمكن من عرض هذا الجزء من التطبيق. يمكنك المحاولة مرة أخرى، أو العودة لاحقاً إذا استمرت المشكلة.
         </p>
-        {process.env.NODE_ENV === 'development' && error.message && (
+        {error.message ? (
           <p className="mb-6 rounded-lg bg-slate-50 p-3 text-right text-xs font-mono text-red-700 break-all">
             {error.message}
           </p>
-        )}
+        ) : null}
         <button
           type="button"
           onClick={() => reset()}

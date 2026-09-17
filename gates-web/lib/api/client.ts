@@ -220,6 +220,14 @@ class ApiClient {
     this.setAuthToken(null);
   }
 
+  /** Keep Edge middleware cookie aligned with the stored JWT. */
+  ensureAuthCookie(): void {
+    if (typeof window === 'undefined') return;
+    const token = this.getAuthToken();
+    if (!token) return;
+    syncAuthTokenCookie(token, Boolean(localStorage.getItem('auth_token')));
+  }
+
   /**
    * Build query string from params
    */
@@ -249,7 +257,8 @@ class ApiClient {
    */
   private async handleResponse<T>(
     response: Response,
-    cacheKey?: string
+    cacheKey?: string,
+    skipAuthExpire = false
   ): Promise<ApiResponse<T>> {
     if (response.status === 304) {
       const cached = bodyForNotModified<T>(cacheKey);
@@ -315,7 +324,7 @@ class ApiClient {
       }) as Error & ApiError;
       err.message = formatApiErrorMessage(err);
 
-      if (response.status === 401) {
+      if (response.status === 401 && !skipAuthExpire) {
         this.clearAuthToken();
         if (isAuthEnforced()) {
           redirectToLogin();
@@ -528,7 +537,9 @@ class ApiClient {
         return this.request<T>(url, { ...config, bypassConditionalGet: true });
       }
 
-      return await this.handleResponse<T>(response, cacheKey);
+      const skipAuthExpire =
+        config.skipErrorNotify === true || url.includes('/document-edit-leases/');
+      return await this.handleResponse<T>(response, cacheKey, skipAuthExpire);
     } catch (error) {
       throw normalizeFetchFailure(error);
     }
@@ -695,5 +706,8 @@ function isSilentSuccessUrl(url: string): boolean {
 
 // Export singleton instance
 export const apiClient = new ApiClient();
+if (typeof window !== 'undefined') {
+  apiClient.ensureAuthCookie();
+}
 export default apiClient;
 

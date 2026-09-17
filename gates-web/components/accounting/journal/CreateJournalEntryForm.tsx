@@ -132,7 +132,13 @@ type JournalEntryDetail = {
 const inputErrorClass = 'border-red-400 focus:ring-red-200';
 const fieldErrorClass = 'text-red-600 text-xs mt-1 block text-right';
 
-type JournalDraftSnapshot = JournalEntryFormValues & { isCyclic: boolean };
+type JournalDraftSnapshot = JournalEntryFormValues & {
+  isCyclic: boolean;
+  headerRateOverride: number | null;
+  sourceKind: JournalSourceType;
+  sourceId: string | null;
+  sourceNumber: string | null;
+};
 
 function FieldError({ message }: { message?: string }) {
   if (!message) return null;
@@ -327,6 +333,7 @@ function CreateJournalEntryFormInner() {
     {
       onSuccess: () => {
         const message = isCyclic ? 'تم حفظ القيد وإضافته للقيود الدورية' : 'تم حفظ القيد بنجاح';
+        clearDraft();
         invalidateQuery(['journal-entries']);
         invalidateQuery(['recurring-journal-entries']);
         invalidateQuery(['journal-entry-next-number']);
@@ -533,8 +540,24 @@ function CreateJournalEntryFormInner() {
       currencyId: headerCurrencyId || '',
       lines: watchedLines ?? [],
       isCyclic,
+      headerRateOverride,
+      sourceKind,
+      sourceId,
+      sourceNumber,
     }),
-    [dateW, referenceNumberW, hijriDateW, descriptionW, headerCurrencyId, watchedLines, isCyclic]
+    [
+      dateW,
+      referenceNumberW,
+      hijriDateW,
+      descriptionW,
+      headerCurrencyId,
+      watchedLines,
+      isCyclic,
+      headerRateOverride,
+      sourceKind,
+      sourceId,
+      sourceNumber,
+    ]
   );
   const isJournalDraftEmpty = useCallback((draft: JournalDraftSnapshot) => {
     return (
@@ -545,15 +568,22 @@ function CreateJournalEntryFormInner() {
 
   const applyJournalDraft = useCallback(
     (payload: JournalDraftSnapshot) => {
+      const today = new Date().toISOString().split('T')[0];
       reset({
-        date: payload.date,
-        referenceNumber: payload.referenceNumber,
-        hijriDate: payload.hijriDate,
-        description: payload.description,
-        currencyId: payload.currencyId,
-        lines: payload.lines ?? [],
+        date: payload?.date || today,
+        referenceNumber: payload?.referenceNumber ?? '',
+        hijriDate: payload?.hijriDate ?? '',
+        description: payload?.description ?? '',
+        currencyId: payload?.currencyId ?? '',
+        lines: Array.isArray(payload?.lines) ? payload.lines : [],
       });
-      setIsCyclic(Boolean(payload.isCyclic));
+      setIsCyclic(Boolean(payload?.isCyclic));
+      setHeaderRateOverride(
+        payload?.headerRateOverride == null ? null : Number(payload.headerRateOverride)
+      );
+      if (payload?.sourceKind) setSourceKind(payload.sourceKind as JournalSourceType);
+      setSourceId(payload?.sourceId ?? null);
+      setSourceNumber(payload?.sourceNumber ?? null);
     },
     [reset]
   );
@@ -563,7 +593,10 @@ function CreateJournalEntryFormInner() {
     acceptRestore,
     dismissRestore,
     clearDraft,
-  } = useDraftAutosave('gates:draft:journal-entry', draftSnapshot, !savedJournalEntryId && !isPosted, {
+  } = useDraftAutosave({
+    documentType: 'journal-entry',
+    value: draftSnapshot,
+    enabled: !savedJournalEntryId && !isPosted,
     applyRestore: applyJournalDraft,
     isEmpty: isJournalDraftEmpty,
     restoreMessage: 'تم استعادة المسودة المحفوظة',

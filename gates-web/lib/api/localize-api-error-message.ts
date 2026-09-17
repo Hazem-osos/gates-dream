@@ -32,6 +32,8 @@ const EXACT: Record<string, string> = {
   'failed to parse response': 'تعذّر قراءة استجابة الخادم',
   'request failed': 'فشل الطلب',
   'http 304: not modified': 'تعذّر تحديث البيانات المخزّنة — حدّث الصفحة.',
+  'maximum call stack size exceeded':
+    'حصل تكرار لا نهائي أثناء عرض الصفحة. حدّث الصفحة ثم أعد المحاولة.',
   'record not found.': 'السجل غير موجود',
   'item not found': 'الصنف غير موجود',
   'unit not found': 'الوحدة غير موجود',
@@ -135,6 +137,10 @@ const EXACT: Record<string, string> = {
 };
 
 const RULES: Rule[] = [
+  {
+    test: /maximum call stack size exceeded/i,
+    ar: 'حصل تكرار لا نهائي أثناء عرض الصفحة. حدّث الصفحة ثم أعد المحاولة.',
+  },
   {
     test: /negative stock not allowed/i,
     ar: 'لا يُسمح برصيد سالب — الكمية المطلوبة أكبر من المتاح في المخزن.',

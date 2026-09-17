@@ -396,15 +396,21 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
       voucherLines,
       creditLines,
       defaultCostCenterId,
+      allocations,
     }),
-    [creditLines, defaultCostCenterId, headerSnapshot, voucherLines]
+    [allocations, creditLines, defaultCostCenterId, headerSnapshot, voucherLines]
   );
   const applyVoucherDraft = useCallback(
     (payload: typeof voucherDraftSnapshot) => {
-      if (payload.header) reset(payload.header);
-      setVoucherLines(payload.voucherLines?.length ? payload.voucherLines : [emptyLine('EGP')]);
-      setCreditLines(payload.creditLines ?? []);
-      setDefaultCostCenterId(payload.defaultCostCenterId ?? '');
+      if (payload?.header && typeof payload.header === 'object') reset(payload.header);
+      setVoucherLines(
+        Array.isArray(payload?.voucherLines) && payload.voucherLines.length
+          ? payload.voucherLines
+          : [emptyLine('EGP')]
+      );
+      setCreditLines(Array.isArray(payload?.creditLines) ? payload.creditLines : []);
+      setDefaultCostCenterId(payload?.defaultCostCenterId ?? '');
+      setAllocations(Array.isArray(payload?.allocations) ? payload.allocations : []);
     },
     [reset]
   );
@@ -413,13 +419,18 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
     acceptRestore,
     dismissRestore,
     clearDraft,
-  } = useDraftAutosave(`gates:draft:voucher:${variantId}`, voucherDraftSnapshot, !savedVoucherId && !isPosted, {
+  } = useDraftAutosave({
+    documentType: 'voucher',
+    variantId,
+    value: voucherDraftSnapshot,
+    enabled: !savedVoucherId && !isPosted,
     applyRestore: applyVoucherDraft,
     isEmpty: (draft) =>
       !draft.header?.description?.trim() &&
       !draft.header?.fundId?.trim() &&
       !(draft.voucherLines ?? []).some((line) => line.accountId) &&
-      !(draft.creditLines ?? []).some((line) => line.accountId),
+      !(draft.creditLines ?? []).some((line) => line.accountId) &&
+      !(draft.allocations ?? []).length,
     restoreMessage: 'تم استعادة مسودة السند',
   });
 

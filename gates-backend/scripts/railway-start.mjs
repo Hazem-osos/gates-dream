@@ -69,11 +69,10 @@ if (!existsSync(entry)) {
   process.exit(1);
 }
 
-const child = spawn('npx', ['tsx', entry], {
-  cwd: root,
-  env: process.env,
-  stdio: 'inherit',
-});
+const tsxBin = path.join(root, 'node_modules/.bin/tsx');
+const child = existsSync(tsxBin)
+  ? spawn(tsxBin, [entry], { cwd: root, env: process.env, stdio: 'inherit' })
+  : spawn('npx', ['tsx', entry], { cwd: root, env: process.env, stdio: 'inherit' });
 
 let shuttingDown = false;
 const shutdown = (signal) => {

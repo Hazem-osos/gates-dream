@@ -4,7 +4,7 @@ import { IoClose } from "react-icons/io5";
 import { normalizeAppPath } from '@/lib/navigation/app-module-root';
 import { resolveTabLabel } from '@/lib/navigation/tab-labels';
 import { useAppTabs } from './AppTabsContext';
-import { flushPageDrafts, markQcReturn } from '@/lib/drafts/page-drafts';
+import { flushPageDrafts } from '@/lib/drafts/page-drafts';
 
 export default function AppTabs() {
   const pathname = usePathname();
@@ -47,7 +47,6 @@ export default function AppTabs() {
             onClick={() => {
               if (tab.path !== activeTab) {
                 flushPageDrafts();
-                markQcReturn(activeTab);
                 ctx?.pinCurrentTab();
               }
               router.push(tab.href || tab.path);

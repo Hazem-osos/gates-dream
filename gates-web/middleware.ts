@@ -28,11 +28,23 @@ function hasSession(request: NextRequest): boolean {
   return AUTH_TOKEN_COOKIE_ALIASES.some((name) => Boolean(request.cookies.get(name)?.value));
 }
 
+function isClientRouterRequest(request: NextRequest): boolean {
+  return (
+    request.headers.get('RSC') === '1' ||
+    Boolean(request.headers.get('Next-Router-State-Tree')) ||
+    Boolean(request.headers.get('Next-Router-Prefetch'))
+  );
+}
+
 export function middleware(request: NextRequest) {
   if (!authGateEnabled()) return NextResponse.next();
 
   const { pathname, search } = request.nextUrl;
   if (isPublicPath(pathname) || hasSession(request)) return NextResponse.next();
+
+  // Client navigations (save URL replace, tab switch) already have the ERP shell.
+  // Redirecting those Flight requests to /login HTML throws a client exception.
+  if (isClientRouterRequest(request)) return NextResponse.next();
 
   const loginUrl = new URL('/login', request.url);
   loginUrl.searchParams.set('redirect', `${pathname}${search}`);

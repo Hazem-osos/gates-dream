@@ -132,11 +132,20 @@ type PurchaseInvoiceDraft = {
   sourceType: string;
   sourceId: string;
   sourceNumber: string;
+  freightAmount: number;
+  supplierDiscountAmount: number;
+  paymentSplits: PaymentSplitLine[];
+  paymentInstallments: PaymentInstallmentRow[];
+  internalNotes: InternalNoteEntry[];
+  isSalesTaxInvoice: boolean;
 };
 
 function isPurchaseInvoiceDraftEmpty(draft: PurchaseInvoiceDraft) {
   const hasLine = (draft.invoiceLines ?? []).some((line) => Boolean(line.itemId?.trim()));
-  return !draft.supplierId?.trim() && !draft.description?.trim() && !hasLine;
+  const hasNotes = (draft.internalNotes ?? []).some((note) => String(note.body ?? '').trim());
+  const hasMoney =
+    Number(draft.freightAmount) !== 0 || Number(draft.supplierDiscountAmount) !== 0;
+  return !draft.supplierId?.trim() && !draft.description?.trim() && !hasLine && !hasNotes && !hasMoney;
 }
 
 function invoiceRemainingForCollect(inv: Record<string, unknown> | undefined): number | null {
@@ -274,6 +283,12 @@ function FinalPurchaseInvoicePageInner() {
       sourceType,
       sourceId,
       sourceNumber,
+      freightAmount,
+      supplierDiscountAmount,
+      paymentSplits,
+      paymentInstallments,
+      internalNotes,
+      isSalesTaxInvoice,
     }),
     [
       invoiceNumber,
@@ -292,6 +307,12 @@ function FinalPurchaseInvoicePageInner() {
       sourceType,
       sourceId,
       sourceNumber,
+      freightAmount,
+      supplierDiscountAmount,
+      paymentSplits,
+      paymentInstallments,
+      internalNotes,
+      isSalesTaxInvoice,
     ]
   );
 
@@ -312,6 +333,12 @@ function FinalPurchaseInvoicePageInner() {
     setSourceType(payload.sourceType ?? '');
     setSourceId(payload.sourceId ?? '');
     setSourceNumber(payload.sourceNumber ?? '');
+    setFreightAmount(Number(payload.freightAmount) || 0);
+    setSupplierDiscountAmount(Number(payload.supplierDiscountAmount) || 0);
+    setPaymentSplits(Array.isArray(payload.paymentSplits) ? payload.paymentSplits : []);
+    setPaymentInstallments(Array.isArray(payload.paymentInstallments) ? payload.paymentInstallments : []);
+    setInternalNotes(Array.isArray(payload.internalNotes) ? payload.internalNotes : []);
+    setIsSalesTaxInvoice(payload.isSalesTaxInvoice !== false);
   }, []);
 
   const draftEnabled = !selectedInvoiceId && !isPosted;
@@ -321,7 +348,10 @@ function FinalPurchaseInvoicePageInner() {
     acceptRestore,
     dismissRestore,
     clearDraft,
-  } = useDraftAutosave('gates:draft:purchase-invoice', draftSnapshot, draftEnabled, {
+  } = useDraftAutosave({
+    documentType: 'purchase-invoice',
+    value: draftSnapshot,
+    enabled: draftEnabled,
     applyRestore: applyPurchaseDraft,
     isEmpty: isPurchaseInvoiceDraftEmpty,
     restoreMessage: 'تم استعادة مسودة فاتورة المشتريات',
@@ -587,6 +617,9 @@ function FinalPurchaseInvoicePageInner() {
     setPaymentSplits([]);
     setPaymentInstallments([]);
     setInternalNotes([]);
+    setFreightAmount(0);
+    setSupplierDiscountAmount(0);
+    setIsSalesTaxInvoice(true);
     setPricingCalculationBasis(
       parsePricingCalculationBasis(companySettingsRes?.data?.pricingCalculationBasis)
     );

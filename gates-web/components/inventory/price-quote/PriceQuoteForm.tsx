@@ -155,7 +155,10 @@ export function PriceQuoteForm() {
     acceptRestore,
     dismissRestore,
     clearDraft,
-  } = useDraftAutosave('gates:draft:price-quote', priceQuoteDraft, !selectedId, {
+  } = useDraftAutosave({
+    documentType: 'price-quote',
+    value: priceQuoteDraft,
+    enabled: !selectedId,
     applyRestore: applyPriceQuoteDraft,
     isEmpty: (draft) =>
       !draft.customerId?.trim() &&

@@ -1,4 +1,5 @@
 import { normalizeAppPath } from '@/lib/navigation/app-module-root';
+import { flushPageDrafts } from '@/lib/drafts/page-drafts';
 
 const HREF_KEY = 'gates:tab-hrefs';
 const SEARCH_KEY = 'gates:tab-search';
@@ -79,6 +80,7 @@ export function resolveAppTabHref(href: string): string {
 
 /** Pin the page you are leaving, then go to the destination as given. */
 export function destinationAppTabHref(href: string): string {
+  flushPageDrafts();
   pinCurrentWindowHref();
   return resolveAppTabHref(href);
 }
