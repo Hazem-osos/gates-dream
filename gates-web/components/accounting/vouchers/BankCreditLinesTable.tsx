@@ -14,6 +14,7 @@ type Props = {
   baseCurrency?: string;
   showFx?: boolean;
   accountColumnLabel?: string;
+  headerDescription?: string;
 };
 
 export function BankCreditLinesTable({

@@ -71,7 +71,7 @@ export function extraRowPartyImpact(
   baseSubtotal: number,
   invoiceExchangeRate = 1
 ): number {
-  if (row.offsetAccountId.trim()) return 0;
+  if (String(row.offsetAccountId ?? '').trim()) return 0;
   const addition = sideAmount(
     row.additionValue,
     row.additionCalcType,
@@ -106,7 +106,7 @@ export function extrasFromApi(rows: InvoiceAdjustmentApiRow[] | undefined): Invo
     const entered = calcType === 'PERCENTAGE' ? Number(row.rate ?? 0) : Number(row.amount ?? 0);
     return {
       key: row.id ?? emptyInvoiceExtraRow().key,
-      accountId: row.accountId,
+      accountId: row.accountId ?? '',
       discountValue: row.type === 'DEDUCTION' && entered > 0 ? entered : '',
       discountCalcType: calcType,
       additionValue: row.type === 'ADDITION' && entered > 0 ? entered : '',
@@ -123,7 +123,7 @@ export function extrasFromApi(rows: InvoiceAdjustmentApiRow[] | undefined): Invo
 export function extrasToApi(rows: InvoiceExtraRow[]): InvoiceAdjustmentApiRow[] {
   const payload: InvoiceAdjustmentApiRow[] = [];
   for (const row of rows) {
-    if (!row.accountId.trim()) continue;
+    if (!String(row.accountId ?? '').trim()) continue;
     const addition = parseDecimal(row.additionValue);
     const discount = parseDecimal(row.discountValue);
     if (addition > 0) {
@@ -132,12 +132,12 @@ export function extrasToApi(rows: InvoiceExtraRow[]): InvoiceAdjustmentApiRow[] 
         calcType: row.additionCalcType,
         rate: row.additionCalcType === 'PERCENTAGE' ? addition : null,
         amount: row.additionCalcType === 'FIXED' ? addition : 0,
-        description: row.description.trim() || null,
+        description: String(row.description ?? '').trim() || null,
         currency: row.currency || 'EGP',
         exchangeRate: parseDecimal(row.exchangeRate) || 1,
         accountId: row.accountId,
-        offsetAccountId: row.offsetAccountId.trim() || null,
-        costCenterId: row.costCenterId.trim() || null,
+        offsetAccountId: String(row.offsetAccountId ?? '').trim() || null,
+        costCenterId: String(row.costCenterId ?? '').trim() || null,
       });
     }
     if (discount > 0) {
@@ -146,12 +146,12 @@ export function extrasToApi(rows: InvoiceExtraRow[]): InvoiceAdjustmentApiRow[] 
         calcType: row.discountCalcType,
         rate: row.discountCalcType === 'PERCENTAGE' ? discount : null,
         amount: row.discountCalcType === 'FIXED' ? discount : 0,
-        description: row.description.trim() || null,
+        description: String(row.description ?? '').trim() || null,
         currency: row.currency || 'EGP',
         exchangeRate: parseDecimal(row.exchangeRate) || 1,
         accountId: row.accountId,
-        offsetAccountId: row.offsetAccountId.trim() || null,
-        costCenterId: row.costCenterId.trim() || null,
+        offsetAccountId: String(row.offsetAccountId ?? '').trim() || null,
+        costCenterId: String(row.costCenterId ?? '').trim() || null,
       });
     }
   }

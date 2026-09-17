@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useAppTabs } from '@/app/components/AppTabsContext';
 import {
   Receipt,
   Package,
@@ -53,6 +54,7 @@ function roleLabel(roles: string[] | undefined, groupName: string | undefined): 
 
 export function WorkspaceSidebarHub({ collapsed = false }: Props) {
   const router = useRouter();
+  const tabs = useAppTabs();
   const { profile, displayName, email, avatarSrc, isLoading } = useCurrentUserProfile();
   const { profile: companyProfile } = useCompanyPrintProfile();
   const { favorites } = usePageFavorites();
@@ -77,7 +79,8 @@ export function WorkspaceSidebarHub({ collapsed = false }: Props) {
 
   const navigate = (href: string) => {
     dispatchCollapseNavSidebar();
-    router.push(href);
+    if (tabs) tabs.openFreshPage(href);
+    else router.push(href);
   };
 
   const toggleGroup = (id: string) => {

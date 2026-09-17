@@ -69,6 +69,26 @@ router.get(
 );
 
 /**
+ * GET /api/v1/accounting/delegates/next-code
+ */
+router.get(
+  '/next-code',
+  authorize({ resource: 'delegate', action: 'view' }),
+  async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      const companyId = req.companyId || req.tenantId;
+      if (!companyId) {
+        return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
+      }
+      const serial = await delegateService.nextDelegateCode(companyId);
+      return void res.json({ status: 'success', data: { serial } });
+    } catch (error) {
+      return next(error);
+    }
+  }
+);
+
+/**
  * GET /api/v1/accounting/delegates/:id
  * Get delegate by ID
  */

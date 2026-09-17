@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { GATES_TOUR_INTERRUPT_EVENT } from '@/components/onboarding/ProductTourProvider';
 import { Command } from 'cmdk';
 import { useRouter } from 'next/navigation';
+import { useAppTabs } from '@/app/components/AppTabsContext';
 import { destinationAppTabHref } from '@/lib/navigation/tab-memory';
 import { useApiQuery } from '@/lib/hooks/useApi';
 import { useDebouncedValue } from '@/lib/hooks/useDebouncedValue';
@@ -40,6 +41,7 @@ type InvoiceSearchRow = {
 
 export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   const router = useRouter();
+  const tabs = useAppTabs();
   const [query, setQuery] = useState('');
   const debouncedEntity = useDebouncedValue(query, 200);
   const { favorites } = usePageFavorites();
@@ -110,9 +112,10 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
       }
       pushRecent({ id: id ?? href, label, href });
       onOpenChange(false);
-      router.push(destinationAppTabHref(href));
+      if (tabs) tabs.openFreshPage(href);
+      else router.push(destinationAppTabHref(href));
     },
-    [onOpenChange, router, pushRecent]
+    [onOpenChange, router, pushRecent, tabs]
   );
 
   const renderCommandLabel = (label: string, href?: string) => {

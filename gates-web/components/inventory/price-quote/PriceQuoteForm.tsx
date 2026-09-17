@@ -511,7 +511,11 @@ export function PriceQuoteForm() {
         />
 
         <div className="mt-3">
-          <CommercialLinesTable lines={lines} onChange={setLines} />
+          <CommercialLinesTable
+            lines={lines}
+            onChange={setLines}
+            headerDescription={description}
+          />
         </div>
 
         <div className="sticky bottom-0 z-30 mt-auto flex w-full flex-wrap items-center justify-between gap-3 border-t border-border/80 bg-background/95 px-6 py-3 shadow-lg backdrop-blur-md">

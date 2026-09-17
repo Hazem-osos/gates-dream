@@ -21,11 +21,37 @@ export class ReconciliationService {
     params: {
       customerId?: string;
       supplierId?: string;
+      accountId?: string;
       side?: 'receivable' | 'payable';
     }
   ) {
     const side = params.side ?? (params.supplierId ? 'payable' : 'receivable');
     const kinds = sideKinds(side);
+    if (!params.customerId && !params.supplierId && !params.accountId) {
+      return [];
+    }
+
+    const accountPartyFilter = params.accountId
+      ? side === 'receivable'
+        ? await prisma.customer.findMany({
+            where: {
+              companyId,
+              OR: [{ mainAccountId: params.accountId }, { accountId: params.accountId }],
+            },
+            select: { id: true },
+          })
+        : await prisma.supplier.findMany({
+            where: {
+              companyId,
+              OR: [{ mainAccountId: params.accountId }, { accountId: params.accountId }],
+            },
+            select: { id: true },
+          })
+      : [];
+
+    if (params.accountId && !params.customerId && !params.supplierId && accountPartyFilter.length === 0) {
+      return [];
+    }
 
     const where = {
       companyId,
@@ -35,6 +61,11 @@ export class ReconciliationService {
       invoiceKind: { in: kinds as string[] },
       ...(params.customerId ? { customerId: params.customerId } : {}),
       ...(params.supplierId ? { supplierId: params.supplierId } : {}),
+      ...(!params.customerId && !params.supplierId && params.accountId
+        ? side === 'receivable'
+          ? { customerId: { in: accountPartyFilter.map((row) => row.id) } }
+          : { supplierId: { in: accountPartyFilter.map((row) => row.id) } }
+        : {}),
     };
 
     return prisma.invoice.findMany({

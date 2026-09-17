@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { FilterToolbar, Button } from '@/components/ui';
 import { ErpDocumentLayout, ErpDocumentPageHeader } from '@/components/erp';
 import { MasterGuideTree } from '@/components/accounting/guide/MasterGuideTree';
-import { DistributionAddDialog } from '@/components/accounting/DistributionAddDialog';
+import { DistributionAddDialog, type DistributionFolderRole } from '@/components/accounting/DistributionAddDialog';
 import { DistributionGroupModal } from '@/components/accounting/DistributionGroupModal';
 import { staffCardHref, type StaffCardKind } from '@/components/accounting/StaffCardKindDialog';
 import { buildParentTree, groupAsFolders, type GuideTreeNode } from '@/lib/accounting/buildGuideTree';
@@ -23,27 +23,44 @@ type DelegateRow = {
   phone1?: string | null;
   mobile?: string | null;
   groupId?: string | null;
-  role?: 'DELEGATE' | 'DISTRIBUTOR' | 'DRIVER' | 'GROUP' | string;
+  role?: string;
 };
 
 const PAGE_TITLE = 'دليل المندوبين والتوزيع';
 
+function isGroupRole(role?: string) {
+  return Boolean(role && role.startsWith('GROUP'));
+}
+
+function folderRoleOf(role?: string): DistributionFolderRole {
+  if (role === 'DRIVER' || role === 'GROUP_DRIVER') return 'DRIVER';
+  if (role === 'DISTRIBUTOR' || role === 'GROUP_DISTRIBUTOR') return 'DISTRIBUTOR';
+  return 'DELEGATE';
+}
+
 function staffKindFromRole(role?: string): StaffCardKind {
-  if (role === 'DISTRIBUTOR') return 'distributor';
-  if (role === 'DRIVER') return 'driver';
+  const folder = folderRoleOf(role);
+  if (folder === 'DISTRIBUTOR') return 'distributor';
+  if (folder === 'DRIVER') return 'driver';
   return 'delegate';
 }
 
 function roleLabel(role?: string) {
-  if (role === 'GROUP') return 'مجموعة';
+  if (isGroupRole(role)) return 'مجموعة';
   if (role === 'DISTRIBUTOR') return 'موزع';
   if (role === 'DRIVER') return 'سائق';
   return 'مندوب';
 }
 
+const ROLE_TONES: Record<DistributionFolderRole, number> = {
+  DRIVER: 2,
+  DISTRIBUTOR: 4,
+  DELEGATE: 0,
+};
+
 const ROLE_FOLDERS: Array<{
   id: string;
-  role: 'DRIVER' | 'DISTRIBUTOR' | 'DELEGATE';
+  role: DistributionFolderRole;
   code: string;
   name: string;
 }> = [
@@ -52,14 +69,64 @@ const ROLE_FOLDERS: Array<{
   { id: 'role:DELEGATE', role: 'DELEGATE', code: 'DEL', name: 'مندوب' },
 ];
 
+function withTone(node: GuideTreeNode, toneIndex: number): GuideTreeNode {
+  return {
+    ...node,
+    toneIndex,
+    children: node.children?.map((child) => withTone(child, toneIndex)),
+  };
+}
+
 function personNode(row: DelegateRow): GuideTreeNode {
   return {
     id: row.id,
     code: row.code || row.serial || '—',
     name: row.arabicName,
     subtitle: row.mobile || row.phone1 || undefined,
-    groupKey: row.role && row.role !== 'GROUP' ? row.role : 'DELEGATE',
+    groupKey: folderRoleOf(row.role),
+    toneIndex: ROLE_TONES[folderRoleOf(row.role)],
   };
+}
+
+function attachPeopleToGroups(groupNodes: GuideTreeNode[], people: DelegateRow[]) {
+  const index = new Map<string, GuideTreeNode>();
+  const walk = (nodes: GuideTreeNode[]) => {
+    for (const node of nodes) {
+      index.set(node.id, node);
+      if (node.children?.length) walk(node.children);
+    }
+  };
+  walk(groupNodes);
+
+  const loose: GuideTreeNode[] = [];
+  for (const person of people) {
+    const node = personNode(person);
+    const parent = person.groupId ? index.get(person.groupId) : undefined;
+    if (parent) {
+      parent.children = [...(parent.children ?? []), node];
+    } else {
+      loose.push(node);
+    }
+  }
+  return { folders: groupNodes, loose };
+}
+
+function roleFolderNode(role: DistributionFolderRole): GuideTreeNode {
+  const folder = ROLE_FOLDERS.find((item) => item.role === role)!;
+  return {
+    id: folder.id,
+    code: folder.code,
+    name: folder.name,
+    folder: true,
+    synthetic: true,
+    groupKey: folder.role,
+    toneIndex: ROLE_TONES[folder.role],
+  };
+}
+
+function realParentId(node?: GuideTreeNode | null) {
+  if (!node || node.synthetic || node.id.startsWith('role:')) return null;
+  return node.id;
 }
 
 export default function RepresentativesGuidePage() {
@@ -78,27 +145,54 @@ export default function RepresentativesGuidePage() {
   const [expandToken, setExpandToken] = useState(0);
   const [collapseToken, setCollapseToken] = useState(0);
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [pickerStep, setPickerStep] = useState<'node' | 'person'>('node');
+  const [pickerStep, setPickerStep] = useState<'folder' | 'node' | 'person'>('folder');
   const [parentGroup, setParentGroup] = useState<GuideTreeNode | null>(null);
   const [groupModalOpen, setGroupModalOpen] = useState(false);
-  const [editGroup, setEditGroup] = useState<{ id: string; code: string; arabicName: string } | null>(null);
+  const [editGroup, setEditGroup] = useState<{
+    id: string;
+    code: string;
+    arabicName: string;
+    folderRole: DistributionFolderRole;
+  } | null>(null);
 
-  const tree = useMemo(
-    () =>
-      buildParentTree(
-        rows.map((r) => ({ ...r, parentId: r.groupId ?? null })),
-        (item, children) => ({
-          id: item.id,
-          code: item.code || item.serial || '—',
-          name: item.arabicName,
-          subtitle: roleLabel(item.role),
-          folder: item.role === 'GROUP',
-          groupKey: item.role,
-          children,
-        })
-      ),
-    [rows]
-  );
+  const tree = useMemo(() => {
+    const people = rows.filter((row) => !isGroupRole(row.role));
+    const groups = rows.filter((row) => isGroupRole(row.role));
+
+    return groupAsFolders(
+      ROLE_FOLDERS.map((folder) => {
+        const roleGroups = groups.filter((row) => folderRoleOf(row.role) === folder.role);
+        const rolePeople = people.filter((row) => folderRoleOf(row.role) === folder.role);
+        const toneIndex = ROLE_TONES[folder.role];
+        const groupTree = buildParentTree(
+          roleGroups.map((row) => ({ ...row, parentId: row.groupId ?? null })),
+          (item, children) =>
+            withTone(
+              {
+                id: item.id,
+                code: item.code || item.serial || '—',
+                name: item.arabicName,
+                subtitle: roleLabel(item.role),
+                folder: true,
+                groupKey: folder.role,
+                children,
+              },
+              toneIndex
+            )
+        );
+        const { folders, loose } = attachPeopleToGroups(groupTree, rolePeople);
+        return {
+          id: folder.id,
+          code: folder.code,
+          name: folder.name,
+          groupKey: folder.role,
+          toneIndex,
+          children: [...folders, ...loose].map((child) => withTone(child, toneIndex)),
+        };
+      }),
+      { keepEmpty: true }
+    );
+  }, [rows]);
 
   const openCard = (href: string) => {
     if (tabs) {
@@ -109,28 +203,34 @@ export default function RepresentativesGuidePage() {
   };
 
   const startAdd = (parent?: GuideTreeNode) => {
-    if (parent && !parent.folder && parent.groupKey !== 'GROUP') {
-      toast.error('الفرد لا يُفرَّع منه', { description: 'اختَر مجلد سائق / موزع / مندوب، أو مجموعة.' });
+    if (parent && !parent.folder) {
+      toast.error('الفرد لا يُفرَّع منه', { description: 'اختَر مجلد سائق / موزع / مندوب، أو مجموعة تحته.' });
       return;
     }
-    if (parent?.synthetic && parent.groupKey && parent.groupKey !== 'GROUP') {
-      openCard(staffCardHref(staffKindFromRole(parent.groupKey)));
-      return;
+    if (parent) {
+      setParentGroup(parent);
+      setPickerStep('node');
+    } else {
+      setParentGroup(null);
+      setPickerStep('folder');
     }
-    setParentGroup(parent && (parent.folder || parent.groupKey === 'GROUP') ? parent : null);
-    setPickerStep('node');
     setPickerOpen(true);
   };
 
   const openPersonCard = (kind: StaffCardKind) => {
     setPickerOpen(false);
-    openCard(staffCardHref(kind, null, { groupId: parentGroup?.id }));
+    openCard(staffCardHref(kind, null, { groupId: realParentId(parentGroup) }));
   };
 
   const openEdit = (node: GuideTreeNode) => {
-    if (node.folder || node.groupKey === 'GROUP') {
-      setEditGroup({ id: node.id, code: node.code === '—' ? '' : node.code, arabicName: node.name });
-      setParentGroup(null);
+    if (node.folder && !node.synthetic) {
+      setEditGroup({
+        id: node.id,
+        code: node.code === '—' ? '' : node.code,
+        arabicName: node.name,
+        folderRole: folderRoleOf(node.groupKey),
+      });
+      setParentGroup(node);
       setGroupModalOpen(true);
       return;
     }
@@ -138,15 +238,16 @@ export default function RepresentativesGuidePage() {
   };
 
   const openView = (node: GuideTreeNode) => {
-    if (node.folder || node.synthetic || node.groupKey === 'GROUP') return;
+    if (node.folder || node.synthetic) return;
     openCard(staffCardHref(staffKindFromRole(node.groupKey), node.id, { mode: 'view' }));
   };
 
   const handleDelete = async (node: GuideTreeNode) => {
+    if (node.synthetic) return;
     if (!(await confirmAction(`حذف «${node.name}»؟`))) return;
     try {
       await apiClient.delete(`/accounting/delegates/${node.id}`);
-      toast.success(node.folder || node.groupKey === 'GROUP' ? 'تم حذف المجموعة' : 'تم حذف الفرد');
+      toast.success(node.folder ? 'تم حذف المجموعة' : 'تم حذف الفرد');
       invalidate(['delegates']);
       void refetch();
     } catch (e) {
@@ -155,6 +256,8 @@ export default function RepresentativesGuidePage() {
       });
     }
   };
+
+  const activeFolderRole = folderRoleOf(parentGroup?.groupKey || editGroup?.folderRole);
 
   return (
     <ErpDocumentLayout className="coa-page">
@@ -206,7 +309,7 @@ export default function RepresentativesGuidePage() {
             collapseAllToken={collapseToken}
             childNoun="فرع"
             onAddChild={startAdd}
-            canAddChild={(n) => Boolean(n.folder || n.groupKey === 'GROUP')}
+            canAddChild={(n) => Boolean(n.folder)}
             onView={openView}
             onEdit={openEdit}
             onDelete={(n) => void handleDelete(n)}
@@ -217,8 +320,16 @@ export default function RepresentativesGuidePage() {
       <DistributionAddDialog
         open={pickerOpen}
         parentLabel={parentGroup ? `${parentGroup.code} — ${parentGroup.name}` : null}
+        folderRole={parentGroup ? folderRoleOf(parentGroup.groupKey) : null}
         step={pickerStep}
-        onStepChange={setPickerStep}
+        onStepChange={(step) => {
+          setPickerStep(step);
+          if (step === 'folder') setParentGroup(null);
+        }}
+        onPickFolder={(role) => {
+          setParentGroup(roleFolderNode(role));
+          setPickerStep('node');
+        }}
         onPickGroup={() => {
           setPickerOpen(false);
           setEditGroup(null);
@@ -226,13 +337,21 @@ export default function RepresentativesGuidePage() {
         }}
         onPickPerson={openPersonCard}
         onClose={() => setPickerOpen(false)}
+        canPickFolder={!parentGroup || Boolean(parentGroup.synthetic)}
       />
 
       {groupModalOpen ? (
         <DistributionGroupModal
           open
-          parentId={editGroup ? null : parentGroup?.id}
-          parentLabel={editGroup ? null : parentGroup ? `${parentGroup.code} — ${parentGroup.name}` : null}
+          parentId={editGroup ? null : realParentId(parentGroup)}
+          parentLabel={
+            editGroup
+              ? null
+              : parentGroup
+                ? `${parentGroup.code} — ${parentGroup.name}`
+                : null
+          }
+          folderRole={activeFolderRole}
           initial={editGroup}
           onClose={() => {
             setGroupModalOpen(false);

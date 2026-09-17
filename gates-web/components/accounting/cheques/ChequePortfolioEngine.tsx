@@ -9,6 +9,7 @@ import { DocumentBrowseDrawer } from '@/components/erp/DocumentBrowseDrawer';
 import { GenericRecordsList, type GenericRecordColumn, type GenericRecordRow } from '@/components/erp/GenericRecordsList';
 import { erpInputClass, erpLabelClass } from '@/components/erp/erpUiTokens';
 import { Button, FormCard } from '@/components/ui';
+import { DatePickerWithHijri } from '@/components/ui/DatePickerWithHijri';
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
 import { toHijri } from '@/lib/dates/hijri';
@@ -484,6 +485,7 @@ export function ChequePortfolioEngine({ direction }: Props) {
           { label: inward ? 'أوراق القبض' : 'أوراق الدفع' },
         ]}
         title={title}
+        currentId={selectedId}
         docNumber={form.chequeNumber || undefined}
         statusTone={status && isChequeStatus(status) ? CHEQUE_STATUS_TONE[status] : 'info'}
         statusLabel={status && isChequeStatus(status) ? CHEQUE_STATUS_LABEL[status] : 'جديد'}
@@ -576,9 +578,8 @@ export function ChequePortfolioEngine({ direction }: Props) {
             onChange={(bankName) => setForm((p) => ({ ...p, bankName }))}
             disabled={readOnly}
           />
-          <Field
+          <DatePickerWithHijri
             label="تاريخ الاستحقاق"
-            type="date"
             value={form.dueDate}
             onChange={(dueDate) => setForm((p) => ({ ...p, dueDate }))}
             disabled={readOnly}

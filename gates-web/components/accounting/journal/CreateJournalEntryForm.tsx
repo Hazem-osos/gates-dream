@@ -241,11 +241,19 @@ function CreateJournalEntryFormInner() {
   const currencies = useMemo(() => currenciesResponse?.data || [], [currenciesResponse?.data]);
   const { code: companyBaseCurrency } = useCompanyBaseCurrency();
 
+  const validSavedJournalId =
+    savedJournalEntryId &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      savedJournalEntryId
+    )
+      ? savedJournalEntryId
+      : null;
+
   const { data: journalEntryResponse } = useApiQuery<JournalEntryDetail>(
-    ['journal-entry', savedJournalEntryId],
-    `/accounting/journal-entries/${savedJournalEntryId}`,
+    ['journal-entry', validSavedJournalId],
+    `/accounting/journal-entries/${validSavedJournalId}`,
     undefined,
-    { enabled: !!savedJournalEntryId }
+    { enabled: Boolean(validSavedJournalId), retry: false, skipErrorNotify: true }
   );
   const loadedJournalEntry = journalEntryResponse?.data;
 
@@ -685,7 +693,7 @@ function CreateJournalEntryFormInner() {
     const diff = headerRate > 0 ? diffBase / headerRate : diffBase;
     append({
       accountId: '',
-      description: '',
+      description: getValues('description') || '',
       debit: diff < -0.005 ? Math.round(Math.abs(diff) * 100) / 100 : 0,
       credit: diff > 0.005 ? Math.round(diff * 100) / 100 : 0,
       currencyId: cur || undefined,
@@ -758,22 +766,6 @@ function CreateJournalEntryFormInner() {
     } else {
       skipUrlHydrateRef.current = false;
     }
-  };
-
-  const handleDuplicate = () => {
-    setSavedJournalEntryId(null);
-    setLoadedVersion(undefined);
-    setIsPosted(false);
-    setIsCancelled(false);
-    setIsApproved(false);
-    setVoucherStatus('غير مرحل');
-    setSourceKind('MANUAL');
-    setSourceId(null);
-    setSourceNumber(null);
-    setValue('referenceNumber', '', { shouldDirty: true });
-    router.replace('/accounting/operations/journal-entry', { scroll: false });
-    setMode('create');
-    setSuccess('تم تكرار القيد — راجع البيانات ثم احفظ');
   };
 
   const triggerPrint = () => {
@@ -884,8 +876,6 @@ function CreateJournalEntryFormInner() {
           unpostPending: unpostJournalMutation.isPending,
           onPrint: triggerPrint,
           printLabel: 'طباعة قيد اليومية',
-          onDuplicate: handleDuplicate,
-          duplicateLabel: 'تكرار القيد',
           onVoid: () => cancelJournalMutation.mutate({}),
           voidLabel: 'إلغاء القيد',
           voidPending: cancelJournalMutation.isPending,
@@ -1039,6 +1029,7 @@ function CreateJournalEntryFormInner() {
           currencies={currencies}
           defaultCurrencyId={headerCurrencyId}
           showFx={showFxColumns}
+          headerDescription={descriptionW}
           accountLabelFor={(accountId) => {
             const acc = accounts.find((a) => a.id === accountId);
             return acc ? `[${acc.code}] ${acc.arabicName}` : undefined;

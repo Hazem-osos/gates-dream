@@ -82,7 +82,7 @@ export class TenantProvisioningService {
     const headerCodes = new Set(
       templateRows.map((row) => row.parentCode).filter((code): code is string => Boolean(code))
     );
-    for (const control of ['1121', '2111']) headerCodes.add(control);
+    for (const control of ['1112', '1121', '2111']) headerCodes.add(control);
 
     const existing = await tx.account.count({
       where: { companyId, deletedAt: null },

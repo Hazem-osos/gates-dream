@@ -17,8 +17,9 @@ export const APP_TAB_MODULE_ROOTS = [
   '/pos',
 ] as const;
 
-export function normalizeAppPath(path: string): string {
-  const base = path.split('?')[0]?.split('#')[0] ?? path;
+export function normalizeAppPath(path: string | null | undefined): string {
+  const raw = typeof path === 'string' ? path : '';
+  const base = raw.split('?')[0]?.split('#')[0] ?? raw;
   if (base.length > 1 && base.endsWith('/')) return base.slice(0, -1);
   return base || '/';
 }

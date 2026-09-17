@@ -119,7 +119,18 @@ export const authenticate: RequestHandler = async (
     if (err instanceof AppError) {
       return next(err);
     }
-    logger.error({ err }, 'Unexpected error during authentication');
+    const message = err instanceof Error ? err.message : String(err);
+    const expectedAuth =
+      /invalid or expired token|invalid token|missing kid|jwt expired|jwt malformed|not initialised|failed to fetch signing key/i.test(
+        message
+      );
+    if (expectedAuth) {
+      logger.warn({ message }, 'Authentication rejected');
+    } else if (/disconnect|server has gone away|closed|Can't reach database|Prisma/i.test(message)) {
+      logger.warn({ err }, 'Authentication skipped — database connection dropped');
+    } else {
+      logger.error({ err }, 'Unexpected error during authentication');
+    }
     next(new AppError(401, 'Invalid or expired token'));
   }
 };

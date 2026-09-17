@@ -20,6 +20,7 @@ import { ExchangeRateInput } from '@/components/accounting/ExchangeRateInput';
 import { VoucherAccountCombobox } from './VoucherAccountCombobox';
 import { costCenterRuleFromAccount } from '@/lib/accounting/cost-center-rule';
 import { useAccountsQuery } from '@/lib/hooks/useMasterDataQueries';
+import { useFollowHeaderDescription } from '@/lib/hooks/useFollowHeaderDescription';
 
 export type VoucherLineCurrency = {
   id: string;
@@ -54,6 +55,7 @@ type Props = {
   currencies?: VoucherLineCurrency[];
   headerCurrencyCode?: string;
   showFx?: boolean;
+  headerDescription?: string;
 };
 
 function formatAmountInput(value: number) {
@@ -73,6 +75,7 @@ export function VoucherLinesGrid({
   currencies = [],
   headerCurrencyCode,
   showFx = true,
+  headerDescription = '',
 }: Props) {
   const { code: companyBase, label: companyBaseLabel } = useCompanyBaseCurrency();
   const { data: accountsRes } = useAccountsQuery(undefined, 500, { leafOnly: true });
@@ -88,6 +91,16 @@ export function VoucherLinesGrid({
     companyBase,
     currencies.find((c) => c.code === headerCode)?.exchangeRate
   );
+
+  useFollowHeaderDescription({
+    headerDescription,
+    lines,
+    onChange,
+    getDescription: (line) => line.description,
+    setDescription: (line, value) => ({ ...line, description: value }),
+    disabled,
+  });
+
   const updateLine = (index: number, patch: Partial<VoucherGridLine>) => {
     onChange(lines.map((line, i) => (i === index ? { ...line, ...patch } : line)));
   };

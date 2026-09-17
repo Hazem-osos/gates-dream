@@ -14,6 +14,7 @@ import type { EditableJournalLine } from '@/components/accounting/EditableJourna
 import { formatBaseAmount, isFxRateLocked, lineFxRate, rateForCurrency, toBaseAmount } from '@/lib/accounting/fx-base';
 import { ExchangeRateInput } from '@/components/accounting/ExchangeRateInput';
 import { useCompanyBaseCurrency } from '@/lib/hooks/useCompanyBaseCurrency';
+import { seedLineDescription, useFollowHeaderDescription } from '@/lib/hooks/useFollowHeaderDescription';
 
 export type OpeningBalanceLineCurrency = {
   id: string;
@@ -32,6 +33,7 @@ type Props = {
   defaultCurrencyId?: string;
   accountLabelFor?: (accountId: string) => string | undefined;
   showFx?: boolean;
+  headerDescription?: string;
 };
 
 function emptyLine(currencyId?: string, exchangeRate = 1): EditableJournalLine {
@@ -64,6 +66,7 @@ export function OpeningBalanceLinesTable({
   defaultCurrencyId,
   accountLabelFor,
   showFx = true,
+  headerDescription = '',
 }: Props) {
   const fieldOrder = showFx
     ? [...OPENING_BALANCE_LINE_FIELD_ORDER]
@@ -71,7 +74,19 @@ export function OpeningBalanceLinesTable({
   const { code: companyBase, label: companyBaseLabel } = useCompanyBaseCurrency();
   const headerCurrency = currencies.find((c) => c.id === defaultCurrencyId);
   const headerRate = rateForCurrency(headerCurrency?.code, companyBase, headerCurrency?.exchangeRate);
-  const blankLine = () => emptyLine(defaultCurrencyId, headerRate);
+  const blankLine = () => ({
+    ...emptyLine(defaultCurrencyId, headerRate),
+    description: seedLineDescription(headerDescription),
+  });
+
+  useFollowHeaderDescription({
+    headerDescription,
+    lines,
+    onChange,
+    getDescription: (line) => line.description,
+    setDescription: (line, value) => ({ ...line, description: value }),
+    disabled,
+  });
 
   const updateLine = (index: number, patch: Partial<EditableJournalLine>) => {
     const current = lines[index] ?? blankLine();

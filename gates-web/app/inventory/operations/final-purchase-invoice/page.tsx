@@ -1095,6 +1095,7 @@ function FinalPurchaseInvoicePageInner() {
           pricingCalculationBasis={pricingCalculationBasis}
           readOnly={isReadOnly}
           landedCostExtras={{ freightAmount, supplierDiscountAmount }}
+          headerDescription={description}
         />
             </div>
       </DocumentFormLock>

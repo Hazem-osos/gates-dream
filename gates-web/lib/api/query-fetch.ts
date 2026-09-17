@@ -11,7 +11,7 @@ export async function fetchApiQuery<T>(
   url: string,
   params: QueryParams | undefined,
   signal?: AbortSignal,
-  config?: { timeout?: number }
+  config?: { timeout?: number; skipErrorNotify?: boolean }
 ): Promise<ApiResponse<T>> {
   if (signal?.aborted) {
     throw new CancelledError({ silent: true });

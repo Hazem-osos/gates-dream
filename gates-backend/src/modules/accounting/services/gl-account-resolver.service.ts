@@ -217,7 +217,7 @@ export class GlAccountResolver {
     const byId = new Map(accounts.map((a) => [a.id, a]));
     const enforcePnl = settings?.enforceCostCenterForPnl === true;
 
-    return lines.map((line) => {
+    const resolved = lines.map((line) => {
       const account = byId.get(line.accountId);
       if (!account) {
         throw new AppError(422, 'أحد حسابات القيد غير موجود في دليل الحسابات');
@@ -261,6 +261,32 @@ export class GlAccountResolver {
       }
       return { ...line, costCenterId };
     });
+
+    const centerIds = [
+      ...new Set(resolved.map((line) => line.costCenterId).filter((id): id is string => Boolean(id))),
+    ];
+    if (centerIds.length === 0) return resolved;
+
+    const centers = await db.costCenter.findMany({
+      where: { id: { in: centerIds }, companyId, isActive: true },
+      select: { id: true, code: true, arabicName: true, costCenterKind: true },
+    });
+    const centerById = new Map(centers.map((center) => [center.id, center]));
+    for (const line of resolved) {
+      if (!line.costCenterId) continue;
+      const center = centerById.get(line.costCenterId);
+      if (!center) {
+        throw new AppError(422, 'أحد مراكز التكلفة غير موجود في الدليل.');
+      }
+      if (center.costCenterKind === 'HEADER') {
+        throw new AppError(
+          422,
+          `المركز ${center.code} (${center.arabicName}) رئيسي/رئيسي فرعي ولا تُترحَّل عليه حركة. اختر مركز حركة.`
+        );
+      }
+    }
+
+    return resolved;
   }
 }
 

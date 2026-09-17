@@ -419,6 +419,7 @@ function AssemblyPageInner() {
           onChange={setLines}
           warehouseId={sourceWarehouseId}
           disabled={readOnly}
+          headerDescription={description}
         />
 
         <AssemblyStickyFooter

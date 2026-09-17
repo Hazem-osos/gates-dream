@@ -41,7 +41,7 @@ const emptyForm: AccountFormPayload = {
   accountType: '',
   parentId: null,
   accountSide: null,
-  costCenterRequired: 'بدون',
+  costCenterRequired: 'اختياري',
   defaultCostCenterId: null,
   warning: 'بدون',
   budget: null,
@@ -58,6 +58,7 @@ export function AccountFormModal({
   createKind = 'HEADER',
   lockAsRoot = false,
   pickerMode = false,
+  lockParent = false,
   initialArabicName = '',
   onClose,
   onSaved,
@@ -72,6 +73,8 @@ export function AccountFormModal({
   lockAsRoot?: boolean;
   /** Same بطاقة حساب fields, used from any account picker. Closes after save. */
   pickerMode?: boolean;
+  /** Keep the parent as given — used when creating a cash-safe account. */
+  lockParent?: boolean;
   initialArabicName?: string;
   onClose: () => void;
   onSaved: (accountId?: string) => void;
@@ -120,7 +123,7 @@ export function AccountFormModal({
         accountType: normalizeGlAccountType(initial.accountType),
         parentId: parentAccount?.id ?? initial.parentId ?? null,
         accountSide: initial.nature === 'DEBIT' ? 'مدين' : initial.nature === 'CREDIT' ? 'دائن' : null,
-        costCenterRequired: (initial.costCenterRequired as AccountFormPayload['costCenterRequired']) || 'بدون',
+        costCenterRequired: (initial.costCenterRequired as AccountFormPayload['costCenterRequired']) || 'اختياري',
         defaultCostCenterId: initial.defaultCostCenterId ?? null,
         warning: (initial as { warning?: AccountFormPayload['warning'] }).warning || 'بدون',
         budget: (initial as { budget?: number | null }).budget ?? null,
@@ -142,7 +145,7 @@ export function AccountFormModal({
       });
       if (autoNumbering) void refetchSuggest();
     }
-  }, [open, mode, initial?.id, parentAccount?.id, createKind, lockAsRoot, autoNumbering, refetchSuggest, pickerMode, initialArabicName, effectiveCreateKind]);
+  }, [open, mode, initial?.id, parentAccount?.id, createKind, lockAsRoot, lockParent, autoNumbering, refetchSuggest, pickerMode, initialArabicName, effectiveCreateKind]);
 
   useEffect(() => {
     if (!open || !autoNumbering) return;
@@ -181,8 +184,12 @@ export function AccountFormModal({
       onError('رقم الحساب مطلوب — الترقيم يدوي');
       return;
     }
-    if (pickerMode && !form.parentId) {
-      onError('اختَر الحساب الرئيسي. الإضافة من الاختيار بتنشئ حساب حركة تحت أب.');
+    if ((pickerMode || lockParent) && !form.parentId) {
+      onError(
+        lockParent
+          ? 'حسابات الخزنة غير جاهزة. حدّث الصفحة ثم أعد المحاولة.'
+          : 'اختَر الحساب الرئيسي. الإضافة من الاختيار بتنشئ حساب حركة تحت أب.'
+      );
       return;
     }
     if (!form.parentId && !form.accountSide) {
@@ -194,7 +201,7 @@ export function AccountFormModal({
         ...form,
         englishName: form.englishName || undefined,
         accountType: form.accountType || undefined,
-        parentId: lockAsRoot ? null : form.parentId || null,
+        parentId: lockAsRoot ? null : lockParent ? parentAccount?.id ?? form.parentId || null : form.parentId || null,
         accountSide: form.accountSide || undefined,
         statementType: form.statementType ?? statementTypeFromAccountType(form.accountType),
         accountKind: lockAsRoot || !form.parentId ? 'HEADER' : pickerMode ? 'POSTING' : form.accountKind,
@@ -257,7 +264,7 @@ export function AccountFormModal({
   const advancedFilledCount = [
     form.englishName,
     form.defaultCostCenterId,
-    form.costCenterRequired && form.costCenterRequired !== 'بدون' ? form.costCenterRequired : '',
+    form.costCenterRequired && form.costCenterRequired === 'إجباري' ? form.costCenterRequired : '',
   ].filter((v) => String(v ?? '').trim().length > 0).length;
 
   return (
@@ -312,44 +319,6 @@ export function AccountFormModal({
               value={form.arabicName}
               onChange={(e) => setForm((f) => ({ ...f, arabicName: e.target.value }))}
             />
-            {form.parentId && !pickerMode ? (
-              <CompactFormField label="نوع الحساب الفرعي">
-                <div className="flex flex-wrap gap-2">
-                  {(
-                    [
-                      { value: 'POSTING' as const, label: 'حساب حركة' },
-                      { value: 'HEADER' as const, label: 'رئيسي فرعي' },
-                    ] as const
-                  ).map((opt) => (
-                    <label
-                      key={opt.value}
-                      className={`${
-                        form.accountKind === opt.value
-                          ? 'bg-[#0E78AA] text-white border-[#0E78AA]'
-                          : 'bg-white text-[#0A3D5E] border-[#D6EAF3]'
-                      } inline-flex cursor-pointer items-center rounded-full border px-3 py-1.5 text-xs font-semibold`}
-                    >
-                      <input
-                        type="radio"
-                        name="accountKind"
-                        className="sr-only"
-                        checked={form.accountKind === opt.value}
-                        onChange={() => setForm((f) => ({ ...f, accountKind: opt.value }))}
-                      />
-                      {opt.label}
-                    </label>
-                  ))}
-                </div>
-              </CompactFormField>
-            ) : (
-              <CompactFormField label="نوع الحساب">
-                <input
-                  className={compactControlClass}
-                  value={pickerMode || form.parentId ? 'حساب حركة' : 'رئيسي بدون أب'}
-                  readOnly
-                />
-              </CompactFormField>
-            )}
             <CompactFormField
               label="موازنة تقديرية"
               type="number"
@@ -382,6 +351,17 @@ export function AccountFormModal({
             {lockAsRoot ? (
               <CompactFormField label="الحساب الأب">
                 <input className={compactControlClass} value="حساب رئيسي — بدون أب" readOnly />
+              </CompactFormField>
+            ) : lockParent ? (
+              <CompactFormField
+                label="الحساب الأب"
+                hint="الخزنة الجديدة بتنزل تحت حسابات الخزنة فقط."
+              >
+                <input
+                  className={compactControlClass}
+                  value={parentAccount ? `${parentAccount.code} — ${parentAccount.arabicName ?? parentAccount.nameAr}` : 'حسابات الخزنة'}
+                  readOnly
+                />
               </CompactFormField>
             ) : (
             <CompactFormField
@@ -468,7 +448,7 @@ export function AccountFormModal({
               <CompactFormField label="إلزام مركز التكلفة">
                 <select
                   className={compactControlClass}
-                  value={form.costCenterRequired ?? 'بدون'}
+                  value={form.costCenterRequired ?? 'اختياري'}
                   onChange={(e) =>
                     setForm((f) => ({
                       ...f,

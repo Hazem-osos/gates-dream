@@ -14,6 +14,7 @@ import { lineBaseAmount, type PaymentVoucherLine } from '@/lib/treasury/payment-
 import { VoucherAccountCombobox } from './VoucherAccountCombobox';
 import { costCenterRuleFromAccount } from '@/lib/accounting/cost-center-rule';
 import { useAccountsQuery } from '@/lib/hooks/useMasterDataQueries';
+import { useFollowHeaderDescription } from '@/lib/hooks/useFollowHeaderDescription';
 
 export type PaymentLineCurrency = { id: string; code: string; arabicName?: string; exchangeRate?: number | string | null };
 
@@ -38,6 +39,7 @@ type Props = {
   accountColumnLabel?: string;
   invoiceKind?: InvoiceKind;
   partyEmptyHint?: string;
+  headerDescription?: string;
 };
 
 function formatAmountInput(value: number) {
@@ -61,6 +63,7 @@ export function PaymentLinesTable({
   accountColumnLabel = 'الحساب / المستفيد',
   invoiceKind = 'PURCHASE',
   partyEmptyHint,
+  headerDescription = '',
 }: Props) {
   const { data: accountsRes } = useAccountsQuery(undefined, 500, { leafOnly: true });
   const accounts = accountsRes?.data ?? [];
@@ -72,6 +75,15 @@ export function PaymentLinesTable({
   const fieldOrder = showFx
     ? ['account', 'description', 'amount', 'tied', 'currency', 'rate', 'costCenter']
     : ['account', 'description', 'amount', 'tied', 'costCenter'];
+
+  useFollowHeaderDescription({
+    headerDescription,
+    lines,
+    onChange,
+    getDescription: (line) => line.description,
+    setDescription: (line, value) => ({ ...line, description: value }),
+    disabled,
+  });
 
   const updateLine = (index: number, patch: Partial<PaymentVoucherLine>) => {
     onChange(lines.map((line, i) => (i === index ? { ...line, ...patch } : line)));

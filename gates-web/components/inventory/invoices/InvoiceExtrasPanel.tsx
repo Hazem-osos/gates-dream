@@ -12,6 +12,7 @@ import { erpInputClass, erpLabelClass } from '@/components/erp/erpUiTokens';
 import { formatBaseAmount, rateForCurrency, toBaseAmount } from '@/lib/accounting/fx-base';
 import { ExchangeRateInput } from '@/components/accounting/ExchangeRateInput';
 import { useCompanyBaseCurrency } from '@/lib/hooks/useCompanyBaseCurrency';
+import { seedLineDescription, useFollowHeaderDescription } from '@/lib/hooks/useFollowHeaderDescription';
 
 type Currency = { id: string; code: string; arabicName: string; exchangeRate?: number | string | null };
 
@@ -50,6 +51,7 @@ type Props = {
   defaultCostCenterId?: string;
   disabled?: boolean;
   count?: number;
+  headerDescription?: string;
 };
 
 export function InvoiceExtrasPanel({
@@ -63,8 +65,18 @@ export function InvoiceExtrasPanel({
   defaultCostCenterId = '',
   disabled = false,
   count = 0,
+  headerDescription = '',
 }: Props) {
   const { code: companyBase, label: companyBaseLabel } = useCompanyBaseCurrency();
+
+  useFollowHeaderDescription({
+    headerDescription,
+    lines: rows,
+    onChange,
+    getDescription: (row) => row.description,
+    setDescription: (row, value) => ({ ...row, description: value }),
+    disabled,
+  });
   const patch = (index: number, next: Partial<InvoiceExtraRow>) => {
     onChange(rows.map((row, i) => (i === index ? { ...row, ...next } : row)));
   };
@@ -72,11 +84,14 @@ export function InvoiceExtrasPanel({
   const addRow = () => {
     onChange([
       ...rows,
-      emptyInvoiceExtraRow({
-        currency: defaultCurrency,
-        exchangeRate: defaultExchangeRate,
-        costCenterId: defaultCostCenterId,
-      }),
+      {
+        ...emptyInvoiceExtraRow({
+          currency: defaultCurrency,
+          exchangeRate: defaultExchangeRate,
+          costCenterId: defaultCostCenterId,
+        }),
+        description: seedLineDescription(headerDescription),
+      },
     ]);
   };
 

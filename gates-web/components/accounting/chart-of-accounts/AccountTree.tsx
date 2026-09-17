@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import {
   collectAncestorIds,
-  collectIdsToDepth,
   type CoaHierarchyAccount,
 } from '@/lib/accounting/mapCoaToTreeNodes';
 import { flattenVisibleCoaRows } from '@/lib/accounting/flattenCoaVisibleRows';
@@ -196,18 +195,11 @@ export function AccountTree({
 }) {
   const q = search.trim().toLowerCase();
   const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
-  const seededExpandRef = useRef(false);
   const lastExpandToken = useRef(0);
   const lastCollapseToken = useRef(0);
   const lastRevealId = useRef<string | null>(null);
   const prevSearch = useRef(q);
   const filteredRef = useRef<CoaHierarchyAccount[]>([]);
-
-  useEffect(() => {
-    if (seededExpandRef.current || nodes.length === 0) return;
-    seededExpandRef.current = true;
-    setExpandedIds(new Set(collectIdsToDepth(nodes, 1)));
-  }, [nodes]);
 
   useEffect(() => {
     if (!revealAccountId || revealAccountId === lastRevealId.current) return;
@@ -236,7 +228,7 @@ export function AccountTree({
       collectExpandableIds(filteredRef.current, ids);
       setExpandedIds(ids);
     } else if (prevSearch.current) {
-      setExpandedIds(new Set(collectIdsToDepth(nodes, 1)));
+      setExpandedIds(new Set());
     }
     prevSearch.current = q;
   }, [q, nodes]);

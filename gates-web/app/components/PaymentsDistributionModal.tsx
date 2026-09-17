@@ -2,7 +2,6 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { ActionButtons, Button, FormSectionCard, compactControlClass } from '@/components/ui';
-import { CustomerSelect, SupplierSelect } from '@/app/components/form/PartySelect';
 import { useApiMutation, useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
 import { parseDecimal } from '@/lib/money/parseDecimal';
 
@@ -37,6 +36,7 @@ interface PaymentsDistributionModalProps {
   isPosted?: boolean;
   side?: 'receivable' | 'payable';
   partyId?: string | null;
+  accountId?: string | null;
   onError?: (message: string) => void;
   onSuccess?: (message: string) => void;
   /** Collect allocations on the voucher before save (no reconcile API). */
@@ -62,37 +62,36 @@ export default function PaymentsDistributionModal({
   isPosted = false,
   side = 'receivable',
   partyId = null,
+  accountId = null,
   onError,
   onSuccess,
   draftMode = false,
   onApplyDraft,
-  onPartyChange,
 }: PaymentsDistributionModalProps) {
   const invalidateQuery = useInvalidateQuery();
   const [rows, setRows] = useState<AllocationRow[]>([]);
-  const [localPartyId, setLocalPartyId] = useState('');
 
-  useEffect(() => {
-    if (!isOpen) return;
-    setLocalPartyId(partyId || customerId || '');
-  }, [isOpen, partyId, customerId]);
-
-  const effectivePartyId = localPartyId || partyId || customerId || '';
+  const effectivePartyId = partyId || customerId || '';
+  const effectiveAccountId = accountId || '';
   const effectiveCustomerId = side === 'receivable' ? effectivePartyId || null : null;
   const effectiveSupplierId = side === 'payable' ? effectivePartyId || null : null;
+  const hasScreenAccount = Boolean(effectivePartyId || effectiveAccountId);
 
   const queryParams = useMemo(() => {
     const p: Record<string, string> = { side };
     if (effectiveCustomerId) p.customerId = effectiveCustomerId;
     if (effectiveSupplierId) p.supplierId = effectiveSupplierId;
+    if (!effectiveCustomerId && !effectiveSupplierId && effectiveAccountId) {
+      p.accountId = effectiveAccountId;
+    }
     return p;
-  }, [side, effectiveCustomerId, effectiveSupplierId]);
+  }, [side, effectiveCustomerId, effectiveSupplierId, effectiveAccountId]);
 
   const { data: openResponse, isLoading } = useApiQuery<OpenInvoiceRow[]>(
-    ['reconcile-open-invoices', side, effectiveCustomerId ?? effectiveSupplierId ?? 'all'],
+    ['reconcile-open-invoices', side, effectiveCustomerId ?? effectiveSupplierId ?? effectiveAccountId ?? 'none'],
     '/accounting/reconcile/open-invoices',
     queryParams,
-    { enabled: isOpen }
+    { enabled: isOpen && hasScreenAccount }
   );
 
   const reconcileMutation = useApiMutation<
@@ -106,6 +105,10 @@ export default function PaymentsDistributionModal({
   );
 
   useEffect(() => {
+    if (!hasScreenAccount) {
+      setRows([]);
+      return;
+    }
     const list = openResponse?.data ?? [];
     setRows(
       list.map((inv) => ({
@@ -119,7 +122,7 @@ export default function PaymentsDistributionModal({
         payAmount: '',
       }))
     );
-  }, [openResponse]);
+  }, [openResponse, hasScreenAccount]);
 
   const selectedTotal = rows.reduce((sum, r) => {
     if (!r.selected) return sum;
@@ -155,11 +158,6 @@ export default function PaymentsDistributionModal({
         return { ...r, selected: pay > 0, payAmount: pay > 0 ? String(pay) : '' };
       })
     );
-  };
-
-  const handlePartyPick = (id: string) => {
-    setLocalPartyId(id);
-    onPartyChange?.(id);
   };
 
   const handleSave = async () => {
@@ -235,34 +233,19 @@ export default function PaymentsDistributionModal({
           <div className="shrink-0 border-b border-[#E6F0F7] bg-white p-5 text-center">
             <h2 className="text-lg font-bold text-[#0A3D5E]">توزيع السدادات على الفواتير</h2>
             <p className="mt-1 text-xs text-[#5A7A8A]">
-              {side === 'payable' ? 'اختر المورد أو وزّع على كل فواتير المشتريات المفتوحة' : 'اختر العميل أو وزّع على كل فواتير المبيعات المفتوحة'}
+              الفواتير تظهر بعد اختيار الحساب في بنود السند، وبعدين توزّع القيمة هنا.
             </p>
           </div>
 
           <div className="flex-1 overflow-y-auto p-5 pt-4">
             <FormSectionCard className="mb-0" bodyClassName="grid-cols-1 sm:grid-cols-1 lg:grid-cols-1">
-              <div className="mb-3">
-                <label className="mb-1 block text-xs font-semibold text-[#094C6B]">
-                  {side === 'payable' ? 'المورد' : 'العميل'}
-                </label>
-                {side === 'payable' ? (
-                  <SupplierSelect
-                    value={localPartyId}
-                    onChange={handlePartyPick}
-                    emptyLabel="كل الموردين"
-                  />
-                ) : (
-                  <CustomerSelect
-                    value={localPartyId}
-                    onChange={handlePartyPick}
-                    emptyLabel="كل العملاء"
-                  />
-                )}
-              </div>
-              {isLoading && <p className="text-center text-gray-600">جاري تحميل الفواتير...</p>}
-              {!isLoading && rows.length === 0 && (
-                <p className="text-center text-gray-600">لا توجد فواتير مفتوحة</p>
-              )}
+              {!hasScreenAccount ? (
+                <p className="text-center text-gray-600">اختَر حساباً في بنود السند عشان تظهر فواتيره.</p>
+              ) : isLoading ? (
+                <p className="text-center text-gray-600">جاري تحميل الفواتير...</p>
+              ) : rows.length === 0 ? (
+                <p className="text-center text-gray-600">لا توجد فواتير مفتوحة لهذا الحساب</p>
+              ) : null}
               {rows.length > 0 && (
                 <div className="overflow-x-auto rounded-xl border border-[#E6F0F7] bg-white shadow-sm">
                   <table className="w-full border-separate border-spacing-y-2 overflow-hidden rounded-xl text-sm">

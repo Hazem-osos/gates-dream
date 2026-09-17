@@ -28,6 +28,7 @@ type Props = {
   warehouseId?: string;
   lockUnitPrice?: boolean;
   allowAddLines?: boolean;
+  headerDescription?: string;
 };
 
 export function ReturnInvoiceLinesGrid({
@@ -36,6 +37,7 @@ export function ReturnInvoiceLinesGrid({
   warehouseId,
   lockUnitPrice = false,
   allowAddLines = true,
+  headerDescription = '',
 }: Props) {
   const [visibleColumnIds, setVisibleColumnIds] = useVisibleColumnIds(
     'gates:columns:purchase-invoice',
@@ -77,6 +79,7 @@ export function ReturnInvoiceLinesGrid({
         lines={purchaseLines}
         onChange={handleChange}
         warehouseId={warehouseId}
+        headerDescription={headerDescription}
         visibleColumnIds={visibleColumnIds}
         onVisibleColumnIdsChange={(ids) =>
           setVisibleColumnIds(mergeVisibleColumnIds('gates:columns:purchase-invoice', ids))

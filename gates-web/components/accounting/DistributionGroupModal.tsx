@@ -5,20 +5,30 @@ import { CenteredOverlay } from '@/components/erp/CenteredOverlay';
 import { CompactFormField, FormStickyFooter } from '@/components/ui';
 import { apiClient } from '@/lib/api/client';
 
+export type DistributionFolderRole = 'DRIVER' | 'DISTRIBUTOR' | 'DELEGATE';
+
 type Props = {
   open: boolean;
   parentId?: string | null;
   parentLabel?: string | null;
-  initial?: { id: string; code: string; arabicName: string } | null;
+  folderRole: DistributionFolderRole;
+  initial?: { id: string; code: string; arabicName: string; folderRole?: DistributionFolderRole } | null;
   onClose: () => void;
   onSaved: () => void;
   onError: (msg: string) => void;
 };
 
+function groupRoleForFolder(folder: DistributionFolderRole) {
+  if (folder === 'DRIVER') return 'GROUP_DRIVER' as const;
+  if (folder === 'DISTRIBUTOR') return 'GROUP_DISTRIBUTOR' as const;
+  return 'GROUP_DELEGATE' as const;
+}
+
 export function DistributionGroupModal({
   open,
   parentId,
   parentLabel,
+  folderRole,
   initial,
   onClose,
   onSaved,
@@ -46,11 +56,11 @@ export function DistributionGroupModal({
     setSaving(true);
     try {
       const payload = {
-        role: 'GROUP' as const,
+        role: groupRoleForFolder(initial?.folderRole || folderRole),
         arabicName: arabicName.trim(),
         serial: code.trim() || undefined,
         code: code.trim() || undefined,
-        groupId: parentId || null,
+        ...(initial?.id ? {} : { groupId: parentId || null }),
       };
       if (initial?.id) {
         await apiClient.put(`/accounting/delegates/${initial.id}`, payload);
@@ -75,7 +85,7 @@ export function DistributionGroupModal({
           </h2>
           <p className="mt-1 mb-4 text-sm text-slate-500">
             {parentLabel ? `تحت «${parentLabel}» — ` : ''}
-            كود واسم فقط، زي الحساب الرئيسي. الأفراد بيتضافوا بعدين من + فرعي.
+            المجموعة فرع جوه سائق أو موزع أو مندوب، مش أصل جديد جنبهم.
           </p>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <CompactFormField

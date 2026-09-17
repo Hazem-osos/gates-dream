@@ -17,6 +17,7 @@ import { useApiQuery, useApiMutation, useInvalidateQuery } from '@/lib/hooks/use
 import ErrorToast from '@/components/ErrorToast';
 import { toast } from '@/lib/feedback/toast';
 import type { ApiError } from '@/lib/api/types';
+import { useNextMasterSerial } from '@/lib/hooks/useNextMasterSerial';
 
 interface PriceList {
   id: string;
@@ -113,6 +114,19 @@ function DelegatePageInner() {
   const { data: delegatesResponse } = useApiQuery<
     { id: string; serial?: string; code?: string; arabicName?: string }[]
   >(['delegates'], '/accounting/delegates', { limit: 1000, isActive: true });
+
+  const { data: nextSerialResponse } = useNextMasterSerial(
+    ['delegates', 'next-code'],
+    '/accounting/delegates/next-code',
+    !selectedId
+  );
+  const nextSerial = nextSerialResponse?.data?.serial || '';
+
+  useEffect(() => {
+    if (selectedId || !nextSerial) return;
+    setFormData((prev) => (prev.serial === nextSerial ? prev : { ...prev, serial: nextSerial }));
+  }, [nextSerial, selectedId]);
+
   useEffect(() => {
     if (selectedId || !groupIdFromUrl) return;
     setFormData((prev) => (prev.groupId ? prev : { ...prev, groupId: groupIdFromUrl }));
@@ -173,6 +187,7 @@ function DelegatePageInner() {
       onSuccess: () => {
         toast.success('تم حفظ المندوب بنجاح — تقدر تضيف التالي');
         invalidateQuery(['delegates']);
+        invalidateQuery(['delegates', 'next-code']);
         setSelectedId(null);
         setFormData({
           ...EMPTY_FORM,
@@ -274,8 +289,9 @@ function DelegatePageInner() {
           <CompactFormField
             label="المسلسل"
             value={formData.serial}
-            onChange={(e) => setFormData((prev) => ({ ...prev, serial: e.target.value }))}
-            placeholder="إدخل المسلسل"
+            disabled
+            readOnly
+            placeholder="تلقائي"
           />
           <CompactFormField
             label="الكود"

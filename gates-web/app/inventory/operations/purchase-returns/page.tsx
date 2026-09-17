@@ -540,6 +540,7 @@ export default function PurchaseReturnsPage() {
           warehouseId={warehouseId}
           lockUnitPrice={Boolean(sourcePurchaseInvoiceId) && enforceOriginalPrice}
           allowAddLines={allowStandalone}
+          headerDescription={description}
         />
       </div>
 

@@ -42,7 +42,7 @@ const EMPTY_ACCOUNT_FORM = {
   accountSide: '' as 'مدين' | 'دائن' | '',
   accountNature: 'DEBIT' as 'DEBIT' | 'CREDIT',
   statementType: 'BALANCE_SHEET' as 'BALANCE_SHEET' | 'INCOME_STATEMENT',
-  costCenterRequired: 'بدون' as 'إجباري' | 'اختياري' | 'بدون' | '',
+  costCenterRequired: 'اختياري' as 'إجباري' | 'اختياري' | 'بدون' | '',
   defaultCostCenterId: '',
   requiresCostCenter: false,
   warning: 'بدون' as 'مدين' | 'دائن' | 'بدون' | '',
@@ -104,7 +104,7 @@ function mapAccountToForm(account: Account): typeof EMPTY_ACCOUNT_FORM {
       account.statementType ??
       statementTypeFromAccountType(accountType) ??
       'BALANCE_SHEET',
-    costCenterRequired: (account.costCenterRequired as typeof EMPTY_ACCOUNT_FORM.costCenterRequired) || 'بدون',
+    costCenterRequired: (account.costCenterRequired as typeof EMPTY_ACCOUNT_FORM.costCenterRequired) || 'اختياري',
     defaultCostCenterId: account.defaultCostCenterId ?? '',
     requiresCostCenter: Boolean(account.requiresCostCenter || account.costCenterRequired === 'إجباري'),
     warning: (account.warning as typeof EMPTY_ACCOUNT_FORM.warning) || 'بدون',
@@ -220,7 +220,7 @@ function InputDesign() {
         : {}),
       statementType: formData.statementType || statementTypeFromAccountType(formData.accountType),
       costCenterRequired:
-        formData.costCenterRequired || (formData.requiresCostCenter ? 'إجباري' : 'بدون'),
+        formData.costCenterRequired || (formData.requiresCostCenter ? 'إجباري' : 'اختياري'),
       defaultCostCenterId: formData.defaultCostCenterId || null,
       accountKind: quickCreate.isQuickCreate
         ? 'POSTING'
@@ -279,7 +279,7 @@ function InputDesign() {
 
   const advancedFilledCount = [
     formData.englishName,
-    formData.costCenterRequired && formData.costCenterRequired !== 'بدون' ? formData.costCenterRequired : '',
+    formData.costCenterRequired === 'إجباري' ? formData.costCenterRequired : '',
     formData.currencyCode,
     formData.warning && formData.warning !== 'بدون' ? formData.warning : '',
     formData.budget,
@@ -521,7 +521,7 @@ function InputDesign() {
             <CompactFormField label="إلزام مركز التكلفة">
               <select
                 className={compactControlClass}
-                value={formData.costCenterRequired || 'بدون'}
+                value={formData.costCenterRequired || 'اختياري'}
                 onChange={(e) =>
                   setFormData((prev) => ({
                     ...prev,

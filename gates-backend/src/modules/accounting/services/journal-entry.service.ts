@@ -33,7 +33,7 @@ export class JournalEntryService {
     isAdmin?: boolean
   ): JournalPostingContext {
     if (!branchId) {
-      throw new AppError(400, 'Branch context is required (X-Branch-Id or token branch_id)');
+      throw new AppError(400, 'يجب اختيار الفرع قبل الترحيل');
     }
     return { companyId, branchId, userId, fiscalYearId, isAdmin };
   }
@@ -69,11 +69,16 @@ export class JournalEntryService {
    * Get journal entry by ID
    */
   async getJournalEntryById(companyId: string, journalEntryId: string) {
+    const id = String(journalEntryId ?? '').trim();
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) {
+      throw new AppError(404, 'القيد غير موجود');
+    }
     try {
       const journalEntry = await prisma.journalEntry.findFirst({
         where: {
-          id: journalEntryId,
+          id,
           companyId,
+          deletedAt: null,
         },
         include: {
           lines: {
@@ -99,12 +104,14 @@ export class JournalEntryService {
       });
 
       if (!journalEntry) {
-        throw new Error('Journal entry not found');
+        throw new AppError(404, 'القيد غير موجود');
       }
 
       return journalEntry;
     } catch (error) {
-      logger.error({ error, companyId, journalEntryId }, 'Error getting journal entry');
+      if (!(error instanceof AppError) || error.statusCode >= 500) {
+        logger.error({ error, companyId, journalEntryId: id }, 'Error getting journal entry');
+      }
       throw error;
     }
   }
@@ -355,7 +362,9 @@ export class JournalEntryService {
       );
       return await journalPostingService.postJournalEntry(ctx, journalEntryId);
     } catch (error) {
-      logger.error({ error, companyId, journalEntryId }, 'Error posting journal entry');
+      if (!(error instanceof AppError) || error.statusCode >= 500) {
+        logger.error({ error, companyId, journalEntryId }, 'Error posting journal entry');
+      }
       throw error;
     }
   }

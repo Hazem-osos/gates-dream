@@ -75,6 +75,30 @@ router.get(
 );
 
 /**
+ * GET /api/v1/accounting/customers/next-code
+ */
+router.get(
+  '/next-code',
+  authorize({ resource: 'customer', action: 'view' }),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const companyId = req.companyId || req.tenantId;
+      if (!companyId) {
+        return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+      }
+      const serial = await customerService.nextCustomerCode(companyId);
+      return void res.json({ status: 'success', data: { serial } });
+    } catch (error) {
+      logger.error({ error }, 'Error suggesting customer serial');
+      return void res.status(500).json({
+        status: 'error',
+        message: error instanceof Error ? error.message : 'Failed to suggest customer serial',
+      });
+    }
+  }
+);
+
+/**
  * GET /api/v1/accounting/customers/:id/credit-check
  */
 router.get(
@@ -139,11 +163,9 @@ router.get(
         data: customer,
       });
     } catch (error) {
-      logger.error({ error }, 'Error getting customer');
-      const status =
-        error instanceof Error && error.message === 'Customer not found'
-          ? 404
-          : 500;
+      const notFound = error instanceof Error && /not found|غير موجود/i.test(error.message);
+      if (!notFound) logger.error({ error }, 'Error getting customer');
+      const status = notFound ? 404 : 500;
       return void res.status(status).json({
         status: 'error',
         message:

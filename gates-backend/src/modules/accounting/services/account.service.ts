@@ -14,6 +14,7 @@ import {
 } from '../utils/build-account-hierarchy';
 import {
   assertNotCashPostingParent,
+  ensureBankFolderIsHeader,
   ensureSafeForCashAccount,
 } from './cash-safe-sync';
 import { resolveCreateAccountKind, statementTypeFromAccountType } from '../utils/account-kind';
@@ -288,7 +289,7 @@ export class AccountService {
   ) {
     if (!parentId) return;
 
-    const parent = await prisma.account.findFirst({
+    let parent = await prisma.account.findFirst({
       where: { id: parentId, companyId, deletedAt: null },
       select: { id: true, code: true, arabicName: true, accountKind: true },
     });
@@ -297,6 +298,11 @@ export class AccountService {
         400,
         'الحساب الأب غير موجود. الحل: حدّث دليل الحسابات ثم اختر الحساب الأب من جديد.'
       );
+    }
+
+    await ensureBankFolderIsHeader(companyId);
+    if (parent.code === '1112') {
+      parent = { ...parent, accountKind: 'HEADER' as const };
     }
 
     await assertNotCashPostingParent(companyId, parentId, parent);
@@ -497,12 +503,18 @@ export class AccountService {
       if (defaultCostCenterId) {
         const cc = await prisma.costCenter.findFirst({
           where: { id: defaultCostCenterId, companyId, isActive: true },
-          select: { id: true },
+          select: { id: true, code: true, arabicName: true, costCenterKind: true },
         });
         if (!cc) {
           throw new AppError(
             400,
             'مركز التكلفة غير موجود. الحل: اختر مركزاً من الدليل أو اتركه فارغاً.'
+          );
+        }
+        if (cc.costCenterKind === 'HEADER') {
+          throw new AppError(
+            400,
+            `المركز ${cc.code} (${cc.arabicName}) رئيسي/رئيسي فرعي. اربط الحساب بمركز حركة.`
           );
         }
       }
@@ -621,6 +633,7 @@ export class AccountService {
     }
   ) {
     try {
+      await ensureBankFolderIsHeader(companyId);
       const page = options.page || 1;
       const limit = Math.min(options.limit || 50, 1000);
       const skip = (page - 1) * limit;
@@ -806,14 +819,20 @@ export class AccountService {
         if (data.defaultCostCenterId) {
           const cc = await prisma.costCenter.findFirst({
             where: { id: data.defaultCostCenterId, companyId, isActive: true },
-            select: { id: true },
+            select: { id: true, code: true, arabicName: true, costCenterKind: true },
           });
           if (!cc) {
-          throw new AppError(
-            400,
-            'مركز التكلفة غير موجود. الحل: اختر مركزاً من الدليل أو اتركه فارغاً.'
-          );
-        }
+            throw new AppError(
+              400,
+              'مركز التكلفة غير موجود. الحل: اختر مركزاً من الدليل أو اتركه فارغاً.'
+            );
+          }
+          if (cc.costCenterKind === 'HEADER') {
+            throw new AppError(
+              400,
+              `المركز ${cc.code} (${cc.arabicName}) رئيسي/رئيسي فرعي. اربط الحساب بمركز حركة.`
+            );
+          }
         }
         updateData.defaultCostCenterId = data.defaultCostCenterId || null;
       }
@@ -934,6 +953,7 @@ export class AccountService {
     parentId?: string
   ): Promise<AccountHierarchyNode[]> {
     try {
+      await ensureBankFolderIsHeader(companyId);
       const accounts = await prisma.account.findMany({
         where: {
           companyId,

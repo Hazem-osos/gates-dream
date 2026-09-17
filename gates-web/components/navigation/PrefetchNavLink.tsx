@@ -1,11 +1,9 @@
 'use client';
 
 import type { AnchorHTMLAttributes, MouseEvent, ReactNode } from 'react';
-import { usePathname, useRouter } from 'next/navigation';
 import { useInstantPrefetch } from '@/lib/hooks/useInstantPrefetch';
-import { isSameAppModule, normalizeAppPath } from '@/lib/navigation/app-module-root';
 import { useAppTabs } from '@/app/components/AppTabsContext';
-import { flushPageDrafts, markQcReturn } from '@/lib/drafts/page-drafts';
+import { flushPageDrafts } from '@/lib/drafts/page-drafts';
 
 type PrefetchNavLinkProps = AnchorHTMLAttributes<HTMLAnchorElement> & {
   href: string;
@@ -23,8 +21,6 @@ export function PrefetchNavLink({
 }: PrefetchNavLinkProps) {
   const { getPrefetchHandlers } = useInstantPrefetch();
   const prefetch = getPrefetchHandlers(href);
-  const pathname = usePathname();
-  const router = useRouter();
   const tabs = useAppTabs();
 
   const handleClick = (event: MouseEvent<HTMLAnchorElement>) => {
@@ -33,23 +29,11 @@ export function PrefetchNavLink({
     if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) {
       return;
     }
-    if (!tabs || !pathname) return;
+    if (!tabs) return;
 
-    const target = normalizeAppPath(href);
-    const current = normalizeAppPath(pathname);
-    if (target === current) {
-      event.preventDefault();
-      return;
-    }
-    if (isSameAppModule(current, target)) {
-      event.preventDefault();
-      flushPageDrafts();
-      markQcReturn(current);
-      tabs.pinCurrentTab();
-      const dest = tabs.hrefForTab(target);
-      tabs.addBackgroundTab(dest);
-      router.push(dest);
-    }
+    event.preventDefault();
+    flushPageDrafts();
+    tabs.openFreshPage(href);
   };
 
   return (

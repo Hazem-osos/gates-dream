@@ -121,6 +121,7 @@ import newModuleRoutes from './modules/platform/routes/new-module.routes';
 import documentProfileRoutes from './modules/document-profiles/routes/document-profile.routes';
 import transactionSettingsRoutes from './modules/transaction-settings/transaction-settings.routes';
 import companySettingRoutes from './modules/platform/routes/company-setting.routes';
+import documentEditLeaseRoutes from './modules/platform/routes/document-edit-lease.routes';
 import { licenseRouteGate } from './modules/platform/middleware/tenant-module-guard.middleware';
 import reportsRoutes from './modules/accounting/routes/reports.routes';
 import sensorRoutes from './modules/manufacturing/routes/sensors.routes';
@@ -543,6 +544,7 @@ app.use('/api/v1/document-profiles', documentProfileRoutes);
 app.use('/api/v1/transaction-settings', transactionSettingsRoutes);
 app.use('/api/v1/items', cache({ ttl: 60 }), inventoryRoutes);
 app.use('/api/v1/company-settings', companySettingRoutes);
+app.use('/api/v1/document-edit-leases', documentEditLeaseRoutes);
 app.use('/api/v1/accounting/reports', reportRequestTimeout, reportsRoutes);
 
 // Manufacturing routes

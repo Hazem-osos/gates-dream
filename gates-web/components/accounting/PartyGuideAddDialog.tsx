@@ -6,7 +6,6 @@ import { CenteredOverlay } from '@/components/erp/CenteredOverlay';
 export type PartyGuideAddChoice =
   | 'customer'
   | 'supplier'
-  | 'delegate'
   | 'customer-group'
   | 'supplier-group';
 
@@ -18,7 +17,7 @@ type Props = {
   onClose: () => void;
 };
 
-const PERSON_OPTIONS: { id: Extract<PartyGuideAddChoice, 'customer' | 'supplier' | 'delegate'>; title: string; description: string }[] = [
+const PERSON_OPTIONS: { id: Extract<PartyGuideAddChoice, 'customer' | 'supplier'>; title: string; description: string }[] = [
   {
     id: 'customer',
     title: 'عميل',
@@ -28,11 +27,6 @@ const PERSON_OPTIONS: { id: Extract<PartyGuideAddChoice, 'customer' | 'supplier'
     id: 'supplier',
     title: 'مورد',
     description: 'بطاقة مورد كاملة — تظهر في شجرة الموردين.',
-  },
-  {
-    id: 'delegate',
-    title: 'مندوب',
-    description: 'يفتح بطاقة المندوب في دليل التوزيع.',
   },
 ];
 
@@ -52,7 +46,7 @@ export function PartyGuideAddDialog({ open, currentKind, onPick, onClose }: Prop
         <p className="mt-1 text-sm text-slate-500">
           {step === 'group'
             ? 'المجموعة دي لعملاء ولا لموردين؟ اختار بنفسك — مش بتتقيد بالفلتر.'
-            : 'عايز تضيف عميل، مورد، مندوب، ولا مجموعة؟'}
+            : 'عايز تضيف عميل، مورد، ولا مجموعة؟'}
         </p>
 
         {step === 'kind' ? (

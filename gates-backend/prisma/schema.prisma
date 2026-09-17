@@ -902,6 +902,8 @@ model CostCenter {
   arabicName     String
   englishName    String?
   parentId       String?  @db.Char(36)
+  /// HEADER = رئيسي / رئيسي فرعي (يُفرَّع منه فقط). POSTING = مركز حركة.
+  costCenterKind AccountKind @default(POSTING)
   quantityBudget Decimal? @db.Decimal(15, 2)
   warning        String? // مدين/دائن/بدون
   budget         Decimal? @db.Decimal(15, 2)
@@ -937,6 +939,7 @@ model CostCenter {
 
   @@unique([companyId, code])
   @@index([companyId, parentId])
+  @@index([companyId, costCenterKind])
   @@map("cost_centers")
 }
 
@@ -1595,7 +1598,8 @@ model Delegate {
   groupId              String?
   salesCommissionsId   String?
   priceListId          String?
-  /// DELEGATE | DISTRIBUTOR | DRIVER | GROUP — GROUP is a folder (code + name).
+  /// DELEGATE | DISTRIBUTOR | DRIVER | GROUP | GROUP_DRIVER | GROUP_DISTRIBUTOR | GROUP_DELEGATE
+  /// GROUP* rows are folders (code + name) nested under سائق / موزع / مندوب.
   role                 String   @default("DELEGATE") @db.VarChar(20)
   isActive             Boolean  @default(true)
   createdAt            DateTime @default(now())

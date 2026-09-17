@@ -9,6 +9,7 @@ import { ExchangeRateInput } from '@/components/accounting/ExchangeRateInput';
 import { useCompanyBaseCurrency } from '@/lib/hooks/useCompanyBaseCurrency';
 import { costCenterRuleFromAccount } from '@/lib/accounting/cost-center-rule';
 import { useAccountsQuery } from '@/lib/hooks/useMasterDataQueries';
+import { seedLineDescription, useFollowHeaderDescription } from '@/lib/hooks/useFollowHeaderDescription';
 
 export type EditableJournalLine = {
   accountId: string;
@@ -33,6 +34,7 @@ type Props = {
   currencies?: CurrencyOption[];
   defaultCurrencyId?: string;
   disabled?: boolean;
+  headerDescription?: string;
 };
 
 export function emptyJournalLine(currencyId?: string, exchangeRate = 1): EditableJournalLine {
@@ -53,6 +55,7 @@ export function EditableJournalLinesTable({
   currencies = [],
   defaultCurrencyId,
   disabled,
+  headerDescription = '',
 }: Props) {
   const { code: companyBase } = useCompanyBaseCurrency();
   const { data: accountsRes } = useAccountsQuery(undefined, 500, { leafOnly: true });
@@ -62,6 +65,15 @@ export function EditableJournalLinesTable({
   const headerCurrency = currencies.find((c) => c.id === defaultCurrencyId);
   const headerRate = rateForCurrency(headerCurrency?.code, companyBase, headerCurrency?.exchangeRate);
 
+  useFollowHeaderDescription({
+    headerDescription,
+    lines,
+    onChange,
+    getDescription: (line) => line.description,
+    setDescription: (line, value) => ({ ...line, description: value }),
+    disabled,
+  });
+
   const updateLine = (index: number, patch: Partial<EditableJournalLine>) => {
     const next = [...lines];
     next[index] = { ...next[index], ...patch };
@@ -69,7 +81,13 @@ export function EditableJournalLinesTable({
   };
 
   const addLine = () => {
-    onChange([...lines, emptyJournalLine(defaultCurrencyId, headerRate)]);
+    onChange([
+      ...lines,
+      {
+        ...emptyJournalLine(defaultCurrencyId, headerRate),
+        description: seedLineDescription(headerDescription),
+      },
+    ]);
   };
 
   const removeLine = (index: number) => {

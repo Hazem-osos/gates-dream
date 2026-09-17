@@ -75,6 +75,7 @@ export type CostCenterOption = {
   arabicName: string;
   englishName?: string | null;
   parentId?: string | null;
+  costCenterKind?: 'HEADER' | 'POSTING' | null;
   children?: { id: string }[] | null;
   _count?: { children?: number };
 };
@@ -201,12 +202,29 @@ export function useSuppliersQuery(limit = 200, search?: string, enabled = true) 
   );
 }
 
-export function useCostCentersQuery(limit = 200) {
+export function isPostableLeafCostCenter(center: CostCenterOption): boolean {
+  if (center.costCenterKind === 'HEADER') return false;
+  if ((center._count?.children ?? 0) > 0) return false;
+  if (Array.isArray(center.children) && center.children.length > 0) return false;
+  return center.costCenterKind === 'POSTING' || center.costCenterKind == null;
+}
+
+export function useCostCentersQuery(
+  limit = 200,
+  opts?: { leafOnly?: boolean; headerOnly?: boolean; enabled?: boolean }
+) {
+  const extra: Record<string, string | number | boolean> = { limit, isActive: true };
+  if (opts?.leafOnly) extra.leafOnly = 'true';
+  if (opts?.headerOnly) extra.headerOnly = 'true';
   return useApiQuery<CostCenterOption[]>(
-    ['cost-centers', { limit, isActive: true }],
+    ['cost-centers', extra],
     '/accounting/cost-centers',
-    { limit, isActive: true },
-    { staleTime: staleTimes.masterMs, gcTime: staleTimes.masterGcMs }
+    extra,
+    {
+      staleTime: staleTimes.masterMs,
+      gcTime: staleTimes.masterGcMs,
+      enabled: opts?.enabled !== false,
+    }
   );
 }
 

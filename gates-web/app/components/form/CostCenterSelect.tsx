@@ -1,7 +1,11 @@
 'use client';
 
 import { memo, useMemo, useState } from 'react';
-import { useCostCentersQuery, type CostCenterOption } from '@/lib/hooks/useMasterDataQueries';
+import {
+  useCostCentersQuery,
+  isPostableLeafCostCenter,
+  type CostCenterOption,
+} from '@/lib/hooks/useMasterDataQueries';
 import { SearchableCombobox } from '@/app/components/form/SearchableCombobox';
 import { compactControlClass } from '@/components/ui/forms/formTokens';
 import { useOpenQuickCreateTab } from '@/lib/quick-create/useQuickCreateTab';
@@ -12,12 +16,6 @@ function costCenterLabel(cc: { code?: string | null; arabicName: string }) {
   return cc.code ? `[${cc.code}] ${cc.arabicName}` : cc.arabicName;
 }
 
-function isLeafCostCenter(cc: CostCenterOption, all: CostCenterOption[]) {
-  if (cc._count?.children != null) return cc._count.children === 0;
-  if (Array.isArray(cc.children)) return cc.children.length === 0;
-  return !all.some((other) => other.parentId === cc.id);
-}
-
 function CostCenterSelectInner({
   value,
   onChange,
@@ -25,6 +23,8 @@ function CostCenterSelectInner({
   className,
   allowEmpty = false,
   emptyLabel = 'مركز تكلفة',
+  leafOnly = true,
+  headerOnly = false,
   nativeSelectProps,
   enableQuickCreate = true,
 }: {
@@ -34,11 +34,16 @@ function CostCenterSelectInner({
   className?: string;
   allowEmpty?: boolean;
   emptyLabel?: string;
+  leafOnly?: boolean;
+  headerOnly?: boolean;
   nativeSelectProps?: React.SelectHTMLAttributes<HTMLSelectElement> &
     Record<`data-${string}`, string | undefined>;
   enableQuickCreate?: boolean;
 }) {
-  const { data, isLoading, isError } = useCostCentersQuery();
+  const { data, isLoading, isError } = useCostCentersQuery(200, {
+    leafOnly: headerOnly ? false : leafOnly,
+    headerOnly,
+  });
   const rows = data?.data ?? [];
   const [pinned, setPinned] = useState<CostCenterOption | null>(null);
   const openQuickCreate = useOpenQuickCreateTab('cost-center', (entity) => {
@@ -46,6 +51,7 @@ function CostCenterSelectInner({
       id: entity.id,
       arabicName: entity.arabicName || entity.label,
       code: entity.code ?? null,
+      costCenterKind: 'POSTING' as const,
     } as CostCenterOption;
     setPinned(row);
     onChange(row.id);
@@ -59,19 +65,22 @@ function CostCenterSelectInner({
   }, [pinned, rows]);
 
   const options = useMemo(() => {
-    const leaves = merged.filter(
-      (cc) => isLeafCostCenter(cc, merged) || cc.id === value
-    );
-    const list = leaves.map((cc) => ({
-      value: cc.id,
-      label: costCenterLabel(cc),
-      searchText: `${cc.code ?? ''} ${cc.arabicName} ${cc.englishName ?? ''}`,
-    }));
+    const list = merged
+      .filter((cc) => {
+        if (headerOnly) return cc.costCenterKind !== 'POSTING';
+        if (leafOnly) return isPostableLeafCostCenter(cc) || cc.id === value;
+        return true;
+      })
+      .map((cc) => ({
+        value: cc.id,
+        label: costCenterLabel(cc),
+        searchText: `${cc.code ?? ''} ${cc.arabicName} ${cc.englishName ?? ''}`,
+      }));
     if (allowEmpty) {
       return [{ value: '', label: emptyLabel, searchText: '' }, ...list];
     }
     return list;
-  }, [allowEmpty, emptyLabel, merged, value]);
+  }, [allowEmpty, emptyLabel, headerOnly, leafOnly, merged, value]);
 
   const valueLabel = useMemo(() => {
     if (!value) return undefined;

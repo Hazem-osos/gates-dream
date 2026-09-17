@@ -73,7 +73,7 @@ export class SupplierService {
   /**
    * Create a new supplier
    */
-  private async nextSupplierCode(companyId: string): Promise<string> {
+  async nextSupplierCode(companyId: string): Promise<string> {
     const rows = await prisma.supplier.findMany({
       where: { companyId },
       select: { serial: true, code: true },
@@ -214,7 +214,9 @@ export class SupplierService {
 
       return supplier;
     } catch (error) {
-      logger.error({ error, companyId, supplierId }, 'Error getting supplier');
+      if (!(error instanceof Error && error.message === 'Supplier not found')) {
+        logger.error({ error, companyId, supplierId }, 'Error getting supplier');
+      }
       throw error;
     }
   }

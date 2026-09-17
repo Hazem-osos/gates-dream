@@ -62,6 +62,7 @@ import {
   erpTableHeadRowClass,
 } from '@/components/erp/erpUiTokens';
 import { useClipboardTablePaste } from '@/lib/hooks/useClipboardTablePaste';
+import { useFollowHeaderDescription } from '@/lib/hooks/useFollowHeaderDescription';
 import {
   parseInvoiceLinesFromClipboard,
   type ClipboardItemRef,
@@ -131,6 +132,7 @@ type Props = {
   hideAddLine?: boolean;
   landedCostExtras?: LandedCostExtras;
   allLinesForLandedCost?: PurchaseInvoiceLine[];
+  headerDescription?: string;
 };
 
 function patchLine(lines: PurchaseInvoiceLine[], index: number, patch: Partial<PurchaseInvoiceLine>) {
@@ -688,8 +690,18 @@ export function ProgressivePurchaseInvoiceLineGrid({
   lockUnitPrice = false,
   hideAddLine = false,
   landedCostExtras,
+  headerDescription = '',
 }: Props) {
   const gridContainerRef = useRef<HTMLDivElement>(null);
+
+  useFollowHeaderDescription({
+    headerDescription,
+    lines,
+    onChange,
+    getDescription: (line) => line.lineNotes,
+    setDescription: (line, value) => ({ ...line, lineNotes: value }),
+    disabled: readOnly,
+  });
 
   const handleClipboardPaste = useCallback(
     (text: string) => {

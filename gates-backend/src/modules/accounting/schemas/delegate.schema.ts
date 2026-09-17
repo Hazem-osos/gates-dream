@@ -1,6 +1,14 @@
 import { z } from 'zod';
 
-export const delegateRoleSchema = z.enum(['DELEGATE', 'DISTRIBUTOR', 'DRIVER', 'GROUP']);
+export const delegateRoleSchema = z.enum([
+  'DELEGATE',
+  'DISTRIBUTOR',
+  'DRIVER',
+  'GROUP',
+  'GROUP_DRIVER',
+  'GROUP_DISTRIBUTOR',
+  'GROUP_DELEGATE',
+]);
 
 export const createDelegateSchema = z.object({
   serial: z.string().optional(),

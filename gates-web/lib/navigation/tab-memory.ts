@@ -71,17 +71,23 @@ export function pinCurrentWindowHref() {
   rememberTabSearch(path, search);
 }
 
-/** Bare paths restore the last open document; explicit `?id=` / query wins. */
+/** Explicit `?id=` / query wins. Bare paths stay new — do not restore the last document. */
 export function resolveAppTabHref(href: string): string {
-  const { path, href: normalized } = splitTabHref(href);
-  if (normalized !== path) return normalized;
-  return recalledTabHref(path) ?? normalized;
+  const { href: normalized } = splitTabHref(href);
+  return normalized;
 }
 
-/** Pin the page you are leaving, then resolve the destination so an open document is not lost. */
+/** Pin the page you are leaving, then go to the destination as given. */
 export function destinationAppTabHref(href: string): string {
   pinCurrentWindowHref();
   return resolveAppTabHref(href);
+}
+
+export function rememberFreshPage(path: string) {
+  const normalized = normalizeAppPath(path);
+  if (!normalized) return;
+  rememberTabHref(normalized, normalized);
+  rememberTabSearch(normalized, '');
 }
 
 export type PersistedAppTab = {

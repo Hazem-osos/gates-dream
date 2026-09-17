@@ -19,6 +19,9 @@ import {
   type DocumentNavEntity,
 } from '@/components/common/document-shell';
 import { useRegisterScreenChrome } from '@/components/erp/AppScreenChromeContext';
+import { DocumentOccupiedOverlay } from '@/components/concurrency/DocumentOccupiedOverlay';
+import { useDocumentEditLease } from '@/lib/hooks/useDocumentEditLease';
+import { asText } from '@/lib/text/as-text';
 
 function RegisterScreenChrome() {
   useRegisterScreenChrome();
@@ -67,7 +70,7 @@ type Props = {
   /** Hide the trailing ⋯ menu when the screen has no document actions. */
   hideActionMenu?: boolean;
   navEntity?: DocumentNavEntity;
-  currentId?: string | null;
+  currentId?: string | number | null;
   invoiceKind?: string;
   transactionKind?: string;
   fundType?: 'CASHBOX' | 'BANK_ACCOUNT';
@@ -94,7 +97,7 @@ type Props = {
 };
 
 function isPostedStatusLabel(label: string): boolean {
-  const t = label.trim();
+  const t = asText(label);
   if (!t || /غير\s*مرح/.test(t)) return false;
   if (/مسودة|جديد|تعديل|مفتوحة|مغلقة/.test(t)) return false;
   return /مرحّ?ل|posted/i.test(t);
@@ -148,10 +151,12 @@ export function ErpDocumentPageHeader({
   compact = false,
   lockWhenPosted = true,
 }: Props) {
-  const docTitle = docNumber?.trim() ? docNumber : 'مسودة جديدة';
+  const docTitle = asText(docNumber) || 'مسودة جديدة';
   const { isFavorite, toggleFavorite } = usePageFavorites();
   const starred = favoriteHref ? isFavorite(favoriteHref) : false;
   const documentMode = useOptionalDocumentMode();
+  const leaseId = asText(currentId) || null;
+  const documentLease = useDocumentEditLease(leaseId);
   const isReadOnly = documentMode?.isReadOnly === true;
   const looksPosted = lockWhenPosted && isPostedStatusLabel(statusLabel);
   const hidePost = hideStandalonePost || Boolean(standardActions);
@@ -173,6 +178,7 @@ export function ErpDocumentPageHeader({
   }, [currentId, statusLabel, statusTone, title]);
 
   return (
+    <>
     <header className={`sticky top-0 z-40 isolate -mx-3 px-3 bg-white border-b border-[#E6F0F7] shadow-sm rounded-lg overflow-visible ${compact ? 'py-1.5 mb-1' : 'py-2.5 mb-2'}`} data-tour="document-header" data-tour-legacy="erp-page-header">
       {registerChrome ? <RegisterScreenChrome /> : null}
       <div className={`flex min-w-0 max-w-full flex-wrap justify-between gap-2 ${compact ? 'items-center' : 'items-start'}`}>
@@ -228,7 +234,7 @@ export function ErpDocumentPageHeader({
               onOpenList={onBrowseList}
               label={browseListLabel}
               entity={navEntity}
-              currentId={currentId}
+              currentId={leaseId}
               invoiceKind={invoiceKind}
               transactionKind={transactionKind}
               fundType={fundType}
@@ -325,5 +331,7 @@ export function ErpDocumentPageHeader({
         </div>
       </div>
     </header>
+    <DocumentOccupiedOverlay open={documentLease.occupied} holderName={documentLease.holderName} />
+    </>
   );
 }

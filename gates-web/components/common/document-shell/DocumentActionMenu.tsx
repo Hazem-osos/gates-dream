@@ -203,15 +203,19 @@ export function DocumentActionMenu({
           },
         ]
       : []),
-    {
-      id: 'duplicate',
-      label:
-        duplicatePending
-          ? 'جاري التكرار…'
-          : duplicateLabel ?? (hidePostActions ? 'تكرار' : 'تكرار المستند'),
-      disabled: !hasDocument || !onDuplicate || duplicatePending,
-      onClick: () => onDuplicate?.(),
-    },
+    ...(onDuplicate
+      ? [
+          {
+            id: 'duplicate',
+            label:
+              duplicatePending
+                ? 'جاري التكرار…'
+                : duplicateLabel ?? (hidePostActions ? 'تكرار' : 'تكرار المستند'),
+            disabled: !hasDocument || duplicatePending,
+            onClick: () => onDuplicate(),
+          },
+        ]
+      : []),
     ...extraItems,
     ...(isCancelled && onRestore
       ? [

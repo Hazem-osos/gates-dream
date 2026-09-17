@@ -28,6 +28,7 @@ const EMPTY_COST_CENTER_FORM = {
   arabicName: '',
   englishName: '',
   parentId: '',
+  costCenterKind: 'HEADER' as 'HEADER' | 'POSTING',
   quantityBudget: '',
   warning: '' as 'مدين' | 'دائن' | 'بدون' | '',
   budget: '',
@@ -40,6 +41,8 @@ interface CostCenter {
   code: string;
   arabicName: string;
   englishName?: string;
+  parentId?: string | null;
+  costCenterKind?: 'HEADER' | 'POSTING' | null;
 }
 
 interface Currency {
@@ -73,11 +76,12 @@ function CostCenterPage() {
 
   // Fetch parent cost centers
   const { data: costCentersResponse } = useApiQuery<CostCenter[]>(
-    ['cost-centers'],
+    ['cost-centers', { limit: 1000, isActive: true }],
     '/accounting/cost-centers',
     { limit: 1000, isActive: true }
   );
   const costCenters = costCentersResponse?.data || [];
+  const headerParents = costCenters.filter((cc) => cc.costCenterKind !== 'POSTING');
 
   const { data: nextCodeResponse } = useApiQuery<{ code?: string }>(
     ['cost-centers', 'next-code', formData.parentId || 'root'],
@@ -128,6 +132,7 @@ function CostCenterPage() {
         setFormData({
           ...EMPTY_COST_CENTER_FORM,
           parentId: keepParentIdRef.current,
+          costCenterKind: keepParentIdRef.current ? 'POSTING' : 'HEADER',
           code: bumpTrailingCode(created?.code || keepCodeRef.current),
         });
         setCodeTouched(false);
@@ -141,14 +146,18 @@ function CostCenterPage() {
   const loading = costCenterMutation.isPending;
 
   // Filter parent cost centers
-  const filteredParents = costCenters.filter((cc: CostCenter) =>
+  const filteredParents = headerParents.filter((cc: CostCenter) =>
     cc.code.toLowerCase().includes(parentSearchTerm.toLowerCase()) ||
     cc.arabicName.toLowerCase().includes(parentSearchTerm.toLowerCase()) ||
     (cc.englishName && cc.englishName.toLowerCase().includes(parentSearchTerm.toLowerCase()))
   );
 
-  const handleParentSelect = (costCenter: CostCenter) => {
-    setFormData({ ...formData, parentId: costCenter.id });
+  const handleParentSelect = (costCenter: CostCenter | null) => {
+    setFormData((prev) => ({
+      ...prev,
+      parentId: costCenter?.id ?? '',
+      costCenterKind: costCenter ? (prev.parentId ? prev.costCenterKind : 'POSTING') : 'HEADER',
+    }));
     setShowParentSearch(false);
     setParentSearchTerm('');
   };
@@ -172,6 +181,7 @@ function CostCenterPage() {
       arabicName: formData.arabicName,
       englishName: formData.englishName || undefined,
       parentId: formData.parentId || undefined,
+      costCenterKind: formData.costCenterKind,
       quantityBudget: formData.quantityBudget ? parseFloat(formData.quantityBudget) : undefined,
       warning: formData.warning || undefined,
       budget: formData.budget ? parseFloat(formData.budget) : undefined,
@@ -257,7 +267,7 @@ function CostCenterPage() {
             <div className="relative">
               <input
                 type="text"
-                placeholder={selectedParent ? `${selectedParent.code} - ${selectedParent.arabicName}` : "ابحث عن مركز رئيسي"}
+                placeholder={selectedParent ? `${selectedParent.code} - ${selectedParent.arabicName}` : "ابحث عن مركز رئيسي أو رئيسي فرعي"}
                 className={`${compactControlClass} pl-10`}
                 value={parentSearchTerm}
                 onChange={(e) => {
@@ -275,6 +285,12 @@ function CostCenterPage() {
               </button>
               {showParentSearch && (
                 <div className="absolute top-full z-50 mt-1 max-h-60 w-full overflow-y-auto rounded-lg border border-[#D6EAF3] bg-white shadow-lg">
+                  <div
+                    className="cursor-pointer border-b border-[#D6EAF3] p-3 hover:bg-[#F6FBFD]"
+                    onClick={() => handleParentSelect(null)}
+                  >
+                    <div className="font-semibold text-[#094C6B]">مركز رئيسي (بدون أب)</div>
+                  </div>
                   {filteredParents.length === 0 ? (
                     <div className="p-3 text-sm text-gray-500">لا توجد نتائج</div>
                   ) : (
@@ -293,6 +309,46 @@ function CostCenterPage() {
               )}
             </div>
           </CompactFormField>
+          {formData.parentId && !quickCreate.isQuickCreate ? (
+            <CompactFormField label="نوع المركز الفرعي" className="sm:col-span-2">
+              <div className="flex flex-wrap gap-2">
+                {[
+                  { value: 'POSTING' as const, label: 'مركز حركة' },
+                  { value: 'HEADER' as const, label: 'رئيسي فرعي' },
+                ].map((opt) => (
+                  <label
+                    key={opt.value}
+                    className={`${
+                      formData.costCenterKind === opt.value
+                        ? 'bg-[#0E78AA] text-white border-[#0E78AA]'
+                        : 'bg-white text-[#0A3D5E] border-[#D6EAF3]'
+                    } inline-flex cursor-pointer items-center rounded-full border px-3 py-1.5 text-xs font-semibold`}
+                  >
+                    <input
+                      type="radio"
+                      name="costCenterKind"
+                      className="sr-only"
+                      checked={formData.costCenterKind === opt.value}
+                      onChange={() => setFormData((prev) => ({ ...prev, costCenterKind: opt.value }))}
+                    />
+                    {opt.label}
+                  </label>
+                ))}
+              </div>
+            </CompactFormField>
+          ) : (
+            <CompactFormField label="نوع المركز">
+              <input
+                className={compactControlClass}
+                value={
+                  quickCreate.isQuickCreate || formData.parentId
+                    ? 'مركز حركة'
+                    : 'رئيسي بدون أب'
+                }
+                readOnly
+              />
+            </CompactFormField>
+          )}
         </FormSectionCard>
 
         <AdvancedFieldsSection title="الحقول والإعدادات المتقدمة" badgeCount={advancedFilledCount}>
@@ -382,6 +438,8 @@ function CostCenterPage() {
               code: cc.code,
               arabicName: cc.arabicName,
               englishName: cc.englishName || '',
+              parentId: cc.parentId ?? '',
+              costCenterKind: cc.costCenterKind === 'HEADER' ? 'HEADER' : cc.parentId ? 'POSTING' : 'HEADER',
             }));
             setShowGuide(false);
           }}

@@ -32,7 +32,7 @@ export function subscribeAiScreenSession(listener: () => void): () => void {
 }
 
 export function inferDocumentStatus(statusTone: string, statusLabel: string): AiDocumentStatus {
-  const label = statusLabel.trim();
+  const label = String(statusLabel ?? '').trim();
   if (/ملغ|cancelled/i.test(label)) return 'CANCELLED';
   if (statusTone === 'success' || /مرحّل|مرحل|posted/i.test(label)) return 'POSTED';
   return 'DRAFT';

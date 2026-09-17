@@ -627,6 +627,13 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
     return '';
   }, [voucherLines, parties]);
 
+  const settlementAccountId = useMemo(() => {
+    for (const line of voucherLines) {
+      if (line.accountId) return line.accountId;
+    }
+    return '';
+  }, [voucherLines]);
+
   const settlementSupplierId =
     voucherLines.find((line) => line.partyKind === 'SUPPLIER')?.partyId ||
     (isPayable ? settlementPartyId : '');
@@ -1060,6 +1067,7 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
                 currencies={currencies}
                 baseCurrency={headerCurrencyCode}
                 showFx={showFxColumns}
+                headerDescription={descriptionW}
               />
             ) : (
               <PaymentOrderLinesTable
@@ -1071,6 +1079,7 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
                 currencies={currencies}
                 baseCurrency={headerCurrencyCode}
                 showFx={showFxColumns}
+                headerDescription={descriptionW}
               />
             )
           ) : (
@@ -1083,6 +1092,7 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
               currencies={currencies}
               headerCurrencyCode={headerCurrencyCode}
               showFx={showFxColumns}
+              headerDescription={descriptionW}
             />
           )}
         </FormSectionCard>
@@ -1141,6 +1151,7 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
         onClose={() => setShowPaymentsModal(false)}
         side={isPayable ? 'payable' : 'receivable'}
         partyId={settlementPartyId}
+        accountId={settlementAccountId}
         cashTransactionId={savedOrderId}
         isPosted={executionStatus === 'COMPLETED'}
         receiptTotal={totalAmount}

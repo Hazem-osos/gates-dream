@@ -32,16 +32,24 @@ export type InvoiceJournalEntryLinesTableProps = {
   compact?: boolean;
 };
 
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function isJournalEntryId(value: string | null | undefined): value is string {
+  return Boolean(value && UUID_RE.test(value));
+}
+
 export function InvoiceJournalEntryLinesTable({
   journalEntryId,
   title = 'القيد',
   compact = false,
 }: InvoiceJournalEntryLinesTableProps) {
+  const validId = isJournalEntryId(journalEntryId) ? journalEntryId : null;
   const { data: response, isLoading } = useApiQuery<JournalEntryPayload>(
-    ['journal-entry', journalEntryId],
-    `/accounting/journal-entries/${journalEntryId}`,
+    ['journal-entry', validId],
+    `/accounting/journal-entries/${validId}`,
     {},
-    { enabled: !!journalEntryId }
+    { enabled: Boolean(validId), retry: false, skipErrorNotify: true }
   );
 
   const lines = response?.data?.lines ?? [];
@@ -70,7 +78,7 @@ export function InvoiceJournalEntryLinesTable({
           </tr>
         </thead>
         <tbody>
-          {!journalEntryId ? (
+          {!validId ? (
             <tr>
               <td colSpan={8} className="py-6">
                 <EmptyState title="لا يوجد قيد محاسبي — يظهر بعد ترحيل الفاتورة." />

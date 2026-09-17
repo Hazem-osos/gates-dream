@@ -15,13 +15,17 @@ export function TabPageCache({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const ctx = useAppTabs();
   const queryClient = useQueryClient();
-  const cacheRef = useRef(new Map<string, ReactNode>());
+  const cacheRef = useRef(new Map<string, { nonce: number; node: ReactNode }>());
   const seenCatalogRef = useRef(new Map<string, number>());
   const active = pathname ? normalizeAppPath(pathname) : '';
   const openPaths = new Set((ctx?.tabs ?? []).map((tab) => tab.path));
+  const activeNonce = ctx?.freshNonceByPath?.[active] ?? 0;
 
-  if (active && !cacheRef.current.has(active)) {
-    cacheRef.current.set(active, children);
+  if (active) {
+    const cached = cacheRef.current.get(active);
+    if (!cached || cached.nonce !== activeNonce) {
+      cacheRef.current.set(active, { nonce: activeNonce, node: children });
+    }
   }
 
   for (const path of [...cacheRef.current.keys()]) {
@@ -45,16 +49,16 @@ export function TabPageCache({ children }: { children: ReactNode }) {
 
   return (
     <>
-      {[...cacheRef.current.entries()].map(([path, node]) => {
+      {[...cacheRef.current.entries()].map(([path, entry]) => {
         const isActive = path === active;
         return (
           <div
-            key={path}
+            key={`${path}:${entry.nonce}`}
             hidden={!isActive}
             inert={!isActive}
             className={isActive ? 'min-h-full min-w-0 max-w-full' : 'hidden'}
           >
-            <TabOwnPathContext.Provider value={path}>{node}</TabOwnPathContext.Provider>
+            <TabOwnPathContext.Provider value={path}>{entry.node}</TabOwnPathContext.Provider>
           </div>
         );
       })}

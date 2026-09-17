@@ -6,6 +6,7 @@ import { FilterToolbar, Button, CompactFormField } from '@/components/ui';
 import { ErpDocumentLayout, ErpDocumentPageHeader } from '@/components/erp';
 import { MasterGuideTree } from '@/components/accounting/guide/MasterGuideTree';
 import { GuideEntityModal } from '@/components/accounting/guide/GuideEntityModal';
+import { ChildCostCenterKindDialog } from '@/components/accounting/guide/ChildCostCenterKindDialog';
 import { buildParentTree, type GuideTreeNode } from '@/lib/accounting/buildGuideTree';
 import { useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
 import { apiClient } from '@/lib/api/client';
@@ -21,6 +22,7 @@ type CostCenterRow = {
   arabicName: string;
   englishName?: string | null;
   parentId?: string | null;
+  costCenterKind?: 'HEADER' | 'POSTING' | null;
   isActive?: boolean;
 };
 
@@ -29,6 +31,7 @@ type FormState = {
   arabicName: string;
   englishName: string;
   parentId: string;
+  costCenterKind: 'HEADER' | 'POSTING';
 };
 
 const emptyForm = (): FormState => ({
@@ -36,7 +39,13 @@ const emptyForm = (): FormState => ({
   arabicName: '',
   englishName: '',
   parentId: '',
+  costCenterKind: 'HEADER',
 });
+
+function kindLabel(row: Pick<CostCenterRow, 'costCenterKind' | 'parentId'>): string {
+  if (row.costCenterKind === 'POSTING') return 'مركز حركة';
+  return row.parentId ? 'رئيسي فرعي' : 'رئيسي';
+}
 
 export default function CostCentersGuidePage() {
   const invalidate = useInvalidateQuery();
@@ -59,6 +68,7 @@ export default function CostCentersGuidePage() {
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
   const [saving, setSaving] = useState(false);
+  const [kindPickerParent, setKindPickerParent] = useState<GuideTreeNode | null>(null);
 
   const { data: nextCodeResponse } = useApiQuery<{ code?: string }>(
     ['cost-centers', 'next-code', form.parentId || 'root'],
@@ -80,13 +90,17 @@ export default function CostCentersGuidePage() {
 
   const tree = useMemo(
     () =>
-      buildParentTree(rows, (item, children) => ({
-        id: item.id,
-        code: item.code,
-        name: item.arabicName,
-        folder: children.length > 0,
-        children,
-      })),
+      buildParentTree(rows, (item, children) => {
+        const isHeader = item.costCenterKind === 'HEADER' || children.length > 0;
+        return {
+          id: item.id,
+          code: item.code,
+          name: item.arabicName,
+          subtitle: kindLabel(item),
+          folder: isHeader,
+          children,
+        };
+      }),
     [rows]
   );
 
@@ -96,12 +110,34 @@ export default function CostCentersGuidePage() {
     return parent ? `${parent.code} — ${parent.arabicName}` : 'مركز رئيسي';
   }, [form.parentId, rows]);
 
-  const openCreate = (parent?: GuideTreeNode) => {
+  const openCreateRoot = () => {
+    setModalMode('create');
+    setEditId(null);
+    setForm({ ...emptyForm(), costCenterKind: 'HEADER' });
+    setModalOpen(true);
+  };
+
+  const openCreateChild = (parent?: GuideTreeNode) => {
+    if (!parent || parent.synthetic) {
+      openCreateRoot();
+      return;
+    }
+    if (!parent.folder) {
+      toast.error('مركز الحركة لا يُفرَّع منه', {
+        description: 'اختَر مركزاً رئيسياً أو رئيسياً فرعياً، أو أنشئ الحركة تحت مجموعة أعلى.',
+      });
+      return;
+    }
+    setKindPickerParent(parent);
+  };
+
+  const openCreateUnder = (parent: GuideTreeNode, kind: 'HEADER' | 'POSTING') => {
     setModalMode('create');
     setEditId(null);
     setForm({
       ...emptyForm(),
-      parentId: parent && !parent.synthetic ? parent.id : '',
+      parentId: parent.id,
+      costCenterKind: kind,
     });
     setModalOpen(true);
   };
@@ -116,6 +152,7 @@ export default function CostCentersGuidePage() {
       arabicName: row.arabicName ?? '',
       englishName: row.englishName ?? '',
       parentId: row.parentId ?? '',
+      costCenterKind: row.costCenterKind === 'HEADER' ? 'HEADER' : 'POSTING',
     });
     setModalOpen(true);
   };
@@ -136,6 +173,8 @@ export default function CostCentersGuidePage() {
         arabicName: form.arabicName.trim(),
         englishName: form.englishName.trim() || undefined,
         parentId: form.parentId || undefined,
+        costCenterKind:
+          form.parentId || modalMode === 'edit' ? form.costCenterKind : 'HEADER',
         isActive: true,
       };
       if (modalMode === 'edit' && editId) {
@@ -149,9 +188,11 @@ export default function CostCentersGuidePage() {
       await apiClient.post('/accounting/cost-centers', body);
       toast.success('تم حفظ مركز التكلفة — تقدر تضيف التالي');
       const parentId = form.parentId;
+      const costCenterKind = form.costCenterKind;
       setForm({
         ...emptyForm(),
         parentId,
+        costCenterKind: parentId ? costCenterKind : 'HEADER',
         code: costCenterAuto ? bumpTrailingCode(form.code) : '',
       });
       invalidate(['cost-centers']);
@@ -211,15 +252,15 @@ export default function CostCentersGuidePage() {
           <Layers className="mx-auto mb-3 h-8 w-8 text-[#0E79AA]" />
           <p className="text-lg font-semibold text-slate-800">لا توجد مراكز تكلفة بعد</p>
           <p className="mt-1 text-sm text-slate-500">أضف أول مركز لبناء الدليل بنفس أسلوب شجرة الحسابات.</p>
-          <Button type="button" className="mt-4" onClick={() => openCreate()}>
-            إضافة مركز تكلفة
+          <Button type="button" className="mt-4" onClick={openCreateRoot}>
+            إضافة مركز رئيسي
           </Button>
         </div>
       ) : (
         <>
           <div className="mt-2 flex items-center gap-2">
-            <Button type="button" variant="secondary" size="sm" onClick={() => openCreate()}>
-              + إضافة
+            <Button type="button" variant="secondary" size="sm" onClick={openCreateRoot}>
+              + إضافة مركز رئيسي
             </Button>
             <NumberingModeControl
               kind="costCenters"
@@ -251,7 +292,8 @@ export default function CostCentersGuidePage() {
                 expandAllToken={expandToken}
                 collapseAllToken={collapseToken}
                 childNoun="مراكز فرعية"
-                onAddChild={openCreate}
+                onAddChild={openCreateChild}
+                canAddChild={(n) => Boolean(n.folder)}
                 onEdit={openEdit}
                 onDelete={(n) => void handleDelete(n)}
               />
@@ -262,7 +304,15 @@ export default function CostCentersGuidePage() {
 
       <GuideEntityModal
         open={modalOpen}
-        title={modalMode === 'edit' ? 'تعديل مركز تكلفة' : form.parentId ? 'إضافة مركز فرعي' : 'إضافة مركز رئيسي'}
+        title={
+          modalMode === 'edit'
+            ? 'تعديل مركز تكلفة'
+            : form.parentId
+              ? form.costCenterKind === 'HEADER'
+                ? 'إضافة رئيسي فرعي'
+                : 'إضافة مركز حركة'
+              : 'إضافة مركز رئيسي'
+        }
         subtitle={`المركز الأب: ${parentLabel}`}
         hint={modalMode === 'create' ? 'بعد الحفظ النموذج يفضل مفتوح عشان تضيف التالي تحت نفس الأب. إغلاق من إلغاء.' : undefined}
         saveText={modalMode === 'create' ? 'حفظ وإضافة آخر' : 'حفظ'}
@@ -290,8 +340,63 @@ export default function CostCentersGuidePage() {
             value={form.englishName}
             onChange={(e) => setForm((f) => ({ ...f, englishName: e.target.value }))}
           />
+          {form.parentId || modalMode === 'edit' ? (
+            <CompactFormField
+              label={form.parentId ? 'نوع المركز الفرعي' : 'نوع المركز'}
+              className="sm:col-span-2"
+            >
+              <div className="flex flex-wrap gap-2">
+                {(form.parentId
+                  ? [
+                      { value: 'POSTING' as const, label: 'مركز حركة' },
+                      { value: 'HEADER' as const, label: 'رئيسي فرعي' },
+                    ]
+                  : [
+                      { value: 'HEADER' as const, label: 'رئيسي' },
+                      { value: 'POSTING' as const, label: 'مركز حركة' },
+                    ]
+                ).map((opt) => (
+                  <label
+                    key={opt.value}
+                    className={`${
+                      form.costCenterKind === opt.value
+                        ? 'bg-[#0E78AA] text-white border-[#0E78AA]'
+                        : 'bg-white text-[#0A3D5E] border-[#D6EAF3]'
+                    } inline-flex cursor-pointer items-center rounded-full border px-3 py-1.5 text-xs font-semibold`}
+                  >
+                    <input
+                      type="radio"
+                      name="costCenterKind"
+                      className="sr-only"
+                      checked={form.costCenterKind === opt.value}
+                      onChange={() => setForm((f) => ({ ...f, costCenterKind: opt.value }))}
+                    />
+                    {opt.label}
+                  </label>
+                ))}
+              </div>
+            </CompactFormField>
+          ) : (
+            <CompactFormField label="نوع المركز">
+              <input className="w-full rounded-lg border border-[#D6EAF3] bg-slate-50 px-3 py-2 text-sm" value="رئيسي بدون أب" readOnly />
+            </CompactFormField>
+          )}
         </div>
       </GuideEntityModal>
+
+      <ChildCostCenterKindDialog
+        open={Boolean(kindPickerParent)}
+        parentLabel={
+          kindPickerParent ? `${kindPickerParent.code} — ${kindPickerParent.name}` : ''
+        }
+        onClose={() => setKindPickerParent(null)}
+        onPick={(kind) => {
+          if (!kindPickerParent) return;
+          const parent = kindPickerParent;
+          setKindPickerParent(null);
+          openCreateUnder(parent, kind);
+        }}
+      />
     </ErpDocumentLayout>
   );
 }

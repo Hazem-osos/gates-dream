@@ -114,16 +114,10 @@ export default function CustomersSuppliersGuidePage() {
     router.push(href);
   };
 
-  const openPersonCard = (kind: 'customer' | 'supplier' | 'delegate', groupId?: string) => {
-    const path =
-      kind === 'customer'
-        ? '/accounting/cards/customer'
-        : kind === 'supplier'
-          ? '/accounting/cards/supplier'
-          : '/accounting/cards/delegate';
+  const openPersonCard = (kind: 'customer' | 'supplier', groupId?: string) => {
+    const path = kind === 'customer' ? '/accounting/cards/customer' : '/accounting/cards/supplier';
     const qs = new URLSearchParams();
-    if (groupId && kind !== 'delegate') qs.set('categoryId', groupId);
-    if (groupId && kind === 'delegate') qs.set('groupId', groupId);
+    if (groupId) qs.set('categoryId', groupId);
     openCard(qs.size ? `${path}?${qs.toString()}` : path);
   };
 
@@ -145,10 +139,6 @@ export default function CustomersSuppliersGuidePage() {
     }
     if (choice === 'supplier') {
       openPersonCard('supplier', !isCustomers ? addParentGroupId : '');
-      return;
-    }
-    if (choice === 'delegate') {
-      openPersonCard('delegate');
       return;
     }
     setEditGroup(null);

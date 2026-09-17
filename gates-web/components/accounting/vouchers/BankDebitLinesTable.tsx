@@ -13,6 +13,7 @@ type Props = {
   currencies: PaymentLineCurrency[];
   baseCurrency?: string;
   showFx?: boolean;
+  headerDescription?: string;
 };
 
 export function BankDebitLinesTable(props: Props) {

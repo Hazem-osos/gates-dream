@@ -45,6 +45,13 @@ export class CostCenterMovementService {
         throw new Error('To cost center not found');
       }
 
+      if (toCostCenter.costCenterKind === 'HEADER') {
+        throw new AppError(
+          409,
+          `لا يمكن نقل الحركة إلى «${toCostCenter.code} — ${toCostCenter.arabicName}» لأنه رئيسي/رئيسي فرعي. اختَر مركز حركة.`
+        );
+      }
+
       if (data.fromCostCenterId === data.toCostCenterId) {
         throw new Error(
           'From cost center and to cost center cannot be the same'

@@ -432,6 +432,7 @@ function DisassemblyPageInner() {
         />
 
         <DisassemblyLinesTable
+          headerDescription={description}
           lines={lines}
           onChange={setLines}
           warehouseId={targetWarehouseId}

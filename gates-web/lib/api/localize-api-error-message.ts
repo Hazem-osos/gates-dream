@@ -10,6 +10,16 @@ const EXACT: Record<string, string> = {
   'company id is required': 'معرّف الشركة مطلوب',
   'company context is required': 'يجب اختيار الشركة',
   'branch context is required for posting (send x-branch-id)': 'يجب اختيار الفرع قبل الترحيل',
+  'branch context is required (x-branch-id or token branch_id)': 'يجب اختيار الفرع قبل الترحيل',
+  'journal entry not found': 'القيد غير موجود',
+  'journal entry is already posted': 'القيد مرحّل مسبقاً',
+  'journal entry document is not open for posting': 'مستند القيد غير مفتوح للترحيل',
+  'journal entry belongs to a different branch': 'القيد يتبع فرعاً آخر. غيّر الفرع ثم أعد الترحيل.',
+  'posting to general ledger is disabled for this company': 'ترحيل القيود مقفول لهذه الشركة',
+  'cannot post: debit and credit base totals differ':
+    'لا يمكن ترحيل قيد غير متزن. ساوِ إجمالي المدين مع إجمالي الدائن ثم أعد الحفظ.',
+  'failed to post journal entry': 'تعذّر ترحيل القيد',
+  'failed to get journal entry': 'تعذّر تحميل القيد',
   'authentication required': 'يجب تسجيل الدخول',
   'insufficient permissions':
     'لا تملك صلاحية لهذه العملية. الحل: اطلب من المدير إضافة الصلاحية لمجموعتك.',
@@ -73,6 +83,8 @@ const EXACT: Record<string, string> = {
   'post the invoice before recording a settlement': 'رحّل الفاتورة قبل تسجيل التحصيل',
   'invoice must be posted before collecting payment': 'يجب ترحيل الفاتورة قبل التحصيل',
   'invoice must be posted before approval': 'يجب ترحيل الفاتورة قبل الاعتماد',
+  'error getting journal entry': 'تعذّر تحميل القيد',
+  'failed to get journal entry': 'تعذّر تحميل القيد',
   'cannot unapprove a posted journal entry': 'تم إلغاء الاعتماد — يمكنك فك الترحيل الآن',
   'cannot update a posted journal entry':
     'القيد مرحّل ولا يمكن تعديله. فك الترحيل أولاً من قائمة (...).',
@@ -210,6 +222,22 @@ const RULES: Rule[] = [
     ar: 'المستند مرحّل مسبقاً.',
   },
   {
+    test: /advancedrights|not permitted to post general ledger/i,
+    ar: 'ليس لديك صلاحية ترحيل القيود. اطلب من المدير تفعيل ترحيل دفتر الأستاذ.',
+  },
+  {
+    test: /journal entry belongs to a different branch/i,
+    ar: 'القيد يتبع فرعاً آخر. غيّر الفرع ثم أعد الترحيل.',
+  },
+  {
+    test: /document is not open for posting/i,
+    ar: 'مستند القيد غير مفتوح للترحيل',
+  },
+  {
+    test: /posting to general ledger is disabled/i,
+    ar: 'ترحيل القيود مقفول لهذه الشركة',
+  },
+  {
     test: /is already cancelled/i,
     ar: 'المستند ملغى مسبقاً.',
   },
@@ -316,6 +344,7 @@ const RULES: Rule[] = [
         account: 'الحساب',
         'cost center': 'مركز التكلفة',
         delegate: 'المندوب',
+        'journal entry': 'القيد',
         record: 'السجل',
       };
       const arEntity = map[entity] ?? 'السجل';

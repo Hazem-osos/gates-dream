@@ -5,7 +5,7 @@
     "buildCommand": "npm run railway:build"
   },
   "deploy": {
-    "startCommand": "npm run railway:start",
+    "startCommand": "node scripts/railway-start.mjs",
     "healthcheckPath": "/health/live",
     "healthcheckTimeout": 300,
     "restartPolicyType": "ON_FAILURE",

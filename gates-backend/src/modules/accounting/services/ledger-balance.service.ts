@@ -26,10 +26,12 @@ export type ApplyPostedJournalBalancesInput = {
   invert?: boolean;
 };
 
-function toAmountString(value: Prisma.Decimal | number | string): string {
+function toAmountString(value: Prisma.Decimal | number | string | null | undefined): string {
+  if (value == null || value === '') return '0.0000';
   if (typeof value === 'string') return value;
-  if (typeof value === 'number') return value.toFixed(4);
-  return value.toFixed(4);
+  if (typeof value === 'number') return Number.isFinite(value) ? value.toFixed(4) : '0.0000';
+  if (typeof value.toFixed === 'function') return value.toFixed(4);
+  return '0.0000';
 }
 
 function signedAmount(value: Prisma.Decimal, invert: boolean): Prisma.Decimal {

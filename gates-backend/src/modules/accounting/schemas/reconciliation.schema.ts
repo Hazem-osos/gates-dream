@@ -17,6 +17,7 @@ export const autoFifoReconcileSchema = z.object({
 export const openInvoicesQuerySchema = z.object({
   customerId: z.string().uuid().optional(),
   supplierId: z.string().uuid().optional(),
+  accountId: z.string().uuid().optional(),
   side: z.enum(['receivable', 'payable']).optional(),
 });
 

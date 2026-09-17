@@ -40,16 +40,18 @@ export type UseApiMutationExtraOptions = {
 type ApiQueryHookOptions<T> = Omit<UseQueryOptions<ApiResponse<T>, ApiError>, 'queryKey' | 'queryFn'> & {
   requireFullTenant?: boolean;
   requestTimeout?: number;
+  skipErrorNotify?: boolean;
 };
 
 function pickQueryOptions<T>(options?: ApiQueryHookOptions<T>) {
   if (!options) {
-    return {} as Omit<ApiQueryHookOptions<T>, 'requireFullTenant' | 'requestTimeout'>;
+    return {} as Omit<ApiQueryHookOptions<T>, 'requireFullTenant' | 'requestTimeout' | 'skipErrorNotify'>;
   }
   const rest = { ...options };
   delete rest.requireFullTenant;
   delete rest.requestTimeout;
-  return rest as Omit<ApiQueryHookOptions<T>, 'requireFullTenant' | 'requestTimeout'>;
+  delete rest.skipErrorNotify;
+  return rest as Omit<ApiQueryHookOptions<T>, 'requireFullTenant' | 'requestTimeout' | 'skipErrorNotify'>;
 }
 
 export function useApiQuery<T>(
@@ -64,6 +66,7 @@ export function useApiQuery<T>(
   const userEnabled = options?.enabled ?? true;
   const userRetry = options?.retry;
   const requestTimeout = options?.requestTimeout;
+  const skipErrorNotify = options?.skipErrorNotify === true;
 
   const queryOptions = pickQueryOptions(options);
 
@@ -72,7 +75,10 @@ export function useApiQuery<T>(
     ...queryOptions,
     queryKey: [...key, params],
     queryFn: async ({ signal }) =>
-      fetchApiQuery<T>(url, params, signal, requestTimeout != null ? { timeout: requestTimeout } : undefined),
+      fetchApiQuery<T>(url, params, signal, {
+        ...(requestTimeout != null ? { timeout: requestTimeout } : {}),
+        ...(skipErrorNotify ? { skipErrorNotify: true } : {}),
+      }),
     retry: (failureCount, error) => {
       if (isSoftQueryFailure(error)) return false;
       if (userRetry === false) return false;

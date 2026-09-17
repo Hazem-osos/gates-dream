@@ -76,6 +76,25 @@ function isCashTreasuryAccount(params: {
   return params.parentCode === '111' || isSystemCashPostingCode(params.parentCode);
 }
 
+/** Banks folder is a control HEADER even when the template shipped it as a leaf. */
+export async function ensureBankFolderIsHeader(companyId: string): Promise<void> {
+  const row = await prisma.account.findFirst({
+    where: {
+      companyId,
+      code: BANK_PARENT_CODE,
+      deletedAt: null,
+      accountKind: 'POSTING',
+    },
+    select: { id: true },
+  });
+  if (!row) return;
+  await prisma.account.update({
+    where: { id: row.id },
+    data: { accountKind: 'HEADER' },
+  });
+  await invalidateTenantCache(tenantCacheKeys.coaTree(companyId));
+}
+
 export async function assertNotCashPostingParent(
   companyId: string,
   parentId: string,

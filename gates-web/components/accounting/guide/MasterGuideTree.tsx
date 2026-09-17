@@ -69,11 +69,7 @@ function GuideTreeRow({
         isChild
           ? cn('rounded-lg ring-1 ring-inset ring-black/[0.03]', !isLastSibling && 'mb-0.5')
           : 'mb-1 rounded-lg',
-        isChild
-          ? depth === 1
-            ? 'bg-white/80 hover:bg-slate-50/90'
-            : 'bg-white hover:bg-slate-50/80'
-          : tone.row
+        isChild ? cn(tone.row, 'bg-opacity-80') : tone.row
       )}
     >
       <div className="z-[1] flex min-w-0 flex-1 items-center gap-2.5">
@@ -100,25 +96,25 @@ function GuideTreeRow({
 
         {isFolder ? (
           expanded && hasChildren ? (
-            <FolderOpen className={cn('h-4 w-4 shrink-0', isChild ? 'text-slate-500' : tone.icon)} />
+            <FolderOpen className={cn('h-4 w-4 shrink-0', tone.icon)} />
           ) : (
-            <Folder className={cn('h-4 w-4 shrink-0', isChild ? 'text-slate-500' : tone.icon)} />
+            <Folder className={cn('h-4 w-4 shrink-0', tone.icon)} />
           )
         ) : (
-          <FileText className="h-4 w-4 shrink-0 text-slate-400" />
+          <FileText className={cn('h-4 w-4 shrink-0', tone.icon)} />
         )}
 
         <span className="shrink-0 rounded border border-slate-200/80 bg-white/80 px-2 py-1 font-mono text-xs font-bold tabular-nums text-slate-800">
           {highlightText(node.code || '—', q)}
         </span>
-        <span className={cn('min-w-0 truncate text-sm', isChild ? 'font-medium text-slate-800' : tone.text)}>
+        <span className={cn('min-w-0 truncate text-sm', isChild ? cn('font-medium', tone.text) : tone.text)}>
           {highlightText(node.name, q)}
         </span>
         {node.subtitle ? (
           <span className="hidden shrink-0 text-[11px] text-slate-500 sm:inline">{node.subtitle}</span>
         ) : null}
         {hasChildren ? (
-          <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium', isChild ? 'border border-slate-200 bg-slate-50 text-slate-600' : tone.badge)}>
+          <span className={cn('shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium', tone.badge)}>
             {childCount} {childNoun}
           </span>
         ) : null}
@@ -255,7 +251,7 @@ function Branch({
                   toggleId={toggleId}
                   searchQuery={searchQuery}
                   childNoun={childNoun}
-                  toneIndex={toneIndex}
+                  toneIndex={child.toneIndex ?? toneIndex}
                   isLastSibling={idx === node.children!.length - 1}
                   onAddChild={onAddChild}
                   canAddChild={canAddChild}
@@ -355,7 +351,7 @@ export function MasterGuideTree({
           toggleId={toggleId}
           searchQuery={search.trim()}
           childNoun={childNoun}
-          toneIndex={resolveGuideToneIndex(node.code, idx)}
+          toneIndex={node.toneIndex ?? resolveGuideToneIndex(node.code, idx)}
           isLastSibling={idx === filtered.length - 1}
           onAddChild={onAddChild}
           canAddChild={canAddChild}

@@ -41,8 +41,10 @@ function sendRouteError(res: Response, error: unknown, fallback: string) {
     });
   }
   if (error instanceof Error) {
+    if (/not found/i.test(error.message) || error.message.includes('غير موجود')) {
+      return res.status(404).json({ status: 'error', message: error.message });
+    }
     const known = [
-      'Journal entry not found',
       'already',
       'Cannot',
       'not posted',
@@ -51,11 +53,18 @@ function sendRouteError(res: Response, error: unknown, fallback: string) {
       'ليس ملغياً',
       'استعادة القيد',
       'balanced',
+      'متزن',
+      'مقفلة',
+      'مغلقة',
     ];
     const status = known.some((k) => error.message.includes(k)) ? 400 : 500;
     return res.status(status).json({ status: 'error', message: error.message });
   }
   return res.status(500).json({ status: 'error', message: fallback });
+}
+
+function isExpectedJournalError(error: unknown): boolean {
+  return error instanceof AppError && error.statusCode < 500;
 }
 
 router.use(authenticate);
@@ -160,7 +169,7 @@ router.get(
       if (!branchId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Branch context is required (X-Branch-Id or token branch_id)',
+          message: 'يجب اختيار الفرع قبل الترحيل',
         });
       }
 
@@ -207,18 +216,10 @@ router.get(
         data: journalEntry,
       });
     } catch (error) {
-      logger.error({ error }, 'Error getting journal entry');
-      const status =
-        error instanceof Error && error.message === 'Journal entry not found'
-          ? 404
-          : 500;
-      return void res.status(status).json({
-        status: 'error',
-        message:
-          error instanceof Error
-            ? error.message
-            : 'Failed to get journal entry',
-      });
+      if (!isExpectedJournalError(error) && !(error instanceof Error && /not found/i.test(error.message))) {
+        logger.error({ error }, 'Error getting journal entry');
+      }
+      return void sendRouteError(res, error, 'تعذّر تحميل القيد');
     }
   }
 );
@@ -351,19 +352,10 @@ router.post(
         data: journalEntry,
       });
     } catch (error) {
-      logger.error({ error }, 'Error posting journal entry');
-      const status =
-        error instanceof Error &&
-        (error.message === 'Journal entry not found' ||
-          error.message.includes('already') ||
-          error.message.includes('Cannot'))
-          ? 400
-          : 500;
-      return void res.status(status).json({
-        status: 'error',
-        message:
-          error instanceof Error ? error.message : 'Failed to post journal entry',
-      });
+      if (!isExpectedJournalError(error)) {
+        logger.error({ error }, 'Error posting journal entry');
+      }
+      return void sendRouteError(res, error, 'تعذّر ترحيل القيد');
     }
   }
 );
@@ -433,19 +425,10 @@ router.post(
         data: journalEntry,
       });
     } catch (error) {
-      logger.error({ error }, 'Error approving journal entry');
-      const status =
-        error instanceof Error &&
-        (error.message === 'Journal entry not found' ||
-          error.message.includes('already') ||
-          error.message.includes('Cannot'))
-          ? 400
-          : 500;
-      return void res.status(status).json({
-        status: 'error',
-        message:
-          error instanceof Error ? error.message : 'Failed to approve journal entry',
-      });
+      if (!isExpectedJournalError(error)) {
+        logger.error({ error }, 'Error approving journal entry');
+      }
+      return void sendRouteError(res, error, 'تعذّر اعتماد القيد');
     }
   }
 );
@@ -577,18 +560,10 @@ router.delete(
 
       return void res.status(204).send();
     } catch (error) {
-      logger.error({ error, journalEntryId: req.params.id }, 'Error deleting journal entry');
-      const status =
-        error instanceof Error &&
-        (error.message === 'Journal entry not found' ||
-          error.message.includes('Cannot delete'))
-          ? 400
-          : 500;
-      return void res.status(status).json({
-        status: 'error',
-        message:
-          error instanceof Error ? error.message : 'Failed to delete journal entry',
-      });
+      if (!isExpectedJournalError(error) && !(error instanceof Error && /not found|Cannot delete/i.test(error.message))) {
+        logger.error({ error, journalEntryId: req.params.id }, 'Error deleting journal entry');
+      }
+      return void sendRouteError(res, error, 'تعذّر حذف القيد');
     }
   }
 );

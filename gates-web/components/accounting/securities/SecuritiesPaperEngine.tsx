@@ -468,6 +468,7 @@ export function SecuritiesPaperEngine({ kind }: Props) {
           { label: title },
         ]}
         title={title}
+        currentId={selectedId || loaded?.id || null}
         docNumber={docNumber}
         statusTone={status.tone}
         statusLabel={status.label}

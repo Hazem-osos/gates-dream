@@ -1,7 +1,11 @@
 import prisma from '../../../shared/database/prisma';
 import { AppError } from '../../../shared/middleware/error-handler';
-import { treasuryAccountResolverService } from './treasury-account-resolver.service';
 
+/**
+ * Same number the voucher picker shows (`safes.balance` / `bank_accounts.balance`).
+ * Do not use GL period totals — they drift from the cash box after opening
+ * balances, settlements, and safes that share a control account.
+ */
 export async function assertCashOverdraftAllowed(params: {
   companyId: string;
   amount: number;
@@ -15,31 +19,40 @@ export async function assertCashOverdraftAllowed(params: {
   });
   if (settings?.preventCashOverdraft !== true) return;
 
-  let glAccountId: string | undefined;
-  if (params.safeId) {
-    glAccountId = await treasuryAccountResolverService.resolveSafeGlAccountId(
-      params.companyId,
-      params.safeId
-    );
-  } else if (params.bankAccountId) {
-    glAccountId = await treasuryAccountResolverService.resolveBankGlAccountId(
-      params.companyId,
-      params.bankAccountId
-    );
-  } else if (params.accountId) {
-    glAccountId = params.accountId;
-  }
-  if (!glAccountId) return;
+  const needed = Number(params.amount);
+  if (!(needed > 0)) return;
 
-  const agg = await prisma.accountPeriodBalance.aggregate({
-    where: { companyId: params.companyId, accountId: glAccountId },
-    _sum: { netBalance: true },
-  });
-  const balance = Number(agg._sum.netBalance ?? 0);
-  if (balance + 1e-6 < params.amount) {
+  let balance = 0;
+  let label = 'الخزينة';
+
+  if (params.safeId) {
+    const safe = await prisma.safe.findFirst({
+      where: { id: params.safeId, companyId: params.companyId },
+      select: { balance: true, arabicName: true },
+    });
+    if (!safe) {
+      throw new AppError(404, 'الخزينة غير موجودة');
+    }
+    balance = Number(safe.balance ?? 0);
+    label = safe.arabicName?.trim() || 'الخزينة';
+  } else if (params.bankAccountId) {
+    const bank = await prisma.bankAccount.findFirst({
+      where: { id: params.bankAccountId, companyId: params.companyId },
+      select: { balance: true, arabicName: true },
+    });
+    if (!bank) {
+      throw new AppError(404, 'الحساب البنكي غير موجود');
+    }
+    balance = Number(bank.balance ?? 0);
+    label = bank.arabicName?.trim() || 'البنك';
+  } else {
+    return;
+  }
+
+  if (balance + 1e-6 < needed) {
     throw new AppError(
       422,
-      'رصيد الخزينة غير كافٍ لإتمام سند الصرف (الحماية من السحب بالسالب مفعّلة)'
+      `رصيد ${label} غير كافٍ لإتمام سند الصرف. الرصيد الحالي ${balance.toFixed(2)} والمطلوب ${needed.toFixed(2)}.`
     );
   }
 }

@@ -15,7 +15,7 @@ export function markApiSuccessToastShown(): void {
 }
 
 export function notifyApiSuccess(message: string): void {
-  const text = message.trim() || DEFAULT_SAVE_SUCCESS_MESSAGE;
+  const text = String(message ?? '').trim() || DEFAULT_SAVE_SUCCESS_MESSAGE;
   if (Date.now() - lastShownAt < DEDUPE_MS) return;
   lastShownAt = Date.now();
   for (const listener of listeners) {
@@ -25,7 +25,7 @@ export function notifyApiSuccess(message: string): void {
 
 /** After the current save handler (so a page-level toast.success wins). */
 export function queueApiSuccessToast(message: string): void {
-  const text = message.trim() || DEFAULT_SAVE_SUCCESS_MESSAGE;
+  const text = String(message ?? '').trim() || DEFAULT_SAVE_SUCCESS_MESSAGE;
   setTimeout(() => {
     notifyApiSuccess(text);
   }, 0);

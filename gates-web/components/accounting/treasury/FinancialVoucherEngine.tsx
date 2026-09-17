@@ -344,9 +344,9 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
       return;
     }
     if (!id && savedVoucherId) {
-      router.replace(`${pathname}?id=${savedVoucherId}`, { scroll: false });
+      setSavedVoucherId(null);
     }
-  }, [idFromUrl, pathname, router, savedVoucherId]);
+  }, [idFromUrl, savedVoucherId]);
 
   useEffect(() => {
     if (!savedVoucherId) setMode('create');
@@ -1045,6 +1045,13 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
     return '';
   }, [voucherLines, parties]);
 
+  const settlementAccountId = useMemo(() => {
+    for (const line of voucherLines) {
+      if (line.accountId) return line.accountId;
+    }
+    return '';
+  }, [voucherLines]);
+
   const settlementSupplierId = useMemo(() => {
     const fromKind = voucherLines.find((line) => line.partyKind === 'SUPPLIER')?.partyId;
     if (fromKind) return fromKind;
@@ -1208,7 +1215,10 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
   const addVoucherLine = () => {
     setVoucherLines((prev) => [
       ...prev,
-      emptyLine(headerCurrencyCode, mainEntrySide, defaultCostCenterId, headerFxRate),
+      {
+        ...emptyLine(headerCurrencyCode, mainEntrySide, defaultCostCenterId, headerFxRate),
+        description: descriptionW || '',
+      },
     ]);
   };
 
@@ -1216,26 +1226,6 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
     const account = accounts.find((a) => a.id === accountId);
     if (!account) return undefined;
     return `[${account.code}] ${account.arabicName}`;
-  };
-
-  const handleDuplicate = () => {
-    const row = selectedVoucherResponse?.data;
-    if (row?.id) {
-      applyCashRow(row, true);
-      setValue('voucherNumber', '', { shouldValidate: false });
-      openVoucher(null);
-      setSuccess('تم تجهيز نسخة جديدة من السند');
-      return;
-    }
-    setSavedVoucherId(null);
-    setIsPosted(false);
-    setIsCancelled(false);
-    setJournalEntryId(null);
-    setJournalNumber(null);
-    setValue('voucherNumber', '', { shouldValidate: false });
-    setIsEditing(true);
-    setMode('create');
-    openVoucher(null);
   };
 
   const triggerPrint = () => {
@@ -1315,9 +1305,7 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
           hasDocument: Boolean(savedVoucherId),
           isPosted,
           isCancelled,
-          allowEditWhenPosted: true,
           printLabel: 'طباعة السند',
-          duplicateLabel: 'تكرار',
           voidLabel: 'إلغاء',
           onNew: resetForm,
           newLabel: 'جديد',
@@ -1330,7 +1318,6 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
           onUnpost: () => unpostMutation.mutate({}),
           unpostPending: unpostMutation.isPending,
           onPrint: triggerPrint,
-          onDuplicate: handleDuplicate,
           onVoid: () => cancelMutation.mutate({ expectedVersion: documentVersion }),
           voidPending: cancelMutation.isPending,
         }}
@@ -1619,6 +1606,7 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
                   currencies={currencies}
                   baseCurrency={headerCurrencyCode}
                   showFx={showFxColumns}
+                  headerDescription={descriptionW}
                 />
               ) : (
                 <PaymentLinesTable
@@ -1631,6 +1619,7 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
                   currencies={currencies}
                   baseCurrency={headerCurrencyCode}
                   showFx={showFxColumns}
+                  headerDescription={descriptionW}
                 />
               )}
               <div className="mt-3">
@@ -1660,6 +1649,7 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
                   currencies={currencies}
                   baseCurrency={headerCurrencyCode}
                   showFx={showFxColumns}
+                  headerDescription={descriptionW}
                 />
               ) : (
                 <ReceiptLinesTable
@@ -1672,6 +1662,7 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
                   currencies={currencies}
                   baseCurrency={headerCurrencyCode}
                   showFx={showFxColumns}
+                  headerDescription={descriptionW}
                 />
               )}
               <div className="mt-3">
@@ -1698,6 +1689,7 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
               accountLabelFor={accountLabelFor}
               currencies={currencies}
               showFx={showFxColumns}
+              headerDescription={descriptionW}
             />
           )}
         </FormSectionCard>
@@ -1796,6 +1788,7 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
         onClose={() => setShowPaymentsModal(false)}
         side={variant.allocationSide}
         partyId={settlementPartyId}
+        accountId={settlementAccountId}
         cashTransactionId={savedVoucherId}
         isPosted={isPosted}
         receiptTotal={isModernVoucher ? mainTotal : totalAmount}

@@ -397,7 +397,7 @@ export class JournalPostingService {
   ) {
     const glPost = await companySettingService.getFlag(ctx.companyId, 'GLPost', true);
     if (!glPost) {
-      throw new AppError(403, 'Posting to general ledger is disabled for this company');
+      throw new AppError(403, 'ترحيل القيود مقفول لهذه الشركة');
     }
 
     // M2/M3 fix: this is the single GL entry point used by invoices, treasury,
@@ -930,7 +930,7 @@ export class JournalPostingService {
   async postJournalEntry(ctx: JournalPostingContext, journalEntryId: string) {
     const glPost = await companySettingService.getFlag(ctx.companyId, 'GLPost', true);
     if (!glPost) {
-      throw new AppError(403, 'Posting to general ledger is disabled for this company');
+      throw new AppError(403, 'ترحيل القيود مقفول لهذه الشركة');
     }
     await advancedRightsService.assertCanPostFamily(ctx.companyId, ctx.userId, ctx.branchId, 'glPost', {
       isAdmin: ctx.isAdmin,
@@ -946,25 +946,26 @@ export class JournalPostingService {
       });
 
       if (!entry) {
-        throw new AppError(404, 'Journal entry not found');
+        throw new AppError(404, 'القيد غير موجود');
       }
       if (entry.deletedAt) {
-        throw new AppError(400, 'Journal entry is deleted');
+        throw new AppError(400, 'القيد محذوف');
       }
-      if (entry.branchId && entry.branchId !== ctx.branchId) {
-        throw new AppError(403, 'Journal entry belongs to a different branch');
+      if (entry.branchId && ctx.branchId && entry.branchId !== ctx.branchId) {
+        throw new AppError(403, 'القيد يتبع فرعاً آخر. غيّر الفرع ثم أعد الترحيل.');
       }
       if (entry.postingStatus === 'Post' || entry.isPosted) {
-        throw new AppError(400, 'Journal entry is already posted');
+        throw new AppError(400, 'القيد مرحّل مسبقاً');
       }
-      if (entry.documentStatus !== 'Open') {
-        throw new AppError(400, 'Journal entry document is not open for posting');
+      const documentStatus = (entry.documentStatus ?? 'Open').trim().toLowerCase();
+      if (documentStatus && documentStatus !== 'open') {
+        throw new AppError(400, 'مستند القيد غير مفتوح للترحيل');
       }
       if (!entry.isBalanced) {
         throw new AppError(422, 'لا يمكن ترحيل قيد غير متزن. ساوِ إجمالي المدين مع إجمالي الدائن ثم أعد الحفظ.');
       }
       if (entry.isCancelled) {
-        throw new AppError(400, 'Cannot post a cancelled journal entry');
+        throw new AppError(400, 'لا يمكن ترحيل قيد ملغي');
       }
 
       await fiscalYearService.assertOpenForDate(ctx.companyId, entry.date, {
@@ -979,7 +980,7 @@ export class JournalPostingService {
         }))
       );
       if (!amountsEqualAt4(debitBase, creditBase)) {
-        throw new AppError(422, 'Cannot post: debit and credit base totals differ');
+        throw new AppError(422, 'لا يمكن ترحيل قيد غير متزن. ساوِ إجمالي المدين مع إجمالي الدائن ثم أعد الحفظ.');
       }
 
       // Wave 4 fix: the findFirst above is a plain read, so two concurrent
@@ -990,7 +991,12 @@ export class JournalPostingService {
       // concurrent transaction can win the race, and the loser sees
       // count === 0 and fails instead of double-posting.
       const { count } = await tx.journalEntry.updateMany({
-        where: { id: journalEntryId, isPosted: false, postingStatus: { not: 'Post' } },
+        where: {
+          id: journalEntryId,
+          companyId: ctx.companyId,
+          isPosted: false,
+          postingStatus: { not: 'Post' },
+        },
         data: {
           isPosted: true,
           postingStatus: 'Post',
@@ -1000,15 +1006,35 @@ export class JournalPostingService {
         },
       });
       if (count === 0) {
-        throw new AppError(409, 'Journal entry was already posted by another process');
+        throw new AppError(409, 'تم ترحيل القيد من عملية أخرى في نفس اللحظة. حدّث الصفحة.');
       }
 
-      await applyPostedJournalBalancesInTx(tx, {
-        companyId: ctx.companyId,
-        date: entry.date,
-        currencyCode: entry.currencyCode,
-        lines: entry.lines,
-      });
+      try {
+        await applyPostedJournalBalancesInTx(tx, {
+          companyId: ctx.companyId,
+          date: entry.date,
+          currencyCode: entry.currencyCode,
+          lines: entry.lines,
+        });
+      } catch (error) {
+        if (error instanceof AppError) throw error;
+        const prismaCode =
+          error && typeof error === 'object' && 'code' in error
+            ? String((error as { code?: unknown }).code)
+            : '';
+        if (prismaCode === 'P2003') {
+          throw new AppError(
+            409,
+            'تعذّر الترحيل لأن حساباً في القيد غير موجود. راجع الحسابات ثم احفظ القيد من جديد.'
+          );
+        }
+        logger.error({ error, journalEntryId }, 'Failed to apply posted journal balances');
+        throw new AppError(
+          500,
+          'تعذّر تحديث أرصدة الحسابات أثناء الترحيل. حدّث الصفحة ثم أعد المحاولة.',
+          false
+        );
+      }
 
       const posted = await tx.journalEntry.findFirstOrThrow({
         where: { id: journalEntryId },

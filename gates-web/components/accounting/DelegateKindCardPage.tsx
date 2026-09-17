@@ -16,6 +16,7 @@ import { useApiMutation, useApiQuery, useInvalidateQuery } from '@/lib/hooks/use
 import ErrorToast from '@/components/ErrorToast';
 import { toast } from '@/lib/feedback/toast';
 import type { ApiError } from '@/lib/api/types';
+import { useNextMasterSerial } from '@/lib/hooks/useNextMasterSerial';
 
 export type DelegateKind = 'DISTRIBUTOR' | 'DRIVER';
 
@@ -122,6 +123,18 @@ function DelegateKindCardInner({ kind }: { kind: DelegateKind }) {
   });
   const rows = listResponse?.data ?? [];
 
+  const { data: nextSerialResponse } = useNextMasterSerial(
+    ['delegates', 'next-code'],
+    '/accounting/delegates/next-code',
+    !selectedId
+  );
+  const nextSerial = nextSerialResponse?.data?.serial || '';
+
+  useEffect(() => {
+    if (selectedId || !nextSerial) return;
+    setFormData((prev) => (prev.serial === nextSerial ? prev : { ...prev, serial: nextSerial }));
+  }, [nextSerial, selectedId]);
+
   useEffect(() => {
     if (selectedId || !groupIdFromUrl) return;
     setFormData((prev) => (prev.groupId ? prev : { ...prev, groupId: groupIdFromUrl }));
@@ -187,6 +200,7 @@ function DelegateKindCardInner({ kind }: { kind: DelegateKind }) {
         toast.success(`${copy.success} — تقدر تضيف التالي`);
         invalidateQuery(listKey);
         invalidateQuery(['delegates']);
+        invalidateQuery(['delegates', 'next-code']);
         setSelectedId(null);
         setFormData({ ...EMPTY, groupId: groupIdFromUrl || '' });
         setMode('create');
@@ -295,8 +309,9 @@ function DelegateKindCardInner({ kind }: { kind: DelegateKind }) {
           <CompactFormField
             label="المسلسل"
             value={formData.serial}
-            onChange={(e) => patch('serial', e.target.value)}
-            placeholder="إدخل المسلسل"
+            disabled
+            readOnly
+            placeholder="تلقائي"
           />
           <CompactFormField
             label="الكود"

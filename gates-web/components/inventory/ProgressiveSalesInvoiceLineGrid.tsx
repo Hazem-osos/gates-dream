@@ -78,6 +78,7 @@ import {
   erpTableHeadRowClass,
 } from '@/components/inventory/sales-invoice/erpUiTokens';
 import { useClipboardTablePaste } from '@/lib/hooks/useClipboardTablePaste';
+import { useFollowHeaderDescription } from '@/lib/hooks/useFollowHeaderDescription';
 import {
   parseInvoiceLinesFromClipboard,
   type ClipboardItemRef,
@@ -156,6 +157,7 @@ type Props = {
   readOnly?: boolean;
   lockUnitPrice?: boolean;
   enforceBelowCost?: boolean;
+  headerDescription?: string;
 };
 
 export function ProgressiveSalesInvoiceLineGrid({
@@ -184,7 +186,27 @@ export function ProgressiveSalesInvoiceLineGrid({
   readOnly = false,
   lockUnitPrice = false,
   enforceBelowCost = false,
+  headerDescription = '',
 }: Props) {
+  useFollowHeaderDescription({
+    headerDescription,
+    lines: linesW ?? [],
+    onChange: (next) => {
+      next.forEach((line, index) => {
+        const current = linesW?.[index]?.lineNotes ?? '';
+        if ((line.lineNotes ?? '') !== current) {
+          setValue(`lines.${index}.lineNotes`, line.lineNotes ?? '', {
+            shouldDirty: false,
+            shouldValidate: false,
+          });
+        }
+      });
+    },
+    getDescription: (line) => line.lineNotes,
+    setDescription: (line, value) => ({ ...line, lineNotes: value }),
+    disabled: readOnly,
+  });
+
   const [peekIndex, setPeekIndex] = useState<number | null>(null);
   const companyId = getTenantContext().companyId;
   const gridContainerRef = useRef<HTMLDivElement>(null);

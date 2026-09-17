@@ -20,12 +20,14 @@ import {
   emptyDisassemblyComponentLine,
   type DisassemblyComponentLine,
 } from './disassembly-line-types';
+import { seedLineDescription, useFollowHeaderDescription } from '@/lib/hooks/useFollowHeaderDescription';
 
 type Props = {
   lines: DisassemblyComponentLine[];
   onChange: (lines: DisassemblyComponentLine[]) => void;
   warehouseId?: string;
   disabled?: boolean;
+  headerDescription?: string;
 };
 
 function parseNum(raw: string) {
@@ -37,17 +39,33 @@ function formatMoney(value: number) {
   return value.toLocaleString('ar-EG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-export function DisassemblyLinesTable({ lines, onChange, warehouseId, disabled }: Props) {
+export function DisassemblyLinesTable({
+  lines,
+  onChange,
+  warehouseId,
+  disabled,
+  headerDescription = '',
+}: Props) {
   const gridId = 'disassembly-components';
   const wrapRef = useRef<HTMLDivElement>(null);
   const pasteFieldRef = useRef('quantity');
   const pasteIndexRef = useRef(0);
 
+  useFollowHeaderDescription({
+    headerDescription,
+    lines,
+    onChange,
+    getDescription: (line) => line.notes,
+    setDescription: (line, value) => ({ ...line, notes: value }),
+    disabled,
+  });
+
   const updateLine = (index: number, patch: Partial<DisassemblyComponentLine>) => {
     onChange(lines.map((line, i) => (i === index ? { ...line, ...patch } : line)));
   };
 
-  const addRow = () => onChange([...lines, emptyDisassemblyComponentLine()]);
+  const addRow = () =>
+    onChange([...lines, { ...emptyDisassemblyComponentLine(), notes: seedLineDescription(headerDescription) }]);
 
   const removeRow = (index: number) => {
     if (lines.length <= 1) {

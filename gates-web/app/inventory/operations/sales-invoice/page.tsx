@@ -410,6 +410,7 @@ function SalesInvoicePageInner() {
   const developmentFeeRateW = watch('developmentFeeRate');
   const developmentFeeFixedAmountW = watch('developmentFeeFixedAmount');
   const exchangeRateW = watch('exchangeRate');
+  const descriptionW = watch('description');
 
   useEffect(() => {
     if (allowReturnW) {
@@ -459,6 +460,7 @@ function SalesInvoicePageInner() {
         withholdingTaxRate: defaultWhtRate,
         costCenterId: getValues('costCenterId') || txSettings?.defaultCostCenterId || '',
         customRevenueAccountId: txSettings?.defaultSalesAccountId || '',
+        lineNotes: getValues('description') || '',
       })
     );
   }, [append, defaultWhtRate, getValues, isSalesTaxInvoice, txSettings]);
@@ -573,7 +575,7 @@ function SalesInvoicePageInner() {
     undefined,
     { enabled: !!selectedInvoiceId }
   );
-  const selectedInvoice = invoiceResponse?.data;
+  const selectedInvoice = selectedInvoiceId ? invoiceResponse?.data : undefined;
 
   const handleSalesTaxChange = useCallback(
     (enabled: boolean) => {
@@ -1128,8 +1130,8 @@ function SalesInvoicePageInner() {
 
   const resolveInvoiceNumber = useCallback(() => {
     return (
-      getValues('invoiceNumber')?.trim() ||
-      (selectedInvoice?.invoiceNumber as string | undefined)?.trim() ||
+      String(getValues('invoiceNumber') ?? '').trim() ||
+      String(selectedInvoice?.invoiceNumber ?? '').trim() ||
       'مسودة جديدة'
     );
   }, [getValues, selectedInvoice]);
@@ -1141,7 +1143,9 @@ function SalesInvoicePageInner() {
       showSuccessToast: false,
       onSuccess: (res) => {
         const num =
-          res?.data?.invoiceNumber?.trim() || getValues('invoiceNumber')?.trim() || 'مسودة جديدة';
+          String(res?.data?.invoiceNumber ?? '').trim() ||
+          String(getValues('invoiceNumber') ?? '').trim() ||
+          'مسودة جديدة';
         toast.success('تم حفظ المسودة', {
           description: `تم حفظ فاتورة رقم ${num}. الصفحة جاهزة لفاتورة جديدة.`,
         });
@@ -1890,6 +1894,7 @@ function SalesInvoicePageInner() {
             readOnly={isReadOnly}
             lockUnitPrice={txSettings?.allowItemPriceOverride === false}
             enforceBelowCost={txSettings?.preventSellingBelowCost !== false}
+            headerDescription={descriptionW}
         />
       </div>
       </DocumentFormLock>
@@ -1905,6 +1910,7 @@ function SalesInvoicePageInner() {
         defaultCostCenterId={getValues('costCenterId') || ''}
         disabled={isReadOnly}
         count={extrasToApi(invoiceExtras).length}
+        headerDescription={descriptionW}
       />
 
       <SalesInvoiceBottomSplit

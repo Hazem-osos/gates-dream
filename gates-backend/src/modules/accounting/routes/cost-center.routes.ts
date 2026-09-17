@@ -46,6 +46,8 @@ router.get(
         limit: req.query.limit as number | undefined,
         search: req.query.search as string | undefined,
         isActive: req.query.isActive as boolean | undefined,
+        leafOnly: req.query.leafOnly as boolean | undefined,
+        headerOnly: req.query.headerOnly as boolean | undefined,
       });
 
       return void res.json({

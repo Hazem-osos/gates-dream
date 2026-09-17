@@ -20,12 +20,14 @@ import {
   emptyAssemblyComponentLine,
   type AssemblyComponentLine,
 } from './assembly-line-types';
+import { seedLineDescription, useFollowHeaderDescription } from '@/lib/hooks/useFollowHeaderDescription';
 
 type Props = {
   lines: AssemblyComponentLine[];
   onChange: (lines: AssemblyComponentLine[]) => void;
   warehouseId?: string;
   disabled?: boolean;
+  headerDescription?: string;
 };
 
 function parseNum(raw: string) {
@@ -37,17 +39,33 @@ function formatMoney(value: number) {
   return value.toLocaleString('ar-EG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-export function AssemblyLinesTable({ lines, onChange, warehouseId, disabled }: Props) {
+export function AssemblyLinesTable({
+  lines,
+  onChange,
+  warehouseId,
+  disabled,
+  headerDescription = '',
+}: Props) {
   const gridId = 'assembly-components';
   const wrapRef = useRef<HTMLDivElement>(null);
   const pasteFieldRef = useRef('quantity');
   const pasteIndexRef = useRef(0);
 
+  useFollowHeaderDescription({
+    headerDescription,
+    lines,
+    onChange,
+    getDescription: (line) => line.notes,
+    setDescription: (line, value) => ({ ...line, notes: value }),
+    disabled,
+  });
+
   const updateLine = (index: number, patch: Partial<AssemblyComponentLine>) => {
     onChange(lines.map((line, i) => (i === index ? { ...line, ...patch } : line)));
   };
 
-  const addRow = () => onChange([...lines, emptyAssemblyComponentLine()]);
+  const addRow = () =>
+    onChange([...lines, { ...emptyAssemblyComponentLine(), notes: seedLineDescription(headerDescription) }]);
 
   const removeRow = (index: number) => {
     if (lines.length <= 1) {

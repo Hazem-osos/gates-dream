@@ -26,6 +26,7 @@ function resolveDatabaseUrl() {
 }
 
 process.env.DATABASE_URL = resolveDatabaseUrl();
+process.env.PRISMA_HIDE_UPDATE_MESSAGE = process.env.PRISMA_HIDE_UPDATE_MESSAGE || '1';
 
 function run(command, args) {
   const result = spawnSync(command, args, {
@@ -38,7 +39,14 @@ function run(command, args) {
   }
 }
 
-run('npx', ['prisma', 'generate']);
+const prismaClientReady =
+  existsSync(path.join(root, 'node_modules/.prisma/client/index.js')) ||
+  existsSync(path.join(root, 'node_modules/@prisma/client/index.js'));
+if (prismaClientReady) {
+  console.log('Prisma client already generated — skipping generate on boot.');
+} else {
+  run('npx', ['prisma', 'generate']);
+}
 run('npx', ['prisma', 'migrate', 'deploy']);
 
 if (truthy(process.env.SEED_ON_BOOT)) {
@@ -67,14 +75,21 @@ const child = spawn('npx', ['tsx', entry], {
   stdio: 'inherit',
 });
 
-const forward = (signal) => {
+let shuttingDown = false;
+const shutdown = (signal) => {
+  if (shuttingDown) return;
+  shuttingDown = true;
   if (!child.killed) child.kill(signal);
+  const force = setTimeout(() => process.exit(0), 8_000);
+  force.unref();
 };
 
-process.on('SIGINT', () => forward('SIGINT'));
-process.on('SIGTERM', () => forward('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('SIGTERM', () => shutdown('SIGTERM'));
 
 child.on('exit', (code, signal) => {
-  if (signal) process.kill(process.pid, signal);
+  if (shuttingDown || signal === 'SIGTERM' || signal === 'SIGINT') {
+    process.exit(0);
+  }
   process.exit(code ?? 1);
 });

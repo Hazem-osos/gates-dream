@@ -680,11 +680,17 @@ function OpeningBalancePageInner() {
           <OpeningBalanceLinesTable
             lines={lines}
             onChange={setLines}
-            onAddLine={() => setLines((prev) => [...prev, emptyJournalLine(defaultCurrency?.id)])}
+            onAddLine={() =>
+              setLines((prev) => [
+                ...prev,
+                { ...emptyJournalLine(defaultCurrency?.id), description: descriptionW || '' },
+              ])
+            }
             currencies={currencies}
             defaultCurrencyId={defaultCurrency?.id}
             showFx={showFxColumns}
             disabled={isReadOnly || isPosted}
+            headerDescription={descriptionW}
             accountLabelFor={(accountId) => {
               const acc = accounts.find((a) => a.id === accountId);
               return acc ? `[${acc.code}] ${acc.arabicName}` : undefined;

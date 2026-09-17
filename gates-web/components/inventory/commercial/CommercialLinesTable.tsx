@@ -19,11 +19,13 @@ import {
   emptyCommercialLine,
   type CommercialDocumentLine,
 } from './commercial-line-types';
+import { seedLineDescription, useFollowHeaderDescription } from '@/lib/hooks/useFollowHeaderDescription';
 
 type Props = {
   lines: CommercialDocumentLine[];
   onChange: (lines: CommercialDocumentLine[]) => void;
   disabled?: boolean;
+  headerDescription?: string;
 };
 
 function parseNum(raw: string) {
@@ -35,17 +37,27 @@ function formatMoney(value: number) {
   return value.toLocaleString('ar-EG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-export function CommercialLinesTable({ lines, onChange, disabled }: Props) {
+export function CommercialLinesTable({ lines, onChange, disabled, headerDescription = '' }: Props) {
   const gridId = 'commercial-doc-lines';
   const wrapRef = useRef<HTMLDivElement>(null);
   const pasteFieldRef = useRef('quantity');
   const pasteIndexRef = useRef(0);
 
+  useFollowHeaderDescription({
+    headerDescription,
+    lines,
+    onChange,
+    getDescription: (line) => line.notes,
+    setDescription: (line, value) => ({ ...line, notes: value }),
+    disabled,
+  });
+
   const updateLine = (index: number, patch: Partial<CommercialDocumentLine>) => {
     onChange(lines.map((line, i) => (i === index ? { ...line, ...patch } : line)));
   };
 
-  const addRow = () => onChange([...lines, emptyCommercialLine()]);
+  const addRow = () =>
+    onChange([...lines, { ...emptyCommercialLine(), notes: seedLineDescription(headerDescription) }]);
 
   const removeRow = (index: number) => {
     if (lines.length <= 1) {

@@ -69,6 +69,7 @@ export default function BankVoucherDraftPage({ title, logTag }: { title: string;
     mode: 'onTouched',
   });
 
+  const descriptionW = watch('description');
   const isAdvanced = watch('isAdvanced');
   const isApproved = watch('isApproved');
   const isPosted = watch('isPosted');
@@ -290,7 +291,11 @@ export default function BankVoucherDraftPage({ title, logTag }: { title: string;
       </FormSectionCard>
 
       <FormSectionCard title="بنود السند" subtitle="جدول إدخال — يُرسل مع الحفظ" bodyClassName="grid-cols-1">
-        <EditableJournalLinesTable lines={lines} onChange={setLines} />
+        <EditableJournalLinesTable
+          lines={lines}
+          onChange={setLines}
+          headerDescription={descriptionW}
+        />
       </FormSectionCard>
 
       <FormSectionCard title="الأطراف">

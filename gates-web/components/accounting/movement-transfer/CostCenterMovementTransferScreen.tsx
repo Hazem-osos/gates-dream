@@ -211,6 +211,7 @@ export function CostCenterMovementTransferScreen() {
               if (id && id === destinationId) setDestinationId('');
             }}
             allowEmpty
+            leafOnly={false}
             emptyLabel="اختر مركز التكلفة المصدر..."
           />
         </CompactFormField>

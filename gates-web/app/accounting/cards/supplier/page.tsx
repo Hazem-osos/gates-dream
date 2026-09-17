@@ -25,6 +25,7 @@ import { printPageContent } from '@/lib/print/printHtml';
 import { PartyGroupSelectField } from '@/components/accounting/PartyGroupSelectField';
 import { entityLabel } from '@/lib/quick-create/catalog';
 import { useQuickCreateHost } from '@/lib/quick-create/useQuickCreateTab';
+import { useNextMasterSerial } from '@/lib/hooks/useNextMasterSerial';
 
 interface Account {
   id: string;
@@ -149,6 +150,18 @@ function SupplierPageInner() {
     { limit: 100, isActive: true }
   );
   const currencies = currenciesResponse?.data || [];
+
+  const { data: nextSerialResponse } = useNextMasterSerial(
+    ['suppliers', 'next-code'],
+    '/accounting/suppliers/next-code',
+    !selectedId
+  );
+  const nextSerial = nextSerialResponse?.data?.serial || '';
+
+  useEffect(() => {
+    if (selectedId || !nextSerial) return;
+    setFormData((prev) => (prev.serial === nextSerial ? prev : { ...prev, serial: nextSerial }));
+  }, [nextSerial, selectedId]);
 
   const { data: categoriesResponse } = useApiQuery<
     { id: string; code?: string; arabicName: string }[]
@@ -360,6 +373,7 @@ function SupplierPageInner() {
         toast.success('تم حفظ المورد');
       }
       invalidateQuery(['suppliers']);
+      invalidateQuery(['suppliers', 'next-code']);
       invalidateQuery(['suppliers', 'guide']);
       invalidateQuery(['supplier-categories']);
       invalidateQuery(['accounts']);
@@ -474,8 +488,9 @@ function SupplierPageInner() {
             <CompactFormField
               label="المسلسل"
               value={formData.serial}
-              onChange={(e) => setFormData((prev) => ({ ...prev, serial: e.target.value }))}
-              placeholder="إدخل المسلسل"
+              disabled
+              readOnly
+              placeholder="تلقائي"
             />
             <CompactFormField
               label="الكود"

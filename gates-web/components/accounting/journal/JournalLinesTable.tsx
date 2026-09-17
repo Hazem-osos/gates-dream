@@ -14,6 +14,7 @@ import type { JournalLineFormValues } from '@/lib/validation/accounting.schema';
 import { VoucherAccountCombobox } from '@/components/accounting/vouchers/VoucherAccountCombobox';
 import { costCenterRuleFromAccount } from '@/lib/accounting/cost-center-rule';
 import { useAccountsQuery } from '@/lib/hooks/useMasterDataQueries';
+import { seedLineDescription, useFollowHeaderDescription } from '@/lib/hooks/useFollowHeaderDescription';
 
 export type JournalLineCurrency = {
   id: string;
@@ -38,6 +39,7 @@ type Props = {
   defaultCurrencyId?: string;
   accountLabelFor?: (accountId: string) => string | undefined;
   showFx?: boolean;
+  headerDescription?: string;
 };
 
 function emptyLine(currencyId?: string, exchangeRate = 1): JournalLineFormValues {
@@ -73,6 +75,7 @@ export function JournalLinesTable({
   defaultCurrencyId,
   accountLabelFor,
   showFx = true,
+  headerDescription = '',
 }: Props) {
   const fieldOrder = showFx
     ? [...JOURNAL_LINE_FIELD_ORDER]
@@ -84,7 +87,19 @@ export function JournalLinesTable({
     costCenterRuleFromAccount(accounts.find((a) => a.id === accountId));
   const headerCurrency = currencies.find((c) => c.id === defaultCurrencyId);
   const headerRate = rateForCurrency(headerCurrency?.code, companyBase, headerCurrency?.exchangeRate);
-  const blankLine = () => emptyLine(defaultCurrencyId, headerRate);
+  const blankLine = () => ({
+    ...emptyLine(defaultCurrencyId, headerRate),
+    description: seedLineDescription(headerDescription),
+  });
+
+  useFollowHeaderDescription({
+    headerDescription,
+    lines,
+    onChange,
+    getDescription: (line) => line.description,
+    setDescription: (line, value) => ({ ...line, description: value }),
+    disabled,
+  });
 
   const updateLine = (index: number, patch: Partial<JournalLineFormValues>) => {
     const current = lines[index] ?? blankLine();

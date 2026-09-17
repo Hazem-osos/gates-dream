@@ -31,6 +31,7 @@ router.get(
       const q = req.query as unknown as {
         customerId?: string;
         supplierId?: string;
+        accountId?: string;
         side?: 'receivable' | 'payable';
       };
       const data = await reconciliationService.listOpenInvoices(companyId(req), q);

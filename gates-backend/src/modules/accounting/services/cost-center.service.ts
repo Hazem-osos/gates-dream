@@ -3,6 +3,7 @@ import prisma from '../../../shared/database/prisma';
 import { AppError } from '../../../shared/middleware/error-handler';
 import { logger } from '../../../shared/logger';
 import { advancedFlag } from '../../../shared/utils/next-numeric-code';
+import { resolveCreateCostCenterKind } from '../utils/cost-center-kind';
 
 function retiredCostCenterCode(code: string, id: string): string {
   if (code.includes('__deleted__')) return code;
@@ -14,6 +15,7 @@ export interface CreateCostCenterData {
   arabicName: string;
   englishName?: string;
   parentId?: string | null;
+  costCenterKind?: 'HEADER' | 'POSTING';
   quantityBudget?: number | null;
   warning?: 'مدين' | 'دائن' | 'بدون' | null;
   budget?: number | null;
@@ -171,7 +173,7 @@ export class CostCenterService {
 
     const parent = await prisma.costCenter.findFirst({
       where: { id: parentId, companyId, isActive: true },
-      select: { id: true, code: true, arabicName: true },
+      select: { id: true, code: true, arabicName: true, costCenterKind: true },
     });
     if (!parent) {
       throw new AppError(
@@ -180,12 +182,19 @@ export class CostCenterService {
       );
     }
 
+    if (parent.costCenterKind === 'POSTING') {
+      throw new AppError(
+        409,
+        `لا يمكن إضافة مركز فرعي تحت ${centerLabel(parent)} لأنه مركز حركة. مركز الحركة تُترحَّل عليه القيود ولا يُفرَّع منه.`
+      );
+    }
+
     const movementCount = await this.countCostCenterMovements(companyId, parentId);
     if (movementCount === 0) return;
 
     throw new AppError(
       409,
-      `لا يمكن إضافة مركز فرعي تحت ${centerLabel(parent)} لأن عليه ${movementCount} حركة. المركز الذي عليه حركة يبقى تحليلياً ولا يتحول إلى أب. الحل: انقل حركاته من شاشة «نقل حركة مركز التكلفة» إلى مركز فرعي جديد، أو أنشئ المركز تحت أب آخر ليس عليه حركة.`
+      `لا يمكن إضافة مركز فرعي تحت ${centerLabel(parent)} لأن عليه ${movementCount} حركة. انقل الحركات من شاشة «نقل حركة مركز التكلفة» ثم فرّع، أو أنشئ المركز تحت أب آخر ليس عليه حركة.`
     );
   }
 
@@ -194,6 +203,10 @@ export class CostCenterService {
    */
   async createCostCenter(companyId: string, data: CreateCostCenterData) {
     try {
+      const costCenterKind = resolveCreateCostCenterKind({
+        parentId: data.parentId,
+        costCenterKind: data.costCenterKind,
+      });
       await this.assertParentCanReceiveChild(companyId, data.parentId);
       const auto = await this.isCostCenterAutoNumbering(companyId);
       let code = data.code?.trim() ?? '';
@@ -212,6 +225,7 @@ export class CostCenterService {
           arabicName: data.arabicName,
           englishName: data.englishName,
           parentId: data.parentId,
+          costCenterKind,
           quantityBudget: data.quantityBudget,
           warning: data.warning,
           budget: data.budget,
@@ -279,6 +293,8 @@ export class CostCenterService {
       limit?: number;
       search?: string;
       isActive?: boolean;
+      leafOnly?: boolean;
+      headerOnly?: boolean;
     }
   ) {
     try {
@@ -299,6 +315,14 @@ export class CostCenterService {
       }
 
       where.isActive = options.isActive !== undefined ? options.isActive : true;
+
+      if (options.leafOnly) {
+        where.costCenterKind = 'POSTING';
+        where.children = { none: { isActive: true } };
+      }
+      if (options.headerOnly) {
+        where.costCenterKind = 'HEADER';
+      }
 
       const [costCenters, total] = await Promise.all([
         prisma.costCenter.findMany({
@@ -356,6 +380,30 @@ export class CostCenterService {
         await this.assertUniqueCostCenterCode(companyId, nextCode, costCenterId);
       }
 
+      const nextParentId = data.parentId !== undefined ? data.parentId : existing.parentId;
+      let nextKind = data.costCenterKind;
+      if (data.costCenterKind !== undefined || data.parentId !== undefined) {
+        const requested = data.costCenterKind ?? existing.costCenterKind;
+        nextKind = nextParentId
+          ? requested === 'HEADER'
+            ? 'HEADER'
+            : 'POSTING'
+          : requested === 'POSTING'
+            ? 'POSTING'
+            : 'HEADER';
+        if (nextKind === 'POSTING') {
+          const childCount = await prisma.costCenter.count({
+            where: { parentId: costCenterId, companyId, isActive: true },
+          });
+          if (childCount > 0) {
+            throw new AppError(
+              409,
+              'لا يمكن تحويل المركز إلى حركة لأن تحته مراكز فرعية. احذف أو انقل الفرعي أولاً.'
+            );
+          }
+        }
+      }
+
       const costCenter = await prisma.costCenter.update({
         where: { id: costCenterId },
         data: {
@@ -363,6 +411,7 @@ export class CostCenterService {
           ...(data.arabicName && { arabicName: data.arabicName }),
           ...(data.englishName !== undefined && { englishName: data.englishName }),
           ...(data.parentId !== undefined && { parentId: data.parentId }),
+          ...(nextKind !== undefined && { costCenterKind: nextKind }),
           ...(data.quantityBudget !== undefined && { quantityBudget: data.quantityBudget }),
           ...(data.warning !== undefined && { warning: data.warning }),
           ...(data.budget !== undefined && { budget: data.budget }),

@@ -13,6 +13,7 @@ export function isVersionConflictError(payload: {
   code?: string;
   message?: string;
 }): boolean {
+  if (payload.code === 'DOCUMENT_OCCUPIED') return false;
   const status = payload.httpStatus ?? Number.parseInt(payload.code ?? '', 10);
   if (status !== 409) return false;
   return CONFLICT_MESSAGE.test(payload.message ?? '');

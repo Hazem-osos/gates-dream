@@ -29,6 +29,7 @@ import { entityLabel } from '@/lib/quick-create/catalog';
 import { useQuickCreateHost } from '@/lib/quick-create/useQuickCreateTab';
 import { toast } from '@/lib/feedback/toast';
 import { PartyGroupSelectField } from '@/components/accounting/PartyGroupSelectField';
+import { useNextMasterSerial } from '@/lib/hooks/useNextMasterSerial';
 
 const CounterpartyOffsetModal = dynamic(
   () =>
@@ -188,6 +189,18 @@ export default function CustomerPage() {
   );
   const currencies = currenciesResponse?.data || [];
 
+  const { data: nextSerialResponse } = useNextMasterSerial(
+    ['customers', 'next-code'],
+    '/accounting/customers/next-code',
+    !selectedId
+  );
+  const nextSerial = nextSerialResponse?.data?.serial || '';
+
+  useEffect(() => {
+    if (selectedId || !nextSerial) return;
+    setFormData((prev) => (prev.serial === nextSerial ? prev : { ...prev, serial: nextSerial }));
+  }, [nextSerial, selectedId]);
+
   const { data: categoriesResponse } = useApiQuery<
     { id: string; code?: string; arabicName: string }[]
   >(['customer-categories'], '/accounting/customer-categories', {
@@ -292,6 +305,7 @@ export default function CustomerPage() {
         }
         setSuccess('تم حفظ العميل بنجاح');
         invalidateQuery(['customers']);
+        invalidateQuery(['customers', 'next-code']);
         invalidateQuery(['accounts']);
         invalidateQuery(['chart-of-accounts']);
       },
@@ -519,8 +533,9 @@ export default function CustomerPage() {
             <CompactFormField
               label="المسلسل"
               value={formData.serial}
-              onChange={(e) => setFormData((prev) => ({ ...prev, serial: e.target.value }))}
-              placeholder="إدخل المسلسل"
+              disabled
+              readOnly
+              placeholder="تلقائي"
             />
             <CompactFormField
               label="الكود"

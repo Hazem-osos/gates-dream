@@ -357,6 +357,16 @@ class ApiClient {
     if (!isApiError(error)) return;
     const httpStatus = Number.parseInt(error.code ?? '', 10);
     if (Number.isNaN(httpStatus) || !shouldBroadcastApiError(httpStatus)) return;
+    const rawMessage = (error.message ?? '').toLowerCase();
+    if (
+      httpStatus === 404 ||
+      rawMessage === 'journal entry not found' ||
+      rawMessage === 'error getting journal entry' ||
+      rawMessage === 'failed to get journal entry' ||
+      rawMessage === 'القيد غير موجود'
+    ) {
+      return;
+    }
     notifyApiError({
       message: localizeApiErrorMessage(error.message, httpStatus),
       httpStatus,

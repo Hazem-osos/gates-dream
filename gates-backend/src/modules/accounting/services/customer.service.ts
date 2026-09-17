@@ -84,7 +84,7 @@ export class CustomerService {
   /**
    * Create a new customer
    */
-  private async nextCustomerCode(companyId: string): Promise<string> {
+  async nextCustomerCode(companyId: string): Promise<string> {
     const rows = await prisma.customer.findMany({
       where: { companyId, deletedAt: null },
       select: { serial: true, code: true },
@@ -241,7 +241,9 @@ export class CustomerService {
 
       return customer;
     } catch (error) {
-      logger.error({ error, companyId, customerId }, 'Error getting customer');
+      if (!(error instanceof Error && error.message === 'Customer not found')) {
+        logger.error({ error, companyId, customerId }, 'Error getting customer');
+      }
       throw error;
     }
   }

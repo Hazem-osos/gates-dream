@@ -14,6 +14,7 @@ type Props = {
   currencies: PaymentLineCurrency[];
   baseCurrency?: string;
   showFx?: boolean;
+  headerDescription?: string;
 };
 
 export function PaymentOrderLinesTable({
@@ -25,6 +26,7 @@ export function PaymentOrderLinesTable({
   currencies,
   baseCurrency = 'EGP',
   showFx = true,
+  headerDescription = '',
 }: Props) {
   return (
     <div className="space-y-3">
@@ -38,6 +40,7 @@ export function PaymentOrderLinesTable({
         currencies={currencies}
         baseCurrency={baseCurrency}
         showFx={showFx}
+        headerDescription={headerDescription}
       />
       {disabled ? null : (
         <Button type="button" size="sm" variant="outline" className="gap-1.5" onClick={onAddLine}>

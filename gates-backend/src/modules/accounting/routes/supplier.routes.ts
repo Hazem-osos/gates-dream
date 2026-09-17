@@ -72,6 +72,30 @@ router.get(
 );
 
 /**
+ * GET /api/v1/accounting/suppliers/next-code
+ */
+router.get(
+  '/next-code',
+  authorize({ resource: 'supplier', action: 'view' }),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const companyId = req.companyId || req.tenantId;
+      if (!companyId) {
+        return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+      }
+      const serial = await supplierService.nextSupplierCode(companyId);
+      return void res.json({ status: 'success', data: { serial } });
+    } catch (error) {
+      logger.error({ error }, 'Error suggesting supplier serial');
+      return void res.status(500).json({
+        status: 'error',
+        message: error instanceof Error ? error.message : 'Failed to suggest supplier serial',
+      });
+    }
+  }
+);
+
+/**
  * GET /api/v1/accounting/suppliers/:id
  * Get supplier by ID
  */
@@ -98,11 +122,9 @@ router.get(
         data: supplier,
       });
     } catch (error) {
-      logger.error({ error }, 'Error getting supplier');
-      const status =
-        error instanceof Error && error.message === 'Supplier not found'
-          ? 404
-          : 500;
+      const notFound = error instanceof Error && /not found|غير موجود/i.test(error.message);
+      if (!notFound) logger.error({ error }, 'Error getting supplier');
+      const status = notFound ? 404 : 500;
       return void res.status(status).json({
         status: 'error',
         message:

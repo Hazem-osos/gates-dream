@@ -45,7 +45,7 @@ export function useDraftAutosave<T>(
   const pathname = usePathname();
   const ownPath = useContext(TabOwnPathContext);
   const homePath = normalizeAppPath(ownPath || pathname || '');
-  const isActive = !ownPath || normalizeAppPath(pathname) === normalizeAppPath(ownPath);
+  const isActive = !ownPath || !pathname || normalizeAppPath(pathname) === normalizeAppPath(ownPath);
   isActiveRef.current = isActive;
 
   const persistNow = useCallback(

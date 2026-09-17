@@ -56,9 +56,18 @@ export function monitorPrisma(prisma: PrismaClient): void {
 
   // Monitor errors
   prisma.$on('error', async (e) => {
+    const message = String(e.message ?? '');
+    if (
+      /disconnect|server has gone away|closed|SIGINT|SIGTERM|ConnectionReset|Can't reach database|P1001|P1017|PrismaClientKnownRequestError/i.test(
+        message
+      )
+    ) {
+      logger.warn({ message, target: e.target }, 'Prisma connection dropped');
+      return;
+    }
     logger.error(
       {
-        message: e.message,
+        message,
         target: e.target,
       },
       'Prisma client error'

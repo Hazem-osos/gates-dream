@@ -14,6 +14,7 @@ type Props = {
   currencies: PaymentLineCurrency[];
   baseCurrency?: string;
   showFx?: boolean;
+  headerDescription?: string;
 };
 
 export function ReceiptOrderLinesTable({
@@ -25,6 +26,7 @@ export function ReceiptOrderLinesTable({
   currencies,
   baseCurrency = 'EGP',
   showFx = true,
+  headerDescription = '',
 }: Props) {
   return (
     <div className="space-y-3">
@@ -41,6 +43,7 @@ export function ReceiptOrderLinesTable({
         accountColumnLabel="الحساب / العميل"
         invoiceKind="SALE"
         partyEmptyHint="اختر العميل أولاً"
+        headerDescription={headerDescription}
       />
       {disabled ? null : (
         <Button type="button" size="sm" variant="outline" className="gap-1.5" onClick={onAddLine}>

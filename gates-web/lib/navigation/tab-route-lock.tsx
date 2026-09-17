@@ -17,6 +17,7 @@ export function useIsOwnTabActive() {
   const pathname = usePathname();
   const ownPath = useContext(TabOwnPathContext);
   if (!ownPath) return true;
+  if (!pathname) return true;
   return normalizeAppPath(pathname) === normalizeAppPath(ownPath);
 }
 
@@ -28,7 +29,7 @@ export function useOwnTabSearchParams() {
   const path = normalizeAppPath(ownPath || '');
   const remembered = path ? recalledTabSearch(path) : '';
   const liveStr0 = live.toString();
-  const seed = (isActive && liveStr0) || remembered || liveStr0;
+  const seed = isActive ? liveStr0 : remembered || liveStr0;
   const frozenStr = useRef(seed);
   const frozenObj = useRef<URLSearchParams>(new URLSearchParams(seed));
   const wasActive = useRef(isActive && Boolean(liveStr0));
@@ -36,18 +37,19 @@ export function useOwnTabSearchParams() {
   if (isActive) {
     const liveStr = live.toString();
     const becameActive = !wasActive.current;
-    const keepFrozen = becameActive && !liveStr && Boolean(frozenStr.current);
-    if (!keepFrozen) {
+    if (becameActive || frozenStr.current !== liveStr) {
       frozenStr.current = liveStr;
       frozenObj.current = new URLSearchParams(liveStr);
       if (path) rememberTabSearch(path, liveStr);
     }
-  } else if (wasActive.current) {
+    wasActive.current = true;
+    return live;
+  }
+
+  if (wasActive.current) {
     frozenObj.current = new URLSearchParams(frozenStr.current);
     if (path) rememberTabSearch(path, frozenStr.current);
   }
-  wasActive.current = isActive;
-
-  if (isActive && live.toString()) return live;
+  wasActive.current = false;
   return frozenObj.current;
 }
