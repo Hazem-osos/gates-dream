@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ChevronDown, ChevronLeft, CornerDownLeft, Eye, FileText, Folder, FolderOpen } from 'lucide-react';
+import { ChevronDown, ChevronLeft, ClipboardList, CornerDownLeft, Eye, FileText, Folder, FolderOpen } from 'lucide-react';
 import {
   collectExpandableIds,
   filterGuideTree,
@@ -33,10 +33,12 @@ function GuideTreeRow({
   toneIndex,
   searchQuery,
   childNoun,
+  addChildLabel,
   onToggle,
   onAddChild,
   canAddChild,
   onView,
+  onStockReport,
   onEdit,
   onDelete,
 }: {
@@ -47,10 +49,12 @@ function GuideTreeRow({
   toneIndex: number;
   searchQuery: string;
   childNoun: string;
+  addChildLabel?: string;
   onToggle: () => void;
   onAddChild?: (n: GuideTreeNode) => void;
   canAddChild?: (n: GuideTreeNode) => boolean;
   onView?: (n: GuideTreeNode) => void;
+  onStockReport?: (n: GuideTreeNode) => void;
   onEdit?: (n: GuideTreeNode) => void;
   onDelete?: (n: GuideTreeNode) => void;
 }) {
@@ -132,15 +136,26 @@ function GuideTreeRow({
             <Eye className="h-4 w-4" />
           </button>
         ) : null}
+        {onAddChild && (canAddChild?.(node) ?? true) ? (
+          <button
+            type="button"
+            title={`إضافة ${addChildLabel ?? childNoun}`}
+            className="whitespace-nowrap rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-[#0E79AA] shadow-sm hover:bg-[#0E79AA]/10"
+            onClick={() => onAddChild(node)}
+          >
+            + {addChildLabel ?? 'فرعي'}
+          </button>
+        ) : null}
         <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
-          {onAddChild && (canAddChild?.(node) ?? true) ? (
+          {onStockReport && !node.synthetic ? (
             <button
               type="button"
-              title={`إضافة ${childNoun}`}
-              className="whitespace-nowrap rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] text-[#0E79AA] shadow-sm hover:bg-[#0E79AA]/10"
-              onClick={() => onAddChild(node)}
+              title="جرد مخزن"
+              aria-label="جرد مخزن"
+              className="rounded-md p-1.5 text-teal-700 hover:bg-teal-50"
+              onClick={() => onStockReport(node)}
             >
-              + فرعي
+              <ClipboardList className="h-4 w-4" />
             </button>
           ) : null}
           {onEdit && !node.synthetic ? (
@@ -168,11 +183,13 @@ function Branch({
   toggleId,
   searchQuery,
   childNoun,
+  addChildLabel,
   toneIndex,
   isLastSibling,
   onAddChild,
   canAddChild,
   onView,
+  onStockReport,
   onEdit,
   onDelete,
   trail,
@@ -183,11 +200,13 @@ function Branch({
   toggleId: (id: string) => void;
   searchQuery: string;
   childNoun: string;
+  addChildLabel?: string;
   toneIndex: number;
   isLastSibling?: boolean;
   onAddChild?: (n: GuideTreeNode) => void;
   canAddChild?: (n: GuideTreeNode) => boolean;
   onView?: (n: GuideTreeNode) => void;
+  onStockReport?: (n: GuideTreeNode) => void;
   onEdit?: (n: GuideTreeNode) => void;
   onDelete?: (n: GuideTreeNode) => void;
   trail: ReadonlySet<string>;
@@ -215,10 +234,12 @@ function Branch({
         toneIndex={toneIndex}
         searchQuery={searchQuery}
         childNoun={childNoun}
+        addChildLabel={addChildLabel}
         onToggle={() => toggleId(node.id)}
         onAddChild={onAddChild}
         canAddChild={canAddChild}
         onView={onView}
+        onStockReport={onStockReport}
         onEdit={onEdit}
         onDelete={onDelete}
       />
@@ -258,11 +279,13 @@ function Branch({
                   toggleId={toggleId}
                   searchQuery={searchQuery}
                   childNoun={childNoun}
+                  addChildLabel={addChildLabel}
                   toneIndex={child.toneIndex ?? toneIndex}
                   isLastSibling={idx === node.children!.length - 1}
                   onAddChild={onAddChild}
                   canAddChild={canAddChild}
                   onView={onView}
+                  onStockReport={onStockReport}
                   onEdit={onEdit}
                   onDelete={onDelete}
                   trail={nextTrail}
@@ -288,9 +311,11 @@ export function MasterGuideTree({
   expandAllToken,
   collapseAllToken,
   childNoun = 'فرعي',
+  addChildLabel,
   onAddChild,
   canAddChild,
   onView,
+  onStockReport,
   onEdit,
   onDelete,
 }: {
@@ -299,9 +324,11 @@ export function MasterGuideTree({
   expandAllToken?: number;
   collapseAllToken?: number;
   childNoun?: string;
+  addChildLabel?: string;
   onAddChild?: (n: GuideTreeNode) => void;
   canAddChild?: (n: GuideTreeNode) => boolean;
   onView?: (n: GuideTreeNode) => void;
+  onStockReport?: (n: GuideTreeNode) => void;
   onEdit?: (n: GuideTreeNode) => void;
   onDelete?: (n: GuideTreeNode) => void;
 }) {
@@ -359,11 +386,13 @@ export function MasterGuideTree({
           toggleId={toggleId}
           searchQuery={search.trim()}
           childNoun={childNoun}
+          addChildLabel={addChildLabel}
           toneIndex={node.toneIndex ?? resolveGuideToneIndex(node.code, idx)}
           isLastSibling={idx === filtered.length - 1}
           onAddChild={onAddChild}
           canAddChild={canAddChild}
           onView={onView}
+          onStockReport={onStockReport}
           onEdit={onEdit}
           onDelete={onDelete}
           trail={EMPTY_TRAIL}

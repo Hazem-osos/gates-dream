@@ -39,6 +39,10 @@ function ItemSelectInner({
   onInputKeyDown,
   menuPlacement = 'top',
   portaled = true,
+  excludeIds,
+  excludeAssembly = false,
+  fallbackLabel,
+  onQuickCreateClick,
 }: {
   value: string;
   onChange: (id: string) => void;
@@ -47,6 +51,11 @@ function ItemSelectInner({
   allowEmpty?: boolean;
   emptyLabel?: string;
   enableQuickCreate?: boolean;
+  excludeIds?: string[];
+  excludeAssembly?: boolean;
+  fallbackLabel?: string;
+  /** If set, plus/quick-create uses this instead of opening a new item-card tab. */
+  onQuickCreateClick?: (query: string) => void;
   onItemResolved?: (item: ItemOption | QuickCreatedItem | undefined) => void;
   onAfterBarcodePick?: () => void;
   inputProps?: React.InputHTMLAttributes<HTMLInputElement> &
@@ -58,7 +67,11 @@ function ItemSelectInner({
   quickCreateModal?: unknown;
 }) {
   const [search, setSearch] = useState('');
-  const { data, isLoading, isError } = useItemsQuery(PICKER_PAGE_SIZE, search);
+  const { data, isLoading, isError } = useItemsQuery(
+    PICKER_PAGE_SIZE,
+    search,
+    excludeAssembly ? { isAssembly: false } : undefined
+  );
   const items = data?.data ?? [];
   const [pinnedItem, setPinnedItem] = useState<ItemOption | QuickCreatedItem | null>(null);
 
@@ -69,9 +82,20 @@ function ItemSelectInner({
     return items;
   }, [items, pinnedItem]);
 
+  const blocked = useMemo(() => new Set((excludeIds ?? []).filter(Boolean)), [excludeIds]);
+  const visibleItems = useMemo(
+    () =>
+      mergedItems.filter((item) => {
+        if (blocked.has(item.id)) return false;
+        if (excludeAssembly && item.isAssembly) return false;
+        return true;
+      }),
+    [blocked, excludeAssembly, mergedItems]
+  );
+
   const options = useMemo(
     () =>
-      mergedItems.map((item: ItemOption) => {
+      visibleItems.map((item: ItemOption) => {
         const code = item.code || item.serial || '';
         return {
           value: item.id,
@@ -80,7 +104,7 @@ function ItemSelectInner({
           meta: item,
         };
       }),
-    [mergedItems]
+    [visibleItems]
   );
 
   const resolveBarcode = (code: string) => {
@@ -100,7 +124,7 @@ function ItemSelectInner({
 
   const handleChange = (id: string) => {
     onChange(id);
-    const picked = mergedItems.find((it) => it.id === id);
+    const picked = visibleItems.find((it) => it.id === id);
     if (picked) setPinnedItem(picked);
     onItemResolved?.(picked);
   };
@@ -113,22 +137,25 @@ function ItemSelectInner({
     if (!value) setSearch('');
   }, [value]);
 
-  const openQuickCreate = useOpenQuickCreateTab('item', (entity) => {
+  const openQuickCreateTab = useOpenQuickCreateTab('item', (entity) => {
     const item = {
       id: entity.id,
       arabicName: entity.arabicName || entity.label,
       code: entity.code ?? undefined,
+      isAssembly: false,
     } as ItemOption;
     setPinnedItem(item);
     onChange(item.id);
     onItemResolved?.(item);
   });
+  const openQuickCreate = onQuickCreateClick ?? openQuickCreateTab;
 
   const valueLabel = useMemo(() => {
     if (!value) return undefined;
-    const hit = mergedItems.find((it) => it.id === value);
-    return hit ? formatItemLabel(hit) : undefined;
-  }, [mergedItems, value]);
+    const hit = visibleItems.find((it) => it.id === value) ?? mergedItems.find((it) => it.id === value);
+    if (hit) return formatItemLabel(hit);
+    return fallbackLabel || undefined;
+  }, [fallbackLabel, mergedItems, value, visibleItems]);
 
   return (
     <>

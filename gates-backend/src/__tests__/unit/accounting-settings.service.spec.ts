@@ -123,6 +123,10 @@ function createDb(accounts: AccountRow[]): {
       count: jest.fn(async () => 0),
       findMany: jest.fn(async () => []),
     },
+    warehouse: {
+      count: jest.fn(async () => 0),
+      findMany: jest.fn(async () => []),
+    },
     item: {
       count: jest.fn(async () => 0),
       findMany: jest.fn(async () => []),

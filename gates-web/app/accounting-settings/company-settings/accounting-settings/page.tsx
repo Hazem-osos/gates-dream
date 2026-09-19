@@ -1603,6 +1603,14 @@ export default function CompanyAccountingSettingsPage() {
                               settingKey="coaAutoNumbering"
                             />
                           </CompactFormField>
+                          <CompactFormField label="ترقيم دليل المخازن">
+                            <NumberingModeControl
+                              kind="warehouses"
+                              auto={settings.warehouseAutoNumbering !== false}
+                              recordCount={settingsRes?.data?.general?.numberingRecordCounts?.warehouses ?? 0}
+                              settingKey="warehouseAutoNumbering"
+                            />
+                          </CompactFormField>
                           <CompactFormField
                             label="من تاريخ"
                             type="date"
@@ -1662,6 +1670,21 @@ export default function CompanyAccountingSettingsPage() {
                             >
                               <option value="SELECTED_UNIT_QTY">كمية الوحدة المختارة</option>
                               <option value="BASE_UNIT_QTY">كمية الوحدة الأساسية</option>
+                            </select>
+                          </CompactFormField>
+                          <CompactFormField label="مصدر سعر الأصناف">
+                            <select
+                              className={compactControlClass}
+                              value={settings.itemPriceSource}
+                              onChange={(e) =>
+                                update(
+                                  'itemPriceSource',
+                                  e.target.value === 'item_card' ? 'item_card' : 'price_list'
+                                )
+                              }
+                            >
+                              <option value="price_list">قراءة من قوائم الأسعار</option>
+                              <option value="item_card">قراءة من بطاقة الصنف</option>
                             </select>
                           </CompactFormField>
                         </FormSectionCard>

@@ -151,6 +151,7 @@ export const TENANT_SCOPED_MODELS = new Set<string>([
   'schoolBusRoute',
   'schoolSettings',
   'schoolStudent',
+  'securitiesEntity',
   'securitiesPayment',
   'securitiesReceipt',
   'securitiesRenewal',

@@ -51,6 +51,7 @@ export const TAX_SLOT_LABELS: Array<{ key: AccountingTaxAccountKey; label: strin
 export type AccountingSettingsFormState = AccountingSettingsUiState & {
   autoPostGl: boolean;
   inventorySystem: 'PERPETUAL' | 'PERIODIC';
+  itemPriceSource: 'price_list' | 'item_card';
   preventNegativeStock: boolean;
   preventCashOverdraft: boolean;
   preventSellingBelowCost: boolean;
@@ -82,6 +83,7 @@ export function defaultAccountingSettingsForm(): AccountingSettingsFormState {
     ...defaultAccountingSettingsUi(),
     autoPostGl: true,
     inventorySystem: 'PERPETUAL',
+    itemPriceSource: 'price_list',
     preventNegativeStock: true,
     preventCashOverdraft: true,
     preventSellingBelowCost: false,
@@ -135,6 +137,7 @@ export function mapFacadeToForm(facade: AccountingSettingsFacade): AccountingSet
     coaAutoNumbering: g.coaAutoNumbering !== false,
     costCenterAutoNumbering: g.costCenterAutoNumbering !== false,
     itemAutoNumbering: g.itemAutoNumbering !== false,
+    warehouseAutoNumbering: g.warehouseAutoNumbering !== false,
     costMethod: 'average',
     pricingCalculationBasis:
       g.pricingCalculationBasis === 'BASE_UNIT_QTY' ? 'BASE_UNIT_QTY' : 'SELECTED_UNIT_QTY',
@@ -145,6 +148,7 @@ export function mapFacadeToForm(facade: AccountingSettingsFacade): AccountingSet
     executiveWhatsAppPhone: g.executiveWhatsAppPhone ?? '',
     autoPostGl: g.autoPostGl ?? true,
     inventorySystem: g.inventorySystem === 'PERIODIC' ? 'PERIODIC' : 'PERPETUAL',
+    itemPriceSource: g.itemPriceSource === 'item_card' ? 'item_card' : 'price_list',
     retainedEarningsAccountId: str(g.retainedEarningsAccountId),
     allowNegativeBalance: c.allowNegativeBalance ?? false,
     allowCostCenterWithoutAccount: c.allowCostCenterWithoutAccount ?? false,
@@ -193,6 +197,7 @@ export function formToPutPayload(form: AccountingSettingsFormState): AccountingS
       coaAutoNumbering: form.coaAutoNumbering !== false,
       costCenterAutoNumbering: form.costCenterAutoNumbering !== false,
       itemAutoNumbering: form.itemAutoNumbering !== false,
+      warehouseAutoNumbering: form.warehouseAutoNumbering !== false,
       costMethod: 'average',
       pricingCalculationBasis: form.pricingCalculationBasis,
       backupPath: form.backupPath || null,
@@ -202,6 +207,7 @@ export function formToPutPayload(form: AccountingSettingsFormState): AccountingS
       executiveWhatsAppPhone: form.executiveWhatsAppPhone.trim() || null,
       autoPostGl: form.autoPostGl,
       inventorySystem: form.inventorySystem,
+      itemPriceSource: form.itemPriceSource,
       retainedEarningsAccountId: form.retainedEarningsAccountId || null,
     },
     controls: {

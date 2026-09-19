@@ -2,7 +2,6 @@
 
 import { HrPageChrome } from "@/components/hr/HrPageChrome";
 import { DASH_PANEL } from "@/components/dashboard-primitives";
-import { ActionButtons } from "@/components/ui/ActionButtons";
 import { useState } from "react";
 import { useForm, type Resolver, type SubmitHandler } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -105,7 +104,11 @@ export default function WagePolicyPage() {
   ];
 
   return (
-    <HrPageChrome title="سياسة الأجور">
+    <HrPageChrome title="سياسة الأجور"
+      onSave={handleSubmit(onSave)}
+      onNew={handleCancel}
+      savePending={wagePolicyMutation.isPending}
+    >
         <div className={`${DASH_PANEL} p-5`}>
             <h3 className="mb-4 text-sm font-semibold text-slate-900">
               سياسة الأجور - {tabItems.find(t => t.id === activeTab)?.label}
@@ -462,14 +465,6 @@ export default function WagePolicyPage() {
 
             {error && <ErrorToast message={error} onClose={() => setError('')} />}
             {success && <SuccessToast message={success} onClose={() => setSuccess('')} />}
-
-          <div className="flex justify-end mt-6">
-            <ActionButtons
-              onSave={handleSubmit(onSave)}
-              onCancel={handleCancel}
-              saveText={wagePolicyMutation.isPending ? 'جاري الحفظ...' : 'حفظ'}
-            />
-          </div>
         </div>
     </HrPageChrome>
   );

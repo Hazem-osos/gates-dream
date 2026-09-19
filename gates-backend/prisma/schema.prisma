@@ -2502,7 +2502,7 @@ model Item {
   minPurchaseQty       Decimal? @db.Decimal(18, 4)
   assemblyComponents   Json?
   preferredSuppliers   Json?
-  imageUrl             String?  @db.Text
+  imageUrl             String?  @db.LongText
   defaultWarehouseId   String?
   priceSource          String? // price_list | item_card
   isActive             Boolean  @default(true)
@@ -2633,6 +2633,8 @@ model Warehouse {
   englishName     String?
   branchId        String?
   storeType       String?  @db.VarChar(20)
+  /// HEADER = رئيسي / رئيسي فرعي (يُفرَّع منه فقط). POSTING = مخزن عمليات.
+  warehouseKind   AccountKind @default(POSTING)
   parentWarehouseId String?
   inventoryAccountId String?
   costAccountId      String?
@@ -2681,6 +2683,7 @@ model Warehouse {
   itemOrderLimitLists      ItemOrderLimitList[]
 
   @@index([companyId])
+  @@index([companyId, warehouseKind])
   @@index([code])
   @@index([parentWarehouseId])
   @@index([inventoryAccountId])

@@ -2,7 +2,6 @@ import prisma from '../../../shared/database/prisma';
 import { Decimal } from '@prisma/client/runtime/library';
 import { documentSequenceService } from '../../platform/services/document-sequence.service';
 import { AppError } from '../../../shared/middleware/error-handler';
-import { journalPostingService } from './journal-posting.service';
 import { commercialPaperPostingService } from './commercial-paper-posting.service';
 import {
   assertPaperIssued,
@@ -466,23 +465,18 @@ export class SecuritiesReceiptService {
       throw new Error('Securities receipt is already cancelled');
     }
 
-    return prisma.$transaction(async (tx) => {
-      await journalPostingService.cascadeSourceJournalInTx(
-        tx,
-        companyId,
-        [receipt.journalEntryId],
-        'cancel',
-        undefined,
-        { sourceId: receipt.id, sourceNumber: receipt.receiptNumber ?? receipt.serial ?? undefined }
-      );
-      return tx.securitiesReceipt.update({
-        where: { id: receiptId },
-        data: {
-          isCancelled: true,
-          cancelledAt: new Date(),
-          paperCase: SECURITIES_PAPER_CASES.BOUNCED,
-        },
-      });
+    await commercialPaperPostingService.cancelIssuedPaperJournals(
+      { companyId, branchId: receipt.branchId, userId: '' },
+      'RECEIPT',
+      receiptId
+    );
+    return prisma.securitiesReceipt.update({
+      where: { id: receiptId },
+      data: {
+        isCancelled: true,
+        cancelledAt: new Date(),
+        paperCase: SECURITIES_PAPER_CASES.BOUNCED,
+      },
     });
   }
 

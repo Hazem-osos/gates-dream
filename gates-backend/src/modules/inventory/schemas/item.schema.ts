@@ -10,6 +10,7 @@ export const createItemSchema = z.object({
   // barcode + per-item tax profile defaults (consumed client-side by the
   // sales invoice line grid, still fully editable per line).
   categoryId: z.string().uuid().optional().nullable(),
+  baseUnitId: z.string().uuid().optional().nullable(),
   barcode: z.string().optional().nullable(),
   salesAccountId: z.string().uuid().optional().nullable(),
   cogsAccountId: z.string().uuid().optional().nullable(),
@@ -61,7 +62,11 @@ export const createItemSchema = z.object({
   assemblyComponents: z
     .array(
       z.object({
+        itemId: z.string().uuid().optional().nullable(),
         itemName: z.string().optional().nullable(),
+        unitId: z.string().uuid().optional().nullable(),
+        unitName: z.string().optional().nullable(),
+        conversionFactor: z.union([z.string(), z.number()]).optional().nullable(),
         quantity: z.union([z.string(), z.number()]).optional().nullable(),
         cost: z.union([z.string(), z.number()]).optional().nullable(),
       })
@@ -78,7 +83,7 @@ export const createItemSchema = z.object({
     )
     .optional()
     .nullable(),
-  imageUrl: z.string().optional().nullable(),
+  imageUrl: z.string().max(2_000_000).optional().nullable(),
   defaultWarehouseId: z.string().uuid().optional().nullable(),
   priceSource: z.enum(['price_list', 'item_card']).optional().nullable(),
   lastPurchasePrice: z.number().nonnegative().optional().nullable(),
@@ -95,9 +100,17 @@ export const itemQuerySchema = z.object({
   itemType: z.string().optional(),
   categoryId: z.string().uuid().optional(),
   isActive: z
-    .string()
+    .union([z.boolean(), z.string()])
     .optional()
-    .transform((val) => (val === undefined ? undefined : val === 'true')),
+    .transform((val) =>
+      val === undefined ? undefined : val === true || val === 'true'
+    ),
+  isAssembly: z
+    .union([z.boolean(), z.string()])
+    .optional()
+    .transform((val) =>
+      val === undefined ? undefined : val === true || val === 'true'
+    ),
 });
 
 export const findItemByBarcodeQuerySchema = z.object({

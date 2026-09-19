@@ -128,7 +128,7 @@ export function SearchableCombobox({
     const valueChanged = prevValueRef.current !== value;
     prevValueRef.current = value;
     const selectedLabel = selected && selected.value !== '' ? selected.label : '';
-    const displayLabel = selectedLabel || (value ? valueLabel || '' : '');
+    const displayLabel = selectedLabel || valueLabel || '';
 
     if (valueChanged) {
       if (!value) {
@@ -279,7 +279,7 @@ export function SearchableCombobox({
           aria-controls={listId}
           aria-autocomplete="list"
           autoComplete="off"
-          disabled={Boolean(disabled) || showLoading}
+          disabled={Boolean(disabled)}
           placeholder={showLoading ? 'جاري التحميل…' : placeholder}
           className={`${className ?? defaultInputCls} ${onQuickCreate ? 'pe-16' : 'pe-9'} ${error ? 'border-red-400' : ''} ${
             open ? 'ring-2 ring-[#0E78AA]/20 border-[#0E78AA]' : ''

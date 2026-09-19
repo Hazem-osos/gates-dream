@@ -1331,6 +1331,7 @@ router.get(
         fromDate: parseRangeStart(req.query.fromDate, 'fromDate'),
         toDate: parseRangeEnd(req.query.toDate, 'toDate'),
         branchId: req.query.branchId as string | undefined,
+        entityId: req.query.entityId as string | undefined,
       };
 
       const options = {
@@ -1434,6 +1435,7 @@ router.get(
         fromDate: parseRangeStart(req.query.fromDate, 'fromDate'),
         toDate: parseRangeEnd(req.query.toDate, 'toDate'),
         branchId: req.query.branchId as string | undefined,
+        entityId: req.query.entityId as string | undefined,
       };
 
       const options = {
@@ -1482,6 +1484,7 @@ router.get(
         fromDate: req.query.fromDate ? parseRangeStart(req.query.fromDate, 'fromDate') : undefined,
         toDate: req.query.toDate ? parseRangeEnd(req.query.toDate, 'toDate') : undefined,
         branchId: req.query.branchId as string | undefined,
+        entityId: req.query.entityId as string | undefined,
       };
 
       const options = {

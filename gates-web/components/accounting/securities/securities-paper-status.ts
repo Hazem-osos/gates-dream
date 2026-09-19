@@ -61,7 +61,13 @@ export type SecuritiesPaperRecord = {
   depositDate?: string | Date | null;
   commissionAmount?: number | string | null;
   commissionAccountId?: string | null;
-  multiCollectionLines?: unknown[] | null;
+  multiCollectionLines?: Array<{
+    id?: string;
+    accountId?: string | null;
+    amount?: number | string | null;
+    collectionDate?: string | Date | null;
+    account?: { code?: string | null; arabicName?: string | null } | null;
+  }> | null;
   journals?: Array<{ id: string; label: string; entryType?: string | null }> | null;
   customer?: { id?: string; code?: string | null; arabicName?: string | null; englishName?: string | null } | null;
   supplier?: { id?: string; code?: string | null; arabicName?: string | null; englishName?: string | null } | null;

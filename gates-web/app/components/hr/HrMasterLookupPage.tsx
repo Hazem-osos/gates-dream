@@ -3,10 +3,10 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { useForm, type Resolver, type SubmitHandler } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { ActionButtons } from '@/components/ui/ActionButtons';
 import { HrMasterCodeFields } from '@/components/hr/HrMasterCodeFields';
 import { HrPageChrome } from '@/components/hr/HrPageChrome';
-import { DataGridDense, DASH_PANEL } from '@/components/dashboard-primitives';
+import { FormSectionCard } from '@/components/ui';
+import { DataGridDense } from '@/components/dashboard-primitives';
 import { useApiQuery, useApiMutation, useInvalidateQuery } from '@/lib/hooks/useApi';
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
@@ -47,18 +47,19 @@ export function HrMasterLookupPage({
   const invalidateQuery = useInvalidateQuery();
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  const { register, handleSubmit, reset, formState: { errors } } = useForm<HrMasterCodeRecordInput>({
+  const {
+    register,
+    handleSubmit,
+    reset,
+    formState: { errors },
+  } = useForm<HrMasterCodeRecordInput>({
     resolver: zodResolver(hrMasterCodeRecordSchema) as Resolver<HrMasterCodeRecordInput>,
     defaultValues: empty,
     mode: 'onTouched',
   });
 
   const key = Array.isArray(queryKey) ? queryKey : [queryKey];
-  const { data: listResponse, isFetching, refetch } = useApiQuery<HrLookupRow[]>(
-    key,
-    listPath,
-    { limit: 1000, isActive: true }
-  );
+  const { data: listResponse } = useApiQuery<HrLookupRow[]>(key, listPath, { limit: 1000, isActive: true });
   const rows = useMemo(() => {
     const raw = listResponse?.data || [];
     if (rootsOnly) return raw.filter((d) => !d.managementId);
@@ -88,7 +89,7 @@ export function HrMasterLookupPage({
     });
   };
 
-  const onCancel = () => {
+  const onNew = () => {
     reset(empty);
     setError('');
     setSuccess('');
@@ -97,11 +98,13 @@ export function HrMasterLookupPage({
   return (
     <HrPageChrome
       title={title}
-      module="HR / MASTER"
-      refreshing={isFetching}
-      onRefresh={() => void refetch()}
+      statusLabel="تعريف"
+      onSave={handleSubmit(onSave)}
+      onNew={onNew}
+      savePending={mutation.isPending}
+      favoriteHref={listPath.startsWith('/') ? listPath.replace(/^\/hr/, '/hr') : undefined}
     >
-      <div className="mb-5">
+      <div className="mb-4">
         <DataGridDense
           title="السجلات المعرفة"
           rows={rows}
@@ -115,19 +118,14 @@ export function HrMasterLookupPage({
         />
       </div>
 
-      <div className={`${DASH_PANEL} p-5`}>
-        <HrMasterCodeFields register={register} errors={errors} />
-        {extraFields}
-        {error ? <ErrorToast message={error} onClose={() => setError('')} /> : null}
-        {success ? <SuccessToast message={success} onClose={() => setSuccess('')} /> : null}
-        <div className="mt-5 flex justify-end border-t border-slate-100 pt-4">
-          <ActionButtons
-            onSave={handleSubmit(onSave)}
-            onCancel={onCancel}
-            saveText={mutation.isPending ? 'جاري الحفظ...' : 'حفظ'}
-          />
+      <FormSectionCard title="بيانات أساسية">
+        <div className="col-span-full space-y-3">
+          <HrMasterCodeFields register={register} errors={errors} />
+          {extraFields}
         </div>
-      </div>
+      </FormSectionCard>
+      {error ? <ErrorToast message={error} onClose={() => setError('')} /> : null}
+      {success ? <SuccessToast message={success} onClose={() => setSuccess('')} /> : null}
     </HrPageChrome>
   );
 }

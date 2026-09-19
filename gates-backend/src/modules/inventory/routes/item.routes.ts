@@ -57,6 +57,7 @@ router.get(
         itemType: req.query.itemType as string | undefined,
         categoryId: req.query.categoryId as string | undefined,
         isActive: req.query.isActive as boolean | undefined,
+        isAssembly: req.query.isAssembly as boolean | undefined,
       });
 
       logger.info(

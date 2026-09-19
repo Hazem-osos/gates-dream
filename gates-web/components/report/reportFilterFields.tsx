@@ -12,6 +12,7 @@ import { ItemSelect } from '@/app/components/form/ItemSelect';
 import { CostCenterSelect } from '@/app/components/form/CostCenterSelect';
 import { AccountSelect } from '@/app/components/form/AccountSelect';
 import { SearchableCombobox } from '@/app/components/form/SearchableCombobox';
+import { SecuritiesEntitySelect } from '@/components/accounting/securities/SecuritiesEntitySelect';
 import { useApiQuery } from '@/lib/hooks/useApi';
 
 export function ReportFilterPageShell({
@@ -363,6 +364,32 @@ export function ReportFilterItemSelect({
         emptyLabel={emptyLabel}
         enableQuickCreate={false}
         portaled
+      />
+    </ReportFilterField>
+  );
+}
+
+export function ReportFilterEntitySelect({
+  label = 'الجهة',
+  value,
+  valueLabel,
+  onChange,
+  emptyLabel = 'كل الجهات',
+}: {
+  label?: string;
+  value: string;
+  valueLabel?: string;
+  onChange: (id: string, name?: string) => void;
+  emptyLabel?: string;
+}) {
+  return (
+    <ReportFilterField label={label}>
+      <SecuritiesEntitySelect
+        value={value}
+        valueLabel={valueLabel}
+        onChange={(id) => onChange(id)}
+        placeholder={emptyLabel}
+        className={reportFilterInputClass}
       />
     </ReportFilterField>
   );

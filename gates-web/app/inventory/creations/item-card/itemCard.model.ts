@@ -7,10 +7,22 @@ export type ItemUnitRow = {
   unit?: { id?: string; arabicName?: string; code?: string };
 };
 
+export type AssemblyComponentUnit = {
+  id: string;
+  arabicName: string;
+  code?: string | null;
+  conversionFactor?: string;
+};
+
 export type AssemblyRow = {
+  itemId: string;
   itemName: string;
+  unitId: string;
+  unitName: string;
+  conversionFactor: string;
   quantity: string;
   cost: string;
+  units?: AssemblyComponentUnit[];
 };
 
 export type SupplierRow = {
@@ -83,7 +95,54 @@ export type ItemDetail = {
   lastPurchasePrice?: number | string | null;
 };
 
-export const EMPTY_ASSEMBLY_ROW: AssemblyRow = { itemName: '', quantity: '', cost: '' };
+export function assemblyUnitsFromItem(item?: {
+  units?: {
+    unitId?: string | null;
+    isBaseUnit?: boolean | null;
+    conversionFactor?: number | string | null;
+    unit?: { id?: string | null; arabicName?: string | null; code?: string | null } | null;
+  }[] | null;
+}): AssemblyComponentUnit[] {
+  return (item?.units ?? [])
+    .map((row) => ({
+      id: row.unitId || row.unit?.id || '',
+      arabicName: row.unit?.arabicName || row.unit?.code || '',
+      code: row.unit?.code,
+      conversionFactor: row.conversionFactor == null ? '1' : String(row.conversionFactor),
+    }))
+    .filter((row) => row.id);
+}
+
+export function assemblyUnitFromItem(item?: {
+  units?: {
+    unitId?: string | null;
+    isBaseUnit?: boolean | null;
+    conversionFactor?: number | string | null;
+    unit?: { id?: string | null; arabicName?: string | null; code?: string | null } | null;
+  }[] | null;
+}): Pick<AssemblyRow, 'unitId' | 'unitName' | 'conversionFactor' | 'units'> {
+  const units = assemblyUnitsFromItem(item);
+  const listed = item?.units ?? [];
+  const base = listed.find((row) => row.isBaseUnit) ?? listed[0];
+  const unitId = base?.unitId || base?.unit?.id || units[0]?.id || '';
+  const unitName = base?.unit?.arabicName || units.find((row) => row.id === unitId)?.arabicName || '';
+  return {
+    unitId,
+    unitName,
+    conversionFactor: base?.conversionFactor == null ? (unitId ? '1' : '') : String(base.conversionFactor),
+    units,
+  };
+}
+
+export const EMPTY_ASSEMBLY_ROW: AssemblyRow = {
+  itemId: '',
+  itemName: '',
+  unitId: '',
+  unitName: '',
+  conversionFactor: '',
+  quantity: '',
+  cost: '',
+};
 export const EMPTY_SUPPLIER_ROW: SupplierRow = { supplierName: '', price: '', leadTimeDays: '' };
 
 export const EMPTY_ITEM_FORM = {
@@ -91,6 +150,7 @@ export const EMPTY_ITEM_FORM = {
   arabicName: '',
   englishName: '',
   categoryId: '',
+  baseUnitId: '',
   barcode: '',
   defaultTaxPercent: '',
   mainAccountId: '',
@@ -168,7 +228,11 @@ export function parseAssemblyRows(value: unknown): AssemblyRow[] {
     value.map((row) => {
       const r = row as Record<string, unknown>;
       return {
+        itemId: String(r.itemId ?? ''),
         itemName: String(r.itemName ?? ''),
+        unitId: String(r.unitId ?? ''),
+        unitName: String(r.unitName ?? ''),
+        conversionFactor: r.conversionFactor == null ? '' : String(r.conversionFactor),
         quantity: r.quantity == null ? '' : String(r.quantity),
         cost: r.cost == null ? '' : String(r.cost),
       };
@@ -193,7 +257,17 @@ export function parseSupplierRows(value: unknown): SupplierRow[] {
 }
 
 export function compactAssemblyRows(rows: AssemblyRow[]) {
-  return rows.filter((row) => row.itemName.trim() || row.quantity.trim() || row.cost.trim());
+  return rows
+    .filter((row) => row.itemId.trim() || row.itemName.trim() || row.quantity.trim() || row.cost.trim())
+    .map((row) => ({
+      itemId: row.itemId.trim() || null,
+      itemName: row.itemName.trim() || null,
+      unitId: row.unitId.trim() || null,
+      unitName: row.unitName.trim() || null,
+      conversionFactor: row.conversionFactor.trim() || null,
+      quantity: row.quantity.trim() || null,
+      cost: row.cost.trim() || null,
+    }));
 }
 
 export function compactSupplierRows(rows: SupplierRow[]) {
@@ -217,8 +291,14 @@ export function applyItemToForm(item: Partial<ItemDetail>): ItemCardForm {
     arabicName: item.arabicName ?? '',
     englishName: item.englishName ?? '',
     categoryId: item.categoryId ?? '',
+    baseUnitId:
+      item.units?.find((row) => row.isBaseUnit)?.unitId ||
+      item.units?.find((row) => row.isBaseUnit)?.unit?.id ||
+      item.units?.[0]?.unitId ||
+      item.units?.[0]?.unit?.id ||
+      '',
     barcode: item.barcode ?? '',
-    defaultTaxPercent: moneyToInput(item.defaultTaxPercent),
+    defaultTaxPercent: item.isTaxExempt ? '0' : moneyToInput(item.defaultTaxPercent),
     mainAccountId: item.mainAccountId ?? '',
     costCenterId: item.costCenterId ?? '',
     specifications: item.specifications ?? '',

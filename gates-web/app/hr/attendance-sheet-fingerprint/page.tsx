@@ -5,7 +5,6 @@ import { useForm, type Resolver, type SubmitHandler } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { HrPageChrome } from '@/components/hr/HrPageChrome';
 import { DASH_PANEL } from '@/components/dashboard-primitives';
-import { ActionButtons } from '@/components/ui/ActionButtons';
 import { attendanceFingerprintFormSchema, type AttendanceFingerprintFormInput } from '@/lib/validation/hr.schema';
 
 const defaults: AttendanceFingerprintFormInput = {
@@ -42,7 +41,10 @@ export default function AttendanceSheetFingerprintPage() {
   };
 
   return (
-    <HrPageChrome title="شيت الحضور من جهاز البصمة">
+    <HrPageChrome title="شيت الحضور من جهاز البصمة"
+      onSave={handleSubmit(onSave)}
+      onNew={() => reset(defaults)}
+    >
       <div className={`${DASH_PANEL} p-5`}>
             <div className="mb-8 space-y-6">
               <div className="text-right">
@@ -153,9 +155,6 @@ export default function AttendanceSheetFingerprintPage() {
                 </div>
               </div>
 
-              <div className="flex justify-end items-center">
-                <ActionButtons onSave={handleSubmit(onSave)} onCancel={() => reset(defaults)} />
-              </div>
             </div>
       </div>
     </HrPageChrome>

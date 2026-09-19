@@ -1,12 +1,13 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { Upload } from 'lucide-react';
 import {
   Button,
   CompactFormField,
   FormSectionCard,
+  compactControlClass,
   denseTableWrapClass,
   denseTableClass,
   denseTheadClass,
@@ -15,20 +16,191 @@ import {
   denseTrClass,
 } from '@/components/ui';
 import { MasterCardShell } from '@/components/erp';
+import { GuideEntityModal } from '@/components/accounting/guide/GuideEntityModal';
 import { useBackendReachability } from '@/lib/hooks/useBackendReachability';
+import { useApiMutation, useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
+import { apiClient } from '@/lib/api/client';
+import { exportRowsToExcel } from '@/lib/export/export-utils';
 import SuccessToast from '@/components/SuccessToast';
 import ErrorToast from '@/components/ErrorToast';
+import type { ItemGroupRow } from '@/components/inventory/ItemGroupsListSection';
+
+const ITEM_IMPORT_HEADERS = ['اسم الصنف', 'الوحدة', 'الباركود'];
+const ITEM_IMPORT_SAMPLE = ['صنف تجريبي', 'قطعة', ''];
+const PREVIEW_COLUMNS = ['اسم الصنف', 'الوحدة', 'الباركود', 'المجموعة'];
+
+const HEADER_TO_FIELD: Record<string, string> = {
+  'اسم الصنف': 'arabicName',
+  'الإسم العربي': 'arabicName',
+  'الاسم العربي': 'arabicName',
+  'الإسم الإنجليزي': 'englishName',
+  'الاسم الإنجليزي': 'englishName',
+  'الوحدة': 'unit',
+  'الباركود': 'barcode',
+  'سعر البيع': 'price',
+  'سعر الشراء': 'purchasePrice',
+  'السعر 1': 'price',
+  'رقم المجموعة': 'groupCode',
+  'اسم المجموعة': 'groupName',
+};
+
+function parseItemImportMatrix(matrix: unknown[][]): Record<string, string | number | null>[] {
+  if (matrix.length < 2) return [];
+  const headers = (matrix[0] as unknown[]).map((cell) => String(cell ?? '').trim());
+  return matrix
+    .slice(1)
+    .map((raw) => {
+      const values = raw as unknown[];
+      const out: Record<string, string | number | null> = {};
+      headers.forEach((header, index) => {
+        const value = values[index];
+        if (value == null || value === '') return;
+        const field = HEADER_TO_FIELD[header];
+        if (!field) return;
+        if (field === 'price' || field === 'purchasePrice') {
+          const n = Number(value);
+          out[field] = Number.isFinite(n) ? n : null;
+        } else {
+          out[field] = String(value);
+        }
+        if (field === 'barcode') out.serial = String(value);
+        if (field === 'arabicName') out.name = String(value);
+      });
+      return out;
+    })
+    .filter((row) => cellOf(row, ['arabicName', 'name']));
+}
+
+function cellOf(row: Record<string, string | number | null>, keys: string[]): string {
+  for (const key of keys) {
+    const value = row[key];
+    if (value != null && String(value).trim() !== '') return String(value);
+  }
+  return '';
+}
 
 export default function ImportItemsPage() {
   useBackendReachability();
   const router = useRouter();
+  const invalidate = useInvalidateQuery();
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [importSuccess, setImportSuccess] = useState('');
   const [importError, setImportError] = useState('');
+  const [downloading, setDownloading] = useState(false);
+  const [loadingFile, setLoadingFile] = useState(false);
+  const [fileName, setFileName] = useState('');
+  const [categoryId, setCategoryId] = useState('');
+  const [showGroupModal, setShowGroupModal] = useState(false);
+  const [newGroupName, setNewGroupName] = useState('');
+  const [savingGroup, setSavingGroup] = useState(false);
+  const [previewRows, setPreviewRows] = useState<Record<string, string | number | null>[]>([]);
+  const [importRows, setImportRows] = useState<Record<string, string | number | null>[]>([]);
+
+  const { data: groupsRes } = useApiQuery<ItemGroupRow[]>(
+    ['item-categories', 'import'],
+    '/inventory/item-categories',
+    { limit: 500, isActive: true }
+  );
+  const groups = Array.isArray(groupsRes?.data) ? groupsRes.data : [];
+  const selectedGroup = groups.find((row) => row.id === categoryId);
+
+  const importMut = useApiMutation<
+    { created: number; total: number },
+    { entity: 'ITEMS'; categoryId: string; rows: Record<string, unknown>[] }
+  >('/onboarding/import-excel', 'POST', {
+    showSuccessToast: true,
+    successMessage: 'تم استيراد الأصناف',
+  });
+
+  const handleDownloadTemplate = async () => {
+    setImportError('');
+    setDownloading(true);
+    try {
+      await exportRowsToExcel(
+        'gates-items-import-template.xlsx',
+        ITEM_IMPORT_HEADERS,
+        [ITEM_IMPORT_SAMPLE],
+        'الأصناف'
+      );
+      setImportSuccess('تم تنزيل القالب. اكتب اسم الصنف والوحدة فقط، ثم حمّل الملف.');
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : 'تعذر تنزيل قالب الإكسيل');
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  const loadExcelFile = async (file: File) => {
+    if (!categoryId) {
+      setImportError('اختَر المجموعة أولاً قبل تحميل الشيت');
+      return;
+    }
+    setImportError('');
+    setImportSuccess('');
+    setLoadingFile(true);
+    try {
+      const XLSX = await import(/* webpackChunkName: "xlsx" */ 'xlsx');
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: 'array' });
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      if (!sheet) {
+        setImportError('الملف لا يحتوي على ورقة عمل');
+        return;
+      }
+      const matrix = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: '' });
+      if (matrix.length < 2) {
+        setImportError('الملف فارغ أو بدون صف عناوين');
+        return;
+      }
+      const mapped = parseItemImportMatrix(matrix);
+      if (!mapped.length) {
+        setImportError('لم يتم العثور على أصناف باسم في الملف');
+        return;
+      }
+      setFileName(file.name);
+      setImportRows(mapped);
+      setPreviewRows(mapped.slice(0, 20));
+      setImportSuccess(`تم تحميل ${mapped.length} صنف على مجموعة «${selectedGroup?.arabicName ?? ''}». راجع ثم احفظ.`);
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : 'تعذر قراءة ملف الإكسيل');
+    } finally {
+      setLoadingFile(false);
+    }
+  };
 
   const handleSave = () => {
     setImportError('');
-    setImportSuccess(
-      'تم تجهيز الاستيراد في الواجهة. ربط ملف الإكسيل بواجهة برمجة استيراد الأصناف غير مفعّل بعد.'
+    if (!categoryId) {
+      setImportError('اختَر المجموعة أولاً — كل الأصناف هتترفع عليها');
+      return;
+    }
+    if (!importRows.length) {
+      setImportError('حمّل ملف إكسيل أولاً من خانة ملف الاستيراد');
+      return;
+    }
+    importMut.mutate(
+      {
+        entity: 'ITEMS',
+        categoryId,
+        rows: importRows.map((row) => ({
+          arabicName: cellOf(row, ['arabicName', 'name']),
+          unit: cellOf(row, ['unit', 'unitName']) || 'قطعة',
+          barcode: cellOf(row, ['barcode', 'serial']) || undefined,
+          price: row.price ?? row.salesPrice ?? undefined,
+        })),
+      },
+      {
+        onSuccess: (res) => {
+          const created = res.data?.created ?? importRows.length;
+          const total = res.data?.total ?? importRows.length;
+          setImportSuccess(`تم استيراد ${created} من ${total} صنف على مجموعة «${selectedGroup?.arabicName ?? ''}»`);
+          invalidate(['items']);
+          invalidate(['item-categories']);
+        },
+        onError: (err) => {
+          setImportError(err.message || 'فشل استيراد الأصناف');
+        },
+      }
     );
   };
 
@@ -44,50 +216,90 @@ export default function ImportItemsPage() {
       docNumber="استيراد"
       statusLabel="مسودة"
       onSave={handleSave}
-      canSave
+      canSave={!importMut.isPending}
+      savePending={importMut.isPending}
       onNew={() => router.push('/inventory/guide/items')}
       favoriteHref="/inventory/guide/items/import"
     >
       {importError ? <ErrorToast message={importError} onClose={() => setImportError('')} /> : null}
       {importSuccess ? <SuccessToast message={importSuccess} onClose={() => setImportSuccess('')} /> : null}
 
-      <FormSectionCard title="ملف الاستيراد" subtitle="حمّل القالب ثم املأ بيانات المجموعة" icon={Upload}>
-        <div className="sm:col-span-2 lg:col-span-3">
-          <Button type="button" variant="secondary">
-            تحميل الإكسيل
-          </Button>
-        </div>
-        <CompactFormField label="اسم المجموعة" placeholder="اسم المجموعة" />
-        <CompactFormField label="رقم المجموعة" placeholder="رقم المجموعة" />
+      <FormSectionCard
+        title="المجموعة"
+        subtitle="اختَر المجموعة أولاً. كل الأصناف في الشيت هتترفع عليها."
+        icon={Upload}
+      >
+        <CompactFormField label="مجموعة الأصناف" required className="sm:col-span-2">
+          <div className="flex gap-2">
+            <select
+              className={compactControlClass}
+              value={categoryId}
+              onChange={(e) => setCategoryId(e.target.value)}
+            >
+              <option value="">اختَر المجموعة</option>
+              {groups.map((row) => (
+                <option key={row.id} value={row.id}>
+                  {row.code ? `${row.code} — ` : ''}
+                  {row.arabicName}
+                </option>
+              ))}
+            </select>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => {
+                setNewGroupName('');
+                setShowGroupModal(true);
+              }}
+            >
+              + مجموعة
+            </Button>
+          </div>
+        </CompactFormField>
       </FormSectionCard>
 
-      <FormSectionCard title="حقول الصنف" subtitle="الأعمدة اللي هتتربط بملف الإكسيل">
-        <CompactFormField label="الإسم العربي" placeholder="الإسم العربي" />
-        <CompactFormField label="الإسم الإنجليزي" placeholder="الإسم الإنجليزي" />
-        <CompactFormField label="الوحدة" placeholder="الوحدة" />
-        <CompactFormField label="السعر 1" placeholder="السعر 1" />
-        <CompactFormField label="السعر 2" placeholder="السعر 2" />
-        <CompactFormField label="السعر 3" placeholder="السعر 3" />
-        <CompactFormField label="السعر 4" placeholder="السعر 4" />
-        <CompactFormField label="السعر 5" placeholder="السعر 5" />
-        <CompactFormField label="الناشر" placeholder="الناشر" />
-        <CompactFormField label="المؤلف" placeholder="المؤلف" />
-        <CompactFormField label="مؤلف ثاني : المحقق" placeholder="مؤلف ثاني : المحقق" />
-        <CompactFormField label="نوع الغلاف" placeholder="نوع الغلاف" />
-        <CompactFormField label="سنة النشر" placeholder="سنة النشر" />
-        <CompactFormField label="رقم ISBN" placeholder="رقم ISBN" />
-        <CompactFormField label="رقم الطبعة" placeholder="رقم الطبعة" />
-        <CompactFormField label="عدد الصفحات" placeholder="عدد الصفحات" />
-        <CompactFormField label="تصنيف فرعي أول" placeholder="تصنيف فرعي أول" />
-        <CompactFormField label="تصنيف فرعي ثاني" placeholder="تصنيف فرعي ثاني" />
-        <label className="flex h-8 items-center gap-2 text-sm font-medium text-[#094C6B]">
-          <input type="checkbox" className="h-4 w-4 rounded border-[#0E78AA]" />
-          المصنع
-        </label>
-        <label className="flex h-8 items-center gap-2 text-sm font-medium text-[#094C6B]">
-          <input type="checkbox" className="h-4 w-4 rounded border-[#0E78AA]" />
-          السطر الأول عناوين
-        </label>
+      <FormSectionCard title="ملف الاستيراد" subtitle="القالب فيه اسم الصنف والوحدة والباركود فقط">
+        <div className="sm:col-span-2 lg:col-span-3">
+          <label className="mb-1 block text-xs font-semibold text-[#0A3D5E]">ملف الاستيراد</label>
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              readOnly
+              value={fileName}
+              placeholder="لم يتم اختيار ملف"
+              className={`${compactControlClass} min-w-[16rem] flex-1`}
+            />
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".xlsx,.xls,.csv"
+              className="sr-only"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                event.target.value = '';
+                if (file) void loadExcelFile(file);
+              }}
+            />
+            <Button
+              type="button"
+              variant="primary"
+              isLoading={loadingFile}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              {loadingFile ? 'جاري التحميل…' : 'تحميل الإكسيل'}
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              isLoading={downloading}
+              onClick={() => void handleDownloadTemplate()}
+            >
+              {downloading ? 'جاري التنزيل…' : 'تنزيل القالب'}
+            </Button>
+          </div>
+        </div>
+        <p className="sm:col-span-2 lg:col-span-3 text-xs text-slate-500">
+          الأعمدة المطلوبة: <strong>اسم الصنف</strong> و<strong>الوحدة</strong>. الباركود اختياري. الأسعار وباقي التفاصيل من بطاقة الصنف بعد الرفع.
+        </p>
       </FormSectionCard>
 
       <section className="mb-4">
@@ -95,19 +307,27 @@ export default function ImportItemsPage() {
           <table className={denseTableClass}>
             <thead className={denseTheadClass}>
               <tr>
-                {['1', '2', '3', '4', '5', ''].map((h) => (
-                  <th key={h || 'empty'} className={denseThClass}>
-                    {h}
+                {PREVIEW_COLUMNS.map((header) => (
+                  <th key={header} className={denseThClass}>
+                    {header}
                   </th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {Array.from({ length: 5 }, (_, idx) => (
+              {(previewRows.length ? previewRows : Array.from({ length: 5 }, () => null)).map((row, idx) => (
                 <tr key={idx} className={denseTrClass}>
-                  {Array.from({ length: 6 }, (__, col) => (
-                    <td key={col} className={`${denseTdClass} text-slate-400`}>
-                      —
+                  {(row
+                    ? [
+                        cellOf(row, ['arabicName', 'name']),
+                        cellOf(row, ['unit']),
+                        cellOf(row, ['barcode', 'serial']),
+                        selectedGroup?.arabicName ?? '—',
+                      ]
+                    : Array.from({ length: PREVIEW_COLUMNS.length }, () => '—')
+                  ).map((cell, col) => (
+                    <td key={col} className={`${denseTdClass} ${row ? 'text-[#094C6B]' : 'text-slate-400'}`}>
+                      {cell || '—'}
                     </td>
                   ))}
                 </tr>
@@ -116,6 +336,46 @@ export default function ImportItemsPage() {
           </table>
         </div>
       </section>
+
+      <GuideEntityModal
+        open={showGroupModal}
+        title="إضافة مجموعة أصناف"
+        saving={savingGroup}
+        saveText="حفظ المجموعة"
+        onClose={() => setShowGroupModal(false)}
+        onSave={() => {
+          void (async () => {
+            if (!newGroupName.trim()) {
+              setImportError('أدخل اسم المجموعة');
+              return;
+            }
+            setSavingGroup(true);
+            try {
+              const created = await apiClient.post<{ id?: string }>('/inventory/item-categories', {
+                arabicName: newGroupName.trim(),
+                groupType: 'MAIN',
+              });
+              const id = created.data?.id;
+              invalidate(['item-categories']);
+              if (id) setCategoryId(id);
+              setShowGroupModal(false);
+              setNewGroupName('');
+              setImportSuccess('تم حفظ المجموعة — اختَرها للرفع');
+            } catch (err) {
+              setImportError(err instanceof Error ? err.message : 'تعذر حفظ المجموعة');
+            } finally {
+              setSavingGroup(false);
+            }
+          })();
+        }}
+      >
+        <CompactFormField
+          label="اسم المجموعة"
+          required
+          value={newGroupName}
+          onChange={(e) => setNewGroupName(e.target.value)}
+        />
+      </GuideEntityModal>
     </MasterCardShell>
   );
 }

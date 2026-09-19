@@ -6,7 +6,6 @@ import { useForm, type Resolver, type SubmitHandler } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { HrPageChrome } from '@/components/hr/HrPageChrome';
 import { DASH_PANEL } from '@/components/dashboard-primitives';
-import { ActionButtons } from '@/components/ui/ActionButtons';
 import {
   employeeAttendancePreviewFilterSchema,
   type EmployeeAttendancePreviewFilterInput,
@@ -165,7 +164,10 @@ export default function EmployeeAttendancePreviewPage() {
   const inputCls = "h-9 w-full rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] px-3 text-xs font-medium text-[#094C6B] placeholder:text-slate-400 transition-colors focus:border-[#0E78AA] focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#0E78AA]/15 disabled:cursor-not-allowed disabled:opacity-50 sm:text-sm";
 
   return (
-    <HrPageChrome title="معاينة حضور وانصراف موظف">
+    <HrPageChrome title="معاينة حضور وانصراف موظف"
+      onSave={handleSubmit(onShowData)}
+      onNew={() => reset(filterDefaults)}
+    >
       <div className={`${DASH_PANEL} p-5`}>
             {/* Filters Section */}
             <div className="mb-8 space-y-6">
@@ -382,19 +384,6 @@ export default function EmployeeAttendancePreviewPage() {
                   </tbody>
                 </table>
               </div>
-            </div>
-
-            {/* Action Buttons */}
-            <div className="flex justify-between items-center mt-8 pt-6 border-t border-[#D6EAF3]">
-              <div className="flex gap-3">
-                <button className="px-6 py-2 bg-[#0E79AA] text-white rounded-lg hover:bg-[#094C6B] transition-colors">
-                  تراجع
-                </button>
-                <button className="px-6 py-2 bg-[#0E79AA] text-white rounded-lg hover:bg-[#094C6B] transition-colors">
-                  عرض
-                </button>
-              </div>
-              <ActionButtons onSave={handleSubmit(onShowData)} onCancel={() => reset(filterDefaults)} />
             </div>
       </div>
     </HrPageChrome>

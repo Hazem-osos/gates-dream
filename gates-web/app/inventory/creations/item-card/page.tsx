@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useOwnTabSearchParams } from '@/lib/navigation/tab-route-lock';
@@ -23,7 +23,12 @@ import { itemCardFormSchema } from '@/lib/validation/inventory.schema';
 import { useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
 import { apiClient } from '@/lib/api/client';
 import { useItemCostAsOf } from '@/lib/hooks/useItemCostAsOf';
-import { WarehouseSelect } from '@/components/form/WarehouseSelect';
+import { ItemSelect } from '@/components/form/ItemSelect';
+import { ItemGroupSelect } from '@/components/form/ItemGroupSelect';
+import { QuickCreateItemModal, type QuickCreatedItem } from '@/app/components/form/QuickCreateItemModal';
+import { useDraftAutosave } from '@/lib/hooks/useDraftAutosave';
+import type { ItemOption } from '@/lib/hooks/useMasterDataQueries';
+import { UnitSelect } from '@/components/form/UnitSelect';
 import { useCompanyGlDefaults } from '@/lib/hooks/useCompanyGlDefaults';
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
@@ -32,20 +37,26 @@ import { formatMoneyAr } from '@/lib/formatMoney';
 import { useItemCardTourPrepare } from '@/lib/onboarding/useItemCardTourPrepare';
 import { queryKeys } from '@/lib/query/query-keys';
 import { BarcodePrintModal } from '@/app/components/print/BarcodePrintModal';
-import { ItemFinderModal } from '@/components/inventory/ItemFinderModal';
+import { DocumentBrowseDrawer } from '@/components/erp/DocumentBrowseDrawer';
+import { ItemsCatalogListSection } from '@/components/inventory/ItemsCatalogListSection';
+import { DocumentModeProvider, useDocumentMode } from '@/components/common/document-shell';
+import { GuideEntityModal } from '@/components/accounting/guide/GuideEntityModal';
 import { NumberingModeControl } from '@/components/accounting/NumberingModeControl';
 import { useAccountingSettingsQuery } from '@/lib/hooks/useAccountingSettings';
 import { bumpTrailingCode, isCodeAfter, nextNumericSerial } from '@/lib/masters/nextNumericSerial';
 import { entityLabel } from '@/lib/quick-create/catalog';
 import { useQuickCreateHost } from '@/lib/quick-create/useQuickCreateTab';
+import { readImageFileAsDataUrl } from '@/lib/images/read-image-file';
 import {
   applyItemToForm,
   assemblyRowsTotal,
+  assemblyUnitFromItem,
   compactAssemblyRows,
   compactSupplierRows,
   EMPTY_ASSEMBLY_ROW,
   EMPTY_ITEM_FORM,
   EMPTY_SUPPLIER_ROW,
+  moneyToInput,
   optionalMoney,
   parseAssemblyRows,
   parseSupplierRows,
@@ -56,21 +67,58 @@ import {
   type SupplierRow,
 } from './itemCard.model';
 
-type CategoryRow = { id: string; arabicName: string; code?: string | null };
+type CategoryRow = {
+  id: string;
+  arabicName: string;
+  code?: string | null;
+  parentCategoryId?: string | null;
+  groupType?: string | null;
+};
+
+function categoryOptionLabel(row: CategoryRow, all: CategoryRow[]): string {
+  const self = row.code ? `${row.code} — ${row.arabicName}` : row.arabicName;
+  const parent = all.find((item) => item.id === row.parentCategoryId);
+  if (!parent) return self;
+  return `${parent.arabicName} / ${self}`;
+}
+
+type LocalUnitRow = {
+  key: string;
+  id?: string;
+  unitId: string;
+  conversionFactor: string;
+  isFactorFixed: boolean;
+  isBaseUnit: boolean;
+};
+
+function toLocalUnitRows(rows: ItemUnitRow[]): LocalUnitRow[] {
+  return rows.map((row, idx) => ({
+    key: row.id ?? `unit-${idx}`,
+    unitId: row.unitId ?? row.unit?.id ?? '',
+    conversionFactor: String(row.conversionFactor ?? 1),
+    isFactorFixed: row.isFactorFixed !== false,
+    isBaseUnit: Boolean(row.isBaseUnit),
+    id: row.id,
+  }));
+}
+
+function emptyBaseUnitRow(unitId = ''): LocalUnitRow {
+  return {
+    key: 'base',
+    unitId,
+    conversionFactor: '1',
+    isFactorFixed: true,
+    isBaseUnit: true,
+  };
+}
 
 const TABS = [
-  { id: 'general', label: 'عام', hint: 'المخزن المستخدم، مصدر السعر، والمواصفات' },
-  { id: 'units-prices', label: 'الوحدات والأسعار', hint: 'طريقة السعر وشرائح البيع' },
+  { id: 'general', label: 'عام', hint: 'المواصفات والوزن وخصائص الصنف' },
+  { id: 'units-prices', label: 'الوحدات والأسعار', hint: 'الوحدة الأساسية من هنا وتتقفل بعد الحفظ. الأسعار من قائمة الأسعار.' },
   { id: 'options', label: 'خيارات', hint: 'الضريبة، القيود، والصورة' },
   { id: 'quantities', label: 'الكميات', hint: 'حدود المخزون والرصيد الافتتاحي' },
   { id: 'assembly', label: 'تجميعي', hint: 'عادي أو تجميعي، ثم المكونات لو تجميعي' },
   { id: 'order-plan', label: 'نقطة إعادة الطلب', hint: 'الموردون ومدة التوريد' },
-] as const;
-
-const PRICE_MODES = [
-  { value: 'last_purchase_pct', label: 'نسبة من آخر شراء' },
-  { value: 'cost_pct', label: 'نسبة من التكلفة' },
-  { value: 'value', label: 'قيمة ثابتة' },
 ] as const;
 
 const OPTION_FLAGS = [
@@ -93,11 +141,13 @@ function ChoicePills<T extends string>({
   value,
   options,
   onChange,
+  disabled,
 }: {
   name: string;
   value: T;
   options: readonly { value: T; label: string }[];
   onChange: (value: T) => void;
+  disabled?: boolean;
 }) {
   return (
     <div className="flex flex-wrap gap-2">
@@ -108,13 +158,16 @@ function ChoicePills<T extends string>({
             value === opt.value
               ? 'border-[#0E78AA] bg-[#0E78AA] text-white'
               : 'border-[#D6EAF3] bg-white text-[#0A3D5E]'
-          } inline-flex cursor-pointer items-center rounded-full border px-3 py-1.5 text-xs font-semibold`}
+          } inline-flex items-center rounded-full border px-3 py-1.5 text-xs font-semibold ${
+            disabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'
+          }`}
         >
           <input
             type="radio"
             name={name}
             value={opt.value}
             checked={value === opt.value}
+            disabled={disabled}
             onChange={() => onChange(opt.value)}
             className="sr-only"
           />
@@ -140,19 +193,11 @@ function ItemImageUploader({
 
   const readFile = (file: File | undefined) => {
     if (!file) return;
-    if (!file.type.startsWith('image/')) {
-      onError('ارفع ملف صورة فقط');
-      return;
-    }
-    if (file.size > 1_500_000) {
-      onError('الصورة أكبر من 1.5 ميجا. صغّرها أو استخدم رابطاً.');
-      return;
-    }
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === 'string') onChange(reader.result);
-    };
-    reader.readAsDataURL(file);
+    void readImageFileAsDataUrl(file)
+      .then(onChange)
+      .catch((error) => {
+        onError(error instanceof Error ? error.message : 'تعذر رفع الصورة');
+      });
   };
 
   return (
@@ -193,7 +238,7 @@ function ItemImageUploader({
               <ImagePlus className="h-7 w-7" />
             </span>
             <p className="text-sm font-bold text-[#0A3D5E]">اسحب الصورة هنا</p>
-            <p className="mt-1 text-xs text-slate-500">أو اضغط للاختيار · PNG / JPG</p>
+            <p className="mt-1 text-xs text-slate-500">أو اضغط للاختيار · JPG / PNG — تتصغّر تلقائيًا</p>
           </>
         )}
         <input
@@ -223,7 +268,7 @@ function ItemImageUploader({
           onChange={(e) => onChange(e.target.value)}
           placeholder="https://…"
         />
-        <p className="text-xs text-slate-500">المعاينة تظهر فوراً. الحد الأقصى للرفع 1.5 ميجا.</p>
+        <p className="text-xs text-slate-500">المعاينة تظهر فوراً. الصورة تتصغّر قبل الحفظ عشان JPG العادي يعدي.</p>
       </div>
     </div>
   );
@@ -241,20 +286,32 @@ function TabPanel({ title, hint, children }: { title: string; hint: string; chil
   );
 }
 
-export default function ItemCardPage() {
+function ItemCardPageInner() {
   const invalidateQuery = useInvalidateQuery();
   const router = useRouter();
+  const { isReadOnly, unlockForEdit, lockToView, setMode } = useDocumentMode();
   const quickCreate = useQuickCreateHost('item');
   const [activeTab, setActiveTab] = useState('general');
   useItemCardTourPrepare(setActiveTab);
   const [itemType, setItemType] = useState('normal');
   const [showPrint, setShowPrint] = useState(false);
   const [showFinder, setShowFinder] = useState(false);
+  const [showGroupModal, setShowGroupModal] = useState(false);
+  const [newGroupName, setNewGroupName] = useState('');
+  const [newGroupParentId, setNewGroupParentId] = useState('');
+  const [savingGroup, setSavingGroup] = useState(false);
   const [lookup, setLookup] = useState('');
+  const [plainItemModal, setPlainItemModal] = useState<{ open: boolean; name: string; rowIdx: number }>({
+    open: false,
+    name: '',
+    rowIdx: 0,
+  });
   const hydratedIdRef = useRef<string | null>(null);
 
   const { data: settingsRes } = useAccountingSettingsQuery();
   const itemAuto = settingsRes?.data?.general?.itemAutoNumbering !== false;
+  const companyPriceSource =
+    settingsRes?.data?.general?.itemPriceSource === 'item_card' ? 'item_card' : 'price_list';
   const itemRecordCount = settingsRes?.data?.general?.numberingRecordCounts?.items ?? 0;
   const [formData, setFormData] = useState<ItemCardForm>({ ...EMPTY_ITEM_FORM });
   const [assemblyRows, setAssemblyRows] = useState<AssemblyRow[]>(
@@ -284,7 +341,13 @@ export default function ItemCardPage() {
     '/inventory/item-categories',
     { limit: 200, isActive: true }
   );
-  const categories = categoriesResponse?.data ?? [];
+  const categories = Array.isArray(categoriesResponse?.data) ? categoriesResponse.data : [];
+  const { data: unitsResponse } = useApiQuery<{ id: string; arabicName: string; code?: string | null }[]>(
+    ['units', 'item-card'],
+    '/inventory/units',
+    { limit: 500, isActive: true }
+  );
+  const units = unitsResponse?.data ?? [];
 
   const { data: itemsSerialRes } = useApiQuery<{ serial?: string | null }[]>(
     ['items', 'serials'],
@@ -307,26 +370,168 @@ export default function ItemCardPage() {
     setFormData((prev) => (prev.arabicName ? prev : { ...prev, arabicName: quickCreate.prefillName }));
   }, [activeItemId, quickCreate.prefillName]);
 
-  const unitRows = itemDetail?.units ?? [];
-  const [factorBusyId, setFactorBusyId] = useState<string | null>(null);
+  const [localUnits, setLocalUnits] = useState<LocalUnitRow[]>([emptyBaseUnitRow()]);
+  const [unitsHydratedFor, setUnitsHydratedFor] = useState<string | null>(null);
+  const [unitBusyKey, setUnitBusyKey] = useState<string | null>(null);
 
-  const setUnitFactorFixed = async (row: ItemUnitRow, isFactorFixed: boolean) => {
+  type ItemCardDraft = {
+    formData: ItemCardForm;
+    assemblyRows: AssemblyRow[];
+    supplierRows: SupplierRow[];
+    localUnits: LocalUnitRow[];
+    itemType: string;
+    activeTab: string;
+  };
+
+  const itemCardDraft = useMemo<ItemCardDraft>(
+    () => ({ formData, assemblyRows, supplierRows, localUnits, itemType, activeTab }),
+    [activeTab, assemblyRows, formData, itemType, localUnits, supplierRows]
+  );
+
+  const applyItemCardDraft = useCallback((payload: ItemCardDraft) => {
+    setFormData(payload.formData);
+    setAssemblyRows(payload.assemblyRows?.length ? payload.assemblyRows : parseAssemblyRows(undefined));
+    setSupplierRows(payload.supplierRows?.length ? payload.supplierRows : parseSupplierRows(undefined));
+    setLocalUnits(payload.localUnits?.length ? payload.localUnits : [emptyBaseUnitRow()]);
+    setItemType(payload.itemType || 'normal');
+    if (payload.activeTab) setActiveTab(payload.activeTab);
+    setMode('create');
+  }, [setMode]);
+
+  const { clearDraft } = useDraftAutosave({
+    documentType: 'item-card',
+    mode: 'new',
+    value: itemCardDraft,
+    enabled: !itemIdFromUrl,
+    applyRestore: applyItemCardDraft,
+    isEmpty: (payload) =>
+      !payload.formData.arabicName.trim() &&
+      !payload.formData.englishName.trim() &&
+      !payload.formData.barcode.trim() &&
+      !payload.formData.categoryId &&
+      !payload.formData.specifications.trim(),
+    restoreMessage: 'تم استعادة بيانات الصنف',
+  });
+
+  useEffect(() => {
+    if (!activeItemId || !itemDetail?.id || itemDetail.id !== activeItemId) return;
+    if (unitsHydratedFor === itemDetail.id) return;
+    const mapped = toLocalUnitRows(itemDetail.units ?? []);
+    setLocalUnits(mapped.length ? mapped : [emptyBaseUnitRow(formData.baseUnitId)]);
+    setUnitsHydratedFor(itemDetail.id);
+  }, [activeItemId, formData.baseUnitId, itemDetail, unitsHydratedFor]);
+
+  const refreshItemUnits = () => {
+    if (activeItemId) invalidateQuery(['item', activeItemId]);
+  };
+
+  const persistExtraUnits = async (itemId: string, rows: LocalUnitRow[]) => {
+    for (const row of rows) {
+      if (row.isBaseUnit || !row.unitId || row.id) continue;
+      await apiClient.post('/inventory/item-units', {
+        itemId,
+        unitId: row.unitId,
+        conversionFactor: Number(row.conversionFactor) || 1,
+        isFactorFixed: row.isFactorFixed,
+        isBaseUnit: false,
+      });
+    }
+  };
+
+  const setLocalUnit = (key: string, next: Partial<LocalUnitRow>) => {
+    setLocalUnits((prev) => prev.map((row) => (row.key === key ? { ...row, ...next } : row)));
+  };
+
+  const chooseUnit = async (row: LocalUnitRow, unitId: string) => {
+    if (row.isBaseUnit && activeItemId) {
+      setError('الوحدة الأساسية ثابتة بعد الحفظ ولا يمكن تغييرها');
+      return;
+    }
+    setLocalUnit(row.key, { unitId });
+    if (row.isBaseUnit) patch({ baseUnitId: unitId });
+    if (!unitId || !activeItemId) return;
+    setUnitBusyKey(row.key);
+    setError('');
+    try {
+      if (row.id) {
+        await apiClient.put(`/inventory/item-units/${row.id}`, { unitId });
+      } else if (!row.isBaseUnit) {
+        await apiClient.post('/inventory/item-units', {
+          itemId: activeItemId,
+          unitId,
+          conversionFactor: Number(row.conversionFactor) || 1,
+          isFactorFixed: row.isFactorFixed,
+          isBaseUnit: false,
+        });
+      }
+      refreshItemUnits();
+      setUnitsHydratedFor(null);
+      setSuccess('تم ربط الوحدة بالصنف');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'تعذر ربط الوحدة');
+    } finally {
+      setUnitBusyKey(null);
+    }
+  };
+
+  const saveUnitFactor = async (row: LocalUnitRow, conversionFactor: string) => {
+    setLocalUnit(row.key, { conversionFactor });
     if (!row.id || !activeItemId) return;
-    setFactorBusyId(row.id);
+    const n = Number(conversionFactor);
+    if (!Number.isFinite(n) || n <= 0) return;
+    try {
+      await apiClient.put(`/inventory/item-units/${row.id}`, { conversionFactor: n });
+      refreshItemUnits();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'تعذر تحديث المعامل');
+    }
+  };
+
+  const setUnitFactorFixed = async (row: LocalUnitRow, isFactorFixed: boolean) => {
+    setLocalUnit(row.key, { isFactorFixed });
+    if (!row.id || !activeItemId) return;
+    setUnitBusyKey(row.key);
     setError('');
     try {
       await apiClient.put(`/inventory/item-units/${row.id}`, { isFactorFixed });
-      invalidateQuery(['item', activeItemId]);
+      refreshItemUnits();
       setSuccess(isFactorFixed ? 'تم ضبط المعامل كثابت' : 'تم ضبط المعامل كمتغير لكل حركة');
     } catch (err) {
-      const msg =
-        err && typeof err === 'object' && 'message' in err
-          ? String((err as { message?: string }).message)
-          : 'تعذر تحديث معامل التحويل';
-      setError(msg);
+      setError(err instanceof Error ? err.message : 'تعذر تحديث معامل التحويل');
     } finally {
-      setFactorBusyId(null);
+      setUnitBusyKey(null);
     }
+  };
+
+  const addUnitRow = () => {
+    setLocalUnits((prev) => [
+      ...prev,
+      {
+        key: `extra-${Date.now()}`,
+        unitId: '',
+        conversionFactor: '1',
+        isFactorFixed: true,
+        isBaseUnit: false,
+      },
+    ]);
+  };
+
+  const removeUnitRow = async (row: LocalUnitRow) => {
+    if (row.isBaseUnit) return;
+    if (row.id && activeItemId) {
+      setUnitBusyKey(row.key);
+      try {
+        await apiClient.delete(`/inventory/item-units/${row.id}`);
+        refreshItemUnits();
+        setUnitsHydratedFor(null);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'تعذر حذف الوحدة');
+        setUnitBusyKey(null);
+        return;
+      }
+      setUnitBusyKey(null);
+    }
+    setLocalUnits((prev) => prev.filter((item) => item.key !== row.key));
   };
 
   const priceByUnitId = useMemo(() => {
@@ -344,16 +549,20 @@ export default function ItemCardPage() {
     setFormData(applyItemToForm(item));
     setAssemblyRows(parseAssemblyRows(item.assemblyComponents));
     setSupplierRows(parseSupplierRows(item.preferredSuppliers));
+    const mapped = toLocalUnitRows(item.units ?? []);
+    setLocalUnits(mapped.length ? mapped : [emptyBaseUnitRow()]);
+    setUnitsHydratedFor(item.id);
     if (item.itemType) setItemType(item.itemType);
   };
 
   useEffect(() => {
-    if (!itemDetail?.id) return;
+    if (!activeItemId || !itemDetail?.id || itemDetail.id !== activeItemId) return;
     if (hydratedIdRef.current === itemDetail.id) return;
     hydratedIdRef.current = itemDetail.id;
     setSavedItemId(itemDetail.id);
     hydrateFromItem(itemDetail);
-  }, [itemDetail]);
+    lockToView();
+  }, [activeItemId, itemDetail, lockToView]);
 
   const { data: glDefaultsResponse } = useCompanyGlDefaults();
   const glDefaults = glDefaultsResponse?.data;
@@ -375,30 +584,35 @@ export default function ItemCardPage() {
   const persistItem = async (requestBody: Record<string, unknown>) => {
     if (activeItemId) {
       await apiClient.put<ItemDetail>(`/inventory/items/${activeItemId}`, requestBody);
+      const hasBaseUnit = (itemDetail?.units ?? []).some(
+        (row) => row.isBaseUnit || row.unitId === formData.baseUnitId || row.unit?.id === formData.baseUnitId
+      );
+      if (formData.baseUnitId && !hasBaseUnit) {
+        await apiClient.post('/inventory/item-units', {
+          itemId: activeItemId,
+          unitId: formData.baseUnitId,
+          conversionFactor: 1,
+          isFactorFixed: true,
+          isBaseUnit: true,
+        });
+      }
       invalidateQuery(['item', activeItemId]);
       invalidateQuery(['items']);
-      if (quickCreate.isQuickCreate) {
-        setSuccess('تم تحديث الصنف');
-        return;
-      }
-      const keepCategory = formData.categoryId;
-      hydratedIdRef.current = null;
-      setSavedItemId(null);
-      setFormData({
-        ...EMPTY_ITEM_FORM,
-        categoryId: keepCategory,
-        serial: bumpTrailingCode(formData.serial),
-      });
-      setAssemblyRows(parseAssemblyRows(undefined));
-      setSupplierRows(parseSupplierRows(undefined));
-      router.replace('/inventory/creations/item-card');
-      setSuccess('تم تحديث الصنف — تقدر تضيف التالي');
+      setSavedItemId(activeItemId);
+      clearDraft();
+      lockToView();
+      setSuccess('تم تحديث الصنف');
       return;
     }
     const res = await apiClient.post<ItemDetail>('/inventory/items', requestBody);
     const saved = res.data;
     const id = saved?.id;
+    if (id) {
+      await persistExtraUnits(id, localUnits);
+      invalidateQuery(['item', id]);
+    }
     if (quickCreate.isQuickCreate) {
+      clearDraft();
       if (saved) hydrateFromItem(saved);
       if (id) {
         setSavedItemId(id);
@@ -412,15 +626,21 @@ export default function ItemCardPage() {
       }
     } else {
       const keepCategory = formData.categoryId;
+      const keepUnit = formData.baseUnitId;
+      clearDraft();
       hydratedIdRef.current = null;
       setSavedItemId(null);
       setFormData({
         ...EMPTY_ITEM_FORM,
         categoryId: keepCategory,
+        baseUnitId: keepUnit,
         serial: bumpTrailingCode(formData.serial || saved?.serial || ''),
       });
+      setMode('create');
       setAssemblyRows(parseAssemblyRows(undefined));
       setSupplierRows(parseSupplierRows(undefined));
+      setLocalUnits([emptyBaseUnitRow(keepUnit)]);
+      setUnitsHydratedFor(null);
     }
     setSuccess(quickCreate.isQuickCreate ? 'تم حفظ الصنف' : 'تم حفظ الصنف — تقدر تضيف التالي');
     invalidateQuery(['items']);
@@ -458,6 +678,15 @@ export default function ItemCardPage() {
       setError('رقم الصنف مطلوب — الترقيم يدوي');
       return;
     }
+    if (!formData.categoryId) {
+      setError('اختَر مجموعة الصنف قبل الحفظ');
+      return;
+    }
+    const baseUnitId = formData.baseUnitId || localUnits.find((row) => row.isBaseUnit)?.unitId || '';
+    if (!baseUnitId) {
+      setError('اختَر الوحدة الأساسية من تاب الوحدات والأسعار قبل الحفظ');
+      return;
+    }
 
     const retailTier = optionalMoney(formData.retailPrice) ?? optionalMoney(formData.priceRetail);
 
@@ -466,13 +695,13 @@ export default function ItemCardPage() {
       arabicName: formData.arabicName,
       englishName: formData.englishName || undefined,
       categoryId: formData.categoryId || null,
+      baseUnitId,
       barcode: formData.barcode || null,
-      defaultTaxPercent: optionalMoney(formData.defaultTaxPercent) ?? null,
+      defaultTaxPercent: formData.isTaxExempt ? 0 : optionalMoney(formData.defaultTaxPercent) ?? null,
       mainAccountId: formData.mainAccountId || undefined,
       specifications: formData.specifications || undefined,
       itemType: (itemType || 'normal') as 'normal' | 'pack-sheet' | 'pack-kilo' | 'roll',
-      defaultWarehouseId: formData.defaultWarehouseId || null,
-      priceSource: formData.priceSource,
+      priceSource: companyPriceSource,
       weight: formData.weight ? parseFloat(formData.weight) : undefined,
       manufacturerId: formData.manufacturerId || undefined,
       colorId: formData.colorId || undefined,
@@ -500,7 +729,7 @@ export default function ItemCardPage() {
       beginningBalance: formData.beginningBalance ? parseFloat(formData.beginningBalance) : undefined,
       beginningCostPrice: optionalMoney(formData.beginningCostPrice),
       lastPurchasePrice:
-        formData.priceSource === 'item_card' ? optionalMoney(formData.purchasePrice) ?? 0 : undefined,
+        companyPriceSource === 'item_card' ? optionalMoney(formData.purchasePrice) ?? 0 : undefined,
       priceRetail: optionalMoney(formData.priceRetail) ?? retailTier,
       priceSemiWholesale: formData.priceSemiWholesale
         ? parseFloat(formData.priceSemiWholesale)
@@ -552,6 +781,7 @@ export default function ItemCardPage() {
   };
 
   const startNewItem = () => {
+    clearDraft();
     hydratedIdRef.current = null;
     setSavedItemId(null);
     setError('');
@@ -559,10 +789,25 @@ export default function ItemCardPage() {
     setFormData({ ...EMPTY_ITEM_FORM });
     setAssemblyRows(parseAssemblyRows(undefined));
     setSupplierRows(parseSupplierRows(undefined));
+    setLocalUnits([emptyBaseUnitRow()]);
+    setUnitsHydratedFor(null);
     setItemType('normal');
     setActiveTab('general');
     setLookup('');
+    setMode('create');
     router.replace('/inventory/creations/item-card');
+  };
+
+  const handleCancel = () => {
+    setError('');
+    if (activeItemId && itemDetail?.id === activeItemId) {
+      hydrateFromItem(itemDetail);
+      lockToView();
+      setSuccess('تم التراجع عن التعديلات');
+      return;
+    }
+    startNewItem();
+    setSuccess('تم تفريغ البطاقة');
   };
 
   const currentStockQty = (itemDetail?.quantities ?? []).reduce((sum, row) => {
@@ -589,10 +834,24 @@ export default function ItemCardPage() {
           { label: 'بطاقة الصنف' },
         ]}
         docNumber={formData.serial || (activeItemId ? 'تعديل' : 'جديد')}
-        statusLabel={formData.inactiveItem ? 'مؤرشف' : activeItemId ? 'تعديل' : 'جديد'}
+        statusLabel={
+          formData.inactiveItem
+            ? 'مؤرشف'
+            : activeItemId
+              ? isReadOnly
+                ? 'عرض — اضغط تعديل'
+                : 'تعديل'
+              : 'جديد'
+        }
         onSave={() => void handleSave()}
         savePending={loading}
-        canSave={!loading}
+        canSave={!isReadOnly && !loading}
+        onCancel={handleCancel}
+        onEdit={() => {
+          if (!activeItemId) return;
+          unlockForEdit();
+        }}
+        editDisabled={!activeItemId}
         onNew={startNewItem}
         currentId={activeItemId}
         onBrowseList={() => setShowFinder(true)}
@@ -618,46 +877,60 @@ export default function ItemCardPage() {
         favoriteHref="/inventory/creations/item-card"
       />
 
+      <fieldset disabled={isReadOnly} className="min-w-0 border-0 p-0">
       <FormSectionCard
-        title="هوية الصنف"
-        subtitle="الاسم والكود هنا. باقي التفاصيل في التبويبات تحت حسب الحاجة."
+        title="بيانات الصنف"
+        subtitle="الاسم والكود والمجموعة هنا. باقي التفاصيل في التبويبات تحت حسب الحاجة."
         icon={Package}
       >
         <CompactFormField
           label="المسلسل"
           value={formData.serial}
-          disabled={itemAuto}
+          disabled={isReadOnly || itemAuto}
           onChange={(e) => patch({ serial: e.target.value })}
           placeholder={itemAuto ? 'تلقائي' : 'أدخل رقم الصنف'}
         />
         <CompactFormField
           label="الاسم العربي"
           required
+          disabled={isReadOnly}
           value={formData.arabicName}
           onChange={(e) => patch({ arabicName: e.target.value })}
           placeholder="اسم يظهر في الفواتير"
         />
         <CompactFormField
           label="الاسم الإنجليزي"
+          disabled={isReadOnly}
           value={formData.englishName}
           onChange={(e) => patch({ englishName: e.target.value })}
         />
-        <CompactFormField label="المجموعة">
-          <select
-            className={inputCls}
-            value={formData.categoryId}
-            onChange={(e) => patch({ categoryId: e.target.value })}
-          >
-            <option value="">— بدون مجموعة —</option>
-            {categories.map((row) => (
-              <option key={row.id} value={row.id}>
-                {row.arabicName}
-              </option>
-            ))}
-          </select>
+        <CompactFormField label="المجموعة الرئيسية" required>
+          <div className="flex gap-2">
+            <ItemGroupSelect
+              value={formData.categoryId}
+              onChange={(id) => patch({ categoryId: id })}
+              groups={Array.isArray(categories) ? categories : []}
+              disabled={isReadOnly}
+              emptyLabel="اختَر المجموعة"
+              labelFor={(row) => categoryOptionLabel(row, categories)}
+            />
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={isReadOnly}
+              onClick={() => {
+                setNewGroupName('');
+                setNewGroupParentId('');
+                setShowGroupModal(true);
+              }}
+            >
+              + مجموعة
+            </Button>
+          </div>
         </CompactFormField>
         <CompactFormField
           label="الباركود"
+          disabled={isReadOnly}
           value={formData.barcode}
           onChange={(e) => patch({ barcode: e.target.value })}
           placeholder="اختياري"
@@ -671,6 +944,7 @@ export default function ItemCardPage() {
               { value: 'stock', label: 'مخزني' },
               { value: 'service', label: 'خدمي' },
             ]}
+            disabled={isReadOnly}
             onChange={(v) => patch({ isService: v === 'service' })}
           />
         </div>
@@ -705,6 +979,7 @@ export default function ItemCardPage() {
           </div>
         </div>
       </FormSectionCard>
+      </fieldset>
 
       {savedItemId && movingCost != null && !Number.isNaN(movingCost) ? (
         <p className="mb-4 rounded-lg border border-[#D6EAF3] bg-[#EAF6FB] px-4 py-2 text-sm text-[#094C6B]">
@@ -719,7 +994,10 @@ export default function ItemCardPage() {
               key={tab.id}
               type="button"
               role="tab"
-              onClick={() => setActiveTab(tab.id)}
+              onClick={() => {
+                setActiveTab(tab.id);
+                if (tab.id === 'assembly') unlockForEdit();
+              }}
               className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
                 activeTab === tab.id
                   ? 'bg-[#E8F4FA] text-[#0E78AA] shadow-sm ring-1 ring-[#B7E0F2]'
@@ -734,64 +1012,11 @@ export default function ItemCardPage() {
         <p className="mt-2 px-2 text-xs text-slate-500">{activeHint}</p>
       </div>
 
+      <fieldset disabled={isReadOnly} className="min-w-0 border-0 p-0">
       {activeTab === 'general' && (
-        <TabPanel title="البيانات العامة" hint="المخزن المستخدم ومصدر السعر والوصف. نوع الصنف فوق مع الهوية.">
+        <TabPanel title="البيانات العامة" hint="المواصفات والوزن وخصائص الصنف. نوع الصنف فوق مع الهوية.">
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <div className="space-y-4">
-              <div>
-                <p className={labelCls}>المخزن المستخدم</p>
-                <WarehouseSelect
-                  className={inputCls}
-                  value={formData.defaultWarehouseId}
-                  onChange={(id) => patch({ defaultWarehouseId: id })}
-                  emptyLabel="اختر المخزن"
-                />
-              </div>
-              <div className="space-y-3 rounded-xl border border-[#D6EAF3] bg-[#F6FBFD] p-3">
-                <p className={labelCls}>مصدر السعر</p>
-                <label className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    className={checkboxCls}
-                    checked={formData.priceSource === 'price_list'}
-                    onChange={() => patch({ priceSource: 'price_list' })}
-                  />
-                  <span className="text-sm font-semibold text-[#0A3D5E]">قراءة من قوائم الأسعار</span>
-                </label>
-                <label className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    className={checkboxCls}
-                    checked={formData.priceSource === 'item_card'}
-                    onChange={() => patch({ priceSource: 'item_card' })}
-                  />
-                  <span className="text-sm font-semibold text-[#0A3D5E]">قراءة من بطاقة الصنف</span>
-                </label>
-                {formData.priceSource === 'item_card' ? (
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    <CompactFormField
-                      label="سعر الشراء"
-                      type="number"
-                      min="0"
-                      step="0.0001"
-                      suffix="ج.م"
-                      value={formData.purchasePrice}
-                      onChange={(e) => patch({ purchasePrice: e.target.value })}
-                    />
-                    <CompactFormField
-                      label="سعر البيع"
-                      type="number"
-                      min="0"
-                      step="0.0001"
-                      suffix="ج.م"
-                      value={formData.priceRetail}
-                      onChange={(e) =>
-                        patch({ priceRetail: e.target.value, retailPrice: e.target.value })
-                      }
-                    />
-                  </div>
-                ) : null}
-              </div>
               <div>
                 <p className={labelCls}>المواصفات</p>
                 <textarea
@@ -836,125 +1061,118 @@ export default function ItemCardPage() {
       )}
 
       {activeTab === 'units-prices' && (
-        <TabPanel title="الوحدات والأسعار" hint="حدد طريقة السعر والعملة، ثم املأ شرائح البيع. الوحدات تظهر بعد حفظ الصنف.">
-          {formData.priceSource === 'item_card' ? (
-            <p className="mb-4 rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] px-3 py-2 text-sm text-[#094C6B]">
-              السعر بيُقرأ من بطاقة الصنف (سعر الشراء وسعر البيع في تاب عام). هنا الوحدات والباركود فقط.
-            </p>
-          ) : (
-          <div className="mb-4 grid grid-cols-1 gap-4 md:grid-cols-2">
-            <div>
-              <p className={labelCls}>الأسعار تحسب كـ</p>
-              <ChoicePills
-                name="priceMode"
-                value={formData.priceMode}
-                options={PRICE_MODES}
-                onChange={(priceMode) => patch({ priceMode })}
-              />
-            </div>
-            <CompactFormField label="العملة">
-              <select
-                className={inputCls}
-                value={formData.priceCurrency}
-                onChange={(e) => patch({ priceCurrency: e.target.value })}
-              >
-                <option value="EGP">جنيه مصري</option>
-                <option value="USD">دولار أمريكي</option>
-                <option value="SAR">ريال سعودي</option>
-              </select>
-            </CompactFormField>
-          </div>
-          )}
+        <TabPanel title="الوحدات والأسعار" hint="الوحدة الأساسية من هنا. بعد الحفظ تتقفل. باقي الوحدات تحويل. الأسعار من قائمة الأسعار.">
+          <p className="mb-4 rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] px-3 py-2 text-sm text-[#094C6B]">
+            {companyPriceSource === 'item_card'
+              ? 'مصدر السعر من إعدادات الشركة: قراءة من بطاقة الصنف. ادخل أسعار الشراء والبيع هنا.'
+              : 'مصدر السعر من إعدادات الشركة: قراءة من قوائم الأسعار. هنا تربط وحدات الصنف من دليل الوحدات.'}
+          </p>
 
-          {formData.priceSource !== 'item_card' ? (
-          <div className="mb-5 grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-            {(
-              [
-                ['priceRetail', 'قطاعي'],
-                ['priceSemiWholesale', 'نصف جملة'],
-                ['priceWholesale', 'جملة'],
-                ['priceProjects', 'مشاريع / شركة نقدي'],
-                ['consumerPrice', 'شركة آجل'],
-                ['representativePrice', 'تاجر نقدي'],
-                ['exportPrice', 'تاجر آجل'],
-              ] as const
-            ).map(([key, label]) => (
+          {companyPriceSource === 'item_card' ? (
+            <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
               <CompactFormField
-                key={key}
-                label={label}
+                label="سعر الشراء"
                 type="number"
                 min="0"
                 step="0.0001"
-                suffix={formData.priceCurrency === 'EGP' ? 'ج.م' : formData.priceCurrency}
-                value={formData[key]}
+                suffix="ج.م"
+                value={formData.purchasePrice}
+                onChange={(e) => patch({ purchasePrice: e.target.value })}
+              />
+              <CompactFormField
+                label="سعر البيع"
+                type="number"
+                min="0"
+                step="0.0001"
+                suffix="ج.م"
+                value={formData.priceRetail}
                 onChange={(e) =>
-                  patch({
-                    [key]: e.target.value,
-                    ...(key === 'priceRetail' ? { retailPrice: e.target.value } : {}),
-                  })
+                  patch({ priceRetail: e.target.value, retailPrice: e.target.value })
                 }
               />
-            ))}
-          </div>
+            </div>
           ) : null}
+
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <Button type="button" variant="secondary" size="sm" onClick={addUnitRow} disabled={isReadOnly}>
+              + إضافة وحدة
+            </Button>
+            <Link href="/inventory/creations/unit">
+              <Button type="button" variant="ghost" size="sm">
+                تعريف الوحدات
+              </Button>
+            </Link>
+          </div>
 
           <div className={denseTableWrapClass}>
             <table className={denseTableClass}>
               <thead className={denseTheadClass}>
                 <tr>
                   <th className={denseThClass}>الوحدة</th>
-                  <th className={denseThClass}>الباركود</th>
+                  <th className={denseThClass}>النوع</th>
                   <th className={denseThClass}>المعامل</th>
                   <th className={denseThClass}>ثابت</th>
                   <th className={denseThClass}>سعر القائمة</th>
+                  <th className={denseThClass} />
                 </tr>
               </thead>
               <tbody>
-                {!activeItemId ? (
+                {localUnits.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="py-6">
-                      <EmptyState title="احفظ الصنف أولاً عشان تظهر وحداته." />
-                    </td>
-                  </tr>
-                ) : unitRows.length === 0 ? (
-                  <tr>
-                    <td colSpan={5} className="py-6">
+                    <td colSpan={6} className="py-6">
                       <EmptyState
-                        title="لا توجد وحدات مسجلة"
-                        description="عرّف وحدة واحدة على الأقل ثم اربطها بالصنف."
+                        title="لا توجد وحدات"
+                        description="أضف وحدة أساسية من دليل الوحدات، أو عرّف وحدة جديدة."
                         action={
-                          <Link href="/inventory/creations/unit">
-                            <Button type="button" variant="primary" size="sm">
-                              تعريف الوحدات
-                            </Button>
-                          </Link>
+                          <Button type="button" variant="primary" size="sm" onClick={addUnitRow}>
+                            إضافة وحدة
+                          </Button>
                         }
                       />
                     </td>
                   </tr>
                 ) : (
-                  unitRows.map((row, idx) => {
-                    const uid = row.unitId ?? row.unit?.id ?? '';
-                    const listedPrice = uid ? priceByUnitId.get(uid) : undefined;
-                    const factor =
-                      typeof row.conversionFactor === 'string'
-                        ? row.conversionFactor
-                        : String(row.conversionFactor);
+                  localUnits.map((row) => {
+                    const listedPrice = row.unitId ? priceByUnitId.get(row.unitId) : undefined;
+                    const taken = localUnits
+                      .filter((item) => item.key !== row.key)
+                      .map((item) => item.unitId);
                     return (
-                      <tr key={uid || idx} className={denseTrClass}>
-                        <td className={`${denseTdClass} text-[#0A3D5E]`}>
-                          {row.unit?.arabicName ?? '—'}
-                          {row.isBaseUnit ? ' (أساسية)' : ''}
+                      <tr key={row.key} className={denseTrClass}>
+                        <td className={`${denseTdClass} min-w-[14rem]`}>
+                          <UnitSelect
+                            value={row.unitId}
+                            units={units}
+                            excludeIds={taken}
+                            disabled={
+                              isReadOnly ||
+                              unitBusyKey === row.key ||
+                              Boolean(row.isBaseUnit && activeItemId)
+                            }
+                            placeholder="اختَر الوحدة"
+                            onChange={(unitId) => void chooseUnit(row, unitId)}
+                          />
                         </td>
                         <td className={`${denseTdClass} text-[#0A3D5E]`}>
-                          {row.isBaseUnit ? formData.barcode || '—' : '—'}
+                          {row.isBaseUnit ? (activeItemId ? 'أساسية — ثابتة' : 'أساسية') : 'تحويل'}
                         </td>
-                        <td className={denseTdClass}>{factor}</td>
+                        <td className={denseTdClass}>
+                          <input
+                            className="w-24 rounded-lg border border-[#D6EAF3] bg-white px-2 py-1 text-sm text-[#0A3D5E]"
+                            type="number"
+                            min="0.000001"
+                            step="0.0001"
+                            disabled={isReadOnly || row.isBaseUnit}
+                            value={row.isBaseUnit ? '1' : row.conversionFactor}
+                            onChange={(e) => setLocalUnit(row.key, { conversionFactor: e.target.value })}
+                            onBlur={(e) => void saveUnitFactor(row, e.target.value)}
+                          />
+                        </td>
                         <td className={denseTdClass}>
                           <select
                             className="rounded-lg border border-[#D6EAF3] bg-white px-2 py-1 text-sm text-[#0A3D5E]"
-                            disabled={!row.id || factorBusyId === row.id}
-                            value={row.isFactorFixed === false ? 'variable' : 'fixed'}
+                            disabled={isReadOnly || unitBusyKey === row.key}
+                            value={row.isFactorFixed ? 'fixed' : 'variable'}
                             onChange={(e) => void setUnitFactorFixed(row, e.target.value === 'fixed')}
                           >
                             <option value="fixed">ثابت</option>
@@ -964,17 +1182,25 @@ export default function ItemCardPage() {
                         <td className={denseTdClass}>
                           {listedPrice != null ? formatMoneyAr(listedPrice) : '—'}
                         </td>
+                        <td className={denseTdClass}>
+                          {row.isBaseUnit ? null : (
+                            <button
+                              type="button"
+                              title="حذف الوحدة"
+                              className="rounded-md p-1.5 text-rose-600 hover:bg-rose-50"
+                              disabled={isReadOnly || unitBusyKey === row.key}
+                              onClick={() => void removeUnitRow(row)}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          )}
+                        </td>
                       </tr>
                     );
                   })
                 )}
               </tbody>
             </table>
-          </div>
-          <div className="mt-4">
-            <Button type="button" variant="secondary" onClick={() => setShowPrint(true)}>
-              طباعة الباركود
-            </Button>
           </div>
         </TabPanel>
       )}
@@ -989,19 +1215,30 @@ export default function ItemCardPage() {
                     type="checkbox"
                     className={checkboxCls}
                     checked={formData.isTaxExempt}
-                    onChange={(e) => patch({ isTaxExempt: e.target.checked })}
+                    onChange={(e) => {
+                      const isTaxExempt = e.target.checked;
+                      patch({
+                        isTaxExempt,
+                        defaultTaxPercent: isTaxExempt ? '0' : formData.defaultTaxPercent,
+                      });
+                    }}
                   />
                   <span className="text-sm font-semibold text-[#0A3D5E]">معفي من الضريبة</span>
                 </label>
                 <CompactFormField
-                  label="قيمة الضريبة"
+                  label="ضريبة"
                   type="number"
                   min="0"
                   max="100"
                   step="0.01"
                   suffix="%"
-                  value={formData.defaultTaxPercent}
-                  onChange={(e) => patch({ defaultTaxPercent: e.target.value })}
+                  value={formData.isTaxExempt ? '0' : formData.defaultTaxPercent}
+                  disabled={formData.isTaxExempt}
+                  readOnly={formData.isTaxExempt}
+                  onChange={(e) => {
+                    if (formData.isTaxExempt) return;
+                    patch({ defaultTaxPercent: e.target.value });
+                  }}
                 />
               </div>
             </div>
@@ -1089,105 +1326,219 @@ export default function ItemCardPage() {
           </div>
         </TabPanel>
       )}
+      </fieldset>
 
       {activeTab === 'assembly' && (
-        <TabPanel title="صنف تجميعي" hint="حدّد هنا هل الصنف عادي ولا تجميعي. لو تجميعي تظهر المكونات والتكلفة.">
+        <TabPanel title="صنف تجميعي" hint="اختَر النوع عند إنشاء الصنف. بعد أول حفظ النوع يثبت. المكوّنات من الأصناف العادية مع وحدتها.">
           <div className="mb-5">
             <p className={labelCls}>نوع التركيب</p>
-            <ChoicePills
-              name="assemblyKind"
-              value={formData.isAssembly ? 'assembly' : 'plain'}
-              options={[
-                { value: 'plain', label: 'عادي' },
-                { value: 'assembly', label: 'تجميعي' },
-              ]}
-              onChange={(v) => patch({ isAssembly: v === 'assembly' })}
-            />
+            {activeItemId ? (
+              <p className="text-sm font-semibold text-[#0A3D5E]">
+                {formData.isAssembly ? 'تجميعي' : 'عادي'}
+                <span className="mr-2 text-xs font-medium text-slate-500">— ثابت بعد أول حفظ</span>
+              </p>
+            ) : (
+            <div className="flex flex-wrap gap-2">
+              {(
+                [
+                  { value: false, label: 'عادي' },
+                  { value: true, label: 'تجميعي' },
+                ] as const
+              ).map((opt) => (
+                <button
+                  key={String(opt.value)}
+                  type="button"
+                  onClick={() => {
+                    patch({ isAssembly: opt.value });
+                    if (opt.value && assemblyRows.every((row) => !row.itemId && !row.itemName)) {
+                      setAssemblyRows(parseAssemblyRows(undefined));
+                    }
+                  }}
+                  className={`${
+                    formData.isAssembly === opt.value
+                      ? 'border-[#0E78AA] bg-[#0E78AA] text-white'
+                      : 'border-[#D6EAF3] bg-white text-[#0A3D5E]'
+                  } inline-flex items-center rounded-full border px-3 py-1.5 text-xs font-semibold`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+            )}
           </div>
           {!formData.isAssembly ? (
-            <EmptyState title="الصنف عادي. فعّل «تجميعي» عشان تضيف المكونات والتكلفة." />
-          ) : null}
-          {formData.isAssembly ? (
+            <EmptyState title={activeItemId ? 'الصنف عادي. النوع ثابت بعد الحفظ.' : 'الصنف عادي. اختَر «تجميعي» قبل الحفظ عشان تضيف مكونات.'} />
+          ) : (
           <>
-          <div className={denseTableWrapClass}>
-            <table className={denseTableClass}>
-              <thead className={denseTheadClass}>
-                <tr>
-                  <th className={denseThClass}>الصنف</th>
-                  <th className={denseThClass}>الكمية</th>
-                  <th className={denseThClass}>التكلفة</th>
-                  <th className={`${denseThClass} w-12`} />
-                </tr>
-              </thead>
-              <tbody>
-                {assemblyRows.map((row, idx) => (
-                  <tr key={idx} className={denseTrClass}>
-                    <td className={denseTdClass}>
-                      <input
-                        className={inputCls}
-                        value={row.itemName}
-                        onChange={(e) =>
-                          setAssemblyRows((prev) =>
-                            prev.map((r, i) => (i === idx ? { ...r, itemName: e.target.value } : r))
-                          )
-                        }
-                        placeholder="اسم المكوّن"
-                      />
-                    </td>
-                    <td className={denseTdClass}>
-                      <input
-                        className={inputCls}
-                        type="number"
-                        min={0}
-                        value={row.quantity}
-                        onChange={(e) =>
-                          setAssemblyRows((prev) =>
-                            prev.map((r, i) => (i === idx ? { ...r, quantity: e.target.value } : r))
-                          )
-                        }
-                      />
-                    </td>
-                    <td className={denseTdClass}>
-                      <input
-                        className={inputCls}
-                        type="number"
-                        min={0}
-                        value={row.cost}
-                        onChange={(e) =>
-                          setAssemblyRows((prev) =>
-                            prev.map((r, i) => (i === idx ? { ...r, cost: e.target.value } : r))
-                          )
-                        }
-                      />
-                    </td>
-                    <td className={denseTdClass}>
-                      <button
-                        type="button"
-                        className="text-slate-400 hover:text-red-500"
-                        onClick={() =>
-                          setAssemblyRows((prev) =>
-                            prev.length > 1 ? prev.filter((_, i) => i !== idx) : [{ ...EMPTY_ASSEMBLY_ROW }]
-                          )
-                        }
-                        aria-label="حذف السطر"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="space-y-3">
+            {assemblyRows.map((row, idx) => (
+              <div
+                key={idx}
+                className="grid grid-cols-1 gap-3 rounded-xl border border-[#D6EAF3] bg-[#F6FBFD] p-3 sm:grid-cols-[minmax(0,1.3fr)_minmax(8rem,0.85fr)_6.5rem_6.5rem_auto]"
+              >
+                <div className="min-w-0">
+                  <p className={labelCls}>اسم المكوّن — صنف عادي</p>
+                  <ItemSelect
+                    value={row.itemId}
+                    fallbackLabel={row.itemName}
+                    emptyLabel="اختَر صنف عادي أو أضِف واحد"
+                    excludeAssembly
+                    excludeIds={[
+                      ...(activeItemId ? [activeItemId] : []),
+                      ...assemblyRows.map((r) => r.itemId).filter((id, i) => id && i !== idx),
+                    ]}
+                    enableQuickCreate
+                    menuPlacement="auto"
+                    onQuickCreateClick={(q) => {
+                      unlockForEdit();
+                      setPlainItemModal({ open: true, name: q, rowIdx: idx });
+                    }}
+                    onChange={(id) => {
+                      unlockForEdit();
+                      setAssemblyRows((prev) =>
+                        prev.map((r, i) =>
+                          i === idx
+                            ? id
+                              ? { ...r, itemId: id }
+                              : { ...EMPTY_ASSEMBLY_ROW }
+                            : r
+                        )
+                      );
+                    }}
+                    onItemResolved={(item) => {
+                      if (!item) return;
+                      unlockForEdit();
+                      const picked = item as ItemOption;
+                      const cost =
+                        picked.averageCost ?? picked.lastPurchasePrice ?? picked.salesPrice ?? '';
+                      const unit = assemblyUnitFromItem(picked);
+                      setAssemblyRows((prev) =>
+                        prev.map((r, i) =>
+                          i === idx
+                            ? {
+                                ...r,
+                                itemId: picked.id,
+                                itemName: picked.arabicName,
+                                ...unit,
+                                cost: r.cost || moneyToInput(cost),
+                              }
+                            : r
+                        )
+                      );
+                    }}
+                  />
+                </div>
+                <div className="min-w-0">
+                  <p className={labelCls}>الوحدة</p>
+                  <UnitSelect
+                    value={row.unitId}
+                    units={
+                      row.units?.length
+                        ? row.units
+                        : row.unitId
+                          ? [{ id: row.unitId, arabicName: row.unitName || 'وحدة' }]
+                          : []
+                    }
+                    disabled={!row.itemId}
+                    placeholder={row.itemId ? 'اختَر وحدة المكوّن' : 'اختَر الصنف أولاً'}
+                    onChange={(unitId) => {
+                      unlockForEdit();
+                      const picked = row.units?.find((unit) => unit.id === unitId);
+                      setAssemblyRows((prev) =>
+                        prev.map((r, i) =>
+                          i === idx
+                            ? {
+                                ...r,
+                                unitId,
+                                unitName: picked?.arabicName || r.unitName,
+                                conversionFactor: picked?.conversionFactor || (unitId ? '1' : ''),
+                              }
+                            : r
+                        )
+                      );
+                    }}
+                  />
+                  {row.itemId ? (
+                    <p className="mt-1 text-[11px] font-medium text-slate-500">
+                      معامل الوحدة الأساسية: {row.conversionFactor || '1'}
+                    </p>
+                  ) : null}
+                </div>
+                <div>
+                  <p className={labelCls}>الكمية</p>
+                  <input
+                    className={inputCls}
+                    type="number"
+                    min={0}
+                    value={row.quantity}
+                    onChange={(e) => {
+                      unlockForEdit();
+                      setAssemblyRows((prev) =>
+                        prev.map((r, i) => (i === idx ? { ...r, quantity: e.target.value } : r))
+                      );
+                    }}
+                  />
+                </div>
+                <div>
+                  <p className={labelCls}>التكلفة</p>
+                  <input
+                    className={inputCls}
+                    type="number"
+                    min={0}
+                    value={row.cost}
+                    onChange={(e) => {
+                      unlockForEdit();
+                      setAssemblyRows((prev) =>
+                        prev.map((r, i) => (i === idx ? { ...r, cost: e.target.value } : r))
+                      );
+                    }}
+                  />
+                </div>
+                <div className="flex items-end">
+                  <button
+                    type="button"
+                    className="mb-1 text-slate-400 hover:text-red-500"
+                    onClick={() => {
+                      unlockForEdit();
+                      setAssemblyRows((prev) =>
+                        prev.length > 1 ? prev.filter((_, i) => i !== idx) : [{ ...EMPTY_ASSEMBLY_ROW }]
+                      );
+                    }}
+                    aria-label="حذف السطر"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+            ))}
           </div>
-          <Button
-            type="button"
-            variant="secondary"
-            className="mt-3"
-            onClick={() => setAssemblyRows((prev) => [...prev, { ...EMPTY_ASSEMBLY_ROW }])}
-          >
-            <Plus className="h-4 w-4" />
-            سطر مكوّن
-          </Button>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => {
+                unlockForEdit();
+                setAssemblyRows((prev) => [...prev, { ...EMPTY_ASSEMBLY_ROW }]);
+              }}
+            >
+              <Plus className="h-4 w-4" />
+              سطر مكوّن
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => {
+                unlockForEdit();
+                const emptyIdx = assemblyRows.findIndex((row) => !row.itemId && !row.itemName);
+                const rowIdx = emptyIdx >= 0 ? emptyIdx : assemblyRows.length;
+                if (emptyIdx < 0) setAssemblyRows((prev) => [...prev, { ...EMPTY_ASSEMBLY_ROW }]);
+                setPlainItemModal({ open: true, name: '', rowIdx });
+              }}
+            >
+              <Plus className="h-4 w-4" />
+              إضافة صنف عادي
+            </Button>
+          </div>
           <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
             <div>
               <p className={labelCls}>إجمالي التكلفة</p>
@@ -1199,14 +1550,20 @@ export default function ItemCardPage() {
               label="تكلفة مضافة"
               type="number"
               value={formData.extraAssemblyCost}
-              onChange={(e) => patch({ extraAssemblyCost: e.target.value })}
+              onChange={(e) => {
+                unlockForEdit();
+                patch({ extraAssemblyCost: e.target.value });
+              }}
             />
             <CompactFormField
               label="نسبة من التكلفة"
               type="number"
               suffix="%"
               value={formData.extraAssemblyCostPct}
-              onChange={(e) => patch({ extraAssemblyCostPct: e.target.value })}
+              onChange={(e) => {
+                unlockForEdit();
+                patch({ extraAssemblyCostPct: e.target.value });
+              }}
             />
           </div>
           </>
@@ -1214,6 +1571,7 @@ export default function ItemCardPage() {
         </TabPanel>
       )}
 
+      <fieldset disabled={isReadOnly} className="min-w-0 border-0 p-0">
       {activeTab === 'order-plan' && (
         <TabPanel title="نقطة إعادة الطلب" hint="الموردون المفضلون والسعر ومدة التوريد. حد الطلب نفسه في تبويب الكميات.">
           <div className={denseTableWrapClass}>
@@ -1310,16 +1668,34 @@ export default function ItemCardPage() {
           </div>
         </TabPanel>
       )}
+      </fieldset>
+
+      {activeTab === 'units-prices' ? (
+        <div className="mt-4">
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => setShowPrint(true)}
+            disabled={!activeItemId}
+          >
+            طباعة الباركود
+          </Button>
+        </div>
+      ) : null}
 
       <FormStickyFooter
-        onCancel={() => {
-          setError('');
-          setSuccess('');
-        }}
         onSave={() => void handleSave()}
         saveLoading={loading}
-        saveDisabled={loading}
-        status={savedItemId ? (formData.inactiveItem ? 'مؤرشف' : 'صنف محفوظ') : 'مسودة'}
+        saveDisabled={loading || isReadOnly}
+        status={
+          isReadOnly
+            ? 'عرض — اضغط تعديل قبل التغيير'
+            : savedItemId
+              ? formData.inactiveItem
+                ? 'مؤرشف'
+                : 'صنف محفوظ'
+              : 'مسودة'
+        }
       />
 
       {showPrint ? (
@@ -1330,17 +1706,107 @@ export default function ItemCardPage() {
         />
       ) : null}
 
-      <ItemFinderModal
-        open={showFinder}
-        onClose={() => setShowFinder(false)}
-        initialBarcode={lookup}
-        onPick={(itemId) => {
-          hydratedIdRef.current = null;
-          setSavedItemId(itemId);
-          router.replace(`/inventory/creations/item-card?id=${itemId}`);
-          setSuccess('تم فتح الصنف');
+      <QuickCreateItemModal
+        open={plainItemModal.open}
+        initialName={plainItemModal.name}
+        onClose={() => setPlainItemModal((prev) => ({ ...prev, open: false }))}
+        onCreated={(item: QuickCreatedItem) => {
+          unlockForEdit();
+          const idx = plainItemModal.rowIdx;
+          setAssemblyRows((prev) => {
+            const next = prev.slice();
+            while (next.length <= idx) next.push({ ...EMPTY_ASSEMBLY_ROW });
+            next[idx] = {
+              ...next[idx],
+              itemId: item.id,
+              itemName: item.arabicName,
+              ...assemblyUnitFromItem(item),
+              cost: next[idx].cost || moneyToInput(item.salesPrice ?? ''),
+            };
+            return next;
+          });
+          patch({ isAssembly: true });
+          setPlainItemModal((prev) => ({ ...prev, open: false }));
+          setSuccess('تم إضافة صنف عادي للمكوّنات');
         }}
       />
+
+      <DocumentBrowseDrawer open={showFinder} onClose={() => setShowFinder(false)} title="الأصناف السابقة">
+        <ItemsCatalogListSection
+          key={`${lookup}-${showFinder ? 'open' : 'closed'}`}
+          initialSearch={lookup}
+          onSelectItem={(itemId) => {
+            hydratedIdRef.current = null;
+            setUnitsHydratedFor(null);
+            setSavedItemId(itemId);
+            lockToView();
+            setShowFinder(false);
+            router.replace(`/inventory/creations/item-card?id=${itemId}`);
+            setSuccess('تم فتح الصنف');
+          }}
+        />
+      </DocumentBrowseDrawer>
+
+      <GuideEntityModal
+        open={showGroupModal}
+        title="إضافة مجموعة أصناف"
+        hint="المجموعة هتظهر في دليل الأصناف وتقدر تختارها هنا مباشرة."
+        saving={savingGroup}
+        saveText="حفظ المجموعة"
+        onClose={() => setShowGroupModal(false)}
+        onSave={() => {
+          void (async () => {
+            if (!newGroupName.trim()) {
+              setError('أدخل اسم المجموعة');
+              return;
+            }
+            setSavingGroup(true);
+            try {
+              const created = await apiClient.post<{ id?: string }>('/inventory/item-categories', {
+                arabicName: newGroupName.trim(),
+                groupType: newGroupParentId ? 'SUB' : 'MAIN',
+                parentCategoryId: newGroupParentId || null,
+              });
+              const id = created.data?.id;
+              invalidateQuery(['item-categories']);
+              invalidateQuery(['items']);
+              if (id) patch({ categoryId: id });
+              setShowGroupModal(false);
+              setNewGroupName('');
+              setNewGroupParentId('');
+              setSuccess('تم حفظ المجموعة — هتظهر في دليل الأصناف');
+            } catch (err) {
+              setError(err instanceof Error ? err.message : 'تعذر حفظ المجموعة');
+            } finally {
+              setSavingGroup(false);
+            }
+          })();
+        }}
+      >
+        <CompactFormField
+          label="اسم المجموعة"
+          required
+          value={newGroupName}
+          onChange={(e) => setNewGroupName(e.target.value)}
+          placeholder="مثال: أجهزة"
+        />
+        <CompactFormField label="المجموعة الرئيسية">
+          <ItemGroupSelect
+            value={newGroupParentId}
+            onChange={setNewGroupParentId}
+            groups={Array.isArray(categories) ? categories : []}
+            labelFor={(row) => categoryOptionLabel(row, categories)}
+          />
+        </CompactFormField>
+      </GuideEntityModal>
     </ErpDocumentLayout>
+  );
+}
+
+export default function ItemCardPage() {
+  return (
+    <DocumentModeProvider initialMode="create">
+      <ItemCardPageInner />
+    </DocumentModeProvider>
   );
 }

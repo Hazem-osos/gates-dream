@@ -41,6 +41,7 @@ import {
   type DistributedPaperRow,
 } from './BatchAmountDistributeModal';
 import { Button } from '@/components/ui/button';
+import { SecuritiesEntitySelect } from './SecuritiesEntitySelect';
 
 type NamedParty = {
   id: string;
@@ -121,6 +122,7 @@ export function BatchReceiptCreateForm() {
       issueDate: todayIso(),
       hijriIssueDate: toHijriDate(todayIso()),
       entityName: '',
+      entityId: '',
       costCenterId: '',
       notes: '',
     },
@@ -239,6 +241,7 @@ export function BatchReceiptCreateForm() {
         partyId: values.partyId,
         partyType: values.partyType,
         entityName: values.entityName || undefined,
+        entityId: values.entityId || undefined,
         partyName: values.partyName || undefined,
         currencyCode: selectedCurrency?.code || 'EGP',
         papers: entered.map((line) => ({
@@ -350,12 +353,13 @@ export function BatchReceiptCreateForm() {
 
           <div className="space-y-1">
             <label className="text-xs font-semibold text-foreground">الجهة</label>
-            <input
-              type="text"
-              value={entityName}
-              onChange={(e) => setValue('entityName', e.target.value, { shouldValidate: false })}
-              className="h-9 w-full rounded-md border border-input bg-background px-3 text-xs focus-visible:ring-1 focus-visible:ring-primary"
-              placeholder="اسم المؤسسة / الشركة / الجهة"
+            <SecuritiesEntitySelect
+              value={watch('entityId') || ''}
+              valueLabel={entityName}
+              onChange={(id, name) => {
+                setValue('entityId', id, { shouldValidate: false });
+                setValue('entityName', name, { shouldValidate: false });
+              }}
             />
           </div>
         </div>

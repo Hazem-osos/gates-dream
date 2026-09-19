@@ -4,7 +4,6 @@ import { useBackendReachability } from '@/lib/hooks/useBackendReachability';
 import { useEffect, useRef } from "react";
 import { HrPageChrome } from "@/components/hr/HrPageChrome";
 import { DASH_PANEL } from "@/components/dashboard-primitives";
-import { ActionButtons } from "@/components/ui/ActionButtons";
 import { useForm, type Resolver, type SubmitHandler } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { hrSettingsFormSchema, type HrSettingsFormInput } from "@/lib/validation/hr.schema";
@@ -131,7 +130,11 @@ export default function HRSettingsPage() {
   };
 
   return (
-    <HrPageChrome title="إعدادت شئون الموظفين">
+    <HrPageChrome title="إعدادت شئون الموظفين"
+      onSave={handleSubmit(onSave)}
+      onNew={onCancel}
+      savePending={saveMutation.isPending}
+    >
         {isLoading ? (
           <p className="text-center text-[#094C6B] text-sm py-8">جاري تحميل الإعدادات...</p>
         ) : null}
@@ -317,15 +320,6 @@ export default function HRSettingsPage() {
                 <input className={inputCls} {...register("fx3")} />
               </div>
           </div>
-        </div>
-
-        <div className="flex justify-between items-center mt-6">
-          <div />
-          <ActionButtons
-            onCancel={onCancel}
-            onSave={handleSubmit(onSave)}
-            saveText={saveMutation.isPending ? "جاري الحفظ..." : "حفظ"}
-          />
         </div>
 
       {error ? <ErrorToast message={error} onClose={() => setError("")} /> : null}

@@ -78,6 +78,7 @@ import treasuryReceiptRoutes from './modules/accounting/routes/treasury-receipt.
 import treasuryPaymentRoutes from './modules/accounting/routes/treasury-payment.routes';
 import securitiesReceiptRoutes from './modules/accounting/routes/securities-receipt.routes';
 import securitiesPaymentRoutes from './modules/accounting/routes/securities-payment.routes';
+import securitiesEntityRoutes from './modules/accounting/routes/securities-entity.routes';
 import securitiesRenewalRoutes from './modules/accounting/routes/securities-renewal.routes';
 import employeeRoutes from './modules/hr/routes/employee.routes';
 import nationalityRoutes from './modules/hr/routes/nationality.routes';
@@ -493,6 +494,7 @@ app.use('/api/v1/accounting/safes', cache({ ttl: 300 }), safeRoutes);
 app.use('/api/v1/accounting/bank-accounts', cache({ ttl: 300 }), bankAccountRoutes);
 app.use('/api/v1/accounting/treasury-receipts', treasuryReceiptRoutes);
 app.use('/api/v1/accounting/treasury-payments', treasuryPaymentRoutes);
+app.use('/api/v1/accounting/securities-entities', securitiesEntityRoutes);
 app.use('/api/v1/accounting/securities-receipts', securitiesReceiptRoutes);
 app.use('/api/v1/accounting/securities-payments', securitiesPaymentRoutes);
 app.use('/api/v1/accounting/securities-renewals', securitiesRenewalRoutes);

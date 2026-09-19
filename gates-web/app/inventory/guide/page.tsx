@@ -1,7 +1,9 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { Warehouse } from 'lucide-react';
+import { useAppTabs } from '@/app/components/AppTabsContext';
 import { FilterToolbar, Button, CompactFormField } from '@/components/ui';
 import { ErpDocumentLayout, ErpDocumentPageHeader } from '@/components/erp';
 import { MasterGuideTree } from '@/components/accounting/guide/MasterGuideTree';
@@ -12,13 +14,30 @@ import { apiClient } from '@/lib/api/client';
 import { toast } from '@/lib/feedback/toast';
 import { confirmAction } from '@/lib/feedback/confirm';
 import { asWarehouseRows, type WarehouseRow } from '@/components/inventory/WarehousesListSection';
-import { bumpTrailingCode } from '@/lib/masters/nextNumericSerial';
+import { WarehouseParentField } from '@/components/inventory/WarehouseParentField';
+import { AccountSelect } from '@/components/form/AccountSelect';
+import {
+  ChildWarehouseKindDialog,
+  WarehouseKindLegend,
+} from '@/components/inventory/ChildWarehouseKindDialog';
+import { bumpTrailingCode, isCodeAfter } from '@/lib/masters/nextNumericSerial';
+import { NumberingModeControl } from '@/components/accounting/NumberingModeControl';
+import { useAccountingSettingsQuery } from '@/lib/hooks/useAccountingSettings';
+import type { CoaNumberingMode } from '@/components/accounting/chart-of-accounts/CoaEmptyState';
+import {
+  warehouseCanBranch,
+  warehouseRoleLabel,
+  type WarehouseKind,
+} from '@/lib/inventory/warehouse-kind';
 
 type FormState = {
   code: string;
   arabicName: string;
   englishName: string;
   parentId: string;
+  warehouseKind: WarehouseKind;
+  inventoryAccountId: string;
+  costAccountId: string;
 };
 
 const emptyForm = (): FormState => ({
@@ -26,18 +45,34 @@ const emptyForm = (): FormState => ({
   arabicName: '',
   englishName: '',
   parentId: '',
+  warehouseKind: 'HEADER',
+  inventoryAccountId: '',
+  costAccountId: '',
 });
+
+function todayIso() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
 
 export default function WarehouseGuidePage() {
   const invalidate = useInvalidateQuery();
+  const router = useRouter();
+  const tabs = useAppTabs();
+  const { data: settingsRes } = useAccountingSettingsQuery();
+  const warehouseAuto = settingsRes?.data?.general?.warehouseAutoNumbering !== false;
+  const warehouseCount = settingsRes?.data?.general?.numberingRecordCounts?.warehouses ?? 0;
   const { data, isLoading, refetch } = useApiQuery<WarehouseRow[]>(
     ['warehouses', 'guide'],
     '/inventory/warehouses',
-    { limit: 1000 },
+    { limit: 1000, isActive: true },
     { staleTime: 15_000 }
   );
 
-  const rows = asWarehouseRows(data?.data);
+  const rows = asWarehouseRows(data?.data).filter((row) => row.isActive !== false);
   const [search, setSearch] = useState('');
   const [expandToken, setExpandToken] = useState(0);
   const [collapseToken, setCollapseToken] = useState(0);
@@ -46,6 +81,35 @@ export default function WarehouseGuidePage() {
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
   const [saving, setSaving] = useState(false);
+  const [kindPickerParent, setKindPickerParent] = useState<GuideTreeNode | null>(null);
+  const [numberingMode, setNumberingMode] = useState<CoaNumberingMode>('auto');
+  const autoNumbering = rows.length === 0 ? numberingMode !== 'manual' : warehouseAuto;
+
+  const persistWarehouseNumbering = useCallback(async (auto: boolean) => {
+    await apiClient.put(
+      '/accounting/settings',
+      { general: { warehouseAutoNumbering: auto } },
+      { skipSuccessNotify: true }
+    );
+    invalidate(['accounting-settings']);
+  }, [invalidate]);
+
+  const { data: nextCodeResponse } = useApiQuery<{ code?: string }>(
+    ['warehouses', 'next-code', form.parentId || 'root'],
+    '/inventory/warehouses/next-code',
+    form.parentId ? { parentWarehouseId: form.parentId } : undefined,
+    { enabled: modalOpen && modalMode === 'create' && autoNumbering }
+  );
+
+  useEffect(() => {
+    if (!modalOpen || modalMode !== 'create' || !autoNumbering) return;
+    const suggested = nextCodeResponse?.data?.code;
+    if (!suggested) return;
+    setForm((current) => {
+      if (current.code && isCodeAfter(current.code, suggested)) return current;
+      return current.code === suggested ? current : { ...current, code: suggested };
+    });
+  }, [modalOpen, modalMode, autoNumbering, nextCodeResponse?.data?.code]);
 
   const tree = useMemo(
     () =>
@@ -55,8 +119,8 @@ export default function WarehouseGuidePage() {
           id: item.id,
           code: item.code || '',
           name: item.arabicName,
-          subtitle: item.storeType === 'SUB' ? 'فرعي' : 'رئيسي',
-          folder: children.length > 0 || item.storeType !== 'SUB',
+          subtitle: warehouseRoleLabel(item),
+          folder: warehouseCanBranch(item.warehouseKind, item.parentWarehouseId) || children.length > 0,
           children,
         })
       ),
@@ -69,12 +133,78 @@ export default function WarehouseGuidePage() {
     return parent ? `${parent.code || '—'} — ${parent.arabicName}` : 'مخزن رئيسي';
   }, [form.parentId, rows]);
 
-  const openCreate = (parent?: GuideTreeNode) => {
+  const blockedParentIds = useMemo(() => {
+    if (!editId) return [] as string[];
+    const blocked = new Set<string>([editId]);
+    const stack = [editId];
+    while (stack.length) {
+      const current = stack.pop()!;
+      for (const row of rows) {
+        if (row.parentWarehouseId === current && !blocked.has(row.id)) {
+          blocked.add(row.id);
+          stack.push(row.id);
+        }
+      }
+    }
+    return [...blocked];
+  }, [editId, rows]);
+
+  const applyParent = (parentId: string) => {
+    setForm((prev) => ({
+      ...prev,
+      parentId,
+      warehouseKind: parentId ? prev.warehouseKind || 'POSTING' : prev.warehouseKind === 'POSTING' ? 'POSTING' : 'HEADER',
+    }));
+  };
+
+  const openCreateRoot = () => {
+    if (rows.length === 0) {
+      void persistWarehouseNumbering(numberingMode !== 'manual').catch(() => undefined);
+    }
+    setModalMode('create');
+    setEditId(null);
+    setForm({ ...emptyForm(), warehouseKind: 'HEADER' });
+    setModalOpen(true);
+  };
+
+  const openCreateChild = (parent?: GuideTreeNode) => {
+    if (!parent || parent.synthetic) {
+      openCreateRoot();
+      return;
+    }
+    const row = rows.find((item) => item.id === parent.id);
+    if (row && !warehouseCanBranch(row.warehouseKind, row.parentWarehouseId)) {
+      toast.error('مخزن العمليات لا يُفرَّع منه', {
+        description: 'اختَر مخزناً رئيسياً أو رئيسياً فرعياً، أو أنشئ العمليات تحت مجموعة أعلى.',
+      });
+      return;
+    }
+    setKindPickerParent(parent);
+  };
+
+  const openStockReport = (node: GuideTreeNode) => {
+    if (node.synthetic) return;
+    const today = todayIso();
+    const qs = new URLSearchParams({
+      warehouseId: node.id,
+      fromDate: today,
+      toDate: today,
+    });
+    const href = `/inventory/reports/inventory-reports/preview?${qs.toString()}`;
+    if (tabs) {
+      tabs.openAppTab(href);
+      return;
+    }
+    router.push(href);
+  };
+
+  const openCreateUnder = (parent: GuideTreeNode, kind: WarehouseKind) => {
     setModalMode('create');
     setEditId(null);
     setForm({
       ...emptyForm(),
-      parentId: parent && !parent.synthetic ? parent.id : '',
+      parentId: parent.id,
+      warehouseKind: kind,
     });
     setModalOpen(true);
   };
@@ -89,6 +219,14 @@ export default function WarehouseGuidePage() {
       arabicName: row.arabicName ?? '',
       englishName: row.englishName ?? '',
       parentId: row.parentWarehouseId ?? '',
+      warehouseKind:
+        row.warehouseKind === 'POSTING'
+          ? 'POSTING'
+          : row.warehouseKind === 'HEADER' || !row.parentWarehouseId
+            ? 'HEADER'
+            : 'POSTING',
+      inventoryAccountId: row.inventoryAccountId ?? '',
+      costAccountId: row.costAccountId ?? '',
     });
     setModalOpen(true);
   };
@@ -96,6 +234,10 @@ export default function WarehouseGuidePage() {
   const handleSave = async () => {
     if (!form.arabicName.trim()) {
       toast.error('أدخل اسم المخزن');
+      return;
+    }
+    if (!autoNumbering && modalMode === 'create' && !form.code.trim()) {
+      toast.error('رقم المخزن مطلوب — الترقيم يدوي');
       return;
     }
     if (editId && form.parentId === editId) {
@@ -109,6 +251,10 @@ export default function WarehouseGuidePage() {
         englishName: form.englishName.trim() || undefined,
         storeType: form.parentId ? 'SUB' : 'MAIN',
         parentWarehouseId: form.parentId || null,
+        warehouseKind:
+          form.parentId || modalMode === 'edit' ? form.warehouseKind : 'HEADER',
+        inventoryAccountId: form.inventoryAccountId || null,
+        costAccountId: form.costAccountId || null,
       };
       if (modalMode === 'edit' && editId) {
         await apiClient.put(`/inventory/warehouses/${editId}`, {
@@ -127,12 +273,19 @@ export default function WarehouseGuidePage() {
       });
       const createdCode = created.data?.code ?? form.code;
       toast.success('تم حفظ المخزن — تقدر تضيف التالي');
+      const parentId = form.parentId;
+      const warehouseKind = form.warehouseKind;
       setForm({
         ...emptyForm(),
-        parentId: form.parentId,
-        code: bumpTrailingCode(createdCode),
+        parentId,
+        warehouseKind: parentId ? warehouseKind : 'HEADER',
+        inventoryAccountId: form.inventoryAccountId,
+        costAccountId: form.costAccountId,
+        code: autoNumbering ? bumpTrailingCode(createdCode) : '',
       });
       invalidate(['warehouses']);
+      invalidate(['warehouses', 'next-code']);
+      invalidate(['accounting-settings']);
       void refetch();
     } catch (e) {
       toast.error('تعذّر حفظ المخزن', {
@@ -149,7 +302,9 @@ export default function WarehouseGuidePage() {
       await apiClient.delete(`/inventory/warehouses/${node.id}`);
       toast.success('تم حذف المخزن');
       invalidate(['warehouses']);
-      void refetch();
+      invalidate(['warehouses', 'guide']);
+      invalidate(['accounting-settings']);
+      await refetch();
     } catch (e) {
       toast.error('تعذّر حذف المخزن', {
         description:
@@ -185,17 +340,37 @@ export default function WarehouseGuidePage() {
         <div className="mt-8 rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-6 py-16 text-center">
           <Warehouse className="mx-auto mb-3 h-8 w-8 text-[#0E79AA]" />
           <p className="text-lg font-semibold text-slate-800">لا توجد مخازن بعد</p>
-          <p className="mt-1 text-sm text-slate-500">أضف أول مخزن لبناء الدليل بنفس أسلوب شجرة الحسابات.</p>
-          <Button type="button" className="mt-4" onClick={() => openCreate()}>
-            إضافة مخزن
+          <p className="mt-1 text-sm text-slate-500">أضف أول مخزن رئيسي لبناء الدليل بنفس أسلوب شجرة الحسابات.</p>
+          <label className="mx-auto mt-5 block max-w-sm text-right text-sm">
+            <span className="font-medium text-slate-600">ترقيم المخازن</span>
+            <select
+              className="mt-1.5 h-9 w-full rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] px-3 text-xs font-medium text-[#094C6B] sm:text-sm"
+              value={numberingMode}
+              onChange={(e) => setNumberingMode(e.target.value === 'manual' ? 'manual' : 'auto')}
+            >
+              <option value="auto">تلقائي (افتراضي)</option>
+              <option value="manual">يدوي</option>
+            </select>
+            <span className="mt-1 block text-[11px] font-medium text-slate-500">
+              الافتراضي تلقائي. اختَر يدوي لو هتدخل أرقام المخازن بنفسك.
+            </span>
+          </label>
+          <Button type="button" className="mt-4" onClick={openCreateRoot}>
+            + إضافة مخزن رئيسي
           </Button>
         </div>
       ) : (
         <>
           <div className="mt-2 flex items-center gap-2">
-            <Button type="button" variant="secondary" size="sm" onClick={() => openCreate()}>
-              + إضافة
+            <Button type="button" variant="secondary" size="sm" onClick={openCreateRoot}>
+              + إضافة مخزن رئيسي
             </Button>
+            <NumberingModeControl
+              kind="warehouses"
+              auto={warehouseAuto}
+              recordCount={warehouseCount}
+              settingKey="warehouseAutoNumbering"
+            />
             <FilterToolbar
               className="min-w-0 flex-1"
               searchPlaceholder="بحث بالرمز أو الاسم…"
@@ -210,6 +385,7 @@ export default function WarehouseGuidePage() {
               <Button type="button" variant="ghost" size="sm" onClick={() => setCollapseToken((t) => t + 1)}>
                 ⊟ طي الكل
               </Button>
+              <WarehouseKindLegend className="mr-2" />
             </div>
             {isLoading ? (
               <p className="text-slate-600">جاري تحميل الدليل…</p>
@@ -220,7 +396,14 @@ export default function WarehouseGuidePage() {
                 expandAllToken={expandToken}
                 collapseAllToken={collapseToken}
                 childNoun="مخازن فرعية"
-                onAddChild={openCreate}
+                onAddChild={openCreateChild}
+                canAddChild={(node) => {
+                  const row = rows.find((item) => item.id === node.id);
+                  return row
+                    ? warehouseCanBranch(row.warehouseKind, row.parentWarehouseId)
+                    : Boolean(node.folder);
+                }}
+                onStockReport={openStockReport}
                 onEdit={openEdit}
                 onDelete={(node) => void handleDelete(node)}
               />
@@ -231,7 +414,15 @@ export default function WarehouseGuidePage() {
 
       <GuideEntityModal
         open={modalOpen}
-        title={modalMode === 'edit' ? 'تعديل مخزن' : form.parentId ? 'إضافة مخزن فرعي' : 'إضافة مخزن رئيسي'}
+        title={
+          modalMode === 'edit'
+            ? 'تعديل مخزن'
+            : form.parentId
+              ? form.warehouseKind === 'HEADER'
+                ? 'إضافة رئيسي فرعي'
+                : 'إضافة مخزن عمليات'
+              : 'إضافة مخزن رئيسي'
+        }
         subtitle={`المخزن الأب: ${parentLabel}`}
         hint={modalMode === 'create' ? 'بعد الحفظ النموذج يفضل مفتوح عشان تضيف التالي تحت نفس الأب. إغلاق من إلغاء.' : undefined}
         saveText={modalMode === 'create' ? 'حفظ وإضافة آخر' : 'حفظ'}
@@ -242,10 +433,11 @@ export default function WarehouseGuidePage() {
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <CompactFormField
             label="رقم المخزن"
+            required={!autoNumbering}
             value={form.code}
             onChange={(e) => setForm((prev) => ({ ...prev, code: e.target.value }))}
-            disabled={modalMode === 'create'}
-            placeholder={modalMode === 'create' ? 'تلقائي' : 'أدخل الرقم'}
+            disabled={autoNumbering && modalMode === 'create'}
+            placeholder={autoNumbering ? 'تلقائي' : 'أدخل الرقم'}
           />
           <CompactFormField
             label="الاسم العربي"
@@ -258,8 +450,92 @@ export default function WarehouseGuidePage() {
             value={form.englishName}
             onChange={(e) => setForm((prev) => ({ ...prev, englishName: e.target.value }))}
           />
+          <CompactFormField label="المخزن الأب" className="sm:col-span-2">
+            <WarehouseParentField
+              value={form.parentId}
+              onChange={applyParent}
+              excludeIds={blockedParentIds}
+            />
+          </CompactFormField>
+          <CompactFormField label="حساب المخزون">
+            <AccountSelect
+              value={form.inventoryAccountId}
+              onChange={(inventoryAccountId) => setForm((prev) => ({ ...prev, inventoryAccountId }))}
+              leafOnly={false}
+              placeholder="كل الحسابات"
+              emptyLabel="كل الحسابات"
+            />
+          </CompactFormField>
+          <CompactFormField label="حساب تكلفة البضاعة المباعة">
+            <AccountSelect
+              value={form.costAccountId}
+              onChange={(costAccountId) => setForm((prev) => ({ ...prev, costAccountId }))}
+              leafOnly={false}
+              placeholder="كل الحسابات"
+              emptyLabel="كل الحسابات"
+            />
+          </CompactFormField>
+          {form.parentId || modalMode === 'edit' ? (
+            <CompactFormField
+              label={form.parentId ? 'نوع المخزن الفرعي' : 'نوع المخزن'}
+              className="sm:col-span-2"
+            >
+              <div className="flex flex-wrap gap-2">
+                {(form.parentId
+                  ? [
+                      { value: 'POSTING' as const, label: 'عمليات' },
+                      { value: 'HEADER' as const, label: 'رئيسي فرعي' },
+                    ]
+                  : [
+                      { value: 'HEADER' as const, label: 'رئيسي' },
+                      { value: 'POSTING' as const, label: 'عمليات' },
+                    ]
+                ).map((opt) => (
+                  <label
+                    key={opt.value}
+                    className={`${
+                      form.warehouseKind === opt.value
+                        ? 'bg-[#0E78AA] text-white border-[#0E78AA]'
+                        : 'bg-white text-[#0A3D5E] border-[#D6EAF3]'
+                    } inline-flex cursor-pointer items-center rounded-full border px-3 py-1.5 text-xs font-semibold`}
+                  >
+                    <input
+                      type="radio"
+                      name="warehouseKind"
+                      className="sr-only"
+                      checked={form.warehouseKind === opt.value}
+                      onChange={() => setForm((prev) => ({ ...prev, warehouseKind: opt.value }))}
+                    />
+                    {opt.label}
+                  </label>
+                ))}
+              </div>
+            </CompactFormField>
+          ) : (
+            <CompactFormField label="نوع المخزن">
+              <input
+                className="w-full rounded-lg border border-[#D6EAF3] bg-slate-50 px-3 py-2 text-sm"
+                value="رئيسي بدون أب"
+                readOnly
+              />
+            </CompactFormField>
+          )}
         </div>
       </GuideEntityModal>
+
+      <ChildWarehouseKindDialog
+        open={Boolean(kindPickerParent)}
+        parentLabel={
+          kindPickerParent ? `${kindPickerParent.code} — ${kindPickerParent.name}` : ''
+        }
+        onClose={() => setKindPickerParent(null)}
+        onPick={(kind) => {
+          if (!kindPickerParent) return;
+          const parent = kindPickerParent;
+          setKindPickerParent(null);
+          openCreateUnder(parent, kind);
+        }}
+      />
     </ErpDocumentLayout>
   );
 }

@@ -48,7 +48,7 @@ export class ItemCategoryService {
           parentCategoryId: data.parentCategoryId ?? null,
           isFeatured: data.isFeatured ?? false,
           isTaxExempt: data.isTaxExempt ?? false,
-          taxRate: data.taxRate ?? null,
+          taxRate: data.isTaxExempt ? 0 : data.taxRate ?? null,
           defaultInventoryAccountId: data.defaultInventoryAccountId ?? null,
           defaultSalesAccountId: data.defaultSalesAccountId ?? null,
           defaultCogsAccountId: data.defaultCogsAccountId ?? null,
@@ -159,7 +159,11 @@ export class ItemCategoryService {
     }
     if (data.isFeatured !== undefined) updateData.isFeatured = data.isFeatured;
     if (data.isTaxExempt !== undefined) updateData.isTaxExempt = data.isTaxExempt;
-    if (data.taxRate !== undefined) updateData.taxRate = data.taxRate;
+    if (data.isTaxExempt) {
+      updateData.taxRate = 0;
+    } else if (data.taxRate !== undefined) {
+      updateData.taxRate = data.taxRate;
+    }
     if (data.isActive !== undefined) updateData.isActive = data.isActive;
 
     const category = await prisma.itemCategory.update({

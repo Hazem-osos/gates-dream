@@ -3,7 +3,6 @@
 import { useState } from 'react';
 import { useForm, type Resolver, type SubmitHandler } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { ActionButtons } from '@/components/ui/ActionButtons';
 import { CompactFormField, FormSectionCard, compactControlClass } from '@/components/ui';
 import { HrPageChrome } from '@/components/hr/HrPageChrome';
 import { DASH_PANEL } from '@/components/dashboard-primitives';
@@ -71,6 +70,9 @@ export default function DepartmentsPage() {
 
   return (
     <HrPageChrome
+      onSave={handleSubmit(onSave)}
+      onNew={onCancel}
+      savePending={departmentMutation.isPending}
       title="تعريف الأقسام"
       module="HR / MASTER"
       refreshing={isFetching}
@@ -100,14 +102,6 @@ export default function DepartmentsPage() {
 
         {error ? <ErrorToast message={error} onClose={() => setError('')} /> : null}
         {success ? <SuccessToast message={success} onClose={() => setSuccess('')} /> : null}
-
-        <div className="mt-5 flex justify-end border-t border-slate-100 pt-4">
-          <ActionButtons
-            onSave={handleSubmit(onSave)}
-            onCancel={onCancel}
-            saveText={departmentMutation.isPending ? 'جاري الحفظ...' : 'حفظ'}
-          />
-        </div>
       </div>
     </HrPageChrome>
   );

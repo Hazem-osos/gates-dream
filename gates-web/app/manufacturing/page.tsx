@@ -1,22 +1,24 @@
 'use client';
 
 import { useMemo } from 'react';
+import { useRouter } from 'next/navigation';
 import { useBackendReachability } from '@/lib/hooks/useBackendReachability';
 import { useApiQuery } from '@/lib/hooks/useApi';
 import { staleTimes } from '@/lib/query/query-keys';
 import { formatMoney } from '@/lib/hooks/useExecutiveDashboard';
 import { toFiniteNumber } from '@/components/dashboard';
+import { StatusBadge } from '@/components/ui';
 import {
-  CommandCenter,
-  MetricBar,
-  TriageQueue,
-  DataGridDense,
-  SegmentedBar,
-  StatusDotPill,
-  DASH_PANEL,
-  DASH_NUM,
-  DASH_GRID,
-} from '@/components/dashboard-primitives';
+  ManufacturingPageChrome,
+  MfgEmptyRow,
+  MfgMetric,
+  MfgTableCard,
+  mfgTableClass,
+  mfgTdClass,
+  mfgThClass,
+  mfgTheadClass,
+  mfgTrClass,
+} from '@/components/manufacturing/ManufacturingPageChrome';
 
 type ProductionOrder = {
   id: string;
@@ -24,12 +26,8 @@ type ProductionOrder = {
   status: 'DRAFT' | 'RELEASED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
   plannedQuantity?: number | string;
   actualQuantity?: number | string | null;
-  totalMaterialCost?: number | string;
   unitCost?: number | string;
-  finishedItem?: { arabicName?: string };
 };
-
-type BomRow = { id: string; name?: string; lines?: Array<{ rawItem?: { arabicName?: string; onHandQuantity?: number; lowerLimit?: number } }> };
 
 const STAGE: Record<ProductionOrder['status'], string> = {
   DRAFT: 'مسودة',
@@ -39,18 +37,25 @@ const STAGE: Record<ProductionOrder['status'], string> = {
   CANCELLED: 'ملغى',
 };
 
+function stageTone(status: ProductionOrder['status']) {
+  if (status === 'COMPLETED') return 'success' as const;
+  if (status === 'IN_PROGRESS' || status === 'RELEASED') return 'info' as const;
+  if (status === 'CANCELLED') return 'danger' as const;
+  return 'warning' as const;
+}
+
 export default function ManufacturingCommand() {
   useBackendReachability();
-  const bomsQ = useApiQuery<BomRow[]>(['manufacturing-boms'], '/manufacturing/boms', undefined, { staleTime: staleTimes.masterMs });
+  const router = useRouter();
+  const bomsQ = useApiQuery<{ id: string }[]>(['manufacturing-boms'], '/manufacturing/boms', undefined, {
+    staleTime: staleTimes.masterMs,
+  });
   const ordersQ = useApiQuery<ProductionOrder[]>(['manufacturing-orders'], '/manufacturing/orders', undefined, {
     staleTime: staleTimes.transactionalMs,
   });
-  const itemsQ = useApiQuery<Array<{ id: string; arabicName?: string; code?: string; onHandQuantity?: number; lowerLimit?: number; orderLimit?: number }>>(
-    ['mfg-items'],
-    '/inventory/items',
-    { limit: 200, isActive: true },
-    { staleTime: staleTimes.masterMs }
-  );
+  const itemsQ = useApiQuery<
+    Array<{ id: string; arabicName?: string; code?: string; onHandQuantity?: number; lowerLimit?: number; orderLimit?: number }>
+  >(['mfg-items'], '/inventory/items', { limit: 200, isActive: true }, { staleTime: staleTimes.masterMs });
 
   const orders = useMemo(() => ordersQ.data?.data ?? [], [ordersQ.data?.data]);
   const running = orders.filter((o) => o.status === 'IN_PROGRESS' || o.status === 'RELEASED');
@@ -74,93 +79,101 @@ export default function ManufacturingCommand() {
     );
   }, [orders]);
 
-  return (
-    <CommandCenter
-      title="التصنيع والتجميع — أوامر التشغيل"
-      module="MFG"
-      refreshing={ordersQ.isFetching}
-      onRefresh={() => {
-        void ordersQ.refetch();
-        void bomsQ.refetch();
-      }}
-      shortcuts={[
-        { key: 'F2', label: 'أمر تشغيل', href: '/manufacturing/operations/operation' },
-        { key: 'F4', label: 'BOM', href: '/manufacturing/creations/manufacturing-model' },
-      ]}
-    >
-      <MetricBar
-        loading={ordersQ.isLoading && !orders.length}
-        items={[
-          { id: 'run', label: 'أوامر نشطة', value: running.length, hint: `${orders.length} إجمالي` },
-          { id: 'draft', label: 'بانتظار صرف خامات', value: drafts.length, tone: drafts.length ? 'warn' : 'ok' },
-          { id: 'scrap', label: 'انحراف الهدر', value: `${scrap.toFixed(1)}٪`, tone: scrap > 0 ? 'bad' : 'ok' },
-          { id: 'short', label: 'نواقص خامات', value: shortages.length, tone: shortages.length ? 'bad' : 'ok' },
-          { id: 'bom', label: 'نماذج BOM', value: bomsQ.data?.data?.length ?? 0 },
-          { id: 'fg', label: 'تكلفة التام', value: formatMoney(completed.reduce((s, o) => s + toFiniteNumber(o.unitCost) * toFiniteNumber(o.actualQuantity ?? o.plannedQuantity), 0)) },
-        ]}
-      />
+  const activeRows = running.concat(drafts).slice(0, 12);
 
-      <div className={DASH_GRID}>
-        <DataGridDense
-          title="أوامر التشغيل النشطة"
-          loading={ordersQ.isLoading}
-          rows={running.concat(drafts).slice(0, 12)}
-          onRowOpen={() => {
-            window.location.href = '/manufacturing/operations/operation';
-          }}
-          columns={[
-            { id: 'no', header: 'الأمر', cell: (r) => <span className={DASH_NUM}>{r.orderNumber ?? r.id.slice(0, 8)}</span> },
-            {
-              id: 'st',
-              header: 'المرحلة',
-              cell: (r) => {
-                const tone =
-                  r.status === 'COMPLETED'
-                    ? 'success'
-                    : r.status === 'IN_PROGRESS'
-                      ? 'info'
-                      : r.status === 'CANCELLED'
-                        ? 'danger'
-                        : 'warning';
-                return <StatusDotPill label={STAGE[r.status]} tone={tone} />;
-              },
-            },
-            {
-              id: 'pct',
-              header: '٪',
-              numeric: true,
-              cell: (r) => {
-                const plan = toFiniteNumber(r.plannedQuantity);
-                const act = toFiniteNumber(r.actualQuantity);
-                return plan > 0 ? `${Math.round((act / plan) * 100)}٪` : '—';
-              },
-            },
-            { id: 'qty', header: 'كمية', numeric: true, cell: (r) => String(r.plannedQuantity ?? '—') },
-          ]}
+  return (
+    <ManufacturingPageChrome
+      title="التصنيع والإنتاج"
+      statusLabel="تشغيل"
+      favoriteHref="/manufacturing"
+      hideSave
+    >
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+        <MfgMetric label="أوامر نشطة" value={running.length} hint={`${orders.length} إجمالي`} />
+        <MfgMetric label="بانتظار صرف خامات" value={drafts.length} tone={drafts.length ? 'warn' : 'ok'} />
+        <MfgMetric label="انحراف الهدر" value={`${scrap.toFixed(1)}٪`} tone={scrap > 0 ? 'bad' : 'ok'} />
+        <MfgMetric label="نواقص خامات" value={shortages.length} tone={shortages.length ? 'bad' : 'ok'} />
+        <MfgMetric label="نماذج BOM" value={bomsQ.data?.data?.length ?? 0} />
+        <MfgMetric
+          label="تكلفة التام"
+          value={formatMoney(
+            completed.reduce(
+              (s, o) => s + toFiniteNumber(o.unitCost) * toFiniteNumber(o.actualQuantity ?? o.plannedQuantity),
+              0
+            )
+          )}
         />
-        <TriageQueue
-          title="نواقص خامات التشغيل"
-          items={shortages.slice(0, 12).map((it) => ({
-            id: it.id,
-            title: it.arabicName ?? it.code ?? it.id,
-            meta: `رصيد ${toFiniteNumber(it.onHandQuantity)} ≤ حد ${toFiniteNumber(it.lowerLimit || it.orderLimit)}`,
-            href: '/inventory/operations/purchase-order',
-            tone: 'bad',
-            actions: [{ label: 'أمر شراء', href: '/inventory/operations/purchase-order' }],
-          }))}
-        />
-        <div className={DASH_PANEL + ' p-2.5'}>
-          <p className="mb-2 text-xs font-semibold">مسار الأوامر</p>
-          <SegmentedBar
-            segments={[
-              { label: 'مسودة', value: drafts.length, color: '#94A3B8' },
-              { label: 'صرف', value: orders.filter((o) => o.status === 'RELEASED').length, color: '#D97706' },
-              { label: 'تشغيل', value: orders.filter((o) => o.status === 'IN_PROGRESS').length, color: '#0E79AA' },
-              { label: 'تام', value: completed.length, color: '#059669' },
-            ]}
-          />
-        </div>
       </div>
-    </CommandCenter>
+
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+        <MfgTableCard title="أوامر التشغيل النشطة">
+          <table className={mfgTableClass}>
+            <thead className={mfgTheadClass}>
+              <tr>
+                <th className={mfgThClass}>الأمر</th>
+                <th className={mfgThClass}>المرحلة</th>
+                <th className={`${mfgThClass} text-left`}>٪</th>
+                <th className={`${mfgThClass} text-left`}>الكمية</th>
+              </tr>
+            </thead>
+            <tbody>
+              {activeRows.length === 0 ? (
+                <MfgEmptyRow colSpan={4}>لا توجد أوامر تشغيل نشطة</MfgEmptyRow>
+              ) : (
+                activeRows.map((row) => {
+                  const plan = toFiniteNumber(row.plannedQuantity);
+                  const act = toFiniteNumber(row.actualQuantity);
+                  return (
+                    <tr
+                      key={row.id}
+                      className={`${mfgTrClass} cursor-pointer`}
+                      onClick={() => router.push('/manufacturing/operations/operation')}
+                    >
+                      <td className={`${mfgTdClass} font-mono font-semibold`}>{row.orderNumber ?? row.id.slice(0, 8)}</td>
+                      <td className={mfgTdClass}>
+                        <StatusBadge compact label={STAGE[row.status]} tone={stageTone(row.status)} />
+                      </td>
+                      <td className={`${mfgTdClass} text-left tabular-nums`}>
+                        {plan > 0 ? `${Math.round((act / plan) * 100)}٪` : '—'}
+                      </td>
+                      <td className={`${mfgTdClass} text-left tabular-nums`}>{String(row.plannedQuantity ?? '—')}</td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </MfgTableCard>
+
+        <MfgTableCard title="نواقص خامات التشغيل">
+          <table className={mfgTableClass}>
+            <thead className={mfgTheadClass}>
+              <tr>
+                <th className={mfgThClass}>الصنف</th>
+                <th className={mfgThClass}>الرصيد / الحد</th>
+              </tr>
+            </thead>
+            <tbody>
+              {shortages.length === 0 ? (
+                <MfgEmptyRow colSpan={2}>لا توجد نواقص خامات</MfgEmptyRow>
+              ) : (
+                shortages.slice(0, 12).map((it) => (
+                  <tr
+                    key={it.id}
+                    className={`${mfgTrClass} cursor-pointer`}
+                    onClick={() => router.push('/inventory/operations/purchase-order')}
+                  >
+                    <td className={mfgTdClass}>{it.arabicName ?? it.code ?? it.id}</td>
+                    <td className={`${mfgTdClass} text-rose-700`}>
+                      رصيد {toFiniteNumber(it.onHandQuantity)} ≤ حد {toFiniteNumber(it.lowerLimit || it.orderLimit)}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </MfgTableCard>
+      </div>
+    </ManufacturingPageChrome>
   );
 }

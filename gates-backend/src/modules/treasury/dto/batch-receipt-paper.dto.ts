@@ -13,6 +13,7 @@ export interface CreateBatchReceiptPapersDto {
   hijriIssueDate?: string;
   partyId: string;
   entityName?: string;
+  entityId?: string;
   partyName?: string;
   currencyCode?: string;
   partyType?: 'customer' | 'supplier';

@@ -21,13 +21,27 @@ export const updateItemCategorySchema = createItemCategorySchema.partial().exten
 });
 
 export const itemCategoryQuerySchema = z.object({
-  page: z.string().optional().transform((val) => (val ? parseInt(val, 10) : 1)),
-  limit: z.string().optional().transform((val) => (val ? parseInt(val, 10) : 50)),
+  page: z
+    .union([z.string(), z.number()])
+    .optional()
+    .transform((val) => {
+      const n = typeof val === 'number' ? val : val ? parseInt(val, 10) : 1;
+      return Number.isFinite(n) && n > 0 ? n : 1;
+    }),
+  limit: z
+    .union([z.string(), z.number()])
+    .optional()
+    .transform((val) => {
+      const n = typeof val === 'number' ? val : val ? parseInt(val, 10) : 50;
+      return Number.isFinite(n) && n > 0 ? n : 50;
+    }),
   search: z.string().optional(),
   isActive: z
-    .string()
+    .union([z.boolean(), z.string()])
     .optional()
-    .transform((val) => (val === undefined ? undefined : val === 'true')),
+    .transform((val) =>
+      val === undefined ? undefined : val === true || val === 'true'
+    ),
 });
 
 export type CreateItemCategoryInput = z.infer<typeof createItemCategorySchema>;

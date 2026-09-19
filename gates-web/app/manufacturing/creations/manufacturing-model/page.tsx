@@ -9,16 +9,17 @@ import {
   FormSectionCard,
   compactControlClass,
   CostRollupCard,
-  ActionButtons,
   Button,
-  denseTableWrapClass,
-  denseTableClass,
-  denseTheadClass,
-  denseThClass,
-  denseTdClass,
-  denseTrClass,
 } from '@/components/ui';
-import { CommandCenter } from '@/components/dashboard-primitives';
+import {
+  ManufacturingPageChrome,
+  MfgTableCard,
+  mfgTableClass,
+  mfgTdClass,
+  mfgThClass,
+  mfgTheadClass,
+  mfgTrClass,
+} from '@/components/manufacturing/ManufacturingPageChrome';
 import { useApiQuery, useApiMutation, useInvalidateQuery } from '@/lib/hooks/useApi';
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
@@ -144,13 +145,15 @@ export default function ManufacturingModelPage() {
   };
 
   return (
-    <CommandCenter
-      title="نموذج التصنيع / بطاقة تجميع منتج"
-      module="MFG / BOM"
-      shortcuts={[
-        { key: 'F8', label: 'التشغيل', href: '/manufacturing' },
-        { key: 'F2', label: 'أمر تشغيل', href: '/manufacturing/operations/operation' },
-      ]}
+    <ManufacturingPageChrome
+      title="نموذج التصنيع"
+      statusLabel={model ? 'محفوظ' : 'جديد'}
+      docNumber={serial || undefined}
+      currentId={model || null}
+      favoriteHref="/manufacturing/creations/manufacturing-model"
+      onSave={() => void handleSave()}
+      savePending={createBomMutation.isPending}
+      saveLabel="حفظ النموذج"
     >
         <FormSectionCard
           title="البيانات الأساسية"
@@ -221,29 +224,31 @@ export default function ManufacturingModelPage() {
           </div>
         </AdvancedFieldsSection>
 
-        <FormSectionCard
+        <MfgTableCard
           title="مكونات التجميع"
-          subtitle="المواد الخام والكميات القياسية ونسبة الهالك"
-          bodyClassName="block"
-          className="border-slate-200/80 bg-white dark:bg-slate-900"
+          toolbar={
+            <Button type="button" variant="secondary" size="sm" onClick={addComponentLine} className="gap-1.5">
+              <Plus className="h-4 w-4" />
+              إضافة مادة
+            </Button>
+          }
         >
-          <div className={denseTableWrapClass}>
-            <table className={denseTableClass}>
-              <thead className={denseTheadClass}>
+          <table className={mfgTableClass}>
+              <thead className={mfgTheadClass}>
                 <tr>
-                  <th className={cn(denseThClass, 'w-10')}>م</th>
-                  <th className={denseThClass}>المادة الخام</th>
-                  <th className={cn(denseThClass, 'min-w-[100px]')}>الكمية القياسية</th>
-                  <th className={cn(denseThClass, 'min-w-[100px]')}>نسبة الهالك %</th>
-                  <th className={cn(denseThClass, 'min-w-[140px]')}>الكمية المحسوبة</th>
-                  <th className={cn(denseThClass, 'w-12')} />
+                  <th className={cn(mfgThClass, 'w-10')}>م</th>
+                  <th className={mfgThClass}>المادة الخام</th>
+                  <th className={cn(mfgThClass, 'min-w-[100px]')}>الكمية القياسية</th>
+                  <th className={cn(mfgThClass, 'min-w-[100px]')}>نسبة الهالك %</th>
+                  <th className={cn(mfgThClass, 'min-w-[140px]')}>الكمية المحسوبة</th>
+                  <th className={cn(mfgThClass, 'w-12')} />
                 </tr>
               </thead>
               <tbody>
                 {componentLines.map((line, index) => (
-                  <tr key={index} className={denseTrClass}>
-                    <td className={denseTdClass}>{index + 1}</td>
-                    <td className={denseTdClass}>
+                  <tr key={index} className={mfgTrClass}>
+                    <td className={mfgTdClass}>{index + 1}</td>
+                    <td className={mfgTdClass}>
                       <select
                         value={line.rawItemId}
                         onChange={(e) => updateComponentLine(index, { rawItemId: e.target.value })}
@@ -257,7 +262,7 @@ export default function ManufacturingModelPage() {
                         ))}
                       </select>
                     </td>
-                    <td className={denseTdClass}>
+                    <td className={mfgTdClass}>
                       <input
                         type="number"
                         min={0}
@@ -267,7 +272,7 @@ export default function ManufacturingModelPage() {
                         className={compactControlClass}
                       />
                     </td>
-                    <td className={denseTdClass}>
+                    <td className={mfgTdClass}>
                       <input
                         type="number"
                         min={0}
@@ -277,12 +282,12 @@ export default function ManufacturingModelPage() {
                         className={compactControlClass}
                       />
                     </td>
-                    <td className={cn(denseTdClass, 'tabular-nums font-semibold text-[#0E79AA]')}>
+                    <td className={cn(mfgTdClass, 'tabular-nums font-semibold text-[#0E79AA]')}>
                       {calcLineQty(line.quantity, line.scrapPercentage).toLocaleString('en-US', {
                         maximumFractionDigits: 4,
                       })}
                     </td>
-                    <td className={denseTdClass}>
+                    <td className={mfgTdClass}>
                       <Button
                         type="button"
                         variant="ghost"
@@ -299,53 +304,37 @@ export default function ManufacturingModelPage() {
                 ))}
               </tbody>
             </table>
-          </div>
-          <div className="mt-3 flex justify-end">
-            <Button
-              type="button"
-              variant="secondary"
-              size="sm"
-              onClick={addComponentLine}
-              className="gap-1.5"
-            >
-              <Plus className="h-4 w-4" />
-              إضافة مادة
-            </Button>
-          </div>
-        </FormSectionCard>
+        </MfgTableCard>
 
         <div className="mb-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
-          <section className="rounded-xl border border-slate-200/80 bg-white p-4 dark:bg-slate-900">
-            <h3 className="mb-3 text-sm font-bold text-slate-900">أصناف ناتجة</h3>
-            <div className={denseTableWrapClass}>
-              <table className={denseTableClass}>
-                <thead className={denseTheadClass}>
-                  <tr>
-                    <th className={denseThClass}>م</th>
-                    <th className={denseThClass}>إسم الصنف</th>
-                    <th className={cn(denseThClass, 'min-w-[100px]')}>الكمية</th>
-                    <th className={denseThClass}>الوحدة</th>
+          <MfgTableCard title="أصناف ناتجة">
+            <table className={mfgTableClass}>
+              <thead className={mfgTheadClass}>
+                <tr>
+                  <th className={mfgThClass}>م</th>
+                  <th className={mfgThClass}>إسم الصنف</th>
+                  <th className={cn(mfgThClass, 'min-w-[100px]')}>الكمية</th>
+                  <th className={mfgThClass}>الوحدة</th>
+                </tr>
+              </thead>
+              <tbody>
+                {finishedItem ? (
+                  <tr className={mfgTrClass}>
+                    <td className={mfgTdClass}>1</td>
+                    <td className={mfgTdClass}>{finishedItem.arabicName}</td>
+                    <td className={cn(mfgTdClass, 'tabular-nums')}>{baseQuantity || '—'}</td>
+                    <td className={mfgTdClass}>{finishedItem.serial ?? '—'}</td>
                   </tr>
-                </thead>
-                <tbody>
-                  {finishedItem ? (
-                    <tr className={denseTrClass}>
-                      <td className={denseTdClass}>1</td>
-                      <td className={denseTdClass}>{finishedItem.arabicName}</td>
-                      <td className={cn(denseTdClass, 'tabular-nums')}>{baseQuantity || '—'}</td>
-                      <td className={denseTdClass}>{finishedItem.serial ?? '—'}</td>
-                    </tr>
-                  ) : (
-                    <tr className={denseTrClass}>
-                      <td colSpan={4} className="px-3 py-6 text-center text-xs text-slate-500">
-                        اختر الصنف الناتج لعرض النتيجة
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </section>
+                ) : (
+                  <tr className={mfgTrClass}>
+                    <td colSpan={4} className="px-4 py-8 text-center text-sm text-slate-500">
+                      اختر الصنف الناتج لعرض النتيجة
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </MfgTableCard>
 
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-3">
@@ -374,16 +363,8 @@ export default function ManufacturingModelPage() {
           </div>
         </div>
 
-        <div className="flex justify-end">
-          <ActionButtons
-            onSave={() => void handleSave()}
-            saveText={createBomMutation.isPending ? 'جاري الحفظ...' : 'حفظ'}
-            saveLoading={createBomMutation.isPending}
-          />
-        </div>
-
         {error && <ErrorToast message={error} onClose={() => setError(null)} />}
         {success && <SuccessToast message={success} onClose={() => setSuccess(null)} />}
-    </CommandCenter>
+    </ManufacturingPageChrome>
   );
 }

@@ -2,6 +2,105 @@ import prisma from '../../../shared/database/prisma';
 import { AppError } from '../../../shared/middleware/error-handler';
 import { Decimal } from '@prisma/client/runtime/library';
 
+type ImportUnitHint = {
+  code: string;
+  arabicName: string;
+  englishName: string;
+};
+
+const UNIT_HINTS: ImportUnitHint[] = [
+  { code: 'PCS', arabicName: 'قطعة', englishName: 'Piece' },
+  { code: 'DOZ', arabicName: 'دستة', englishName: 'Dozen' },
+  { code: 'PAIR', arabicName: 'زوج', englishName: 'Pair' },
+  { code: 'SET', arabicName: 'طقم', englishName: 'Set' },
+  { code: 'BOX', arabicName: 'صندوق', englishName: 'Box' },
+  { code: 'CTN', arabicName: 'كرتونة', englishName: 'Carton' },
+  { code: 'PACK', arabicName: 'باكت', englishName: 'Pack' },
+  { code: 'BAG', arabicName: 'كيس', englishName: 'Bag' },
+  { code: 'ROLL', arabicName: 'رول', englishName: 'Roll' },
+  { code: 'KG', arabicName: 'كيلوجرام', englishName: 'Kilogram' },
+  { code: 'G', arabicName: 'جرام', englishName: 'Gram' },
+  { code: 'TON', arabicName: 'طن', englishName: 'Ton' },
+  { code: 'L', arabicName: 'لتر', englishName: 'Liter' },
+  { code: 'ML', arabicName: 'ملليلتر', englishName: 'Milliliter' },
+  { code: 'M', arabicName: 'متر', englishName: 'Meter' },
+  { code: 'CM', arabicName: 'سنتيمتر', englishName: 'Centimeter' },
+];
+
+const UNIT_ALIASES: Record<string, string> = {
+  قطعه: 'PCS',
+  قطعة: 'PCS',
+  حبة: 'PCS',
+  حبه: 'PCS',
+  pcs: 'PCS',
+  piece: 'PCS',
+  كيلو: 'KG',
+  كيلوا: 'KG',
+  كيلوجرام: 'KG',
+  kg: 'KG',
+  kilo: 'KG',
+  kilogram: 'KG',
+  جرام: 'G',
+  غرام: 'G',
+  g: 'G',
+  gram: 'G',
+  لتر: 'L',
+  liter: 'L',
+  litre: 'L',
+  متر: 'M',
+  meter: 'M',
+};
+
+function normalizeUnitKey(value: string): string {
+  return value.trim().toLowerCase().replace(/[\s_\-]/g, '');
+}
+
+function hintForUnitName(unitName: string): ImportUnitHint | undefined {
+  const key = normalizeUnitKey(unitName);
+  const code = UNIT_ALIASES[key] ?? UNIT_HINTS.find((item) => normalizeUnitKey(item.code) === key || normalizeUnitKey(item.arabicName) === key || normalizeUnitKey(item.englishName) === key)?.code;
+  return UNIT_HINTS.find((item) => item.code === code);
+}
+
+async function resolveImportUnitId(
+  tx: {
+    unit: {
+      findFirst: typeof prisma.unit.findFirst;
+      findMany: typeof prisma.unit.findMany;
+      create: typeof prisma.unit.create;
+    };
+  },
+  companyId: string,
+  unitName: string | undefined
+): Promise<string> {
+  const raw = unitName?.trim() || 'قطعة';
+  const hint = hintForUnitName(raw);
+  const units = await tx.unit.findMany({
+    where: { companyId },
+    select: { id: true, arabicName: true, englishName: true, code: true },
+  });
+  const key = normalizeUnitKey(raw);
+  const match = units.find((unit) => {
+    const names = [unit.arabicName, unit.englishName ?? '', unit.code ?? ''].map(normalizeUnitKey);
+    if (names.includes(key)) return true;
+    if (hint && (unit.code === hint.code || normalizeUnitKey(unit.arabicName) === normalizeUnitKey(hint.arabicName))) {
+      return true;
+    }
+    return false;
+  });
+  if (match) return match.id;
+
+  const created = await tx.unit.create({
+    data: {
+      companyId,
+      arabicName: hint?.arabicName ?? raw,
+      englishName: hint?.englishName ?? null,
+      code: hint?.code ?? null,
+      isActive: true,
+    },
+  });
+  return created.id;
+}
+
 export class OnboardingImportService {
   async importCustomers(
     companyId: string,
@@ -30,27 +129,37 @@ export class OnboardingImportService {
 
   async importItems(
     companyId: string,
-    rows: Array<{ arabicName: string; serial?: string; salesPrice?: number; unitId?: string }>
+    rows: Array<{
+      arabicName: string;
+      serial?: string;
+      barcode?: string;
+      salesPrice?: number;
+      unitName?: string;
+      unitId?: string;
+      categoryId?: string;
+    }>
   ) {
     if (!rows.length) throw new AppError(400, 'No rows to import');
 
-    const defaultUnit = await prisma.unit.findFirst({
-      where: { companyId, isActive: true },
-      select: { id: true },
-    });
-    if (!defaultUnit) {
-      throw new AppError(422, 'Define at least one unit before importing items');
-    }
-
     return prisma.$transaction(async (tx) => {
+      const unitCache = new Map<string, string>();
       let created = 0;
       for (const row of rows.slice(0, 500)) {
         if (!row.arabicName?.trim()) continue;
+        const unitKey = (row.unitId || row.unitName || 'قطعة').trim();
+        let unitId = row.unitId || unitCache.get(unitKey);
+        if (!unitId) {
+          unitId = await resolveImportUnitId(tx, companyId, row.unitName);
+          unitCache.set(unitKey, unitId);
+        }
+        const barcode = row.barcode?.trim() || row.serial?.trim() || null;
         const item = await tx.item.create({
           data: {
             companyId,
             arabicName: row.arabicName.trim(),
-            serial: row.serial?.trim() || null,
+            serial: row.serial?.trim() || barcode,
+            barcode,
+            categoryId: row.categoryId || null,
             isActive: true,
             beginningCostPrice:
               row.salesPrice != null ? new Decimal(row.salesPrice) : undefined,
@@ -59,7 +168,7 @@ export class OnboardingImportService {
         await tx.itemUnit.create({
           data: {
             itemId: item.id,
-            unitId: row.unitId ?? defaultUnit.id,
+            unitId,
             isBaseUnit: true,
             conversionFactor: new Decimal(1),
           },
@@ -69,7 +178,6 @@ export class OnboardingImportService {
             where: { companyId, isActive: true },
             select: { id: true },
           });
-          const unitId = row.unitId ?? defaultUnit.id;
           if (priceList) {
             await tx.itemPrice.create({
               data: {

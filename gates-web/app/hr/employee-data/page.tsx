@@ -4,7 +4,6 @@ import { useState } from 'react';
 import { useForm, type Resolver, type SubmitHandler } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { UserCircle, Wallet, FileText, Layers } from 'lucide-react';
-import { ActionButtons } from '@/components/ui/ActionButtons';
 import { HrPageChrome } from '@/components/hr/HrPageChrome';
 import {
   FormSectionCard,
@@ -168,7 +167,12 @@ export default function EmployeeDataPage() {
   };
 
   return (
-    <HrPageChrome title="بطاقة الموظف" module="HR / EMPLOYEE">
+    <HrPageChrome
+      title="بطاقة الموظف"
+      onSave={handleSubmit(onValidSubmit)}
+      onNew={handleCancel}
+      savePending={employeeMutation.isPending}
+    >
         <FormSectionCard title="البيانات الأساسية" subtitle="معلومات التعريف والانضمام">
           <CompactFormField label="الرقم الوظيفي" placeholder="إدخل الرقم الوظيفي" {...register('employeeId')} />
           <CompactFormField label="المسلسل" placeholder="إدخل رقم المسلسل" {...register('serialNumber')} />
@@ -482,23 +486,6 @@ export default function EmployeeDataPage() {
 
         {error && <ErrorToast message={error} onClose={() => setError('')} />}
         {success && <SuccessToast message={success} onClose={() => setSuccess('')} />}
-
-        <div className="mt-4 flex justify-end rounded-xl border border-[#E6F0F7] bg-white px-4 py-3 shadow-sm">
-          <ActionButtons
-            onSave={() =>
-              void handleSubmit(onValidSubmit, (errs) => {
-                const first = Object.values(errs)[0];
-                setError(
-                  first && typeof first === 'object' && 'message' in first && first.message
-                    ? String(first.message)
-                    : 'أكمل الحد الأدنى لبيانات الموظف: الاسم، القسم، تاريخ الالتحاق، رقم الهوية، والراتب.'
-                );
-              })()
-            }
-            onCancel={handleCancel}
-            saveText={employeeMutation.isPending ? 'جاري الحفظ...' : 'حفظ'}
-          />
-        </div>
     </HrPageChrome>
   );
 }

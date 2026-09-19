@@ -2053,11 +2053,89 @@ export class ReportsService {
    */
   async getFinancialPapersFlow(filters: ReportFilters, options: ReportOptions = {}): Promise<ReportResult> {
     try {
-      const { companyId, fromDate, toDate } = filters;
+      const { companyId, fromDate, toDate, branchId, entityId } = filters;
       const { page = 1, limit = 100 } = options;
 
       if (!fromDate || !toDate) {
         throw new Error('From date and to date are required');
+      }
+
+      const paperWhere: any = {
+        companyId,
+        isCancelled: false,
+        date: {
+          gte: fromDate,
+          lte: toDate,
+        },
+        ...(branchId ? { branchId } : {}),
+        ...(entityId ? { entityId } : {}),
+      };
+
+      if (entityId) {
+        const [securitiesReceipts, securitiesPayments] = await Promise.all([
+          prisma.securitiesReceipt.findMany({
+            where: paperWhere,
+            include: {
+              customer: { select: { id: true, code: true, arabicName: true } },
+              supplier: { select: { id: true, code: true, arabicName: true } },
+              entity: { select: { id: true, arabicName: true } },
+            },
+            orderBy: { date: 'desc' },
+          }),
+          prisma.securitiesPayment.findMany({
+            where: paperWhere,
+            include: {
+              customer: { select: { id: true, code: true, arabicName: true } },
+              supplier: { select: { id: true, code: true, arabicName: true } },
+              entity: { select: { id: true, arabicName: true } },
+            },
+            orderBy: { date: 'desc' },
+          }),
+        ]);
+
+        const allPapers = [
+          ...securitiesReceipts.map((sr) => ({
+            type: 'ورقة قبض',
+            date: sr.date,
+            voucherNumber: sr.serial || sr.receiptNumber || sr.securityNumber,
+            description: sr.description,
+            amount: Number(sr.amount || 0),
+            customer: sr.customer,
+            supplier: sr.supplier,
+            entityName: sr.entity?.arabicName || sr.entityName,
+            status: sr.paperCase,
+          })),
+          ...securitiesPayments.map((sp) => ({
+            type: 'ورقة دفع',
+            date: sp.date,
+            voucherNumber: sp.serial || sp.paymentNumber || sp.securityNumber,
+            description: sp.description,
+            amount: Number(sp.amount || 0),
+            customer: sp.customer,
+            supplier: sp.supplier,
+            entityName: sp.entity?.arabicName || sp.entityName,
+            status: sp.paperCase,
+          })),
+        ].sort((a, b) => {
+          const dateA = a.date ? new Date(a.date).getTime() : 0;
+          const dateB = b.date ? new Date(b.date).getTime() : 0;
+          return dateB - dateA;
+        });
+
+        return {
+          data: allPapers.slice((page - 1) * limit, page * limit),
+          summary: {
+            totalReceipts: securitiesReceipts.length,
+            totalPayments: securitiesPayments.length,
+            totalCheques: 0,
+          },
+          pagination: {
+            page,
+            limit,
+            total: allPapers.length,
+            totalPages: Math.ceil(allPapers.length / limit) || 1,
+          },
+        };
       }
 
       const where: any = {
@@ -2235,11 +2313,89 @@ export class ReportsService {
    */
   async getTreasuryCollections(filters: ReportFilters, options: ReportOptions = {}): Promise<ReportResult> {
     try {
-      const { companyId, fromDate, toDate, branchId } = filters;
+      const { companyId, fromDate, toDate, branchId, entityId } = filters;
       const { page = 1, limit = 100 } = options;
 
       if (!fromDate || !toDate) {
         throw new Error('From date and to date are required');
+      }
+
+      if (entityId) {
+        const paperWhere: any = {
+          companyId,
+          entityId,
+          isCancelled: false,
+          paperCase: { in: ['COLLECTED', 'MULTI_COLLECTED'] },
+          date: { gte: fromDate, lte: toDate },
+          ...(branchId ? { branchId } : {}),
+        };
+        const [securitiesReceipts, securitiesPayments] = await Promise.all([
+          prisma.securitiesReceipt.findMany({
+            where: paperWhere,
+            include: {
+              customer: { select: { id: true, code: true, arabicName: true } },
+              supplier: { select: { id: true, code: true, arabicName: true } },
+              entity: { select: { id: true, arabicName: true } },
+            },
+            orderBy: { date: 'desc' },
+          }),
+          prisma.securitiesPayment.findMany({
+            where: paperWhere,
+            include: {
+              customer: { select: { id: true, code: true, arabicName: true } },
+              supplier: { select: { id: true, code: true, arabicName: true } },
+              entity: { select: { id: true, arabicName: true } },
+            },
+            orderBy: { date: 'desc' },
+          }),
+        ]);
+        const rows = [
+          ...securitiesReceipts.map((sr) => ({
+            id: sr.id,
+            receiptType: 'securities',
+            date: sr.date,
+            voucherNumber: sr.serial || sr.receiptNumber || sr.securityNumber,
+            description: sr.description,
+            amount: Number(sr.amount || 0),
+            customer: sr.customer,
+            supplier: sr.supplier,
+            entityName: sr.entity?.arabicName || sr.entityName,
+            status: sr.paperCase,
+          })),
+          ...securitiesPayments.map((sp) => ({
+            id: sp.id,
+            receiptType: 'securities',
+            date: sp.date,
+            voucherNumber: sp.serial || sp.paymentNumber || sp.securityNumber,
+            description: sp.description,
+            amount: Number(sp.amount || 0),
+            customer: sp.customer,
+            supplier: sp.supplier,
+            entityName: sp.entity?.arabicName || sp.entityName,
+            status: sp.paperCase,
+          })),
+        ].sort((a, b) => {
+          const dateA = a.date ? new Date(a.date).getTime() : 0;
+          const dateB = b.date ? new Date(b.date).getTime() : 0;
+          return dateB - dateA;
+        });
+        const skip = (page - 1) * limit;
+        const paginated = rows.slice(skip, skip + limit);
+        const totalCollections = rows.reduce((sum, row) => sum + row.amount, 0);
+        return {
+          data: paginated,
+          summary: {
+            totalCollections,
+            totalReceipts: rows.length,
+            byType: { cash: 0, bank: 0, safe: 0, party: 0, securities: rows.length },
+          },
+          pagination: {
+            page,
+            limit,
+            total: rows.length,
+            totalPages: Math.ceil(rows.length / limit) || 1,
+          },
+        };
       }
 
       const where: any = {
@@ -2343,7 +2499,7 @@ export class ReportsService {
    */
   async getFinancialPapers(filters: ReportFilters, options: ReportOptions = {}): Promise<ReportResult> {
     try {
-      const { companyId, fromDate, toDate, branchId } = filters;
+      const { companyId, fromDate, toDate, branchId, entityId } = filters;
       const { page = 1, limit = 100 } = options;
 
       // Get securities receipts, payments, and renewals
@@ -2364,6 +2520,9 @@ export class ReportsService {
 
       if (branchId) {
         where.branchId = branchId;
+      }
+      if (entityId) {
+        where.entityId = entityId;
       }
 
       const chequeDateFilter =
@@ -2392,6 +2551,7 @@ export class ReportsService {
           include: {
             customer: { select: { id: true, code: true, arabicName: true } },
             supplier: { select: { id: true, code: true, arabicName: true } },
+            entity: { select: { id: true, arabicName: true } },
           },
           orderBy: { date: 'desc' },
         }),
@@ -2400,10 +2560,13 @@ export class ReportsService {
           include: {
             customer: { select: { id: true, code: true, arabicName: true } },
             supplier: { select: { id: true, code: true, arabicName: true } },
+            entity: { select: { id: true, arabicName: true } },
           },
           orderBy: { date: 'desc' },
         }),
-        prisma.securitiesRenewal.findMany({
+        entityId
+          ? Promise.resolve([])
+          : prisma.securitiesRenewal.findMany({
           where: {
             companyId,
             ...dateFilter,
@@ -2412,7 +2575,9 @@ export class ReportsService {
           },
           orderBy: { date: 'desc' },
         }),
-        prisma.cheque.findMany({
+        entityId
+          ? Promise.resolve([])
+          : prisma.cheque.findMany({
           where: {
             companyId,
             ...(branchId ? { branchId } : {}),
@@ -2449,6 +2614,7 @@ export class ReportsService {
           description: sr.description,
           customer: sr.customer,
           supplier: sr.supplier,
+          entityName: sr.entity?.arabicName || sr.entityName,
           status: sr.isPosted ? 'POSTED' : 'DRAFT',
         })),
         ...securitiesPayments.map((sp) => ({
@@ -2460,6 +2626,7 @@ export class ReportsService {
           description: sp.description,
           customer: sp.customer,
           supplier: sp.supplier,
+          entityName: sp.entity?.arabicName || sp.entityName,
           status: sp.isPosted ? 'POSTED' : 'DRAFT',
         })),
         ...securitiesRenewals.map((srn) => ({

@@ -2,7 +2,6 @@ import prisma from '../../../shared/database/prisma';
 import { Decimal } from '@prisma/client/runtime/library';
 import { AppError } from '../../../shared/middleware/error-handler';
 import { documentSequenceService } from '../../platform/services/document-sequence.service';
-import { journalPostingService } from './journal-posting.service';
 import { commercialPaperPostingService } from './commercial-paper-posting.service';
 import {
   assertPaperIssued,
@@ -408,23 +407,18 @@ export class SecuritiesPaymentService {
       throw new Error('Securities payment is already cancelled');
     }
 
-    return prisma.$transaction(async (tx) => {
-      await journalPostingService.cascadeSourceJournalInTx(
-        tx,
-        companyId,
-        [payment.journalEntryId],
-        'cancel',
-        undefined,
-        { sourceId: payment.id, sourceNumber: payment.paymentNumber ?? payment.serial ?? undefined }
-      );
-      return tx.securitiesPayment.update({
-        where: { id: paymentId },
-        data: {
-          isCancelled: true,
-          cancelledAt: new Date(),
-          paperCase: SECURITIES_PAPER_CASES.BOUNCED,
-        },
-      });
+    await commercialPaperPostingService.cancelIssuedPaperJournals(
+      { companyId, branchId: payment.branchId, userId: '' },
+      'PAYMENT',
+      paymentId
+    );
+    return prisma.securitiesPayment.update({
+      where: { id: paymentId },
+      data: {
+        isCancelled: true,
+        cancelledAt: new Date(),
+        paperCase: SECURITIES_PAPER_CASES.BOUNCED,
+      },
     });
   }
 

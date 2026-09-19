@@ -33,6 +33,7 @@ export const importExcelSchema = z.object({
   rows: z.array(z.record(z.union([z.string(), z.number(), z.null()]))).min(1).max(500),
   openingStock: z.boolean().optional(),
   warehouseId: z.string().uuid().optional(),
+  categoryId: z.string().uuid().optional(),
 });
 
 export const launchChecklistSchema = z.object({

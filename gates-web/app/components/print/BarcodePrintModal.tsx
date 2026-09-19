@@ -49,7 +49,7 @@ function LabelSheet({
   count: number;
   size: LabelSize;
 }) {
-  const code = item.serial || item.code || item.id.slice(0, 12);
+  const code = item.barcode || item.serial || item.code || item.id.slice(0, 12);
   let price: number | null = null;
   if (typeof item.salesPrice === 'number') price = item.salesPrice;
   const sizeClass = size === '38x25' ? 'barcode-label-38x25' : 'barcode-label-50x30';
@@ -76,10 +76,12 @@ export function BarcodePrintModal({
   onClose,
   initialItemId,
   initialItemIds,
+  seedItem,
 }: {
   open: boolean;
   onClose: () => void;
   initialItemId?: string;
+  seedItem?: ItemOption;
   /** Sales Invoice Enterprise Redesign: pre-seed the batch with every distinct
    * item on the current document's lines (deduplicated), instead of forcing
    * the user to re-pick each one from the item selector. */
@@ -88,14 +90,14 @@ export function BarcodePrintModal({
   const { profile } = useCompanyPrintProfile();
   const { data } = useItemsQuery(500);
   const items = data?.data ?? [];
-  const [itemId, setItemId] = useState(initialItemId ?? '');
+  const [itemId, setItemId] = useState(initialItemId ?? seedItem?.id ?? '');
   const [labelCount, setLabelCount] = useState(1);
   const [size, setSize] = useState<LabelSize>('50x30');
   const [batchIds, setBatchIds] = useState<string[]>(initialItemIds ?? []);
 
   useEffect(() => {
-    if (open && initialItemId) setItemId(initialItemId);
-  }, [open, initialItemId]);
+    if (open && (initialItemId || seedItem?.id)) setItemId(initialItemId ?? seedItem?.id ?? '');
+  }, [open, initialItemId, seedItem?.id]);
 
   useEffect(() => {
     if (open && initialItemIds?.length) setBatchIds(initialItemIds);
@@ -103,10 +105,13 @@ export function BarcodePrintModal({
 
   if (!open) return null;
 
-  const selected = items.find((it) => it.id === itemId);
-  const batchItems = batchIds
-    .map((id) => items.find((it) => it.id === id))
-    .filter(Boolean) as ItemOption[];
+  const selected =
+    items.find((it) => it.id === itemId) ??
+    (seedItem && seedItem.id === itemId ? seedItem : undefined);
+  const resolveItem = (id: string) =>
+    items.find((it) => it.id === id) ?? (seedItem?.id === id ? seedItem : undefined);
+
+  const batchItems = batchIds.map(resolveItem).filter(Boolean) as ItemOption[];
 
   const addToBatch = () => {
     if (!itemId || batchIds.includes(itemId)) return;
@@ -146,7 +151,12 @@ export function BarcodePrintModal({
         <div className="space-y-3">
           <label className="block text-sm font-medium">
             الصنف
-            <ItemSelect value={itemId} onChange={setItemId} enableQuickCreate={false} />
+            <ItemSelect
+              value={itemId}
+              onChange={setItemId}
+              enableQuickCreate={false}
+              fallbackLabel={seedItem && seedItem.id === itemId ? formatItemLabel(seedItem) : undefined}
+            />
           </label>
           {selected ? (
             <p className="text-xs text-gray-600">{formatItemLabel(selected)}</p>

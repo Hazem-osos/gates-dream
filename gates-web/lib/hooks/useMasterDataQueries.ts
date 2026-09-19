@@ -23,6 +23,9 @@ export type WarehouseOption = {
   code?: string | null;
   arabicName: string;
   englishName?: string | null;
+  parentWarehouseId?: string | null;
+  warehouseKind?: 'HEADER' | 'POSTING' | null;
+  _count?: { childWarehouses?: number };
 };
 
 export type ItemOption = {
@@ -49,6 +52,7 @@ export type ItemOption = {
   useSerialNumber?: boolean | null;
   clothingItem?: boolean | null;
   defaultWarehouseId?: string | null;
+  isAssembly?: boolean | null;
   priceSource?: string | null;
   lastPurchasePrice?: number | string | null;
   trackingType?: string | null;
@@ -155,12 +159,32 @@ export function useAccountsQuery(
   );
 }
 
-export function useWarehousesQuery(limit = 200) {
+export function isHeaderWarehouse(warehouse: WarehouseOption): boolean {
+  if (warehouse.warehouseKind === 'HEADER') return true;
+  if (warehouse.warehouseKind === 'POSTING') return false;
+  return (warehouse._count?.childWarehouses ?? 0) > 0 || !warehouse.parentWarehouseId;
+}
+
+export function isOperationsWarehouse(warehouse: WarehouseOption): boolean {
+  return !isHeaderWarehouse(warehouse);
+}
+
+export function useWarehousesQuery(
+  limit = 200,
+  opts?: { leafOnly?: boolean; headerOnly?: boolean; enabled?: boolean }
+) {
+  const extra: Record<string, string | number | boolean> = { limit, isActive: true };
+  if (opts?.leafOnly) extra.leafOnly = 'true';
+  if (opts?.headerOnly) extra.headerOnly = 'true';
   const query = useApiQuery<WarehouseOption[]>(
-    queryKeys.warehouses({ limit, isActive: true }),
+    queryKeys.warehouses(extra),
     '/inventory/warehouses',
-    { limit, isActive: true },
-    { staleTime: staleTimes.masterMs, gcTime: staleTimes.masterGcMs }
+    extra,
+    {
+      staleTime: staleTimes.masterMs,
+      gcTime: staleTimes.masterGcMs,
+      enabled: opts?.enabled !== false,
+    }
   );
   const data = Array.isArray(query.data?.data)
     ? query.data
@@ -170,9 +194,13 @@ export function useWarehousesQuery(limit = 200) {
   return { ...query, data };
 }
 
-export function useItemsQuery(limit = 200, search?: string) {
+export function useItemsQuery(
+  limit = 200,
+  search?: string,
+  extra?: Record<string, string | number | boolean>
+) {
   const debounced = useDebouncedValue(search ?? '', PICKER_SEARCH_DEBOUNCE_MS);
-  const params = pickerParams(debounced, limit);
+  const params = pickerParams(debounced, limit, extra);
   return useApiQuery<ItemOption[]>(
     queryKeys.items(params),
     '/inventory/items',

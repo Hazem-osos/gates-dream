@@ -18,6 +18,7 @@ const securitiesPaymentFieldsSchema = z.object({
   amount: z.number().positive('Amount must be positive'),
   currencyCode: z.string().min(1, 'Currency code is required'),
   entityName: z.string().max(191).optional().nullable(),
+  entityId: z.string().uuid().optional().nullable(),
 });
 
 export const createSecuritiesPaymentSchema = securitiesPaymentFieldsSchema.refine(
@@ -47,6 +48,7 @@ export const securitiesPaymentQuerySchema = z.object({
   securityType: z.enum(['check', 'promissory-note', 'bond', 'other']).optional(),
   customerId: z.string().uuid().optional(),
   supplierId: z.string().uuid().optional(),
+  entityId: z.string().uuid().optional(),
   isPosted: z.string().optional().transform((val) => val === 'true'),
 });
 

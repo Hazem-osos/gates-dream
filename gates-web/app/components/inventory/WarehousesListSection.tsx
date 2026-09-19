@@ -5,6 +5,7 @@ import { AppTable, FilterToolbar, StatusBadge, Button } from '@/components/ui';
 import { useApiQuery } from '@/lib/hooks/useApi';
 import { queryKeys } from '@/lib/query/query-keys';
 import type { ExportColumnDef } from '@/lib/export/export-utils';
+import { warehouseRoleLabel } from '@/lib/inventory/warehouse-kind';
 
 export function asWarehouseRows(data: unknown): WarehouseRow[] {
   if (Array.isArray(data)) return data as WarehouseRow[];
@@ -22,6 +23,7 @@ export type WarehouseRow = {
   arabicName: string;
   englishName?: string | null;
   storeType?: string | null;
+  warehouseKind?: 'HEADER' | 'POSTING' | null;
   parentWarehouseId?: string | null;
   inventoryAccountId?: string | null;
   costAccountId?: string | null;
@@ -35,28 +37,34 @@ export type WarehouseRow = {
 export function WarehousesListSection({
   onSelect,
   selectedId,
+  headerOnly = false,
+  excludeIds,
 }: {
   onSelect?: (row: WarehouseRow) => void;
   selectedId?: string | null;
+  headerOnly?: boolean;
+  excludeIds?: string[];
 }) {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [search, setSearch] = useState('');
+  const blocked = useMemo(() => new Set(excludeIds ?? []), [excludeIds]);
 
   const queryParams = useMemo(() => {
     const p: Record<string, string | number | boolean> = { page, limit: pageSize };
     if (search.trim()) p.search = search.trim();
+    if (headerOnly) p.headerOnly = true;
     return p;
-  }, [page, pageSize, search]);
+  }, [headerOnly, page, pageSize, search]);
 
   const { data, isLoading } = useApiQuery<WarehouseRow[]>(
-    queryKeys.warehouses({ page, search }),
+    queryKeys.warehouses({ page, search, headerOnly }),
     '/inventory/warehouses',
     queryParams,
     { staleTime: 30_000 }
   );
 
-  const rows = asWarehouseRows(data?.data);
+  const rows = asWarehouseRows(data?.data).filter((row) => !blocked.has(row.id));
   const total = data?.pagination?.total ?? data?.meta?.total ?? rows.length;
 
   const exportColumns: ExportColumnDef<WarehouseRow>[] = [
@@ -96,8 +104,8 @@ export function WarehousesListSection({
           {
             id: 'type',
             header: 'النوع',
-            cell: (r) => (r.storeType === 'SUB' ? 'فرعي' : 'رئيسي'),
-            sortValue: (r) => r.storeType || 'MAIN',
+            cell: (r) => warehouseRoleLabel(r),
+            sortValue: (r) => r.warehouseKind || r.storeType || 'MAIN',
           },
           {
             id: 'status',

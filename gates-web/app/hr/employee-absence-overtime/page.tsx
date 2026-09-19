@@ -6,8 +6,6 @@ import { useForm, type Resolver, type SubmitHandler } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { HrPageChrome } from '@/components/hr/HrPageChrome';
 import { DASH_PANEL } from '@/components/dashboard-primitives';
-import { ActionButtons } from '@/components/ui/ActionButtons';
-import { CrudButtons } from '@/components/ui/CrudButtons';
 import { printPageContent } from '@/lib/print/printHtml';
 import {
   employeeAbsenceOvertimeHeaderSchema,
@@ -173,7 +171,10 @@ export default function EmployeeAbsenceOvertimePage() {
     'flex-1 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg';
 
   return (
-    <HrPageChrome title="غياب الموظفين والإضافي">
+    <HrPageChrome title="غياب الموظفين والإضافي"
+      onSave={handleSubmit(onSaveHeader)}
+      onNew={() => reset(absenceOvertimeDefaults)}
+    >
       <div className={`${DASH_PANEL} p-5`}>
             {/* Form Section */}
             <div className="mb-8 space-y-6">
@@ -477,20 +478,6 @@ export default function EmployeeAbsenceOvertimePage() {
                   </tbody>
                 </table>
               </div>
-            </div>
-
-            {/* Action Buttons */}
-            <div className="flex justify-between items-center mt-8 pt-6 border-t border-[#D6EAF3]">
-              <div className="flex gap-3 items-center">
-                <button type="button" className="px-6 py-2 bg-[#0E79AA] text-white rounded-lg hover:bg-[#094C6B] transition-colors flex items-center gap-2" onClick={() => void printPageContent('غياب الموظفين والإضافي')}>
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
-                  </svg>
-                  طباعة
-                </button>
-                <CrudButtons />
-              </div>
-              <ActionButtons onSave={handleSubmit(onSaveHeader)} onCancel={() => reset(absenceOvertimeDefaults)} />
             </div>
       </div>
     </HrPageChrome>

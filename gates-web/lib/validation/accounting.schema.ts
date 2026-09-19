@@ -411,6 +411,7 @@ export const securitiesBulkCreateHeaderFormSchema = z.object({
   issueDate: z.string().min(1, 'تاريخ التحرير مطلوب'),
   hijriIssueDate: z.string().optional(),
   entityName: z.string().optional(),
+  entityId: z.string().optional(),
   costCenterId: z.string().optional(),
   notes: z.string().optional(),
 });

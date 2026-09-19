@@ -109,6 +109,7 @@ export function QuickCreateItemModal({
         arabicName: name.trim(),
         serial: code.trim() || undefined,
         itemType: 'normal',
+        isAssembly: false,
       };
       if (purchaseCost.trim()) {
         const c = Number(purchaseCost);

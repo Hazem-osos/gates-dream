@@ -12,6 +12,7 @@ export interface CreateItemUnitData {
 }
 
 export interface UpdateItemUnitData {
+  unitId?: string;
   conversionFactor?: number;
   isFactorFixed?: boolean;
   isBaseUnit?: boolean;
@@ -247,6 +248,23 @@ export class ItemUnitService {
         throw new Error('Item unit not found');
       }
 
+      if (data.unitId && data.unitId !== existing.unitId) {
+        const unit = await prisma.unit.findFirst({
+          where: { id: data.unitId, companyId },
+          select: { id: true },
+        });
+        if (!unit) {
+          throw new Error('Unit not found');
+        }
+        const clash = await prisma.itemUnit.findFirst({
+          where: { itemId: existing.itemId, unitId: data.unitId, id: { not: itemUnitId } },
+          select: { id: true },
+        });
+        if (clash) {
+          throw new Error('الوحدة دي مربوطة بالصنف بالفعل. اختَر وحدة تانية.');
+        }
+      }
+
       // If this is being set as base unit, unset other base units for this item
       if (data.isBaseUnit && !existing.isBaseUnit) {
         await prisma.itemUnit.updateMany({
@@ -264,6 +282,7 @@ export class ItemUnitService {
       const itemUnit = await prisma.itemUnit.update({
         where: { id: itemUnitId },
         data: {
+          ...(data.unitId !== undefined && { unitId: data.unitId }),
           ...(data.conversionFactor !== undefined && {
             conversionFactor: new Decimal(data.conversionFactor),
           }),

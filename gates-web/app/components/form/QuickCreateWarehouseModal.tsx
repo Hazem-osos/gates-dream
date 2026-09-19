@@ -59,6 +59,7 @@ export function QuickCreateWarehouseModal({ open, initialName, onClose, onCreate
     mutation.mutate({
       arabicName: name.trim(),
       code: code.trim() || undefined,
+      warehouseKind: 'POSTING',
     });
   };
 

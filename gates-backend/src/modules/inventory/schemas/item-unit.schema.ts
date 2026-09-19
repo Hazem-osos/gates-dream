@@ -9,6 +9,7 @@ export const createItemUnitSchema = z.object({
 });
 
 export const updateItemUnitSchema = z.object({
+  unitId: z.string().uuid('Unit ID must be a valid UUID').optional(),
   conversionFactor: z.number().positive('Conversion factor must be greater than 0').optional(),
   isFactorFixed: z.boolean().optional(),
   isBaseUnit: z.boolean().optional(),

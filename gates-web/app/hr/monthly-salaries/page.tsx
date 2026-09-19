@@ -4,7 +4,6 @@ import { useState, useEffect, useMemo } from 'react';
 import { useForm, type Resolver, type SubmitHandler } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Users, Banknote, TrendingDown, Wallet } from 'lucide-react';
-import { ActionButtons } from '@/components/ui/ActionButtons';
 import { HrPageChrome } from '@/components/hr/HrPageChrome';
 import {
   FormSectionCard,
@@ -370,7 +369,7 @@ export default function MonthlySalariesPage() {
   };
 
   return (
-    <HrPageChrome title="مسير الرواتب الشهري" module="HR / PAYROLL">
+    <HrPageChrome title="مسير الرواتب الشهري" onSave={submitSave} savePending={salaryMutation.isPending}>
         <ModuleKpiGrid className="mb-4">
           <KpiSummaryCard label="عدد الموظفين" value={salaryData.length} icon={Users} />
           <KpiSummaryCard
@@ -644,13 +643,6 @@ export default function MonthlySalariesPage() {
             <p className="mt-2 text-right text-xs text-slate-500">مسير نشط: {payrollRunId}</p>
           ) : null}
         </section>
-
-        <div className="flex justify-end rounded-xl border border-[#E6F0F7] bg-white px-4 py-3 shadow-sm">
-          <ActionButtons
-            onSave={submitSave}
-            saveText={salaryMutation.isPending ? 'جاري الحفظ...' : 'حفظ'}
-          />
-        </div>
 
       {error && <ErrorToast message={error} onClose={() => setError('')} />}
       {success && <SuccessToast message={success} onClose={() => setSuccess('')} />}

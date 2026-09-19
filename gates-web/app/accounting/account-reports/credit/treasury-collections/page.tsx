@@ -14,6 +14,7 @@ export default function TreasuryCollectionsPage() {
         costCenter: true,
         currency: true,
         branch: true,
+        entity: true,
       }}
     />
   );

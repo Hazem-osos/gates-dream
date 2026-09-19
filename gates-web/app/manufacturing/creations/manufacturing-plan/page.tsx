@@ -2,21 +2,22 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { CompactFormField, StatusBadge, compactControlClass, type StatusTone } from '@/components/ui';
 import { useBackendReachability } from '@/lib/hooks/useBackendReachability';
 import { useApiQuery } from '@/lib/hooks/useApi';
 import { lazyDefaultModal } from '@/components/ui/lazyModal';
 import {
-  CommandCenter,
-  DataGridDense,
-  StatusDotPill,
-  DASH_NUM,
-  HUD_BTN_GHOST,
-  HUD_SEGMENT,
-  HUD_SEGMENT_ON,
-  HUD_SEGMENT_OFF,
-} from '@/components/dashboard-primitives';
-import type { StatusDotTone } from '@/components/dashboard-primitives';
-
+  ManufacturingPageChrome,
+  MfgEmptyRow,
+  MfgField,
+  MfgFilterCard,
+  MfgTableCard,
+  mfgTableClass,
+  mfgTdClass,
+  mfgThClass,
+  mfgTheadClass,
+  mfgTrClass,
+} from '@/components/manufacturing/ManufacturingPageChrome';
 const CheckQuantitiesModal = lazyDefaultModal(
   () => import('@/components/CheckQuantitiesModal'),
   'جاري تحميل فحص الكميات…'
@@ -30,10 +31,9 @@ type ProductionOrderRow = {
   createdAt: string;
   bom?: { name?: string };
   finishedItem?: { arabicName?: string; serial?: string };
-  warehouseIdRaw?: string;
 };
 
-const STAGE: Record<string, { label: string; tone: StatusDotTone }> = {
+const STAGE: Record<string, { label: string; tone: StatusTone }> = {
   DRAFT: { label: 'مسودة', tone: 'warning' },
   RELEASED: { label: 'صرف خامات', tone: 'warning' },
   IN_PROGRESS: { label: 'تشغيل', tone: 'info' },
@@ -46,12 +46,12 @@ export default function ManufacturingPlanPage() {
   const router = useRouter();
   const [serial, setSerial] = useState('');
   const [model, setModel] = useState('');
-  const [tab, setTab] = useState<'all' | 'check' | 'transfer'>('all');
+  const [tab, setTab] = useState<'all' | 'check'>('all');
   const [showCheck, setShowCheck] = useState(false);
   const [page, setPage] = useState(1);
   const pageSize = 12;
 
-  const { data, isLoading, isFetching, refetch } = useApiQuery<ProductionOrderRow[]>(
+  const { data, isLoading } = useApiQuery<ProductionOrderRow[]>(
     ['manufacturing-orders', page],
     '/manufacturing/orders',
     { page, limit: pageSize }
@@ -80,99 +80,90 @@ export default function ManufacturingPlanPage() {
   );
 
   return (
-    <CommandCenter
+    <ManufacturingPageChrome
       title="خطة التصنيع"
-      module="MFG / PLAN"
-      refreshing={isFetching}
-      onRefresh={() => void refetch()}
-      shortcuts={[
-        { key: 'F2', label: 'أمر تشغيل', href: '/manufacturing/operations/operation' },
-        { key: 'F8', label: 'التشغيل', href: '/manufacturing' },
-      ]}
-      filters={
-        <div className="flex flex-wrap items-center gap-2">
-          <input
-            value={serial}
-            onChange={(e) => setSerial(e.target.value)}
-            placeholder="المسلسل"
-            className={`${HUD_BTN_GHOST} w-36 px-3 text-right`}
-          />
-          <input
-            value={model}
-            onChange={(e) => setModel(e.target.value)}
-            placeholder="النموذج / الصنف"
-            className={`${HUD_BTN_GHOST} w-40 px-3 text-right`}
-          />
-          <div className={HUD_SEGMENT} role="group" aria-label="عرض الخطة">
-            <button
-              type="button"
-              className={tab === 'all' ? HUD_SEGMENT_ON : HUD_SEGMENT_OFF}
-              onClick={() => setTab('all')}
-            >
-              تصنيع
-            </button>
-            <button
-              type="button"
-              className={tab === 'check' ? HUD_SEGMENT_ON : HUD_SEGMENT_OFF}
-              onClick={() => {
-                setTab('check');
-                setShowCheck(true);
-              }}
-            >
-              فحص الكميات
-            </button>
-          </div>
+      statusLabel="خطة"
+      favoriteHref="/manufacturing/creations/manufacturing-plan"
+      hideSave
+    >
+      <MfgFilterCard className="xl:grid-cols-4">
+        <CompactFormField
+          label="المسلسل"
+          placeholder="رقم الأمر"
+          value={serial}
+          onChange={(e) => setSerial(e.target.value)}
+        />
+        <CompactFormField
+          label="النموذج / الصنف"
+          placeholder="ابحث بالنموذج"
+          value={model}
+          onChange={(e) => setModel(e.target.value)}
+        />
+        <MfgField label="العرض">
+          <select
+            className={compactControlClass}
+            value={tab}
+            onChange={(e) => {
+              const next = e.target.value as 'all' | 'check';
+              setTab(next);
+              if (next === 'check') setShowCheck(true);
+            }}
+          >
+            <option value="all">تصنيع</option>
+            <option value="check">فحص الكميات</option>
+          </select>
+        </MfgField>
+        <MfgField label="إجراء سريع">
           <button
             type="button"
-            className={HUD_BTN_GHOST}
+            className={compactControlClass}
             onClick={() => router.push('/inventory/operations/transfer')}
           >
             نقل مخزني
           </button>
-        </div>
-      }
-    >
-      <DataGridDense
-        title={`تفاصيل الخطة (${total})`}
-        loading={isLoading}
-        rows={rows}
-        empty="لا توجد أوامر إنتاج"
-        emptyActionHref="/manufacturing/operations/operation"
-        emptyActionLabel="أمر تشغيل"
-        onRowOpen={() => router.push('/manufacturing/operations/operation')}
-        columns={[
-          {
-            id: 'no',
-            header: 'الرقم',
-            cell: (r) => <span className={DASH_NUM}>{r.orderNumber}</span>,
-          },
-          {
-            id: 'date',
-            header: 'التاريخ',
-            cell: (r) => new Date(r.createdAt).toLocaleDateString('ar-EG'),
-          },
-          {
-            id: 'model',
-            header: 'النموذج',
-            cell: (r) => r.finishedItem?.arabicName ?? r.bom?.name ?? '—',
-          },
-          {
-            id: 'st',
-            header: 'المرحلة',
-            cell: (r) => {
-              const stage = STAGE[r.status] ?? { label: r.status, tone: 'neutral' as const };
-              return <StatusDotPill label={stage.label} tone={stage.tone} />;
-            },
-          },
-          {
-            id: 'qty',
-            header: 'الكمية',
-            numeric: true,
-            cell: (r) => String(r.plannedQuantity ?? '—'),
-          },
-        ]}
-      />
+        </MfgField>
+      </MfgFilterCard>
+
+      <MfgTableCard title={`تفاصيل الخطة (${total})`}>
+        <table className={mfgTableClass}>
+          <thead className={mfgTheadClass}>
+            <tr>
+              <th className={mfgThClass}>الرقم</th>
+              <th className={mfgThClass}>التاريخ</th>
+              <th className={mfgThClass}>النموذج</th>
+              <th className={mfgThClass}>المرحلة</th>
+              <th className={`${mfgThClass} text-left`}>الكمية</th>
+            </tr>
+          </thead>
+          <tbody>
+            {isLoading ? (
+              <MfgEmptyRow colSpan={5}>جاري التحميل…</MfgEmptyRow>
+            ) : rows.length === 0 ? (
+              <MfgEmptyRow colSpan={5}>لا توجد أوامر إنتاج</MfgEmptyRow>
+            ) : (
+              rows.map((row) => {
+                const stage = STAGE[row.status] ?? { label: row.status, tone: 'neutral' as const };
+                return (
+                  <tr
+                    key={row.id}
+                    className={`${mfgTrClass} cursor-pointer`}
+                    onClick={() => router.push('/manufacturing/operations/operation')}
+                  >
+                    <td className={`${mfgTdClass} font-mono font-semibold`}>{row.orderNumber}</td>
+                    <td className={mfgTdClass}>{new Date(row.createdAt).toLocaleDateString('ar-EG')}</td>
+                    <td className={mfgTdClass}>{row.finishedItem?.arabicName ?? row.bom?.name ?? '—'}</td>
+                    <td className={mfgTdClass}>
+                      <StatusBadge compact label={stage.label} tone={stage.tone} />
+                    </td>
+                    <td className={`${mfgTdClass} text-left tabular-nums`}>{String(row.plannedQuantity ?? '—')}</td>
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+        </table>
+      </MfgTableCard>
       {showCheck ? <CheckQuantitiesModal isOpen onClose={() => setShowCheck(false)} /> : null}
-    </CommandCenter>
+    </ManufacturingPageChrome>
   );
 }

@@ -63,6 +63,7 @@ export interface CreateItemData {
   mainAccountId?: string;
   costCenterId?: string;
   categoryId?: string | null;
+  baseUnitId?: string | null;
   barcode?: string | null;
   salesAccountId?: string | null;
   cogsAccountId?: string | null;
@@ -178,12 +179,18 @@ export class ItemService {
       let salesAccountId = data.salesAccountId ?? null;
       let cogsAccountId = data.cogsAccountId ?? null;
 
+      if (!data.categoryId) {
+        throw new AppError(400, 'اختَر مجموعة الصنف قبل الحفظ.');
+      }
+      if (!data.baseUnitId) {
+        throw new AppError(400, 'اختَر وحدة للصنف قبل الحفظ.');
+      }
       if (data.categoryId) {
         const category = await prisma.itemCategory.findFirst({
           where: { id: data.categoryId, companyId },
         });
         if (!category) {
-          throw new AppError(400, 'Item category not found');
+          throw new AppError(400, 'مجموعة الصنف غير موجودة');
         }
         mainAccountId = mainAccountId ?? category.defaultInventoryAccountId ?? null;
         salesAccountId = salesAccountId ?? category.defaultSalesAccountId ?? null;
@@ -204,8 +211,11 @@ export class ItemService {
           barcode: data.barcode ?? null,
           salesAccountId,
           cogsAccountId,
-          defaultTaxPercent:
-            data.defaultTaxPercent != null ? new Decimal(data.defaultTaxPercent) : null,
+          defaultTaxPercent: data.isTaxExempt
+            ? new Decimal(0)
+            : data.defaultTaxPercent != null
+              ? new Decimal(data.defaultTaxPercent)
+              : null,
           taxExemptionReason: data.taxExemptionReason ?? null,
           specifications: data.specifications,
           itemType: data.itemType,
@@ -289,8 +299,25 @@ export class ItemService {
         },
       });
 
+      const unit = await prisma.unit.findFirst({
+        where: { id: data.baseUnitId, companyId },
+        select: { id: true },
+      });
+      if (!unit) {
+        throw new AppError(400, 'الوحدة المختارة غير موجودة');
+      }
+      await prisma.itemUnit.create({
+        data: {
+          itemId: item.id,
+          unitId: unit.id,
+          conversionFactor: new Decimal(1),
+          isFactorFixed: true,
+          isBaseUnit: true,
+        },
+      });
+
       logger.info({ companyId, itemId: item.id }, 'Item created');
-      return item;
+      return this.getItemById(companyId, item.id);
     } catch (error) {
       logger.error({ error, companyId, data }, 'Error creating item');
       throw error;
@@ -385,6 +412,7 @@ export class ItemService {
       itemType?: string;
       isActive?: boolean;
       categoryId?: string;
+      isAssembly?: boolean;
     }
   ) {
     try {
@@ -425,6 +453,12 @@ export class ItemService {
 
       if (options.categoryId) {
         where.categoryId = options.categoryId;
+      }
+
+      if (options.isAssembly === true) {
+        where.isAssembly = true;
+      } else if (options.isAssembly === false) {
+        where.isAssembly = { not: true };
       }
 
       const [items, total] = await Promise.all([
@@ -574,7 +608,9 @@ export class ItemService {
       if (data.barcode !== undefined) updateData.barcode = data.barcode;
       if (data.salesAccountId !== undefined) updateData.salesAccountId = data.salesAccountId;
       if (data.cogsAccountId !== undefined) updateData.cogsAccountId = data.cogsAccountId;
-      if (data.defaultTaxPercent !== undefined) {
+      if (data.isTaxExempt) {
+        updateData.defaultTaxPercent = new Decimal(0);
+      } else if (data.defaultTaxPercent !== undefined) {
         updateData.defaultTaxPercent =
           data.defaultTaxPercent != null ? new Decimal(data.defaultTaxPercent) : null;
       }
@@ -599,7 +635,12 @@ export class ItemService {
       if (data.priceWholesale !== undefined) updateData.priceWholesale = new Decimal(data.priceWholesale);
       if (data.priceProjects !== undefined) updateData.priceProjects = new Decimal(data.priceProjects);
       if (data.isService !== undefined) updateData.isService = data.isService;
-      if (data.isAssembly !== undefined) updateData.isAssembly = data.isAssembly;
+      if (data.isAssembly !== undefined && data.isAssembly !== existing.isAssembly) {
+        throw new AppError(
+          409,
+          'نوع الصنف (عادي / تجميعي) ثابت بعد أول حفظ. أنشئ صنفاً جديداً لو هتغيّر النوع.'
+        );
+      }
       if (data.isTaxExempt !== undefined) updateData.isTaxExempt = data.isTaxExempt;
       if (data.consumerPrice !== undefined) updateData.consumerPrice = new Decimal(data.consumerPrice);
       if (data.representativePrice !== undefined) {

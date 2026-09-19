@@ -36,6 +36,8 @@ export const WORKSPACE_HUB_GROUPS: WorkspaceHubGroup[] = [
     id: 'inventory',
     title: 'المخازن والأصناف',
     links: [
+      { label: 'دليل المخازن', href: '/inventory/guide' },
+      { label: 'بطاقة المخزن', href: '/inventory/creations/stores' },
       { label: 'دليل الأصناف', href: '/inventory/guide/items' },
       { label: 'بطاقة الصنف', href: '/inventory/creations/item-card' },
       { label: 'أذون الإضافة', href: '/inventory/operations/receipt' },

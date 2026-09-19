@@ -4,6 +4,7 @@ import { AppError } from '../../../shared/middleware/error-handler';
 import { toHijriDate } from '../../../shared/utils/hijri-date';
 import { documentSequenceService } from '../../platform/services/document-sequence.service';
 import type { CreateBatchReceiptPapersDto } from '../../treasury/dto/batch-receipt-paper.dto';
+import { resolveSecuritiesEntity } from './securities-entity.service';
 
 function asDate(value: Date | string): Date {
   return value instanceof Date ? value : new Date(value);
@@ -43,7 +44,11 @@ export class CommercialPaperService {
     const hijriIssueDate = dto.hijriIssueDate?.trim() || toHijriDate(issueDate);
     const currencyCode = dto.currencyCode?.trim() || 'EGP';
     const issuerName = dto.partyName?.trim() || undefined;
-    const entityName = dto.entityName?.trim() || undefined;
+    const entity = await resolveSecuritiesEntity(companyId, {
+      entityId: dto.entityId,
+      entityName: dto.entityName,
+    });
+    const entityName = entity?.arabicName || dto.entityName?.trim() || undefined;
 
     const customer =
       dto.partyType !== 'supplier'
@@ -113,6 +118,7 @@ export class CommercialPaperService {
             dueDate,
             amount: new Decimal(paper.amount),
             currencyCode,
+            entityId: entity?.id,
             entityName,
             isReceived: true,
             isPosted: false,

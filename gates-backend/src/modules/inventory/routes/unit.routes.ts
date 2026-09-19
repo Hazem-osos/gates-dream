@@ -10,7 +10,13 @@ import {
 } from '../schemas/unit.schema';
 import { unitService } from '../services/unit.service';
 import { logger } from '../../../shared/logger';
+import { AppError } from '../../../shared/middleware/error-handler';
 import { AuthRequest } from '../../../shared/auth/types';
+
+function unitErrorStatus(error: unknown): number {
+  if (error instanceof AppError) return error.statusCode;
+  return 500;
+}
 
 const router = Router();
 
@@ -83,11 +89,7 @@ router.get(
       });
     } catch (error) {
       logger.error({ error }, 'Error getting unit');
-      const status =
-        error instanceof Error && error.message === 'Unit not found'
-          ? 404
-          : 500;
-      return void res.status(status).json({
+      return void res.status(unitErrorStatus(error)).json({
         status: 'error',
         message:
           error instanceof Error ? error.message : 'Failed to get unit',
@@ -123,7 +125,7 @@ router.post(
       });
     } catch (error) {
       logger.error({ error }, 'Error creating unit');
-      return void res.status(500).json({
+      return void res.status(unitErrorStatus(error)).json({
         status: 'error',
         message:
           error instanceof Error ? error.message : 'Failed to create unit',
@@ -163,11 +165,7 @@ router.put(
       });
     } catch (error) {
       logger.error({ error }, 'Error updating unit');
-      const status =
-        error instanceof Error && error.message === 'Unit not found'
-          ? 404
-          : 500;
-      return void res.status(status).json({
+      return void res.status(unitErrorStatus(error)).json({
         status: 'error',
         message:
           error instanceof Error ? error.message : 'Failed to update unit',
@@ -198,11 +196,7 @@ router.delete(
       return void res.status(204).send();
     } catch (error) {
       logger.error({ error }, 'Error deleting unit');
-      const status =
-        error instanceof Error && error.message === 'Unit not found'
-          ? 404
-          : 500;
-      return void res.status(status).json({
+      return void res.status(unitErrorStatus(error)).json({
         status: 'error',
         message:
           error instanceof Error ? error.message : 'Failed to delete unit',

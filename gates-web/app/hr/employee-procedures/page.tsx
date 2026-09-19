@@ -5,8 +5,6 @@ import { useForm, type Resolver } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { HrPageChrome } from '@/components/hr/HrPageChrome';
 import { DASH_PANEL } from '@/components/dashboard-primitives';
-import { ActionButtons } from '@/components/ui/ActionButtons';
-import { CrudButtons } from '@/components/ui/CrudButtons';
 import { useApiQuery } from '@/lib/hooks/useApi';
 import ErrorToast from '@/components/ErrorToast';
 import {
@@ -133,7 +131,9 @@ export default function EmployeeProceduresPage() {
   });
 
   return (
-    <HrPageChrome title="إجراءات الموظفين">
+    <HrPageChrome title="إجراءات الموظفين"
+      onSave={submitHeader}
+    >
       <div className={`${DASH_PANEL} p-5`}>
             {/* Form Section */}
             <div className="mb-8 space-y-6">
@@ -481,15 +481,6 @@ export default function EmployeeProceduresPage() {
                   </tbody>
                 </table>
               </div>
-            </div>
-
-            <div className="flex justify-between items-center mt-8 pt-6 border-t border-[#D6EAF3]">
-              <CrudButtons
-                onAdd={() => {
-                  setError('يرجى إضافة إجراء جديد من خلال النموذج');
-                }}
-              />
-              <ActionButtons onSave={submitHeader} />
             </div>
       </div>
 

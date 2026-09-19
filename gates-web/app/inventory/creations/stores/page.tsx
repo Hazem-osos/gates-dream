@@ -12,10 +12,11 @@ import { DocumentBrowseDrawer } from '@/components/erp/DocumentBrowseDrawer';
 import { ErpDocumentLayout, ErpDocumentPageHeader } from '@/components/erp';
 import { DocumentModeProvider, useDocumentMode } from '@/components/common/document-shell';
 import { WarehousesListSection, asWarehouseRows, type WarehouseRow } from '@/components/inventory/WarehousesListSection';
+import { WarehouseParentField } from '@/components/inventory/WarehouseParentField';
 import { AccountSelect } from '@/components/form/AccountSelect';
-import { WarehouseSelect } from '@/components/form/WarehouseSelect';
 import { useApiMutation, useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
-import { nextNumericSerial } from '@/lib/masters/nextNumericSerial';
+import { isCodeAfter } from '@/lib/masters/nextNumericSerial';
+import { useAccountingSettingsQuery } from '@/lib/hooks/useAccountingSettings';
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
 import type { ApiError } from '@/lib/api/types';
@@ -27,6 +28,7 @@ type WarehouseForm = {
   arabicName: string;
   englishName: string;
   storeType: 'MAIN' | 'SUB';
+  warehouseKind: 'HEADER' | 'POSTING';
   parentWarehouseId: string;
   inventoryAccountId: string;
   costAccountId: string;
@@ -40,6 +42,7 @@ const emptyForm = (code = ''): WarehouseForm => ({
   arabicName: '',
   englishName: '',
   storeType: 'MAIN',
+  warehouseKind: 'HEADER',
   parentWarehouseId: '',
   inventoryAccountId: '',
   costAccountId: '',
@@ -66,15 +69,47 @@ function StoresPageInner() {
     { limit: 1000, isActive: true }
   );
   const warehouses = useMemo(() => asWarehouseRows(warehousesRes?.data), [warehousesRes?.data]);
-  const nextWarehouseCode = useMemo(
-    () => nextNumericSerial(warehouses.map((row) => row.code)),
-    [warehouses]
+  const blockedParentIds = useMemo(() => {
+    if (!selectedId) return [] as string[];
+    const blocked = new Set<string>([selectedId]);
+    const stack = [selectedId];
+    while (stack.length) {
+      const current = stack.pop()!;
+      for (const row of warehouses) {
+        if (row.parentWarehouseId === current && !blocked.has(row.id)) {
+          blocked.add(row.id);
+          stack.push(row.id);
+        }
+      }
+    }
+    return [...blocked];
+  }, [selectedId, warehouses]);
+  const { data: settingsRes } = useAccountingSettingsQuery();
+  const warehouseAuto = settingsRes?.data?.general?.warehouseAutoNumbering !== false;
+  const applyParent = (parentWarehouseId: string) => {
+    patch({
+      parentWarehouseId,
+      storeType: parentWarehouseId ? 'SUB' : 'MAIN',
+      warehouseKind: parentWarehouseId ? formData.warehouseKind || 'POSTING' : 'HEADER',
+    });
+  };
+  const parentForCode = formData.parentWarehouseId;
+  const { data: nextCodeResponse } = useApiQuery<{ code?: string }>(
+    ['warehouses', 'next-code', parentForCode || 'root'],
+    '/inventory/warehouses/next-code',
+    parentForCode ? { parentWarehouseId: parentForCode } : undefined,
+    { enabled: !selectedId && warehouseAuto && (formData.storeType === 'MAIN' || Boolean(parentForCode)) }
   );
 
   useEffect(() => {
-    if (selectedId) return;
-    setFormData((prev) => (prev.code === nextWarehouseCode ? prev : { ...prev, code: nextWarehouseCode }));
-  }, [nextWarehouseCode, selectedId]);
+    if (selectedId || !warehouseAuto) return;
+    const suggested = nextCodeResponse?.data?.code;
+    if (!suggested) return;
+    setFormData((prev) => {
+      if (prev.code && isCodeAfter(prev.code, suggested)) return prev;
+      return prev.code === suggested ? prev : { ...prev, code: suggested };
+    });
+  }, [selectedId, warehouseAuto, nextCodeResponse?.data?.code]);
 
   useEffect(() => {
     if (!quickCreate.prefillName || selectedId) return;
@@ -91,7 +126,8 @@ function StoresPageInner() {
       code: row.code ?? '',
       arabicName: row.arabicName ?? '',
       englishName: row.englishName ?? '',
-      storeType: row.storeType === 'SUB' ? 'SUB' : 'MAIN',
+      storeType: row.storeType === 'SUB' || row.parentWarehouseId ? 'SUB' : 'MAIN',
+      warehouseKind: row.warehouseKind === 'POSTING' ? 'POSTING' : 'HEADER',
       parentWarehouseId: row.parentWarehouseId ?? '',
       inventoryAccountId: row.inventoryAccountId ?? '',
       costAccountId: row.costAccountId ?? '',
@@ -116,10 +152,12 @@ function StoresPageInner() {
           });
         }
         invalidateQuery(['warehouses']);
+        invalidateQuery(['warehouses', 'next-code']);
         setSelectedId(null);
         setFormData((prev) => ({
           ...emptyForm(),
           storeType: prev.storeType,
+          warehouseKind: prev.warehouseKind,
           parentWarehouseId: prev.parentWarehouseId,
           inventoryAccountId: prev.inventoryAccountId,
           costAccountId: prev.costAccountId,
@@ -153,10 +191,14 @@ function StoresPageInner() {
   const patch = (next: Partial<WarehouseForm>) => setFormData((prev) => ({ ...prev, ...next }));
 
   const requestBody = () => ({
+    code: formData.code.trim() || undefined,
     arabicName: formData.arabicName,
     englishName: formData.englishName || undefined,
-    storeType: formData.storeType,
-    parentWarehouseId: formData.storeType === 'MAIN' ? null : formData.parentWarehouseId || null,
+    storeType: formData.parentWarehouseId ? 'SUB' : 'MAIN',
+    warehouseKind: formData.parentWarehouseId
+      ? formData.warehouseKind
+      : formData.warehouseKind || 'HEADER',
+    parentWarehouseId: formData.parentWarehouseId || null,
     inventoryAccountId: formData.inventoryAccountId || null,
     costAccountId: formData.costAccountId || null,
     giftAccountId: formData.giftAccountId || null,
@@ -166,7 +208,7 @@ function StoresPageInner() {
 
   const resetNew = () => {
     setSelectedId(null);
-    setFormData(emptyForm(nextWarehouseCode));
+    setFormData(emptyForm());
     setError('');
     setMode('create');
   };
@@ -175,6 +217,10 @@ function StoresPageInner() {
     setError('');
     if (!formData.arabicName.trim()) {
       setError('يرجى إدخال اسم المخزن');
+      return;
+    }
+    if (!warehouseAuto && !selectedId && !formData.code.trim()) {
+      setError('رقم المخزن مطلوب — الترقيم يدوي');
       return;
     }
     if (formData.storeType === 'SUB' && !formData.parentWarehouseId) {
@@ -199,7 +245,8 @@ function StoresPageInner() {
       code: row.code ?? '',
       arabicName: row.arabicName ?? '',
       englishName: row.englishName ?? '',
-      storeType: row.storeType === 'SUB' ? 'SUB' : 'MAIN',
+      storeType: row.storeType === 'SUB' || row.parentWarehouseId ? 'SUB' : 'MAIN',
+      warehouseKind: row.warehouseKind === 'POSTING' ? 'POSTING' : 'HEADER',
       parentWarehouseId: row.parentWarehouseId ?? '',
       inventoryAccountId: row.inventoryAccountId ?? '',
       costAccountId: row.costAccountId ?? '',
@@ -222,10 +269,10 @@ function StoresPageInner() {
         lockWhenPosted={false}
         breadcrumbs={[
           { href: '/inventory', label: 'المخازن' },
-          { label: 'التعريفات' },
-          { label: 'دليل المخازن' },
+          { label: 'البطاقات' },
+          { label: 'بطاقة المخزن' },
         ]}
-        title="دليل المخازن"
+        title="بطاقة المخزن"
         docNumber={formData.code || (selectedId ? 'تعديل' : 'جديد')}
         statusTone="info"
         statusLabel={selectedId ? 'تعديل' : 'جديد'}
@@ -245,6 +292,7 @@ function StoresPageInner() {
         onBrowseList={() => setShowGuide(true)}
         browseListLabel="السابق"
         currentId={selectedId}
+        favoriteHref="/inventory/creations/stores"
       />
 
       <FormSectionCard
@@ -253,7 +301,14 @@ function StoresPageInner() {
         icon={Warehouse}
         className="mb-3 p-3 sm:p-4"
       >
-        <CompactFormField label="رقم المخزن" value={formData.code} disabled placeholder="تلقائي" />
+        <CompactFormField
+          label="رقم المخزن"
+          required={!warehouseAuto}
+          value={formData.code}
+          disabled={isReadOnly || (warehouseAuto && !selectedId)}
+          onChange={(e) => patch({ code: e.target.value })}
+          placeholder={warehouseAuto ? 'تلقائي — 1 ثم 11' : 'مثال: 1 أو 11'}
+        />
         <CompactFormField
           label="اسم المخزن"
           required
@@ -276,9 +331,13 @@ function StoresPageInner() {
             value={formData.storeType}
             onChange={(e) => {
               const storeType = e.target.value as 'MAIN' | 'SUB';
+              if (storeType === 'MAIN') {
+                applyParent('');
+                return;
+              }
               patch({
                 storeType,
-                parentWarehouseId: storeType === 'MAIN' ? '' : formData.parentWarehouseId,
+                warehouseKind: formData.warehouseKind || 'POSTING',
               });
             }}
           >
@@ -286,29 +345,48 @@ function StoresPageInner() {
             <option value="SUB">فرعي</option>
           </select>
         </CompactFormField>
-        <CompactFormField label="م/رئيسي">
-          <WarehouseSelect
+        {formData.storeType === 'SUB' ? (
+          <CompactFormField label="نوع الفرعي">
+            <select
+              className={compactControlClass}
+              disabled={isReadOnly}
+              value={formData.warehouseKind}
+              onChange={(e) => patch({ warehouseKind: e.target.value as 'HEADER' | 'POSTING' })}
+            >
+              <option value="HEADER">رئيسي فرعي</option>
+              <option value="POSTING">عمليات</option>
+            </select>
+          </CompactFormField>
+        ) : (
+          <CompactFormField label="نوع المخزن">
+            <input className={compactControlClass} value="رئيسي" readOnly disabled />
+          </CompactFormField>
+        )}
+        <CompactFormField label="المخزن الأب">
+          <WarehouseParentField
             value={formData.parentWarehouseId}
-            onChange={(parentWarehouseId) => patch({ parentWarehouseId })}
-            emptyLabel="—"
-            disabled={isReadOnly || formData.storeType === 'MAIN'}
-          />
-        </CompactFormField>
-        <CompactFormField label="ح/المخزون">
-          <AccountSelect
-            value={formData.inventoryAccountId}
-            onChange={(inventoryAccountId) => patch({ inventoryAccountId })}
-            leafOnly
-            placeholder="حساب المخزون"
+            onChange={applyParent}
+            excludeIds={blockedParentIds}
             disabled={isReadOnly}
           />
         </CompactFormField>
-        <CompactFormField label="ح/التكلفة">
+        <CompactFormField label="حساب المخزون">
+          <AccountSelect
+            value={formData.inventoryAccountId}
+            onChange={(inventoryAccountId) => patch({ inventoryAccountId })}
+            leafOnly={false}
+            placeholder="كل الحسابات"
+            emptyLabel="كل الحسابات"
+            disabled={isReadOnly}
+          />
+        </CompactFormField>
+        <CompactFormField label="حساب تكلفة البضاعة المباعة">
           <AccountSelect
             value={formData.costAccountId}
             onChange={(costAccountId) => patch({ costAccountId })}
-            leafOnly
-            placeholder="حساب التكلفة"
+            leafOnly={false}
+            placeholder="كل الحسابات"
+            emptyLabel="كل الحسابات"
             disabled={isReadOnly}
           />
         </CompactFormField>

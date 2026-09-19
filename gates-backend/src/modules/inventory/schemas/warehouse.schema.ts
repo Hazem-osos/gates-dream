@@ -8,6 +8,7 @@ export const createWarehouseSchema = z.object({
   englishName: z.string().optional(),
   branchId: optionalUuid,
   storeType: z.enum(['MAIN', 'SUB']).optional().nullable(),
+  warehouseKind: z.enum(['HEADER', 'POSTING']).optional(),
   parentWarehouseId: optionalUuid,
   inventoryAccountId: optionalUuid,
   costAccountId: optionalUuid,
@@ -38,6 +39,18 @@ export const warehouseQuerySchema = z.object({
   search: z.string().optional(),
   branchId: z.string().uuid().optional().nullable(),
   isActive: z
+    .union([z.boolean(), z.string()])
+    .optional()
+    .transform((val) =>
+      val === undefined ? undefined : val === true || val === 'true'
+    ),
+  leafOnly: z
+    .union([z.boolean(), z.string()])
+    .optional()
+    .transform((val) =>
+      val === undefined ? undefined : val === true || val === 'true'
+    ),
+  headerOnly: z
     .union([z.boolean(), z.string()])
     .optional()
     .transform((val) =>

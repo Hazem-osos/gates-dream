@@ -191,6 +191,7 @@ export function ItemQuickAddModal({
         salesAccountId: form.salesAccountId || undefined,
         cogsAccountId: form.cogsAccountId || undefined,
         itemType: 'normal',
+        isAssembly: false,
       };
       if (form.defaultTaxPercent.trim()) {
         const n = Number(form.defaultTaxPercent);

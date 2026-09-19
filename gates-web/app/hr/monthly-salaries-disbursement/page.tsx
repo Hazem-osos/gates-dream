@@ -6,8 +6,6 @@ import { useForm, type Resolver, type SubmitHandler } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { HrPageChrome } from '@/components/hr/HrPageChrome';
 import { DASH_PANEL } from '@/components/dashboard-primitives';
-import { ActionButtons } from '@/components/ui/ActionButtons';
-import { CrudButtons } from '@/components/ui/CrudButtons';
 import {
   monthlySalariesDisbursementFormSchema,
   type MonthlySalariesDisbursementFormInput,
@@ -60,7 +58,10 @@ export default function MonthlySalariesDisbursementPage() {
   const input = 'h-9 w-full rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] px-3 text-xs font-medium text-[#094C6B] placeholder:text-slate-400 transition-colors focus:border-[#0E78AA] focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#0E78AA]/15 disabled:cursor-not-allowed disabled:opacity-50 sm:text-sm';
 
   return (
-    <HrPageChrome title="صرف الرواتب الشهرية للموظفين">
+    <HrPageChrome title="صرف الرواتب الشهرية للموظفين"
+      onSave={handleSubmit(onSave)}
+      onNew={() => reset(defaults)}
+    >
       <div className={`${DASH_PANEL} p-5`}>
             <div className="mb-8 space-y-6">
               <div className="text-right">
@@ -154,11 +155,6 @@ export default function MonthlySalariesDisbursementPage() {
                   </tbody>
                 </table>
               </div>
-            </div>
-
-            <div className="flex justify-between items-center mt-8 pt-6 border-t border-[#D6EAF3]">
-              <CrudButtons />
-              <ActionButtons onSave={handleSubmit(onSave)} onCancel={() => reset(defaults)} />
             </div>
       </div>
     </HrPageChrome>

@@ -5,8 +5,6 @@ import { useForm, type Resolver, type SubmitHandler } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { HrPageChrome } from '@/components/hr/HrPageChrome';
 import { DASH_PANEL } from '@/components/dashboard-primitives';
-import { ActionButtons } from '@/components/ui/ActionButtons';
-import { CrudButtons } from '@/components/ui/CrudButtons';
 import { printPageContent } from '@/lib/print/printHtml';
 import {
   housingAllowanceClearanceFormSchema,
@@ -54,7 +52,10 @@ export default function HousingAllowanceClearancePage() {
   const flex1 = 'flex-1 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg';
 
   return (
-    <HrPageChrome title="تصفية مستحقات بدل السكن">
+    <HrPageChrome title="تصفية مستحقات بدل السكن"
+      onSave={handleSubmit(onSave)}
+      onNew={() => reset(defaults)}
+    >
       <div className={`${DASH_PANEL} p-5`}>
             <div className="mb-8 space-y-6">
               <div className="text-right">
@@ -159,9 +160,7 @@ export default function HousingAllowanceClearancePage() {
                     <button type="button" className="px-6 py-2 bg-[#0E79AA] text-white rounded-lg hover:bg-[#094C6B] transition-colors" onClick={() => void printPageContent('تصفية مستحقات بدل السكن')}>
                       طباعة
                     </button>
-                    <CrudButtons />
                   </div>
-                  <ActionButtons onSave={handleSubmit(onSave)} onCancel={() => reset(defaults)} />
                 </div>
               </div>
             </div>

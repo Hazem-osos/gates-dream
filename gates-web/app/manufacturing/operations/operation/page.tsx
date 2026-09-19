@@ -9,18 +9,19 @@ import {
   compactControlClass,
   WorkflowStepper,
   CostRollupCard,
-  StatusBadge,
-  ActionButtons,
   Button,
   Switch,
-  denseTableWrapClass,
-  denseTableClass,
-  denseTheadClass,
-  denseThClass,
-  denseTdClass,
-  denseTrClass,
 } from '@/components/ui';
-import { CommandCenter } from '@/components/dashboard-primitives';
+import {
+  ManufacturingPageChrome,
+  MfgEmptyRow,
+  MfgTableCard,
+  mfgTableClass,
+  mfgTdClass,
+  mfgThClass,
+  mfgTheadClass,
+  mfgTrClass,
+} from '@/components/manufacturing/ManufacturingPageChrome';
 import { useApiQuery, useApiMutation, useInvalidateQuery } from '@/lib/hooks/useApi';
 import { apiClient } from '@/lib/api/client';
 import type { ApiError } from '@/lib/api/types';
@@ -109,20 +110,6 @@ function statusLabel(status: ProductionOrder['status'] | undefined): string {
       return 'ملغاة';
     default:
       return '—';
-  }
-}
-
-function statusTone(status: ProductionOrder['status'] | undefined): 'success' | 'warning' | 'danger' | 'info' | 'neutral' {
-  switch (status) {
-    case 'COMPLETED':
-      return 'success';
-    case 'IN_PROGRESS':
-    case 'RELEASED':
-      return 'info';
-    case 'CANCELLED':
-      return 'danger';
-    default:
-      return 'warning';
   }
 }
 
@@ -308,319 +295,271 @@ export default function ManufacturingOperationPage() {
   }
 
   return (
-    <CommandCenter
+    <ManufacturingPageChrome
       title="أمر التشغيل"
-      module="MFG / WO"
-      shortcuts={[
-        { key: 'F8', label: 'التشغيل', href: '/manufacturing' },
-        { key: 'F4', label: 'BOM', href: '/manufacturing/creations/manufacturing-model' },
-      ]}
-      filters={
-        order ? (
-          <StatusBadge label={statusLabel(order.status)} tone={statusTone(order.status)} compact />
-        ) : (
-          <StatusBadge label="جديد" tone="neutral" compact />
-        )
+      statusLabel={order ? statusLabel(order.status) : 'جديد'}
+      statusTone={
+        order?.status === 'COMPLETED'
+          ? 'success'
+          : order?.status === 'CANCELLED'
+            ? 'danger'
+            : order
+              ? 'info'
+              : 'neutral'
+      }
+      docNumber={serial || order?.orderNumber}
+      currentId={order?.id ?? null}
+      favoriteHref="/manufacturing/operations/operation"
+      onSave={() => void handleSave()}
+      savePending={createOrderMutation.isPending || busy}
+      canSave={!order}
+      saveLabel="حفظ أمر التصنيع"
+      extraActions={
+        <div className="flex flex-wrap items-center gap-2">
+          {order ? (
+            <Button
+              onClick={() => {
+                setOrder(null);
+                setSerial('');
+                resetFeedback();
+              }}
+              size="sm"
+              variant="secondary"
+            >
+              أمر جديد
+            </Button>
+          ) : null}
+          <Button
+            onClick={() => void handlePost()}
+            disabled={!order || isPosted || busy}
+            size="sm"
+            className="bg-[#0E79AA] hover:bg-[#0B6188]"
+          >
+            ترحيل صرف الخامات
+          </Button>
+          <Button
+            onClick={() => void handleComplete()}
+            disabled={!order || order.status !== 'IN_PROGRESS' || busy}
+            size="sm"
+            variant="secondary"
+          >
+            إنهاء التصنيع
+          </Button>
+        </div>
       }
     >
-            <div className="mb-4 flex flex-wrap items-center justify-end gap-2">
-              <Button
-                onClick={handlePost}
-                disabled={!order || isPosted || busy}
-                size="sm"
-                className="bg-[#0E79AA] hover:bg-[#0B6188]"
-              >
-                ترحيل صرف الخامات
-              </Button>
-              <Button
-                onClick={handleComplete}
-                disabled={!order || order.status !== 'IN_PROGRESS' || busy}
-                size="sm"
-                variant="secondary"
-              >
-                إنهاء التصنيع
-              </Button>
-            </div>
+      <div className="rounded-2xl border border-[#D6EAF3] bg-white p-4 shadow-sm">
+        <WorkflowStepper steps={WORKFLOW_STEPS} currentIndex={statusToStepIndex(order?.status)} />
+      </div>
 
-        <div className="mb-4 rounded-xl border border-slate-200/80 bg-white p-4 dark:bg-slate-900">
-          <WorkflowStepper steps={WORKFLOW_STEPS} currentIndex={statusToStepIndex(order?.status)} />
-        </div>
-
-        <FormSectionCard
-          title="بيانات الأمر"
-          subtitle="المسلسل والنموذج والمخزن والكمية المخططة"
-          bodyClassName="grid-cols-1 sm:grid-cols-2 lg:grid-cols-3"
-        >
-          <CompactFormField
-            label="المسلسل"
-            placeholder="ادخل المسلسل"
-            value={serial}
-            onChange={(e) => setSerial(e.target.value)}
-          />
-          <CompactFormField
-            label="التاريخ"
-            type="date"
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-          />
-          <CompactFormField label="نموذج (BOM)" required>
-            <select
-              value={model}
-              onChange={(e) => {
-                setModel(e.target.value);
-                setOrder(null);
-              }}
-              disabled={!!order}
-              className={compactControlClass}
-            >
-              <option value="">اختر النموذج</option>
-              {boms.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.name}
-                  {b.finishedItem ? ` — ${b.finishedItem.arabicName}` : ''}
-                </option>
-              ))}
-            </select>
-          </CompactFormField>
-          <CompactFormField label="من مخزن" required>
-            <select
-              value={fromWarehouse}
-              onChange={(e) => setFromWarehouse(e.target.value)}
-              disabled={!!order}
-              className={compactControlClass}
-            >
-              <option value="">اختر المخزن</option>
-              {warehouses.map((w) => (
-                <option key={w.id} value={w.id}>
-                  {w.arabicName ?? w.name ?? w.code}
-                </option>
-              ))}
-            </select>
-          </CompactFormField>
-          <CompactFormField
-            label="الكمية المخططة"
-            type="number"
-            min={0}
-            step="0.0001"
-            value={numberOfModels}
-            onChange={(e) => setNumberOfModels(e.target.value)}
-          />
-          {order ? (
-            <CompactFormField label="رقم الأمر" value={order.orderNumber} readOnly />
-          ) : null}
-        </FormSectionCard>
-
-        <AdvancedFieldsSection badgeCount={advancedFilledCount}>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            <CompactFormField
-              label="الشرح"
-              placeholder="إدخل الشرح"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-            />
-            <CompactFormField label="العملة" value="الجنية المصري" readOnly />
-            <Switch
-              label="عرض الملغي"
-              checked={showCanceled}
-              onCheckedChange={setShowCanceled}
-            />
-          </div>
-        </AdvancedFieldsSection>
-
-        {(error || success) && (
-          <div
-            className={cn(
-              'mb-4 rounded-lg px-4 py-3 text-sm text-right',
-              error
-                ? 'border border-red-200 bg-red-50 text-red-700'
-                : 'border border-green-200 bg-green-50 text-green-700'
-            )}
+      <FormSectionCard
+        title="بيانات الأمر"
+        subtitle="المسلسل والنموذج والمخزن والكمية المخططة"
+        bodyClassName="grid-cols-1 sm:grid-cols-2 lg:grid-cols-3"
+      >
+        <CompactFormField
+          label="المسلسل"
+          placeholder="ادخل المسلسل"
+          value={serial}
+          onChange={(e) => setSerial(e.target.value)}
+        />
+        <CompactFormField
+          label="التاريخ"
+          type="date"
+          value={date}
+          onChange={(e) => setDate(e.target.value)}
+        />
+        <CompactFormField label="نموذج (BOM)" required>
+          <select
+            value={model}
+            onChange={(e) => {
+              setModel(e.target.value);
+              setOrder(null);
+            }}
+            disabled={!!order}
+            className={compactControlClass}
           >
-            {error ?? success}
-          </div>
-        )}
+            <option value="">اختر النموذج</option>
+            {boms.map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.name}
+                {b.finishedItem ? ` — ${b.finishedItem.arabicName}` : ''}
+              </option>
+            ))}
+          </select>
+        </CompactFormField>
+        <CompactFormField label="من مخزن" required>
+          <select
+            value={fromWarehouse}
+            onChange={(e) => setFromWarehouse(e.target.value)}
+            disabled={!!order}
+            className={compactControlClass}
+          >
+            <option value="">اختر المخزن</option>
+            {warehouses.map((w) => (
+              <option key={w.id} value={w.id}>
+                {w.arabicName ?? w.name ?? w.code}
+              </option>
+            ))}
+          </select>
+        </CompactFormField>
+        <CompactFormField
+          label="الكمية المخططة"
+          type="number"
+          min={0}
+          step="0.0001"
+          value={numberOfModels}
+          onChange={(e) => setNumberOfModels(e.target.value)}
+        />
+        {order ? <CompactFormField label="رقم الأمر" value={order.orderNumber} readOnly /> : null}
+      </FormSectionCard>
 
-        <div className="mb-4 grid grid-cols-1 gap-4 xl:grid-cols-2">
-          <section className="rounded-xl border border-slate-200/80 bg-white p-4 dark:bg-slate-900">
-            <h3 className="mb-3 text-sm font-bold text-slate-900">أصناف ناتجة</h3>
-            <div className={denseTableWrapClass}>
-              <table className={denseTableClass}>
-                <thead className={denseTheadClass}>
-                  <tr>
-                    <th className={denseThClass}>م</th>
-                    <th className={denseThClass}>إسم الصنف</th>
-                    <th className={cn(denseThClass, 'min-w-[100px]')}>الكمية</th>
-                    <th className={denseThClass}>الوحدة</th>
-                    <th className={cn(denseThClass, 'min-w-[100px]')}>سعر</th>
-                    <th className={cn(denseThClass, 'min-w-[140px]')}>الإجمالي</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {bom?.finishedItem ? (
-                    <tr className={denseTrClass}>
-                      <td className={denseTdClass}>1</td>
-                      <td className={denseTdClass}>{bom.finishedItem.arabicName}</td>
-                      <td className={cn(denseTdClass, 'tabular-nums')}>
-                        {fmt(num(order?.actualQuantity ?? plannedQuantity))}
-                      </td>
-                      <td className={denseTdClass}>{bom.finishedItem.serial ?? '—'}</td>
-                      <td className={cn(denseTdClass, 'tabular-nums')}>
-                        {order?.unitCost ? fmt(num(order.unitCost)) : '—'}
-                      </td>
-                      <td className={cn(denseTdClass, 'tabular-nums')}>
-                        {order?.unitCost
-                          ? fmt(num(order.unitCost) * num(order.actualQuantity ?? plannedQuantity))
-                          : '—'}
-                      </td>
-                    </tr>
-                  ) : (
-                    <tr className={denseTrClass}>
-                      <td colSpan={6} className="px-3 py-6 text-center text-xs text-slate-500">
-                        اختر نموذجاً لعرض الأصناف الناتجة
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </section>
-
-          <section className="rounded-xl border border-slate-200/80 bg-white p-4 dark:bg-slate-900">
-            <h3 className="mb-3 text-sm font-bold text-slate-900">أصناف الخامات الأولية</h3>
-            <div className={denseTableWrapClass}>
-              <table className={denseTableClass}>
-                <thead className={denseTheadClass}>
-                  <tr>
-                    <th className={denseThClass}>م</th>
-                    <th className={denseThClass}>إسم الصنف</th>
-                    <th className={cn(denseThClass, 'min-w-[100px]')}>الكمية</th>
-                    <th className={denseThClass}>الوحدة</th>
-                    <th className={cn(denseThClass, 'min-w-[100px]')}>سعر الوحدة</th>
-                    <th className={cn(denseThClass, 'min-w-[140px]')}>الإجمالي</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rawMaterials.length === 0 ? (
-                    <tr className={denseTrClass}>
-                      <td colSpan={6} className="px-3 py-6 text-center text-xs text-slate-500">
-                        اختر نموذجاً وعدد النماذج لعرض احتياج الخامات
-                      </td>
-                    </tr>
-                  ) : (
-                    rawMaterials.map((row) => (
-                      <tr key={row.id} className={denseTrClass}>
-                        <td className={denseTdClass}>{row.index}</td>
-                        <td className={denseTdClass}>{row.itemName}</td>
-                        <td className={cn(denseTdClass, 'tabular-nums')}>{fmt(row.quantity)}</td>
-                        <td className={denseTdClass}>{row.unit}</td>
-                        <td className={denseTdClass}>{isPosted ? '—' : 'يُحسب عند الصرف'}</td>
-                        <td className={denseTdClass}>—</td>
-                      </tr>
-                    ))
-                  )}
-                  {rawMaterials.length > 0 ? (
-                    <tr className={cn(denseTrClass, 'bg-slate-50 font-semibold')}>
-                      <td colSpan={5} className={cn(denseTdClass, 'text-left')}>
-                        الإجمالي
-                      </td>
-                      <td className={cn(denseTdClass, 'tabular-nums')}>
-                        {materialCost > 0 ? fmt(materialCost) : '—'}
-                      </td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
-          </section>
+      <AdvancedFieldsSection badgeCount={advancedFilledCount}>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <CompactFormField
+            label="الشرح"
+            placeholder="إدخل الشرح"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+          />
+          <CompactFormField label="العملة" value="الجنية المصري" readOnly />
+          <Switch label="عرض الملغي" checked={showCanceled} onCheckedChange={setShowCanceled} />
         </div>
+      </AdvancedFieldsSection>
 
-        <section className="mb-4 rounded-xl border border-slate-200/80 bg-white p-4 dark:bg-slate-900">
-          <h3 className="mb-3 text-sm font-bold text-slate-900">مقارنة الفعلي بالتقديري</h3>
-          <div className={denseTableWrapClass}>
-            <table className={denseTableClass}>
-              <thead className={denseTheadClass}>
-                <tr>
-                  <th className={denseThClass}>الصنف</th>
-                  <th className={cn(denseThClass, 'min-w-[100px]')}>التقديري</th>
-                  <th className={cn(denseThClass, 'min-w-[100px]')}>الفعلي</th>
-                  <th className={cn(denseThClass, 'min-w-[100px]')}>الانحراف</th>
-                  <th className={cn(denseThClass, 'min-w-[100px]')}>نسبة الانحراف</th>
+      {(error || success) && (
+        <div
+          className={cn(
+            'rounded-lg px-4 py-3 text-sm text-right',
+            error
+              ? 'border border-red-200 bg-red-50 text-red-700'
+              : 'border border-green-200 bg-green-50 text-green-700'
+          )}
+        >
+          {error ?? success}
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+        <MfgTableCard title="أصناف ناتجة">
+          <table className={mfgTableClass}>
+            <thead className={mfgTheadClass}>
+              <tr>
+                <th className={mfgThClass}>م</th>
+                <th className={mfgThClass}>إسم الصنف</th>
+                <th className={cn(mfgThClass, 'min-w-[100px]')}>الكمية</th>
+                <th className={mfgThClass}>الوحدة</th>
+                <th className={cn(mfgThClass, 'min-w-[100px]')}>سعر</th>
+                <th className={cn(mfgThClass, 'min-w-[140px]')}>الإجمالي</th>
+              </tr>
+            </thead>
+            <tbody>
+              {bom?.finishedItem ? (
+                <tr className={mfgTrClass}>
+                  <td className={mfgTdClass}>1</td>
+                  <td className={mfgTdClass}>{bom.finishedItem.arabicName}</td>
+                  <td className={cn(mfgTdClass, 'tabular-nums')}>
+                    {fmt(num(order?.actualQuantity ?? plannedQuantity))}
+                  </td>
+                  <td className={mfgTdClass}>{bom.finishedItem.serial ?? '—'}</td>
+                  <td className={cn(mfgTdClass, 'tabular-nums')}>
+                    {order?.unitCost ? fmt(num(order.unitCost)) : '—'}
+                  </td>
+                  <td className={cn(mfgTdClass, 'tabular-nums')}>
+                    {order?.unitCost
+                      ? fmt(num(order.unitCost) * num(order.actualQuantity ?? plannedQuantity))
+                      : '—'}
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {varianceRows.length === 0 ? (
-                  <tr className={denseTrClass}>
-                    <td colSpan={5} className="px-3 py-6 text-center text-xs text-slate-500">
-                      اختر نموذجاً لعرض المقارنة
+              ) : (
+                <MfgEmptyRow colSpan={6}>اختر نموذجاً لعرض الأصناف الناتجة</MfgEmptyRow>
+              )}
+            </tbody>
+          </table>
+        </MfgTableCard>
+
+        <MfgTableCard title="أصناف الخامات الأولية">
+          <table className={mfgTableClass}>
+            <thead className={mfgTheadClass}>
+              <tr>
+                <th className={mfgThClass}>م</th>
+                <th className={mfgThClass}>إسم الصنف</th>
+                <th className={cn(mfgThClass, 'min-w-[100px]')}>الكمية</th>
+                <th className={mfgThClass}>الوحدة</th>
+                <th className={cn(mfgThClass, 'min-w-[100px]')}>سعر الوحدة</th>
+                <th className={cn(mfgThClass, 'min-w-[140px]')}>الإجمالي</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rawMaterials.length === 0 ? (
+                <MfgEmptyRow colSpan={6}>اختر نموذجاً وعدد النماذج لعرض احتياج الخامات</MfgEmptyRow>
+              ) : (
+                rawMaterials.map((row) => (
+                  <tr key={row.id} className={mfgTrClass}>
+                    <td className={mfgTdClass}>{row.index}</td>
+                    <td className={mfgTdClass}>{row.itemName}</td>
+                    <td className={cn(mfgTdClass, 'tabular-nums')}>{fmt(row.quantity)}</td>
+                    <td className={mfgTdClass}>{row.unit}</td>
+                    <td className={mfgTdClass}>{isPosted ? '—' : 'يُحسب عند الصرف'}</td>
+                    <td className={mfgTdClass}>—</td>
+                  </tr>
+                ))
+              )}
+              {rawMaterials.length > 0 ? (
+                <tr className={cn(mfgTrClass, 'bg-[#F8FBFD] font-semibold')}>
+                  <td colSpan={5} className={cn(mfgTdClass, 'text-left')}>
+                    الإجمالي
+                  </td>
+                  <td className={cn(mfgTdClass, 'tabular-nums')}>
+                    {materialCost > 0 ? fmt(materialCost) : '—'}
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </MfgTableCard>
+      </div>
+
+      <MfgTableCard title="مقارنة الفعلي بالتقديري">
+        <table className={mfgTableClass}>
+          <thead className={mfgTheadClass}>
+            <tr>
+              <th className={mfgThClass}>الصنف</th>
+              <th className={cn(mfgThClass, 'min-w-[100px]')}>التقديري</th>
+              <th className={cn(mfgThClass, 'min-w-[100px]')}>الفعلي</th>
+              <th className={cn(mfgThClass, 'min-w-[100px]')}>الانحراف</th>
+              <th className={cn(mfgThClass, 'min-w-[100px]')}>نسبة الانحراف</th>
+            </tr>
+          </thead>
+          <tbody>
+            {varianceRows.length === 0 ? (
+              <MfgEmptyRow colSpan={5}>اختر نموذجاً لعرض المقارنة</MfgEmptyRow>
+            ) : (
+              varianceRows.map((row) => {
+                const variance = row.actual - row.estimated;
+                const variancePct =
+                  row.estimated !== 0 ? (variance / row.estimated) * 100 : variance !== 0 ? 100 : 0;
+                const highlight = Math.abs(variance) > 0.001;
+                return (
+                  <tr key={row.id} className={mfgTrClass}>
+                    <td className={mfgTdClass}>{row.itemName}</td>
+                    <td className={cn(mfgTdClass, 'tabular-nums')}>{fmt(row.estimated)}</td>
+                    <td className={cn(mfgTdClass, 'tabular-nums')}>{fmt(row.actual)}</td>
+                    <td className={cn(mfgTdClass, 'tabular-nums font-semibold', highlight && 'text-rose-600')}>
+                      {fmt(variance)}
+                    </td>
+                    <td className={cn(mfgTdClass, 'tabular-nums font-semibold', highlight && 'text-rose-600')}>
+                      {fmtPct(variancePct)}
                     </td>
                   </tr>
-                ) : (
-                  varianceRows.map((row) => {
-                    const variance = row.actual - row.estimated;
-                    const variancePct =
-                      row.estimated !== 0 ? (variance / row.estimated) * 100 : variance !== 0 ? 100 : 0;
-                    const highlight = Math.abs(variance) > 0.001;
-                    return (
-                      <tr key={row.id} className={denseTrClass}>
-                        <td className={denseTdClass}>{row.itemName}</td>
-                        <td className={cn(denseTdClass, 'tabular-nums')}>{fmt(row.estimated)}</td>
-                        <td className={cn(denseTdClass, 'tabular-nums')}>{fmt(row.actual)}</td>
-                        <td
-                          className={cn(
-                            denseTdClass,
-                            'tabular-nums font-semibold',
-                            highlight && 'text-rose-600'
-                          )}
-                        >
-                          {fmt(variance)}
-                        </td>
-                        <td
-                          className={cn(
-                            denseTdClass,
-                            'tabular-nums font-semibold',
-                            highlight && 'text-rose-600'
-                          )}
-                        >
-                          {fmtPct(variancePct)}
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
-        </section>
-
-        <CostRollupCard slices={costSlices} className="mb-4" />
-
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap gap-2">
-            {!order ? (
-              <Button
-                onClick={() => void handleSave()}
-                disabled={createOrderMutation.isPending}
-                size="sm"
-                className="bg-[#0E79AA] hover:bg-[#0B6188]"
-              >
-                {createOrderMutation.isPending ? 'جارٍ الحفظ…' : 'حفظ أمر التصنيع'}
-              </Button>
-            ) : (
-              <Button
-                onClick={() => {
-                  setOrder(null);
-                  setSerial('');
-                  resetFeedback();
-                }}
-                size="sm"
-                variant="secondary"
-              >
-                أمر جديد
-              </Button>
+                );
+              })
             )}
-          </div>
-          <ActionButtons onSave={() => void handleSave()} saveDisabled={!!order || createOrderMutation.isPending} />
-        </div>
-    </CommandCenter>
+          </tbody>
+        </table>
+      </MfgTableCard>
+
+      <CostRollupCard slices={costSlices} />
+    </ManufacturingPageChrome>
   );
 }

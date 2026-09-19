@@ -1,5 +1,6 @@
 import prisma from '../../../shared/database/prisma';
 import { logger } from '../../../shared/logger';
+import { AppError } from '../../../shared/middleware/error-handler';
 
 export interface CreateUnitData {
   code?: string;
@@ -17,10 +18,32 @@ export class UnitService {
    */
   async createUnit(companyId: string, data: CreateUnitData) {
     try {
+      const code = data.code?.trim() || null;
+      if (code) {
+        const existing = await prisma.unit.findFirst({
+          where: { companyId, code },
+        });
+        if (existing?.isActive) {
+          throw new AppError(409, `كود الوحدة «${code}» مستخدم بالفعل.`);
+        }
+        if (existing && !existing.isActive) {
+          const restored = await prisma.unit.update({
+            where: { id: existing.id },
+            data: {
+              isActive: true,
+              arabicName: data.arabicName,
+              englishName: data.englishName,
+            },
+          });
+          logger.info({ companyId, unitId: restored.id }, 'Inactive unit restored');
+          return restored;
+        }
+      }
+
       const unit = await prisma.unit.create({
         data: {
           companyId,
-          code: data.code,
+          code,
           arabicName: data.arabicName,
           englishName: data.englishName,
         },
@@ -47,7 +70,7 @@ export class UnitService {
       });
 
       if (!unit) {
-        throw new Error('Unit not found');
+        throw new AppError(404, 'الوحدة غير موجودة');
       }
 
       return unit;
@@ -86,9 +109,7 @@ export class UnitService {
         ];
       }
 
-      if (options.isActive !== undefined) {
-        where.isActive = options.isActive;
-      }
+      where.isActive = options.isActive !== undefined ? options.isActive : true;
 
       const [units, total] = await Promise.all([
         prisma.unit.findMany({
@@ -129,13 +150,24 @@ export class UnitService {
       });
 
       if (!existing) {
-        throw new Error('Unit not found');
+        throw new AppError(404, 'الوحدة غير موجودة');
+      }
+
+      const nextCode = data.code !== undefined ? data.code?.trim() || null : existing.code;
+      if (nextCode && nextCode !== existing.code) {
+        const clash = await prisma.unit.findFirst({
+          where: { companyId, code: nextCode, id: { not: unitId } },
+          select: { id: true },
+        });
+        if (clash) {
+          throw new AppError(409, `كود الوحدة «${nextCode}» مستخدم بالفعل.`);
+        }
       }
 
       const unit = await prisma.unit.update({
         where: { id: unitId },
         data: {
-          ...(data.code && { code: data.code }),
+          ...(data.code !== undefined && { code: nextCode }),
           ...(data.arabicName && { arabicName: data.arabicName }),
           ...(data.englishName !== undefined && { englishName: data.englishName }),
           ...(data.isActive !== undefined && { isActive: data.isActive }),
@@ -160,7 +192,17 @@ export class UnitService {
       });
 
       if (!unit) {
-        throw new Error('Unit not found');
+        throw new AppError(404, 'الوحدة غير موجودة');
+      }
+
+      const itemUnitCount = await prisma.itemUnit.count({
+        where: { unitId },
+      });
+      if (itemUnitCount > 0) {
+        throw new AppError(
+          409,
+          'لا يمكن حذف الوحدة لأنها مربوطة بأصناف. فك الربط من بطاقة الصنف أولاً.'
+        );
       }
 
       await prisma.unit.update({

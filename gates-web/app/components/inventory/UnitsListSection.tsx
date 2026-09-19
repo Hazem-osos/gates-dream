@@ -1,26 +1,33 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { AppTable, FilterToolbar } from '@/components/ui';
+import { AppTable, FilterToolbar, Button } from '@/components/ui';
 import { useApiQuery } from '@/lib/hooks/useApi';
 import { queryKeys } from '@/lib/query/query-keys';
 import type { ExportColumnDef } from '@/lib/export/export-utils';
 
-type UnitRow = {
+export type UnitRow = {
   id: string;
   code?: string | null;
   arabicName: string;
   englishName?: string | null;
+  isActive?: boolean;
   [key: string]: unknown;
 };
 
-export function UnitsListSection() {
+export function UnitsListSection({
+  onSelect,
+  selectedId,
+}: {
+  onSelect?: (row: UnitRow) => void;
+  selectedId?: string | null;
+}) {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [search, setSearch] = useState('');
 
   const queryParams = useMemo(() => {
-    const p: Record<string, string | number> = { page, limit: pageSize };
+    const p: Record<string, string | number | boolean> = { page, limit: pageSize, isActive: true };
     if (search.trim()) p.search = search.trim();
     return p;
   }, [page, pageSize, search]);
@@ -59,11 +66,26 @@ export function UnitsListSection() {
         isLoading={isLoading}
         data={rows}
         getRowKey={(r) => r.id}
+        onRowClick={onSelect}
         emptyTitle="لا توجد وحدات"
         columns={[
           { id: 'code', header: 'الكود', cell: (r) => r.code || '—' },
           { id: 'ar', header: 'الاسم العربي', accessor: 'arabicName' },
           { id: 'en', header: 'الاسم الإنجليزي', accessor: 'englishName' },
+          {
+            id: 'actions',
+            header: '',
+            align: 'center',
+            cell: (r) => (
+              <Button
+                variant={selectedId === r.id ? 'primary' : 'ghost'}
+                size="sm"
+                onClick={() => onSelect?.(r)}
+              >
+                اختيار
+              </Button>
+            ),
+          },
         ]}
         pagination={{
           page,

@@ -2,14 +2,20 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { CompactFormField } from '@/components/ui';
 import { useBackendReachability } from '@/lib/hooks/useBackendReachability';
 import { useApiQuery } from '@/lib/hooks/useApi';
 import {
-  CommandCenter,
-  DataGridDense,
-  DASH_NUM,
-  HUD_BTN_GHOST,
-} from '@/components/dashboard-primitives';
+  ManufacturingPageChrome,
+  MfgEmptyRow,
+  MfgFilterCard,
+  MfgTableCard,
+  mfgTableClass,
+  mfgTdClass,
+  mfgThClass,
+  mfgTheadClass,
+  mfgTrClass,
+} from '@/components/manufacturing/ManufacturingPageChrome';
 
 type BomRow = {
   id: string;
@@ -26,7 +32,7 @@ export default function ManufacturingStagesPage() {
   const [name, setName] = useState('');
   const pageSize = 12;
 
-  const { data, isLoading, isFetching, refetch } = useApiQuery<BomRow[]>(
+  const { data, isLoading } = useApiQuery<BomRow[]>(
     ['manufacturing-boms', page],
     '/manufacturing/boms',
     { page, limit: pageSize }
@@ -50,60 +56,61 @@ export default function ManufacturingStagesPage() {
   );
 
   return (
-    <CommandCenter
-      title="مراحل التصنيع — قوائم المواد"
-      module="MFG / BOM"
-      refreshing={isFetching}
-      onRefresh={() => void refetch()}
-      shortcuts={[
-        { key: 'F2', label: 'نموذج جديد', href: '/manufacturing/creations/manufacturing-model' },
-        { key: 'F8', label: 'التشغيل', href: '/manufacturing' },
-      ]}
-      filters={
-        <div className="flex flex-wrap items-center gap-2">
-          <input
-            value={serial}
-            onChange={(e) => setSerial(e.target.value)}
-            placeholder="رقم الصنف التام"
-            className={`${HUD_BTN_GHOST} w-40 px-3 text-right`}
-          />
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="إسم قائمة المواد"
-            className={`${HUD_BTN_GHOST} w-44 px-3 text-right`}
-          />
-        </div>
-      }
+    <ManufacturingPageChrome
+      title="مراحل التصنيع"
+      statusLabel="قائمة"
+      favoriteHref="/manufacturing/creations/manufacturing-stages"
+      hideSave
     >
-      <DataGridDense
-        title={`قوائم المواد (${total})`}
-        loading={isLoading}
-        rows={rows}
-        empty="لا توجد قوائم مواد"
-        emptyActionHref="/manufacturing/creations/manufacturing-model"
-        emptyActionLabel="إنشاء BOM"
-        onRowOpen={() => router.push('/manufacturing/creations/manufacturing-model')}
-        columns={[
-          {
-            id: 'code',
-            header: 'الرقم',
-            cell: (r) => <span className={DASH_NUM}>{r.finishedItem?.serial ?? r.id.slice(0, 8)}</span>,
-          },
-          {
-            id: 'name',
-            header: 'المرحلة / BOM',
-            cell: (r) =>
-              r.finishedItem?.arabicName ? `${r.name} — ${r.finishedItem.arabicName}` : r.name,
-          },
-          {
-            id: 'lines',
-            header: 'بنود المواد',
-            numeric: true,
-            cell: (r) => String(r._count?.lines ?? 0),
-          },
-        ]}
-      />
-    </CommandCenter>
+      <MfgFilterCard>
+        <CompactFormField
+          label="رقم الصنف التام"
+          placeholder="ابحث بالرقم"
+          value={serial}
+          onChange={(e) => setSerial(e.target.value)}
+        />
+        <CompactFormField
+          label="إسم قائمة المواد"
+          placeholder="ابحث بالاسم"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+        />
+      </MfgFilterCard>
+
+      <MfgTableCard title={`قوائم المواد (${total})`}>
+        <table className={mfgTableClass}>
+          <thead className={mfgTheadClass}>
+            <tr>
+              <th className={mfgThClass}>الرقم</th>
+              <th className={mfgThClass}>المرحلة / BOM</th>
+              <th className={`${mfgThClass} text-left`}>بنود المواد</th>
+            </tr>
+          </thead>
+          <tbody>
+            {isLoading ? (
+              <MfgEmptyRow colSpan={3}>جاري التحميل…</MfgEmptyRow>
+            ) : rows.length === 0 ? (
+              <MfgEmptyRow colSpan={3}>لا توجد قوائم مواد</MfgEmptyRow>
+            ) : (
+              rows.map((row) => (
+                <tr
+                  key={row.id}
+                  className={`${mfgTrClass} cursor-pointer`}
+                  onClick={() => router.push('/manufacturing/creations/manufacturing-model')}
+                >
+                  <td className={`${mfgTdClass} font-mono font-semibold`}>
+                    {row.finishedItem?.serial ?? row.id.slice(0, 8)}
+                  </td>
+                  <td className={mfgTdClass}>
+                    {row.finishedItem?.arabicName ? `${row.name} — ${row.finishedItem.arabicName}` : row.name}
+                  </td>
+                  <td className={`${mfgTdClass} text-left tabular-nums`}>{row._count?.lines ?? 0}</td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </MfgTableCard>
+    </ManufacturingPageChrome>
   );
 }

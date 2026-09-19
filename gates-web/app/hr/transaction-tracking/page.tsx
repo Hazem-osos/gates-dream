@@ -6,8 +6,6 @@ import { useForm, type Resolver, type SubmitHandler } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { HrPageChrome } from '@/components/hr/HrPageChrome';
 import { DASH_PANEL } from '@/components/dashboard-primitives';
-import { ActionButtons } from '@/components/ui/ActionButtons';
-import { CrudButtons } from '@/components/ui/CrudButtons';
 import {
   transactionTrackingFilterSchema,
   type TransactionTrackingFilterInput,
@@ -69,7 +67,10 @@ export default function TransactionTrackingPage() {
   };
 
   return (
-    <HrPageChrome title="متابعة المعاملات">
+    <HrPageChrome title="متابعة المعاملات"
+      onSave={handleSubmit(onSearch)}
+      onNew={() => reset(filterDefaults)}
+    >
       <div className={`${DASH_PANEL} p-5`}>
             <div className="mb-8">
               <div className="text-right mb-4">
@@ -296,13 +297,6 @@ export default function TransactionTrackingPage() {
                     )}
                   </tbody>
                 </table>
-              </div>
-            </div>
-
-            <div className="flex justify-between items-center mt-8 pt-6 border-t border-[#D6EAF3]">
-              <CrudButtons />
-              <div>
-                <ActionButtons onSave={handleSubmit(onSearch)} onCancel={() => reset(filterDefaults)} />
               </div>
             </div>
       </div>

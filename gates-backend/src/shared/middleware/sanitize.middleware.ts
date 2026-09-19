@@ -89,6 +89,11 @@ function shouldSkipInputGuard(req: Request): boolean {
   return isAiApiRequest(req) || isDocumentLayoutApiRequest(req);
 }
 
+/** Embedded item/logo photos — `data:image/jpeg;base64,...` contains `;` and `/` that trip SQL/XSS heuristics. */
+export function isTrustedEmbeddedMedia(value: string): boolean {
+  return /^data:image\/[a-z0-9.+-]+;base64,/i.test(value.trim());
+}
+
 export const preventSQLInjection = (
   req: Request,
   res: Response,
@@ -116,7 +121,9 @@ export const preventSQLInjection = (
 
   const checkValue = (value: any, path: string = ''): { found: boolean; pattern?: string; value?: string } => {
     if (typeof value === 'string') {
+      if (isTrustedEmbeddedMedia(value)) return { found: false };
       for (const pattern of sqlPatterns) {
+        pattern.lastIndex = 0;
         if (pattern.test(value)) {
           return { found: true, pattern: pattern.toString(), value };
         }
@@ -241,7 +248,11 @@ export const preventXSS = (req: Request, res: Response, next: NextFunction) => {
 
   const checkValue = (value: any): boolean => {
     if (typeof value === 'string') {
-      return xssPatterns.some((pattern) => pattern.test(value));
+      if (isTrustedEmbeddedMedia(value)) return false;
+      return xssPatterns.some((pattern) => {
+        pattern.lastIndex = 0;
+        return pattern.test(value);
+      });
     }
     if (typeof value === 'object' && value !== null) {
       return Object.values(value).some((val) => checkValue(val));

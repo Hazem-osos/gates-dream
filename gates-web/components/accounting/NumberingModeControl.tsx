@@ -7,12 +7,13 @@ import { useInvalidateQuery } from '@/lib/hooks/useApi';
 import { toast } from '@/lib/feedback/toast';
 import { confirmAction } from '@/lib/feedback/confirm';
 
-type Kind = 'accounts' | 'costCenters' | 'items';
+type Kind = 'accounts' | 'costCenters' | 'items' | 'warehouses';
 
 const KIND_LABEL: Record<Kind, string> = {
   accounts: 'الحسابات',
   costCenters: 'مراكز التكلفة',
   items: 'الأصناف',
+  warehouses: 'المخازن',
 };
 
 export function NumberingModeControl({
@@ -24,7 +25,7 @@ export function NumberingModeControl({
   kind: Kind;
   auto: boolean;
   recordCount: number;
-  settingKey: 'coaAutoNumbering' | 'costCenterAutoNumbering' | 'itemAutoNumbering';
+  settingKey: 'coaAutoNumbering' | 'costCenterAutoNumbering' | 'itemAutoNumbering' | 'warehouseAutoNumbering';
 }) {
   const settingsMut = useAccountingSettingsMutation();
   const invalidate = useInvalidateQuery();
@@ -60,6 +61,7 @@ export function NumberingModeControl({
       invalidate(['accounts']);
       invalidate(['chart-of-accounts']);
       invalidate(['items']);
+      invalidate(['warehouses']);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'تعذر حذف السجلات');
     } finally {

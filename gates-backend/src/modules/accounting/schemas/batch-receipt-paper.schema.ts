@@ -17,6 +17,7 @@ export const createBatchReceiptPapersSchema = z.object({
   hijriIssueDate: z.string().optional(),
   partyId: z.string().uuid('اختر الساحب / العميل'),
   entityName: z.string().max(191).optional().nullable(),
+  entityId: z.string().uuid().optional().nullable(),
   partyName: z.string().optional().nullable(),
   currencyCode: z.string().optional(),
   partyType: z.enum(['customer', 'supplier']).optional(),

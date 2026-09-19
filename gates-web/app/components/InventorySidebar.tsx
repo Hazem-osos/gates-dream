@@ -44,9 +44,9 @@ export const inventoryModules: ModuleWithChildren[] = [
         label: 'البطاقات',
         color: C,
         children: [
+          { key: 'warehouse-card', icon: '', label: 'بطاقة المخزن', color: C, href: '/inventory/creations/stores' },
           { key: 'item-card', icon: '', label: 'بطاقة الصنف', color: C, href: '/inventory/creations/item-card' },
           { key: 'item-groups', icon: '', label: 'بطاقة مجموعة أصناف', color: C, href: '/inventory/creations/item-groups' },
-          { key: 'stores', icon: '', label: 'بطاقة مخزن', color: C, href: '/inventory/creations/stores' },
         ],
       },
       {

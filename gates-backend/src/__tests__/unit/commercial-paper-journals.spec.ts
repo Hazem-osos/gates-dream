@@ -1,10 +1,12 @@
 import {
   PAPER_JOURNAL_ENTRY_TYPE,
   buildEndorseLines,
+  buildIssuedBounceLines,
   buildPaymentCollectLines,
   buildPaymentIssueLines,
   buildReceiptCollectLines,
   buildReceiptIssueLines,
+  invertJournalLines,
   paperJournalLabel,
 } from '../../modules/accounting/utils/commercial-paper-journals';
 
@@ -40,6 +42,23 @@ describe('commercial paper journal builders', () => {
     const lines = buildEndorseLines(base);
     expect(lines[0]).toMatchObject({ accountId: 'supplier', debit: 1000 });
     expect(lines[1]).toMatchObject({ accountId: 'notes', credit: 1000 });
+  });
+
+  it('inverts issue lines so debit becomes credit and credit becomes debit', () => {
+    const issue = buildReceiptIssueLines(base);
+    const bounce = invertJournalLines(issue);
+    expect(bounce).toEqual([
+      expect.objectContaining({ accountId: 'notes', debit: 0, credit: 1000 }),
+      expect.objectContaining({ accountId: 'party', debit: 1000, credit: 0 }),
+    ]);
+    expect(buildIssuedBounceLines('RECEIPT', base)).toEqual(bounce);
+  });
+
+  it('inverts a deposit collect journal against the same accounts', () => {
+    const deposit = buildReceiptCollectLines(base);
+    const bounce = invertJournalLines(deposit);
+    expect(bounce[0]).toMatchObject({ accountId: 'bank', debit: 0, credit: 1000 });
+    expect(bounce[1]).toMatchObject({ accountId: 'notes', debit: 1000, credit: 0 });
   });
 
   it('labels every lifecycle entry type in Arabic', () => {

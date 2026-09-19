@@ -126,6 +126,14 @@ export type AccountingSettingsDb = {
       orderBy?: Record<string, unknown>;
     }) => Promise<Array<{ id: string }>>;
   };
+  warehouse: {
+    count: (args: { where: Record<string, unknown> }) => Promise<number>;
+    findMany: (args: {
+      where: Record<string, unknown>;
+      select?: Record<string, unknown>;
+      orderBy?: Record<string, unknown>;
+    }) => Promise<Array<{ id: string }>>;
+  };
   item: {
     count: (args: { where: Record<string, unknown> }) => Promise<number>;
     findMany: (args: {
@@ -266,9 +274,11 @@ export class AccountingSettingsService {
         coaAutoNumbering: advanced.coaAutoNumbering !== false,
         costCenterAutoNumbering: advanced.costCenterAutoNumbering !== false,
         itemAutoNumbering: advanced.itemAutoNumbering !== false,
+        warehouseAutoNumbering: advanced.warehouseAutoNumbering !== false,
         numberingRecordCounts: await this.numberingRecordCounts(companyId),
         costMethod: settings.costMethod,
         pricingCalculationBasis: settings.pricingCalculationBasis ?? 'SELECTED_UNIT_QTY',
+        itemPriceSource: advanced.itemPriceSource === 'item_card' ? 'item_card' : 'price_list',
         backupPath: settings.backupPath,
         theme: settings.theme,
         temporaryReceipts: settings.temporaryReceipts ?? false,
@@ -367,6 +377,15 @@ export class AccountingSettingsService {
         );
         advanced.itemAutoNumbering = input.general.itemAutoNumbering;
       }
+      if (input.general?.warehouseAutoNumbering !== undefined) {
+        await this.assertNumberingSwitch(
+          actor.companyId,
+          'warehouses',
+          input.general.warehouseAutoNumbering,
+          advanced.warehouseAutoNumbering !== false
+        );
+        advanced.warehouseAutoNumbering = input.general.warehouseAutoNumbering;
+      }
 
       if (input.accounts) {
         for (const [key, aliases] of Object.entries(ACCOUNT_SLOT_ALIASES)) {
@@ -411,6 +430,9 @@ export class AccountingSettingsService {
       }
       if (input.general?.inventorySystem !== undefined) {
         advanced.inventorySystem = input.general.inventorySystem;
+      }
+      if (input.general?.itemPriceSource !== undefined) {
+        advanced.itemPriceSource = input.general.itemPriceSource;
       }
 
       const preventNegativeStock =
@@ -614,17 +636,18 @@ export class AccountingSettingsService {
   }
 
   private async numberingRecordCounts(companyId: string) {
-    const [accounts, costCenters, items] = await Promise.all([
+    const [accounts, costCenters, items, warehouses] = await Promise.all([
       this.ports.db.account.count({ where: { companyId, deletedAt: null } }),
       this.ports.db.costCenter.count({ where: { companyId, isActive: true } }),
       this.ports.db.item.count({ where: { companyId, isActive: true } }),
+      this.ports.db.warehouse.count({ where: { companyId, isActive: true } }),
     ]);
-    return { accounts, costCenters, items };
+    return { accounts, costCenters, items, warehouses };
   }
 
   private async assertNumberingSwitch(
     companyId: string,
-    kind: 'accounts' | 'costCenters' | 'items',
+    kind: 'accounts' | 'costCenters' | 'items' | 'warehouses',
     next: boolean,
     current: boolean
   ) {
@@ -641,7 +664,7 @@ export class AccountingSettingsService {
 
   async resetNumberingRecords(
     companyId: string,
-    kind: 'accounts' | 'costCenters' | 'items'
+    kind: 'accounts' | 'costCenters' | 'items' | 'warehouses'
   ) {
     let deleted = 0;
     let remaining = 0;
@@ -670,6 +693,21 @@ export class AccountingSettingsService {
       for (const row of rows) {
         try {
           await costCenterService.deleteCostCenter(companyId, row.id);
+          deleted += 1;
+        } catch {
+          remaining += 1;
+        }
+      }
+    } else if (kind === 'warehouses') {
+      const rows = await this.ports.db.warehouse.findMany({
+        where: { companyId, isActive: true },
+        select: { id: true },
+        orderBy: { code: 'desc' },
+      });
+      const { warehouseService } = await import('../../inventory/services/warehouse.service');
+      for (const row of rows) {
+        try {
+          await warehouseService.deleteWarehouse(companyId, row.id);
           deleted += 1;
         } catch {
           remaining += 1;

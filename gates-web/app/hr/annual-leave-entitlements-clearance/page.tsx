@@ -5,8 +5,6 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useBackendReachability } from '@/lib/hooks/useBackendReachability';
 import { HrPageChrome } from '@/components/hr/HrPageChrome';
 import { DASH_PANEL } from '@/components/dashboard-primitives';
-import { ActionButtons } from '@/components/ui/ActionButtons';
-import { CrudButtons } from '@/components/ui/CrudButtons';
 import {
   annualLeaveEntitlementsClearanceFormSchema,
   type AnnualLeaveEntitlementsClearanceFormInput,
@@ -86,7 +84,10 @@ export default function AnnualLeaveEntitlementsClearancePage() {
   };
 
   return (
-    <HrPageChrome title="تصفية مستحقات الأجازة السنوية">
+    <HrPageChrome title="تصفية مستحقات الأجازة السنوية"
+      onSave={handleSubmit(onSave)}
+      onNew={() => reset(defaults)}
+    >
       <div className={`${DASH_PANEL} p-5`}>
             <div className="mb-8 space-y-6">
               <div className="text-right">
@@ -383,9 +384,7 @@ export default function AnnualLeaveEntitlementsClearancePage() {
                     </svg>
                     طباعة
                   </button>
-                  <CrudButtons />
                 </div>
-                <ActionButtons onSave={handleSubmit(onSave)} onCancel={() => reset(defaults)} />
               </div>
             </div>
       </div>

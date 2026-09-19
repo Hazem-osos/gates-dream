@@ -14,6 +14,7 @@ import {
   ReportFilterOptionsRow,
   ReportFilterPartySelect,
   ReportFilterPartyGroupSelect,
+  ReportFilterEntitySelect,
   reportFilterInputClass,
 } from '@/components/report/reportFilterFields';
 
@@ -32,6 +33,8 @@ export type AccountReportFilterValues = {
   supplierId: string;
   customerCategoryId: string;
   supplierCategoryId: string;
+  entityId: string;
+  entityName: string;
 };
 
 export type AccountReportFieldFlag =
@@ -54,6 +57,7 @@ export type AccountReportFilterFields = {
   includeDetails?: boolean;
   customer?: boolean;
   supplier?: boolean;
+  entity?: boolean;
 };
 
 function todayIso() {
@@ -81,6 +85,8 @@ export function emptyAccountReportFilters(): AccountReportFilterValues {
     supplierId: '',
     customerCategoryId: '',
     supplierCategoryId: '',
+    entityId: '',
+    entityName: '',
   };
 }
 
@@ -140,6 +146,7 @@ export function buildAccountReportQuery(
   if (fields.supplier && values.supplierCategoryId) {
     params.set('supplierCategoryId', values.supplierCategoryId);
   }
+  if (fields.entity && values.entityId) params.set('entityId', values.entityId);
   return params;
 }
 
@@ -255,6 +262,17 @@ export function renderAccountReportFields(
         kind="SUPPLIER"
         value={values.supplierCategoryId}
         onChange={(supplierCategoryId) => patch({ supplierCategoryId })}
+      />
+    );
+  }
+
+  if (fields.entity) {
+    nodes.push(
+      <ReportFilterEntitySelect
+        key="entity"
+        value={values.entityId}
+        valueLabel={values.entityName}
+        onChange={(entityId, entityName) => patch({ entityId, entityName: entityName || '' })}
       />
     );
   }

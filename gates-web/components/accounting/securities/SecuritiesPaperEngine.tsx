@@ -580,6 +580,13 @@ export function SecuritiesPaperEngine({ kind }: Props) {
     }
   };
 
+  const collectedAmount = useMemo(
+    () =>
+      (loaded?.multiCollectionLines ?? []).reduce((sum, row) => sum + (Number(row.amount) || 0), 0),
+    [loaded?.multiCollectionLines]
+  );
+  const remainingMultiAmount = Math.max(0, Math.round((amountNum - collectedAmount) * 100) / 100);
+
   const executeMultiCollection = async (payload: MultiCollectionPayload) => {
     const id = actionPaperId || selectedId;
     if (!id) {
@@ -591,10 +598,10 @@ export function SecuritiesPaperEngine({ kind }: Props) {
     try {
       const res = await apiClient.post<SecuritiesPaperRecord>(`${apiPath}/${id}/multi-collect`, payload);
       applyLoaded(res.data ?? { ...loaded, id, paperCase: 'MULTI_COLLECTED', isPosted: true }, id);
-      setShowMultiCollection(false);
-      setSuccess('تم التحصيل المتعدد — حالتها تحصيل متعدد');
+      setSuccess('تم حفظ التحصيل الجزئي');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'تعذر تنفيذ التحصيل المتعدد');
+      throw err;
     } finally {
       setMultiCollecting(false);
     }
@@ -898,7 +905,7 @@ export function SecuritiesPaperEngine({ kind }: Props) {
                 {...register('amount')}
               />
               <ErpFieldError message={errors.amount?.message} show={Boolean(errors.amount)} />
-              {paperCase === 'ISSUED' ? (
+              {paperCase === 'ISSUED' || paperCase === 'MULTI_COLLECTED' ? (
                 <button
                   type="button"
                   className="mt-1.5 text-xs font-semibold text-[#0E78AA] hover:underline disabled:opacity-40"
@@ -1135,12 +1142,13 @@ export function SecuritiesPaperEngine({ kind }: Props) {
         open={showMultiCollection}
         kind={kind}
         paperNumber={docNumber}
-        remainingAmount={amountNum}
+        remainingAmount={remainingMultiAmount}
         currencyCode={currencies.find((c) => c.id === currencyId)?.code || 'EGP'}
-        disabled={locked}
+        disabled={paperCase !== 'ISSUED' && paperCase !== 'MULTI_COLLECTED'}
         confirmPending={multiCollecting}
+        existingLines={loaded?.multiCollectionLines ?? []}
         onClose={() => setShowMultiCollection(false)}
-        onConfirm={(payload) => void executeMultiCollection(payload)}
+        onConfirm={(payload) => executeMultiCollection(payload)}
       />
     </ErpDocumentLayout>
   );

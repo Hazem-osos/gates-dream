@@ -22,6 +22,7 @@ export type AccountingSettingsUiState = {
   coaAutoNumbering: boolean;
   costCenterAutoNumbering: boolean;
   itemAutoNumbering: boolean;
+  warehouseAutoNumbering: boolean;
   decimalsInAmounts: number;
   accountsGuideDigits: number;
   costCentersGuideDigits: number;
@@ -66,6 +67,7 @@ export const defaultAccountingSettingsUi = (): AccountingSettingsUiState => ({
   coaAutoNumbering: true,
   costCenterAutoNumbering: true,
   itemAutoNumbering: true,
+  warehouseAutoNumbering: true,
   decimalsInAmounts: 2,
   accountsGuideDigits: 1,
   costCentersGuideDigits: 1,
@@ -130,6 +132,7 @@ export function mapApiToAccountingSettingsUi(api: Record<string, unknown>): Acco
     coaAutoNumbering: api.coaAutoNumbering !== false,
     costCenterAutoNumbering: api.costCenterAutoNumbering !== false,
     itemAutoNumbering: api.itemAutoNumbering !== false,
+    warehouseAutoNumbering: api.warehouseAutoNumbering !== false,
     decimalsInAmounts: (api.decimalsInAmounts as number) ?? base.decimalsInAmounts,
     accountsGuideDigits: (api.accountsGuideDigits as number) ?? base.accountsGuideDigits,
     costCentersGuideDigits: (api.costCentersGuideDigits as number) ?? base.costCentersGuideDigits,

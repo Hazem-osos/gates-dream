@@ -5,7 +5,6 @@ import { useForm, type Resolver, type SubmitHandler } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { HrPageChrome } from '@/components/hr/HrPageChrome';
 import { DASH_PANEL } from '@/components/dashboard-primitives';
-import { ActionButtons } from '@/components/ui/ActionButtons';
 import { useApiQuery, useApiMutation, useInvalidateQuery } from '@/lib/hooks/useApi';
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
@@ -130,7 +129,11 @@ export default function EmployeeAdvancePage() {
   };
 
   return (
-    <HrPageChrome title="سلفة لموظف">
+    <HrPageChrome title="سلفة لموظف"
+      onSave={handleSubmit(onValidSubmit)}
+      onNew={onCancel}
+      savePending={advanceMutation.isPending}
+    >
       <div className={`${DASH_PANEL} p-5`}>
             <div className="mb-8 space-y-6">
               <div className="text-right">
@@ -278,14 +281,6 @@ export default function EmployeeAdvancePage() {
                   className="w-full px-3 py-2 border border-[#D6EAF3] bg-[#F6FBFD] rounded-lg text-[#094C6B] resize-none"
                   placeholder="أدخل الملاحظات هنا..."
                   {...register('notes')}
-                />
-              </div>
-
-              <div className="flex justify-end mt-8 pt-6 border-t border-[#D6EAF3]">
-                <ActionButtons
-                  onSave={handleSubmit(onValidSubmit)}
-                  onCancel={onCancel}
-                  saveText={advanceMutation.isPending ? 'جاري الحفظ...' : 'حفظ'}
                 />
               </div>
             </div>

@@ -13,6 +13,7 @@ export default function FinancialPapersFlowPage() {
         account: true,
         costCenter: true,
         branch: true,
+        entity: true,
       }}
     />
   );

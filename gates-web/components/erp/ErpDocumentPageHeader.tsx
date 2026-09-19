@@ -161,7 +161,7 @@ export function ErpDocumentPageHeader({
   const looksPosted = lockWhenPosted && isPostedStatusLabel(statusLabel);
   const hidePost = hideStandalonePost || Boolean(standardActions);
   const saveHint = isReadOnly
-    ? 'المستند في وضع العرض فقط. اضغط على (...) ثم (تعديل) للبدء في التغيير'
+    ? 'المستند في وضع العرض فقط. اضغط تعديل للبدء في التغيير'
     : looksPosted
       ? 'المستند مرحل ومثبت محاسبياً. فك الترحيل أولاً من قائمة (...)'
       : !canSave
@@ -264,6 +264,18 @@ export function ErpDocumentPageHeader({
               onClick={onCancel}
             >
               {cancelLabel}
+            </Button>
+          ) : null}
+          {onEdit && documentMode?.isReadOnly && currentId ? (
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              className={formActionButtonClass}
+              onClick={onEdit}
+              disabled={editDisabled}
+            >
+              تعديل
             </Button>
           ) : null}
           {onSaveDraft ? (

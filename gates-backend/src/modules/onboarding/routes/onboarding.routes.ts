@@ -5,6 +5,7 @@ import { authorize } from '../../../shared/middleware/authorize.middleware';
 import { setTenantContext } from '../../../shared/middleware/tenant.middleware';
 import { AuthRequest } from '../../../shared/auth/types';
 import { logger } from '../../../shared/logger';
+import { AppError } from '../../../shared/middleware/error-handler';
 import {
   bootstrapSchema,
   importExcelSchema,
@@ -77,7 +78,8 @@ router.post(
       const data = await dataImportService.importExcel(companyId, req.body);
       return void res.json({ status: 'success', data });
     } catch (error) {
-      return void res.status(500).json({
+      const status = error instanceof AppError ? error.statusCode : 500;
+      return void res.status(status).json({
         status: 'error',
         message: error instanceof Error ? error.message : 'Import failed',
       });

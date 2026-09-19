@@ -73,8 +73,8 @@ router.post(
   authorize({ resource: 'company', action: 'edit' }),
   async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
-      const kind = req.body?.kind as 'accounts' | 'costCenters' | 'items';
-      if (!['accounts', 'costCenters', 'items'].includes(kind)) {
+      const kind = req.body?.kind as 'accounts' | 'costCenters' | 'items' | 'warehouses';
+      if (!['accounts', 'costCenters', 'items', 'warehouses'].includes(kind)) {
         throw new AppError(400, 'نوع السجلات غير صالح');
       }
       const data = await accountingSettingsService.resetNumberingRecords(requireCompanyId(req), kind);

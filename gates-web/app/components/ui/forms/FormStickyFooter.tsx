@@ -64,7 +64,11 @@ export function FormStickyFooter({
       return;
     }
 
-    const findHost = () => document.querySelector<HTMLElement>('[data-gates-page-header-actions]');
+    const findHost = () => {
+      const scope =
+        probeRef.current?.closest('[data-print-root], .erp-contain') ?? document;
+      return scope.querySelector<HTMLElement>('[data-gates-page-header-actions]');
+    };
     const sync = () => {
       const el = findHost();
       setHeaderHost((current) => {

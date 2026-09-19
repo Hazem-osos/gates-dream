@@ -48,6 +48,8 @@ router.get(
         search: req.query.search as string | undefined,
         branchId: req.query.branchId as string | undefined,
         isActive: req.query.isActive as boolean | undefined,
+        leafOnly: req.query.leafOnly as boolean | undefined,
+        headerOnly: req.query.headerOnly as boolean | undefined,
       });
 
       return void res.json({
@@ -63,6 +65,38 @@ router.get(
           error instanceof Error
             ? error.message
             : 'Failed to list warehouses',
+      });
+    }
+  }
+);
+
+/**
+ * GET /api/v1/inventory/warehouses/next-code
+ */
+router.get(
+  '/next-code',
+  authorize({ resource: 'warehouse', action: 'view' }),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const companyId = req.companyId || req.tenantId;
+      if (!companyId) {
+        return void res.status(400).json({
+          status: 'error',
+          message: 'Company ID is required',
+        });
+      }
+      const parentWarehouseId = (req.query.parentWarehouseId as string) || null;
+      const code = await warehouseService.suggestNextWarehouseCode(companyId, parentWarehouseId);
+      return void res.json({
+        status: 'success',
+        data: { code, parentWarehouseId },
+      });
+    } catch (error) {
+      logger.error({ error }, 'Error suggesting warehouse code');
+      return void res.status(warehouseErrorStatus(error)).json({
+        status: 'error',
+        message:
+          error instanceof Error ? error.message : 'Failed to suggest warehouse code',
       });
     }
   }

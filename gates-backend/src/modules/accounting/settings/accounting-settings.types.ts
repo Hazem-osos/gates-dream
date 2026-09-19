@@ -24,13 +24,16 @@ export type AccountingSettingsGeneral = {
   coaAutoNumbering: boolean;
   costCenterAutoNumbering: boolean;
   itemAutoNumbering: boolean;
+  warehouseAutoNumbering: boolean;
   numberingRecordCounts: {
     accounts: number;
     costCenters: number;
     items: number;
+    warehouses: number;
   };
   costMethod: string | null;
   pricingCalculationBasis: string;
+  itemPriceSource: 'price_list' | 'item_card';
   backupPath: string | null;
   theme: string | null;
   temporaryReceipts: boolean;

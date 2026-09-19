@@ -36,6 +36,8 @@ const EXACT: Record<string, string> = {
     'حصل تكرار لا نهائي أثناء عرض الصفحة. حدّث الصفحة ثم أعد المحاولة.',
   'record not found.': 'السجل غير موجود',
   'item not found': 'الصنف غير موجود',
+  'invalid input detected':
+    'تعذر حفظ الصورة أو أحد الحقول. ارفع JPG/PNG عادي أو الصق رابط الصورة ثم أعد الحفظ.',
   'unit not found': 'الوحدة غير موجود',
   'item unit not found': 'وحدة الصنف غير موجودة',
   'warehouse not found': 'المخزن غير موجود',

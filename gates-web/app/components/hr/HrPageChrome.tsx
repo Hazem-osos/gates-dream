@@ -1,41 +1,67 @@
 'use client';
 
 import type { ReactNode } from 'react';
-import { CommandCenter, type HudShortcut } from '@/components/dashboard-primitives';
-
-export const HR_SHORTCUTS: HudShortcut[] = [
-  { key: 'F2', label: 'مسير', href: '/hr/monthly-salaries' },
-  { key: 'F4', label: 'موظف', href: '/hr/employee-data' },
-  { key: 'F8', label: 'التشغيل', href: '/hr' },
-];
+import { MasterCardShell } from '@/components/erp';
+import type { ErpHeaderMenuItem } from '@/components/erp/ErpDocumentPageHeader';
 
 export function HrPageChrome({
   title,
-  module = 'HR',
-  shortcuts = HR_SHORTCUTS,
-  filters,
-  refreshing,
-  onRefresh,
+  breadcrumbs,
+  docNumber,
+  statusLabel = 'جديد',
+  onSave,
+  onNew,
+  savePending,
+  canSave = true,
+  extraActions,
+  moreMenuItems,
+  favoriteHref,
   children,
+  module: _module,
+  shortcuts: _shortcuts,
+  filters: _filters,
+  refreshing: _refreshing,
+  onRefresh: _onRefresh,
 }: {
   title: string;
+  breadcrumbs?: { href?: string; label: string }[];
+  docNumber?: string;
+  statusLabel?: string;
+  onSave?: () => void;
+  onNew?: () => void;
+  savePending?: boolean;
+  canSave?: boolean;
+  extraActions?: ReactNode;
+  moreMenuItems?: ErpHeaderMenuItem[];
+  favoriteHref?: string;
+  children: ReactNode;
+  /** Kept so existing pages still type-check after the chrome swap. */
   module?: string;
-  shortcuts?: HudShortcut[];
+  shortcuts?: unknown;
   filters?: ReactNode;
   refreshing?: boolean;
   onRefresh?: () => void;
-  children: ReactNode;
 }) {
   return (
-    <CommandCenter
+    <MasterCardShell
       title={title}
-      module={module}
-      shortcuts={shortcuts}
-      filters={filters}
-      refreshing={refreshing}
-      onRefresh={onRefresh}
+      breadcrumbs={
+        breadcrumbs ?? [
+          { label: 'الموارد البشرية', href: '/hr' },
+          { label: title },
+        ]
+      }
+      docNumber={docNumber}
+      statusLabel={statusLabel}
+      onSave={onSave}
+      onNew={onNew}
+      savePending={savePending}
+      canSave={canSave}
+      extraActions={extraActions}
+      moreMenuItems={moreMenuItems}
+      favoriteHref={favoriteHref}
     >
-      <div data-print-root="">{children}</div>
-    </CommandCenter>
+      {children}
+    </MasterCardShell>
   );
 }

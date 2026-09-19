@@ -24,6 +24,8 @@ export type MasterCardPageHeaderProps = {
   favoriteHref?: string;
   onEdit?: () => void;
   editDisabled?: boolean;
+  onCancel?: () => void;
+  cancelLabel?: string;
 };
 
 export function MasterCardPageHeader({
@@ -44,6 +46,8 @@ export function MasterCardPageHeader({
   favoriteHref,
   onEdit,
   editDisabled,
+  onCancel,
+  cancelLabel = 'تراجع',
 }: MasterCardPageHeaderProps) {
   const items: ErpHeaderMenuItem[] = [
     ...(onNew ? [{ id: 'new', label: 'جديد', onClick: onNew }] : []),
@@ -77,6 +81,8 @@ export function MasterCardPageHeader({
       hideStandalonePost
       onEdit={onEdit}
       editDisabled={editDisabled}
+      onCancel={onCancel}
+      cancelLabel={cancelLabel}
       moreMenuItems={items}
       extraActions={extraActions}
       onBrowseList={onBrowseList}

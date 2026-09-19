@@ -5,8 +5,6 @@ import { useForm, type Resolver, type SubmitHandler } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { HrPageChrome } from '@/components/hr/HrPageChrome';
 import { DASH_PANEL } from '@/components/dashboard-primitives';
-import { ActionButtons } from '@/components/ui/ActionButtons';
-import { CrudButtons } from '@/components/ui/CrudButtons';
 import { employeeOnboardingFormSchema, type EmployeeOnboardingFormInput } from '@/lib/validation/hr.schema';
 
 const defaults: EmployeeOnboardingFormInput = {
@@ -40,7 +38,10 @@ export default function EmployeeOnboardingPage() {
   };
 
   return (
-    <HrPageChrome title="مباشرة موظف للعمل">
+    <HrPageChrome title="مباشرة موظف للعمل"
+      onSave={handleSubmit(onSave)}
+      onNew={() => reset(defaults)}
+    >
       <div className={`${DASH_PANEL} p-5`}>
             <div className="mb-8 space-y-6">
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -95,11 +96,6 @@ export default function EmployeeOnboardingPage() {
                   </div>
                 </div>
               </div>
-            </div>
-
-            <div className="flex justify-between items-center mt-8 pt-6 border-t border-[#D6EAF3]">
-              <CrudButtons />
-              <ActionButtons onSave={handleSubmit(onSave)} onCancel={() => reset(defaults)} />
             </div>
       </div>
     </HrPageChrome>

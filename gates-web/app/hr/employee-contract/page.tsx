@@ -5,7 +5,6 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { HrPageChrome } from '@/components/hr/HrPageChrome';
 import { DASH_PANEL } from '@/components/dashboard-primitives';
-import { ActionButtons } from '@/components/ui/ActionButtons';
 import { useApiQuery, useApiMutation, useInvalidateQuery } from '@/lib/hooks/useApi';
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
@@ -270,7 +269,11 @@ export default function EmployeeContractPage() {
 
   return (
     <>
-    <HrPageChrome title="تعاقد موظف">
+    <HrPageChrome title="تعاقد موظف"
+      onSave={() => void handleSubmit(submitContract)()}
+      onNew={handleCancel}
+      savePending={contractMutation.isPending}
+    >
       <div className={`${DASH_PANEL} p-5`}>
            
             {/* Form Fields BEFORE Tabs */}
@@ -1286,14 +1289,6 @@ export default function EmployeeContractPage() {
           
           {error && <ErrorToast message={error} onClose={() => setError('')} />}
           {success && <SuccessToast message={success} onClose={() => setSuccess('')} />}
-          
-          <div className="flex justify-end mt-6">
-            <ActionButtons
-              onSave={() => void handleSubmit(submitContract)()}
-              onCancel={handleCancel}
-              saveText={contractMutation.isPending ? 'جاري الحفظ...' : 'حفظ'}
-            />
-          </div>
       </div>
     </HrPageChrome>
       

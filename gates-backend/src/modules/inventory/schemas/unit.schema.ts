@@ -15,9 +15,11 @@ export const unitQuerySchema = z.object({
   limit: z.string().optional().transform((val) => (val ? parseInt(val, 10) : 50)),
   search: z.string().optional(),
   isActive: z
-    .string()
+    .union([z.boolean(), z.string()])
     .optional()
-    .transform((val) => (val === undefined ? undefined : val === 'true')),
+    .transform((val) =>
+      val === undefined ? undefined : val === true || val === 'true'
+    ),
 });
 
 export type CreateUnitInput = z.infer<typeof createUnitSchema>;

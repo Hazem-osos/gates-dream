@@ -70,7 +70,7 @@ const SCREEN_TITLES: Record<string, string> = {
   '/accounting/guide/cost-center': 'دليل مراكز التكلفة',
   '/inventory/guide/items': 'دليل الأصناف',
   '/inventory/creations/item-card': 'بطاقة الصنف',
-  '/inventory/creations/stores': 'دليل المخازن',
+  '/inventory/creations/stores': 'بطاقة المخزن',
   '/accounting/cards/customer': 'بطاقة عميل',
   '/accounting/cards/supplier': 'بطاقة مورد',
   '/accounting/cards/cost-center': 'بطاقة مركز تكلفة',

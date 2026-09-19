@@ -24,19 +24,22 @@ export type ItemRow = {
   arabicName: string;
   englishName?: string | null;
   itemType?: string | null;
+  categoryId?: string | null;
   isActive?: boolean;
   [key: string]: unknown;
 };
 
 export function ItemsCatalogListSection({
   onSelectItem,
+  initialSearch = '',
 }: {
   onSelectItem?: (id: string) => void;
+  initialSearch?: string;
 }) {
   const router = useRouter();
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState(initialSearch);
   const [itemType, setItemType] = useState('');
   const [barcodeOpen, setBarcodeOpen] = useState(false);
 
@@ -86,6 +89,14 @@ export function ItemsCatalogListSection({
           printTitle: 'دليل الأصناف',
         }}
       >
+        <Button
+          type="button"
+          variant="primary"
+          size="sm"
+          onClick={() => router.push('/inventory/guide/items')}
+        >
+          إضافة مجموعة
+        </Button>
         <Button
           type="button"
           variant="primary"
