@@ -1567,7 +1567,7 @@ function ItemCardPageInner() {
             />
           </div>
           </>
-          ) : null}
+          )}
         </TabPanel>
       )}
 
@@ -1720,7 +1720,7 @@ function ItemCardPageInner() {
               ...next[idx],
               itemId: item.id,
               itemName: item.arabicName,
-              ...assemblyUnitFromItem(item),
+              ...assemblyUnitFromItem(),
               cost: next[idx].cost || moneyToInput(item.salesPrice ?? ''),
             };
             return next;
