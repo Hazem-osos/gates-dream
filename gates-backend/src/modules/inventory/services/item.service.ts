@@ -438,7 +438,7 @@ export class ItemService {
                 },
               },
             },
-            itemPrices: {
+            prices: {
               select: {
                 price: true,
                 retailPrice: true,
@@ -454,7 +454,7 @@ export class ItemService {
       ]);
 
       return {
-        items,
+        items: items.map(({ prices, ...item }) => ({ ...item, itemPrices: prices })),
         pagination: {
           page,
           limit,
@@ -495,7 +495,7 @@ export class ItemService {
             },
           },
         },
-        itemPrices: {
+        prices: {
           select: {
             price: true,
             retailPrice: true,
@@ -512,7 +512,8 @@ export class ItemService {
       throw new AppError(404, 'الباركود غير مسجل');
     }
 
-    return item;
+    const { prices, ...rest } = item as typeof item & { prices: unknown };
+    return { ...rest, itemPrices: prices };
   }
 
   /**
