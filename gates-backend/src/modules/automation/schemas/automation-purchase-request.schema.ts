@@ -22,6 +22,7 @@ export const createAutomationPurchaseRequestSchema = z.object({
   companyId: z.string().uuid('companyId must be a company UUID'),
   eventId: z.string().trim().min(1, 'eventId is required'),
   correlationId: z.string().trim().min(1, 'correlationId is required'),
+  eventType: z.string().trim().min(1).optional(),
   ruleId: z.string().uuid('ruleId must be a UUID'),
   supplierId: z.string().uuid('supplierId must be a UUID'),
   date: z.string().datetime({ message: 'date must be a valid ISO datetime' }),

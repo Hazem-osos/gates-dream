@@ -173,6 +173,10 @@ export class OpeningStockService {
       data: {
         record: je.legacyGlNum ?? je.id,
         journalEntryId: je.id,
+        // Mark posted in the same transaction as GL to ensure atomicity —
+        // prevents a second JE being created if the separate outer update fails.
+        isPosted: true,
+        postedAt: new Date(),
       },
     });
     return je;
@@ -500,6 +504,7 @@ export class OpeningStockService {
       }
 
       if (glCtx) {
+        // GL and isPosted are set atomically inside postOpeningBalanceGlInTx
         const accountValues = await collectOpeningInventoryValues(companyId, openingStock.lines);
         await prisma.$transaction(async (tx) => {
           await this.postOpeningBalanceGlInTx(tx, glCtx, {
@@ -510,16 +515,25 @@ export class OpeningStockService {
             sourceYearId: String(openingStock.date.getFullYear()),
             accountValues,
           });
+          // If GL accounts are not configured, postOpeningBalanceGlInTx returns
+          // null without setting isPosted; mark it posted here so the document
+          // lifecycle still advances.
+          await tx.openingStock.update({
+            where: { id: openingStockId, isPosted: false },
+            data: { isPosted: true, postedAt: new Date() },
+          });
+        });
+      } else {
+        // No GL — just flip the flag
+        await prisma.openingStock.update({
+          where: { id: openingStockId },
+          data: { isPosted: true, postedAt: new Date() },
         });
       }
 
-      // Update to posted
-      const updated = await prisma.openingStock.update({
+      // Re-fetch to return the latest state
+      const updated = await prisma.openingStock.findFirst({
         where: { id: openingStockId },
-        data: {
-          isPosted: true,
-          postedAt: new Date(),
-        },
       });
 
       logger.info({ companyId, openingStockId }, 'Opening stock posted');

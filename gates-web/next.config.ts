@@ -53,8 +53,6 @@ const nextConfig: NextConfig = {
   /** Sidebar / legacy URLs that don't match on-disk route folders */
   async redirects() {
     return [
-      { source: '/inventory/creations/units', destination: '/inventory/creations/unit', permanent: false },
-      { source: '/inventory/creations/locations', destination: '/inventory/creations/location', permanent: false },
       { source: '/inventory/creations/items', destination: '/inventory/guide/items', permanent: false },
       { source: '/inventory/creations/categories', destination: '/inventory/creations/item-groups', permanent: false },
       { source: '/inventory/creations/pricing-policies', destination: '/inventory/creations/price-lists', permanent: false },

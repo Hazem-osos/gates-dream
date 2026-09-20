@@ -175,7 +175,7 @@ export class CommercialPaperPostingService {
     }
     if (supplierId) {
       const supplier = await prisma.supplier.findFirst({
-        where: { id: supplierId, companyId, deletedAt: null },
+        where: { id: supplierId, companyId },
         select: { mainAccountId: true, accountId: true },
       });
       const accountId = supplier?.mainAccountId ?? supplier?.accountId;
@@ -890,7 +890,14 @@ export class CommercialPaperPostingService {
             date,
             description: note ? `${label} — ${note}` : label,
             entryType: PAPER_JOURNAL_ENTRY_TYPE.BOUNCE,
-            lines: invertJournalLines(source.lines),
+            lines: invertJournalLines(
+              source.lines.map((l) => ({
+                ...l,
+                debit: Number(l.debit),
+                credit: Number(l.credit),
+                exchangeRate: l.exchangeRate != null ? Number(l.exchangeRate) : null,
+              }))
+            ),
             claimActiveSourceKey: false,
           });
         }
@@ -1006,12 +1013,24 @@ export class CommercialPaperPostingService {
     paperKind: CommercialPaperKind,
     paperId: string
   ) {
+    const paper = await this.loadPaper(ctx.companyId, paperKind, paperId);
+    const hadActiveIssue = await this.isJournalActive(ctx.companyId, paper.journalEntryId);
+
     await prisma.$transaction(async (tx) => {
       await this.cancelActiveJournalsOfType(tx, ctx, paperId, [
         PAPER_JOURNAL_ENTRY_TYPE.ISSUE,
         PAPER_JOURNAL_ENTRY_TYPE.DEPOSIT,
         paperKind === 'PAYMENT' ? 'SecuritiesPayment' : 'SecuritiesReceipt',
       ]);
+
+      // Reverse the party-card balance that was applied on issue.
+      // cascadeSourceJournalInTx inverts account_period_balances but not the
+      // cached Customer.balance / Supplier.balance; we must do that here.
+      if (hadActiveIssue) {
+        const { exchangeRate } = await resolveCompanyFxRate(ctx.companyId, paper.currencyCode);
+        const baseAmount = toBaseAmount(money(Number(paper.amount)), exchangeRate);
+        await this.applyPartyBalances(tx, paperKind, paper, baseAmount, true);
+      }
     });
   }
 

@@ -6,6 +6,8 @@ import {
   matchImportedItem,
   rememberImportedItemKeys,
 } from '../../inventory/utils/item-import-match';
+import { ensureDefaultUngroupedCategory } from '../../inventory/services/ensure-default-item-category';
+import { nextNumericCode } from '../../../shared/utils/next-numeric-code';
 
 type ImportUnitHint = {
   code: string;
@@ -155,14 +157,16 @@ export class OnboardingImportService {
       const catalog = indexExistingItems(existing);
       const seen = { barcodes: new Set<string>(), serials: new Set<string>(), names: new Set<string>() };
       const unitCache = new Map<string, string>();
+      const serialPool = existing.map((item) => item.serial);
+      const fallbackCategory = await ensureDefaultUngroupedCategory(companyId, tx);
       let created = 0;
       let skippedExisting = 0;
       let skippedInSheet = 0;
       for (const row of rows.slice(0, 500)) {
         if (!row.arabicName?.trim()) continue;
-        const barcode = row.barcode?.trim() || row.serial?.trim() || null;
-        const serial = row.serial?.trim() || barcode;
-        const incoming = { arabicName: row.arabicName.trim(), barcode, serial };
+        const barcode = row.barcode?.trim() || null;
+        const explicitSerial = row.serial?.trim() || null;
+        const incoming = { arabicName: row.arabicName.trim(), barcode, serial: explicitSerial };
         const match = matchImportedItem(
           incoming,
           catalog.existingByBarcode,
@@ -186,13 +190,15 @@ export class OnboardingImportService {
           row.salesPrice != null && Number.isFinite(row.salesPrice) ? row.salesPrice : null;
         const purchasePrice =
           row.purchasePrice != null && Number.isFinite(row.purchasePrice) ? row.purchasePrice : null;
+        const serial = explicitSerial || nextNumericCode(serialPool);
+        serialPool.push(serial);
         const item = await tx.item.create({
           data: {
             companyId,
             arabicName: row.arabicName.trim(),
-            serial: row.serial?.trim() || barcode,
+            serial,
             barcode,
-            categoryId: row.categoryId || null,
+            categoryId: row.categoryId || fallbackCategory.id,
             isActive: true,
             beginningCostPrice: purchasePrice != null ? new Decimal(purchasePrice) : undefined,
             lastPurchasePrice: purchasePrice != null ? new Decimal(purchasePrice) : undefined,

@@ -72,13 +72,41 @@ function integerToArabicWords(n: number): string {
 }
 
 export function tafqeetEgp(amount: number): string {
+  return tafqeetAmount(amount, 'EGP');
+}
+
+export function tafqeetAmount(amount: number, currencyCode?: string | null): string {
   const safe = Math.max(0, Number(amount) || 0);
-  const pounds = Math.floor(safe);
-  const piasters = Math.round((safe - pounds) * 100);
-  const poundsText = integerToArabicWords(pounds);
-  if (piasters === 0) {
-    return `فقط وقدره ${poundsText} جنيه مصري لا غير`;
+  const major = Math.floor(safe);
+  const minor = Math.round((safe - major) * 100);
+  const majorText = integerToArabicWords(major);
+  const code = (currencyCode || 'EGP').trim().toUpperCase();
+  const unitName = currencyUnitName(code);
+  if (minor === 0) {
+    return `فقط وقدره ${majorText} ${unitName} لا غير`;
   }
-  const piastersText = integerToArabicWords(piasters);
-  return `فقط وقدره ${poundsText} جنيه مصري و${piastersText} قرشاً لا غير`;
+  const minorText = integerToArabicWords(minor);
+  const fractionName = code === 'EGP' ? 'قرشاً' : 'من المائة';
+  return `فقط وقدره ${majorText} ${unitName} و${minorText} ${fractionName} لا غير`;
+}
+
+function currencyUnitName(code: string): string {
+  if (code === 'EGP') return 'جنيه مصري';
+  const names: Record<string, string> = {
+    USD: 'دولار أمريكي',
+    EUR: 'يورو',
+    GBP: 'جنيه إسترليني',
+    SAR: 'ريال سعودي',
+    AED: 'درهم إماراتي',
+    KWD: 'دينار كويتي',
+    QAR: 'ريال قطري',
+    BHD: 'دينار بحريني',
+    OMR: 'ريال عماني',
+    JOD: 'دينار أردني',
+    CHF: 'فرنك سويسري',
+    JPY: 'ين ياباني',
+    CNY: 'يوان صيني',
+    TRY: 'ليرة تركية',
+  };
+  return names[code] || code;
 }

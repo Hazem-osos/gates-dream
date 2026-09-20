@@ -1,21 +1,24 @@
 import { CREATE_PURCHASE_REQUEST_ACTION } from '../schemas/automation-purchase-request.schema';
 import type { CreateAutomationPurchaseRequestInput } from '../schemas/automation-purchase-request.schema';
+import { AutomationActionRunService } from './automation-action-run.service';
 import {
-  automationPurchaseOrderSerial,
+  automationIdempotencyKey,
+  recoverySerialsForRun,
   mapAutomationPayloadToPurchaseOrder,
   toAutomationPurchaseOrderView,
 } from './automation-purchase-request.mapper';
 import {
+  AUTOMATION_ERROR_CODES,
   AutomationPurchaseRequestError,
-  isUniqueConstraintError,
   RESULT_ENTITY_PURCHASE_ORDER,
+  isUniqueConstraintError,
+  toPurchaseOrderResultMetadata,
   type AutomationActionRunDb,
   type AutomationActionRunRecord,
   type PurchaseOrderDomain,
   type PurchaseOrderView,
+  type RecoveredActionResult,
 } from './automation-action-run.types';
-
-const STALE_PENDING_MS = 30_000;
 
 export type CreatePurchaseRequestResult = {
   success: true;
@@ -24,22 +27,11 @@ export type CreatePurchaseRequestResult = {
   purchaseOrder: PurchaseOrderView;
 };
 
-function uniqueWhere(input: CreateAutomationPurchaseRequestInput) {
-  return {
-    companyId_eventId_ruleId_actionType: {
-      companyId: input.companyId,
-      eventId: input.eventId,
-      ruleId: input.ruleId,
-      actionType: CREATE_PURCHASE_REQUEST_ACTION,
-    },
-  };
-}
-
 export class AutomationPurchaseRequestService {
   constructor(
     private readonly db: AutomationActionRunDb,
     private readonly purchaseOrders: PurchaseOrderDomain,
-    private readonly now: () => Date = () => new Date()
+    private readonly runs: AutomationActionRunService
   ) {}
 
   async createDraftPurchaseOrder(
@@ -47,7 +39,27 @@ export class AutomationPurchaseRequestService {
   ): Promise<CreatePurchaseRequestResult> {
     await this.assertCompany(input.companyId);
 
-    const claim = await this.claimRun(input);
+    const eventType = await this.resolveEventType(input);
+    let claim;
+    try {
+      claim = await this.runs.claim(
+        {
+          companyId: input.companyId,
+          eventId: input.eventId,
+          ruleId: input.ruleId,
+          actionType: CREATE_PURCHASE_REQUEST_ACTION,
+          correlationId: input.correlationId,
+          eventType,
+        },
+        (run) => this.recoverExistingPurchaseOrder(input, run)
+      );
+    } catch (error) {
+      if (error instanceof Error && /conflict/i.test(error.message)) {
+        throw new AutomationPurchaseRequestError(409, error.message);
+      }
+      throw error;
+    }
+
     if (claim.kind === 'existing') {
       return this.replaySucceeded(input.companyId, claim.run);
     }
@@ -74,80 +86,16 @@ export class AutomationPurchaseRequestService {
     }
   }
 
-  private async claimRun(
+  private async resolveEventType(
     input: CreateAutomationPurchaseRequestInput
-  ): Promise<
-    | { kind: 'claimed'; run: AutomationActionRunRecord }
-    | { kind: 'existing'; run: AutomationActionRunRecord }
-    | { kind: 'in_progress'; run: AutomationActionRunRecord }
-  > {
-    try {
-      const run = await this.db.automationActionRun.create({
-        data: {
-          companyId: input.companyId,
-          eventId: input.eventId,
-          ruleId: input.ruleId,
-          actionType: CREATE_PURCHASE_REQUEST_ACTION,
-          correlationId: input.correlationId,
-          status: 'PENDING',
-        },
-      });
-      return { kind: 'claimed', run };
-    } catch (error) {
-      if (!isUniqueConstraintError(error)) throw error;
-    }
-
-    const existing = await this.findRun(input);
-    if (!existing) {
-      throw new AutomationPurchaseRequestError(409, 'Automation action conflict. Retry shortly.');
-    }
-
-    if (existing.status === 'SUCCEEDED' && existing.resultEntityId) {
-      return { kind: 'existing', run: existing };
-    }
-
-    if (existing.status === 'FAILED') {
-      const taken = await this.db.automationActionRun.updateMany({
-        where: {
-          id: existing.id,
-          status: 'FAILED',
-        },
-        data: {
-          status: 'PENDING',
-          errorMessage: null,
-          correlationId: input.correlationId,
-        },
-      });
-      if (taken.count === 1) {
-        return { kind: 'claimed', run: { ...existing, status: 'PENDING' } };
-      }
-      const after = await this.findRun(input);
-      if (after?.status === 'SUCCEEDED' && after.resultEntityId) {
-        return { kind: 'existing', run: after };
-      }
-      throw new AutomationPurchaseRequestError(409, 'Automation action is already in progress. Retry shortly.');
-    }
-
-    const recovered = await this.recoverExistingPurchaseOrder(input, existing);
-    if (recovered) {
-      return { kind: 'existing', run: recovered };
-    }
-
-    if (this.isStalePending(existing)) {
-      const taken = await this.db.automationActionRun.updateMany({
-        where: {
-          id: existing.id,
-          status: 'PENDING',
-          updatedAt: existing.updatedAt,
-        },
-        data: { status: 'PENDING', correlationId: input.correlationId },
-      });
-      if (taken.count === 1) {
-        return { kind: 'claimed', run: existing };
-      }
-    }
-
-    return { kind: 'in_progress', run: existing };
+  ): Promise<string | null> {
+    if (input.eventType) return input.eventType;
+    if (!this.db.automationRule) return null;
+    const rule = await this.db.automationRule.findFirst({
+      where: { id: input.ruleId, companyId: input.companyId },
+      select: { eventType: true },
+    });
+    return rule?.eventType ?? null;
   }
 
   private async executeCreate(
@@ -156,40 +104,57 @@ export class AutomationPurchaseRequestService {
   ): Promise<CreatePurchaseRequestResult> {
     const recovered = await this.recoverExistingPurchaseOrder(input, run);
     if (recovered) {
-      return this.replaySucceeded(input.companyId, recovered);
+      const succeeded = await this.runs.markSucceeded(run.companyId, run.id, recovered);
+      return this.replaySucceeded(input.companyId, succeeded);
     }
 
-    const mapped = mapAutomationPayloadToPurchaseOrder(input);
+    const mapped = mapAutomationPayloadToPurchaseOrder(input, {
+      serial: recoverySerialsForRun(run)[0],
+    });
     let created: PurchaseOrderView;
     try {
       created = await this.purchaseOrders.createPurchaseOrder(input.companyId, mapped);
     } catch (error) {
+      if (isUniqueConstraintError(error)) {
+        const recoveredAfterConflict = await this.recoverExistingPurchaseOrder(input, run);
+        if (recoveredAfterConflict) {
+          const succeeded = await this.runs.markSucceeded(run.companyId, run.id, recoveredAfterConflict);
+          return this.replaySucceeded(input.companyId, succeeded);
+        }
+      }
       const message = error instanceof Error ? error.message : 'Failed to create purchase order';
-      await this.db.automationActionRun.updateMany({
-        where: { id: run.id, status: 'PENDING', resultEntityId: null },
-        data: { status: 'FAILED', errorMessage: message.slice(0, 2000) },
+      const ownership = /not found|do not belong/i.test(message);
+      await this.runs.markFailed(run.companyId, run.id, {
+        errorMessage: message,
+        lastErrorCode: ownership
+          ? AUTOMATION_ERROR_CODES.OWNERSHIP
+          : AUTOMATION_ERROR_CODES.DOMAIN_ERROR,
       });
-      if (/not found|do not belong/i.test(message)) {
+      if (ownership) {
         throw new AutomationPurchaseRequestError(400, message);
       }
       throw error;
     }
 
     if (created.isPosted || created.isApproved) {
+      await this.runs.markFailed(run.companyId, run.id, {
+        errorMessage:
+          'Purchase order service returned a posted or approved document; automation must create drafts only',
+        lastErrorCode: AUTOMATION_ERROR_CODES.DRAFT_POLICY,
+        resultEntityType: RESULT_ENTITY_PURCHASE_ORDER,
+        resultEntityId: created.id,
+        resultMetadata: toPurchaseOrderResultMetadata(created),
+      });
       throw new AutomationPurchaseRequestError(
         500,
         'Purchase order service returned a posted or approved document; automation must create drafts only'
       );
     }
 
-    await this.db.automationActionRun.update({
-      where: { id: run.id },
-      data: {
-        status: 'SUCCEEDED',
-        resultEntityType: RESULT_ENTITY_PURCHASE_ORDER,
-        resultEntityId: created.id,
-        errorMessage: null,
-      },
+    await this.runs.markSucceeded(run.companyId, run.id, {
+      resultEntityType: RESULT_ENTITY_PURCHASE_ORDER,
+      resultEntityId: created.id,
+      resultMetadata: toPurchaseOrderResultMetadata(created),
     });
 
     return {
@@ -214,39 +179,59 @@ export class AutomationPurchaseRequestService {
     };
   }
 
+  /**
+   * Recover by the DB-unique automation key first, then resultEntityId,
+   * then first-claim / incoming serials. The unique key is the guarantee
+   * under concurrent stale reclaim.
+   */
   private async recoverExistingPurchaseOrder(
     input: CreateAutomationPurchaseRequestInput,
     run: AutomationActionRunRecord
-  ): Promise<AutomationActionRunRecord | null> {
+  ): Promise<RecoveredActionResult | null> {
+    const byKey = await this.db.purchaseOrder.findFirst({
+      where: {
+        companyId: input.companyId,
+        automationIdempotencyKey: automationIdempotencyKey({
+          eventId: input.eventId,
+          ruleId: input.ruleId,
+        }),
+      },
+    });
+    if (byKey) {
+      return {
+        resultEntityType: RESULT_ENTITY_PURCHASE_ORDER,
+        resultEntityId: byKey.id,
+        resultMetadata: toPurchaseOrderResultMetadata(byKey),
+      };
+    }
+
     if (run.resultEntityId) {
       const order = await this.db.purchaseOrder.findFirst({
         where: { id: run.resultEntityId, companyId: input.companyId },
       });
       if (order) {
-        return this.markSucceeded(run.id, order.id);
+        return {
+          resultEntityType: RESULT_ENTITY_PURCHASE_ORDER,
+          resultEntityId: order.id,
+          resultMetadata: toPurchaseOrderResultMetadata(order),
+        };
       }
     }
 
-    const bySerial = await this.db.purchaseOrder.findFirst({
-      where: {
-        companyId: input.companyId,
-        serial: automationPurchaseOrderSerial(input.correlationId),
-      },
-    });
-    if (!bySerial) return null;
-    return this.markSucceeded(run.id, bySerial.id);
-  }
+    for (const serial of recoverySerialsForRun(run, input.correlationId)) {
+      const bySerial = await this.db.purchaseOrder.findFirst({
+        where: { companyId: input.companyId, serial },
+      });
+      if (bySerial) {
+        return {
+          resultEntityType: RESULT_ENTITY_PURCHASE_ORDER,
+          resultEntityId: bySerial.id,
+          resultMetadata: toPurchaseOrderResultMetadata(bySerial),
+        };
+      }
+    }
 
-  private async markSucceeded(runId: string, purchaseOrderId: string) {
-    return this.db.automationActionRun.update({
-      where: { id: runId },
-      data: {
-        status: 'SUCCEEDED',
-        resultEntityType: RESULT_ENTITY_PURCHASE_ORDER,
-        resultEntityId: purchaseOrderId,
-        errorMessage: null,
-      },
-    });
+    return null;
   }
 
   private async loadPurchaseOrder(companyId: string, id: string): Promise<PurchaseOrderView> {
@@ -255,16 +240,5 @@ export class AutomationPurchaseRequestService {
     });
     if (fromDb) return fromDb;
     return this.purchaseOrders.getPurchaseOrderById(companyId, id);
-  }
-
-  private findRun(input: CreateAutomationPurchaseRequestInput) {
-    return this.db.automationActionRun.findUnique({
-      where: uniqueWhere(input),
-    });
-  }
-
-  private isStalePending(run: AutomationActionRunRecord): boolean {
-    if (run.status !== 'PENDING') return false;
-    return this.now().getTime() - run.updatedAt.getTime() >= STALE_PENDING_MS;
   }
 }

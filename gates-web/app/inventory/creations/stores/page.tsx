@@ -6,13 +6,11 @@ import { Warehouse } from 'lucide-react';
 import {
   CompactFormField,
   FormSectionCard,
-  compactControlClass,
 } from '@/components/ui';
 import { DocumentBrowseDrawer } from '@/components/erp/DocumentBrowseDrawer';
 import { ErpDocumentLayout, ErpDocumentPageHeader } from '@/components/erp';
 import { DocumentModeProvider, useDocumentMode } from '@/components/common/document-shell';
 import { WarehousesListSection, asWarehouseRows, type WarehouseRow } from '@/components/inventory/WarehousesListSection';
-import { WarehouseParentField } from '@/components/inventory/WarehouseParentField';
 import { AccountSelect } from '@/components/form/AccountSelect';
 import { useApiMutation, useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
 import { isCodeAfter } from '@/lib/masters/nextNumericSerial';
@@ -22,7 +20,6 @@ import SuccessToast from '@/components/SuccessToast';
 import type { ApiError } from '@/lib/api/types';
 import { entityLabel } from '@/lib/quick-create/catalog';
 import { useQuickCreateHost } from '@/lib/quick-create/useQuickCreateTab';
-
 type WarehouseForm = {
   code: string;
   arabicName: string;
@@ -69,30 +66,14 @@ function StoresPageInner() {
     { limit: 1000, isActive: true }
   );
   const warehouses = useMemo(() => asWarehouseRows(warehousesRes?.data), [warehousesRes?.data]);
-  const blockedParentIds = useMemo(() => {
-    if (!selectedId) return [] as string[];
-    const blocked = new Set<string>([selectedId]);
-    const stack = [selectedId];
-    while (stack.length) {
-      const current = stack.pop()!;
-      for (const row of warehouses) {
-        if (row.parentWarehouseId === current && !blocked.has(row.id)) {
-          blocked.add(row.id);
-          stack.push(row.id);
-        }
-      }
-    }
-    return [...blocked];
-  }, [selectedId, warehouses]);
+  const parentDisplayName = useMemo(() => {
+    if (!formData.parentWarehouseId) return 'المخزن الأب';
+    const parent = warehouses.find((row) => row.id === formData.parentWarehouseId);
+    if (!parent) return 'المخزن الأب';
+    return parent.code ? `${parent.code} — ${parent.arabicName}` : parent.arabicName;
+  }, [formData.parentWarehouseId, warehouses]);
   const { data: settingsRes } = useAccountingSettingsQuery();
   const warehouseAuto = settingsRes?.data?.general?.warehouseAutoNumbering !== false;
-  const applyParent = (parentWarehouseId: string) => {
-    patch({
-      parentWarehouseId,
-      storeType: parentWarehouseId ? 'SUB' : 'MAIN',
-      warehouseKind: parentWarehouseId ? formData.warehouseKind || 'POSTING' : 'HEADER',
-    });
-  };
   const parentForCode = formData.parentWarehouseId;
   const { data: nextCodeResponse } = useApiQuery<{ code?: string }>(
     ['warehouses', 'next-code', parentForCode || 'root'],
@@ -154,15 +135,7 @@ function StoresPageInner() {
         invalidateQuery(['warehouses']);
         invalidateQuery(['warehouses', 'next-code']);
         setSelectedId(null);
-        setFormData((prev) => ({
-          ...emptyForm(),
-          storeType: prev.storeType,
-          warehouseKind: prev.warehouseKind,
-          parentWarehouseId: prev.parentWarehouseId,
-          inventoryAccountId: prev.inventoryAccountId,
-          costAccountId: prev.costAccountId,
-          giftAccountId: prev.giftAccountId,
-        }));
+        setFormData(emptyForm());
         setMode('create');
         setSuccess('تم حفظ المخزن — تقدر تضيف التالي');
       },
@@ -221,10 +194,6 @@ function StoresPageInner() {
     }
     if (!warehouseAuto && !selectedId && !formData.code.trim()) {
       setError('رقم المخزن مطلوب — الترقيم يدوي');
-      return;
-    }
-    if (formData.storeType === 'SUB' && !formData.parentWarehouseId) {
-      setError('المخزن الفرعي لازم يكون تحت مخزن رئيسي.');
       return;
     }
     if (selectedId && formData.parentWarehouseId === selectedId) {
@@ -324,69 +293,34 @@ function StoresPageInner() {
           onChange={(e) => patch({ englishName: e.target.value })}
           placeholder="إدخل الإسم بالإنجليزي"
         />
-        <CompactFormField label="نوع المخزن">
-          <select
-            className={compactControlClass}
-            disabled={isReadOnly}
-            value={formData.storeType}
-            onChange={(e) => {
-              const storeType = e.target.value as 'MAIN' | 'SUB';
-              if (storeType === 'MAIN') {
-                applyParent('');
-                return;
-              }
-              patch({
-                storeType,
-                warehouseKind: formData.warehouseKind || 'POSTING',
-              });
-            }}
-          >
-            <option value="MAIN">مخزن رئيسي</option>
-            <option value="SUB">فرعي</option>
-          </select>
-        </CompactFormField>
-        {formData.storeType === 'SUB' ? (
-          <CompactFormField label="نوع الفرعي">
-            <select
-              className={compactControlClass}
-              disabled={isReadOnly}
-              value={formData.warehouseKind}
-              onChange={(e) => patch({ warehouseKind: e.target.value as 'HEADER' | 'POSTING' })}
-            >
-              <option value="HEADER">رئيسي فرعي</option>
-              <option value="POSTING">عمليات</option>
-            </select>
-          </CompactFormField>
-        ) : (
-          <CompactFormField label="نوع المخزن">
-            <input className={compactControlClass} value="رئيسي" readOnly disabled />
-          </CompactFormField>
-        )}
-        <CompactFormField label="المخزن الأب">
-          <WarehouseParentField
-            value={formData.parentWarehouseId}
-            onChange={applyParent}
-            excludeIds={blockedParentIds}
-            disabled={isReadOnly}
-          />
-        </CompactFormField>
-        <CompactFormField label="حساب المخزون">
+        <CompactFormField
+          label="المخزن الأب"
+          value={parentDisplayName}
+          disabled
+        />
+        <CompactFormField
+          label="حساب المخزون"
+          hint={formData.parentWarehouseId ? 'متاخد من الأب — تقدر تغيّره' : undefined}
+        >
           <AccountSelect
             value={formData.inventoryAccountId}
             onChange={(inventoryAccountId) => patch({ inventoryAccountId })}
-            leafOnly={false}
-            placeholder="كل الحسابات"
-            emptyLabel="كل الحسابات"
+            leafOnly
+            placeholder="حساب حركة"
+            emptyLabel="حساب حركة"
             disabled={isReadOnly}
           />
         </CompactFormField>
-        <CompactFormField label="حساب تكلفة البضاعة المباعة">
+        <CompactFormField
+          label="حساب تكلفة البضاعة المباعة"
+          hint={formData.parentWarehouseId ? 'متاخد من الأب — تقدر تغيّره' : undefined}
+        >
           <AccountSelect
             value={formData.costAccountId}
             onChange={(costAccountId) => patch({ costAccountId })}
-            leafOnly={false}
-            placeholder="كل الحسابات"
-            emptyLabel="كل الحسابات"
+            leafOnly
+            placeholder="حساب حركة"
+            emptyLabel="حساب حركة"
             disabled={isReadOnly}
           />
         </CompactFormField>

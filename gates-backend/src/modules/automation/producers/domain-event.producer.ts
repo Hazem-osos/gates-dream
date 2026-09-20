@@ -1,6 +1,7 @@
 import { logger } from '../../../shared/logger';
 import { env } from '../../../shared/config/env';
 import {
+  automationDomainEventsQueue,
   automationJobOptions,
   automationSchedulersQueue,
   realEstateCancellationsQueue,
@@ -10,6 +11,7 @@ import {
 import { AUTOMATION_JOB_NAMES } from '../types/automation-jobs.types';
 import type {
   ChequeBouncedJobData,
+  DispatchAutomationDomainEventJobData,
   DynamicPricingJobData,
   SubcontractInvoiceWorkflowJobData,
   UnitCancellationReleasedJobData,
@@ -62,6 +64,25 @@ export async function enqueueUnitCancellationReleasedJob(
     realEstateCancellationsQueue.add(AUTOMATION_JOB_NAMES.unitCancellation, data, {
       ...automationJobOptions(),
       jobId: unitCancellationJobId(data.settlementId),
+    })
+  );
+}
+
+/**
+ * Enqueues delivery of one AutomationEventEnvelope to n8n's event intake.
+ * `jobId = eventId` makes the enqueue itself idempotent (BullMQ refuses a
+ * duplicate jobId), so calling this twice for the same eventId is safe.
+ * Never throws — a Redis/enqueue failure only means the automation
+ * (optional, best-effort) side effect is skipped; it must never fail or
+ * roll back the real ERP operation that already succeeded.
+ */
+export async function enqueueDomainEventDispatchJob(
+  data: DispatchAutomationDomainEventJobData
+): Promise<void> {
+  await enqueueOrLog('DispatchAutomationDomainEventJob', () =>
+    automationDomainEventsQueue.add(AUTOMATION_JOB_NAMES.dispatchDomainEvent, data, {
+      ...automationJobOptions(),
+      jobId: `domain-event:${data.companyId}:${data.eventId}`,
     })
   );
 }

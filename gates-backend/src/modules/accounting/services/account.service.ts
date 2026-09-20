@@ -71,7 +71,9 @@ function retiredAccountCode(code: string, accountId: string): string {
   return `${code}__deleted__${accountId.replace(/-/g, '').slice(0, 8)}`;
 }
 
-export interface UpdateAccountData extends Partial<CreateAccountData> {
+// UpdateAccountData lets parentId be null (to detach from a parent), which is
+// wider than CreateAccountData's string-only parentId — so we omit it and re-add.
+export interface UpdateAccountData extends Omit<Partial<CreateAccountData>, 'parentId'> {
   isActive?: boolean;
   parentId?: string | null;
 }
@@ -279,7 +281,7 @@ export class AccountService {
         );
       }
       seen.add(current);
-      const row = await prisma.account.findFirst({
+      const row: { parentId: string | null } | null = await prisma.account.findFirst({
         where: { id: current, companyId, deletedAt: null },
         select: { parentId: true },
       });

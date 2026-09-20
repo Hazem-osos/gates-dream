@@ -23,12 +23,13 @@ import {
   erpFormGridClass,
 } from '@/components/erp';
 import { useClientMounted } from '@/lib/hooks/useClientMounted';
-import { isFxRateLocked, rateForCurrency } from '@/lib/accounting/fx-base';
+import { isCompanyBaseCurrency, isFxRateLocked, rateForCurrency } from '@/lib/accounting/fx-base';
 import { useFollowCurrencyCardRate } from '@/lib/hooks/useFollowCurrencyCardRate';
 import { ExchangeRateInput } from '@/components/accounting/ExchangeRateInput';
 import { useCompanyBaseCurrency } from '@/lib/hooks/useCompanyBaseCurrency';
 import { InvoiceSourceDocumentControl } from '@/components/invoices/InvoiceSourceDocumentControl';
 import type { SourceHydratePayload } from '@/lib/invoices/sourceDocument';
+import { formatUserDisplayName } from '@/lib/user/profile';
 
 const CustomerQuickAddModal = dynamic(
   () =>
@@ -40,6 +41,13 @@ const CustomerQuickAddModal = dynamic(
 
 type Currency = { id: string; code: string; arabicName: string; exchangeRate?: number | string | null };
 type Delegate = { id: string; code: string; arabicName: string };
+type SellerUser = {
+  id: string;
+  username: string;
+  firstName?: string | null;
+  lastName?: string | null;
+  email?: string | null;
+};
 type ConvertedFromInvoice = {
   id: string;
   invoiceNumber?: string | null;
@@ -68,8 +76,14 @@ type Props = {
   onOpenTerms?: () => void;
   currencies: Currency[];
   delegates: Delegate[];
+  drivers: Delegate[];
+  distributors: Delegate[];
+  sellers: SellerUser[];
   currenciesLoading?: boolean;
   delegatesLoading?: boolean;
+  driversLoading?: boolean;
+  distributorsLoading?: boolean;
+  sellersLoading?: boolean;
   showValidationErrors?: boolean;
   headerActions?: ReactNode;
   customerSeed?: { id: string; arabicName: string; code?: string | null } | null;
@@ -82,6 +96,8 @@ type Props = {
   hasExistingLines?: boolean;
   sourceDisabled?: boolean;
   fieldsDisabled?: boolean;
+  headerExtrasOpen?: boolean;
+  onHeaderExtrasOpenChange?: (open: boolean) => void;
   onSourceHydrate?: (payload: SourceHydratePayload) => void;
   includeAllAccounts?: boolean;
 };
@@ -101,8 +117,14 @@ export function SalesInvoiceFormHeader({
   installmentCount = 0,
   currencies,
   delegates,
+  drivers,
+  distributors,
+  sellers,
   currenciesLoading,
   delegatesLoading,
+  driversLoading,
+  distributorsLoading,
+  sellersLoading,
   showValidationErrors = false,
   headerActions,
   customerSeed,
@@ -113,12 +135,17 @@ export function SalesInvoiceFormHeader({
   hasExistingLines = false,
   sourceDisabled = false,
   fieldsDisabled = false,
+  headerExtrasOpen,
+  onHeaderExtrasOpenChange,
   onSourceHydrate,
   includeAllAccounts = false,
 }: Props) {
   const mounted = useClientMounted();
   const { code: companyBase } = useCompanyBaseCurrency();
   const delegatesBusy = mounted && Boolean(delegatesLoading);
+  const driversBusy = mounted && Boolean(driversLoading);
+  const distributorsBusy = mounted && Boolean(distributorsLoading);
+  const sellersBusy = mounted && Boolean(sellersLoading);
   const currenciesBusy = mounted && Boolean(currenciesLoading);
   const err = (has?: boolean) => (showValidationErrors && has ? erpInputErrorClass : '');
 
@@ -131,6 +158,7 @@ export function SalesInvoiceFormHeader({
 
   const currencyIdW = useWatch({ control, name: 'currencyId' });
   const exchangeRateW = useWatch({ control, name: 'exchangeRate' });
+  const allowReturnW = useWatch({ control, name: 'allowReturn' });
   const selectedHeaderCurrency = currencies.find((c) => c.id === currencyIdW);
   const headerRateLocked = isFxRateLocked(selectedHeaderCurrency?.code, companyBase);
   const catalogHeaderRate = rateForCurrency(
@@ -384,8 +412,30 @@ export function SalesInvoiceFormHeader({
       <div>
         <label className={erpLabelClass}>المندوب</label>
         <select className={erpInputClass} disabled={delegatesBusy} {...register('delegateId')}>
-          <option value="">—</option>
+          <option value="">{delegatesBusy ? 'جاري التحميل…' : '—'}</option>
           {delegates.map((d) => (
+            <option key={d.id} value={d.id}>
+              {d.arabicName}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div>
+        <label className={erpLabelClass}>السائق</label>
+        <select className={erpInputClass} disabled={driversBusy} {...register('driverId')}>
+          <option value="">{driversBusy ? 'جاري التحميل…' : '—'}</option>
+          {drivers.map((d) => (
+            <option key={d.id} value={d.id}>
+              {d.arabicName}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div>
+        <label className={erpLabelClass}>الموزع</label>
+        <select className={erpInputClass} disabled={distributorsBusy} {...register('distributorId')}>
+          <option value="">{distributorsBusy ? 'جاري التحميل…' : '—'}</option>
+          {distributors.map((d) => (
             <option key={d.id} value={d.id}>
               {d.arabicName}
             </option>
@@ -414,10 +464,13 @@ export function SalesInvoiceFormHeader({
           disabled={currenciesBusy}
           {...register('currencyId', { onChange: (e) => handleCurrencyChange(e.target.value) })}
         >
-          <option value="">افتراضي</option>
+          {currencies.length === 0 ? (
+            <option value="">{currenciesBusy ? 'جاري التحميل…' : 'لا توجد عملات'}</option>
+          ) : null}
           {currencies.map((c) => (
             <option key={c.id} value={c.id}>
               {c.arabicName} ({c.code})
+              {isCompanyBaseCurrency(c.code, companyBase) ? ' — أساسية' : ''}
             </option>
           ))}
         </select>
@@ -472,12 +525,12 @@ export function SalesInvoiceFormHeader({
         <p className="mt-1 text-[11px] text-slate-400">يحدد تلقائياً تفعيل ضريبة القيمة المضافة أعلاه</p>
       </div>
       <div>
-        <label className={erpLabelClass}>البائع (Salesman)</label>
-        <select className={erpInputClass} disabled={delegatesBusy} {...register('sellerId')}>
-          <option value="">—</option>
-          {delegates.map((d) => (
-            <option key={d.id} value={d.id}>
-              {d.arabicName}
+        <label className={erpLabelClass}>البائع</label>
+        <select className={erpInputClass} disabled={sellersBusy} {...register('sellerId')}>
+          <option value="">{sellersBusy ? 'جاري التحميل…' : '—'}</option>
+          {sellers.map((u) => (
+            <option key={u.id} value={u.id}>
+              {formatUserDisplayName(u)}
             </option>
           ))}
         </select>
@@ -488,8 +541,26 @@ export function SalesInvoiceFormHeader({
           className="rounded border-slate-300 text-[#0E78AA] focus:ring-[#0E78AA]"
           {...register('allowReturn')}
         />
-        السماح بالإرجاع 365 يوم
+        السماح بالإرجاع
       </label>
+      {allowReturnW ? (
+        <div>
+          <label className={erpLabelClass}>أيام الاسترجاع المتاحة</label>
+          <input
+            type="number"
+            min={1}
+            step={1}
+            className={`${erpInputClass} ${err(!!errors.returnDays)}`}
+            {...register('returnDays', { valueAsNumber: true })}
+          />
+          <ErpFieldError message={errors.returnDays?.message} show={showValidationErrors} />
+          <p className="mt-1 text-[11px] text-slate-400">يمكن عمل مردود خلال هذه المدة من تاريخ الفاتورة</p>
+        </div>
+      ) : (
+        <p className="self-end pb-2 text-[11px] text-slate-500">
+          غير مسموح بعمل مردود أو مرتجع على هذه الفاتورة
+        </p>
+      )}
       <Controller
         name="isDelivered"
         control={control}
@@ -622,6 +693,8 @@ export function SalesInvoiceFormHeader({
       row1={row1}
       row2={row2}
       extras={extras}
+      extrasOpen={headerExtrasOpen}
+      onExtrasOpenChange={onHeaderExtrasOpenChange}
       headerActions={headerActions}
       fieldsDisabled={fieldsDisabled}
     />

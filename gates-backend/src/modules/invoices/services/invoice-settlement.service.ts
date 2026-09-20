@@ -195,7 +195,7 @@ export class InvoiceSettlementService {
     const cashTx = await cashTransactionService.createInTx(
       tx,
       ctx.companyId,
-      ctx.branchId,
+      ctx.branchId ?? undefined,
       ctx.fiscalYearId,
       {
         transactionKind: kind,
@@ -282,7 +282,7 @@ export class InvoiceSettlementService {
       const cashTx = await cashTransactionService.createInTx(
         tx,
         ctx.companyId,
-        ctx.branchId,
+        ctx.branchId ?? undefined,
         ctx.fiscalYearId,
         {
           transactionKind: kind,

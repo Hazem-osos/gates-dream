@@ -9,6 +9,7 @@ import type {
 import { upsertCompanyFiscalYear } from './fiscal-year-sync.service';
 import { companyOnboardingService } from './company-onboarding.service';
 import { ensureDefaultPieceUnit } from '../../inventory/services/ensure-default-unit';
+import { ensureDefaultUngroupedCategory } from '../../inventory/services/ensure-default-item-category';
 import { ensureDefaultWarehouseTree } from '../../inventory/services/ensure-default-warehouse';
 
 function maskSecret(secret: string | null | undefined): string | null {
@@ -345,6 +346,7 @@ export class CompanyCurrentService {
 
       const fiscalYear = await upsertCompanyFiscalYear(companyId, input.fiscalYear, tx);
       const unit = await ensureDefaultPieceUnit(companyId, tx);
+      await ensureDefaultUngroupedCategory(companyId, tx);
 
       return {
         branchId: branch.id,

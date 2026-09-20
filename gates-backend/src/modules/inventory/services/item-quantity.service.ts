@@ -230,34 +230,22 @@ export class ItemQuantityService {
         throw new Error('Warehouse not found');
       }
 
-      const where: any = {
-        warehouseId,
-      };
-
       if (itemId) {
-        // Verify item belongs to company
         const item = await prisma.item.findFirst({
           where: { id: itemId, companyId },
+          select: { id: true },
         });
-
         if (!item) {
           throw new Error('Item not found');
         }
-
-        where.itemId = itemId;
-      } else {
-        // Filter by items that belong to company
-        const items = await prisma.item.findMany({
-          where: { companyId },
-          select: { id: true },
-        });
-        where.itemId = {
-          in: items.map((i) => i.id),
-        };
       }
 
-      const quantities = await prisma.itemQuantity.findMany({
-        where: scopedItemQuantityWhere(companyId, where),
+      const balances = await prisma.itemWarehouseBalance.findMany({
+        where: {
+          companyId,
+          warehouseId,
+          ...(itemId ? { itemId } : {}),
+        },
         include: {
           item: {
             select: {
@@ -268,22 +256,31 @@ export class ItemQuantityService {
               englishName: true,
             },
           },
-          location: {
-            select: {
-              id: true,
-              code: true,
-              arabicName: true,
-              englishName: true,
-            },
-          },
         },
-        orderBy: [
-          { item: { arabicName: 'asc' } },
-          { location: { arabicName: 'asc' } },
-        ],
+        orderBy: { item: { arabicName: 'asc' } },
       });
 
-      return quantities;
+      return balances.map((row) => {
+        const quantityOnHand = Number(row.quantityOnHand);
+        const reservedQuantity = Number(row.reservedQuantity);
+        return {
+          itemId: row.itemId,
+          warehouseId: row.warehouseId,
+          locationId: null,
+          quantity: quantityOnHand,
+          quantityOnHand,
+          reservedQuantity,
+          availableQuantity: quantityOnHand - reservedQuantity,
+          item: row.item,
+          warehouse: {
+            id: warehouse.id,
+            code: warehouse.code || null,
+            arabicName: warehouse.arabicName,
+            englishName: warehouse.englishName || null,
+          },
+          location: null,
+        };
+      });
     } catch (error) {
       logger.error(
         { error, companyId, warehouseId, itemId },

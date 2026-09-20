@@ -13,6 +13,7 @@ import { ErpDocumentBottomSplit } from '@/components/erp/ErpDocumentBottomSplit'
 import { erpTableHeadCellClass, erpTableHeadRowClass } from '@/components/erp/erpUiTokens';
 import { formatInvoiceMoney } from '@/lib/invoices/computeInvoiceFinancialSummary';
 import { CalculationInspector } from '@/components/ai/CalculationInspector';
+import { currencyDisplayLabel } from '@/lib/accounting/fx-base';
 
 type SettlementRow = {
   id: string;
@@ -37,6 +38,7 @@ type Props = {
   activeTabId?: string;
   onActiveTabChange?: (tabId: string) => void;
   pricingCalculationBasis?: string;
+  currencyCode?: string | null;
 };
 
 export function SalesInvoiceBottomSplit({
@@ -53,7 +55,9 @@ export function SalesInvoiceBottomSplit({
   activeTabId,
   onActiveTabChange,
   pricingCalculationBasis,
+  currencyCode,
 }: Props) {
+  const currencyLabel = currencyDisplayLabel(currencyCode);
   const { gross, commercialDiscount } = computeInvoiceGrossDiscount(lines, pricingCalculationBasis);
   const stockRows = lines.filter(
     (l) => ((Number(l.baseQuantity) || Number(l.quantity) || 0) > 0) && l.itemId
@@ -132,16 +136,16 @@ export function SalesInvoiceBottomSplit({
               rows={[
                 {
                   label: 'مجموع قبل الخصم',
-                  value: `${formatInvoiceMoney(gross)} ج.م`,
+                  value: `${formatInvoiceMoney(gross)} ${currencyLabel}`,
                 },
                 {
                   label: 'خصومات الأسطر',
-                  value: `− ${formatInvoiceMoney(commercialDiscount)} ج.م`,
+                  value: `− ${formatInvoiceMoney(commercialDiscount)} ${currencyLabel}`,
                   tone: 'minus',
                 },
                 {
                   label: 'الصافي بعد الخصم',
-                  value: `${formatInvoiceMoney(gross - commercialDiscount)} ج.م`,
+                  value: `${formatInvoiceMoney(gross - commercialDiscount)} ${currencyLabel}`,
                   tone: 'total',
                   hint: 'كل خصم يُطبَّق على صافي السطر بعد الخصم السابق عندما يكون الخصم المتسلسل مفعّلاً.',
                 },
@@ -164,6 +168,7 @@ export function SalesInvoiceBottomSplit({
       ]}
       netAmount={summary.netAmount}
       netLabel="الصافي المستحق"
+      currencyCode={currencyCode}
       showTafqeet
       financialFooter={termsAction}
       journalEntryId={journalEntryId}

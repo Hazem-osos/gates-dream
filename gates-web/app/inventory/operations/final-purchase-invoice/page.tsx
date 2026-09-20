@@ -12,7 +12,7 @@ import { shouldLockLoadedSource, type TransactionSettings } from '@/lib/transact
 import { pickDefaultSafeId } from '@/lib/hooks/useMasterDataQueries';
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
-import { toastVersionConflict } from '@/lib/feedback/toast';
+import { toast, toastInvoiceSaveError, toastVersionConflict } from '@/lib/feedback/toast';
 import { isOptimisticLockApiError } from '@/lib/concurrency/version-conflict';
 import {
   postInvoiceAfterSave,
@@ -29,7 +29,7 @@ import {
   mergeVisibleColumnIds,
 } from '@/lib/invoices/invoiceLineColumns';
 import { useVisibleColumnIds } from '@/lib/invoices/useVisibleColumnIds';
-import { defaultUnitIdForItem } from '@/lib/inventory/item-units';
+import { defaultUnitIdForItem, findDefaultPieceUnitId } from '@/lib/inventory/item-units';
 import {
   parsePricingCalculationBasis,
   type PricingCalculationBasis,
@@ -44,7 +44,12 @@ import { PurchaseInvoicePageHeader } from '@/components/inventory/purchase-invoi
 import { PurchaseInvoiceFormHeader } from '@/components/inventory/purchase-invoice/PurchaseInvoiceFormHeader';
 import { InternalNotesScratchpad } from '@/components/documents/InternalNotesScratchpad';
 import type { InternalNoteEntry, PaymentSplitLine } from '@/lib/invoices/payment-split.types';
-import { legacyCreditToSplit, splitsMatchTotal, withOnAccountRemainder } from '@/lib/invoices/payment-split.types';
+import {
+  creditAdvanceToSplits,
+  resolveInvoicePaymentUi,
+  splitsMatchTotal,
+  withOnAccountRemainder,
+} from '@/lib/invoices/payment-split.types';
 import {
   extractPaymentInstallments,
   installmentRowsFromApi,
@@ -134,6 +139,9 @@ type PurchaseInvoiceDraft = {
   delegateId: string;
   currencyId: string;
   paymentType: 'cash' | 'credit' | 'split';
+  treasuryId: string;
+  advancePaidAmount: number;
+  advanceSafeId: string;
   pricingCalculationBasis: PricingCalculationBasis;
   invoiceLines: PurchaseInvoiceLine[];
   sourceType: string;
@@ -200,6 +208,9 @@ function FinalPurchaseInvoicePageInner() {
   const [delegateId, setDelegateId] = useState('');
   const [currencyId, setCurrencyId] = useState('');
   const [paymentType, setPaymentType] = useState<'cash' | 'credit' | 'split'>('cash');
+  const [treasuryId, setTreasuryId] = useState('');
+  const [advancePaidAmount, setAdvancePaidAmount] = useState(0);
+  const [advanceSafeId, setAdvanceSafeId] = useState('');
   const [pricingCalculationBasis, setPricingCalculationBasis] =
     useState<PricingCalculationBasis>('SELECTED_UNIT_QTY');
   const [paymentSplits, setPaymentSplits] = useState<PaymentSplitLine[]>([]);
@@ -291,6 +302,9 @@ function FinalPurchaseInvoicePageInner() {
       delegateId,
       currencyId,
       paymentType,
+      treasuryId,
+      advancePaidAmount,
+      advanceSafeId,
       pricingCalculationBasis,
       invoiceLines,
       sourceType,
@@ -315,6 +329,9 @@ function FinalPurchaseInvoicePageInner() {
       delegateId,
       currencyId,
       paymentType,
+      treasuryId,
+      advancePaidAmount,
+      advanceSafeId,
       pricingCalculationBasis,
       invoiceLines,
       sourceType,
@@ -340,7 +357,10 @@ function FinalPurchaseInvoicePageInner() {
     setCostCenterId(payload.costCenterId);
     setDelegateId(payload.delegateId);
     setCurrencyId(payload.currencyId);
-    setPaymentType(payload.paymentType === 'cash' ? 'cash' : 'split');
+    setPaymentType(payload.paymentType === 'credit' || payload.paymentType === 'split' ? payload.paymentType : 'cash');
+    setTreasuryId(payload.treasuryId ?? '');
+    setAdvancePaidAmount(Number(payload.advancePaidAmount) || 0);
+    setAdvanceSafeId(payload.advanceSafeId ?? '');
     setPricingCalculationBasis(parsePricingCalculationBasis(payload.pricingCalculationBasis));
     setInvoiceLines(payload.invoiceLines ?? []);
     setSourceType(payload.sourceType ?? '');
@@ -416,11 +436,7 @@ function FinalPurchaseInvoicePageInner() {
   );
 
   useEffect(() => {
-    if (paymentType === 'cash') return;
-    if (paymentType === 'credit') {
-      setPaymentType('split');
-      return;
-    }
+    if (paymentType !== 'split') return;
     setPaymentSplits((prev) => withOnAccountRemainder(prev, financialSummary.netAmount));
   }, [paymentType, financialSummary.netAmount]);
 
@@ -461,7 +477,7 @@ function FinalPurchaseInvoicePageInner() {
         (selectedInvoice as { totalAmount?: number }).totalAmount ??
         0
     );
-    const loaded = legacyCreditToSplit(
+    const loaded = resolveInvoicePaymentUi(
       (selectedInvoice as { paymentMethod?: string }).paymentMethod ??
         String(selectedInvoice.paymentType ?? ''),
       Array.isArray(rawSplits) ? rawSplits : [],
@@ -469,6 +485,16 @@ function FinalPurchaseInvoicePageInner() {
     );
     setPaymentType(loaded.method);
     setPaymentSplits(loaded.splits);
+    const cashSplit = loaded.splits.find((row) => row.type === 'CASH' && row.safeId);
+    if (loaded.method === 'cash') {
+      setTreasuryId(cashSplit?.safeId ?? '');
+      setAdvancePaidAmount(0);
+      setAdvanceSafeId('');
+    } else if (loaded.method === 'credit') {
+      setAdvancePaidAmount(Number(cashSplit?.amount) || 0);
+      setAdvanceSafeId(cashSplit?.safeId ?? '');
+      setTreasuryId(cashSplit?.safeId ?? '');
+    }
     const rawNotes = (selectedInvoice as { internalNotes?: InternalNoteEntry[] }).internalNotes;
     const notesList = Array.isArray(rawNotes) ? rawNotes : [];
     const apiInstallments = installmentRowsFromApi(
@@ -560,6 +586,12 @@ function FinalPurchaseInvoicePageInner() {
     { limit: 1000, isActive: true }
   );
   const items = useMemo(() => itemsResponse?.data ?? [], [itemsResponse?.data]);
+  const { data: unitsResponse } = useApiQuery<{ id: string; code?: string | null; arabicName?: string }[]>(
+    ['units', 'invoice-fallback'],
+    '/inventory/units',
+    { limit: 200, isActive: true }
+  );
+  const fallbackUnitId = findDefaultPieceUnitId(unitsResponse?.data ?? []);
 
   const clipboardItems = useMemo(
     () =>
@@ -628,6 +660,9 @@ function FinalPurchaseInvoicePageInner() {
     const today = new Date().toISOString().split('T')[0];
     setDate(today);
     setPaymentType('cash');
+    setTreasuryId('');
+    setAdvancePaidAmount(0);
+    setAdvanceSafeId('');
     setPaymentSplits([]);
     setPaymentInstallments([]);
     setInternalNotes([]);
@@ -654,7 +689,10 @@ function FinalPurchaseInvoicePageInner() {
       handleNew();
       setSuccess('تم حفظ فاتورة المشتريات بنجاح');
     },
-    onError: (err) => setError(err.message || 'حدث خطأ أثناء الحفظ'),
+    onError: (err) => {
+      setError(err.message || 'حدث خطأ أثناء الحفظ');
+      toastInvoiceSaveError(err.message || 'حدث خطأ أثناء الحفظ');
+    },
   });
 
   const invoiceUpdateMutation = useApiMutation<unknown, Record<string, unknown>>(
@@ -685,6 +723,7 @@ function FinalPurchaseInvoicePageInner() {
           return;
         }
         setError(err.message || 'حدث خطأ أثناء التحديث');
+        toastInvoiceSaveError(err.message || 'حدث خطأ أثناء التحديث');
       },
     }
   );
@@ -754,6 +793,29 @@ function FinalPurchaseInvoicePageInner() {
   );
   const defaultSafeId = pickDefaultSafeId(safesResponse?.data);
 
+  useEffect(() => {
+    if (selectedInvoiceId) return;
+    const settings = txSettingsRes?.data;
+    if (settings?.defaultWarehouseId && !warehouseId) {
+      setWarehouseId(settings.defaultWarehouseId);
+    }
+    if (settings?.defaultCostCenterId && !costCenterId) {
+      setCostCenterId(settings.defaultCostCenterId);
+    }
+  }, [selectedInvoiceId, txSettingsRes?.data, warehouseId, costCenterId]);
+
+  useEffect(() => {
+    if (paymentType !== 'cash') return;
+    if (!treasuryId && defaultSafeId) setTreasuryId(defaultSafeId);
+  }, [paymentType, treasuryId, defaultSafeId]);
+
+  useEffect(() => {
+    if (paymentType !== 'credit') return;
+    if (!advanceSafeId && (treasuryId || defaultSafeId)) {
+      setAdvanceSafeId(treasuryId || defaultSafeId);
+    }
+  }, [paymentType, advanceSafeId, treasuryId, defaultSafeId]);
+
   const collectPaymentMutation = useApiMutation<unknown, Record<string, unknown>>(
     selectedInvoiceId ? `/invoices/${selectedInvoiceId}/settlements` : '/invoices',
     'POST',
@@ -776,98 +838,135 @@ function FinalPurchaseInvoicePageInner() {
   const handleSaveDraft = () => {
     if (financialBusy || isPosted) return;
     setSubmitAttempt((n) => n + 1);
-                setError('');
-                setSuccess('');
-                const parsed = inventorySupplierInvoiceFormSchema.safeParse({
-                  serialNumber: invoiceNumber,
+    setError('');
+    setSuccess('');
+    const parsed = inventorySupplierInvoiceFormSchema.safeParse({
+      serialNumber: invoiceNumber,
       description: supplierRef ? `${supplierRef} — ${description}` : description,
-                  date: date || new Date().toISOString(),
-                  hijriDate,
-                  warehouseId,
-                  supplierId,
+      date: date || new Date().toISOString(),
+      hijriDate,
+      warehouseId,
+      supplierId,
       isPosted: false,
       isApproved: false,
-                  useBarcode: false,
-                  hideExistingQty: false,
-                  lines: invoiceLines.map((line) => ({
-                    itemId: line.itemId,
-                    quantity: line.quantity,
-                    unitPrice: line.unitPrice,
-                    discount: line.discount ?? 0,
-                    tax: line.tax ?? 0,
-                  })),
-                });
-                if (!parsed.success) {
-                  setError(parsed.error.issues[0]?.message ?? 'خطأ في البيانات');
-                  return;
-                }
-                const d = parsed.data;
-                const resolvedMethod = paymentType === 'cash' ? 'cash' : 'split';
-                const splitLines =
-                  resolvedMethod === 'split'
-                    ? withOnAccountRemainder(paymentSplits, financialSummary.netAmount)
-                    : undefined;
-                if (resolvedMethod === 'split' && !splitsMatchTotal(splitLines ?? [], financialSummary.netAmount)) {
-                  setError('وزّع الدفع المتعدد ليطابق إجمالي الفاتورة');
-                  setSplitModalOpen(true);
-                  return;
-                }
-                const formData = {
-                  invoiceNumber: d.serialNumber,
-                  description: d.description,
-                  date: d.date || new Date().toISOString(),
-                  hijriDate: d.hijriDate,
-                  supplierId: d.supplierId,
-                  warehouseId: d.warehouseId,
-                  costCenterId: costCenterId || undefined,
-                  delegateId: delegateId || undefined,
-                  currencyId: currencyId || undefined,
-                  sourceType: sourceType && sourceType !== 'NONE' ? sourceType : 'NONE',
-                  sourceId: sourceId || undefined,
-                  sourceNumber: sourceNumber || undefined,
-                  paymentMethod: resolvedMethod,
-                  pricingCalculationBasis,
-                  paymentSplits: resolvedMethod === 'split' ? splitLines : undefined,
-                  internalNotes,
-                  installments: paymentInstallments.map((row) => ({
-                    installmentNumber: row.number,
-                    dueDate: row.dueDate,
-                    hijriDueDate: toHijriMedium(row.dueDate),
-                    amount: row.amount,
-                  })),
-                  lines: d.lines.map((line, index) => ({
-                    itemId: line.itemId,
-                    unitId: invoiceLines[index]?.unitId,
-                    quantity: line.quantity,
-                    baseQuantity: invoiceLines[index]?.baseQuantity,
-                    conversionFactor: invoiceLines[index]?.conversionFactor,
-                    baseUnitId: invoiceLines[index]?.baseUnitId,
-                    unitPrice: line.unitPrice,
-                    discount: invoiceLines[index]?.discountValue ?? invoiceLines[index]?.discount ?? line.discount ?? 0,
-                    discountValue: invoiceLines[index]?.discountValue ?? invoiceLines[index]?.discount ?? line.discount ?? 0,
-                    discountType: invoiceLines[index]?.discountType,
-                    taxRate: line.tax ?? 0,
-                    warehouseId: invoiceLines[index]?.warehouseId || d.warehouseId,
-                  })),
-                };
-                const mapOpts = { invoiceKind: 'PURCHASE' as const, currencies, items };
-                try {
-                  if (selectedInvoiceId) {
-                    invoiceUpdateMutation.mutate(
-                      mapSalesFormToM5UpdateBody(formData, {
-                        ...mapOpts,
-                        expectedVersion:
-                          typeof selectedInvoice?.version === 'number'
-                            ? selectedInvoice.version
-                            : undefined,
-                      })
-                    );
-                  } else {
-                    invoiceMutation.mutate(mapSalesFormToM5CreateBody(formData, mapOpts));
-                  }
-                } catch (e) {
-                  setError(e instanceof Error ? e.message : 'تعذر تجهيز الفاتورة');
-                }
+      useBarcode: false,
+      hideExistingQty: false,
+      lines: invoiceLines.map((line) => ({
+        itemId: line.itemId,
+        quantity: line.quantity,
+        unitPrice: line.unitPrice,
+        discount: line.discount ?? 0,
+        tax: line.tax ?? 0,
+      })),
+    });
+    if (!parsed.success) {
+      const message = parsed.error.issues[0]?.message ?? 'خطأ في البيانات';
+      setError(message);
+      toastInvoiceSaveError(message);
+      return;
+    }
+    const d = parsed.data;
+    const resolvedMethod = paymentType;
+    const cashTreasury = String(treasuryId || defaultSafeId || '').trim();
+    const creditSafe = String(advanceSafeId || cashTreasury || '').trim();
+    const creditPaid = Number(advancePaidAmount) || 0;
+    if (resolvedMethod === 'cash' && !cashTreasury) {
+      const message = 'يجب تحديد الخزنة في الفاتورة النقدية';
+      setError(message);
+      toast.error(message);
+      return;
+    }
+    if (resolvedMethod === 'credit' && creditPaid > 0 && !creditSafe) {
+      const message = 'حدد الخزينة عند دفع مبلغ في الأول';
+      setError(message);
+      toast.error(message);
+      return;
+    }
+    const splitLines =
+      resolvedMethod === 'split'
+        ? withOnAccountRemainder(paymentSplits, financialSummary.netAmount)
+        : undefined;
+    if (resolvedMethod === 'split' && !splitsMatchTotal(splitLines ?? [], financialSummary.netAmount)) {
+      setError('وزّع الدفع المتعدد ليطابق إجمالي الفاتورة');
+      toast.error('وزّع الدفع المتعدد ليطابق إجمالي الفاتورة');
+      setSplitModalOpen(true);
+      return;
+    }
+    const cashTreasurySplits =
+      resolvedMethod === 'cash' && cashTreasury && financialSummary.netAmount > 0
+        ? [{ type: 'CASH' as const, safeId: cashTreasury, amount: financialSummary.netAmount }]
+        : undefined;
+    const creditSplits =
+      resolvedMethod === 'credit'
+        ? creditAdvanceToSplits(creditPaid, creditSafe, financialSummary.netAmount)
+        : undefined;
+    const formData = {
+      invoiceNumber: d.serialNumber,
+      description: d.description,
+      date: d.date || new Date().toISOString(),
+      hijriDate: d.hijriDate,
+      supplierId: d.supplierId,
+      warehouseId: d.warehouseId,
+      costCenterId: costCenterId || undefined,
+      delegateId: delegateId || undefined,
+      currencyId: currencyId || undefined,
+      sourceType: sourceType && sourceType !== 'NONE' ? sourceType : 'NONE',
+      sourceId: sourceId || undefined,
+      sourceNumber: sourceNumber || undefined,
+      paymentMethod: resolvedMethod,
+      pricingCalculationBasis,
+      paymentSplits:
+        resolvedMethod === 'split'
+          ? splitLines
+          : resolvedMethod === 'credit'
+            ? creditSplits
+            : cashTreasurySplits,
+      internalNotes,
+      installments: paymentInstallments.map((row) => ({
+        installmentNumber: row.number,
+        dueDate: row.dueDate,
+        hijriDueDate: toHijriMedium(row.dueDate),
+        amount: row.amount,
+      })),
+      lines: d.lines.map((line, index) => ({
+        itemId: line.itemId,
+        unitId: invoiceLines[index]?.unitId,
+        quantity: line.quantity,
+        baseQuantity: invoiceLines[index]?.baseQuantity,
+        conversionFactor: invoiceLines[index]?.conversionFactor,
+        baseUnitId: invoiceLines[index]?.baseUnitId,
+        unitPrice: line.unitPrice,
+        discount: invoiceLines[index]?.discountValue ?? invoiceLines[index]?.discount ?? line.discount ?? 0,
+        discountValue: invoiceLines[index]?.discountValue ?? invoiceLines[index]?.discount ?? line.discount ?? 0,
+        discountType: invoiceLines[index]?.discountType,
+        taxRate: line.tax ?? 0,
+        warehouseId: invoiceLines[index]?.warehouseId || d.warehouseId,
+      })),
+    };
+    const mapOpts = {
+      invoiceKind: 'PURCHASE' as const,
+      currencies,
+      items,
+      applyTax: isSalesTaxInvoice,
+      fallbackUnitId,
+    };
+    try {
+      if (selectedInvoiceId) {
+        invoiceUpdateMutation.mutate(
+          mapSalesFormToM5UpdateBody(formData, {
+            ...mapOpts,
+            expectedVersion:
+              typeof selectedInvoice?.version === 'number' ? selectedInvoice.version : undefined,
+          })
+        );
+      } else {
+        invoiceMutation.mutate(mapSalesFormToM5CreateBody(formData, mapOpts));
+      }
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'تعذر تجهيز الفاتورة';
+      setError(message);
+      toastInvoiceSaveError(message);
+    }
   };
 
   useEffect(() => {
@@ -892,16 +991,36 @@ function FinalPurchaseInvoicePageInner() {
       supplierId,
       lines: invoiceLines,
     });
-    if (parsed.success) return {};
     const map: Record<string, string> = {};
-    for (const issue of parsed.error.issues) {
-      const path = issue.path[0];
-      if (path === 'supplierId') map.supplierId = issue.message;
-      if (path === 'warehouseId') map.warehouseId = issue.message;
-      if (path === 'date') map.date = issue.message;
+    if (!parsed.success) {
+      for (const issue of parsed.error.issues) {
+        const path = issue.path[0];
+        if (path === 'supplierId') map.supplierId = issue.message;
+        if (path === 'warehouseId') map.warehouseId = issue.message;
+        if (path === 'date') map.date = issue.message;
+      }
+    }
+    if (paymentType === 'cash' && !String(treasuryId || defaultSafeId || '').trim()) {
+      map.treasuryId = 'يجب تحديد الخزنة في الفاتورة النقدية';
+    }
+    if (paymentType === 'credit' && (Number(advancePaidAmount) || 0) > 0 && !String(advanceSafeId || treasuryId || '').trim()) {
+      map.advanceSafeId = 'حدد الخزينة عند دفع مبلغ في الأول';
     }
     return map;
-  }, [submitAttempt, invoiceNumber, description, date, warehouseId, supplierId, invoiceLines]);
+  }, [
+    submitAttempt,
+    invoiceNumber,
+    description,
+    date,
+    warehouseId,
+    supplierId,
+    invoiceLines,
+    paymentType,
+    treasuryId,
+    defaultSafeId,
+    advancePaidAmount,
+    advanceSafeId,
+  ]);
 
   const statusTone = isPosted ? 'success' : 'warning';
   const statusLabel = isPosted ? 'مرحّل' : 'مسودة';
@@ -1062,6 +1181,12 @@ function FinalPurchaseInvoicePageInner() {
         onSupplierId={setSupplierId}
         paymentType={paymentType}
         onPaymentType={setPaymentType}
+        treasuryId={treasuryId}
+        onTreasuryId={setTreasuryId}
+        advancePaidAmount={advancePaidAmount}
+        onAdvancePaidAmount={setAdvancePaidAmount}
+        advanceSafeId={advanceSafeId}
+        onAdvanceSafeId={setAdvanceSafeId}
         onConfigureSplit={() => setSplitModalOpen(true)}
         onConfigureInstallments={() => setInstallmentsModalOpen(true)}
         installmentCount={paymentInstallments.length}

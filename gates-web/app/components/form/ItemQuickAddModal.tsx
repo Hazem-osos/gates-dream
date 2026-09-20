@@ -19,6 +19,7 @@ import { toast } from '@/lib/feedback/toast';
 import type { QuickCreatedItem } from '@/app/components/form/QuickCreateItemModal';
 import { useAccountingSettingsQuery } from '@/lib/hooks/useAccountingSettings';
 import { nextNumericSerial } from '@/lib/masters/nextNumericSerial';
+import { findDefaultPieceUnitId } from '@/lib/inventory/item-units';
 
 type ItemQuickAddModalProps = {
   open: boolean;
@@ -135,7 +136,7 @@ export function ItemQuickAddModal({
 
   useEffect(() => {
     if (open && units.length > 0 && !form.unitId) {
-      setForm((prev) => ({ ...prev, unitId: units[0].id }));
+      setForm((prev) => ({ ...prev, unitId: findDefaultPieceUnitId(units) || units[0].id }));
     }
   }, [open, units, form.unitId]);
 
@@ -163,12 +164,13 @@ export function ItemQuickAddModal({
       fail('اسم الصنف مطلوب');
       return;
     }
+    const primaryUnitId = form.unitId || findDefaultPieceUnitId(units);
     if (form.secondaryEnabled) {
       if (!form.secondaryUnitId) {
         fail('اختر الوحدة الثانوية أو ألغِ تفعيلها');
         return;
       }
-      if (form.secondaryUnitId === form.unitId) {
+      if (form.secondaryUnitId === primaryUnitId) {
         fail('يجب أن تختلف الوحدة الثانوية عن الوحدة الأساسية');
         return;
       }
@@ -187,6 +189,7 @@ export function ItemQuickAddModal({
         barcode: form.barcode.trim() || undefined,
         englishName: form.englishName.trim() || undefined,
         categoryId: form.categoryId || undefined,
+        baseUnitId: primaryUnitId || undefined,
         mainAccountId: form.mainAccountId || undefined,
         salesAccountId: form.salesAccountId || undefined,
         cogsAccountId: form.cogsAccountId || undefined,
@@ -206,16 +209,9 @@ export function ItemQuickAddModal({
       if (!itemId) throw new Error('لم يُرجَع معرّف الصنف');
 
       const unitLinks: { unitId: string; unit: { id: string; arabicName: string } }[] = [];
-      if (form.unitId) {
-        await apiClient.post('/inventory/item-units', {
-          itemId,
-          unitId: form.unitId,
-          conversionFactor: 1,
-          isFactorFixed: true,
-          isBaseUnit: true,
-        });
-        const label = units.find((u) => u.id === form.unitId)?.arabicName ?? 'الوحدة';
-        unitLinks.push({ unitId: form.unitId, unit: { id: form.unitId, arabicName: label } });
+      if (primaryUnitId) {
+        const label = units.find((u) => u.id === primaryUnitId)?.arabicName ?? 'قطعة';
+        unitLinks.push({ unitId: primaryUnitId, unit: { id: primaryUnitId, arabicName: label } });
       }
       if (form.secondaryEnabled && form.secondaryUnitId) {
         const factor = Number(form.secondaryConversionFactor);
@@ -239,9 +235,9 @@ export function ItemQuickAddModal({
           serial: form.serial.trim() || created.data?.serial,
           units: unitLinks.map((l) => ({
             unitId: l.unitId,
-            isBaseUnit: l.unitId === form.unitId,
-            isFactorFixed: l.unitId === form.unitId ? true : form.secondaryFactorFixed,
-            conversionFactor: l.unitId === form.unitId ? 1 : Number(form.secondaryConversionFactor) || 1,
+            isBaseUnit: l.unitId === primaryUnitId,
+            isFactorFixed: l.unitId === primaryUnitId ? true : form.secondaryFactorFixed,
+            conversionFactor: l.unitId === primaryUnitId ? 1 : Number(form.secondaryConversionFactor) || 1,
             unit: l.unit,
           })),
           defaultTaxPercent: form.defaultTaxPercent.trim() ? Number(form.defaultTaxPercent) : null,
@@ -254,7 +250,7 @@ export function ItemQuickAddModal({
         id: itemId,
         arabicName: form.arabicName.trim(),
         serial: form.serial.trim() || created.data?.serial,
-        unitId: form.unitId || undefined,
+        unitId: primaryUnitId || undefined,
         defaultTaxPercent: form.defaultTaxPercent.trim() ? Number(form.defaultTaxPercent) : undefined,
         taxExemptionReason: form.taxExemptionReason.trim() || undefined,
       };
@@ -359,9 +355,9 @@ export function ItemQuickAddModal({
               </div>
             </AdvancedFieldsSection>
           </div>
-          <CompactFormField label="الوحدة الأساسية" required>
+          <CompactFormField label="الوحدة الأساسية">
             <select className={compactControlClass} value={form.unitId} onChange={(e) => set('unitId', e.target.value)}>
-              {units.length === 0 ? <option value="">جاري تحميل الوحدات…</option> : null}
+              {units.length === 0 ? <option value="">قطعة (تلقائي)</option> : null}
               {units.map((u) => (
                 <option key={u.id} value={u.id}>
                   {u.code ? `[${u.code}] ` : ''}

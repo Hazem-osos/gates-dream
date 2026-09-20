@@ -32,6 +32,7 @@ router.get(
         limit: req.query.limit as number | undefined,
         search: req.query.search as string | undefined,
         isActive: req.query.isActive as boolean | undefined,
+        warehouseId: req.query.warehouseId as string | undefined,
       });
       return void res.json({
         status: 'success',

@@ -51,13 +51,6 @@ interface Item {
   englishName?: string;
 }
 
-interface Location {
-  id: string;
-  code: string;
-  arabicName: string;
-  englishName?: string;
-}
-
 interface ReceiptLine {
   itemId: string;
   locationId?: string;
@@ -140,14 +133,6 @@ export default function ReceiptPage() {
     { limit: 1000, isActive: true }
   );
   const items = itemsResponse?.data || [];
-
-  // Fetch locations (if available)
-  const { data: locationsResponse } = useApiQuery<Location[]>(
-    ['locations'],
-    '/inventory/locations',
-    { limit: 1000, isActive: true }
-  );
-  const locations = locationsResponse?.data || [];
 
   // Fetch single receipt for editing
   const { data: receiptResponse } = useApiQuery<ReceiptDocumentDetail>(
@@ -550,25 +535,6 @@ export default function ReceiptPage() {
                       </option>
                     ))}
                   </select>
-                </div>
-                <div>
-                  <label className={labelCls}>الموقع</label>
-                  {locations.length > 0 ? (
-                    <select
-                      className={inputCls}
-                      value={line.locationId || ''}
-                      onChange={(e) => updateReceiptLine(index, 'locationId', e.target.value)}
-                    >
-                      <option value="">اختر</option>
-                      {locations.map((location) => (
-                        <option key={location.id} value={location.id}>
-                          {location.arabicName}
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <span className="text-sm text-slate-400">—</span>
-                  )}
                 </div>
                 <div>
                   <label className={labelCls}>الكمية</label>

@@ -15,13 +15,27 @@ export const updatePriceListSchema = createPriceListSchema.partial().extend({
 });
 
 export const priceListQuerySchema = z.object({
-  page: z.string().optional().transform((val) => (val ? parseInt(val, 10) : 1)),
-  limit: z.string().optional().transform((val) => (val ? parseInt(val, 10) : 50)),
+  page: z
+    .union([z.string(), z.number()])
+    .optional()
+    .transform((val) => {
+      const n = typeof val === 'number' ? val : val ? parseInt(val, 10) : 1;
+      return Number.isFinite(n) && n > 0 ? n : 1;
+    }),
+  limit: z
+    .union([z.string(), z.number()])
+    .optional()
+    .transform((val) => {
+      const n = typeof val === 'number' ? val : val ? parseInt(val, 10) : 50;
+      return Number.isFinite(n) && n > 0 ? n : 50;
+    }),
   search: z.string().optional(),
   isActive: z
-    .string()
+    .union([z.boolean(), z.string()])
     .optional()
-    .transform((val) => (val === undefined ? undefined : val === 'true')),
+    .transform((val) =>
+      val === undefined ? undefined : val === true || val === 'true'
+    ),
 });
 
 export const priceListPriceRowSchema = z.object({
@@ -30,6 +44,7 @@ export const priceListPriceRowSchema = z.object({
   unitId: z.string().uuid(),
   price: z.number().nonnegative().optional(),
   discount: z.number().nonnegative().nullable().optional(),
+  purchasePrice: z.number().nonnegative().nullable().optional(),
   wholesale: z.number().nonnegative().nullable().optional(),
   semiWholesale: z.number().nonnegative().nullable().optional(),
   exportPrice: z.number().nonnegative().nullable().optional(),

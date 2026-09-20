@@ -79,7 +79,7 @@ export default function OnboardingPage() {
   });
   const [branch, setBranch] = useState({
     arabicName: 'الفرع الرئيسي',
-    warehouseName: 'المخزن الرئيسي',
+    warehouseName: 'مخزن الحركة',
     safeName: 'الخزينة الرئيسية',
   });
   const [bankHint, setBankHint] = useState('');

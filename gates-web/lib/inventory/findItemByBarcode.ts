@@ -1,5 +1,6 @@
 import { fetchApiQuery } from '@/lib/api/query-fetch';
 import type { ItemOption } from '@/lib/hooks/useMasterDataQueries';
+import { resolvePriceListSalePrice } from '@/lib/inventory/pricing-engine';
 
 export type BarcodeItemHit = ItemOption & {
   barcode?: string | null;
@@ -26,18 +27,13 @@ export function itemBarcodeValue(item: BarcodeItemHit, fallback = ''): string {
 }
 
 function withSalePrice(item: BarcodeItemHit): BarcodeItemHit {
+  const listPrice = resolvePriceListSalePrice(item);
+  if (listPrice > 0) return { ...item, salesPrice: listPrice };
   if (item.salesPrice != null) return item;
-  const raw = item as BarcodeItemHit & {
-    priceRetail?: number | string | null;
-    itemPrices?: { price?: number; priceList?: { isDefault?: boolean } }[];
-  };
+  const raw = item as BarcodeItemHit & { priceRetail?: number | string | null };
   const retail = raw.priceRetail != null ? Number(raw.priceRetail) : NaN;
   if (Number.isFinite(retail) && retail > 0) {
     return { ...item, salesPrice: retail };
-  }
-  if (raw.itemPrices?.length) {
-    const def = raw.itemPrices.find((p) => p.priceList?.isDefault) ?? raw.itemPrices[0];
-    if (def?.price != null) return { ...item, salesPrice: Number(def.price) };
   }
   return item;
 }

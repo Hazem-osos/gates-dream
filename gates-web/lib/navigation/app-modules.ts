@@ -8,6 +8,7 @@ export type AppModuleSection = {
 };
 
 export const APP_MODULE_SECTIONS: AppModuleSection[] = [
+  { key: 'automation', icon: '⚡', label: 'أتمتة Gates', color: '#0E79AA' },
   { key: 'electronic-invoices', icon: '🧾', label: 'الفواتير الإلكترونية', color: '#0E79AA' },
   { key: 'statements', icon: '📄', label: 'المستخلصات', color: '#CB5B53' },
   { key: 'hr', icon: '👨‍💼', label: 'الموارد البشرية', color: '#0E79AA' },
@@ -21,6 +22,7 @@ export const APP_MODULE_SECTIONS: AppModuleSection[] = [
 ];
 
 export const SECTION_PATH_PREFIX: Record<string, string> = {
+  automation: '/automation',
   'electronic-invoices': '/electronic-invoices',
   statements: '/extracts',
   hr: '/hr',

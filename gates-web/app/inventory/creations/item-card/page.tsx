@@ -1,14 +1,12 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useOwnTabSearchParams } from '@/lib/navigation/tab-route-lock';
-import { ImagePlus, Package, Plus, Trash2, Upload, X } from 'lucide-react';
+import { ImagePlus, Package, Plus, Trash2, X } from 'lucide-react';
 import {
   Button,
   CompactFormField,
-  FormStickyFooter,
   FormSectionCard,
   compactControlClass,
   denseTableWrapClass,
@@ -37,16 +35,18 @@ import { formatMoneyAr } from '@/lib/formatMoney';
 import { useItemCardTourPrepare } from '@/lib/onboarding/useItemCardTourPrepare';
 import { queryKeys } from '@/lib/query/query-keys';
 import { BarcodePrintModal } from '@/app/components/print/BarcodePrintModal';
+import { UnitDefinitionDialog } from '@/components/inventory/UnitDefinitionDialog';
 import { DocumentBrowseDrawer } from '@/components/erp/DocumentBrowseDrawer';
 import { ItemsCatalogListSection } from '@/components/inventory/ItemsCatalogListSection';
 import { DocumentModeProvider, useDocumentMode } from '@/components/common/document-shell';
 import { GuideEntityModal } from '@/components/accounting/guide/GuideEntityModal';
-import { NumberingModeControl } from '@/components/accounting/NumberingModeControl';
 import { useAccountingSettingsQuery } from '@/lib/hooks/useAccountingSettings';
 import { bumpTrailingCode, isCodeAfter, nextNumericSerial } from '@/lib/masters/nextNumericSerial';
 import { entityLabel } from '@/lib/quick-create/catalog';
 import { useQuickCreateHost } from '@/lib/quick-create/useQuickCreateTab';
 import { readImageFileAsDataUrl } from '@/lib/images/read-image-file';
+import { findDefaultPieceUnitId } from '@/lib/inventory/item-units';
+import { confirmAction } from '@/lib/feedback/confirm';
 import {
   applyItemToForm,
   assemblyRowsTotal,
@@ -75,6 +75,10 @@ type CategoryRow = {
   groupType?: string | null;
 };
 
+function isUngroupedCategory(row: CategoryRow) {
+  return row.code === 'UNG' || row.arabicName === 'بدون مجموعة';
+}
+
 function categoryOptionLabel(row: CategoryRow, all: CategoryRow[]): string {
   const self = row.code ? `${row.code} — ${row.arabicName}` : row.arabicName;
   const parent = all.find((item) => item.id === row.parentCategoryId);
@@ -89,6 +93,8 @@ type LocalUnitRow = {
   conversionFactor: string;
   isFactorFixed: boolean;
   isBaseUnit: boolean;
+  purchasePrice: string;
+  salePrice: string;
 };
 
 function toLocalUnitRows(rows: ItemUnitRow[]): LocalUnitRow[] {
@@ -98,6 +104,8 @@ function toLocalUnitRows(rows: ItemUnitRow[]): LocalUnitRow[] {
     conversionFactor: String(row.conversionFactor ?? 1),
     isFactorFixed: row.isFactorFixed !== false,
     isBaseUnit: Boolean(row.isBaseUnit),
+    purchasePrice: '',
+    salePrice: '',
     id: row.id,
   }));
 }
@@ -109,16 +117,18 @@ function emptyBaseUnitRow(unitId = ''): LocalUnitRow {
     conversionFactor: '1',
     isFactorFixed: true,
     isBaseUnit: true,
+    purchasePrice: '',
+    salePrice: '',
   };
 }
 
 const TABS = [
-  { id: 'general', label: 'عام', hint: 'المواصفات والوزن وخصائص الصنف' },
-  { id: 'units-prices', label: 'الوحدات والأسعار', hint: 'الوحدة الأساسية من هنا، وتقدر تغيّرها عند التعديل. الأسعار من قائمة الأسعار.' },
+  { id: 'general', label: 'عام', hint: 'المواصفات وخصائص الصنف' },
+  { id: 'units-prices', label: 'الوحدات والأسعار', hint: 'وحدات الصنف وأسعار الشراء والبيع' },
   { id: 'options', label: 'خيارات', hint: 'الضريبة، القيود، والصورة' },
   { id: 'quantities', label: 'الكميات', hint: 'حدود المخزون والرصيد الافتتاحي' },
   { id: 'assembly', label: 'تجميعي', hint: 'عادي أو تجميعي، ثم المكونات لو تجميعي' },
-  { id: 'order-plan', label: 'نقطة إعادة الطلب', hint: 'الموردون ومدة التوريد' },
+  { id: 'order-plan', label: 'إدارة الطلبيات', hint: 'الموردون ومدة التوريد' },
 ] as const;
 
 const OPTION_FLAGS = [
@@ -215,7 +225,7 @@ function ItemImageUploader({
           setDragOver(false);
           readFile(e.dataTransfer.files?.[0]);
         }}
-        className={`group relative flex min-h-[220px] flex-col items-center justify-center overflow-hidden rounded-2xl border-2 border-dashed transition ${
+        className={`group relative flex min-h-[160px] flex-col items-center justify-center overflow-hidden rounded-2xl border-2 border-dashed transition ${
           dragOver
             ? 'border-[#0E78AA] bg-[#E8F4FA]'
             : value
@@ -250,25 +260,18 @@ function ItemImageUploader({
         />
       </button>
       <div className="flex flex-col justify-center gap-3">
-        <div className="flex flex-wrap gap-2">
-          <Button type="button" variant="secondary" onClick={() => inputRef.current?.click()}>
-            <Upload className="h-4 w-4" />
-            رفع صورة
+        {value ? (
+          <Button type="button" variant="secondary" size="sm" onClick={() => onChange('')}>
+            <X className="h-4 w-4" />
+            حذف الصورة
           </Button>
-          {value ? (
-            <Button type="button" variant="secondary" onClick={() => onChange('')}>
-              <X className="h-4 w-4" />
-              حذف
-            </Button>
-          ) : null}
-        </div>
+        ) : null}
         <CompactFormField
           label="أو الصق رابط الصورة"
           value={urlValue}
           onChange={(e) => onChange(e.target.value)}
           placeholder="https://…"
         />
-        <p className="text-xs text-slate-500">المعاينة تظهر فوراً. الصورة تتصغّر قبل الحفظ عشان JPG العادي يعدي.</p>
       </div>
     </div>
   );
@@ -289,18 +292,18 @@ function TabPanel({ title, hint, children }: { title: string; hint: string; chil
 function ItemCardPageInner() {
   const invalidateQuery = useInvalidateQuery();
   const router = useRouter();
-  const { isReadOnly, isEditing, unlockForEdit, lockToView, setMode } = useDocumentMode();
+  const { isReadOnly, unlockForEdit, lockToView, setMode } = useDocumentMode();
   const quickCreate = useQuickCreateHost('item');
-  const [activeTab, setActiveTab] = useState('general');
+  const [activeTab, setActiveTab] = useState<string | null>(null);
   useItemCardTourPrepare(setActiveTab);
   const [itemType, setItemType] = useState('normal');
   const [showPrint, setShowPrint] = useState(false);
+  const [showUnitDefinition, setShowUnitDefinition] = useState(false);
   const [showFinder, setShowFinder] = useState(false);
   const [showGroupModal, setShowGroupModal] = useState(false);
   const [newGroupName, setNewGroupName] = useState('');
   const [newGroupParentId, setNewGroupParentId] = useState('');
   const [savingGroup, setSavingGroup] = useState(false);
-  const [lookup, setLookup] = useState('');
   const [plainItemModal, setPlainItemModal] = useState<{ open: boolean; name: string; rowIdx: number }>({
     open: false,
     name: '',
@@ -312,7 +315,6 @@ function ItemCardPageInner() {
   const itemAuto = settingsRes?.data?.general?.itemAutoNumbering !== false;
   const companyPriceSource =
     settingsRes?.data?.general?.itemPriceSource === 'item_card' ? 'item_card' : 'price_list';
-  const itemRecordCount = settingsRes?.data?.general?.numberingRecordCounts?.items ?? 0;
   const [formData, setFormData] = useState<ItemCardForm>({ ...EMPTY_ITEM_FORM });
   const [assemblyRows, setAssemblyRows] = useState<AssemblyRow[]>(
     parseAssemblyRows(undefined)
@@ -326,6 +328,7 @@ function ItemCardPageInner() {
   const [savedItemId, setSavedItemId] = useState<string | null>(null);
   const searchParams = useOwnTabSearchParams();
   const itemIdFromUrl = searchParams.get('id');
+  const categoryIdFromUrl = searchParams.get('categoryId');
   const dismissedItemIdRef = useRef<string | null>(null);
   const rawItemId = savedItemId ?? itemIdFromUrl;
   const activeItemId =
@@ -345,12 +348,30 @@ function ItemCardPageInner() {
     { limit: 200, isActive: true }
   );
   const categories = Array.isArray(categoriesResponse?.data) ? categoriesResponse.data : [];
+  const selectableCategories = categories.filter((row) => !isUngroupedCategory(row));
+  const groupSelectValue = categories.some(
+    (row) => row.id === formData.categoryId && isUngroupedCategory(row)
+  )
+    ? ''
+    : formData.categoryId;
   const { data: unitsResponse } = useApiQuery<{ id: string; arabicName: string; code?: string | null }[]>(
     ['units', 'item-card'],
     '/inventory/units',
     { limit: 500, isActive: true }
   );
   const units = unitsResponse?.data ?? [];
+  const defaultPieceUnitId = findDefaultPieceUnitId(units);
+
+  useEffect(() => {
+    if (activeItemId || !defaultPieceUnitId) return;
+    setFormData((prev) => (prev.baseUnitId ? prev : { ...prev, baseUnitId: defaultPieceUnitId }));
+    setLocalUnits((prev) => {
+      const base = prev.find((row) => row.isBaseUnit);
+      if (base?.unitId) return prev;
+      if (!prev.length) return [emptyBaseUnitRow(defaultPieceUnitId)];
+      return prev.map((row) => (row.isBaseUnit ? { ...row, unitId: defaultPieceUnitId } : row));
+    });
+  }, [activeItemId, defaultPieceUnitId]);
 
   const { data: itemsSerialRes } = useApiQuery<{ serial?: string | null }[]>(
     ['items', 'serials'],
@@ -374,6 +395,11 @@ function ItemCardPageInner() {
   }, [activeItemId, quickCreate.prefillName]);
 
   useEffect(() => {
+    if (activeItemId || !categoryIdFromUrl) return;
+    setFormData((prev) => (prev.categoryId ? prev : { ...prev, categoryId: categoryIdFromUrl }));
+  }, [activeItemId, categoryIdFromUrl]);
+
+  useEffect(() => {
     if (!itemIdFromUrl) dismissedItemIdRef.current = null;
   }, [itemIdFromUrl]);
 
@@ -387,7 +413,7 @@ function ItemCardPageInner() {
     supplierRows: SupplierRow[];
     localUnits: LocalUnitRow[];
     itemType: string;
-    activeTab: string;
+    activeTab: string | null;
   };
 
   const itemCardDraft = useMemo<ItemCardDraft>(
@@ -531,6 +557,8 @@ function ItemCardPageInner() {
         conversionFactor: '1',
         isFactorFixed: true,
         isBaseUnit: false,
+        purchasePrice: '',
+        salePrice: '',
       },
     ]);
   };
@@ -553,22 +581,24 @@ function ItemCardPageInner() {
     setLocalUnits((prev) => prev.filter((item) => item.key !== row.key));
   };
 
-  const priceByUnitId = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const p of itemDetail?.prices ?? []) {
-      if (p.unitId) {
-        const n = typeof p.price === 'string' ? parseFloat(p.price) : Number(p.price);
-        if (!Number.isNaN(n)) map.set(p.unitId, n);
-      }
-    }
-    return map;
-  }, [itemDetail?.prices]);
-
   const hydrateFromItem = (item: ItemDetail) => {
     setFormData(applyItemToForm(item));
     setAssemblyRows(parseAssemblyRows(item.assemblyComponents));
     setSupplierRows(parseSupplierRows(item.preferredSuppliers));
-    const mapped = toLocalUnitRows(item.units ?? []);
+    const mapped = toLocalUnitRows(item.units ?? []).map((row) => {
+      if (row.isBaseUnit) {
+        return {
+          ...row,
+          purchasePrice: moneyToInput(item.lastPurchasePrice),
+          salePrice: moneyToInput(item.priceRetail ?? item.retailPrice),
+        };
+      }
+      const listed = (item.prices ?? []).find((p) => p.unitId === row.unitId);
+      return {
+        ...row,
+        salePrice: listed ? moneyToInput(listed.price) : '',
+      };
+    });
     setLocalUnits(mapped.length ? mapped : [emptyBaseUnitRow()]);
     setUnitsHydratedFor(item.id);
     if (item.itemType) setItemType(item.itemType);
@@ -658,6 +688,7 @@ function ItemCardPageInner() {
     setSuccess(quickCreate.isQuickCreate ? 'تم حفظ الصنف' : 'تم حفظ الصنف — تقدر تضيف التالي');
     invalidateQuery(['items']);
     invalidateQuery(['items', 'serials']);
+    invalidateQuery(queryKeys.itemCategories({ limit: 200 }));
     if (id) invalidateQuery(['item', id]);
   };
 
@@ -687,19 +718,11 @@ function ItemCardPageInner() {
       setError(parsed.error.issues[0]?.message || 'يرجى مراجعة بيانات الصنف');
       return;
     }
-    if (!itemAuto && !formData.serial.trim() && !activeItemId) {
-      setError('رقم الصنف مطلوب — الترقيم يدوي');
-      return;
-    }
-    if (!formData.categoryId) {
-      setError('اختَر مجموعة الصنف قبل الحفظ');
-      return;
-    }
-    const baseUnitId = formData.baseUnitId || localUnits.find((row) => row.isBaseUnit)?.unitId || '';
-    if (!baseUnitId) {
-      setError('اختَر الوحدة الأساسية من تاب الوحدات والأسعار قبل الحفظ');
-      return;
-    }
+    const baseUnitId =
+      formData.baseUnitId ||
+      localUnits.find((row) => row.isBaseUnit)?.unitId ||
+      findDefaultPieceUnitId(units) ||
+      '';
 
     const retailTier = optionalMoney(formData.retailPrice) ?? optionalMoney(formData.priceRetail);
 
@@ -708,7 +731,7 @@ function ItemCardPageInner() {
       arabicName: formData.arabicName,
       englishName: formData.englishName || undefined,
       categoryId: formData.categoryId || null,
-      baseUnitId,
+      baseUnitId: baseUnitId || undefined,
       barcode: formData.barcode || null,
       defaultTaxPercent: formData.isTaxExempt ? 0 : optionalMoney(formData.defaultTaxPercent) ?? null,
       mainAccountId: formData.mainAccountId || undefined,
@@ -758,10 +781,8 @@ function ItemCardPageInner() {
       exportPrice: optionalMoney(formData.exportPrice) ?? 0,
       priceMode: formData.priceMode,
       priceCurrency: formData.priceCurrency || null,
-      extraAssemblyCost: optionalMoney(formData.extraAssemblyCost) ?? null,
+      extraAssemblyCost: null,
       extraAssemblyCostPct: optionalMoney(formData.extraAssemblyCostPct) ?? null,
-      purchaseCount: formData.purchaseCount ? parseInt(formData.purchaseCount, 10) : null,
-      minPurchaseQty: optionalMoney(formData.minPurchaseQty) ?? null,
       assemblyComponents: compactAssemblyRows(assemblyRows),
       preferredSuppliers: compactSupplierRows(supplierRows),
       imageUrl: formData.imageUrl || null,
@@ -793,6 +814,23 @@ function ItemCardPageInner() {
     }
   };
 
+  const handlePermanentDelete = async () => {
+    if (!activeItemId) {
+      setError('احفظ الصنف قبل الحذف');
+      return;
+    }
+    if (!(await confirmAction('حذف الصنف نهائياً؟ لو عليه حركات الحذف هيتوقف.'))) return;
+    setError('');
+    try {
+      await apiClient.delete(`/inventory/items/${activeItemId}`);
+      setSuccess('تم حذف الصنف');
+      invalidateQuery(['items']);
+      startNewItem();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'تعذر حذف الصنف');
+    }
+  };
+
   const startNewItem = () => {
     const currentId = savedItemId ?? itemIdFromUrl;
     if (currentId) dismissedItemIdRef.current = currentId;
@@ -801,28 +839,16 @@ function ItemCardPageInner() {
     setSavedItemId(null);
     setError('');
     setSuccess('');
-    setFormData({ ...EMPTY_ITEM_FORM });
+    const pieceUnitId = findDefaultPieceUnitId(units);
+    setFormData({ ...EMPTY_ITEM_FORM, baseUnitId: pieceUnitId });
     setAssemblyRows(parseAssemblyRows(undefined));
     setSupplierRows(parseSupplierRows(undefined));
-    setLocalUnits([emptyBaseUnitRow()]);
+    setLocalUnits([emptyBaseUnitRow(pieceUnitId)]);
     setUnitsHydratedFor(null);
     setItemType('normal');
-    setActiveTab('general');
-    setLookup('');
+    setActiveTab(null);
     setMode('create');
     router.replace('/inventory/creations/item-card');
-  };
-
-  const handleCancel = () => {
-    setError('');
-    if (isEditing && activeItemId && itemDetail?.id === activeItemId) {
-      hydrateFromItem(itemDetail);
-      lockToView();
-      setSuccess('تم التراجع عن التعديلات');
-      return;
-    }
-    startNewItem();
-    setSuccess(activeItemId ? 'تم التراجع — البطاقة جاهزة لصنف جديد' : 'تم تفريغ البطاقة');
   };
 
   const currentStockQty = (itemDetail?.quantities ?? []).reduce((sum, row) => {
@@ -831,10 +857,16 @@ function ItemCardPageInner() {
   }, 0);
 
   const componentsTotal = assemblyRowsTotal(assemblyRows);
-  const extraCost = optionalMoney(formData.extraAssemblyCost) ?? 0;
   const extraPct = optionalMoney(formData.extraAssemblyCostPct) ?? 0;
-  const assemblyGrand = componentsTotal + extraCost + (componentsTotal * extraPct) / 100;
-  const activeHint = TABS.find((tab) => tab.id === activeTab)?.hint ?? '';
+  const assemblyGrand = componentsTotal + (componentsTotal * extraPct) / 100;
+
+  const toggleTab = (tabId: string) => {
+    setActiveTab((prev) => {
+      const next = prev === tabId ? null : tabId;
+      if (next === 'assembly') unlockForEdit();
+      return next;
+    });
+  };
 
   return (
     <ErpDocumentLayout>
@@ -854,35 +886,36 @@ function ItemCardPageInner() {
             ? 'مؤرشف'
             : activeItemId
               ? isReadOnly
-                ? 'عرض — اضغط تعديل'
+                ? 'عرض'
                 : 'تعديل'
               : 'جديد'
         }
         onSave={() => void handleSave()}
         savePending={loading}
         canSave={!isReadOnly && !loading}
-        onCancel={handleCancel}
-        onEdit={() => {
-          if (!activeItemId) return;
-          unlockForEdit();
-        }}
-        editDisabled={!activeItemId}
         onNew={startNewItem}
         currentId={activeItemId}
         onBrowseList={() => setShowFinder(true)}
-        extraActions={
-          <NumberingModeControl
-            kind="items"
-            auto={itemAuto}
-            recordCount={itemRecordCount}
-            settingKey="itemAutoNumbering"
-          />
-        }
         moreMenuItems={[
+          {
+            id: 'edit',
+            label: 'تعديل',
+            onClick: () => {
+              if (!activeItemId) return;
+              unlockForEdit();
+            },
+            disabled: !activeItemId || !isReadOnly,
+          },
           {
             id: 'archive',
             label: 'أرشفة',
             onClick: () => void handleArchive(),
+            disabled: !activeItemId,
+          },
+          {
+            id: 'delete',
+            label: 'حذف نهائي',
+            onClick: () => void handlePermanentDelete(),
             disabled: !activeItemId,
             destructive: true,
           },
@@ -919,14 +952,14 @@ function ItemCardPageInner() {
           value={formData.englishName}
           onChange={(e) => patch({ englishName: e.target.value })}
         />
-        <CompactFormField label="المجموعة الرئيسية" required>
+        <CompactFormField label="المجموعة الرئيسية">
           <div className="flex gap-2">
             <ItemGroupSelect
-              value={formData.categoryId}
+              value={groupSelectValue}
               onChange={(id) => patch({ categoryId: id })}
-              groups={Array.isArray(categories) ? categories : []}
+              groups={selectableCategories}
               disabled={isReadOnly}
-              emptyLabel="اختَر المجموعة"
+              emptyLabel="بدون مجموعة"
               labelFor={(row) => categoryOptionLabel(row, categories)}
             />
             <Button
@@ -951,47 +984,10 @@ function ItemCardPageInner() {
           placeholder="اختياري"
         />
         <div>
-          <p className={labelCls}>نوع الصنف</p>
-          <ChoicePills
-            name="itemKind"
-            value={formData.isService ? 'service' : 'stock'}
-            options={[
-              { value: 'stock', label: 'مخزني' },
-              { value: 'service', label: 'خدمي' },
-            ]}
-            disabled={isReadOnly}
-            onChange={(v) => patch({ isService: v === 'service' })}
-          />
-        </div>
-        <div>
           <p className={labelCls}>الرصيد الحالي</p>
           <p className="h-9 rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] px-3 text-sm font-semibold leading-9 text-[#094C6B]">
             {activeItemId ? currentStockQty.toLocaleString('ar-EG') : '— بعد الحفظ'}
           </p>
-        </div>
-        <div className="sm:col-span-2">
-          <p className={labelCls}>فتح صنف بالكود أو الباركود</p>
-          <div className="flex gap-2">
-            <input
-              className={inputCls}
-              value={lookup}
-              onChange={(e) => setLookup(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  setShowFinder(true);
-                }
-              }}
-              placeholder="اكتب المسلسل أو الباركود ثم Enter"
-            />
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={() => setShowFinder(true)}
-            >
-              بحث
-            </Button>
-          </div>
         </div>
       </FormSectionCard>
       </fieldset>
@@ -1002,34 +998,42 @@ function ItemCardPageInner() {
         </p>
       ) : null}
 
-      <div className="mb-3 rounded-xl border border-[#D6EAF3] bg-white p-2">
-        <div className="flex flex-wrap gap-2" role="tablist">
-          {TABS.map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              role="tab"
-              onClick={() => {
-                setActiveTab(tab.id);
-                if (tab.id === 'assembly') unlockForEdit();
-              }}
-              className={`rounded-full px-4 py-2 text-sm font-semibold transition ${
-                activeTab === tab.id
-                  ? 'bg-[#E8F4FA] text-[#0E78AA] shadow-sm ring-1 ring-[#B7E0F2]'
-                  : 'text-gray-600 hover:bg-gray-50'
-              }`}
-              aria-selected={activeTab === tab.id}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
-        <p className="mt-2 px-2 text-xs text-slate-500">{activeHint}</p>
-      </div>
+      <div className="flex flex-col gap-4 lg:flex-row" dir="rtl">
+        <nav className="w-full shrink-0 lg:w-48" aria-label="تبويبات البطاقة">
+          <div className="flex flex-col overflow-hidden rounded-xl border border-[#E6EEF4] bg-white">
+            {TABS.map((tab, idx) => {
+              const selected = activeTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={selected}
+                  onClick={() => toggleTab(tab.id)}
+                  className={`w-full px-4 py-2.5 text-right text-sm transition ${
+                    idx > 0 ? 'border-t border-[#EEF3F7]' : ''
+                  } ${
+                    selected
+                      ? 'bg-[#F3FAFD] font-semibold text-[#0E78AA]'
+                      : 'font-medium text-[#4B6472] hover:bg-[#F7FBFD] hover:text-[#0A3D5E]'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              );
+            })}
+          </div>
+        </nav>
 
+        <div className="min-w-0 flex-1">
       <fieldset disabled={isReadOnly} className="min-w-0 border-0 p-0">
+        {!activeTab ? (
+          <div className="flex min-h-[12rem] items-center justify-center rounded-xl border border-dashed border-[#D6EAF3] bg-white text-sm text-slate-400">
+            اختَر تبويبًا من القائمة
+          </div>
+        ) : null}
       {activeTab === 'general' && (
-        <TabPanel title="البيانات العامة" hint="المواصفات والوزن وخصائص الصنف. نوع الصنف فوق مع الهوية.">
+        <TabPanel title="البيانات العامة" hint="المواصفات ونوع الصنف وخصائصه.">
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <div className="space-y-4">
               <div>
@@ -1041,12 +1045,19 @@ function ItemCardPageInner() {
                   placeholder="وصف مختصر للصنف"
                 />
               </div>
-              <CompactFormField
-                label="الوزن"
-                type="number"
-                value={formData.weight}
-                onChange={(e) => patch({ weight: e.target.value })}
-              />
+              <div>
+                <p className={labelCls}>نوع الصنف</p>
+                <ChoicePills
+                  name="itemKind"
+                  value={formData.isService ? 'service' : 'stock'}
+                  options={[
+                    { value: 'stock', label: 'مخزني' },
+                    { value: 'service', label: 'خدمي' },
+                  ]}
+                  disabled={isReadOnly}
+                  onChange={(v) => patch({ isService: v === 'service' })}
+                />
+              </div>
             </div>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               {(
@@ -1076,50 +1087,8 @@ function ItemCardPageInner() {
       )}
 
       {activeTab === 'units-prices' && (
-        <TabPanel title="الوحدات والأسعار" hint="الوحدة الأساسية من هنا، وتقدر تغيّرها عند التعديل. باقي الوحدات تحويل. الأسعار من قائمة الأسعار.">
-          <p className="mb-4 rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] px-3 py-2 text-sm text-[#094C6B]">
-            {companyPriceSource === 'item_card'
-              ? 'مصدر السعر من إعدادات الشركة: قراءة من بطاقة الصنف. ادخل أسعار الشراء والبيع هنا.'
-              : 'مصدر السعر من إعدادات الشركة: قراءة من قوائم الأسعار. هنا تربط وحدات الصنف من دليل الوحدات.'}
-          </p>
-
-          {companyPriceSource === 'item_card' ? (
-            <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <CompactFormField
-                label="سعر الشراء"
-                type="number"
-                min="0"
-                step="0.0001"
-                suffix="ج.م"
-                value={formData.purchasePrice}
-                onChange={(e) => patch({ purchasePrice: e.target.value })}
-              />
-              <CompactFormField
-                label="سعر البيع"
-                type="number"
-                min="0"
-                step="0.0001"
-                suffix="ج.م"
-                value={formData.priceRetail}
-                onChange={(e) =>
-                  patch({ priceRetail: e.target.value, retailPrice: e.target.value })
-                }
-              />
-            </div>
-          ) : null}
-
-          <div className="mb-3 flex flex-wrap items-center gap-2">
-            <Button type="button" variant="secondary" size="sm" onClick={addUnitRow} disabled={isReadOnly}>
-              + إضافة وحدة
-            </Button>
-            <Link href="/inventory/creations/unit">
-              <Button type="button" variant="ghost" size="sm">
-                تعريف الوحدات
-              </Button>
-            </Link>
-          </div>
-
-          <div className={denseTableWrapClass}>
+        <TabPanel title="الوحدات والأسعار" hint="وحدات الصنف وأسعار الشراء والبيع لكل وحدة.">
+          <div className={`${denseTableWrapClass} max-h-[28rem] overflow-auto`}>
             <table className={denseTableClass}>
               <thead className={denseTheadClass}>
                 <tr>
@@ -1127,14 +1096,15 @@ function ItemCardPageInner() {
                   <th className={denseThClass}>النوع</th>
                   <th className={denseThClass}>المعامل</th>
                   <th className={denseThClass}>ثابت</th>
-                  <th className={denseThClass}>سعر القائمة</th>
+                  <th className={denseThClass}>سعر الشراء</th>
+                  <th className={denseThClass}>سعر البيع</th>
                   <th className={denseThClass} />
                 </tr>
               </thead>
               <tbody>
                 {localUnits.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="py-6">
+                    <td colSpan={7} className="py-6">
                       <EmptyState
                         title="لا توجد وحدات"
                         description="أضف وحدة أساسية من دليل الوحدات، أو عرّف وحدة جديدة."
@@ -1148,10 +1118,11 @@ function ItemCardPageInner() {
                   </tr>
                 ) : (
                   localUnits.map((row) => {
-                    const listedPrice = row.unitId ? priceByUnitId.get(row.unitId) : undefined;
                     const taken = localUnits
                       .filter((item) => item.key !== row.key)
                       .map((item) => item.unitId);
+                    const purchaseValue = row.isBaseUnit ? formData.purchasePrice : row.purchasePrice;
+                    const saleValue = row.isBaseUnit ? formData.priceRetail : row.salePrice;
                     return (
                       <tr key={row.key} className={denseTrClass}>
                         <td className={`${denseTdClass} min-w-[14rem]`}>
@@ -1160,7 +1131,7 @@ function ItemCardPageInner() {
                             units={units}
                             excludeIds={taken}
                             disabled={isReadOnly || unitBusyKey === row.key}
-                            placeholder="اختَر الوحدة"
+                            placeholder="قطعة (تلقائي)"
                             onChange={(unitId) => void chooseUnit(row, unitId)}
                           />
                         </td>
@@ -1169,7 +1140,7 @@ function ItemCardPageInner() {
                         </td>
                         <td className={denseTdClass}>
                           <input
-                            className="w-24 rounded-lg border border-[#D6EAF3] bg-white px-2 py-1 text-sm text-[#0A3D5E]"
+                            className="h-9 w-24 rounded-lg border border-[#D6EAF3] bg-white px-2 text-sm text-[#0A3D5E]"
                             type="number"
                             min="0.000001"
                             step="0.0001"
@@ -1181,7 +1152,7 @@ function ItemCardPageInner() {
                         </td>
                         <td className={denseTdClass}>
                           <select
-                            className="rounded-lg border border-[#D6EAF3] bg-white px-2 py-1 text-sm text-[#0A3D5E]"
+                            className="h-9 rounded-lg border border-[#D6EAF3] bg-white px-2 text-sm text-[#0A3D5E]"
                             disabled={isReadOnly || unitBusyKey === row.key}
                             value={row.isFactorFixed ? 'fixed' : 'variable'}
                             onChange={(e) => void setUnitFactorFixed(row, e.target.value === 'fixed')}
@@ -1191,7 +1162,38 @@ function ItemCardPageInner() {
                           </select>
                         </td>
                         <td className={denseTdClass}>
-                          {listedPrice != null ? formatMoneyAr(listedPrice) : '—'}
+                          <input
+                            className="h-9 w-28 rounded-lg border border-[#D6EAF3] bg-white px-2 text-sm text-[#0A3D5E]"
+                            type="number"
+                            min="0"
+                            step="0.0001"
+                            disabled={isReadOnly}
+                            value={purchaseValue}
+                            onChange={(e) => {
+                              if (row.isBaseUnit) {
+                                patch({ purchasePrice: e.target.value });
+                                return;
+                              }
+                              setLocalUnit(row.key, { purchasePrice: e.target.value });
+                            }}
+                          />
+                        </td>
+                        <td className={denseTdClass}>
+                          <input
+                            className="h-9 w-28 rounded-lg border border-[#D6EAF3] bg-white px-2 text-sm text-[#0A3D5E]"
+                            type="number"
+                            min="0"
+                            step="0.0001"
+                            disabled={isReadOnly}
+                            value={saleValue}
+                            onChange={(e) => {
+                              if (row.isBaseUnit) {
+                                patch({ priceRetail: e.target.value, retailPrice: e.target.value });
+                                return;
+                              }
+                              setLocalUnit(row.key, { salePrice: e.target.value });
+                            }}
+                          />
                         </td>
                         <td className={denseTdClass}>
                           {row.isBaseUnit ? null : (
@@ -1217,25 +1219,25 @@ function ItemCardPageInner() {
       )}
 
       {activeTab === 'options' && (
-        <TabPanel title="خيارات الصنف" hint="الضريبة والقيود والصورة. نوع الصنف فوق، والتجميع من تاب تجميعي.">
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-            <div className="space-y-5 rounded-xl border border-[#D6EAF3] bg-[#F6FBFD] p-4">
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <label className="flex h-9 items-center gap-2">
-                  <input
-                    type="checkbox"
-                    className={checkboxCls}
-                    checked={formData.isTaxExempt}
-                    onChange={(e) => {
-                      const isTaxExempt = e.target.checked;
-                      patch({
-                        isTaxExempt,
-                        defaultTaxPercent: isTaxExempt ? '0' : formData.defaultTaxPercent,
-                      });
-                    }}
-                  />
-                  <span className="text-sm font-semibold text-[#0A3D5E]">معفي من الضريبة</span>
-                </label>
+        <TabPanel title="خيارات الصنف" hint="الضريبة والقيود والصورة.">
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <div className="flex flex-wrap items-end gap-3">
+              <label className="flex h-9 items-center gap-2">
+                <input
+                  type="checkbox"
+                  className={checkboxCls}
+                  checked={formData.isTaxExempt}
+                  onChange={(e) => {
+                    const isTaxExempt = e.target.checked;
+                    patch({
+                      isTaxExempt,
+                      defaultTaxPercent: isTaxExempt ? '0' : formData.defaultTaxPercent,
+                    });
+                  }}
+                />
+                <span className="text-sm font-semibold text-[#0A3D5E]">معفي من الضريبة</span>
+              </label>
+              <div className="w-32">
                 <CompactFormField
                   label="ضريبة"
                   type="number"
@@ -1254,9 +1256,9 @@ function ItemCardPageInner() {
               </div>
             </div>
 
-            <div className="space-y-3 rounded-xl border border-[#D6EAF3] p-4">
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               {OPTION_FLAGS.map(([key, label]) => (
-                <label key={key} className="flex items-center justify-between gap-3">
+                <label key={key} className="flex h-9 items-center justify-between gap-2 rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] px-3">
                   <span className="text-sm font-medium text-[#0A3D5E]">{label}</span>
                   <input
                     type="checkbox"
@@ -1291,7 +1293,7 @@ function ItemCardPageInner() {
       )}
 
       {activeTab === 'quantities' && (
-        <TabPanel title="حدود المخزون والكميات" hint="الرصيد الحالي فوق. هنا حدود التنبيه والرصيد الافتتاحي.">
+        <TabPanel title="حدود المخزون والكميات" hint="الرصيد الحالي فوق. هنا حدود التنبيه فقط.">
           <div
             data-tour="warehouse-stock-matrix"
             className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3"
@@ -1309,30 +1311,10 @@ function ItemCardPageInner() {
               onChange={(e) => patch({ orderLimit: e.target.value })}
             />
             <CompactFormField
-              label="حد الطلب من آخر فاتورة"
-              type="number"
-              suffix="%"
-              value={formData.orderLimitPercentage}
-              onChange={(e) => patch({ orderLimitPercentage: e.target.value })}
-            />
-            <CompactFormField
               label="الحد الأدنى"
               type="number"
               value={formData.lowerLimit}
               onChange={(e) => patch({ lowerLimit: e.target.value })}
-            />
-            <CompactFormField
-              label="رصيد أول المدة"
-              type="number"
-              value={formData.beginningBalance}
-              onChange={(e) => patch({ beginningBalance: e.target.value })}
-            />
-            <CompactFormField
-              label="سعر تكلفة أول المدة"
-              type="number"
-              suffix="ج.م"
-              value={formData.beginningCostPrice}
-              onChange={(e) => patch({ beginningCostPrice: e.target.value })}
             />
           </div>
         </TabPanel>
@@ -1550,32 +1532,23 @@ function ItemCardPageInner() {
               إضافة صنف عادي
             </Button>
           </div>
-          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <CompactFormField
+              label="تكلفة مضافة (نسبة من التكلفة)"
+              type="number"
+              suffix="%"
+              value={formData.extraAssemblyCostPct}
+              onChange={(e) => {
+                unlockForEdit();
+                patch({ extraAssemblyCostPct: e.target.value, extraAssemblyCost: '' });
+              }}
+            />
             <div>
               <p className={labelCls}>إجمالي التكلفة</p>
               <p className="h-9 rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] px-3 text-sm font-semibold leading-9">
                 {formatMoneyAr(assemblyGrand)}
               </p>
             </div>
-            <CompactFormField
-              label="تكلفة مضافة"
-              type="number"
-              value={formData.extraAssemblyCost}
-              onChange={(e) => {
-                unlockForEdit();
-                patch({ extraAssemblyCost: e.target.value });
-              }}
-            />
-            <CompactFormField
-              label="نسبة من التكلفة"
-              type="number"
-              suffix="%"
-              value={formData.extraAssemblyCostPct}
-              onChange={(e) => {
-                unlockForEdit();
-                patch({ extraAssemblyCostPct: e.target.value });
-              }}
-            />
           </div>
           </>
           )}
@@ -1584,7 +1557,7 @@ function ItemCardPageInner() {
 
       <fieldset disabled={isReadOnly} className="min-w-0 border-0 p-0">
       {activeTab === 'order-plan' && (
-        <TabPanel title="نقطة إعادة الطلب" hint="الموردون المفضلون والسعر ومدة التوريد. حد الطلب نفسه في تبويب الكميات.">
+        <TabPanel title="إدارة الطلبيات" hint="الموردون المفضلون والسعر ومدة التوريد.">
           <div className={denseTableWrapClass}>
             <table className={denseTableClass}>
               <thead className={denseTheadClass}>
@@ -1661,31 +1634,24 @@ function ItemCardPageInner() {
             onClick={() => setSupplierRows((prev) => [...prev, { ...EMPTY_SUPPLIER_ROW }])}
           >
             <Plus className="h-4 w-4" />
-            مورد
+            إضافة سطر
           </Button>
-          <div data-tour="reorder-level-alert" className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <CompactFormField
-              label="عدد مرات الشراء"
-              type="number"
-              value={formData.purchaseCount}
-              onChange={(e) => patch({ purchaseCount: e.target.value })}
-            />
-            <CompactFormField
-              label="الحد الأدنى للطلبية"
-              type="number"
-              value={formData.minPurchaseQty}
-              onChange={(e) => patch({ minPurchaseQty: e.target.value })}
-            />
-          </div>
         </TabPanel>
       )}
       </fieldset>
 
       {activeTab === 'units-prices' ? (
-        <div className="mt-4">
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <Button type="button" variant="secondary" size="sm" onClick={addUnitRow} disabled={isReadOnly}>
+            + إضافة وحدة
+          </Button>
+          <Button type="button" variant="ghost" size="sm" onClick={() => setShowUnitDefinition(true)}>
+            تعريف الوحدات
+          </Button>
           <Button
             type="button"
             variant="secondary"
+            size="sm"
             onClick={() => setShowPrint(true)}
             disabled={!activeItemId}
           >
@@ -1693,20 +1659,12 @@ function ItemCardPageInner() {
           </Button>
         </div>
       ) : null}
+        </div>
+      </div>
 
-      <FormStickyFooter
-        onSave={() => void handleSave()}
-        saveLoading={loading}
-        saveDisabled={loading || isReadOnly}
-        status={
-          isReadOnly
-            ? 'عرض — اضغط تعديل قبل التغيير'
-            : savedItemId
-              ? formData.inactiveItem
-                ? 'مؤرشف'
-                : 'صنف محفوظ'
-              : 'مسودة'
-        }
+      <UnitDefinitionDialog
+        open={showUnitDefinition}
+        onClose={() => setShowUnitDefinition(false)}
       />
 
       {showPrint ? (
@@ -1744,8 +1702,7 @@ function ItemCardPageInner() {
 
       <DocumentBrowseDrawer open={showFinder} onClose={() => setShowFinder(false)} title="الأصناف السابقة">
         <ItemsCatalogListSection
-          key={`${lookup}-${showFinder ? 'open' : 'closed'}`}
-          initialSearch={lookup}
+          key={showFinder ? 'open' : 'closed'}
           onSelectItem={(itemId) => {
             dismissedItemIdRef.current = null;
             hydratedIdRef.current = null;

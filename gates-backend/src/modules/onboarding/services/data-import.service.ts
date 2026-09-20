@@ -103,15 +103,15 @@ export class DataImportService {
       return { entity, ...result };
     }
 
-    if (!categoryId) {
-      throw new AppError(422, 'اختَر مجموعة الأصناف قبل الاستيراد');
-    }
-    const category = await prisma.itemCategory.findFirst({
-      where: { id: categoryId, companyId },
-      select: { id: true },
-    });
-    if (!category) {
-      throw new AppError(422, 'مجموعة الأصناف غير موجودة');
+    let resolvedCategoryId = categoryId?.trim() || undefined;
+    if (resolvedCategoryId) {
+      const category = await prisma.itemCategory.findFirst({
+        where: { id: resolvedCategoryId, companyId },
+        select: { id: true },
+      });
+      if (!category) {
+        throw new AppError(422, 'مجموعة الأصناف غير موجودة');
+      }
     }
 
     rows.slice(0, 500).forEach((r, i) => {
@@ -141,12 +141,12 @@ export class DataImportService {
       companyId,
       rows.map((r) => ({
         arabicName: String(r.arabicName ?? r.name ?? ''),
-        serial: r.serial != null ? String(r.serial) : r.barcode != null ? String(r.barcode) : undefined,
+        serial: String(r.serial ?? r.code ?? '').trim() || undefined,
         barcode: r.barcode != null ? String(r.barcode) : undefined,
         unitName: r.unit != null ? String(r.unit) : r.unitName != null ? String(r.unitName) : undefined,
         salesPrice: r.price != null ? Number(r.price) : r.salesPrice != null ? Number(r.salesPrice) : undefined,
         purchasePrice: r.purchasePrice != null ? Number(r.purchasePrice) : undefined,
-        categoryId,
+        categoryId: resolvedCategoryId,
       }))
     );
 

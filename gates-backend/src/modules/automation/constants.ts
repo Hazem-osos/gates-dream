@@ -21,6 +21,8 @@ export const DEFAULT_AUTOMATION_JOB_OPTIONS: DefaultJobOptions = {
 export const LATE_FEE_CRON_UTC = '5 0 * * *';
 export const CHEQUE_MATURITY_CRON_UTC = '0 7 * * *';
 export const DYNAMIC_PRICING_CRON_UTC = '0 3 * * 1';
+/** Sales invoice overdue scan — after late-fee accrual, once per day. */
+export const SALES_INVOICE_OVERDUE_CRON_UTC = '15 0 * * *';
 
 export const CHEQUE_MATURITY_MIN_BUSINESS_DAYS = 3;
 export const CHEQUE_MATURITY_MAX_BUSINESS_DAYS = 7;

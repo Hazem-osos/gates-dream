@@ -61,6 +61,9 @@ export type SalesInvoiceDetail = {
   /** Sales Invoice Enterprise Redesign additions. */
   dueDate?: string | null;
   exchangeRate?: number | string | null;
+  representativeId?: string | null;
+  driverId?: string | null;
+  distributorId?: string | null;
   sellerId?: string | null;
   taxTreatmentType?: string | null;
   isDelivered?: boolean | null;

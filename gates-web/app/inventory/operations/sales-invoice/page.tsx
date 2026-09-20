@@ -22,7 +22,7 @@ import {
   developmentFeeFormFromInvoice,
 } from '@/lib/invoices/computeInvoiceFinancialSummary';
 import type { SalesInvoiceDetail } from '@/lib/inventory/transaction-types';
-import { resolveUnitPrice, type PriceTier } from '@/lib/inventory/pricing-engine';
+import { resolvePriceListSalePrice, resolveUnitPrice, type PriceTier } from '@/lib/inventory/pricing-engine';
 import { toast, toastInvoiceSaveError, toastVersionConflict } from '@/lib/feedback/toast';
 import { isOptimisticLockApiError } from '@/lib/concurrency/version-conflict';
 import {
@@ -42,7 +42,7 @@ import {
 } from '@/lib/invoices/mapFormToM5Invoice';
 import { readSalesInvoiceVatDefault, persistSalesInvoiceVatDefault } from '@/lib/inventory/sales-invoice-tax-prefs';
 import { toHijri } from '@/lib/dates/hijri';
-import { defaultUnitIdForItem } from '@/lib/inventory/item-units';
+import { defaultUnitIdForItem, findDefaultPieceUnitId } from '@/lib/inventory/item-units';
 import { parsePricingCalculationBasis, syncLineUnitFields } from '@/lib/invoices/unit-conversion';
 import { inferDiscountTypeFromApi, inferDiscountValueFromApi } from '@/lib/invoices/discount-type';
 import { useFirstCompany } from '@/lib/hooks/useFirstCompany';
@@ -69,6 +69,9 @@ import {
 import { DocumentApprovalBar } from '@/app/components/accounting/DocumentApprovalBar';
 import { useCompanyPrintProfile } from '@/lib/hooks/useCompanyPrintProfile';
 import { pickDefaultSafeId, useCustomersQuery } from '@/lib/hooks/useMasterDataQueries';
+import { pickCurrencyByCode, rateForCurrency } from '@/lib/accounting/fx-base';
+import { useCompanyBaseCurrency } from '@/lib/hooks/useCompanyBaseCurrency';
+import { invoiceReturnBlockReason } from '@/lib/invoices/return-policy';
 import { firstPartyPhone, type WhatsAppInvoicePayload } from '@/lib/whatsapp-share';
 import { consumeAiTransactionDraft } from '@/lib/ai/ai-draft-storage';
 import { invoiceDateFromDraft, salesLinesFromAiDraft } from '@/lib/ai/hydrate-ai-draft';
@@ -220,18 +223,23 @@ function defaultSalePriceForItem(
     priceSemiWholesale?: number;
     priceWholesale?: number;
     priceProjects?: number;
-    itemPrices?: { price?: number; priceList?: { isDefault?: boolean } }[];
+    averageCost?: number | string | null;
+    lastPurchasePrice?: number | string | null;
+    itemPrices?: {
+      price?: number;
+      retailPrice?: number | string | null;
+      unitId?: string | null;
+      priceList?: { id?: string; priceMode?: string | null; isActive?: boolean | null; isDefault?: boolean };
+    }[];
   },
-  priceTier?: PriceTier | string | null
+  priceTier?: PriceTier | string | null,
+  priceListId?: string | null
 ): number {
+  const listPrice = resolvePriceListSalePrice(item, priceListId);
+  if (listPrice > 0) return listPrice;
   const tierPrice = resolveUnitPrice(priceTier, item);
   if (tierPrice > 0) return tierPrice;
   if (typeof item.salesPrice === 'number' && item.salesPrice > 0) return item.salesPrice;
-  const prices = item.itemPrices;
-  if (prices?.length) {
-    const def = prices.find((p) => p.priceList?.isDefault) ?? prices[0];
-    if (def?.price != null) return Number(def.price);
-  }
   return 0;
 }
 
@@ -292,7 +300,27 @@ type SalesInvoiceDraft = {
   customerSeed: { id: string; arabicName: string; code?: string | null } | null;
   conditions: string[];
   isSalesTaxInvoice: boolean;
+  extrasOpen?: boolean;
+  headerExtrasOpen?: boolean;
 };
+
+function headerExtrasHaveValues(form: SalesInvoiceFormValues | null | undefined): boolean {
+  if (!form) return false;
+  return Boolean(
+    form.costCenterId?.trim() ||
+      form.delegateId?.trim() ||
+      form.driverId?.trim() ||
+      form.distributorId?.trim() ||
+      form.sellerId?.trim() ||
+      form.taxTreatmentType ||
+      form.allowReturn ||
+      form.isDelivered ||
+      form.printTermsOnInvoice ||
+      form.salesOrderNumber?.trim() ||
+      form.purchaseOrderNumber?.trim() ||
+      form.developmentFeeEnabled
+  );
+}
 
 function isSalesInvoiceDraftEmpty(draft: SalesInvoiceDraft) {
   const form = draft.form;
@@ -328,6 +356,8 @@ function emptySalesInvoiceDefaults(): SalesInvoiceFormValues {
     exchangeRate: undefined,
     costCenterId: '',
     delegateId: '',
+    driverId: '',
+    distributorId: '',
     sellerId: '',
     taxTreatmentType: undefined,
     allowReturn: false,
@@ -390,6 +420,7 @@ function SalesInvoicePageInner() {
   );
   const txSettings = txSettingsRes?.data;
   const { data: accountingSettingsRes } = useAccountingSettingsQuery();
+  const { code: companyBaseCurrency } = useCompanyBaseCurrency();
   const defaultWhtRate =
     txSettings?.autoApplyWht === true
       ? Number(accountingSettingsRes?.data?.tax?.whtRate ?? 1) || 1
@@ -436,6 +467,7 @@ function SalesInvoicePageInner() {
   const warehouseIdW = watch('warehouseId');
   const prevHeaderWarehouseRef = useRef(warehouseIdW);
   const allowReturnW = watch('allowReturn');
+  const returnDaysW = watch('returnDays');
   const printTermsOnInvoiceW = watch('printTermsOnInvoice');
   const developmentFeeEnabledW = watch('developmentFeeEnabled');
   const pricingCalculationBasisW = watch('pricingCalculationBasis');
@@ -454,12 +486,15 @@ function SalesInvoicePageInner() {
   const lockLoadedSource = shouldLockLoadedSource(txSettings, sourceIdW);
 
   useEffect(() => {
-    if (allowReturnW) {
-      setValue('returnDays', 365);
-    } else {
+    if (!allowReturnW) {
       setValue('returnDays', undefined);
+      return;
     }
-  }, [allowReturnW, setValue]);
+    const current = Number(getValues('returnDays'));
+    if (!Number.isFinite(current) || current <= 0) {
+      setValue('returnDays', 365);
+    }
+  }, [allowReturnW, getValues, setValue]);
 
   useEffect(() => {
     const prev = prevHeaderWarehouseRef.current;
@@ -519,6 +554,7 @@ function SalesInvoicePageInner() {
   }, [companySettingsRes?.data?.pricingCalculationBasis, getValues, selectedInvoiceId, setValue]);
 
   const skipUrlHydrateRef = useRef(false);
+  const saveLockRef = useRef(false);
 
   useEffect(() => {
     const id = invoiceIdFromUrl?.trim();
@@ -579,6 +615,7 @@ function SalesInvoicePageInner() {
   const [paymentSplits, setPaymentSplits] = useState<PaymentSplitLine[]>([]);
   const [invoiceExtras, setInvoiceExtras] = useState<InvoiceExtraRow[]>([]);
   const [extrasOpen, setExtrasOpen] = useState(false);
+  const [headerExtrasOpen, setHeaderExtrasOpen] = useState(false);
   const [splitModalOpen, setSplitModalOpen] = useState(false);
   const [paymentInstallments, setPaymentInstallments] = useState<PaymentInstallmentRow[]>([]);
   const [installmentsModalOpen, setInstallmentsModalOpen] = useState(false);
@@ -590,9 +627,15 @@ function SalesInvoicePageInner() {
   } | null>(null);
 
   const draftEnabled = !selectedInvoiceId && !isPosted;
-  const salesInvoiceDraft = useMemo<SalesInvoiceDraft>(
-    () => ({
-      form: formSnapshot,
+  const salesInvoiceDraft = useMemo<SalesInvoiceDraft>(() => {
+    const live = getValues();
+    const lines = (watchedLines?.length ? watchedLines : live.lines) ?? [];
+    return {
+      form: mergeSalesInvoiceDraft({
+        ...formSnapshot,
+        ...live,
+        lines,
+      }),
       paymentSplits,
       invoiceExtras,
       paymentInstallments,
@@ -600,21 +643,28 @@ function SalesInvoicePageInner() {
       customerSeed,
       conditions,
       isSalesTaxInvoice,
-    }),
-    [
-      conditions,
-      customerSeed,
-      formSnapshot,
-      internalNotes,
-      invoiceExtras,
-      isSalesTaxInvoice,
-      paymentInstallments,
-      paymentSplits,
-    ]
-  );
+      extrasOpen,
+      headerExtrasOpen,
+    };
+  }, [
+    conditions,
+    customerSeed,
+    extrasOpen,
+    formSnapshot,
+    getValues,
+    headerExtrasOpen,
+    internalNotes,
+    invoiceExtras,
+    isSalesTaxInvoice,
+    paymentInstallments,
+    paymentSplits,
+    watchedLines,
+  ]);
   const applySalesInvoiceDraft = useCallback(
     (payload: SalesInvoiceDraft) => {
-      reset(mergeSalesInvoiceDraft(payload.form));
+      const form = mergeSalesInvoiceDraft(payload.form);
+      reset(form);
+      replace(form.lines?.length ? form.lines : [blankSalesInvoiceLine()]);
       setPaymentSplits(Array.isArray(payload.paymentSplits) ? payload.paymentSplits : []);
       setInvoiceExtras(Array.isArray(payload.invoiceExtras) ? payload.invoiceExtras : []);
       setPaymentInstallments(Array.isArray(payload.paymentInstallments) ? payload.paymentInstallments : []);
@@ -622,8 +672,13 @@ function SalesInvoicePageInner() {
       setCustomerSeed(payload.customerSeed ?? null);
       setConditions(payload.conditions?.length ? payload.conditions : ['']);
       setIsSalesTaxInvoice(Boolean(payload.isSalesTaxInvoice));
+      setExtrasOpen(
+        payload.extrasOpen ??
+          (Array.isArray(payload.invoiceExtras) && payload.invoiceExtras.length > 0)
+      );
+      setHeaderExtrasOpen(payload.headerExtrasOpen ?? headerExtrasHaveValues(form));
     },
-    [reset]
+    [replace, reset]
   );
   const {
     autosaveStatus,
@@ -729,10 +784,13 @@ function SalesInvoicePageInner() {
     invoiceNumberW,
     dateW,
   ]);
-  const selectedCustomerTier = useMemo(() => {
-    const c = customers.find((x) => x.id === customerIdW) as { priceTier?: PriceTier } | undefined;
-    return c?.priceTier ?? 'RETAIL';
+  const selectedCustomer = useMemo(() => {
+    return customers.find((x) => x.id === customerIdW) as
+      | { priceTier?: PriceTier; priceListId?: string | null }
+      | undefined;
   }, [customers, customerIdW]);
+  const selectedCustomerTier = selectedCustomer?.priceTier ?? 'RETAIL';
+  const selectedCustomerPriceListId = selectedCustomer?.priceListId ?? null;
 
   const applyPickedItemToLine = useCallback(
     (index: number, picked: Item | undefined) => {
@@ -747,9 +805,17 @@ function SalesInvoicePageInner() {
             priceSemiWholesale?: number;
             priceWholesale?: number;
             priceProjects?: number;
-            itemPrices?: { price?: number; priceList?: { isDefault?: boolean } }[];
+            averageCost?: number | string | null;
+            lastPurchasePrice?: number | string | null;
+            itemPrices?: {
+              price?: number;
+              retailPrice?: number | string | null;
+              unitId?: string | null;
+              priceList?: { id?: string; priceMode?: string | null; isActive?: boolean | null; isDefault?: boolean };
+            }[];
           },
-          selectedCustomerTier
+          selectedCustomerTier,
+          selectedCustomerPriceListId
         ),
         { shouldDirty: true }
       );
@@ -757,6 +823,7 @@ function SalesInvoicePageInner() {
       void apiClient
         .get<{ unitPrice: number }>(`/inventory/items/${picked.id}/pricing-policy`, {
           customerId: customerId || undefined,
+          priceListId: selectedCustomerPriceListId || undefined,
           policy: txSettings?.pricingPolicy,
         })
         .then((res) => {
@@ -819,6 +886,7 @@ function SalesInvoicePageInner() {
       getValues,
       isSalesTaxInvoice,
       selectedCustomerTier,
+      selectedCustomerPriceListId,
       setValue,
       txSettings?.defaultCostCenterId,
       txSettings?.defaultSalesAccountId,
@@ -910,6 +978,8 @@ function SalesInvoicePageInner() {
           selectedInvoice.exchangeRate != null ? Number(selectedInvoice.exchangeRate) : undefined,
         costCenterId: selectedInvoice.costCenterId || '',
         delegateId: repId,
+        driverId: (selectedInvoice as { driverId?: string | null }).driverId || '',
+        distributorId: (selectedInvoice as { distributorId?: string | null }).distributorId || '',
         sellerId: selectedInvoice.sellerId || '',
         taxTreatmentType:
           (selectedInvoice.taxTreatmentType as 'taxable' | 'exempt' | 'export' | undefined) ||
@@ -980,6 +1050,9 @@ function SalesInvoicePageInner() {
               : undefined,
           })) ?? [],
       });
+      const loadedLines = getValues('lines');
+      replace(loadedLines?.length ? loadedLines : [blankSalesInvoiceLine()]);
+      setHeaderExtrasOpen(headerExtrasHaveValues(getValues()));
       setIsPosted(selectedInvoice.isPosted || false);
       setIsApproved(selectedInvoice.isApproved || false);
       setIsSalesTaxInvoice(selectedInvoice.isSalesTaxInvoice === true);
@@ -990,7 +1063,7 @@ function SalesInvoicePageInner() {
         setConditions(['']);
       }
     }
-  }, [selectedInvoice, reset]);
+  }, [getValues, replace, reset, selectedInvoice]);
 
   // Fetch items
   const { data: itemsResponse, isLoading: itemsLoading } = useApiQuery<Item[]>(
@@ -999,6 +1072,12 @@ function SalesInvoicePageInner() {
     { limit: 1000, isActive: true }
   );
   const items = useMemo(() => itemsResponse?.data ?? [], [itemsResponse?.data]);
+  const { data: unitsResponse } = useApiQuery<{ id: string; code?: string | null; arabicName?: string }[]>(
+    ['units', 'invoice-fallback'],
+    '/inventory/units',
+    { limit: 200, isActive: true }
+  );
+  const fallbackUnitId = findDefaultPieceUnitId(unitsResponse?.data ?? []);
 
   const { data: frequentRes, isLoading: frequentLoading } = useCustomerFrequentItems(
     customerIdW?.trim() ? customerIdW : undefined
@@ -1031,9 +1110,17 @@ function SalesInvoicePageInner() {
               priceSemiWholesale?: number;
               priceWholesale?: number;
               priceProjects?: number;
-              itemPrices?: { price?: number; priceList?: { isDefault?: boolean } }[];
+              averageCost?: number | string | null;
+              lastPurchasePrice?: number | string | null;
+              itemPrices?: {
+                price?: number;
+                retailPrice?: number | string | null;
+                unitId?: string | null;
+                priceList?: { id?: string; priceMode?: string | null; isActive?: boolean | null; isDefault?: boolean };
+              }[];
             },
-            selectedCustomerTier
+            selectedCustomerTier,
+            selectedCustomerPriceListId
           );
         }
         append({
@@ -1050,7 +1137,7 @@ function SalesInvoicePageInner() {
       }
       toast.success(`تم لصق ${lines.length} سطر من Excel`);
     },
-    [append, getValues, items, isSalesTaxInvoice, selectedCustomerTier]
+    [append, getValues, items, isSalesTaxInvoice, selectedCustomerTier, selectedCustomerPriceListId]
   );
 
   const handleFrequentItemInsert = useCallback(
@@ -1092,7 +1179,7 @@ function SalesInvoicePageInner() {
       paymentType: paymentMethodW,
       isSalesTaxInvoice,
       allowReturn: allowReturnW,
-      returnDays: allowReturnW ? 365 : undefined,
+      returnDays: allowReturnW ? returnDaysW || 365 : undefined,
       printTermsOnInvoice: printTermsOnInvoiceW,
       invoiceConditions: trimmedConditions.length ? trimmedConditions : undefined,
       customer: customer ? { arabicName: customer.arabicName } : undefined,
@@ -1119,6 +1206,7 @@ function SalesInvoicePageInner() {
     items,
     isSalesTaxInvoice,
     allowReturnW,
+    returnDaysW,
     printTermsOnInvoiceW,
     conditions,
     customerIdW,
@@ -1134,14 +1222,39 @@ function SalesInvoicePageInner() {
     { limit: 100, isActive: true }
   );
   const currencies = useMemo(() => currenciesResponse?.data ?? [], [currenciesResponse?.data]);
+  const invoiceCurrencyCode = useMemo(
+    () => currencies.find((c) => c.id === currencyIdW)?.code ?? 'EGP',
+    [currencies, currencyIdW]
+  );
 
-  // Fetch delegates
   const { data: delegatesResponse, isLoading: delegatesLoading } = useApiQuery<Delegate[]>(
-    ['delegates'],
+    ['delegates', { role: 'DELEGATE' }],
     '/accounting/delegates',
-    { limit: 1000, isActive: true }
+    { limit: 1000, isActive: true, role: 'DELEGATE' }
   );
   const delegates = delegatesResponse?.data || [];
+  const { data: driversResponse, isLoading: driversLoading } = useApiQuery<Delegate[]>(
+    ['delegates', { role: 'DRIVER' }],
+    '/accounting/delegates',
+    { limit: 1000, isActive: true, role: 'DRIVER' }
+  );
+  const drivers = driversResponse?.data || [];
+  const { data: distributorsResponse, isLoading: distributorsLoading } = useApiQuery<Delegate[]>(
+    ['delegates', { role: 'DISTRIBUTOR' }],
+    '/accounting/delegates',
+    { limit: 1000, isActive: true, role: 'DISTRIBUTOR' }
+  );
+  const distributors = distributorsResponse?.data || [];
+  const { data: sellersResponse, isLoading: sellersLoading } = useApiQuery<
+    Array<{
+      id: string;
+      username: string;
+      firstName?: string | null;
+      lastName?: string | null;
+      email?: string | null;
+    }>
+  >(['users', 'sellers'], '/users/sellers');
+  const sellers = sellersResponse?.data || [];
 
   // Branch-default warehouse prefill (fresh drafts only) — Sales Invoice
   // Enterprise Redesign.
@@ -1153,16 +1266,21 @@ function SalesInvoicePageInner() {
   const branches = useMemo(() => branchesResponse?.data ?? [], [branchesResponse?.data]);
   useEffect(() => {
     if (selectedInvoiceId || !documentProfile) return;
-    if (documentProfile.defaultWarehouseId) {
+    const hasWork =
+      Boolean(getValues('customerId')?.trim()) ||
+      Boolean(getValues('description')?.trim()) ||
+      (getValues('lines') ?? []).some((line) => Boolean(line.itemId?.trim()));
+    if (hasWork) return;
+    if (documentProfile.defaultWarehouseId && !getValues('warehouseId')) {
       setValue('warehouseId', documentProfile.defaultWarehouseId, { shouldDirty: false });
     }
-    if (documentProfile.defaultTreasuryId) {
+    if (documentProfile.defaultTreasuryId && !getValues('treasuryId')) {
       setValue('treasuryId', documentProfile.defaultTreasuryId, { shouldDirty: false });
     }
-    if (documentProfile.defaultCostCenterId) {
+    if (documentProfile.defaultCostCenterId && !getValues('costCenterId')) {
       setValue('costCenterId', documentProfile.defaultCostCenterId, { shouldDirty: false });
     }
-  }, [documentProfile, selectedInvoiceId, setValue]);
+  }, [documentProfile, getValues, selectedInvoiceId, setValue]);
 
   useEffect(() => {
     if (selectedInvoiceId || !txSettings) return;
@@ -1202,6 +1320,7 @@ function SalesInvoicePageInner() {
       ...emptySalesInvoiceDefaults(),
       currencyId: cur || '',
     });
+    replace([blankSalesInvoiceLine()]);
     setIsPosted(false);
     resetKeepPosted();
     setIsApproved(false);
@@ -1209,10 +1328,11 @@ function SalesInvoicePageInner() {
     setPaymentInstallments([]);
     setInvoiceExtras([]);
     setExtrasOpen(false);
+    setHeaderExtrasOpen(false);
     setInternalNotes([]);
     setCustomerSeed(null);
     setConditions(['']);
-  }, [getValues, openInvoice, reset, resetKeepPosted]);
+  }, [getValues, openInvoice, replace, reset, resetKeepPosted]);
 
   const resolveInvoiceNumber = useCallback(() => {
     return (
@@ -1228,6 +1348,7 @@ function SalesInvoicePageInner() {
     {
       showSuccessToast: false,
       onSuccess: (res) => {
+        saveLockRef.current = false;
         const num =
           String(res?.data?.invoiceNumber ?? '').trim() ||
           String(getValues('invoiceNumber') ?? '').trim() ||
@@ -1243,6 +1364,7 @@ function SalesInvoicePageInner() {
         afterSaveReset();
       },
       onError: (error: ApiError) => {
+        saveLockRef.current = false;
         toastInvoiceSaveError(error.message || 'حدث خطأ أثناء الحفظ');
       },
     }
@@ -1255,6 +1377,7 @@ function SalesInvoicePageInner() {
     {
       showSuccessToast: false,
       onSuccess: () => {
+        saveLockRef.current = false;
         const num = resolveInvoiceNumber();
         const id = selectedInvoiceId;
         const finish = (posted: boolean) => {
@@ -1283,6 +1406,7 @@ function SalesInvoicePageInner() {
         finish(false);
       },
       onError: (error: ApiError) => {
+        saveLockRef.current = false;
         if (isOptimisticLockApiError(error)) {
           toastVersionConflict(error.message, () => {
             invalidateQuery(['invoice', selectedInvoiceId]);
@@ -1492,7 +1616,7 @@ function SalesInvoicePageInner() {
       : undefined;
 
   const onValidSubmit = (data: SalesInvoiceFormValues) => {
-    if (financialBusy) return;
+    if (financialBusy || saveLockRef.current) return;
     try {
       const resolvedMethod = data.paymentMethod;
       const splitLines =
@@ -1517,15 +1641,20 @@ function SalesInvoicePageInner() {
         return;
       }
       const creditPaid = Number(data.advancePaidAmount) || 0;
-      const creditSafe = String(data.advanceSafeId || data.treasuryId || '').trim();
+      const treasuryId = String(data.treasuryId || defaultSafeId || '').trim();
+      const creditSafe = String(data.advanceSafeId || treasuryId || '').trim();
+      if (resolvedMethod === 'cash' && !treasuryId) {
+        toast.error('يجب تحديد الخزنة في الفاتورة النقدية');
+        return;
+      }
       if (resolvedMethod === 'credit' && creditPaid > 0 && !creditSafe) {
         toast.error('حدد الخزينة عند دفع مبلغ في الأول');
         return;
       }
       const trimmedConditions = conditions.map((c) => c.trim()).filter(Boolean);
       const cashTreasurySplits =
-        resolvedMethod === 'cash' && data.treasuryId
-          ? [{ type: 'CASH' as const, safeId: data.treasuryId, amount: Math.max(financialSummary.netAmount, 0) }]
+        resolvedMethod === 'cash' && treasuryId && financialSummary.netAmount > 0
+          ? [{ type: 'CASH' as const, safeId: treasuryId, amount: financialSummary.netAmount }]
           : undefined;
       const creditSplits =
         resolvedMethod === 'credit'
@@ -1557,12 +1686,19 @@ function SalesInvoicePageInner() {
           amount: row.amount,
         })),
         invoiceConditions: trimmedConditions.length ? trimmedConditions : [],
-        returnDays: data.allowReturn ? (data.returnDays ?? 365) : undefined,
+        returnDays: data.allowReturn ? (data.returnDays ?? 365) : null,
         documentProfileId: documentProfile?.id,
         adjustments: extrasPayload,
       };
-      const opts = { invoiceKind: 'SALE' as const, currencies, items, applyTax: isSalesTaxInvoice };
+      const opts = {
+        invoiceKind: 'SALE' as const,
+        currencies,
+        items,
+        applyTax: isSalesTaxInvoice,
+        fallbackUnitId,
+      };
 
+      saveLockRef.current = true;
       if (selectedInvoiceId) {
         invoiceUpdateMutation.mutate(
           mapSalesFormToM5UpdateBody(formData, {
@@ -1575,6 +1711,7 @@ function SalesInvoicePageInner() {
 
       invoiceMutation.mutate(mapSalesFormToM5CreateBody(formData, opts));
     } catch (e) {
+      saveLockRef.current = false;
       toastInvoiceSaveError(e instanceof Error ? e.message : 'تعذر تجهيز الفاتورة');
     }
   };
@@ -1687,6 +1824,7 @@ function SalesInvoicePageInner() {
       ...emptySalesInvoiceDefaults(),
       currencyId: cur || '',
     });
+    replace([blankSalesInvoiceLine()]);
     setIsPosted(false);
     setIsApproved(false);
     setConditions(['']);
@@ -1696,6 +1834,7 @@ function SalesInvoicePageInner() {
     setPaymentInstallments([]);
     setInvoiceExtras([]);
     setExtrasOpen(false);
+    setHeaderExtrasOpen(false);
     setInternalNotes([]);
     clearDraft();
   };
@@ -1720,6 +1859,16 @@ function SalesInvoicePageInner() {
     }
     if (!isPosted) {
       toast.error('يجب ترحيل الفاتورة قبل إنشاء مرتجع');
+      return;
+    }
+    const block = invoiceReturnBlockReason({
+      allowReturn: allowReturnW,
+      returnDays: returnDaysW,
+      date: dateW,
+      invoiceNumber: invoiceNumberW,
+    });
+    if (block) {
+      toast.error(block);
       return;
     }
     router.push(destinationAppTabHref(`/inventory/operations/sales-returns?fromInvoice=${selectedInvoiceId}`));
@@ -1751,13 +1900,17 @@ function SalesInvoicePageInner() {
     );
   };
 
-  // Default currency when list loads
   useEffect(() => {
-    if (currencies.length > 0 && !currencyIdW) {
-      const defaultCurrency = currencies.find((c) => c.code === 'EGP') || currencies[0];
-      setValue('currencyId', defaultCurrency.id, { shouldDirty: false });
-    }
-  }, [currencies, currencyIdW, setValue]);
+    if (currencies.length === 0 || currencyIdW) return;
+    const defaultCurrency = pickCurrencyByCode(currencies, companyBaseCurrency);
+    if (!defaultCurrency) return;
+    setValue('currencyId', defaultCurrency.id, { shouldDirty: false });
+    setValue(
+      'exchangeRate',
+      rateForCurrency(defaultCurrency.code, companyBaseCurrency, defaultCurrency.exchangeRate),
+      { shouldDirty: false }
+    );
+  }, [companyBaseCurrency, currencies, currencyIdW, setValue]);
 
   const statusLabel = isPosted ? 'مرحّلة' : isApproved ? 'معتمدة' : 'مسودة';
   const statusTone = isPosted ? 'success' : isApproved ? 'info' : 'warning';
@@ -1788,7 +1941,16 @@ function SalesInvoicePageInner() {
         canPost={!!selectedInvoiceId && !isPosted && !financialBusy}
         canSave={!isReadOnly && !isPosted && !financialBusy}
         saveLabel={isEditing ? 'حفظ التعديلات' : 'حفظ الفاتورة'}
-        onSaveDraft={() => void handleSubmit(onValidSubmit, onInvalidSubmit)()}
+        onSaveDraft={() => {
+          if (
+            getValues('paymentMethod') === 'cash' &&
+            !String(getValues('treasuryId') ?? '').trim() &&
+            defaultSafeId
+          ) {
+            setValue('treasuryId', defaultSafeId, { shouldDirty: false, shouldValidate: true });
+          }
+          void handleSubmit(onValidSubmit, onInvalidSubmit)();
+        }}
         onCancel={handleNew}
         cancelLabel="إلغاء"
         onPost={() => handlePostUnpost(true)}
@@ -1886,6 +2048,8 @@ function SalesInvoicePageInner() {
         hasExistingLines={fields.some((line) => Boolean(line.itemId))}
         sourceDisabled={isPosted || isReadOnly}
         fieldsDisabled={lockLoadedSource}
+        headerExtrasOpen={headerExtrasOpen}
+        onHeaderExtrasOpenChange={setHeaderExtrasOpen}
         onSourceHydrate={handleSourceHydrate}
         paymentMethod={paymentMethodW ?? 'cash'}
         onConfigureSplit={() => setSplitModalOpen(true)}
@@ -1897,8 +2061,14 @@ function SalesInvoicePageInner() {
         onOpenTerms={() => setShowTermsModal(true)}
         currencies={currencies}
         delegates={delegates}
+        drivers={drivers}
+        distributors={distributors}
+        sellers={sellers}
         currenciesLoading={currenciesLoading}
         delegatesLoading={delegatesLoading}
+        driversLoading={driversLoading}
+        distributorsLoading={distributorsLoading}
+        sellersLoading={sellersLoading}
         showValidationErrors={submitCount > 0}
         customerSeed={customerSeed}
         convertedFromInvoice={selectedInvoice?.convertedFromInvoice ?? null}
@@ -2027,6 +2197,7 @@ function SalesInvoicePageInner() {
 
       <SalesInvoiceBottomSplit
           summary={financialSummary}
+          currencyCode={invoiceCurrencyCode}
           applyTax={isSalesTaxInvoice}
           lines={(watchedLines ?? []).map((l) => ({
             itemId: l.itemId,

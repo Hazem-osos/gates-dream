@@ -158,7 +158,7 @@ export class CostCenterService {
         );
       }
       seen.add(current);
-      const row = await prisma.costCenter.findFirst({
+      const row: { parentId: string | null } | null = await prisma.costCenter.findFirst({
         where: { id: current, companyId },
         select: { parentId: true },
       });

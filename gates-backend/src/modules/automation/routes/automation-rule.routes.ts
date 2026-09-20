@@ -172,6 +172,34 @@ router.patch(
 );
 
 /**
+ * POST /api/v1/automation/rules/:id/duplicate
+ * Creates a disabled copy of the rule (never auto-enabled).
+ */
+router.post(
+  '/:id/duplicate',
+  authorize({ resource: 'automation-rule', action: 'edit' }),
+  validate({ params: automationRuleIdParamSchema }),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const companyId = requireCompanyId(req);
+      const rule = await automationRuleService.duplicateRule(companyId, req.params.id);
+      return void res.status(201).json({
+        status: 'success',
+        message: 'Automation rule duplicated successfully',
+        data: rule,
+      });
+    } catch (error) {
+      logger.error({ error, ruleId: req.params.id }, 'Error duplicating automation rule');
+      const status = error instanceof AppError ? error.statusCode : 500;
+      return void res.status(status).json({
+        status: 'error',
+        message: error instanceof Error ? error.message : 'Failed to duplicate automation rule',
+      });
+    }
+  }
+);
+
+/**
  * DELETE /api/v1/automation/rules/:id
  */
 router.delete(

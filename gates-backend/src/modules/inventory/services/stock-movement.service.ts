@@ -6,6 +6,7 @@ import { companySettingService } from '../../platform/services/company-setting.s
 import { scopedItemQuantityWhere } from '../utils/item-quantity-tenant';
 import { stockQueryService } from './stock-query.service';
 import { adjustStockInTx, getWarehouseBalance } from './adjust-stock-in-tx';
+import { emitDomainEvent } from '../../automation/events/automation-event-bus.service';
 import {
   clampKeysetLimit,
   isKeysetListRequest,
@@ -160,14 +161,10 @@ export class StockMovementService {
   }
 
   async postMovement(input: PostStockMovementInput) {
-    await this.assertNegativeStockAllowed(
-      input.companyId,
-      input.warehouseId,
-      input.itemId,
-      input.locationId,
-      input.quantityDelta
-    );
-
+    // Note: the negative-stock guard is enforced inside postMovementInTx, *after*
+    // the row lock, so there is no pre-check here. A pre-check outside the
+    // transaction is a TOCTOU race — two concurrent sales could both pass and
+    // both decrement, going negative despite a strict-inventory policy.
     return prisma.$transaction(async (tx) => this.postMovementInTx(tx, input));
   }
 
@@ -265,11 +262,52 @@ export class StockMovementService {
         deltaQty: input.quantityDelta,
       });
 
+      // Fire-and-forget (Task 3): stock can only newly cross below its
+      // minimum on a decrease, so skip the extra lookup entirely on
+      // increases. Never awaited — must never add latency or failure risk
+      // to this hot, universal stock-posting path.
+      if (input.quantityDelta < 0) {
+        // Deliberately NOT passed `tx`: this runs after this function returns,
+        // possibly after the transaction has already committed/rolled back —
+        // using the transaction client here would be a use-after-free race.
+        // A plain (non-transactional) read of Item.lowerLimit is fine for a
+        // best-effort automation trigger.
+        void this.maybeEmitStockBelowMinimum(input, warehouseBal.quantityOnHand);
+      }
+
       return {
         movement,
         quantityOnHand: warehouseBal.quantityOnHand,
         reservedQuantity: warehouseBal.reservedQuantity,
       };
+  }
+
+  private async maybeEmitStockBelowMinimum(
+    input: PostStockMovementInput,
+    quantityOnHand: number
+  ): Promise<void> {
+    try {
+      const item = await prisma.item.findFirst({
+        where: { id: input.itemId, companyId: input.companyId },
+        select: { lowerLimit: true },
+      });
+      const lowerLimit = item?.lowerLimit != null ? item.lowerLimit.toNumber() : null;
+      if (lowerLimit == null || quantityOnHand >= lowerLimit) return;
+
+      await emitDomainEvent({
+        companyId: input.companyId,
+        eventType: 'inventory.stock.belowMinimum',
+        data: {
+          itemId: input.itemId,
+          warehouseId: input.warehouseId,
+          quantityOnHand,
+          minimumQuantity: lowerLimit,
+          shortageQuantity: Number((lowerLimit - quantityOnHand).toFixed(3)),
+        },
+      });
+    } catch {
+      // Best-effort only — never let this affect the stock-posting transaction.
+    }
   }
 
   async lockStockRowsInTx(

@@ -1,8 +1,8 @@
 import type { Prisma, Warehouse } from '@prisma/client';
 import { nextHierarchicalCode } from '../../../shared/utils/next-numeric-code';
 
-export const DEFAULT_WAREHOUSE_AR = 'المخزن الرئيسي';
-export const DEFAULT_WAREHOUSE_EN = 'Main Warehouse';
+export const DEFAULT_WAREHOUSE_AR = 'مخزن الحركة';
+export const DEFAULT_WAREHOUSE_EN = 'Transaction Warehouse';
 
 export type DefaultWarehouseSeedRow = {
   id: string;
@@ -16,7 +16,7 @@ export type DefaultWarehousePlan =
   | { type: 'wrap-posting'; postingId: string }
   | { type: 'create-both' };
 
-/** HEADER folder named المخزن الرئيسي, with a POSTING child we actually move stock on. */
+/** HEADER folder named مخزن الحركة, with a POSTING child we actually move stock on. */
 export function pickDefaultWarehousePlan(rows: DefaultWarehouseSeedRow[]): DefaultWarehousePlan {
   const postingKids = (parentId: string) =>
     rows.filter((row) => row.parentWarehouseId === parentId && row.warehouseKind !== 'HEADER');

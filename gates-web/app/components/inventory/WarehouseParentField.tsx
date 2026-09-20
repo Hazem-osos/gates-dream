@@ -41,7 +41,7 @@ export function WarehouseParentField({
           <WarehouseSelect
             value={value}
             onChange={onChange}
-            emptyLabel="مخزن رئيسي (بدون أب)"
+            emptyLabel="المخزن الأب"
             headerOnly
             excludeIds={excludeIds}
             disabled={disabled}
@@ -74,7 +74,7 @@ export function WarehouseParentField({
           className="mb-3 w-full rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] px-3 py-2 text-right text-sm font-semibold text-[#094C6B] hover:bg-white"
           onClick={() => pick('')}
         >
-          مخزن رئيسي (بدون أب)
+          المخزن الأب
         </button>
         <WarehousesListSection
           headerOnly

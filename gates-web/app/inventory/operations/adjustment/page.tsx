@@ -48,13 +48,6 @@ interface Item {
   englishName?: string;
 }
 
-interface Location {
-  id: string;
-  code: string;
-  arabicName: string;
-  englishName?: string;
-}
-
 interface AdjustmentLine {
   itemId: string;
   locationId?: string;
@@ -138,14 +131,6 @@ export default function AdjustmentPage() {
     { limit: 1000, isActive: true }
   );
   const items = itemsResponse?.data || [];
-
-  // Fetch locations (if available)
-  const { data: locationsResponse } = useApiQuery<Location[]>(
-    ['locations'],
-    '/inventory/locations',
-    { limit: 1000, isActive: true }
-  );
-  const locations = locationsResponse?.data || [];
 
   // Fetch single adjustment for editing
   const { data: adjustmentResponse } = useApiQuery<AdjustmentDetail>(
@@ -535,7 +520,6 @@ export default function AdjustmentPage() {
                 <tr>
                   <th className={denseThClass}>م</th>
                   <th className={denseThClass}>الصنف</th>
-                  <th className={denseThClass}>الموقع</th>
                   <th className={denseThClass}>الكمية الدفترية</th>
                   <th className={denseThClass}>الكمية الفعلية</th>
                   <th className={denseThClass}>كمية التسوية</th>
@@ -547,7 +531,7 @@ export default function AdjustmentPage() {
               <tbody>
                 {adjustmentLines.length === 0 ? (
                   <tr className={denseTrClass}>
-                    <td colSpan={9} className={`${denseTdClass} py-8 text-center text-slate-500`}>
+                    <td colSpan={8} className={`${denseTdClass} py-8 text-center text-slate-500`}>
                       لا توجد أصناف. اضغط على &quot;إضافة صنف&quot; لإضافة صنف جديد.
                     </td>
                   </tr>
@@ -569,24 +553,6 @@ export default function AdjustmentPage() {
                             </option>
                           ))}
                         </select>
-                      </td>
-                      <td className={denseTdClass}>
-                        {locations.length > 0 ? (
-                          <select
-                            className={inputCls}
-                            value={line.locationId || ''}
-                            onChange={(e) => updateAdjustmentLine(index, 'locationId', e.target.value)}
-                          >
-                            <option value="">اختر الموقع</option>
-                            {locations.map((location) => (
-                              <option key={location.id} value={location.id}>
-                                {location.arabicName} ({location.code})
-                              </option>
-                            ))}
-                          </select>
-                        ) : (
-                          <span className="text-gray-400">-</span>
-                        )}
                       </td>
                       <td className={denseTdClass}>
                         <input

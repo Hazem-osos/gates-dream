@@ -28,6 +28,7 @@ import { replaceInvoiceInstallmentsInTx } from './invoice-installment.service';
 import { documentAuditService } from '../../accounting/services/document-audit.service';
 import { journalPostingService } from '../../accounting/services/journal-posting.service';
 import { documentSequenceService } from '../../platform/services/document-sequence.service';
+import { emitDomainEvent } from '../../automation/events/automation-event-bus.service';
 import { persistFxDecimal } from '../../accounting/utils/company-fx-rate';
 import { documentProfileService } from '../../document-profiles/services/document-profile.service';
 import {
@@ -196,6 +197,7 @@ async function applyNormalizedLineUnits(
       const normalized = await normalizeInvoiceLineUnits(companyId, line);
       return {
         ...line,
+        unitId: normalized.unitId,
         quantity: normalized.quantity,
         baseQuantity: normalized.baseQuantity,
         conversionFactor: normalized.conversionFactor,
@@ -217,6 +219,42 @@ async function replaceInvoiceConditions(
   await tx.invoiceCondition.createMany({
     data: trimmed.map((condition) => ({ invoiceId, condition })),
   });
+}
+
+/**
+ * Fire-and-forget: enriches the event with customerCategoryId (matches the
+ * "Customer Category = VIP" example from the product brief) and emits.
+ * Never awaited by callers, never throws into the invoice-creation path.
+ */
+async function emitSalesInvoiceCreatedEvent(
+  companyId: string,
+  created: { id: string; invoiceNumber: string | null; totalAmount: Decimal; netAmount: Decimal; customerId: string | null; warehouseId: string | null; currencyCode: string }
+): Promise<void> {
+  try {
+    const customer = created.customerId
+      ? await prisma.customer.findFirst({
+          where: { id: created.customerId, companyId },
+          select: { customerCategoryId: true },
+        })
+      : null;
+
+    await emitDomainEvent({
+      companyId,
+      eventType: 'sales.invoice.created',
+      data: {
+        invoiceId: created.id,
+        invoiceNumber: created.invoiceNumber ?? null,
+        totalAmount: Number(created.totalAmount),
+        netAmount: Number(created.netAmount),
+        customerId: created.customerId ?? null,
+        customerCategoryId: customer?.customerCategoryId ?? null,
+        warehouseId: created.warehouseId ?? null,
+        currencyCode: created.currencyCode,
+      },
+    });
+  } catch {
+    // emitDomainEvent already never throws; this guards the customer lookup too.
+  }
 }
 
 export class InvoiceM5Service {
@@ -451,6 +489,8 @@ export class InvoiceM5Service {
           warehouseId,
           costCenterId,
           representativeId: data.representativeId,
+          ...(data.driverId !== undefined ? { driverId: data.driverId } : {}),
+          ...(data.distributorId !== undefined ? { distributorId: data.distributorId } : {}),
           sellerId: data.sellerId,
           paymentMethod: data.paymentMethod,
           paymentSplits: data.paymentSplits as Prisma.InputJsonValue | undefined,
@@ -537,6 +577,10 @@ export class InvoiceM5Service {
         );
       }
       throw err;
+    }
+
+    if (created && data.invoiceKind === 'SALE') {
+      void emitSalesInvoiceCreatedEvent(companyId, created);
     }
 
     if (
@@ -879,6 +923,9 @@ export class InvoiceM5Service {
               : returnLink?.originalInvoiceNumber ?? existing.originalInvoiceNumber,
           costCenterId: data.costCenterId ?? existing.costCenterId,
           representativeId: data.representativeId ?? existing.representativeId,
+          driverId: data.driverId !== undefined ? data.driverId : existing.driverId,
+          distributorId:
+            data.distributorId !== undefined ? data.distributorId : existing.distributorId,
           sellerId: data.sellerId !== undefined ? data.sellerId : existing.sellerId,
           paymentMethod: data.paymentMethod ?? existing.paymentMethod,
           paymentSplits:

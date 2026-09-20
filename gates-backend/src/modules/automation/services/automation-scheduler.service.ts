@@ -4,6 +4,7 @@ import {
   CHEQUE_MATURITY_CRON_UTC,
   DYNAMIC_PRICING_CRON_UTC,
   LATE_FEE_CRON_UTC,
+  SALES_INVOICE_OVERDUE_CRON_UTC,
 } from '../constants';
 import { automationJobOptions, automationSchedulersQueue } from '../queues/automation.queues';
 import { AUTOMATION_JOB_NAMES } from '../types/automation-jobs.types';
@@ -44,11 +45,22 @@ export async function scheduleAutomationJobs(): Promise<void> {
     }
   );
 
+  await automationSchedulersQueue.upsertJobScheduler(
+    'sales-invoice-overdue-scan',
+    { pattern: SALES_INVOICE_OVERDUE_CRON_UTC },
+    {
+      name: AUTOMATION_JOB_NAMES.salesInvoiceOverdue,
+      data: { asOfDate: '' },
+      opts: automationJobOptions(),
+    }
+  );
+
   logger.info(
     {
       dailyLateFee: LATE_FEE_CRON_UTC,
       chequeMaturity: CHEQUE_MATURITY_CRON_UTC,
       dynamicPricing: DYNAMIC_PRICING_CRON_UTC,
+      salesInvoiceOverdue: SALES_INVOICE_OVERDUE_CRON_UTC,
     },
     'Automation repeatable jobs registered (UTC cron)'
   );

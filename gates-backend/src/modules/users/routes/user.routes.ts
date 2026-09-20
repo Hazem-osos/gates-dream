@@ -181,6 +181,39 @@ router.post(
 );
 
 /**
+ * GET /api/v1/users/sellers
+ * Active program users for invoice / POS seller pickers.
+ * Invoice clerks need this list; they may not have user:view.
+ */
+router.get(
+  '/sellers',
+  authorize({ resource: 'invoice', action: 'view' }),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const companyId = req.companyId || req.tenantId;
+      if (!companyId) {
+        return void res.status(400).json({
+          status: 'error',
+          message: 'Company ID is required',
+        });
+      }
+
+      const sellers = await userService.listSellers(companyId);
+      return void res.json({
+        status: 'success',
+        data: sellers,
+      });
+    } catch (error) {
+      logger.error({ error }, 'Error listing sellers');
+      return void res.status(500).json({
+        status: 'error',
+        message: error instanceof Error ? error.message : 'Failed to list sellers',
+      });
+    }
+  }
+);
+
+/**
  * GET /api/v1/users
  * List users with pagination and filters
  */

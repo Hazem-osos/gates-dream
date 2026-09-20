@@ -1,8 +1,8 @@
 export const FIELD_ALIASES: Record<string, string[]> = {
   arabicName: ['اسم', 'اسم الصنف', 'name', 'الاسم', 'اسم العميل', 'customer', 'item'],
   mobile: ['موبايل', 'جوال', 'phone', 'mobile', 'تليفون'],
-  code: ['كود', 'code', 'رقم'],
-  barcode: ['باركود', 'barcode', 'serial'],
+  code: ['كود الصنف', 'رقم الصنف', 'كود', 'code'],
+  barcode: ['باركود', 'barcode'],
   price: ['سعر', 'price', 'السعر', 'سعر البيع', 'sales'],
   openingBalance: ['رصيد', 'balance', 'opening', 'رصيد افتتاحي', 'opening balance'],
   quantity: ['كمية', 'qty', 'quantity', 'رصيد مخزن'],
@@ -36,7 +36,7 @@ export function mapSpreadsheetRow(
     } else {
       out[field] = String(v);
     }
-    if (field === 'barcode') out.serial = String(v);
+    if (field === 'code') out.serial = String(v);
     if (field === 'arabicName') out.arabicName = String(v);
   });
   return out;

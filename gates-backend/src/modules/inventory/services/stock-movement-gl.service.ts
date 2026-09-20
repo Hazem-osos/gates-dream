@@ -46,7 +46,14 @@ async function allocateGlNum(
   tx: Prisma.TransactionClient,
   ctx: StockGlPostingContext
 ): Promise<string | undefined> {
-  return documentSequenceService.nextGlNumberInTx(tx, ctx);
+  // Inventory JEs are system-generated (no user GL number input),
+  // so always use automatic sequencing regardless of SerialAutomaticGL setting.
+  return documentSequenceService.nextGlNumberInTx(
+    tx,
+    { companyId: ctx.companyId, branchId: ctx.branchId ?? '', fiscalYearId: ctx.fiscalYearId },
+    undefined,
+    { forceAutomatic: true }
+  );
 }
 
 export async function resolveStockGlAccounts(
@@ -197,11 +204,13 @@ function linesFromAmountMap(
 
 async function loadItemInventoryMap(
   tx: Prisma.TransactionClient,
+  companyId: string,
   itemIds: string[]
 ): Promise<Map<string, { mainAccountId: string | null; averageCost: unknown }>> {
   if (itemIds.length === 0) return new Map();
+  // Scope by companyId so cross-tenant item IDs can never return a wrong account
   const rows = await tx.item.findMany({
-    where: { id: { in: itemIds } },
+    where: { id: { in: itemIds }, companyId },
     select: { id: true, mainAccountId: true, averageCost: true },
   });
   return new Map(rows.map((row) => [row.id, row]));
@@ -220,7 +229,7 @@ export class StockMovementGlService {
     const itemIds = [...new Set(issue.lines.map((l) => l.itemId))];
     const [unitCosts, items] = await Promise.all([
       itemCostService.getCostsAsOf(ctx.companyId, itemIds, issue.date, tx),
-      loadItemInventoryMap(tx, itemIds),
+      loadItemInventoryMap(tx, ctx.companyId, itemIds),
     ]);
 
     const issueByInv = new Map<string, number>();
@@ -326,7 +335,7 @@ export class StockMovementGlService {
     const accounts = await resolveStockGlAccounts(ctx.companyId, receipt.warehouseId);
 
     const itemIds = [...new Set(receipt.lines.map((l) => l.itemId))];
-    const items = await loadItemInventoryMap(tx, itemIds);
+    const items = await loadItemInventoryMap(tx, ctx.companyId, itemIds);
 
     const inventoryByAccount = new Map<string, number>();
     let totalCost = 0;
@@ -424,6 +433,7 @@ export class StockMovementGlService {
     const accounts = await resolveStockGlAccounts(ctx.companyId, stocktaking.warehouseId);
     const items = await loadItemInventoryMap(
       tx,
+      ctx.companyId,
       [...new Set(stocktaking.lines.map((l) => l.itemId))]
     );
 
@@ -555,6 +565,7 @@ export class StockMovementGlService {
     const accounts = await resolveStockGlAccounts(ctx.companyId, adjustment.warehouseId);
     const items = await loadItemInventoryMap(
       tx,
+      ctx.companyId,
       [...new Set(adjustment.lines.map((l) => l.itemId))]
     );
 
@@ -661,6 +672,7 @@ export class StockMovementGlService {
     const accounts = await resolveStockGlAccounts(ctx.companyId, adjustment.warehouseId);
     const items = await loadItemInventoryMap(
       tx,
+      ctx.companyId,
       [...new Set(adjustment.lines.map((l) => l.itemId))]
     );
 

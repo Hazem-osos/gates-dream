@@ -192,8 +192,13 @@ import auditLogRoutes from './modules/common/routes/audit-log.routes';
 import activityLogRoutes from './modules/common/routes/activity-log.routes';
 import apiKeyRoutes from './modules/common/routes/api-key.routes';
 import automationRuleRoutes from './modules/automation/routes/automation-rule.routes';
+import automationRunRoutes from './modules/automation/routes/automation-run.routes';
 import internalAutomationRuleRoutes from './modules/automation/routes/internal-automation-rule.routes';
 import internalPurchaseRequestRoutes from './modules/automation/routes/internal-purchase-request.routes';
+import internalActionRunRoutes from './modules/automation/routes/internal-action-run.routes';
+import internalAutomationActionRoutes from './modules/automation/routes/internal-automation-action.routes';
+import automationMetadataRoutes from './modules/automation/routes/automation-metadata.routes';
+import automationTemplatesRoutes from './modules/automation/routes/automation-templates.routes';
 import systemSettingRoutes from './modules/common/routes/system-setting.routes';
 import databaseToolsRoutes from './modules/database-tools/routes/database-backup.routes';
 import operationsManagementRoutes from './modules/operations-management/routes/operations-management.routes';
@@ -381,6 +386,8 @@ app.use('/api/v1/public/share', publicShareRouter);
 // authenticateInternalAutomation rejects missing/invalid keys (no anonymous path).
 app.use('/internal/v1/automation', apiRateLimiter, internalAutomationRuleRoutes);
 app.use('/internal/v1/automation', apiRateLimiter, internalPurchaseRequestRoutes);
+app.use('/internal/v1/automation', apiRateLimiter, internalActionRunRoutes);
+app.use('/internal/v1/automation', apiRateLimiter, internalAutomationActionRoutes);
 
 // API versioning middleware
 import { apiVersionMiddleware } from './shared/middleware/api-version.middleware';
@@ -613,6 +620,9 @@ app.use('/api/v1/audit-logs', cache({ ttl: 60 }), auditLogRoutes);
 app.use('/api/v1/activity-logs', cache({ ttl: 60 }), activityLogRoutes);
 app.use('/api/v1/api-keys', apiKeyRoutes);
 app.use('/api/v1/automation/rules', automationRuleRoutes);
+app.use('/api/v1/automation/runs', automationRunRoutes);
+app.use('/api/v1/automation/metadata', automationMetadataRoutes);
+app.use('/api/v1/automation/templates', automationTemplatesRoutes);
 app.use('/api/v1/system-settings', cache({ ttl: 300 }), systemSettingRoutes);
 
 // Database Tools routes

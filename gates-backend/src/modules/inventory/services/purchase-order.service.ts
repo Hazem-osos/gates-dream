@@ -5,6 +5,7 @@ import { documentSequenceService } from '../../platform/services/document-sequen
 import { invoiceM5Service } from '../../invoices/services/invoice-m5.service';
 import type { CreateM5InvoiceInput } from '../../invoices/schemas/invoice-m5.schema';
 import { bulkCreateMany } from '../../../shared/database/bulk-write';
+import { emitDomainEvent } from '../../automation/events/automation-event-bus.service';
 
 export interface PurchaseOrderLine {
   itemId: string;
@@ -26,6 +27,8 @@ export interface CreatePurchaseOrderData {
   branchId?: string;
   description?: string;
   serial?: string;
+  /** Set only by automation. Unique per company when present. */
+  automationIdempotencyKey?: string | null;
   orderNumber?: string;
   date: string;
   supplierId: string;
@@ -174,6 +177,7 @@ export class PurchaseOrderService {
             branchId: data.branchId || null,
             description: data.description || null,
             serial: data.serial || null,
+            automationIdempotencyKey: data.automationIdempotencyKey?.trim() || null,
             orderNumber,
             date: new Date(data.date),
             supplierId: data.supplierId,
@@ -249,6 +253,20 @@ export class PurchaseOrderService {
         },
         'Purchase order created'
       );
+
+      void emitDomainEvent({
+        companyId,
+        eventType: 'purchase.order.created',
+        data: {
+          purchaseOrderId: purchaseOrder.id,
+          orderNumber: purchaseOrder.orderNumber ?? null,
+          supplierId: data.supplierId,
+          warehouseId: data.warehouseId ?? null,
+          totalAmount: Number(purchaseOrder.totalAmount),
+          netAmount: Number(purchaseOrder.netAmount),
+          createdByAutomation: Boolean(data.automationIdempotencyKey),
+        },
+      });
 
       return purchaseOrder;
     } catch (error) {
@@ -558,6 +576,17 @@ export class PurchaseOrderService {
       });
 
       logger.info({ companyId, purchaseOrderId }, 'Purchase order approved');
+
+      void emitDomainEvent({
+        companyId,
+        eventType: 'purchase.order.approved',
+        data: {
+          purchaseOrderId: updated.id,
+          orderNumber: updated.orderNumber ?? null,
+          supplierId: updated.supplierId,
+          netAmount: Number(updated.netAmount),
+        },
+      });
 
       return updated;
     } catch (error) {

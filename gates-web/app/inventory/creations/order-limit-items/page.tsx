@@ -1,27 +1,15 @@
 'use client';
 
-import { useMemo, useState } from 'react';
-import { Package, Plus, Trash2 } from 'lucide-react';
-import {
-  Button,
-  CompactFormField,
-  FormSectionCard,
-  AppTable,
-  FilterToolbar,
-  compactControlClass,
-} from '@/components/ui';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Package } from 'lucide-react';
+import { CompactFormField, FormSectionCard, AppTable, FilterToolbar, compactControlClass } from '@/components/ui';
 import { MasterCardShell } from '@/components/erp';
-import { ItemSelect } from '@/components/form/ItemSelect';
 import { WarehouseSelect } from '@/components/form/WarehouseSelect';
-import {
-  OrderLimitListsSection,
-  type OrderLimitListRow,
-} from '@/components/inventory/OrderLimitListsSection';
-import { useInvalidateQuery } from '@/lib/hooks/useApi';
+import { useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
 import { apiClient } from '@/lib/api/client';
-import type { ItemOption } from '@/lib/hooks/useMasterDataQueries';
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
+import type { OrderLimitListRow } from '@/components/inventory/OrderLimitListsSection';
 
 type FormState = {
   code: string;
@@ -35,34 +23,40 @@ type LimitLine = {
   itemId: string;
   itemCode: string;
   itemName: string;
+  warehouseQty: number;
   orderLimit: string;
+  lowerLimit: string;
+  upperLimit: string;
   [key: string]: unknown;
+};
+
+type CatalogItem = {
+  id: string;
+  code?: string | null;
+  serial?: string | null;
+  arabicName?: string;
+  orderLimit?: number | string | null;
+  lowerLimit?: number | string | null;
+  upperLimit?: number | string | null;
+};
+
+type QtyRow = {
+  itemId?: string;
+  quantity?: number | string | null;
+  quantityOnHand?: number | string | null;
+  item?: { id?: string };
 };
 
 type ApiLine = {
   id: string;
   itemId: string;
   orderLimit?: number | string | null;
-  item?: {
-    id?: string;
-    code?: string | null;
-    serial?: string | null;
-    arabicName?: string;
-    orderLimit?: number | string | null;
-  };
+  item?: CatalogItem;
 };
 
 type ApiDetail = OrderLimitListRow & { lines?: ApiLine[] };
 
 const emptyForm = (): FormState => ({ code: '', warehouseId: '', description: '' });
-
-const emptyLine = (): LimitLine => ({
-  key: crypto.randomUUID(),
-  itemId: '',
-  itemCode: '',
-  itemName: '',
-  orderLimit: '',
-});
 
 const cellCls = '!max-w-none !overflow-visible !h-auto whitespace-normal py-1.5';
 
@@ -71,72 +65,175 @@ function asText(value: number | string | null | undefined): string {
   return String(value);
 }
 
+function asQty(value: number | string | null | undefined): number {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : 0;
+}
+
 function num(value: string): number | null {
   if (!value.trim()) return null;
   const n = parseFloat(value.replace(/,/g, ''));
   return Number.isFinite(n) ? n : null;
 }
 
-function lineFromApi(row: ApiLine): LimitLine {
-  return {
-    key: row.id,
-    id: row.id,
-    itemId: row.itemId || row.item?.id || '',
-    itemCode: row.item?.code || row.item?.serial || '',
-    itemName: row.item?.arabicName || '',
-    orderLimit: asText(row.orderLimit ?? row.item?.orderLimit),
-  };
+function lineWarning(row: LimitLine): { tone: 'min' | 'reorder' | 'max'; text: string } | null {
+  const qty = row.warehouseQty;
+  const lower = num(row.lowerLimit);
+  const order = num(row.orderLimit);
+  const upper = num(row.upperLimit);
+  if (lower != null && qty <= lower) {
+    return {
+      tone: 'min',
+      text: `رصيد المخزن ${qty} تحت الحد الأدنى ${lower} — هيظهر تنبيه نقص لهذا الصنف في المخزن.`,
+    };
+  }
+  if (order != null && qty <= order) {
+    return {
+      tone: 'reorder',
+      text: `رصيد المخزن ${qty} عند حد الطلب ${order} أو أقل — هيظهر تنبيه إعادة طلب.`,
+    };
+  }
+  if (upper != null && qty >= upper) {
+    return {
+      tone: 'max',
+      text: `رصيد المخزن ${qty} وصل الحد الأعلى ${upper} — هيظهر تنبيه زيادة مخزون.`,
+    };
+  }
+  return null;
 }
 
 export default function OrderLimitItemsPage() {
   const invalidateQuery = useInvalidateQuery();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
-  const [lines, setLines] = useState<LimitLine[]>([emptyLine(), emptyLine(), emptyLine()]);
+  const [lines, setLines] = useState<LimitLine[]>([]);
   const [search, setSearch] = useState('');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [saving, setSaving] = useState(false);
-  const [loadingDetail, setLoadingDetail] = useState(false);
+
+  const warehouseId = form.warehouseId;
+  const hydrateKeyRef = useRef('');
+  const { data: itemsRes, isLoading: itemsLoading } = useApiQuery<CatalogItem[]>(
+    ['items', 'order-limits'],
+    '/inventory/items',
+    { limit: 1000, isActive: true },
+    { enabled: Boolean(warehouseId), staleTime: 15_000 }
+  );
+  const { data: qtyRes, isLoading: qtyLoading } = useApiQuery<QtyRow[]>(
+    ['item-quantities', warehouseId],
+    warehouseId ? `/inventory/item-quantities/warehouse/${warehouseId}` : '/inventory/item-quantities',
+    undefined,
+    { enabled: Boolean(warehouseId), staleTime: 10_000 }
+  );
+  const { data: listsRes, isLoading: listsLoading } = useApiQuery<OrderLimitListRow[]>(
+    ['item-order-limits', warehouseId],
+    '/inventory/item-order-limits',
+    { limit: 20, isActive: true, warehouseId },
+    { enabled: Boolean(warehouseId), staleTime: 10_000 }
+  );
 
   const patch = (next: Partial<FormState>) => setForm((prev) => ({ ...prev, ...next }));
   const patchLine = (key: string, next: Partial<LimitLine>) => {
     setLines((prev) => prev.map((row) => (row.key === key ? { ...row, ...next } : row)));
   };
 
-  const hydrate = (detail: ApiDetail) => {
-    setSelectedId(detail.id);
-    setForm({
-      code: detail.code ?? '',
-      warehouseId: detail.warehouseId ?? '',
-      description: detail.description ?? '',
-    });
-    const next = (detail.lines ?? []).map(lineFromApi);
-    setLines(next.length ? next : [emptyLine(), emptyLine(), emptyLine()]);
-  };
+  const items = itemsRes?.data;
+  const lists = listsRes?.data;
+  const existingListId = lists?.find((row) => row.warehouseId === warehouseId)?.id ?? '';
+  const itemIdsKey = (items ?? []).map((item) => item.id).join(',');
+  const hydrateKey = `${warehouseId}:${itemIdsKey}:${existingListId}`;
 
-  const loadList = async (id: string) => {
-    setLoadingDetail(true);
-    setError('');
-    try {
-      const res = await apiClient.get<ApiDetail>(`/inventory/item-order-limits/${id}`);
-      if (res.data) hydrate(res.data);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'تعذر تحميل البطاقة');
-    } finally {
-      setLoadingDetail(false);
+  useEffect(() => {
+    if (!warehouseId) {
+      if (hydrateKeyRef.current === '') return;
+      hydrateKeyRef.current = '';
+      setSelectedId(null);
+      setLines([]);
+      return;
     }
-  };
+    if (itemsLoading || listsLoading || !items) return;
+    if (hydrateKeyRef.current === hydrateKey) return;
+    hydrateKeyRef.current = hydrateKey;
+    const qtyByItem = new Map<string, number>();
+    for (const row of qtyRes?.data ?? []) {
+      const id = row.itemId || row.item?.id;
+      if (!id) continue;
+      qtyByItem.set(id, (qtyByItem.get(id) ?? 0) + asQty(row.quantityOnHand ?? row.quantity));
+    }
+    let cancelled = false;
+    const apply = (detail?: ApiDetail) => {
+      if (cancelled) return;
+      setSelectedId(detail?.id ?? existingListId ?? null);
+      if (detail) {
+        setForm((prev) => ({
+          ...prev,
+          code: detail.code ?? prev.code,
+          description: detail.description ?? prev.description,
+        }));
+      }
+      const saved = new Map((detail?.lines ?? []).map((line) => [line.itemId, line]));
+      setLines(
+        items.map((item) => {
+          const savedLine = saved.get(item.id);
+          return {
+            key: item.id,
+            id: savedLine?.id,
+            itemId: item.id,
+            itemCode: item.code || item.serial || '',
+            itemName: item.arabicName || '',
+            warehouseQty: qtyByItem.get(item.id) ?? 0,
+            orderLimit: asText(savedLine?.orderLimit ?? item.orderLimit),
+            lowerLimit: asText(savedLine?.item?.lowerLimit ?? item.lowerLimit),
+            upperLimit: asText(savedLine?.item?.upperLimit ?? item.upperLimit),
+          };
+        })
+      );
+    };
+    if (!existingListId) {
+      apply();
+      return () => {
+        cancelled = true;
+      };
+    }
+    void apiClient
+      .get<ApiDetail>(`/inventory/item-order-limits/${existingListId}`)
+      .then((res) => apply(res.data))
+      .catch(() => apply());
+    return () => {
+      cancelled = true;
+    };
+  }, [warehouseId, items, itemsLoading, listsLoading, hydrateKey, existingListId, qtyRes?.data]);
+
+  useEffect(() => {
+    if (!warehouseId) return;
+    const qtyByItem = new Map<string, number>();
+    for (const row of qtyRes?.data ?? []) {
+      const id = row.itemId || row.item?.id;
+      if (!id) continue;
+      qtyByItem.set(id, (qtyByItem.get(id) ?? 0) + asQty(row.quantityOnHand ?? row.quantity));
+    }
+    setLines((prev) => {
+      if (!prev.length) return prev;
+      let changed = false;
+      const next = prev.map((row) => {
+        const qty = qtyByItem.get(row.itemId) ?? 0;
+        if (qty === row.warehouseQty) return row;
+        changed = true;
+        return { ...row, warehouseQty: qty };
+      });
+      return changed ? next : prev;
+    });
+  }, [warehouseId, qtyRes?.data]);
 
   const handleNew = () => {
+    hydrateKeyRef.current = '';
     setSelectedId(null);
     setForm(emptyForm());
-    setLines([emptyLine(), emptyLine(), emptyLine()]);
+    setLines([]);
     setError('');
     setSuccess('');
   };
-
-  const addLine = () => setLines((prev) => [...prev, emptyLine()]);
 
   const visible = useMemo(() => {
     if (!search.trim()) return lines;
@@ -156,22 +253,23 @@ export default function OrderLimitItemsPage() {
       warehouseId: form.warehouseId,
       description: form.description || null,
       lines: lines
-        .filter((row) => row.itemId)
+        .filter((row) => row.itemId && (row.orderLimit || row.lowerLimit || row.upperLimit))
         .map((row) => ({
           itemId: row.itemId,
           orderLimit: num(row.orderLimit) ?? 0,
+          lowerLimit: num(row.lowerLimit),
+          upperLimit: num(row.upperLimit),
         })),
     };
     setSaving(true);
     try {
-      if (selectedId) {
-        await apiClient.put<ApiDetail>(`/inventory/item-order-limits/${selectedId}`, payload);
-      } else {
-        await apiClient.post<ApiDetail>('/inventory/item-order-limits', payload);
-      }
+      const res = selectedId
+        ? await apiClient.put<ApiDetail>(`/inventory/item-order-limits/${selectedId}`, payload)
+        : await apiClient.post<ApiDetail>('/inventory/item-order-limits', payload);
+      if (res.data?.id) setSelectedId(res.data.id);
       invalidateQuery(['item-order-limits']);
-      handleNew();
-      setSuccess('تم حفظ حد الطلب — تقدر تضيف التالي');
+      invalidateQuery(['items']);
+      setSuccess('تم حفظ حدود الأصناف — التنبيه هيشتغل حسب رصيد المخزن المختار');
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'حدث خطأ أثناء الحفظ');
     } finally {
@@ -192,6 +290,8 @@ export default function OrderLimitItemsPage() {
     }
   };
 
+  const loading = Boolean(warehouseId) && (itemsLoading || qtyLoading || listsLoading);
+
   return (
     <MasterCardShell
       title="حد الطلب للأصناف"
@@ -209,20 +309,26 @@ export default function OrderLimitItemsPage() {
       onDelete={selectedId ? () => void handleDelete() : undefined}
       currentId={selectedId}
       favoriteHref="/inventory/creations/order-limit-items"
-      moreMenuItems={[{ id: 'add-item', label: 'إضافة صنف', onClick: addLine }]}
     >
       {error && <ErrorToast message={error} onClose={() => setError('')} />}
       {success && <SuccessToast message={success} onClose={() => setSuccess('')} />}
 
-      <OrderLimitListsSection onSelect={(row) => void loadList(row.id)} selectedId={selectedId} />
-
-      <FormSectionCard title="بيانات الحد" subtitle="الكود والمخزن والوصف" icon={Package}>
+      <FormSectionCard
+        title="بيانات الحد"
+        subtitle="اختَر المخزن — الجدول هيحمّل الأصناف ورصيدها في المخزن ده"
+        icon={Package}
+      >
         <CompactFormField label="الكود" value={form.code} onChange={(e) => patch({ code: e.target.value })} />
         <CompactFormField label="المخزن" required>
           <WarehouseSelect
             value={form.warehouseId}
-            onChange={(warehouseId) => patch({ warehouseId })}
+            onChange={(nextWarehouseId) => {
+              setSelectedId(null);
+              setForm((prev) => ({ ...prev, warehouseId: nextWarehouseId, code: '', description: '' }));
+            }}
             emptyLabel="اختر المخزن"
+            leafOnly={false}
+            enableQuickCreate={false}
           />
         </CompactFormField>
         <CompactFormField label="الوصف">
@@ -234,20 +340,19 @@ export default function OrderLimitItemsPage() {
         </CompactFormField>
       </FormSectionCard>
 
-      <FilterToolbar searchPlaceholder="بحث بكود أو اسم الصنف…" onSearchChange={setSearch}>
-        <Button type="button" variant="secondary" size="sm" onClick={addLine}>
-          <Plus className="h-4 w-4" />
-          صنف
-        </Button>
-      </FilterToolbar>
+      <FilterToolbar searchPlaceholder="بحث بكود أو اسم الصنف…" onSearchChange={setSearch} />
 
       <section className="mb-4 mt-4 overflow-visible rounded-xl border border-[#E6F0F7] bg-white p-4 shadow-sm">
         <AppTable<LimitLine>
-          isLoading={loadingDetail}
+          isLoading={loading}
           data={visible}
           getRowKey={(r) => r.key}
-          emptyTitle="لا توجد أصناف"
-          emptyDescription="أضف صنفاً وحدد حد الطلب ثم احفظ."
+          emptyTitle={warehouseId ? 'لا توجد أصناف' : 'اختر المخزن أولاً'}
+          emptyDescription={
+            warehouseId
+              ? 'أضف أصنافاً من دليل الأصناف ثم ارجع هنا.'
+              : 'بعد اختيار المخزن هنحمّل الأصناف ورصيد كل صنف فيه.'
+          }
           virtualizeThreshold={10_000}
           columns={[
             {
@@ -266,31 +371,34 @@ export default function OrderLimitItemsPage() {
             {
               id: 'item',
               header: 'اسم الصنف',
-              className: `${cellCls} min-w-[240px]`,
+              className: `${cellCls} min-w-[200px]`,
+              cell: (row) => row.itemName || '—',
+            },
+            {
+              id: 'qty',
+              header: 'رصيد المخزن',
+              align: 'center',
+              className: `${cellCls} min-w-[110px]`,
+              cell: (row) => row.warehouseQty,
+            },
+            {
+              id: 'lower',
+              header: 'الحد الأدنى',
+              className: `${cellCls} min-w-[120px]`,
               cell: (row) => (
-                <ItemSelect
-                  value={row.itemId}
-                  emptyLabel="اختر الصنف"
-                  menuPlacement="bottom"
-                  onChange={(itemId) => patchLine(row.key, { itemId })}
-                  onItemResolved={(item) => {
-                    const picked = item as ItemOption | undefined;
-                    patchLine(row.key, {
-                      itemId: picked?.id ?? row.itemId,
-                      itemCode: picked?.code || picked?.serial || '',
-                      itemName: picked?.arabicName || '',
-                      orderLimit:
-                        row.orderLimit ||
-                        asText((picked as ItemOption & { orderLimit?: number | string })?.orderLimit),
-                    });
-                  }}
+                <input
+                  className={compactControlClass}
+                  type="number"
+                  min={0}
+                  value={row.lowerLimit}
+                  onChange={(e) => patchLine(row.key, { lowerLimit: e.target.value })}
                 />
               ),
             },
             {
               id: 'limit',
               header: 'حد الطلب',
-              className: `${cellCls} min-w-[140px]`,
+              className: `${cellCls} min-w-[120px]`,
               cell: (row) => (
                 <input
                   className={compactControlClass}
@@ -302,29 +410,38 @@ export default function OrderLimitItemsPage() {
               ),
             },
             {
-              id: 'remove',
-              header: '',
-              align: 'center',
-              className: cellCls,
+              id: 'upper',
+              header: 'الحد الأعلى',
+              className: `${cellCls} min-w-[120px]`,
               cell: (row) => (
-                <button
-                  type="button"
-                  className="text-slate-400 hover:text-red-500"
-                  onClick={() =>
-                    setLines((prev) =>
-                      prev.length > 1 ? prev.filter((t) => t.key !== row.key) : [emptyLine()]
-                    )
-                  }
-                  aria-label="حذف السطر"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </button>
+                <input
+                  className={compactControlClass}
+                  type="number"
+                  min={0}
+                  value={row.upperLimit}
+                  onChange={(e) => patchLine(row.key, { upperLimit: e.target.value })}
+                />
               ),
+            },
+            {
+              id: 'warn',
+              header: 'تنبيه',
+              className: `${cellCls} min-w-[220px]`,
+              cell: (row) => {
+                const warn = lineWarning(row);
+                if (!warn) return <span className="text-xs text-slate-400">—</span>;
+                const color =
+                  warn.tone === 'min'
+                    ? 'text-red-700'
+                    : warn.tone === 'max'
+                      ? 'text-amber-700'
+                      : 'text-[#0E78AA]';
+                return <span className={`text-xs font-medium ${color}`}>{warn.text}</span>;
+              },
             },
           ]}
         />
       </section>
-
     </MasterCardShell>
   );
 }

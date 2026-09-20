@@ -81,6 +81,13 @@ export const queryKeys = {
     all: ['electronic-invoices'] as const,
     dashboard: () => ['electronic-invoices', 'dashboard'] as const,
   },
+  automation: {
+    all: ['automation'] as const,
+    rules: (params?: Record<string, unknown>) => ['automation', 'rules', params ?? {}] as const,
+    rule: (id: string) => ['automation', 'rule', id] as const,
+    runs: (params?: Record<string, unknown>) => ['automation', 'runs', params ?? {}] as const,
+    run: (id: string) => ['automation', 'run', id] as const,
+  },
   ai: {
     all: ['ai'] as const,
     conversations: () => ['ai', 'conversations'] as const,

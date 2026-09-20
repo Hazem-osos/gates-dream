@@ -4,7 +4,9 @@ import { logger } from '../../../shared/logger';
 import { Decimal } from '@prisma/client/runtime/library';
 import { AppError } from '../../../shared/middleware/error-handler';
 import { applyFullTextIds, findFullTextIds } from '../../../shared/database/fulltext-search';
-import { advancedFlag, nextNumericCode } from '../../../shared/utils/next-numeric-code';
+import { nextNumericCode } from '../../../shared/utils/next-numeric-code';
+import { ensureDefaultPieceUnit } from './ensure-default-unit';
+import { ensureDefaultUngroupedCategory } from './ensure-default-item-category';
 
 function decimalOp(
   op?: 'none' | 'eq' | 'gt' | 'lt' | 'between',
@@ -143,14 +145,6 @@ export class ItemService {
   /**
    * Create a new item
    */
-  private async isItemAutoNumbering(companyId: string): Promise<boolean> {
-    const settings = await prisma.companySettings.findUnique({
-      where: { companyId },
-      select: { advancedSettings: true },
-    });
-    return advancedFlag(settings?.advancedSettings, 'itemAutoNumbering');
-  }
-
   private async suggestNextItemSerial(companyId: string): Promise<string> {
     const rows = await prisma.item.findMany({
       where: { companyId, isActive: true },
@@ -161,12 +155,8 @@ export class ItemService {
 
   async createItem(companyId: string, data: CreateItemData) {
     try {
-      const auto = await this.isItemAutoNumbering(companyId);
       let serial = data.serial?.trim() ?? '';
       if (!serial) {
-        if (!auto) {
-          throw new AppError(400, 'رقم الصنف مطلوب — الترقيم يدوي.');
-        }
         serial = await this.suggestNextItemSerial(companyId);
       }
       // Sales Invoice Enterprise Redesign: "auto-assign GL accounts by
@@ -179,141 +169,107 @@ export class ItemService {
       let salesAccountId = data.salesAccountId ?? null;
       let cogsAccountId = data.cogsAccountId ?? null;
 
-      if (!data.categoryId) {
-        throw new AppError(400, 'اختَر مجموعة الصنف قبل الحفظ.');
-      }
-      if (!data.baseUnitId) {
-        throw new AppError(400, 'اختَر وحدة للصنف قبل الحفظ.');
-      }
-      if (data.categoryId) {
-        const category = await prisma.itemCategory.findFirst({
-          where: { id: data.categoryId, companyId },
-        });
+      const item = await prisma.$transaction(async (tx) => {
+        const category = data.categoryId
+          ? await tx.itemCategory.findFirst({
+              where: { id: data.categoryId, companyId },
+            })
+          : await ensureDefaultUngroupedCategory(companyId, tx);
         if (!category) {
           throw new AppError(400, 'مجموعة الصنف غير موجودة');
         }
         mainAccountId = mainAccountId ?? category.defaultInventoryAccountId ?? null;
         salesAccountId = salesAccountId ?? category.defaultSalesAccountId ?? null;
         cogsAccountId = cogsAccountId ?? category.defaultCogsAccountId ?? null;
-      }
 
-      const priceTiers = resolveItemPriceTiers(data);
+        const unit = data.baseUnitId
+          ? await tx.unit.findFirst({
+              where: { id: data.baseUnitId, companyId },
+              select: { id: true },
+            })
+          : await ensureDefaultPieceUnit(companyId, tx);
+        if (!unit) {
+          throw new AppError(400, 'الوحدة المختارة غير موجودة');
+        }
 
-      const item = await prisma.item.create({
-        data: {
-          companyId,
-          serial,
-          arabicName: data.arabicName,
-          englishName: data.englishName,
-          mainAccountId,
-          costCenterId: data.costCenterId,
-          categoryId: data.categoryId ?? null,
-          barcode: data.barcode ?? null,
-          salesAccountId,
-          cogsAccountId,
-          defaultTaxPercent: data.isTaxExempt
-            ? new Decimal(0)
-            : data.defaultTaxPercent != null
-              ? new Decimal(data.defaultTaxPercent)
+        const priceTiers = resolveItemPriceTiers(data);
+
+        const created = await tx.item.create({
+          data: {
+            companyId,
+            serial,
+            arabicName: data.arabicName,
+            englishName: data.englishName,
+            mainAccountId,
+            costCenterId: data.costCenterId,
+            categoryId: category.id,
+            barcode: data.barcode ?? null,
+            salesAccountId,
+            cogsAccountId,
+            defaultTaxPercent: data.isTaxExempt
+              ? new Decimal(0)
+              : data.defaultTaxPercent != null
+                ? new Decimal(data.defaultTaxPercent)
+                : null,
+            taxExemptionReason: data.taxExemptionReason ?? null,
+            specifications: data.specifications,
+            itemType: data.itemType,
+            weight: data.weight ? new Decimal(data.weight) : null,
+            manufacturerId: data.manufacturerId,
+            colorId: data.colorId,
+            countryOfOrigin: data.countryOfOrigin,
+            quality: data.quality,
+            size: data.size,
+            property1: data.property1,
+            property2: data.property2,
+            property3: data.property3,
+            property4: data.property4,
+            property5: data.property5,
+            useExpirationDate: data.useExpirationDate || false,
+            inactiveItem: data.inactiveItem || false,
+            notSubjectToTerms: data.notSubjectToTerms || false,
+            cannotBeReturned: data.cannotBeReturned || false,
+            noSellBelowCost: data.noSellBelowCost || false,
+            useSerialNumber: data.useSerialNumber || false,
+            clothingItem: data.clothingItem || false,
+            upperLimit: data.upperLimit ? new Decimal(data.upperLimit) : null,
+            orderLimit: data.orderLimit ? new Decimal(data.orderLimit) : null,
+            orderLimitPercentage: data.orderLimitPercentage
+              ? new Decimal(data.orderLimitPercentage)
               : null,
-          taxExemptionReason: data.taxExemptionReason ?? null,
-          specifications: data.specifications,
-          itemType: data.itemType,
-          weight: data.weight ? new Decimal(data.weight) : null,
-          manufacturerId: data.manufacturerId,
-          colorId: data.colorId,
-          countryOfOrigin: data.countryOfOrigin,
-          quality: data.quality,
-          size: data.size,
-          property1: data.property1,
-          property2: data.property2,
-          property3: data.property3,
-          property4: data.property4,
-          property5: data.property5,
-          useExpirationDate: data.useExpirationDate || false,
-          inactiveItem: data.inactiveItem || false,
-          notSubjectToTerms: data.notSubjectToTerms || false,
-          cannotBeReturned: data.cannotBeReturned || false,
-          noSellBelowCost: data.noSellBelowCost || false,
-          useSerialNumber: data.useSerialNumber || false,
-          clothingItem: data.clothingItem || false,
-          upperLimit: data.upperLimit ? new Decimal(data.upperLimit) : null,
-          orderLimit: data.orderLimit ? new Decimal(data.orderLimit) : null,
-          orderLimitPercentage: data.orderLimitPercentage
-            ? new Decimal(data.orderLimitPercentage)
-            : null,
-          lowerLimit: data.lowerLimit ? new Decimal(data.lowerLimit) : null,
-          beginningBalance: data.beginningBalance
-            ? new Decimal(data.beginningBalance)
-            : null,
-          beginningCostPrice: data.beginningCostPrice
-            ? new Decimal(data.beginningCostPrice)
-            : null,
-          priceRetail: priceTiers.priceRetail,
-          priceSemiWholesale: new Decimal(data.priceSemiWholesale ?? 0),
-          priceWholesale: new Decimal(data.priceWholesale ?? 0),
-          priceProjects: new Decimal(data.priceProjects ?? 0),
-          isService: data.isService ?? false,
-          isAssembly: data.isAssembly ?? false,
-          isTaxExempt: data.isTaxExempt ?? false,
-          consumerPrice: priceTiers.consumerPrice,
-          retailPrice: priceTiers.retailPrice,
-          representativePrice: priceTiers.representativePrice,
-          exportPrice: priceTiers.exportPrice,
-          ...itemCardExtraFields(data),
-        },
-        include: {
-          category: {
-            select: { id: true, code: true, arabicName: true, englishName: true },
+            lowerLimit: data.lowerLimit ? new Decimal(data.lowerLimit) : null,
+            beginningBalance: data.beginningBalance
+              ? new Decimal(data.beginningBalance)
+              : null,
+            beginningCostPrice: data.beginningCostPrice
+              ? new Decimal(data.beginningCostPrice)
+              : null,
+            priceRetail: priceTiers.priceRetail,
+            priceSemiWholesale: new Decimal(data.priceSemiWholesale ?? 0),
+            priceWholesale: new Decimal(data.priceWholesale ?? 0),
+            priceProjects: new Decimal(data.priceProjects ?? 0),
+            isService: data.isService ?? false,
+            isAssembly: data.isAssembly ?? false,
+            isTaxExempt: data.isTaxExempt ?? false,
+            consumerPrice: priceTiers.consumerPrice,
+            retailPrice: priceTiers.retailPrice,
+            representativePrice: priceTiers.representativePrice,
+            exportPrice: priceTiers.exportPrice,
+            ...itemCardExtraFields(data),
           },
-          units: {
-            include: {
-              unit: {
-                select: {
-                  id: true,
-                  code: true,
-                  arabicName: true,
-                  englishName: true,
-                },
-              },
-            },
-          },
-          prices: {
-            include: {
-              priceList: {
-                select: {
-                  id: true,
-                  code: true,
-                  arabicName: true,
-                },
-              },
-              unit: {
-                select: {
-                  id: true,
-                  code: true,
-                  arabicName: true,
-                },
-              },
-            },
-          },
-        },
-      });
+        });
 
-      const unit = await prisma.unit.findFirst({
-        where: { id: data.baseUnitId, companyId },
-        select: { id: true },
-      });
-      if (!unit) {
-        throw new AppError(400, 'الوحدة المختارة غير موجودة');
-      }
-      await prisma.itemUnit.create({
-        data: {
-          itemId: item.id,
-          unitId: unit.id,
-          conversionFactor: new Decimal(1),
-          isFactorFixed: true,
-          isBaseUnit: true,
-        },
+        await tx.itemUnit.create({
+          data: {
+            itemId: created.id,
+            unitId: unit.id,
+            conversionFactor: new Decimal(1),
+            isFactorFixed: true,
+            isBaseUnit: true,
+          },
+        });
+
+        return created;
       });
 
       logger.info({ companyId, itemId: item.id }, 'Item created');
@@ -482,6 +438,16 @@ export class ItemService {
                 },
               },
             },
+            itemPrices: {
+              select: {
+                price: true,
+                retailPrice: true,
+                unitId: true,
+                priceList: {
+                  select: { id: true, priceMode: true, isActive: true },
+                },
+              },
+            },
           },
         }),
         prisma.item.count({ where }),
@@ -526,6 +492,16 @@ export class ItemService {
                 code: true,
                 arabicName: true,
               },
+            },
+          },
+        },
+        itemPrices: {
+          select: {
+            price: true,
+            retailPrice: true,
+            unitId: true,
+            priceList: {
+              select: { id: true, priceMode: true, isActive: true },
             },
           },
         },
@@ -604,7 +580,17 @@ export class ItemService {
       }
       if (data.mainAccountId !== undefined) updateData.mainAccountId = data.mainAccountId;
       if (data.costCenterId !== undefined) updateData.costCenterId = data.costCenterId;
-      if (data.categoryId !== undefined) updateData.categoryId = data.categoryId;
+      if (data.categoryId !== undefined) {
+        if (data.categoryId) {
+          updateData.categoryId = data.categoryId;
+        } else {
+          const fallback = await ensureDefaultUngroupedCategory(
+            companyId,
+            prisma as unknown as Prisma.TransactionClient
+          );
+          updateData.categoryId = fallback.id;
+        }
+      }
       if (data.barcode !== undefined) updateData.barcode = data.barcode;
       if (data.salesAccountId !== undefined) updateData.salesAccountId = data.salesAccountId;
       if (data.cogsAccountId !== undefined) updateData.cogsAccountId = data.cogsAccountId;
@@ -838,29 +824,101 @@ export class ItemService {
   }
 
   /**
-   * Delete item (soft delete)
+   * Permanent delete — refused when the item has inventory or document movements.
    */
   async deleteItem(companyId: string, itemId: string) {
+    const item = await prisma.item.findFirst({
+      where: { id: itemId, companyId },
+      select: { id: true, arabicName: true, serial: true },
+    });
+
+    if (!item) {
+      throw new AppError(404, 'الصنف غير موجود');
+    }
+
+    const [
+      movements,
+      invoices,
+      receipts,
+      issues,
+      adjustments,
+      transfers,
+      openingStock,
+      stocktaking,
+      purchaseReturns,
+      purchaseOrders,
+      posOrders,
+      priceQuotes,
+      assemblies,
+      stockRows,
+    ] = await Promise.all([
+      prisma.inventoryMovement.count({ where: { companyId, itemId } }),
+      prisma.invoiceLine.count({ where: { itemId } }),
+      prisma.receiptLine.count({ where: { itemId } }),
+      prisma.issueLine.count({ where: { itemId } }),
+      prisma.adjustmentLine.count({ where: { itemId } }),
+      prisma.transferLine.count({ where: { itemId } }),
+      prisma.openingStockLine.count({ where: { itemId } }),
+      prisma.stocktakingLine.count({ where: { itemId } }),
+      prisma.purchaseReturnLine.count({ where: { itemId } }),
+      prisma.purchaseOrderLine.count({ where: { itemId } }),
+      prisma.posOrderLine.count({ where: { itemId } }),
+      prisma.priceQuoteLine.count({ where: { itemId } }),
+      prisma.assemblyLine.count({ where: { assembledItemId: itemId } }),
+      prisma.itemWarehouseBalance.count({
+        where: {
+          companyId,
+          itemId,
+          OR: [{ quantityOnHand: { not: 0 } }, { reservedQuantity: { not: 0 } }],
+        },
+      }),
+    ]);
+
+    if (
+      movements +
+        invoices +
+        receipts +
+        issues +
+        adjustments +
+        transfers +
+        openingStock +
+        stocktaking +
+        purchaseReturns +
+        purchaseOrders +
+        posOrders +
+        priceQuotes +
+        assemblies +
+        stockRows >
+      0
+    ) {
+      throw new AppError(409, 'لا يمكن حذف الصنف لأن عليه حركات أو مستندات. انقل أو سوِّ الرصيد أولاً.');
+    }
+
     try {
-      const item = await prisma.item.findFirst({
-        where: { id: itemId, companyId },
+      await prisma.$transaction(async (tx) => {
+        await tx.itemUnit.deleteMany({ where: { itemId } });
+        await tx.itemPrice.deleteMany({ where: { itemId } });
+        await tx.itemQuantity.deleteMany({ where: { itemId } });
+        await tx.itemWarehouseBalance.deleteMany({ where: { companyId, itemId } });
+        await tx.personItemPrice.deleteMany({ where: { itemId } });
+        await tx.itemOrderLimitLine.deleteMany({ where: { itemId } });
+        await tx.itemCostHistory.deleteMany({ where: { itemId } });
+        await tx.item.delete({ where: { id: itemId } });
       });
-
-      if (!item) {
-        throw new Error('Item not found');
-      }
-
-      await prisma.item.update({
-        where: { id: itemId },
-        data: { isActive: false },
-      });
-
-      logger.info({ companyId, itemId }, 'Item deleted');
-      return { success: true };
     } catch (error) {
+      const code =
+        error && typeof error === 'object' && 'code' in error
+          ? String((error as { code?: string }).code)
+          : '';
+      if (code === 'P2003' || code === 'P2014') {
+        throw new AppError(409, 'لا يمكن حذف الصنف لأنه مرتبط بحركة أو مستندات.');
+      }
       logger.error({ error, companyId, itemId }, 'Error deleting item');
       throw error;
     }
+
+    logger.info({ companyId, itemId }, 'Item permanently deleted');
+    return { success: true };
   }
 }
 

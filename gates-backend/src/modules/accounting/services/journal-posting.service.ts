@@ -33,6 +33,7 @@ import {
 import { recurringEntriesService } from './recurring-entries.service';
 import { JournalSourceType } from '@prisma/client';
 import { persistFxRate } from '../utils/company-fx-rate';
+import { AUTOMATION_SYSTEM_ACTOR_ID } from '../../automation/constants';
 
 function journalNumberKeys(value: string | null | undefined): string[] {
   const trimmed = value?.trim();
@@ -708,7 +709,7 @@ export class JournalPostingService {
       exchangeRate: persistFxRate(data.currencyCode, line.exchangeRate ?? headerRate),
     }));
     validateJournalLineSides(lineInputs);
-    this.validateDoubleEntryBalance(lineInputs);
+    this.validateDoubleEntryBalance(lineInputs, { allowUnbalanced: false, requireStrictLines: false });
 
     await applyPostedJournalBalancesInTx(tx, {
       companyId: ctx.companyId,
@@ -836,7 +837,7 @@ export class JournalPostingService {
       );
     }
 
-    return prisma.$transaction(async (tx) => {
+    const updated = await prisma.$transaction(async (tx) => {
       const updateData: Record<string, unknown> = {};
       if (data.voucherNumber !== undefined) updateData.voucherNumber = data.voucherNumber;
       if (data.date !== undefined) updateData.date = data.date;
@@ -1235,6 +1236,11 @@ export class JournalPostingService {
 
       const posted = entry.isPosted || entry.postingStatus === 'Post';
       if (posted && !hasReversal) {
+        // Enforce fiscal/period lock before inverting balances so cascade
+        // unpost/cancel cannot corrupt a closed historical period.
+        await fiscalYearService.assertOpenForDate(companyId, entry.date, {
+          allowOpeningDocument: (entry.entryType ?? '').toUpperCase() === 'OPENING_BALANCE',
+        });
         await applyPostedJournalBalancesInTx(tx, {
           companyId,
           date: entry.date,
@@ -1268,7 +1274,8 @@ export class JournalPostingService {
           entityType: 'JOURNAL_ENTRY',
           entityId: journalEntryId,
           action: action === 'cancel' ? 'CANCELLED' : 'UNPOSTED',
-          userId,
+          // userId may be undefined when called from background workers; fall back to system actor
+          userId: userId ?? AUTOMATION_SYSTEM_ACTOR_ID,
         },
         tx
       );

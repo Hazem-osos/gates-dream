@@ -31,9 +31,9 @@ import {
   type ItemImportMatchKind,
 } from '@/lib/inventory/item-import-match';
 
-const ITEM_IMPORT_HEADERS = ['اسم الصنف', 'الوحدة', 'الباركود', 'سعر البيع', 'سعر الشراء'];
-const ITEM_IMPORT_SAMPLE = ['صنف تجريبي', 'قطعة', '', 100, 80];
-const PREVIEW_COLUMNS = ['اسم الصنف', 'الوحدة', 'الباركود', 'سعر البيع', 'سعر الشراء', 'المجموعة', 'المقارنة'];
+const ITEM_IMPORT_HEADERS = ['اسم الصنف', 'الوحدة', 'رقم الصنف', 'الباركود', 'سعر البيع', 'سعر الشراء'];
+const ITEM_IMPORT_SAMPLE = ['صنف تجريبي', 'قطعة', '', '', 100, 80];
+const PREVIEW_COLUMNS = ['اسم الصنف', 'الوحدة', 'رقم الصنف', 'الباركود', 'سعر البيع', 'سعر الشراء', 'المجموعة', 'المقارنة'];
 
 const HEADER_TO_FIELD: Record<string, string> = {
   'اسم الصنف': 'arabicName',
@@ -54,6 +54,12 @@ const HEADER_TO_FIELD: Record<string, string> = {
   'التكلفة': 'purchasePrice',
   purchasePrice: 'purchasePrice',
   cost: 'purchasePrice',
+  'رقم الصنف': 'serial',
+  'كود الصنف': 'serial',
+  'الكود': 'serial',
+  كود: 'serial',
+  code: 'serial',
+  serial: 'serial',
   'رقم المجموعة': 'groupCode',
   'اسم المجموعة': 'groupName',
 };
@@ -77,7 +83,6 @@ function parseItemImportMatrix(matrix: unknown[][]): Record<string, string | num
         } else {
           out[field] = String(value);
         }
-        if (field === 'barcode') out.serial = String(value);
         if (field === 'arabicName') out.name = String(value);
       });
       return out;
@@ -121,7 +126,7 @@ export default function ImportItemsPage() {
 
   const importMut = useApiMutation<
     { created: number; total: number; skipped?: number; skippedExisting?: number; skippedInSheet?: number },
-    { entity: 'ITEMS'; categoryId: string; rows: Record<string, unknown>[] }
+    { entity: 'ITEMS'; categoryId?: string; rows: Record<string, unknown>[] }
   >('/onboarding/import-excel', 'POST', {
     showSuccessToast: true,
     successMessage: 'تم استيراد الأصناف',
@@ -137,7 +142,7 @@ export default function ImportItemsPage() {
         [ITEM_IMPORT_SAMPLE],
         'الأصناف'
       );
-      setImportSuccess('تم تنزيل القالب. اكتب الاسم والوحدة والسعر يدويًا، ثم حمّل الملف.');
+      setImportSuccess('تم تنزيل القالب. اكتب الاسم والوحدة والسعر. رقم الصنف والمجموعة اختياريان.');
     } catch (err) {
       setImportError(err instanceof Error ? err.message : 'تعذر تنزيل قالب الإكسيل');
     } finally {
@@ -146,10 +151,6 @@ export default function ImportItemsPage() {
   };
 
   const loadExcelFile = async (file: File) => {
-    if (!categoryId) {
-      setImportError('اختَر المجموعة أولاً قبل تحميل الشيت');
-      return;
-    }
     setImportError('');
     setImportSuccess('');
     setLoadingFile(true);
@@ -186,8 +187,8 @@ export default function ImportItemsPage() {
         mapped.map((row) => ({
           ...row,
           arabicName: cellOf(row, ['arabicName', 'name']),
-          barcode: cellOf(row, ['barcode', 'serial']) || null,
-          serial: cellOf(row, ['serial', 'barcode']) || null,
+          barcode: cellOf(row, ['barcode']) || null,
+          serial: cellOf(row, ['serial', 'code']) || null,
         })),
         existing
       );
@@ -199,7 +200,9 @@ export default function ImportItemsPage() {
       setImportSuccess(
         existingCount
           ? `تم تحميل ${tagged.length} صف: ${newCount} جديد و${existingCount} موجود أو مكرر ولن يُضاف. راجع ثم احفظ.`
-          : `تم تحميل ${tagged.length} صنف جديد على مجموعة «${selectedGroup?.arabicName ?? ''}». راجع ثم احفظ.`
+          : `تم تحميل ${tagged.length} صنف جديد${
+              selectedGroup ? ` على مجموعة «${selectedGroup.arabicName}»` : ' — المجموعة اختيارية وهتنزل على «بدون مجموعة»'
+            }. راجع ثم احفظ.`
       );
     } catch (err) {
       setImportError(err instanceof Error ? err.message : 'تعذر قراءة ملف الإكسيل');
@@ -210,10 +213,6 @@ export default function ImportItemsPage() {
 
   const handleSave = () => {
     setImportError('');
-    if (!categoryId) {
-      setImportError('اختَر المجموعة أولاً — كل الأصناف هتترفع عليها');
-      return;
-    }
     if (!importRows.length) {
       setImportError('حمّل ملف إكسيل أولاً من خانة ملف الاستيراد');
       return;
@@ -221,11 +220,12 @@ export default function ImportItemsPage() {
     importMut.mutate(
       {
         entity: 'ITEMS',
-        categoryId,
+        ...(categoryId ? { categoryId } : {}),
         rows: importRows.map((row) => ({
           arabicName: cellOf(row, ['arabicName', 'name']),
           unit: cellOf(row, ['unit', 'unitName']) || 'قطعة',
-          barcode: cellOf(row, ['barcode', 'serial']) || undefined,
+          serial: cellOf(row, ['serial', 'code']) || undefined,
+          barcode: cellOf(row, ['barcode']) || undefined,
           price: row.price ?? row.salesPrice ?? undefined,
           purchasePrice: row.purchasePrice ?? undefined,
         })),
@@ -238,7 +238,9 @@ export default function ImportItemsPage() {
           setImportSuccess(
             skipped
               ? `اتضاف ${created} صنف جديد من ${total}. ${skipped} موجود بالفعل أو مكرر في الشيت واتعدّى عشان ما يتكررش.`
-              : `تم استيراد ${created} من ${total} صنف على مجموعة «${selectedGroup?.arabicName ?? ''}»`
+              : `تم استيراد ${created} من ${total} صنف${
+                  selectedGroup ? ` على مجموعة «${selectedGroup.arabicName}»` : ' في مجموعة «بدون مجموعة»'
+                }`
           );
           invalidate(['items']);
           invalidate(['item-categories']);
@@ -272,17 +274,17 @@ export default function ImportItemsPage() {
 
       <FormSectionCard
         title="المجموعة"
-        subtitle="اختَر المجموعة أولاً. كل الأصناف في الشيت هتترفع عليها."
+        subtitle="اختياري. لو سيبتها فاضي، الأصناف تنزل في مجموعة «بدون مجموعة»."
         icon={Upload}
       >
-        <CompactFormField label="مجموعة الأصناف" required className="sm:col-span-2">
+        <CompactFormField label="مجموعة الأصناف" className="sm:col-span-2">
           <div className="flex gap-2">
             <select
               className={compactControlClass}
               value={categoryId}
               onChange={(e) => setCategoryId(e.target.value)}
             >
-              <option value="">اختَر المجموعة</option>
+              <option value="">بدون مجموعة</option>
               {groups.map((row) => (
                 <option key={row.id} value={row.id}>
                   {row.code ? `${row.code} — ` : ''}
@@ -344,8 +346,8 @@ export default function ImportItemsPage() {
           </div>
         </div>
         <p className="sm:col-span-2 lg:col-span-3 text-xs text-slate-500">
-          الأعمدة المطلوبة: <strong>اسم الصنف</strong> و<strong>الوحدة</strong>. اكتب <strong>سعر البيع</strong> و<strong>سعر الشراء</strong> يدويًا في الشيت — هيتسجلوا على بطاقة الصنف ومجموعة الأسعار.
-          الباركود اختياري. النظام يقارن بالموجود بالباركود أو رقم الصنف أو نفس الاسم، والمكرر مش بيتضاف تاني.
+          العمود المطلوب: <strong>اسم الصنف</strong>. الوحدة والسعر والباركود ورقم الصنف اختياريين — لو رقم الصنف فاضي النظام بيولّد كود تلقائي، ولو مفيش وحدة بتنزل <strong>قطعة</strong>.
+          النظام يقارن بالموجود بالباركود أو رقم الصنف أو نفس الاسم، والمكرر مش بيتضاف تاني.
         </p>
       </FormSectionCard>
 
@@ -367,11 +369,12 @@ export default function ImportItemsPage() {
                   {(row
                     ? [
                         cellOf(row, ['arabicName', 'name']),
-                        cellOf(row, ['unit']),
-                        cellOf(row, ['barcode', 'serial']),
+                        cellOf(row, ['unit']) || 'قطعة',
+                        cellOf(row, ['serial', 'code']) || 'تلقائي',
+                        cellOf(row, ['barcode']),
                         cellOf(row, ['price', 'salesPrice']),
                         cellOf(row, ['purchasePrice']),
-                        selectedGroup?.arabicName ?? '—',
+                        selectedGroup?.arabicName ?? 'بدون مجموعة',
                         matchStatusLabel(row.matchKind ?? null),
                       ]
                     : Array.from({ length: PREVIEW_COLUMNS.length }, () => '—')
@@ -381,7 +384,7 @@ export default function ImportItemsPage() {
                       className={`${denseTdClass} ${
                         !row
                           ? 'text-slate-400'
-                          : col === 6 && row.matchKind
+                          : col === 7 && row.matchKind
                             ? 'font-semibold text-amber-700'
                             : 'text-[#094C6B]'
                       }`}

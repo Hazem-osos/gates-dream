@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Warehouse } from 'lucide-react';
 import { useAppTabs } from '@/app/components/AppTabsContext';
@@ -25,6 +26,7 @@ import { NumberingModeControl } from '@/components/accounting/NumberingModeContr
 import { useAccountingSettingsQuery } from '@/lib/hooks/useAccountingSettings';
 import type { CoaNumberingMode } from '@/components/accounting/chart-of-accounts/CoaEmptyState';
 import {
+  inheritWarehouseAccounts,
   warehouseCanBranch,
   warehouseRoleLabel,
   type WarehouseKind,
@@ -128,9 +130,9 @@ export default function WarehouseGuidePage() {
   );
 
   const parentLabel = useMemo(() => {
-    if (!form.parentId) return 'مخزن رئيسي (بدون أب)';
+    if (!form.parentId) return 'المخزن الأب';
     const parent = rows.find((row) => row.id === form.parentId);
-    return parent ? `${parent.code || '—'} — ${parent.arabicName}` : 'مخزن رئيسي';
+    return parent ? `${parent.code || '—'} — ${parent.arabicName}` : 'المخزن الأب';
   }, [form.parentId, rows]);
 
   const blockedParentIds = useMemo(() => {
@@ -150,10 +152,13 @@ export default function WarehouseGuidePage() {
   }, [editId, rows]);
 
   const applyParent = (parentId: string) => {
+    const inherited = inheritWarehouseAccounts(rows, parentId);
     setForm((prev) => ({
       ...prev,
       parentId,
       warehouseKind: parentId ? prev.warehouseKind || 'POSTING' : prev.warehouseKind === 'POSTING' ? 'POSTING' : 'HEADER',
+      inventoryAccountId: parentId ? inherited.inventoryAccountId : '',
+      costAccountId: parentId ? inherited.costAccountId : '',
     }));
   };
 
@@ -205,6 +210,7 @@ export default function WarehouseGuidePage() {
       ...emptyForm(),
       parentId: parent.id,
       warehouseKind: kind,
+      ...inheritWarehouseAccounts(rows, parent.id),
     });
     setModalOpen(true);
   };
@@ -355,9 +361,14 @@ export default function WarehouseGuidePage() {
               الافتراضي تلقائي. اختَر يدوي لو هتدخل أرقام المخازن بنفسك.
             </span>
           </label>
-          <Button type="button" className="mt-4" onClick={openCreateRoot}>
-            + إضافة مخزن رئيسي
-          </Button>
+          <div className="mt-4 flex flex-wrap justify-center gap-2">
+            <Button type="button" onClick={openCreateRoot}>
+              + إضافة مخزن رئيسي
+            </Button>
+            <Link href="/inventory/creations/stores">
+              <Button variant="secondary">بطاقة المخزن</Button>
+            </Link>
+          </div>
         </div>
       ) : (
         <>
@@ -365,6 +376,11 @@ export default function WarehouseGuidePage() {
             <Button type="button" variant="secondary" size="sm" onClick={openCreateRoot}>
               + إضافة مخزن رئيسي
             </Button>
+            <Link href="/inventory/creations/stores">
+              <Button variant="secondary" size="sm">
+                بطاقة المخزن
+              </Button>
+            </Link>
             <NumberingModeControl
               kind="warehouses"
               auto={warehouseAuto}
@@ -404,6 +420,10 @@ export default function WarehouseGuidePage() {
                     : Boolean(node.folder);
                 }}
                 onStockReport={openStockReport}
+                onView={(node) => {
+                  if (node.synthetic) return;
+                  router.push(`/inventory/creations/stores?id=${node.id}`);
+                }}
                 onEdit={openEdit}
                 onDelete={(node) => void handleDelete(node)}
               />
@@ -450,76 +470,46 @@ export default function WarehouseGuidePage() {
             value={form.englishName}
             onChange={(e) => setForm((prev) => ({ ...prev, englishName: e.target.value }))}
           />
-          <CompactFormField label="المخزن الأب" className="sm:col-span-2">
-            <WarehouseParentField
-              value={form.parentId}
-              onChange={applyParent}
-              excludeIds={blockedParentIds}
+          {modalMode === 'edit' ? (
+            <CompactFormField label="المخزن الأب" className="sm:col-span-2">
+              <WarehouseParentField
+                value={form.parentId}
+                onChange={applyParent}
+                excludeIds={blockedParentIds}
+              />
+            </CompactFormField>
+          ) : (
+            <CompactFormField
+              label="المخزن الأب"
+              className="sm:col-span-2"
+              value={parentLabel}
+              disabled
             />
-          </CompactFormField>
-          <CompactFormField label="حساب المخزون">
+          )}
+          <CompactFormField
+            label="حساب المخزون"
+            hint={form.parentId ? 'متاخد من الأب — تقدر تغيّره' : undefined}
+          >
             <AccountSelect
               value={form.inventoryAccountId}
               onChange={(inventoryAccountId) => setForm((prev) => ({ ...prev, inventoryAccountId }))}
-              leafOnly={false}
-              placeholder="كل الحسابات"
-              emptyLabel="كل الحسابات"
+              leafOnly
+              placeholder="حساب حركة"
+              emptyLabel="حساب حركة"
             />
           </CompactFormField>
-          <CompactFormField label="حساب تكلفة البضاعة المباعة">
+          <CompactFormField
+            label="حساب تكلفة البضاعة المباعة"
+            hint={form.parentId ? 'متاخد من الأب — تقدر تغيّره' : undefined}
+          >
             <AccountSelect
               value={form.costAccountId}
               onChange={(costAccountId) => setForm((prev) => ({ ...prev, costAccountId }))}
-              leafOnly={false}
-              placeholder="كل الحسابات"
-              emptyLabel="كل الحسابات"
+              leafOnly
+              placeholder="حساب حركة"
+              emptyLabel="حساب حركة"
             />
           </CompactFormField>
-          {form.parentId || modalMode === 'edit' ? (
-            <CompactFormField
-              label={form.parentId ? 'نوع المخزن الفرعي' : 'نوع المخزن'}
-              className="sm:col-span-2"
-            >
-              <div className="flex flex-wrap gap-2">
-                {(form.parentId
-                  ? [
-                      { value: 'POSTING' as const, label: 'عمليات' },
-                      { value: 'HEADER' as const, label: 'رئيسي فرعي' },
-                    ]
-                  : [
-                      { value: 'HEADER' as const, label: 'رئيسي' },
-                      { value: 'POSTING' as const, label: 'عمليات' },
-                    ]
-                ).map((opt) => (
-                  <label
-                    key={opt.value}
-                    className={`${
-                      form.warehouseKind === opt.value
-                        ? 'bg-[#0E78AA] text-white border-[#0E78AA]'
-                        : 'bg-white text-[#0A3D5E] border-[#D6EAF3]'
-                    } inline-flex cursor-pointer items-center rounded-full border px-3 py-1.5 text-xs font-semibold`}
-                  >
-                    <input
-                      type="radio"
-                      name="warehouseKind"
-                      className="sr-only"
-                      checked={form.warehouseKind === opt.value}
-                      onChange={() => setForm((prev) => ({ ...prev, warehouseKind: opt.value }))}
-                    />
-                    {opt.label}
-                  </label>
-                ))}
-              </div>
-            </CompactFormField>
-          ) : (
-            <CompactFormField label="نوع المخزن">
-              <input
-                className="w-full rounded-lg border border-[#D6EAF3] bg-slate-50 px-3 py-2 text-sm"
-                value="رئيسي بدون أب"
-                readOnly
-              />
-            </CompactFormField>
-          )}
         </div>
       </GuideEntityModal>
 

@@ -15,6 +15,7 @@ import {
 } from './stock-movement-gl.service';
 import { roundTo4 } from '../../../shared/utils/decimal-round';
 import { assertWarehouseActive } from '../utils/inventory-system';
+import { sortForStockLocking } from '../utils/stock-lock-order.util';
 
 export interface AssemblyComponentLine {
   componentItemId: string; // Component item ID
@@ -454,11 +455,25 @@ export class AssemblyService {
       const debitLines: { accountId: string; amount: number; description: string }[] = [];
       const creditLines: { accountId: string; amount: number; description: string }[] = [];
 
+      // Sort lines in canonical (warehouseId, assembledItemId) order and sort
+      // each line's components by (warehouseId, componentItemId) so lock acquisition
+      // is consistent with concurrent invoice/transfer posts.
+      const sortedLines = sortForStockLocking(assembly.lines, (l) => ({
+        warehouseId: destWarehouseId ?? assembly.warehouseId,
+        itemId: l.assembledItemId,
+      }));
+
       await prisma.$transaction(async (tx) => {
-        for (const line of assembly.lines) {
+        for (const line of sortedLines) {
           let lineComponentCost = 0;
 
-          for (const component of line.components) {
+          // Sort components in canonical order within this line to match invoice lock order
+          const sortedComponents = sortForStockLocking([...line.components], (c) => ({
+            warehouseId: assembly.warehouseId,
+            itemId: c.componentItemId,
+          }));
+
+          for (const component of sortedComponents) {
             const requiredQty = Number(component.quantity);
             const outbound = await inventoryCostingService.applyOutboundMovement(tx, {
               companyId,

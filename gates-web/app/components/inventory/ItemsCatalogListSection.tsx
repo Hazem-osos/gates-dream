@@ -93,14 +93,6 @@ export function ItemsCatalogListSection({
           type="button"
           variant="primary"
           size="sm"
-          onClick={() => router.push('/inventory/guide/items')}
-        >
-          إضافة مجموعة
-        </Button>
-        <Button
-          type="button"
-          variant="primary"
-          size="sm"
           onClick={() => router.push('/inventory/creations/item-card')}
         >
           صنف جديد

@@ -13,6 +13,14 @@ export type WorkspaceHubGroup = {
 
 export const WORKSPACE_HUB_GROUPS: WorkspaceHubGroup[] = [
   {
+    id: 'automation',
+    title: 'أتمتة Gates',
+    links: [
+      { label: 'أتمتة Gates', href: '/automation' },
+      { label: 'إنشاء أتمتة جديدة', href: '/automation/new' },
+    ],
+  },
+  {
     id: 'growth',
     title: 'النمو والأثر',
     links: [
@@ -37,9 +45,7 @@ export const WORKSPACE_HUB_GROUPS: WorkspaceHubGroup[] = [
     title: 'المخازن والأصناف',
     links: [
       { label: 'دليل المخازن', href: '/inventory/guide' },
-      { label: 'بطاقة المخزن', href: '/inventory/creations/stores' },
       { label: 'دليل الأصناف', href: '/inventory/guide/items' },
-      { label: 'بطاقة الصنف', href: '/inventory/creations/item-card' },
       { label: 'أذون الإضافة', href: '/inventory/operations/receipt' },
       { label: 'أذون الصرف', href: '/inventory/operations/issue' },
       { label: 'التحويلات المخزنية', href: '/inventory/operations/transfer' },

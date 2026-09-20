@@ -213,6 +213,22 @@ export class UserService {
     }
   }
 
+  /** Active program users for the sales-invoice / POS seller picker. */
+  async listSellers(companyId: string) {
+    return prisma.user.findMany({
+      where: { companyId, isActive: true },
+      orderBy: [{ firstName: 'asc' }, { username: 'asc' }],
+      take: 500,
+      select: {
+        id: true,
+        username: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+      },
+    });
+  }
+
   /**
    * Update user
    */

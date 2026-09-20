@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 export const invoiceLineSchema = z.object({
   itemId: z.string().uuid('Item ID must be a valid UUID'),
-  unitId: z.string().uuid('Unit ID must be a valid UUID'),
+  unitId: z.string().uuid('Unit ID must be a valid UUID').optional(),
   quantity: z.number().positive('Quantity must be greater than 0'),
   baseQuantity: z.number().positive('Base quantity must be greater than 0'),
   conversionFactor: z.number().positive('Conversion factor must be greater than 0').optional().nullable(),

@@ -29,6 +29,7 @@ import { PurchaseInvoiceBottomSplit } from '@/components/inventory/purchase-invo
 import dynamic from 'next/dynamic';
 import { LineGridSkeleton } from '@/components/ui/DynamicChunkSkeleton';
 import { printPageContent } from '@/lib/print/printHtml';
+import { invoiceReturnBlockReason } from '@/lib/invoices/return-policy';
 
 const ReturnInvoiceLinesGrid = dynamic(
   () =>
@@ -114,7 +115,7 @@ export default function SalesReturnsPage() {
   );
   const salesInvoices = salesInvoicesResponse?.data || [];
 
-  const { data: returnableRes } = useApiQuery<{
+  const { data: returnableRes, isError: returnableFailed, error: returnableError } = useApiQuery<{
     originalInvoiceId: string;
     originalInvoiceNumber: string | null;
     customerId: string | null;
@@ -199,6 +200,17 @@ export default function SalesReturnsPage() {
   useEffect(() => {
     const inv = sourceSaleResponse?.data;
     if (!inv || !fromInvoiceParam || prefillApplied.current || selectedReturnId) return;
+    const block = invoiceReturnBlockReason({
+      allowReturn: Boolean(inv.allowReturn),
+      returnDays: inv.returnDays != null ? Number(inv.returnDays) : undefined,
+      date: inv.date as string | Date | undefined,
+      invoiceNumber: inv.invoiceNumber ? String(inv.invoiceNumber) : undefined,
+    });
+    if (block) {
+      prefillApplied.current = true;
+      setError(block);
+      return;
+    }
     prefillApplied.current = true;
     setSelectedReturnId(null);
     setIsPosted(false);
@@ -248,6 +260,12 @@ export default function SalesReturnsPage() {
         }))
     );
   }, [returnableRes?.data, sourceSaleInvoiceId, selectedReturnId]);
+
+  useEffect(() => {
+    if (!returnableFailed || !sourceSaleInvoiceId || selectedReturnId) return;
+    setError(returnableError?.message || 'هذه الفاتورة غير قابلة لعمل مردود');
+    setReturnLines([]);
+  }, [returnableFailed, returnableError, sourceSaleInvoiceId, selectedReturnId]);
 
   const resetForm = useCallback(() => {
     resetKeepPosted();

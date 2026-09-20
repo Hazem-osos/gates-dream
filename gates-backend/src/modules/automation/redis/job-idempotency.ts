@@ -24,3 +24,7 @@ export function chequeMaturityIdempotencyKey(companyId: string, dateKey: string)
 export function dynamicPricingIdempotencyKey(companyId: string, weekKey: string): string {
   return `automation:idempotency:dynamic-pricing:${companyId}:${weekKey}`;
 }
+
+export function salesInvoiceOverdueIdempotencyKey(invoiceId: string, dateKey: string): string {
+  return `automation:idempotency:sales-invoice-overdue:${invoiceId}:${dateKey}`;
+}

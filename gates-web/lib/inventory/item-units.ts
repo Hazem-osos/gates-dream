@@ -1,3 +1,19 @@
+export const DEFAULT_PIECE_UNIT_CODE = 'PCS';
+export const DEFAULT_PIECE_UNIT_NAME = 'قطعة';
+
+export function isDefaultPieceUnit(unit: {
+  code?: string | null;
+  arabicName?: string | null;
+}): boolean {
+  return unit.code === DEFAULT_PIECE_UNIT_CODE || unit.arabicName === DEFAULT_PIECE_UNIT_NAME;
+}
+
+export function findDefaultPieceUnitId(
+  units: Array<{ id: string; code?: string | null; arabicName?: string | null }>
+): string {
+  return units.find(isDefaultPieceUnit)?.id ?? '';
+}
+
 /** Item ↔ unit helpers for invoice lines and selectors */
 
 export type ItemUnitLink = {

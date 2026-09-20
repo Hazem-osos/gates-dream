@@ -520,7 +520,8 @@ export class PurchaseReturnService {
             warehouseId: purchaseReturn.warehouseId,
             itemId: line.itemId,
             locationId: line.locationId ?? null,
-            quantityDelta: -Number(line.quantity),
+            // H2 fix: use baseQuantity (stock-unit) not display-unit quantity
+            quantityDelta: -Number(line.baseQuantity),
             unitCost: Number(line.unitPrice),
             movementType: sourceType,
             sourceType,

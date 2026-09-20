@@ -1,6 +1,7 @@
 import prisma from '../../../shared/database/prisma';
 import { logger } from '../../../shared/logger';
 import { AppError } from '../../../shared/middleware/error-handler';
+import { nextHierarchicalCode } from '../../../shared/utils/next-numeric-code';
 
 export interface CreateItemCategoryData {
   code?: string | null;
@@ -29,6 +30,62 @@ export interface UpdateItemCategoryData extends Partial<CreateItemCategoryData> 
  * they are resolved by id lookup at posting time, not via Prisma include.
  */
 export class ItemCategoryService {
+  async suggestNextCategoryCode(
+    companyId: string,
+    parentCategoryId?: string | null
+  ): Promise<string> {
+    const live = { companyId, isActive: true };
+    if (!parentCategoryId) {
+      const roots = await prisma.itemCategory.findMany({
+        where: { ...live, parentCategoryId: null },
+        select: { code: true },
+      });
+      return nextHierarchicalCode(null, roots.map((row) => row.code));
+    }
+
+    const parent = await prisma.itemCategory.findFirst({
+      where: { id: parentCategoryId, companyId, isActive: true },
+      select: { code: true },
+    });
+    if (!parent) throw new AppError(404, 'المجموعة الرئيسية غير موجودة');
+
+    const siblings = await prisma.itemCategory.findMany({
+      where: { ...live, parentCategoryId },
+      select: { code: true },
+    });
+    return nextHierarchicalCode(parent.code, siblings.map((row) => row.code));
+  }
+
+  /** Fill automatic serials for groups that were saved without a code. */
+  private async assignMissingCategoryCodes(companyId: string) {
+    const all = await prisma.itemCategory.findMany({
+      where: { companyId },
+      select: { id: true, code: true, parentCategoryId: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    const missing = all.filter((row) => !String(row.code ?? '').trim());
+    if (!missing.length) return;
+
+    const byId = new Map(all.map((row) => [row.id, row]));
+    const used = new Set(
+      all.map((row) => String(row.code ?? '').trim()).filter(Boolean)
+    );
+
+    for (const row of missing) {
+      const parent = row.parentCategoryId ? byId.get(row.parentCategoryId) : undefined;
+      let code = nextHierarchicalCode(parent?.code, [...used]);
+      while (used.has(code)) {
+        code = nextHierarchicalCode(parent?.code, [...used, code]);
+      }
+      await prisma.itemCategory.update({
+        where: { id: row.id },
+        data: { code },
+      });
+      row.code = code;
+      used.add(code);
+    }
+  }
+
   async createItemCategory(companyId: string, data: CreateItemCategoryData) {
     try {
       if (data.parentCategoryId) {
@@ -38,10 +95,21 @@ export class ItemCategoryService {
         });
         if (!parent) throw new AppError(422, 'المجموعة الرئيسية غير موجودة');
       }
+      const requested = data.code?.trim() || '';
+      if (requested) {
+        const clash = await prisma.itemCategory.findFirst({
+          where: { companyId, code: requested },
+          select: { id: true },
+        });
+        if (clash) {
+          throw new AppError(409, `رقم المجموعة «${requested}» مستخدم بالفعل.`);
+        }
+      }
+      const code = requested || (await this.suggestNextCategoryCode(companyId, data.parentCategoryId));
       const category = await prisma.itemCategory.create({
         data: {
           companyId,
-          code: data.code ?? null,
+          code,
           arabicName: data.arabicName,
           englishName: data.englishName ?? null,
           groupType: data.groupType ?? null,
@@ -79,6 +147,11 @@ export class ItemCategoryService {
     companyId: string,
     options: { page?: number; limit?: number; search?: string; isActive?: boolean }
   ) {
+    try {
+      await this.assignMissingCategoryCodes(companyId);
+    } catch (error) {
+      logger.warn({ error, companyId }, 'Could not backfill missing item category codes');
+    }
     const page = options.page || 1;
     const limit = options.limit || 100;
     const skip = (page - 1) * limit;
@@ -131,7 +204,19 @@ export class ItemCategoryService {
     }
 
     const updateData: Record<string, unknown> = {};
-    if (data.code !== undefined) updateData.code = data.code;
+    if (data.code !== undefined) {
+      const nextCode = data.code?.trim() || null;
+      if (nextCode && nextCode !== (existing.code ?? '').trim()) {
+        const clash = await prisma.itemCategory.findFirst({
+          where: { companyId, code: nextCode, id: { not: categoryId } },
+          select: { id: true },
+        });
+        if (clash) {
+          throw new AppError(409, `رقم المجموعة «${nextCode}» مستخدم بالفعل.`);
+        }
+      }
+      updateData.code = nextCode ?? (await this.suggestNextCategoryCode(companyId, existing.parentCategoryId));
+    }
     if (data.arabicName !== undefined) updateData.arabicName = data.arabicName;
     if (data.englishName !== undefined) updateData.englishName = data.englishName;
     if (data.defaultInventoryAccountId !== undefined) {
@@ -173,6 +258,44 @@ export class ItemCategoryService {
 
     logger.info({ companyId, categoryId }, 'Item category updated');
     return category;
+  }
+
+  async deleteItemCategory(companyId: string, categoryId: string) {
+    const existing = await prisma.itemCategory.findFirst({
+      where: { id: categoryId, companyId },
+      select: { id: true, arabicName: true, code: true },
+    });
+    if (!existing) {
+      throw new AppError(404, 'المجموعة غير موجودة');
+    }
+
+    const [childGroups, itemCount] = await Promise.all([
+      prisma.itemCategory.count({ where: { companyId, parentCategoryId: categoryId } }),
+      prisma.item.count({ where: { companyId, categoryId } }),
+    ]);
+
+    if (childGroups > 0) {
+      throw new AppError(409, 'لا يمكن حذف المجموعة لأن تحتها مجموعات فرعية. احذف أو انقل الفرعية أولاً.');
+    }
+    if (itemCount > 0) {
+      throw new AppError(409, 'لا يمكن حذف المجموعة لأن تحتها أصناف. انقل أو احذف الأصناف أولاً.');
+    }
+
+    try {
+      await prisma.itemCategory.delete({ where: { id: categoryId } });
+    } catch (error) {
+      const code =
+        error && typeof error === 'object' && 'code' in error
+          ? String((error as { code?: string }).code)
+          : '';
+      if (code === 'P2003' || code === 'P2014') {
+        throw new AppError(409, 'لا يمكن حذف المجموعة لأنها مرتبطة ببيانات أخرى.');
+      }
+      throw error;
+    }
+
+    logger.info({ companyId, categoryId }, 'Item category permanently deleted');
+    return { success: true };
   }
 }
 

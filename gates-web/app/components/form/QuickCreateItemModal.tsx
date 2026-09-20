@@ -4,12 +4,12 @@ import React, { useState } from 'react';
 import { ActionButtons, CompactFormField, FormSectionCard, compactControlClass } from '@/components/ui';
 import { useApiMutation, useApiQuery } from '@/lib/hooks/useApi';
 import type { ApiError } from '@/lib/api/types';
-import { apiClient } from '@/lib/api/client';
 import { useQueryClient } from '@tanstack/react-query';
 import { invalidateMasterDataClient } from '@/lib/hooks/invalidateMasterData';
 import type { ItemOption } from '@/lib/hooks/useMasterDataQueries';
-import { useAccountingSettingsQuery } from '@/lib/hooks/useAccountingSettings';
-import { nextNumericSerial } from '@/lib/masters/nextNumericSerial';
+import { findDefaultPieceUnitId } from '@/lib/inventory/item-units';
+import { ItemGroupSelect } from '@/components/form/ItemGroupSelect';
+import { queryKeys } from '@/lib/query/query-keys';
 
 export type QuickCreatedItem = {
   id: string;
@@ -32,6 +32,7 @@ type QuickCreateItemModalProps = {
 };
 
 type UnitRow = { id: string; arabicName: string; code?: string | null };
+type CategoryRow = { id: string; arabicName: string; code?: string | null };
 
 export function QuickCreateItemModal({
   open,
@@ -43,6 +44,7 @@ export function QuickCreateItemModal({
   const queryClient = useQueryClient();
   const [name, setName] = useState(initialName);
   const [code, setCode] = useState(initialCode ?? '');
+  const [categoryId, setCategoryId] = useState('');
   const [salePrice, setSalePrice] = useState('');
   const [purchaseCost, setPurchaseCost] = useState('');
   const [unitId, setUnitId] = useState('');
@@ -56,26 +58,19 @@ export function QuickCreateItemModal({
     { enabled: open }
   );
   const units = unitsResponse?.data ?? [];
-  const { data: settingsRes } = useAccountingSettingsQuery();
-  const itemAuto = settingsRes?.data?.general?.itemAutoNumbering !== false;
-
-  const { data: itemsSerialRes } = useApiQuery<{ serial?: string | null }[]>(
-    ['items', 'serials'],
-    '/inventory/items',
-    { limit: 500, isActive: true },
-    { enabled: open && itemAuto && !initialCode }
+  const { data: categoriesResponse } = useApiQuery<CategoryRow[]>(
+    queryKeys.itemCategories({ limit: 200 }),
+    '/inventory/item-categories',
+    { limit: 200, isActive: true },
+    { enabled: open }
   );
-  const nextItemSerial = nextNumericSerial((itemsSerialRes?.data ?? []).map((row) => row.serial));
-
-  React.useEffect(() => {
-    if (!open || !itemAuto || initialCode) return;
-    setCode((prev) => prev || nextItemSerial);
-  }, [initialCode, itemAuto, nextItemSerial, open]);
+  const categories = Array.isArray(categoriesResponse?.data) ? categoriesResponse.data : [];
 
   React.useEffect(() => {
     if (open) {
       setName(initialName);
       setCode(initialCode ?? '');
+      setCategoryId('');
       setSalePrice('');
       setPurchaseCost('');
       setUnitId('');
@@ -85,7 +80,7 @@ export function QuickCreateItemModal({
 
   React.useEffect(() => {
     if (open && units.length > 0 && !unitId) {
-      setUnitId(units[0].id);
+      setUnitId(findDefaultPieceUnitId(units) || units[0].id);
     }
   }, [open, units, unitId]);
 
@@ -105,11 +100,15 @@ export function QuickCreateItemModal({
     }
     setSaving(true);
     try {
+      const linkedUnitId = unitId || findDefaultPieceUnitId(units);
+      const linkedUnitLabel = units.find((u) => u.id === linkedUnitId)?.arabicName;
       const body: Record<string, unknown> = {
         arabicName: name.trim(),
         serial: code.trim() || undefined,
+        categoryId: categoryId || undefined,
         itemType: 'normal',
         isAssembly: false,
+        baseUnitId: linkedUnitId || undefined,
       };
       if (purchaseCost.trim()) {
         const c = Number(purchaseCost);
@@ -118,17 +117,6 @@ export function QuickCreateItemModal({
       const created = await itemMutation.mutateAsync(body);
       const itemId = created.data?.id;
       if (!itemId) throw new Error('لم يُرجَع معرّف الصنف');
-
-      const linkedUnitId = unitId;
-      const linkedUnitLabel = units.find((u) => u.id === linkedUnitId)?.arabicName;
-      if (linkedUnitId) {
-        await apiClient.post('/inventory/item-units', {
-          itemId,
-          unitId: linkedUnitId,
-          conversionFactor: 1,
-          isBaseUnit: true,
-        });
-      }
 
       invalidateMasterDataClient(queryClient);
 
@@ -198,12 +186,19 @@ export function QuickCreateItemModal({
             autoFocus
           />
           <CompactFormField
-            label="كود / باركود"
+            label="المسلسل"
             value={code}
-            disabled={itemAuto}
             onChange={(e) => setCode(e.target.value)}
-            placeholder={itemAuto ? 'تلقائي' : 'أدخل الكود'}
+            placeholder="اختياري"
           />
+          <CompactFormField label="المجموعة">
+            <ItemGroupSelect
+              value={categoryId}
+              onChange={setCategoryId}
+              groups={categories}
+              emptyLabel="بدون مجموعة"
+            />
+          </CompactFormField>
           <CompactFormField
             label="سعر البيع"
             type="number"

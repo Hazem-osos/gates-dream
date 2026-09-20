@@ -39,24 +39,11 @@ export const inventoryModules: ModuleWithChildren[] = [
     color: C,
     children: [
       {
-        key: 'cards',
-        icon: '',
-        label: 'البطاقات',
-        color: C,
-        children: [
-          { key: 'warehouse-card', icon: '', label: 'بطاقة المخزن', color: C, href: '/inventory/creations/stores' },
-          { key: 'item-card', icon: '', label: 'بطاقة الصنف', color: C, href: '/inventory/creations/item-card' },
-          { key: 'item-groups', icon: '', label: 'بطاقة مجموعة أصناف', color: C, href: '/inventory/creations/item-groups' },
-        ],
-      },
-      {
         key: 'definitions',
         icon: '',
         label: 'التعريفات',
         color: C,
         children: [
-          { key: 'units', icon: '', label: 'تعريف الوحدات', color: C, href: '/inventory/creations/unit' },
-          { key: 'locations', icon: '', label: 'مواقع التخزين', color: C, href: '/inventory/creations/location' },
           { key: 'price-lists', icon: '', label: 'قوائم الأسعار', color: C, href: '/inventory/creations/price-lists' },
           { key: 'order-limit-items', icon: '', label: 'حد الطلب للأصناف', color: C, href: '/inventory/creations/order-limit-items' },
           { key: 'customer-contract', icon: '', label: 'تعاقد عميل', color: C, href: '/inventory/creations/customer-contract' },

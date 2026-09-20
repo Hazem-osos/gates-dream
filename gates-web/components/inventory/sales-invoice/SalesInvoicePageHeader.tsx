@@ -6,7 +6,7 @@ import { MoreHorizontal, Printer } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ErpDocumentPageHeader } from '@/components/erp/ErpDocumentPageHeader';
 import { buildInvoicePrintModelFromApi } from '@/lib/print/buildInvoicePrintModel';
-import type { CompanyPrintProfile } from '@/lib/print/types';
+import type { CompanyPrintProfile, InvoicePrintModel } from '@/lib/print/types';
 import type { StatusTone } from '@/components/ui/StatusBadge';
 import type { ReactNode } from 'react';
 import { WhatsAppShareButton } from '@/components/share/WhatsAppShareButton';
@@ -120,12 +120,20 @@ export function SalesInvoicePageHeader(props: Props) {
 
   const canPrint = printModel != null && printModel.lines.length > 0;
   const [printHubOpen, setPrintHubOpen] = useState(false);
+  const [frozenPrintModel, setFrozenPrintModel] = useState<InvoicePrintModel | null>(null);
   const [thermalOpen, setThermalOpen] = useState(false);
   const [thermalAutoStart, setThermalAutoStart] = useState(false);
 
+  const openPrintHub = (model = printModel) => {
+    if (!model || model.lines.length === 0) return;
+    setFrozenPrintModel(model);
+    setPrintHubOpen(true);
+  };
+
   useEffect(() => {
-    const openPrint = () => setPrintHubOpen(true);
+    const openPrint = () => openPrintHub();
     const openThermal = () => {
+      if (printModel && printModel.lines.length > 0) setFrozenPrintModel(printModel);
       setThermalAutoStart(true);
       setThermalOpen(true);
     };
@@ -135,14 +143,14 @@ export function SalesInvoicePageHeader(props: Props) {
       window.removeEventListener('gates:auto-print-invoice', openPrint);
       window.removeEventListener('gates:auto-print-thermal', openThermal);
     };
-  }, []);
+  }, [printModel]);
 
   const printItems = [
     {
       id: 'hub',
       label: 'معاينة وطباعة الفاتورة',
       disabled: !canPrint,
-      onClick: () => setPrintHubOpen(true),
+      onClick: () => openPrintHub(),
     },
     {
       id: 'thermal',
@@ -245,7 +253,7 @@ export function SalesInvoicePageHeader(props: Props) {
         isApproved,
         onUnapprove,
         onUnpost,
-        onPrint: canPrint ? () => setPrintHubOpen(true) : undefined,
+        onPrint: canPrint ? () => openPrintHub() : undefined,
         onThermalPrint: canPrint
           ? () => {
               setThermalAutoStart(false);
@@ -276,9 +284,12 @@ export function SalesInvoicePageHeader(props: Props) {
     </div>
     <PrintHubModal
       open={printHubOpen}
-      onClose={() => setPrintHubOpen(false)}
+      onClose={() => {
+        setPrintHubOpen(false);
+        setFrozenPrintModel(null);
+      }}
       company={company}
-      invoice={printModel}
+      invoice={frozenPrintModel ?? printModel}
       skipEmptyLines={printOptions?.skipEmptyLines}
     />
     <ThermalPrintModal
@@ -288,7 +299,7 @@ export function SalesInvoicePageHeader(props: Props) {
         setThermalAutoStart(false);
       }}
       company={company}
-      invoice={printModel}
+      invoice={frozenPrintModel ?? printModel}
       autoStartBluetooth={thermalAutoStart}
     />
     </>

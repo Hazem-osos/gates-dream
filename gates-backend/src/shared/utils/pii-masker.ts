@@ -152,15 +152,28 @@ export function maskPIIInObject(obj: any, depth: number = 0): any {
       'access_token',
       'refreshToken',
       'refresh_token',
+      // HTTP header / auth material. Matched via normalizeKey below, so
+      // hyphenated header names (e.g. `x-api-key`) still match `apiKey`.
+      // Kept explicit for names with no separator-free equivalent above.
+      'authorization',
+      'cookie',
+      'bearer',
       'ip',
       'ipAddress',
       'ip_address',
     ];
 
+    // Header names use hyphens (`x-api-key`) while our sensitive-key list
+    // uses camelCase/snake_case (`apiKey`/`api_key`). Strip all separators
+    // before comparing so both forms collapse to the same token and a
+    // secret header can never slip through un-redacted into logs.
+    const normalizeKey = (value: string): string => value.toLowerCase().replace(/[^a-z0-9]/g, '');
+
     for (const key in obj) {
       if (Object.prototype.hasOwnProperty.call(obj, key)) {
         const lowerKey = key.toLowerCase();
-        const isSensitive = sensitiveKeys.some((sk) => lowerKey.includes(sk.toLowerCase()));
+        const normalizedKey = normalizeKey(key);
+        const isSensitive = sensitiveKeys.some((sk) => normalizedKey.includes(normalizeKey(sk)));
 
         if (isSensitive && typeof obj[key] === 'string') {
           // Mask sensitive fields

@@ -85,7 +85,11 @@ export class AutoGlPostingService {
       (await fiscalYearService.assertOpenForDate(ctx.companyId, input.date));
     const legacyGlNum =
       input.legacyGlNum ??
-      (await documentSequenceService.nextGlNumberInTx(tx, { ...ctx, fiscalYearId }));
+      (await documentSequenceService.nextGlNumberInTx(tx, {
+        companyId: ctx.companyId,
+        branchId: ctx.branchId ?? '',
+        fiscalYearId,
+      }));
 
     return journalPostingService.createAndPostInTx(tx, ctx, {
       date: input.date,

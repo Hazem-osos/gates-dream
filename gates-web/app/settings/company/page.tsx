@@ -125,7 +125,7 @@ export default function CompanySettingsPage() {
   const [branchForm, setBranchForm] = useState({
     id: '',
     arabicName: 'الفرع الرئيسي',
-    warehouseName: 'المخزن الرئيسي',
+    warehouseName: 'مخزن الحركة',
     safeName: 'الخزينة الرئيسية',
   });
   const [fiscalForm, setFiscalForm] = useState({

@@ -6,11 +6,13 @@ import { CostCenterSelect } from '@/components/form/CostCenterSelect';
 import {
   ErpFormHeaderCard,
   ErpFieldError,
+  RequiredDot,
   erpInputClass,
   erpInputErrorClass,
   erpLabelClass,
   erpFormGridClass,
 } from '@/components/erp';
+import { SafeSelect } from '@/app/components/form/SafeSelect';
 import { useClientMounted } from '@/lib/hooks/useClientMounted';
 import {
   PRICING_CALCULATION_BASIS_LABELS,
@@ -58,7 +60,13 @@ type Props = {
   delegatesLoading?: boolean;
   pricingCalculationBasis?: PricingCalculationBasis;
   onPricingCalculationBasis?: (v: PricingCalculationBasis) => void;
-  errors?: { supplierId?: string; warehouseId?: string; date?: string };
+  treasuryId?: string;
+  onTreasuryId?: (v: string) => void;
+  advancePaidAmount?: number;
+  onAdvancePaidAmount?: (v: number) => void;
+  advanceSafeId?: string;
+  onAdvanceSafeId?: (v: string) => void;
+  errors?: { supplierId?: string; warehouseId?: string; date?: string; treasuryId?: string; advanceSafeId?: string };
   showValidationErrors?: boolean;
   sourceType?: string;
   sourceId?: string;
@@ -105,6 +113,12 @@ export function PurchaseInvoiceFormHeader(props: Props) {
     delegatesLoading,
     pricingCalculationBasis = 'SELECTED_UNIT_QTY',
     onPricingCalculationBasis,
+    treasuryId = '',
+    onTreasuryId,
+    advancePaidAmount = 0,
+    onAdvancePaidAmount,
+    advanceSafeId = '',
+    onAdvanceSafeId,
     errors,
     showValidationErrors = false,
     sourceType = '',
@@ -121,6 +135,7 @@ export function PurchaseInvoiceFormHeader(props: Props) {
   const delegatesBusy = mounted && Boolean(delegatesLoading);
   const currenciesBusy = mounted && Boolean(currenciesLoading);
   const err = (has?: boolean) => (showValidationErrors && has ? erpInputErrorClass : '');
+  const creditNeedsSafe = paymentType === 'credit' && (Number(advancePaidAmount) || 0) > 0;
 
   const row1 = (
     <>
@@ -167,29 +182,41 @@ export function PurchaseInvoiceFormHeader(props: Props) {
         />
         <ErpFieldError message={errors?.warehouseId} show={showValidationErrors} />
       </div>
-      <div className="min-w-[16rem]">
+      <div className="min-w-[18rem]">
         <label className={erpLabelClass}>طريقة الدفع</label>
-        <div className="flex h-10 rounded-lg border border-slate-200 overflow-hidden bg-slate-50 p-0.5 gap-0.5">
+        <div className="flex min-h-10 flex-wrap rounded-lg border border-slate-200 overflow-hidden bg-slate-50 p-0.5 gap-0.5">
           <button
             type="button"
             onClick={() => onPaymentType('cash')}
-            className={`flex-1 text-sm font-medium rounded-md ${
-              paymentType === 'cash' ? 'bg-[#0E78AA] text-white' : 'text-slate-600'
+            className={`flex-1 min-w-[4.5rem] text-sm font-medium rounded-md ${
+              paymentType === 'cash' ? 'bg-[#0E78AA] text-white shadow-sm' : 'text-slate-600 hover:bg-white'
             }`}
           >
             نقدي
           </button>
           <button
             type="button"
-            onClick={() => onPaymentType('split')}
-            className={`flex-1 text-sm font-medium rounded-md ${
-              paymentType !== 'cash' ? 'bg-[#0E78AA] text-white' : 'text-slate-600'
+            onClick={() => onPaymentType('credit')}
+            className={`flex-1 min-w-[6.5rem] text-sm font-medium rounded-md ${
+              paymentType === 'credit' ? 'bg-[#0E78AA] text-white shadow-sm' : 'text-slate-600 hover:bg-white'
+            }`}
+          >
+            دفع قبل أجل
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              onPaymentType('split');
+              if (paymentType === 'split') onConfigureSplit?.();
+            }}
+            className={`flex-1 min-w-[5.5rem] text-sm font-medium rounded-md ${
+              paymentType === 'split' ? 'bg-[#0E78AA] text-white shadow-sm' : 'text-slate-600 hover:bg-white'
             }`}
           >
             دفع متعدد
           </button>
         </div>
-        {paymentType !== 'cash' ? (
+        {paymentType === 'split' ? (
           <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
             <button
               type="button"
@@ -210,6 +237,68 @@ export function PurchaseInvoiceFormHeader(props: Props) {
                 </span>
               ) : null}
             </button>
+          </div>
+        ) : null}
+        {paymentType === 'credit' ? (
+          <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div>
+              <label className={erpLabelClass}>
+                الخزينة
+                {creditNeedsSafe ? <RequiredDot hint="الخزينة مطلوبة عند دفع مبلغ في الأول" /> : null}
+              </label>
+              <SafeSelect
+                value={advanceSafeId}
+                onChange={(id) => onAdvanceSafeId?.(id)}
+                placeholder="اختر الخزينة"
+                emptyLabel="اختر الخزينة"
+                className={errors?.advanceSafeId ? erpInputErrorClass : undefined}
+              />
+              <ErpFieldError message={errors?.advanceSafeId} show={showValidationErrors} />
+            </div>
+            <div>
+              <label className={erpLabelClass}>المبلغ المدفوع في الأول</label>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                className={erpInputClass}
+                placeholder="0"
+                value={Number.isFinite(advancePaidAmount) ? advancePaidAmount : 0}
+                onChange={(e) => onAdvancePaidAmount?.(Number(e.target.value) || 0)}
+              />
+            </div>
+            {onConfigureInstallments ? (
+              <div className="sm:col-span-2">
+                <button
+                  type="button"
+                  className="text-xs font-semibold text-[#0E78AA] hover:underline"
+                  onClick={onConfigureInstallments}
+                >
+                  توزيع الدفعات
+                  {installmentCount > 0 ? (
+                    <span className="mr-1 inline-flex min-w-[1.15rem] items-center justify-center rounded-full bg-[#0E78AA]/15 px-1 text-[10px] text-[#094C6B]">
+                      {installmentCount}
+                    </span>
+                  ) : null}
+                </button>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+        {paymentType === 'cash' ? (
+          <div className="mt-2">
+            <label className={erpLabelClass}>
+              الخزنة
+              <RequiredDot hint="الخزنة مطلوبة في الفاتورة النقدية" />
+            </label>
+            <SafeSelect
+              value={treasuryId}
+              onChange={(id) => onTreasuryId?.(id)}
+              placeholder="اختر الخزنة"
+              emptyLabel="اختر الخزنة"
+              className={errors?.treasuryId ? erpInputErrorClass : undefined}
+            />
+            <ErpFieldError message={errors?.treasuryId} show={showValidationErrors} />
           </div>
         ) : null}
       </div>

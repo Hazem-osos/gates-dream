@@ -19,6 +19,7 @@ import { asWarehouseRows } from '@/components/inventory/WarehousesListSection';
 import type { ItemRow } from '@/components/inventory/ItemsCatalogListSection';
 import type { ItemGroupRow } from '@/components/inventory/ItemGroupsListSection';
 import { ItemGroupSelect } from '@/components/form/ItemGroupSelect';
+import { ChildItemKindDialog } from '@/components/inventory/ChildItemKindDialog';
 
 function asRows<T>(data: unknown): T[] {
   if (Array.isArray(data)) return data as T[];
@@ -48,7 +49,7 @@ export default function ItemsGuidePage() {
   const { data: itemsRes, isLoading: itemsLoading, refetch: refetchItems } = useApiQuery<ItemRow[]>(
     ['items', 'guide'],
     '/inventory/items',
-    { limit: 1000, isActive: true },
+    { limit: 1000 },
     { staleTime: 15_000 }
   );
 
@@ -66,6 +67,9 @@ export default function ItemsGuidePage() {
   const [arabicName, setArabicName] = useState('');
   const [englishName, setEnglishName] = useState('');
   const [saving, setSaving] = useState(false);
+  const [kindPickerParent, setKindPickerParent] = useState<GuideTreeNode | null>(null);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
 
   const tree = useMemo(() => {
     const itemsByGroup = new Map<string | null, ItemRow[]>();
@@ -80,7 +84,7 @@ export default function ItemsGuidePage() {
       id: item.id,
       code: String(item.code || item.serial || ''),
       name: item.arabicName,
-      subtitle: 'صنف',
+      subtitle: item.isActive === false || item.inactiveItem ? 'صنف مؤرشف' : 'صنف',
       folder: false,
       groupKey: 'item',
     });
@@ -129,6 +133,33 @@ export default function ItemsGuidePage() {
     setArabicName('');
     setEnglishName('');
     setModalOpen(true);
+  };
+
+  const openCreateChild = (parent?: GuideTreeNode) => {
+    if (!parent || parent.synthetic || parent.groupKey !== 'group') {
+      openCreateGroup();
+      return;
+    }
+    setKindPickerParent(parent);
+  };
+
+  const nodesById = useMemo(() => {
+    const map = new Map<string, GuideTreeNode>();
+    const walk = (nodes: GuideTreeNode[]) => {
+      for (const node of nodes) {
+        map.set(node.id, node);
+        if (node.children?.length) walk(node.children);
+      }
+    };
+    walk(tree);
+    return map;
+  }, [tree]);
+
+  const toggleSelect = (node: GuideTreeNode) => {
+    if (node.synthetic) return;
+    setSelectedIds((prev) =>
+      prev.includes(node.id) ? prev.filter((id) => id !== node.id) : [...prev, node.id]
+    );
   };
 
   const openEditGroup = (node: GuideTreeNode) => {
@@ -182,33 +213,85 @@ export default function ItemsGuidePage() {
     }
   };
 
-  const handleDelete = async (node: GuideTreeNode) => {
-    if (node.synthetic) return;
+  const deleteNode = async (node: GuideTreeNode) => {
+    if (node.synthetic) throw new Error('لا يمكن حذف هذا التصنيف');
     if (node.groupKey === 'item') {
-      if (!(await confirmAction(`حذف الصنف ${node.code} — ${node.name}؟`))) return;
-      try {
-        await apiClient.delete(`/inventory/items/${node.id}`);
-        toast.success('تم حذف الصنف');
-        invalidate(['items']);
-        void refetchItems();
-      } catch (e) {
-        toast.error('تعذّر حذف الصنف', {
-          description: e instanceof Error ? e.message : 'تحقق من وجود حركات على الصنف.',
-        });
-      }
+      await apiClient.delete(`/inventory/items/${node.id}`);
       return;
     }
-    if (!(await confirmAction(`حذف المجموعة ${node.code} — ${node.name}؟`))) return;
+    await apiClient.delete(`/inventory/item-categories/${node.id}`);
+  };
+
+  const handleDelete = async (node: GuideTreeNode) => {
+    if (node.synthetic) return;
+    const label = node.groupKey === 'item' ? 'الصنف' : 'المجموعة';
+    if (!(await confirmAction(`حذف ${label} ${node.code || ''} — ${node.name}؟`))) return;
     try {
-      await apiClient.delete(`/inventory/item-categories/${node.id}`);
-      toast.success('تم حذف المجموعة');
+      await deleteNode(node);
+      toast.success(node.groupKey === 'item' ? 'تم حذف الصنف' : 'تم حذف المجموعة');
+      setSelectedIds((prev) => prev.filter((id) => id !== node.id));
       invalidate(['item-categories']);
       invalidate(['items']);
       void refetchGroups();
+      void refetchItems();
     } catch (e) {
-      toast.error('تعذّر حذف المجموعة', {
-        description: e instanceof Error ? e.message : 'انقل الأصناف أو المجموعات الفرعية أولاً.',
+      toast.error(node.groupKey === 'item' ? 'تعذّر حذف الصنف' : 'تعذّر حذف المجموعة', {
+        description:
+          e instanceof Error
+            ? e.message
+            : node.groupKey === 'item'
+              ? 'لا يمكن حذف صنف عليه حركات.'
+              : 'لا يمكن حذف مجموعة تحتها أصناف أو مجموعات.',
       });
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    const nodes = selectedIds
+      .map((id) => nodesById.get(id))
+      .filter((node): node is GuideTreeNode => Boolean(node) && !node.synthetic)
+      .sort((a, b) => {
+        const aItem = a.groupKey === 'item' ? 0 : 1;
+        const bItem = b.groupKey === 'item' ? 0 : 1;
+        if (aItem !== bItem) return aItem - bItem;
+        return (b.children?.length ?? 0) - (a.children?.length ?? 0);
+      });
+    if (!nodes.length) return;
+    if (!(await confirmAction(`حذف ${nodes.length} عنصر محدد؟ المجموعات اللي تحتها أصناف والأصناف اللي عليها حركات مش هتتمسح.`))) {
+      return;
+    }
+    setBulkDeleting(true);
+    let ok = 0;
+    const failures: string[] = [];
+    try {
+      for (const node of nodes) {
+        try {
+          await deleteNode(node);
+          ok += 1;
+        } catch (e) {
+          failures.push(
+            `${node.name}: ${e instanceof Error ? e.message : 'تعذّر الحذف'}`
+          );
+        }
+      }
+      if (ok) {
+        toast.success(`تم حذف ${ok} عنصر`);
+      }
+      if (failures.length) {
+        toast.error(`تعذّر حذف ${failures.length} عنصر`, {
+          description: failures.slice(0, 3).join(' — '),
+        });
+      }
+      const failedIds = new Set(
+        nodes.filter((node) => failures.some((line) => line.startsWith(`${node.name}:`))).map((node) => node.id)
+      );
+      setSelectedIds(failedIds.size ? [...failedIds] : []);
+      invalidate(['item-categories']);
+      invalidate(['items']);
+      void refetchGroups();
+      void refetchItems();
+    } finally {
+      setBulkDeleting(false);
     }
   };
 
@@ -234,20 +317,9 @@ export default function ItemsGuidePage() {
         favoriteHref="/inventory/guide/items"
         favoriteLabel="دليل الأصناف"
         extraActions={
-          <div className="flex flex-wrap gap-2">
-            <Button type="button" onClick={() => openCreateGroup()}>
-              + إضافة مجموعة
-            </Button>
-            <NumberingModeControl
-              kind="items"
-              auto={itemAuto}
-              recordCount={itemRecordCount}
-              settingKey="itemAutoNumbering"
-            />
-            <Link href="/inventory/guide/items/import">
-              <Button variant="secondary">استيراد أصناف</Button>
-            </Link>
-          </div>
+          <Link href="/inventory/guide/items/import">
+            <Button variant="secondary">استيراد أصناف</Button>
+          </Link>
         }
       />
 
@@ -276,6 +348,38 @@ export default function ItemsGuidePage() {
                 + صنف جديد
               </Button>
             </Link>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                const ids = [...nodesById.values()]
+                  .filter((node) => !node.synthetic)
+                  .map((node) => node.id);
+                setSelectedIds((prev) => (prev.length === ids.length ? [] : ids));
+              }}
+            >
+              {selectedIds.length && selectedIds.length === [...nodesById.values()].filter((n) => !n.synthetic).length
+                ? 'إلغاء التحديد'
+                : 'تحديد الكل'}
+            </Button>
+            {selectedIds.length > 0 ? (
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                disabled={bulkDeleting}
+                onClick={() => void handleBulkDelete()}
+              >
+                {bulkDeleting ? 'جاري الحذف…' : `حذف المحدد (${selectedIds.length})`}
+              </Button>
+            ) : null}
+            <NumberingModeControl
+              kind="items"
+              auto={itemAuto}
+              recordCount={itemRecordCount}
+              settingKey="itemAutoNumbering"
+            />
             <FilterToolbar
               className="min-w-0 flex-1"
               searchPlaceholder="بحث بالمجموعة أو الصنف…"
@@ -300,8 +404,11 @@ export default function ItemsGuidePage() {
                 expandAllToken={expandToken}
                 collapseAllToken={collapseToken}
                 childNoun="عناصر"
-                addChildLabel="مجموعة فرعية"
-                onAddChild={openCreateGroup}
+                addChildLabel="فرعي"
+                selectable
+                selectedIds={new Set(selectedIds)}
+                onToggleSelect={toggleSelect}
+                onAddChild={openCreateChild}
                 canAddChild={(node) => node.groupKey === 'group'}
                 onView={(node) => {
                   if (node.groupKey === 'item') {
@@ -348,6 +455,24 @@ export default function ItemsGuidePage() {
           </CompactFormField>
         </div>
       </GuideEntityModal>
+
+      <ChildItemKindDialog
+        open={Boolean(kindPickerParent)}
+        parentLabel={
+          kindPickerParent ? `${kindPickerParent.code || '—'} — ${kindPickerParent.name}` : ''
+        }
+        onClose={() => setKindPickerParent(null)}
+        onPick={(kind) => {
+          if (!kindPickerParent) return;
+          const parent = kindPickerParent;
+          setKindPickerParent(null);
+          if (kind === 'item') {
+            router.push(`/inventory/creations/item-card?categoryId=${parent.id}`);
+            return;
+          }
+          openCreateGroup(parent);
+        }}
+      />
     </ErpDocumentLayout>
   );
 }

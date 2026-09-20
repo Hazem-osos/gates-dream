@@ -14,6 +14,7 @@ import {
 } from '../data/system-account-map';
 import { overlayColumnAccountIds } from '../settings/account-definition-map';
 import { demoCatalogService } from '../../inventory/services/demo-catalog.service';
+import { ensureDefaultUngroupedCategory } from '../../inventory/services/ensure-default-item-category';
 import { ensureDefaultWarehouseTree } from '../../inventory/services/ensure-default-warehouse';
 import type { Prisma } from '@prisma/client';
 
@@ -191,13 +192,13 @@ export class TenantProvisioningService {
         defaultCurrency: currencyCode,
         accountDefinitions: buildAccountDefinitions(codeToId),
         retainedEarningsAccountId: codeToId.get(SYSTEM_GL_CODES.retainedEarnings)!,
-        advancedSettings: advanced,
+        advancedSettings: advanced as Prisma.InputJsonValue,
       },
       update: {
         accountDefinitions: buildAccountDefinitions(codeToId),
         retainedEarningsAccountId: codeToId.get(SYSTEM_GL_CODES.retainedEarnings)!,
         defaultCurrency: currencyCode,
-        advancedSettings: advanced,
+        advancedSettings: advanced as Prisma.InputJsonValue,
       },
     });
 
@@ -243,6 +244,8 @@ export class TenantProvisioningService {
         },
       });
     }
+
+    await ensureDefaultUngroupedCategory(companyId, tx);
 
     let branch = await tx.branch.findFirst({
       where: { companyId, deletedAt: null },

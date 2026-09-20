@@ -25,6 +25,7 @@ import { TableNumberInput } from '@/components/grid/TableNumberInput';
 import { TableColumnHeaderDropdown } from '@/components/grid/TableColumnHeaderDropdown';
 import { WarehouseSelect } from '@/components/form/WarehouseSelect';
 import { ItemSelect } from '@/components/form/ItemSelect';
+import { resolvePriceListSalePrice } from '@/lib/inventory/pricing-engine';
 import { ItemUnitSelect } from '@/components/form/ItemUnitSelect';
 import { DynamicModalSkeleton } from '@/components/ui/DynamicChunkSkeleton';
 
@@ -578,7 +579,12 @@ export function ProgressiveSalesInvoiceLineGrid({
                                           taxExemptionReason:
                                             'taxExemptionReason' in picked ? picked.taxExemptionReason : undefined,
                                         });
-                                        if ('salesPrice' in picked && picked.salesPrice != null) {
+                                        const listPrice = resolvePriceListSalePrice(picked);
+                                        if (listPrice > 0) {
+                                          setValue(`lines.${index}.unitPrice`, listPrice, {
+                                            shouldDirty: true,
+                                          });
+                                        } else if ('salesPrice' in picked && picked.salesPrice != null) {
                                           setValue(`lines.${index}.unitPrice`, picked.salesPrice, {
                                             shouldDirty: true,
                                           });

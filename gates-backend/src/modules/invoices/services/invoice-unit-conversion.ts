@@ -1,6 +1,8 @@
+import { Prisma } from '@prisma/client';
 import { AppError } from '../../../shared/middleware/error-handler';
 import { roundTo4 } from '../../../shared/utils/decimal-round';
 import prisma from '../../../shared/database/prisma';
+import { ensureDefaultPieceUnit } from '../../inventory/services/ensure-default-unit';
 
 export const PRICING_CALCULATION_BASES = ['SELECTED_UNIT_QTY', 'BASE_UNIT_QTY'] as const;
 export type PricingCalculationBasis = (typeof PRICING_CALCULATION_BASES)[number];
@@ -21,7 +23,7 @@ export function resolvePricedQuantity(
 
 export type InvoiceLineUnitInput = {
   itemId: string;
-  unitId: string;
+  unitId?: string | null;
   quantity: number;
   baseQuantity?: number;
   conversionFactor?: number | null;
@@ -29,6 +31,7 @@ export type InvoiceLineUnitInput = {
 };
 
 export type NormalizedInvoiceLineUnits = {
+  unitId: string;
   quantity: number;
   baseQuantity: number;
   conversionFactor: number;
@@ -77,12 +80,41 @@ export async function normalizeInvoiceLineUnits(
     throw new AppError(422, 'Item not found for invoice line');
   }
 
-  const selected = item.units.find((u) => u.unitId === line.unitId) ?? item.units.find((u) => u.isBaseUnit);
+  let units = item.units;
+  if (!units.length) {
+    const piece = await ensureDefaultPieceUnit(
+      companyId,
+      prisma as unknown as Prisma.TransactionClient
+    );
+    await prisma.itemUnit.create({
+      data: {
+        itemId: item.id,
+        unitId: piece.id,
+        conversionFactor: 1,
+        isFactorFixed: true,
+        isBaseUnit: true,
+      },
+    });
+    units = [
+      {
+        unitId: piece.id,
+        isBaseUnit: true,
+        isFactorFixed: true,
+        conversionFactor: new Prisma.Decimal(1),
+      },
+    ];
+  }
+
+  const requested = line.unitId?.trim();
+  const selected =
+    (requested ? units.find((u) => u.unitId === requested) : undefined) ??
+    units.find((u) => u.isBaseUnit) ??
+    units[0];
   if (!selected) {
     throw new AppError(422, 'Selected unit is not linked to this item');
   }
 
-  const base = item.units.find((u) => u.isBaseUnit) ?? selected;
+  const base = units.find((u) => u.isBaseUnit) ?? selected;
   const catalogFactor = Number(selected.conversionFactor ?? 1);
   const isFactorFixed = selected.isFactorFixed !== false;
   const clientFactor = line.conversionFactor != null ? Number(line.conversionFactor) : NaN;
@@ -118,6 +150,7 @@ export async function normalizeInvoiceLineUnits(
   }
 
   return {
+    unitId: selected.unitId,
     quantity,
     baseQuantity,
     conversionFactor,

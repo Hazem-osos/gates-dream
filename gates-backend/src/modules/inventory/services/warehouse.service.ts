@@ -176,6 +176,36 @@ function warehouseLabel(row: { code?: string | null; arabicName: string }) {
   return row.code ? `${row.code} (${row.arabicName})` : row.arabicName;
 }
 
+/**
+ * Warehouse names must be unique across the whole company — no duplicates at all,
+ * regardless of warehouseKind (HEADER/POSTING) or storeType (MAIN/SUB). A "movement"
+ * warehouse and a "main" warehouse are not allowed to share a name either.
+ */
+async function assertWarehouseNameUnique(
+  companyId: string,
+  arabicName: string | undefined,
+  selfId?: string
+) {
+  const name = arabicName?.trim();
+  if (!name) return;
+
+  const clash = await prisma.warehouse.findFirst({
+    where: {
+      companyId,
+      isActive: true,
+      ...(selfId ? { id: { not: selfId } } : {}),
+      arabicName: name,
+    },
+    select: { id: true, code: true, arabicName: true },
+  });
+  if (clash) {
+    throw new AppError(
+      409,
+      `اسم المخزن «${name}» مستخدم بالفعل (${warehouseLabel(clash)}). لا يمكن تكرار اسم المخزن أبدًا حتى لو اختلف نوع المخزن.`
+    );
+  }
+}
+
 async function assertParentCanReceiveChild(
   companyId: string,
   parentWarehouseId: string | null | undefined
@@ -195,6 +225,28 @@ async function assertParentCanReceiveChild(
       `لا يمكن إضافة مخزن فرعي تحت ${warehouseLabel(parent)} لأنه مخزن عمليات. مخزن العمليات تُترحَّل عليه الحركات ولا يُفرَّع منه.`
     );
   }
+}
+
+async function inheritAccountsFromAncestor(
+  companyId: string,
+  parentWarehouseId?: string | null
+): Promise<{ inventoryAccountId: string | null; costAccountId: string | null }> {
+  let currentId = parentWarehouseId ?? null;
+  const seen = new Set<string>();
+  let inventoryAccountId: string | null = null;
+  let costAccountId: string | null = null;
+  while (currentId && !seen.has(currentId) && (!inventoryAccountId || !costAccountId)) {
+    seen.add(currentId);
+    const parent = await prisma.warehouse.findFirst({
+      where: { id: currentId, companyId },
+      select: { parentWarehouseId: true, inventoryAccountId: true, costAccountId: true },
+    });
+    if (!parent) break;
+    inventoryAccountId = inventoryAccountId || parent.inventoryAccountId;
+    costAccountId = costAccountId || parent.costAccountId;
+    currentId = parent.parentWarehouseId;
+  }
+  return { inventoryAccountId, costAccountId };
 }
 
 function warehouseCardFields(data: CreateWarehouseData) {
@@ -259,6 +311,12 @@ export class WarehouseService {
         warehouseKind: data.warehouseKind,
       });
       await assertParentCanReceiveChild(companyId, data.parentWarehouseId);
+      if (data.parentWarehouseId && (!data.inventoryAccountId || !data.costAccountId)) {
+        const inherited = await inheritAccountsFromAncestor(companyId, data.parentWarehouseId);
+        data.inventoryAccountId = data.inventoryAccountId || inherited.inventoryAccountId;
+        data.costAccountId = data.costAccountId || inherited.costAccountId;
+      }
+      await assertWarehouseNameUnique(companyId, data.arabicName);
       const existing = await prisma.warehouse.findMany({
         where: { companyId },
         select: { id: true, code: true, isActive: true },
@@ -477,6 +535,15 @@ export class WarehouseService {
       if (data.isActive === false && existing.isActive) {
         await assertWarehouseIdle(companyId, warehouseId);
       }
+
+      if (data.arabicName !== undefined && data.arabicName.trim() !== existing.arabicName.trim()) {
+        await assertWarehouseNameUnique(companyId, data.arabicName, warehouseId);
+      } else if (data.isActive === true && !existing.isActive) {
+        // Reactivating a previously inactive warehouse could re-introduce a name clash
+        // against a warehouse created while this one was inactive.
+        await assertWarehouseNameUnique(companyId, existing.arabicName, warehouseId);
+      }
+
       const nextCode = data.code?.trim();
       if (nextCode && nextCode !== (existing.code ?? '').trim()) {
         const clash = await prisma.warehouse.findFirst({

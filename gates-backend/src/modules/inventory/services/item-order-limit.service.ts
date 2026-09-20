@@ -19,6 +19,8 @@ const includeDetail = {
           serial: true,
           arabicName: true,
           orderLimit: true,
+          lowerLimit: true,
+          upperLimit: true,
         },
       },
     },
@@ -33,7 +35,13 @@ function filledLines(lines?: ItemOrderLimitLineInput[]) {
 export class ItemOrderLimitService {
   async list(
     companyId: string,
-    options: { page?: number; limit?: number; search?: string; isActive?: boolean }
+    options: {
+      page?: number;
+      limit?: number;
+      search?: string;
+      isActive?: boolean;
+      warehouseId?: string;
+    }
   ) {
     const page = options.page || 1;
     const limit = options.limit || 50;
@@ -41,6 +49,7 @@ export class ItemOrderLimitService {
     const where: {
       companyId: string;
       isActive?: boolean;
+      warehouseId?: string;
       OR?: { code?: { contains: string }; description?: { contains: string } }[];
     } = { companyId };
     if (options.search) {
@@ -50,6 +59,7 @@ export class ItemOrderLimitService {
       ];
     }
     if (options.isActive !== undefined) where.isActive = options.isActive;
+    if (options.warehouseId) where.warehouseId = options.warehouseId;
 
     const [rows, total] = await Promise.all([
       prisma.itemOrderLimitList.findMany({
@@ -102,14 +112,18 @@ export class ItemOrderLimitService {
         data: kept.map((line) => ({
           listId,
           itemId: line.itemId,
-          orderLimit: new Decimal(line.orderLimit),
+          orderLimit: new Decimal(line.orderLimit ?? 0),
         })),
       });
       await Promise.all(
         kept.map((line) =>
           tx.item.update({
             where: { id: line.itemId },
-            data: { orderLimit: new Decimal(line.orderLimit) },
+            data: {
+              orderLimit: new Decimal(line.orderLimit ?? 0),
+              ...(line.lowerLimit != null ? { lowerLimit: new Decimal(line.lowerLimit) } : {}),
+              ...(line.upperLimit != null ? { upperLimit: new Decimal(line.upperLimit) } : {}),
+            },
           })
         )
       );

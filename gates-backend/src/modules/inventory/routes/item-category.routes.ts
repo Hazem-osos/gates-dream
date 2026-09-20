@@ -152,8 +152,7 @@ router.put(
 
 /**
  * DELETE /api/v1/inventory/item-categories/:id
- * Soft delete (isActive = false) — categories may still be referenced by
- * existing items, so this never hard-deletes the row.
+ * Permanent delete — blocked when the group still has items or child groups.
  */
 router.delete(
   '/:id',
@@ -165,7 +164,7 @@ router.delete(
         return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
       }
 
-      await itemCategoryService.updateItemCategory(companyId, req.params.id, { isActive: false });
+      await itemCategoryService.deleteItemCategory(companyId, req.params.id);
       return void res.status(204).send();
     } catch (error) {
       logger.error({ error, categoryId: req.params.id }, 'Error deleting item category');

@@ -293,7 +293,7 @@ export class SecuritiesPaymentService {
     assertPaperIssued(payment, 'تعديل الورقة');
 
     // Check payment number uniqueness if changing
-    if (data.paymentNumber && data.paymentNumber !== payment.paymentNumber) {
+    if (data.paymentNumber && data.paymentNumber !== (payment as { paymentNumber?: string | null }).paymentNumber) {
       const existing = await prisma.securitiesPayment.findFirst({
         where: {
           companyId,

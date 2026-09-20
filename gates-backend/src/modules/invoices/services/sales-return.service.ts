@@ -2,6 +2,7 @@ import prisma from '../../../shared/database/prisma';
 import { AppError } from '../../../shared/middleware/error-handler';
 import { roundTo4 } from '../../../shared/utils/decimal-round';
 import { loadInvoiceTransactionSettings } from './invoice-document-type';
+import { saleInvoiceReturnBlockReason } from './sale-invoice-return-policy';
 import type { CreateM5InvoiceInput } from '../schemas/invoice-m5.schema';
 
 const PRICE_EPS = 0.02;
@@ -64,6 +65,8 @@ export async function listReturnableLines(
       id: true,
       invoiceNumber: true,
       invoiceKind: true,
+      allowReturn: true,
+      returnDays: true,
       customerId: true,
       supplierId: true,
       warehouseId: true,
@@ -99,6 +102,11 @@ export async function listReturnableLines(
         ? 'فاتورة المشتريات الأصلية غير موجودة أو ملغاة'
         : 'فاتورة المبيعات الأصلية غير موجودة أو ملغاة'
     );
+  }
+
+  const returnBlock = saleInvoiceReturnBlockReason(invoice);
+  if (returnBlock) {
+    throw new AppError(400, returnBlock);
   }
 
   const originalIds = invoice.lines.map((l) => l.id);

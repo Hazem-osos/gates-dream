@@ -290,6 +290,8 @@ router.get(
         companyId,
         itemId: String(req.params.itemId),
         customerId: req.query.customerId as string | undefined,
+        priceListId: req.query.priceListId as string | undefined,
+        unitId: req.query.unitId as string | undefined,
         policy: req.query.policy as never,
       });
       return void res.json({ status: 'success', data });
@@ -425,7 +427,7 @@ router.put(
 
 /**
  * DELETE /api/v1/inventory/items/:id
- * Delete item (soft delete)
+ * Permanent delete — blocked when the item has movements or documents.
  */
 router.delete(
   '/:id',
@@ -445,10 +447,7 @@ router.delete(
       return void res.status(204).send();
     } catch (error) {
       logger.error({ error, itemId: req.params.id }, 'Error deleting item');
-      const status =
-        error instanceof Error && error.message === 'Item not found'
-          ? 404
-          : 500;
+      const status = error instanceof AppError ? error.statusCode : 500;
       return void res.status(status).json({
         status: 'error',
         message:

@@ -34,7 +34,10 @@ function GuideTreeRow({
   searchQuery,
   childNoun,
   addChildLabel,
+  selected,
+  selectable,
   onToggle,
+  onToggleSelect,
   onAddChild,
   canAddChild,
   onView,
@@ -50,7 +53,10 @@ function GuideTreeRow({
   searchQuery: string;
   childNoun: string;
   addChildLabel?: string;
+  selected?: boolean;
+  selectable?: boolean;
   onToggle: () => void;
+  onToggleSelect?: (n: GuideTreeNode) => void;
   onAddChild?: (n: GuideTreeNode) => void;
   canAddChild?: (n: GuideTreeNode) => boolean;
   onView?: (n: GuideTreeNode) => void;
@@ -73,10 +79,21 @@ function GuideTreeRow({
         isChild
           ? cn('rounded-lg ring-1 ring-inset ring-black/[0.03]', !isLastSibling && 'mb-0.5')
           : 'mb-1 rounded-lg',
-        isChild ? cn(tone.row, 'bg-opacity-80') : tone.row
+        isChild ? cn(tone.row, 'bg-opacity-80') : tone.row,
+        selected && 'ring-2 ring-[#0E79AA]/40'
       )}
     >
       <div className="z-[1] flex min-w-0 flex-1 items-center gap-2.5">
+        {selectable && !node.synthetic ? (
+          <input
+            type="checkbox"
+            className="h-4 w-4 shrink-0 rounded border-[#D6EAF3] text-[#0E79AA] focus:ring-[#0E79AA]/30"
+            checked={Boolean(selected)}
+            aria-label={`اختيار ${node.name}`}
+            onChange={() => onToggleSelect?.(node)}
+            onClick={(event) => event.stopPropagation()}
+          />
+        ) : null}
         {isChild ? (
           <CornerDownLeft className="h-3.5 w-3.5 shrink-0 text-slate-400" aria-hidden />
         ) : null}
@@ -186,6 +203,9 @@ function Branch({
   addChildLabel,
   toneIndex,
   isLastSibling,
+  selectable,
+  selectedIds,
+  onToggleSelect,
   onAddChild,
   canAddChild,
   onView,
@@ -203,6 +223,9 @@ function Branch({
   addChildLabel?: string;
   toneIndex: number;
   isLastSibling?: boolean;
+  selectable?: boolean;
+  selectedIds?: ReadonlySet<string>;
+  onToggleSelect?: (n: GuideTreeNode) => void;
   onAddChild?: (n: GuideTreeNode) => void;
   canAddChild?: (n: GuideTreeNode) => boolean;
   onView?: (n: GuideTreeNode) => void;
@@ -235,7 +258,10 @@ function Branch({
         searchQuery={searchQuery}
         childNoun={childNoun}
         addChildLabel={addChildLabel}
+        selected={selectedIds?.has(node.id)}
+        selectable={selectable}
         onToggle={() => toggleId(node.id)}
+        onToggleSelect={onToggleSelect}
         onAddChild={onAddChild}
         canAddChild={canAddChild}
         onView={onView}
@@ -282,6 +308,9 @@ function Branch({
                   addChildLabel={addChildLabel}
                   toneIndex={child.toneIndex ?? toneIndex}
                   isLastSibling={idx === node.children!.length - 1}
+                  selectable={selectable}
+                  selectedIds={selectedIds}
+                  onToggleSelect={onToggleSelect}
                   onAddChild={onAddChild}
                   canAddChild={canAddChild}
                   onView={onView}
@@ -312,6 +341,9 @@ export function MasterGuideTree({
   collapseAllToken,
   childNoun = 'فرعي',
   addChildLabel,
+  selectable,
+  selectedIds,
+  onToggleSelect,
   onAddChild,
   canAddChild,
   onView,
@@ -325,6 +357,9 @@ export function MasterGuideTree({
   collapseAllToken?: number;
   childNoun?: string;
   addChildLabel?: string;
+  selectable?: boolean;
+  selectedIds?: ReadonlySet<string>;
+  onToggleSelect?: (n: GuideTreeNode) => void;
   onAddChild?: (n: GuideTreeNode) => void;
   canAddChild?: (n: GuideTreeNode) => boolean;
   onView?: (n: GuideTreeNode) => void;
@@ -389,6 +424,9 @@ export function MasterGuideTree({
           addChildLabel={addChildLabel}
           toneIndex={node.toneIndex ?? resolveGuideToneIndex(node.code, idx)}
           isLastSibling={idx === filtered.length - 1}
+          selectable={selectable}
+          selectedIds={selectedIds}
+          onToggleSelect={onToggleSelect}
           onAddChild={onAddChild}
           canAddChild={canAddChild}
           onView={onView}

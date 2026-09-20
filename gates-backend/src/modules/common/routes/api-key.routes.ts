@@ -10,6 +10,7 @@ import {
 import {
   createAPIKey,
   listAPIKeys,
+  resolveApiKeyTenantId,
   revokeAPIKey,
   rotateAPIKey,
 } from '../../../shared/security/api-key-manager';
@@ -31,8 +32,16 @@ router.get(
   validate({ query: apiKeyQuerySchema }),
   async (req: AuthRequest, res: Response) => {
     try {
+      // SECURITY: tenantId must always come from the authenticated session,
+      // never from the query string — otherwise any user with
+      // `api-key:view` in their own company could pass `?tenantId=<other>`
+      // and enumerate another tenant's API key metadata (permissions,
+      // userId, keyHash, expiresAt). `userId` remains an optional narrowing
+      // filter (e.g. "show only this teammate's keys") because it is
+      // AND-ed with the forced tenantId below and can only ever narrow the
+      // result set within the caller's own company, never widen it.
       const userId = (req.query.userId as string) || req.user?.sub;
-      const tenantId = (req.query.tenantId as string) || req.tenantId || req.companyId;
+      const tenantId = req.tenantId || req.companyId;
 
       const apiKeys = await listAPIKeys(userId, tenantId);
 
@@ -127,7 +136,20 @@ router.post(
   async (req: AuthRequest, res: Response) => {
     try {
       const userId = req.body.userId || req.user?.sub;
-      const tenantId = req.body.tenantId || req.tenantId || req.companyId;
+      const resolvedTenant = resolveApiKeyTenantId(
+        req.tenantId || req.companyId,
+        req.body.tenantId
+      );
+      if ('error' in resolvedTenant) {
+        return void res.status(403).json({
+          status: 'error',
+          message:
+            resolvedTenant.error === 'tenant_mismatch'
+              ? 'tenantId must match the authenticated session company and cannot be set to another company.'
+              : 'Company ID is required',
+        });
+      }
+      const tenantId = resolvedTenant.tenantId;
 
       const result = await createAPIKey({
         name: req.body.name,

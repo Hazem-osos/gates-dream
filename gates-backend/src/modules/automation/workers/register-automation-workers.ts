@@ -6,6 +6,7 @@ import { createChequeBouncedWorker } from '../processors/cheque-bounced.processo
 import { createAutomationSchedulersWorker } from '../processors/scheduler.worker';
 import { createSubcontractInvoiceWorkflowWorker } from '../processors/subcontract-invoice-workflow.processor';
 import { createUnitCancellationReleasedWorker } from '../processors/unit-cancellation-released.processor';
+import { createAutomationEventDispatchWorker } from '../events/automation-event-dispatch.worker';
 
 const registeredWorkers: Worker[] = [];
 let shutdownHookInstalled = false;
@@ -21,7 +22,8 @@ export function registerAutomationWorkers(): Worker[] {
     createAutomationSchedulersWorker(),
     createChequeBouncedWorker(),
     createSubcontractInvoiceWorkflowWorker(),
-    createUnitCancellationReleasedWorker()
+    createUnitCancellationReleasedWorker(),
+    createAutomationEventDispatchWorker()
   );
 
   logger.info({ count: registeredWorkers.length }, 'Automation workers started');

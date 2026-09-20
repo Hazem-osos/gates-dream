@@ -391,9 +391,13 @@ class ApiClient {
     config: RequestConfig,
     retries: number = 1
   ): Promise<ApiResponse<T>> {
+    const method = (config.method || 'GET').toUpperCase();
+    // Never retry POST/PUT/PATCH/DELETE — a timed-out create can still
+    // commit on the server; a second attempt then fails as a duplicate number.
+    const maxRetries = method === 'GET' || method === 'HEAD' ? retries : 0;
     let lastError: Error | ApiError | null = null;
 
-    for (let attempt = 0; attempt <= retries; attempt++) {
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
         const response = await this.request<T>(url, config);
         this.broadcastSuccess(url, config, response);
@@ -421,7 +425,7 @@ class ApiClient {
         }
 
         // Don't retry on last attempt
-        if (attempt === retries) {
+        if (attempt === maxRetries) {
           if (!skipNotify) this.broadcastFinalError(error, url);
           throw error;
         }

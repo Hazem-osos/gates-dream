@@ -1613,6 +1613,8 @@ model Delegate {
 
   company        Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
   invoices       Invoice[]
+  drivenInvoices Invoice[]        @relation("InvoiceDriver")
+  distributedInvoices Invoice[]   @relation("InvoiceDistributor")
   PurchaseReturn PurchaseReturn[]
   PriceQuote     PriceQuote[]
 
@@ -2610,6 +2612,7 @@ model ItemPrice {
   unitId      String
   price       Decimal @db.Decimal(15, 2)
   discount          Decimal? @db.Decimal(8, 4)
+  purchasePrice     Decimal? @db.Decimal(18, 4)
   wholesale         Decimal? @db.Decimal(18, 4)
   semiWholesale     Decimal? @db.Decimal(18, 4)
   exportPrice       Decimal? @db.Decimal(18, 4)
@@ -3482,6 +3485,10 @@ model PurchaseOrder {
   branchId                  String?
   description               String?
   serial                    String?
+  /// Stable automation claim key. Null for manual POs. UNIQUE with companyId
+  /// so concurrent n8n workers cannot insert two POs for the same action.
+  /// MySQL allows multiple NULLs, so ordinary documents are unaffected.
+  automationIdempotencyKey  String?   @db.VarChar(255)
   orderNumber               String?
   date                      DateTime
   hijriDate                 String?
@@ -3516,6 +3523,7 @@ model PurchaseOrder {
   conditions PurchaseOrderCondition[]
 
   @@unique([invoiceId])
+  @@unique([companyId, automationIdempotencyKey])
   @@index([companyId])
   @@index([branchId])
   @@index([supplierId])
@@ -3847,6 +3855,8 @@ model Invoice {
   warehouseId             String?
   costCenterId            String?
   representativeId        String?
+  driverId                String?
+  distributorId           String?
   // Totals
   totalAmount             Decimal            @default(0) @db.Decimal(18, 4)
   /// M7 fix: total discount = Σ line discounts + the header discount below,
@@ -3938,6 +3948,8 @@ model Invoice {
   documentProfileId     String?
   documentProfile       DocumentProfile?       @relation("InvoiceDocumentProfile", fields: [documentProfileId], references: [id], onDelete: SetNull)
   delegate              Delegate?              @relation(fields: [representativeId], references: [id])
+  driver                Delegate?              @relation("InvoiceDriver", fields: [driverId], references: [id], onDelete: SetNull)
+  distributor           Delegate?              @relation("InvoiceDistributor", fields: [distributorId], references: [id], onDelete: SetNull)
   costCenter            CostCenter?            @relation(fields: [costCenterId], references: [id])
   currency              Currency?              @relation(fields: [currencyId], references: [id], onDelete: SetNull)
   journalEntry          JournalEntry?          @relation("InvoiceJournalEntry", fields: [journalEntryId], references: [id], onDelete: SetNull)
@@ -3980,6 +3992,8 @@ model Invoice {
   @@index([documentProfileId])
   @@index([companyId, sourceType, sourceId])
   @@index([originalInvoiceId])
+  @@index([driverId])
+  @@index([distributorId])
   @@fulltext([invoiceNumber, record, description], map: "invoices_ft_lookup")
   @@map("invoices")
 }
@@ -7363,8 +7377,9 @@ enum AutomationActionRunStatus {
   FAILED
 }
 
-/// Durable n8n action execution / idempotency record. Generic across action
-/// types. Uniqueness is (companyId, eventId, ruleId, actionType).
+/// Durable n8n action execution / idempotency / observability record.
+/// Generic across action types. Uniqueness is (companyId, eventId, ruleId, actionType).
+/// Retries mutate this row (attemptCount); do not store raw action config or secrets.
 model AutomationActionRun {
   id               String                     @id @default(uuid())
   companyId        String
@@ -7372,6 +7387,12 @@ model AutomationActionRun {
   ruleId           String                     @db.VarChar(36)
   actionType       String                     @db.VarChar(255)
   correlationId    String                     @db.VarChar(255)
+  eventType        String?                    @db.VarChar(255)
+  attemptCount     Int                        @default(1)
+  startedAt        DateTime                   @default(now())
+  completedAt      DateTime?
+  resultMetadata   Json?
+  lastErrorCode    String?                    @db.VarChar(100)
   status           AutomationActionRunStatus
   resultEntityType String?                    @db.VarChar(100)
   resultEntityId   String?                    @db.VarChar(36)
@@ -7384,6 +7405,8 @@ model AutomationActionRun {
   @@unique([companyId, eventId, ruleId, actionType])
   @@index([companyId])
   @@index([companyId, correlationId])
+  @@index([companyId, eventId])
+  @@index([companyId, status, updatedAt])
   @@map("automation_action_runs")
 }
 

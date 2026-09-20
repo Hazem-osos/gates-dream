@@ -56,12 +56,13 @@ export type SalesInvoiceLineForm = {
 export function resolveItemUnitId(
   itemId: string,
   items: ItemLike[],
-  explicitUnitId?: string
+  explicitUnitId?: string,
+  fallbackUnitId?: string
 ): string | undefined {
   if (explicitUnitId?.trim()) return explicitUnitId.trim();
   const item = items.find((i) => i.id === itemId);
   const link = item?.units?.find((u) => u.isBaseUnit) ?? item?.units?.[0];
-  return link?.unit?.id ?? link?.unitId;
+  return link?.unit?.id ?? link?.unitId ?? fallbackUnitId?.trim() ?? undefined;
 }
 
 type M5FormData = {
@@ -76,6 +77,8 @@ type M5FormData = {
   documentProfileId?: string;
   costCenterId?: string;
   delegateId?: string;
+  driverId?: string;
+  distributorId?: string;
   sellerId?: string;
   currencyId?: string;
   exchangeRate?: number;
@@ -86,7 +89,7 @@ type M5FormData = {
   paymentSplits?: unknown;
   internalNotes?: unknown;
   allowReturn?: boolean;
-  returnDays?: number;
+  returnDays?: number | null;
   invoiceConditions?: string[];
   developmentFeeEnabled?: boolean;
   developmentFeeMode?: 'percent' | 'fixed';
@@ -116,6 +119,7 @@ export function mapSalesFormToM5CreateBody(
     currencies: CurrencyLike[];
     items: ItemLike[];
     applyTax?: boolean;
+    fallbackUnitId?: string;
   }
 ): Record<string, unknown> {
   const applyTax = opts.applyTax !== false;
@@ -133,10 +137,7 @@ export function mapSalesFormToM5CreateBody(
   });
 
   const lines = filledLines.map((line, index) => {
-    const unitId = resolveItemUnitId(line.itemId, opts.items, line.unitId);
-    if (!unitId) {
-      throw new Error('تعذر تحديد وحدة الصنف — تأكد من ربط وحدات الأصناف في بطاقة الصنف.');
-    }
+    const unitId = resolveItemUnitId(line.itemId, opts.items, line.unitId, opts.fallbackUnitId);
     const item = opts.items.find((i) => i.id === line.itemId);
     const synced = syncLineUnitFields(
       {
@@ -152,7 +153,7 @@ export function mapSalesFormToM5CreateBody(
     const qty = synced.quantity || 1;
     return {
       itemId: line.itemId,
-      unitId,
+      ...(unitId ? { unitId } : {}),
       quantity: qty,
       baseQuantity: synced.baseQuantity || qty,
       conversionFactor: synced.conversionFactor || 1,
@@ -199,6 +200,8 @@ export function mapSalesFormToM5CreateBody(
     originalInvoiceNumber: data.originalInvoiceNumber || undefined,
     costCenterId: data.costCenterId || undefined,
     representativeId: data.delegateId || undefined,
+    ...(data.driverId?.trim() ? { driverId: data.driverId } : {}),
+    ...(data.distributorId?.trim() ? { distributorId: data.distributorId } : {}),
     sellerId: data.sellerId || undefined,
     taxTreatmentType: data.taxTreatmentType || undefined,
     isDelivered: data.isDelivered ?? false,
@@ -208,7 +211,7 @@ export function mapSalesFormToM5CreateBody(
     internalNotes: data.internalNotes,
     isSalesTaxInvoice: applyTax,
     allowReturn: data.allowReturn ?? false,
-    returnDays: data.allowReturn ? (data.returnDays ?? 365) : undefined,
+    returnDays: data.allowReturn ? (data.returnDays ?? 365) : null,
     invoiceConditions: data.invoiceConditions,
     developmentFeeRate: feePreview.developmentFeeRate,
     developmentFeeAmount: feePreview.developmentFeeAmount,
@@ -236,6 +239,7 @@ export function mapSalesFormToM5UpdateBody(
     currencies: CurrencyLike[];
     items: ItemLike[];
     applyTax?: boolean;
+    fallbackUnitId?: string;
     /**
      * Wave 5 fix: the backend's M14 optimistic-lock guard
      * (`InvoiceM5Service.update`) rejects the write with 409 when

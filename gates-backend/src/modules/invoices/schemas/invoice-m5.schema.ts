@@ -68,6 +68,8 @@ export const createM5InvoiceSchema = z
     documentProfileId: z.string().uuid().optional().nullable(),
     costCenterId: z.string().uuid().optional().nullable(),
     representativeId: z.string().uuid().optional().nullable(),
+    driverId: z.string().uuid().optional().nullable(),
+    distributorId: z.string().uuid().optional().nullable(),
     /** Sales Invoice Enterprise Redesign: distinct "Salesman" from the sales
      * representative above — existing `Invoice.sellerId` column, previously
      * validated only by the legacy invoice/POS schemas and never wired
@@ -143,6 +145,8 @@ export const updateM5InvoiceSchema = z.object({
   documentProfileId: z.string().uuid().optional().nullable(),
   costCenterId: z.string().uuid().optional().nullable(),
   representativeId: z.string().uuid().optional().nullable(),
+  driverId: z.string().uuid().optional().nullable(),
+  distributorId: z.string().uuid().optional().nullable(),
   sellerId: z.string().uuid().optional().nullable(),
   paymentMethod: z.string().optional(),
   paymentSplits: invoicePaymentSplitsSchema.optional(),

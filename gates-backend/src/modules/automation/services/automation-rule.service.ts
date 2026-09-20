@@ -6,6 +6,24 @@ import type {
 } from '../schemas/automation-rule.schema';
 import { listEnabledRulesForEvent } from './automation-rule.mapper';
 import type { AutomationRuleDb } from './automation-rule.types';
+import { validateAutomationConditions } from '../catalog/condition-validator';
+import { validateAutomationActions } from '../catalog/action-validator';
+
+/**
+ * Validates a rule's (eventType, conditions, actions) against the
+ * Automation Capability Catalog before it is persisted. Never rely on the
+ * generic Zod shape schema alone — this checks that fields/operators/action
+ * config actually exist and are well-typed for the target event.
+ */
+async function assertRuleAgainstCatalog(
+  companyId: string,
+  eventType: string,
+  conditions: Array<{ field: string; operator: string; value?: unknown }>,
+  actions: Array<{ type: string; config?: Record<string, unknown> }>
+): Promise<void> {
+  await validateAutomationConditions(companyId, eventType, conditions);
+  await validateAutomationActions(companyId, eventType, actions);
+}
 
 export type {
   AutomationRuleDb,
@@ -75,6 +93,8 @@ export class AutomationRuleService {
   }
 
   async createRule(companyId: string, data: CreateAutomationRuleInput) {
+    await assertRuleAgainstCatalog(companyId, data.eventType, data.conditions, data.actions);
+
     const rule = await this.db.automationRule.create({
       data: {
         companyId,
@@ -91,7 +111,18 @@ export class AutomationRuleService {
   }
 
   async updateRule(companyId: string, ruleId: string, data: UpdateAutomationRuleInput) {
-    await this.getRuleById(companyId, ruleId);
+    const existing = await this.getRuleById(companyId, ruleId);
+
+    // Re-validate the FINAL merged (eventType, conditions, actions) so a
+    // partial update can never leave a rule in a state that mixes an old
+    // eventType with conditions/actions that don't belong to it.
+    const nextEventType = data.eventType ?? existing.eventType;
+    const nextConditions =
+      data.conditions ??
+      (existing.conditions as Array<{ field: string; operator: string; value?: unknown }>);
+    const nextActions =
+      data.actions ?? (existing.actions as Array<{ type: string; config?: Record<string, unknown> }>);
+    await assertRuleAgainstCatalog(companyId, nextEventType, nextConditions, nextActions);
 
     const rule = await this.db.automationRule.update({
       where: { id: ruleId },
@@ -110,6 +141,27 @@ export class AutomationRuleService {
 
   async setEnabled(companyId: string, ruleId: string, enabled: boolean) {
     return this.updateRule(companyId, ruleId, { enabled });
+  }
+
+  /** Creates a disabled copy of an existing rule (never auto-enabled — avoids surprise double-firing). */
+  async duplicateRule(companyId: string, ruleId: string) {
+    const existing = await this.getRuleById(companyId, ruleId);
+    const rule = await this.db.automationRule.create({
+      data: {
+        companyId,
+        name: `${existing.name} (copy)`,
+        description: existing.description,
+        eventType: existing.eventType,
+        enabled: false,
+        conditions: existing.conditions as object,
+        actions: existing.actions as object,
+      },
+    });
+    logger.info(
+      { companyId, sourceRuleId: ruleId, ruleId: rule.id },
+      'Automation rule duplicated'
+    );
+    return rule;
   }
 
   async deleteRule(companyId: string, ruleId: string) {

@@ -16,6 +16,7 @@ import {
 } from '@/lib/pos/computePosCartTotals';
 import { submitPosWave2Order, usePosSession } from '@/lib/hooks/usePosSession';
 import { findItemByBarcode, type BarcodeItemHit } from '@/lib/inventory/findItemByBarcode';
+import { resolvePriceListSalePrice } from '@/lib/inventory/pricing-engine';
 import { formatMoneyAr } from '@/lib/formatMoney';
 import type { ApiError } from '@/lib/api/types';
 import { PosTenderModal, type PosTenderMethod } from '@/components/pos/PosTenderModal';
@@ -44,9 +45,12 @@ type HeldTicket = {
 };
 
 function itemPrice(item: PosLookupRow): number {
-  if (typeof item.salesPrice === 'number' && Number.isFinite(item.salesPrice)) return item.salesPrice;
-  const def = item.itemPrices?.find((p) => p.priceList?.isDefault) ?? item.itemPrices?.[0];
-  return Number(def?.price ?? 0) || 0;
+  const listPrice = resolvePriceListSalePrice(item);
+  if (listPrice > 0) return listPrice;
+  if (typeof item.salesPrice === 'number' && Number.isFinite(item.salesPrice) && item.salesPrice > 0) {
+    return item.salesPrice;
+  }
+  return 0;
 }
 
 function itemCodeOf(item: PosLookupRow): string {

@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
-import { Plus, Tags, Trash2 } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Tags } from 'lucide-react';
 import {
   Button,
   CompactFormField,
@@ -10,8 +10,9 @@ import {
   FilterToolbar,
   compactControlClass,
 } from '@/components/ui';
-import { MasterCardShell } from '@/components/erp';
-import { ItemSelect } from '@/components/form/ItemSelect';
+import { DocumentBrowseDrawer, MasterCardShell } from '@/components/erp';
+import { DocumentModeProvider, useDocumentMode } from '@/components/common/document-shell';
+import { confirmAction } from '@/lib/feedback/confirm';
 import {
   PriceListsListSection,
   type PriceListRow,
@@ -32,6 +33,7 @@ type FormState = {
   englishName: string;
   description: string;
   discountPercentage: string;
+  markupPercentage: string;
   currencyCode: string;
   priceMode: PriceMode;
 };
@@ -46,12 +48,8 @@ type PriceLine = {
   unitId: string;
   unitName: string;
   discount: string;
-  wholesale: string;
-  semiWholesale: string;
-  exportPrice: string;
-  representativePrice: string;
-  retailPrice: string;
-  consumerPrice: string;
+  purchasePrice: string;
+  salePrice: string;
   [key: string]: unknown;
 };
 
@@ -61,35 +59,28 @@ type ApiPrice = {
   unitId: string;
   price?: number | string | null;
   discount?: number | string | null;
+  purchasePrice?: number | string | null;
   wholesale?: number | string | null;
-  semiWholesale?: number | string | null;
-  exportPrice?: number | string | null;
-  representativePrice?: number | string | null;
   retailPrice?: number | string | null;
-  consumerPrice?: number | string | null;
   item?: {
     id?: string;
     code?: string | null;
+    serial?: string | null;
     arabicName?: string;
     categoryId?: string | null;
-    priceWholesale?: number | string | null;
-    priceSemiWholesale?: number | string | null;
-    exportPrice?: number | string | null;
-    representativePrice?: number | string | null;
+    lastPurchasePrice?: number | string | null;
     priceRetail?: number | string | null;
-    consumerPrice?: number | string | null;
   };
   unit?: { id?: string; arabicName?: string };
 };
 
 type CatalogItem = ItemOption & {
   categoryId?: string | null;
-  priceWholesale?: number | string | null;
-  priceSemiWholesale?: number | string | null;
-  exportPrice?: number | string | null;
-  representativePrice?: number | string | null;
+  category?: { id?: string } | null;
+  purchasePrice?: number | string | null;
+  lastPurchasePrice?: number | string | null;
   priceRetail?: number | string | null;
-  consumerPrice?: number | string | null;
+  retailPrice?: number | string | null;
 };
 
 type Currency = {
@@ -104,25 +95,9 @@ const emptyForm = (): FormState => ({
   englishName: '',
   description: '',
   discountPercentage: '',
+  markupPercentage: '',
   currencyCode: '',
   priceMode: 'value',
-});
-
-const emptyLine = (): PriceLine => ({
-  key: crypto.randomUUID(),
-  itemId: '',
-  itemCode: '',
-  itemName: '',
-  categoryId: '',
-  unitId: '',
-  unitName: '',
-  discount: '',
-  wholesale: '',
-  semiWholesale: '',
-  exportPrice: '',
-  representativePrice: '',
-  retailPrice: '',
-  consumerPrice: '',
 });
 
 const cellCls = '!max-w-none !overflow-visible !h-auto whitespace-normal py-1.5';
@@ -140,6 +115,13 @@ function num(value: string): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+function scalePrice(value: string, factor: number): string {
+  const n = num(value);
+  if (n == null) return value;
+  const next = Math.max(0, n * factor);
+  return String(Number(next.toFixed(4)));
+}
+
 function pickUnit(item?: CatalogItem | ItemOption | null): { unitId: string; unitName: string } {
   const units = item?.units ?? [];
   const base = units.find((u) => u.isBaseUnit) ?? units[0];
@@ -149,65 +131,68 @@ function pickUnit(item?: CatalogItem | ItemOption | null): { unitId: string; uni
   };
 }
 
-function lineFromApi(row: ApiPrice): PriceLine {
-  const item = row.item;
-  return {
-    key: row.id,
-    id: row.id,
-    itemId: row.itemId || item?.id || '',
-    itemCode: item?.code ?? '',
-    itemName: item?.arabicName ?? '',
-    categoryId: item?.categoryId ?? '',
-    unitId: row.unitId || row.unit?.id || '',
-    unitName: row.unit?.arabicName ?? '',
-    discount: asText(row.discount),
-    wholesale: asText(row.wholesale ?? row.price ?? item?.priceWholesale),
-    semiWholesale: asText(row.semiWholesale ?? item?.priceSemiWholesale),
-    exportPrice: asText(row.exportPrice ?? item?.exportPrice),
-    representativePrice: asText(row.representativePrice ?? item?.representativePrice),
-    retailPrice: asText(row.retailPrice ?? item?.priceRetail),
-    consumerPrice: asText(row.consumerPrice ?? item?.consumerPrice),
-  };
-}
-
-function lineFromItem(item: CatalogItem, discount = ''): PriceLine {
+function lineFromCatalog(
+  item: CatalogItem,
+  saved?: ApiPrice,
+  discount = ''
+): PriceLine {
   const unit = pickUnit(item);
   return {
-    ...emptyLine(),
+    key: item.id,
+    id: saved?.id,
     itemId: item.id,
-    itemCode: item.code ?? '',
+    itemCode: item.serial ?? item.code ?? '',
     itemName: item.arabicName ?? '',
-    categoryId: item.categoryId ?? '',
-    unitId: unit.unitId,
-    unitName: unit.unitName,
-    discount,
-    wholesale: asText(item.priceWholesale ?? item.salesPrice),
-    semiWholesale: asText(item.priceSemiWholesale),
-    exportPrice: asText(item.exportPrice),
-    representativePrice: asText(item.representativePrice),
-    retailPrice: asText(item.priceRetail),
-    consumerPrice: asText(item.consumerPrice),
+    categoryId: item.categoryId ?? item.category?.id ?? '',
+    unitId: saved?.unitId || unit.unitId,
+    unitName: saved?.unit?.arabicName || unit.unitName,
+    discount: asText(saved?.discount) || discount,
+    purchasePrice: asText(
+      saved?.purchasePrice ?? saved?.wholesale ?? item.lastPurchasePrice ?? item.purchasePrice
+    ),
+    salePrice: asText(
+      saved?.retailPrice ?? saved?.price ?? item.salesPrice ?? item.priceRetail ?? item.retailPrice
+    ),
   };
 }
 
-export default function PriceListsPage() {
+function mergeCatalog(
+  items: CatalogItem[],
+  saved: ApiPrice[] | undefined,
+  discount = ''
+): PriceLine[] {
+  const byItemUnit = new Map(
+    (saved ?? []).map((row) => [`${row.itemId}:${row.unitId}`, row] as const)
+  );
+  const byItem = new Map((saved ?? []).map((row) => [row.itemId, row] as const));
+  return items.map((item) => {
+    const unit = pickUnit(item);
+    const match = byItemUnit.get(`${item.id}:${unit.unitId}`) ?? byItem.get(item.id);
+    return lineFromCatalog(item, match, discount);
+  });
+}
+
+function PriceListsPageInner() {
   const invalidateQuery = useInvalidateQuery();
+  const { isReadOnly, unlockForEdit, lockToView, setMode } = useDocumentMode();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
-  const [lines, setLines] = useState<PriceLine[]>([emptyLine()]);
-  const [applyDiscountToAll, setApplyDiscountToAll] = useState(false);
+  const [lines, setLines] = useState<PriceLine[]>([]);
   const [filterGroupId, setFilterGroupId] = useState('');
-  const [filterItemId, setFilterItemId] = useState('');
   const [unpricedOnly, setUnpricedOnly] = useState(false);
-  const [applied, setApplied] = useState({ groupId: '', itemId: '', unpriced: false, search: '' });
+  const [applied, setApplied] = useState({ groupId: '', unpriced: false, search: '' });
   const [search, setSearch] = useState('');
   const [showPrint, setShowPrint] = useState(false);
   const [showCopy, setShowCopy] = useState(false);
+  const [showGuide, setShowGuide] = useState(false);
   const [copySourceId, setCopySourceId] = useState('');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [saving, setSaving] = useState(false);
   const [loadingDetail, setLoadingDetail] = useState(false);
+  const catalogSeeded = useRef(false);
+  const lastCatalogLen = useRef(0);
+  const pendingPrices = useRef<ApiPrice[] | undefined>(undefined);
 
   const { data: currenciesResponse } = useApiQuery<Currency[]>(
     queryKeys.currencies,
@@ -230,9 +215,20 @@ export default function PriceListsPage() {
   );
   const allLists = listsResponse?.data ?? [];
 
+  const { data: itemsResponse, isLoading: catalogLoading } = useApiQuery<CatalogItem[]>(
+    queryKeys.items({ priceListCatalog: true }),
+    '/inventory/items',
+    { limit: 1000, isActive: true }
+  );
+  const catalog = itemsResponse?.data ?? [];
+
   const patch = (next: Partial<FormState>) => setForm((prev) => ({ ...prev, ...next }));
   const patchLine = (key: string, next: Partial<PriceLine>) => {
     setLines((prev) => prev.map((row) => (row.key === key ? { ...row, ...next } : row)));
+  };
+
+  const seedFromCatalog = (saved?: ApiPrice[], discount = '') => {
+    setLines(mergeCatalog(catalog, saved, discount));
   };
 
   const hydrateFromDetail = (detail: PriceListRow & { prices?: ApiPrice[] }) => {
@@ -245,12 +241,13 @@ export default function PriceListsPage() {
         detail.discountPercentage != null && detail.discountPercentage !== ''
           ? String(detail.discountPercentage)
           : '',
+      markupPercentage: '',
       currencyCode: detail.currencyCode ?? '',
       priceMode:
         detail.priceMode === 'cost' || detail.priceMode === 'last' ? detail.priceMode : 'value',
     });
-    const next = (detail.prices ?? []).map(lineFromApi);
-    setLines(next.length ? next : [emptyLine()]);
+    pendingPrices.current = detail.prices;
+    seedFromCatalog(detail.prices);
   };
 
   const loadList = async (id: string) => {
@@ -263,6 +260,7 @@ export default function PriceListsPage() {
       if (res.data) {
         setSelectedId(res.data.id);
         hydrateFromDetail(res.data);
+        lockToView();
       }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'تعذر تحميل القائمة');
@@ -278,30 +276,42 @@ export default function PriceListsPage() {
   const handleNew = () => {
     setSelectedId(null);
     setForm(emptyForm());
-    setLines([emptyLine()]);
-    setApplyDiscountToAll(false);
+    pendingPrices.current = undefined;
+    seedFromCatalog();
     setFilterGroupId('');
-    setFilterItemId('');
     setUnpricedOnly(false);
-    setApplied({ groupId: '', itemId: '', unpriced: false, search: '' });
+    setApplied({ groupId: '', unpriced: false, search: '' });
     setError('');
     setSuccess('');
+    setMode('create');
   };
+
+  useEffect(() => {
+    if (!itemsResponse) return;
+    const catalogJustArrived = lastCatalogLen.current === 0 && catalog.length > 0;
+    lastCatalogLen.current = catalog.length;
+    if (selectedId) {
+      if (catalogJustArrived) seedFromCatalog(pendingPrices.current);
+      return;
+    }
+    if (!catalogSeeded.current || catalogJustArrived) {
+      seedFromCatalog();
+      catalogSeeded.current = true;
+    }
+  }, [itemsResponse, selectedId, catalog]);
 
   const visible = useMemo(() => {
     return lines.filter((row) => {
-      if (applied.groupId && row.itemId && row.categoryId && row.categoryId !== applied.groupId) {
+      if (applied.groupId && row.categoryId && row.categoryId !== applied.groupId) {
         return false;
       }
-      if (applied.itemId && row.itemId && row.itemId !== applied.itemId) return false;
       if (applied.unpriced) {
-        const priced = Boolean(row.wholesale.trim() || row.retailPrice.trim() || row.consumerPrice.trim());
+        const priced = Boolean(row.purchasePrice.trim() || row.salePrice.trim());
         if (priced) return false;
       }
       if (applied.search.trim()) {
         const q = applied.search.trim();
-        const hay = `${row.itemCode} ${row.itemName}`.includes(q);
-        if (!hay) return false;
+        if (!`${row.itemCode} ${row.itemName}`.includes(q)) return false;
       }
       return true;
     });
@@ -310,7 +320,6 @@ export default function PriceListsPage() {
   const applyFilters = () => {
     setApplied({
       groupId: filterGroupId,
-      itemId: filterItemId,
       unpriced: unpricedOnly,
       search,
     });
@@ -318,67 +327,35 @@ export default function PriceListsPage() {
 
   const showAll = () => {
     setFilterGroupId('');
-    setFilterItemId('');
     setUnpricedOnly(false);
     setSearch('');
-    setApplied({ groupId: '', itemId: '', unpriced: false, search: '' });
+    setApplied({ groupId: '', unpriced: false, search: '' });
   };
 
-  const addItemRow = () => setLines((prev) => [...prev, emptyLine()]);
-
-  const applyDiscountAll = () => {
-    const pct = form.discountPercentage.trim();
-    setLines((prev) => prev.map((row) => ({ ...row, discount: pct })));
-    setApplyDiscountToAll(true);
-    setSuccess('تم تطبيق نسبة الخصم على كل الأصناف');
-  };
-
-  const fillUnpricedFromCatalog = async () => {
-    setError('');
-    try {
-      const params: Record<string, string | number | boolean> = { limit: 300, isActive: true };
-      if (filterGroupId) params.categoryId = filterGroupId;
-      const res = await apiClient.get<CatalogItem[]>('/inventory/items', params);
-      const existing = new Set(lines.map((r) => r.itemId).filter(Boolean));
-      const extra = (res.data ?? [])
-        .filter((item) => !existing.has(item.id))
-        .map((item) => lineFromItem(item, applyDiscountToAll ? form.discountPercentage : ''));
-      if (!extra.length) {
-        setSuccess('لا توجد أصناف غير مسعّرة ضمن التصفية');
-        return;
-      }
-      setLines((prev) => {
-        const kept = prev.filter((r) => r.itemId);
-        return [...kept, ...extra];
-      });
-      setSuccess(`أُضيف ${extra.length} صنفاً غير مسعّر`);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'تعذر جلب الأصناف غير المسعّرة');
+  const applyPercentToTable = (raw: string, direction: 'down' | 'up') => {
+    const pct = num(raw);
+    if (pct == null || pct < 0) {
+      setError(direction === 'down' ? 'أدخل نسبة الخصم أولاً' : 'أدخل نسبة الزيادة أولاً');
+      return;
     }
-  };
-
-  const handleApply = () => {
-    applyFilters();
-    if (unpricedOnly) void fillUnpricedFromCatalog();
-  };
-
-  const resolveItemOnLine = (key: string, item?: ItemOption | CatalogItem) => {
-    if (!item) return;
-    const built = lineFromItem(item as CatalogItem, applyDiscountToAll ? form.discountPercentage : '');
-    patchLine(key, {
-      itemId: built.itemId,
-      itemCode: built.itemCode,
-      itemName: built.itemName,
-      categoryId: built.categoryId,
-      unitId: built.unitId || lines.find((r) => r.key === key)?.unitId || '',
-      unitName: built.unitName,
-      wholesale: built.wholesale,
-      semiWholesale: built.semiWholesale,
-      exportPrice: built.exportPrice,
-      representativePrice: built.representativePrice,
-      retailPrice: built.retailPrice,
-      consumerPrice: built.consumerPrice,
-    });
+    const factor = direction === 'down' ? 1 - pct / 100 : 1 + pct / 100;
+    if (!Number.isFinite(factor) || factor < 0) {
+      setError('النسبة غير صالحة');
+      return;
+    }
+    setError('');
+    setLines((prev) =>
+      prev.map((row) => ({
+        ...row,
+        purchasePrice: scalePrice(row.purchasePrice, factor),
+        salePrice: scalePrice(row.salePrice, factor),
+      }))
+    );
+    setSuccess(
+      direction === 'down'
+        ? `تم خصم ${pct}% من أسعار كل الأصناف`
+        : `تم زيادة أسعار كل الأصناف بنسبة ${pct}%`
+    );
   };
 
   const handleCopyFrom = async () => {
@@ -391,30 +368,9 @@ export default function PriceListsPage() {
       const res = await apiClient.get<PriceListRow & { prices?: ApiPrice[] }>(
         `/inventory/price-lists/${copySourceId}`
       );
-      const incoming = (res.data?.prices ?? []).map(lineFromApi);
-      setLines((prev) => {
-        const byItem = new Map(prev.filter((r) => r.itemId).map((r) => [`${r.itemId}:${r.unitId}`, r]));
-        for (const row of incoming) {
-          const key = `${row.itemId}:${row.unitId}`;
-          const existing = byItem.get(key);
-          if (!existing) {
-            byItem.set(key, { ...row, key: crypto.randomUUID(), id: undefined });
-            continue;
-          }
-          byItem.set(key, {
-            ...existing,
-            discount: existing.discount || row.discount,
-            wholesale: existing.wholesale || row.wholesale,
-            semiWholesale: existing.semiWholesale || row.semiWholesale,
-            exportPrice: existing.exportPrice || row.exportPrice,
-            representativePrice: existing.representativePrice || row.representativePrice,
-            retailPrice: existing.retailPrice || row.retailPrice,
-            consumerPrice: existing.consumerPrice || row.consumerPrice,
-          });
-        }
-        const next = [...byItem.values()];
-        return next.length ? next : [emptyLine()];
-      });
+      seedFromCatalog(
+        (res.data?.prices ?? []).map((row) => ({ ...row, id: row.id }))
+      );
       setShowCopy(false);
       setSuccess('تم نسخ الأسعار — احفظ لتثبيت القائمة');
     } catch (err: unknown) {
@@ -425,14 +381,22 @@ export default function PriceListsPage() {
   const handleSave = async () => {
     setError('');
     setSuccess('');
+    if (selectedId && isReadOnly) {
+      setError('اضغط تعديل أولاً قبل حفظ التغييرات');
+      return;
+    }
     if (!form.arabicName.trim()) {
       setError('يرجى إدخال الاسم العربي');
       return;
     }
-    const priced = lines.filter((row) => row.itemId && row.unitId);
-    const missingUnit = lines.find((row) => row.itemId && !row.unitId);
-    if (missingUnit) {
-      setError(`الصنف «${missingUnit.itemName || missingUnit.itemCode}» بلا وحدة`);
+    const priced = lines.filter(
+      (row) =>
+        row.itemId &&
+        row.unitId &&
+        (row.purchasePrice.trim() || row.salePrice.trim())
+    );
+    if (!priced.length) {
+      setError('أدخل سعر شراء أو بيع لصنف واحد على الأقل قبل الحفظ.');
       return;
     }
     const body = {
@@ -445,19 +409,15 @@ export default function PriceListsPage() {
       priceMode: form.priceMode,
     };
     const prices = priced.map((row) => {
-      const wholesale = num(row.wholesale) ?? 0;
+      const sale = num(row.salePrice) ?? 0;
       return {
         id: row.id,
         itemId: row.itemId,
         unitId: row.unitId,
-        price: wholesale,
-        discount: applyDiscountToAll ? num(form.discountPercentage) : num(row.discount),
-        wholesale,
-        semiWholesale: num(row.semiWholesale),
-        exportPrice: num(row.exportPrice),
-        representativePrice: num(row.representativePrice),
-        retailPrice: num(row.retailPrice),
-        consumerPrice: num(row.consumerPrice),
+        price: sale,
+        discount: num(row.discount),
+        purchasePrice: num(row.purchasePrice),
+        retailPrice: sale,
       };
     });
     setSaving(true);
@@ -471,7 +431,7 @@ export default function PriceListsPage() {
         if (id) setSelectedId(id);
       }
       if (!id) throw new Error('تعذر حفظ قائمة الأسعار');
-      const saved = await apiClient.put<PriceListRow & { prices?: ApiPrice[] }>(
+      await apiClient.put<PriceListRow & { prices?: ApiPrice[] }>(
         `/inventory/price-lists/${id}/prices`,
         { replace: true, prices }
       );
@@ -488,6 +448,7 @@ export default function PriceListsPage() {
 
   const handleDelete = async () => {
     if (!selectedId) return;
+    if (!(await confirmAction('حذف قائمة الأسعار؟'))) return;
     setError('');
     try {
       await apiClient.delete(`/inventory/price-lists/${selectedId}`);
@@ -514,31 +475,52 @@ export default function PriceListsPage() {
         { label: 'قوائم الأسعار' },
       ]}
       docNumber={form.code || 'جديد'}
-      statusLabel={selectedId ? 'تعديل' : 'جديد'}
+      statusLabel={
+        selectedId ? (isReadOnly ? 'عرض — اضغط تعديل' : 'تعديل') : 'جديد'
+      }
       onSave={() => void handleSave()}
       savePending={saving}
-      canSave={!saving}
+      canSave={!saving && !(selectedId && isReadOnly)}
       onNew={handleNew}
-      onDelete={selectedId ? () => void handleDelete() : undefined}
       currentId={selectedId}
+      onBrowseList={() => setShowGuide(true)}
       favoriteHref="/inventory/creations/price-lists"
       moreMenuItems={[
-        { id: 'pick-items', label: 'اختيار الأصناف', onClick: addItemRow },
+        {
+          id: 'edit',
+          label: 'تعديل',
+          onClick: () => {
+            if (!selectedId) return;
+            unlockForEdit();
+          },
+          disabled: !selectedId || !isReadOnly,
+        },
+        {
+          id: 'delete',
+          label: 'حذف',
+          onClick: () => void handleDelete(),
+          disabled: !selectedId,
+          destructive: true,
+        },
         {
           id: 'print-barcode',
           label: 'طباعة الباركود',
           onClick: () => setShowPrint(true),
           disabled: barcodeItemIds.length === 0,
         },
-        { id: 'copy-list', label: 'نسخ من قائمة أسعار', onClick: () => setShowCopy(true) },
+        {
+          id: 'copy-list',
+          label: 'نسخ من قائمة أسعار',
+          onClick: () => setShowCopy(true),
+          disabled: Boolean(selectedId && isReadOnly),
+        },
       ]}
     >
       {error && <ErrorToast message={error} onClose={() => setError('')} />}
       {success && <SuccessToast message={success} onClose={() => setSuccess('')} />}
 
-      <PriceListsListSection onSelect={applyRow} selectedId={selectedId} />
-
-      <FormSectionCard title="بيانات القائمة" subtitle="الكود والأسماء ونسبة الخصم والعملة" icon={Tags}>
+      <fieldset disabled={Boolean(selectedId && isReadOnly)} className="min-w-0 border-0 p-0">
+      <FormSectionCard title="بيانات القائمة" subtitle="الكود والأسماء والعملة ونسب الخصم والزيادة" icon={Tags}>
         <CompactFormField label="الكود" value={form.code} onChange={(e) => patch({ code: e.target.value })} />
         <CompactFormField
           label="الاسم العربي"
@@ -556,15 +538,48 @@ export default function PriceListsPage() {
           value={form.description}
           onChange={(e) => patch({ description: e.target.value })}
         />
-        <CompactFormField
-          label="نسبة الخصم"
-          type="number"
-          step="0.01"
-          min="0"
-          value={form.discountPercentage}
-          onChange={(e) => patch({ discountPercentage: e.target.value })}
-          suffix="%"
-        />
+        <div className="flex min-w-0 items-end gap-2">
+          <CompactFormField
+            className="flex-1"
+            label="نسبة الخصم"
+            type="number"
+            step="0.01"
+            min="0"
+            value={form.discountPercentage}
+            onChange={(e) => patch({ discountPercentage: e.target.value })}
+            suffix="%"
+          />
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            className="h-9 shrink-0"
+            onClick={() => applyPercentToTable(form.discountPercentage, 'down')}
+          >
+            تطبيق الخصم
+          </Button>
+        </div>
+        <div className="flex min-w-0 items-end gap-2">
+          <CompactFormField
+            className="flex-1"
+            label="نسبة الزيادة"
+            type="number"
+            step="0.01"
+            min="0"
+            value={form.markupPercentage}
+            onChange={(e) => patch({ markupPercentage: e.target.value })}
+            suffix="%"
+          />
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            className="h-9 shrink-0"
+            onClick={() => applyPercentToTable(form.markupPercentage, 'up')}
+          >
+            تطبيق الزيادة
+          </Button>
+        </div>
         <CompactFormField label="العملة">
           <select
             className={compactControlClass}
@@ -604,18 +619,6 @@ export default function PriceListsPage() {
             {label}
           </button>
         ))}
-        <label className="mr-auto flex items-center gap-2 text-sm text-[#0A3D5E]">
-          <input
-            type="checkbox"
-            className="h-4 w-4"
-            checked={applyDiscountToAll}
-            onChange={(e) => setApplyDiscountToAll(e.target.checked)}
-          />
-          تطبيق على جميع الأصناف
-        </label>
-        <Button type="button" variant="secondary" size="sm" onClick={applyDiscountAll}>
-          تطبيق الخصم
-        </Button>
       </div>
 
       <FilterToolbar searchPlaceholder="بحث بكود أو اسم الصنف…" onSearchChange={setSearch}>
@@ -632,15 +635,6 @@ export default function PriceListsPage() {
             </option>
           ))}
         </select>
-        <div className="min-w-[220px]">
-          <ItemSelect
-            value={filterItemId}
-            emptyLabel="كل الأصناف"
-            enableQuickCreate={false}
-            menuPlacement="bottom"
-            onChange={setFilterItemId}
-          />
-        </div>
         <label className="flex items-center gap-2 text-sm text-[#0A3D5E]">
           <input
             type="checkbox"
@@ -650,25 +644,21 @@ export default function PriceListsPage() {
           />
           الأصناف غير المسعّرة
         </label>
-        <Button type="button" variant="secondary" size="sm" onClick={handleApply}>
+        <Button type="button" variant="secondary" size="sm" onClick={applyFilters}>
           تطبيق
         </Button>
         <Button type="button" variant="ghost" size="sm" onClick={showAll}>
           عرض الكل
         </Button>
-        <Button type="button" variant="secondary" size="sm" onClick={addItemRow}>
-          <Plus className="h-4 w-4" />
-          صنف
-        </Button>
       </FilterToolbar>
 
       <section className="mb-4 mt-4 overflow-visible rounded-xl border border-[#E6F0F7] bg-white p-4 shadow-sm">
         <AppTable<PriceLine>
-          isLoading={loadingDetail}
+          isLoading={loadingDetail || catalogLoading}
           data={visible}
           getRowKey={(r) => r.key}
-          emptyTitle="لا توجد أصناف في القائمة"
-          emptyDescription="اختر قائمة محفوظة أو أضف صنفاً من الثلاث نقاط."
+          emptyTitle="لا توجد أصناف في دليل الأصناف"
+          emptyDescription="أضف الأصناف من دليل الأصناف ثم ارجع لتسعيرها هنا."
           virtualizeThreshold={10_000}
           columns={[
             {
@@ -688,15 +678,7 @@ export default function PriceListsPage() {
               id: 'item',
               header: 'اسم الصنف',
               className: `${cellCls} min-w-[220px]`,
-              cell: (row) => (
-                <ItemSelect
-                  value={row.itemId}
-                  emptyLabel="اختر الصنف"
-                  menuPlacement="bottom"
-                  onChange={(itemId) => patchLine(row.key, { itemId })}
-                  onItemResolved={(item) => resolveItemOnLine(row.key, item as ItemOption)}
-                />
-              ),
+              cell: (row) => row.itemName || '—',
             },
             {
               id: 'unit',
@@ -719,118 +701,63 @@ export default function PriceListsPage() {
               ),
             },
             {
-              id: 'wholesale',
-              header: 'الجملة',
-              className: `${cellCls} min-w-[100px]`,
+              id: 'purchase',
+              header: 'سعر الشراء',
+              className: `${cellCls} min-w-[110px]`,
               cell: (row) => (
                 <input
                   className={compactControlClass}
                   type="number"
                   min={0}
-                  value={row.wholesale}
-                  onChange={(e) => patchLine(row.key, { wholesale: e.target.value })}
+                  value={row.purchasePrice}
+                  onChange={(e) => patchLine(row.key, { purchasePrice: e.target.value })}
                 />
               ),
             },
             {
-              id: 'semi',
-              header: 'نصف',
-              className: `${cellCls} min-w-[100px]`,
+              id: 'sale',
+              header:
+                form.priceMode === 'cost'
+                  ? 'سعر البيع (% من التكلفة)'
+                  : form.priceMode === 'last'
+                    ? 'سعر البيع (% من آخر شراء)'
+                    : 'سعر البيع',
+              className: `${cellCls} min-w-[110px]`,
               cell: (row) => (
                 <input
                   className={compactControlClass}
                   type="number"
                   min={0}
-                  value={row.semiWholesale}
-                  onChange={(e) => patchLine(row.key, { semiWholesale: e.target.value })}
+                  value={row.salePrice}
+                  onChange={(e) => patchLine(row.key, { salePrice: e.target.value })}
                 />
-              ),
-            },
-            {
-              id: 'export',
-              header: 'التصدير',
-              className: `${cellCls} min-w-[100px]`,
-              cell: (row) => (
-                <input
-                  className={compactControlClass}
-                  type="number"
-                  min={0}
-                  value={row.exportPrice}
-                  onChange={(e) => patchLine(row.key, { exportPrice: e.target.value })}
-                />
-              ),
-            },
-            {
-              id: 'rep',
-              header: 'المندوب',
-              className: `${cellCls} min-w-[100px]`,
-              cell: (row) => (
-                <input
-                  className={compactControlClass}
-                  type="number"
-                  min={0}
-                  value={row.representativePrice}
-                  onChange={(e) => patchLine(row.key, { representativePrice: e.target.value })}
-                />
-              ),
-            },
-            {
-              id: 'retail',
-              header: 'القطاعي',
-              className: `${cellCls} min-w-[100px]`,
-              cell: (row) => (
-                <input
-                  className={compactControlClass}
-                  type="number"
-                  min={0}
-                  value={row.retailPrice}
-                  onChange={(e) => patchLine(row.key, { retailPrice: e.target.value })}
-                />
-              ),
-            },
-            {
-              id: 'consumer',
-              header: 'المستهلك',
-              className: `${cellCls} min-w-[100px]`,
-              cell: (row) => (
-                <input
-                  className={compactControlClass}
-                  type="number"
-                  min={0}
-                  value={row.consumerPrice}
-                  onChange={(e) => patchLine(row.key, { consumerPrice: e.target.value })}
-                />
-              ),
-            },
-            {
-              id: 'remove',
-              header: '',
-              align: 'center',
-              className: cellCls,
-              cell: (row) => (
-                <button
-                  type="button"
-                  className="text-slate-400 hover:text-red-500"
-                  onClick={() =>
-                    setLines((prev) =>
-                      prev.length > 1 ? prev.filter((t) => t.key !== row.key) : [emptyLine()]
-                    )
-                  }
-                  aria-label="حذف السطر"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </button>
               ),
             },
           ]}
         />
       </section>
 
+      </fieldset>
+
       <BarcodePrintModal
         open={showPrint}
         onClose={() => setShowPrint(false)}
         initialItemIds={barcodeItemIds}
       />
+
+      <DocumentBrowseDrawer
+        open={showGuide}
+        onClose={() => setShowGuide(false)}
+        title="قوائم الأسعار السابقة"
+      >
+        <PriceListsListSection
+          onSelect={(row) => {
+            applyRow(row);
+            setShowGuide(false);
+          }}
+          selectedId={selectedId}
+        />
+      </DocumentBrowseDrawer>
 
       {showCopy && (
         <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/40 p-4" dir="rtl">
@@ -863,5 +790,13 @@ export default function PriceListsPage() {
         </div>
       )}
     </MasterCardShell>
+  );
+}
+
+export default function PriceListsPage() {
+  return (
+    <DocumentModeProvider initialMode="create">
+      <PriceListsPageInner />
+    </DocumentModeProvider>
   );
 }

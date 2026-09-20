@@ -305,7 +305,7 @@ export class SecuritiesReceiptService {
     assertPaperIssued(receipt, 'تعديل الورقة');
 
     // Check receipt number uniqueness if changing
-    if (data.receiptNumber && data.receiptNumber !== receipt.receiptNumber) {
+    if (data.receiptNumber && data.receiptNumber !== (receipt as { receiptNumber?: string | null }).receiptNumber) {
       const existing = await prisma.securitiesReceipt.findFirst({
         where: {
           companyId,

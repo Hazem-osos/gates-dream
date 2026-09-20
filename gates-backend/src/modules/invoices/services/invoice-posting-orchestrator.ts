@@ -346,7 +346,11 @@ export class InvoicePostingOrchestrator {
     tx: Prisma.TransactionClient,
     ctx: InvoicePostingContext
   ): Promise<string | undefined> {
-    return documentSequenceService.nextGlNumberInTx(tx, ctx);
+    return documentSequenceService.nextGlNumberInTx(tx, {
+      companyId: ctx.companyId,
+      branchId: ctx.branchId ?? '',
+      fiscalYearId: ctx.fiscalYearId,
+    });
   }
 
   async post(ctx: InvoicePostingContext, invoiceId: string) {
@@ -526,7 +530,42 @@ export class InvoicePostingOrchestrator {
       headerWarehouseId
     );
 
+    // H10 fix: for SALE_RETURN lines linked to an original sale line, use the
+    // cost that was actually charged to COGS at issue time rather than today's
+    // moving average. Prevents credit-note COGS from diverging from the original.
+    const originalLineCostByLineId = new Map<string, number>();
+    if (kind === 'SALE_RETURN') {
+      const originalLineIds = invoice.lines
+        .map((l) => l.originalInvoiceLineId)
+        .filter((id): id is string => Boolean(id));
+      if (originalLineIds.length > 0) {
+        // InvoiceLine has no direct companyId — tenant scope is guaranteed because
+        // originalInvoiceLineIds come from this company's own invoice.lines.
+        const originalLines = await prisma.invoiceLine.findMany({
+          where: { id: { in: originalLineIds } },
+          select: { id: true, unitCostAtIssue: true },
+        });
+        for (const orig of originalLines) {
+          if (orig.unitCostAtIssue != null) {
+            originalLineCostByLineId.set(orig.id, Number(orig.unitCostAtIssue));
+          }
+        }
+      }
+    }
+
     return prisma.$transaction(async (tx) => {
+      // P2 fix: atomic idempotency guard. `updateMany` is a single DB write that
+      // only matches when isPosted is still false — concurrent post requests will
+      // see count=0 and throw before any stock or GL work runs, preventing
+      // duplicate movements and duplicate journal entries.
+      const claimPost = await tx.invoice.updateMany({
+        where: { id: invoiceId, companyId: ctx.companyId, isPosted: false, isCancelled: false },
+        data: { isPosted: true, postedAt: new Date(), postedBy: ctx.userId ?? null },
+      });
+      if (claimPost.count === 0) {
+        throw new AppError(400, 'Invoice is already posted or cancelled');
+      }
+
       let runningCogs = 0;
       const cogsByAccount = new Map<string, number>();
       // Groups the COGS *debit* leg by each line's resolved COGS account —
@@ -564,7 +603,7 @@ export class InvoicePostingOrchestrator {
           let unitCost: number | undefined;
           const costingBase = {
             companyId: ctx.companyId,
-            branchId: ctx.branchId,
+            branchId: ctx.branchId ?? undefined,
             warehouseId: lineWarehouseId,
             itemId: line.itemId,
             sourceType,
@@ -585,12 +624,18 @@ export class InvoicePostingOrchestrator {
             });
             unitCost = inbound.unitCost;
           } else if (kind === 'SALE_RETURN') {
-            // C1: restore qty at current MAC — never re-average at selling price.
+            // Use the cost saved on the original sale line (unitCostAtIssue) when
+            // available, so the credit-note reversal is always at the original COGS —
+            // not at today's MAC which may have drifted since the original sale.
+            const originalCost = line.originalInvoiceLineId
+              ? originalLineCostByLineId.get(line.originalInvoiceLineId)
+              : undefined;
             const inbound = await inventoryCostingService.applyInboundMovement(tx, {
               ...costingBase,
               quantity: baseQty,
-              unitCost: unitCostByItemId.get(line.itemId) ?? 0,
-              inheritCurrentCost: true,
+              unitCost: originalCost ?? (unitCostByItemId.get(line.itemId) ?? 0),
+              // Only inherit current MAC when no original cost is available (standalone return)
+              inheritCurrentCost: originalCost == null,
               updateLastPurchasePrice: false,
               movementType: COSTING_MOVEMENT.RETURN_SALE,
             });
@@ -1109,6 +1154,10 @@ export class InvoicePostingOrchestrator {
     const txSettings = await loadInvoiceTransactionSettings(ctx.companyId, kind);
     const affectStore = txSettings?.affectStock ?? moduleSettings.postTostore;
 
+    // Mirror the tax-period guard from post() so unpost cannot reopen a closed
+    // VAT/Dariba period or modify entries in a locked fiscal year.
+    await taxPeriodService.assertOpenForDocumentDate(ctx.companyId, invoice.date);
+
     await advancedRightsService.assertCanPostFamily(
       ctx.companyId,
       ctx.userId,
@@ -1128,7 +1177,7 @@ export class InvoicePostingOrchestrator {
       )?.legacyYearId ??
       String(new Date(invoice.date).getFullYear());
 
-    return prisma.$transaction(async (tx) => {
+    const unpostResult = await prisma.$transaction(async (tx) => {
       // Reverse tenders first. Invoice AR/AP below uses the full net total, so
       // undoing cash/cheque party deltas beforehand restores the pre-invoice
       // balance without double-counting.
@@ -1145,7 +1194,7 @@ export class InvoicePostingOrchestrator {
         if (reverseDelta !== 0 && lineWarehouseId) {
           await stockMovementService.postMovementInTx(tx, {
             companyId: ctx.companyId,
-            branchId: ctx.branchId,
+            branchId: ctx.branchId ?? undefined,
             warehouseId: lineWarehouseId,
             itemId: line.itemId,
             quantityDelta: reverseDelta,
@@ -1230,6 +1279,22 @@ export class InvoicePostingOrchestrator {
 
       return unposted;
     });
+
+    // After the transaction commits: recalculate MAC for PURCHASE invoices so
+    // that the weighted-average cost is correct after removing the blended receipt.
+    // Must run outside the main tx because recalculateItemCostHistory opens its own.
+    if (affectStore && kind === 'PURCHASE') {
+      const affectedItemIds = [...new Set(invoice.lines.map((l) => l.itemId))];
+      for (const itemId of affectedItemIds) {
+        await inventoryCostingService.recalculateItemCostHistory({
+          companyId: ctx.companyId,
+          itemId,
+          startDate: invoice.date,
+        });
+      }
+    }
+
+    return unpostResult;
   }
 
   async unapprove(companyId: string, invoiceId: string) {

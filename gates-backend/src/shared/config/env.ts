@@ -183,6 +183,15 @@ const envSchema = z.object({
    * Never commit a real value.
    */
   AUTOMATION_INTERNAL_API_KEY: optionalEnvString(),
+  /**
+   * n8n "Universal Event Intake" webhook — where GATES pushes the standard
+   * event envelope (companyId, eventId, eventType, timestamp, data) after a
+   * real domain operation succeeds. Optional: delivery is fail-soft (see
+   * automation-event-bus.service.ts) so GATES never blocks/couples ERP
+   * correctness to n8n or Redis availability. Sent with `X-Api-Key:
+   * AUTOMATION_INTERNAL_API_KEY` so n8n's webhook trigger can verify origin.
+   */
+  N8N_EVENT_INTAKE_URL: optionalEnvUrl(),
   OPENAI_API_KEY: optionalEnvString(),
   OPENAI_MODEL: optionalEnvString(),
   OPENAI_BASE_URL: optionalEnvUrl(),
@@ -235,6 +244,20 @@ function validateProductionSecrets(parsed: Env): void {
 
   if (parsed.DATABASE_URL.includes('localhost') || parsed.DATABASE_URL.includes('127.0.0.1')) {
     warnings.push('DATABASE_URL appears to be using localhost - ensure this is correct for production');
+  }
+
+  // AUTOMATION_INTERNAL_API_KEY gates `/internal/v1/automation/*` (n8n S2S
+  // calls). It's optional — a tenant-scoped GATES API key
+  // (`POST /api/v1/api-keys`) is a valid fallback and the route still fails
+  // closed (401) with no key configured, so we intentionally do NOT refuse
+  // to boot over this like we do for DATABASE_URL/FRONTEND_URL. But an
+  // operator who forgot to set it would otherwise only discover the gap
+  // when n8n's calls start failing with a generic "Invalid API key" 401 —
+  // this warning makes the real cause obvious in production startup logs.
+  if (!parsed.AUTOMATION_INTERNAL_API_KEY?.trim()) {
+    warnings.push(
+      'AUTOMATION_INTERNAL_API_KEY is not set — the platform n8n secret for /internal/v1/automation/* is disabled; only tenant-scoped GATES API keys (POST /api/v1/api-keys) will authenticate against those endpoints.'
+    );
   }
 
   if (warnings.length > 0) {

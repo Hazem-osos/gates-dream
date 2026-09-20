@@ -23,6 +23,7 @@ export interface PriceListPriceRowInput {
   unitId: string;
   price?: number;
   discount?: number | null;
+  purchasePrice?: number | null;
   wholesale?: number | null;
   semiWholesale?: number | null;
   exportPrice?: number | null;
@@ -61,7 +62,7 @@ export class PriceListService {
               item: {
                 select: {
                   id: true,
-                  code: true,
+                  serial: true,
                   arabicName: true,
                 },
               },
@@ -101,11 +102,12 @@ export class PriceListService {
               item: {
                 select: {
                   id: true,
-                  code: true,
                   serial: true,
                   arabicName: true,
                   englishName: true,
                   categoryId: true,
+                  lastPurchasePrice: true,
+                  priceRetail: true,
                   priceWholesale: true,
                   priceSemiWholesale: true,
                   exportPrice: true,
@@ -188,7 +190,7 @@ export class PriceListService {
                 item: {
                   select: {
                     id: true,
-                    code: true,
+                    serial: true,
                     arabicName: true,
                   },
                 },
@@ -250,7 +252,7 @@ export class PriceListService {
               item: {
                 select: {
                   id: true,
-                  code: true,
+                  serial: true,
                   arabicName: true,
                 },
               },
@@ -330,15 +332,16 @@ export class PriceListService {
       }
 
       for (const row of prices) {
-        const wholesale = row.wholesale ?? row.price ?? 0;
+        const sale = row.price ?? row.retailPrice ?? 0;
         const data = {
-          price: new Decimal(row.price ?? wholesale ?? 0),
+          price: new Decimal(sale),
           discount: dec(row.discount) ?? null,
-          wholesale: dec(row.wholesale) ?? (row.price != null ? new Decimal(row.price) : null),
+          purchasePrice: dec(row.purchasePrice) ?? null,
+          wholesale: dec(row.wholesale) ?? null,
           semiWholesale: dec(row.semiWholesale) ?? null,
           exportPrice: dec(row.exportPrice) ?? null,
           representativePrice: dec(row.representativePrice) ?? null,
-          retailPrice: dec(row.retailPrice) ?? null,
+          retailPrice: dec(row.retailPrice) ?? (row.price != null ? new Decimal(row.price) : null),
           consumerPrice: dec(row.consumerPrice) ?? null,
         };
         await tx.itemPrice.upsert({

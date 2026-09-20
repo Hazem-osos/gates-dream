@@ -284,3 +284,32 @@ export function hasPermission(apiKey: APIKey, permission: string): boolean {
   return apiKey.permissions.includes(permission) || apiKey.permissions.includes('*');
 }
 
+/**
+ * Resolve the `tenantId` a newly created API key should be scoped to.
+ *
+ * SECURITY: an API key's `tenantId` is the sole scoping check
+ * `apiKeyMayLookupCompany` relies on for `/internal/v1/automation/*` — a
+ * key minted here can read/act on that tenant's automation rules and
+ * purchase-request automation. It must always come from the authenticated
+ * session, never from attacker-controlled request-body input. A caller
+ * whose own session has no resolvable company also cannot create a key
+ * (there is nothing safe to scope it to).
+ *
+ * Returns the tenantId to use, or an explicit mismatch error the route
+ * should surface as 403 rather than silently overriding the body value —
+ * a caller that sent a foreign tenantId must never be led to believe it
+ * was honored.
+ */
+export function resolveApiKeyTenantId(
+  sessionCompanyId: string | undefined,
+  requestedTenantId: string | undefined
+): { tenantId: string } | { error: 'no_session_company' | 'tenant_mismatch' } {
+  if (!sessionCompanyId) {
+    return { error: 'no_session_company' };
+  }
+  if (requestedTenantId && requestedTenantId !== sessionCompanyId) {
+    return { error: 'tenant_mismatch' };
+  }
+  return { tenantId: sessionCompanyId };
+}
+

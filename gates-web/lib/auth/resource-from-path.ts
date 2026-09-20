@@ -3,6 +3,7 @@
  * Longest-prefix match so nested routes inherit the parent resource.
  */
 const PATH_RESOURCE: Array<{ prefix: string; resource: string; module?: string }> = [
+  { prefix: '/automation', resource: 'automation-rule', module: 'system' },
   { prefix: '/accounting/cards/account', resource: 'account', module: 'accounting' },
   { prefix: '/accounting/cards/staff', resource: 'delegate', module: 'accounting' },
   { prefix: '/accounting/cards/cost-center', resource: 'cost-center', module: 'accounting' },

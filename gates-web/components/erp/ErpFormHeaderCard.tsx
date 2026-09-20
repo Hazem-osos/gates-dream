@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Card, CardContent } from '@/app/components/ui/card';
 import { Settings2 } from 'lucide-react';
 import { erpFieldErrorClass, erpFormGridClass } from '@/components/erp/erpUiTokens';
@@ -15,6 +15,8 @@ type Props = {
   row2: ReactNode;
   extras?: ReactNode;
   extrasLabel?: string;
+  extrasOpen?: boolean;
+  onExtrasOpenChange?: (open: boolean) => void;
   /** Shown beside the extras toggle (e.g. internal notes). */
   headerActions?: ReactNode;
   /** Locks header fields after loading a source order, without locking القسم والرقم. */
@@ -27,10 +29,24 @@ export function ErpFormHeaderCard({
   row2,
   extras,
   extrasLabel = 'خيارات إضافية',
+  extrasOpen: extrasOpenProp,
+  onExtrasOpenChange,
   headerActions,
   fieldsDisabled = false,
 }: Props) {
-  const [extrasOpen, setExtrasOpen] = useState(false);
+  const [extrasOpenState, setExtrasOpenState] = useState(Boolean(extrasOpenProp));
+  const extrasOpen = extrasOpenProp ?? extrasOpenState;
+
+  useEffect(() => {
+    if (extrasOpenProp == null) return;
+    setExtrasOpenState(extrasOpenProp);
+  }, [extrasOpenProp]);
+
+  const setExtrasOpen = (next: boolean | ((prev: boolean) => boolean)) => {
+    const resolved = typeof next === 'function' ? next(extrasOpen) : next;
+    setExtrasOpenState(resolved);
+    onExtrasOpenChange?.(resolved);
+  };
 
   return (
     <Card className="mt-2 min-w-0 max-w-full overflow-hidden rounded-xl border-slate-200 shadow-sm">

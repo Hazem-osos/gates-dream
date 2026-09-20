@@ -6,12 +6,18 @@ import type {
   ChequeMaturityJobData,
   DailyLateFeeJobData,
   DynamicPricingJobData,
+  SalesInvoiceOverdueScanJobData,
 } from '../types/automation-jobs.types';
 import { processChequeMaturityJob } from './cheque-maturity.processor';
 import { processDailyLateFeeJob } from './daily-late-fee.processor';
 import { processDynamicPricingJob } from './dynamic-pricing.processor';
+import { processSalesInvoiceOverdueScanJob } from './sales-invoice-overdue.processor';
 
-type SchedulerJobData = DailyLateFeeJobData | ChequeMaturityJobData | DynamicPricingJobData;
+type SchedulerJobData =
+  | DailyLateFeeJobData
+  | ChequeMaturityJobData
+  | DynamicPricingJobData
+  | SalesInvoiceOverdueScanJobData;
 
 export async function processSchedulerJob(job: Job<SchedulerJobData>) {
   switch (job.name) {
@@ -21,6 +27,8 @@ export async function processSchedulerJob(job: Job<SchedulerJobData>) {
       return processChequeMaturityJob(job as Job<ChequeMaturityJobData>);
     case AUTOMATION_JOB_NAMES.dynamicPricing:
       return processDynamicPricingJob(job as Job<DynamicPricingJobData>);
+    case AUTOMATION_JOB_NAMES.salesInvoiceOverdue:
+      return processSalesInvoiceOverdueScanJob(job as Job<SalesInvoiceOverdueScanJobData>);
     default:
       logger.warn({ jobId: job.id, name: job.name }, 'Unknown automation scheduler job');
       return;

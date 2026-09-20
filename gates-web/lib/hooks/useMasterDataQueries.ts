@@ -38,7 +38,12 @@ export type ItemOption = {
   salesPrice?: number | null;
   averageCost?: number | string | null;
   onHandQuantity?: number | null;
-  itemPrices?: { price?: number; priceList?: { isDefault?: boolean } }[];
+  itemPrices?: {
+    price?: number;
+    retailPrice?: number | string | null;
+    unitId?: string | null;
+    priceList?: { id?: string; priceMode?: string | null; isActive?: boolean | null; isDefault?: boolean };
+  }[];
   units?: {
     unitId?: string;
     isBaseUnit?: boolean;
@@ -71,6 +76,8 @@ export type PartyOption = {
   phone1?: string | null;
   phone2?: string | null;
   accountId?: string | null;
+  priceListId?: string | null;
+  priceTier?: string | null;
 };
 
 export type CostCenterOption = {

@@ -26,6 +26,7 @@ type Props = {
   onJournalIdChange?: (id: string) => void;
   showJournalTab?: boolean;
   journalEmptyTitle?: string;
+  currencyCode?: string | null;
 };
 
 export function ErpDocumentBottomSplit({
@@ -43,6 +44,7 @@ export function ErpDocumentBottomSplit({
   onJournalIdChange,
   showJournalTab = true,
   journalEmptyTitle,
+  currencyCode,
 }: Props) {
   const journalPreview = (
     <div className="space-y-2">
@@ -126,6 +128,7 @@ export function ErpDocumentBottomSplit({
           rows={financialRows}
           netAmount={netAmount}
           netLabel={netLabel}
+          currencyCode={currencyCode}
           showTafqeet={showTafqeet}
           footer={financialFooter}
         />

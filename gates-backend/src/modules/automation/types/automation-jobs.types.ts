@@ -86,11 +86,25 @@ export interface DynamicPricingJobData {
   asOfDate?: string;
 }
 
+export interface SalesInvoiceOverdueScanJobData {
+  asOfDate?: string;
+}
+
+export interface DispatchAutomationDomainEventJobData {
+  companyId: string;
+  eventId: string;
+  eventType: string;
+  timestamp: string;
+  data: Record<string, unknown>;
+}
+
 export const AUTOMATION_QUEUE_NAMES = {
   schedulers: 'automation-schedulers',
   cheques: 'real-estate-cheques',
   subcontractWorkflows: 'subcontract-workflows',
   cancellations: 'real-estate-cancellations',
+  /** Rule-engine "WHEN" side: delivers the standard event envelope to n8n's intake webhook. */
+  domainEvents: 'automation-domain-events',
 } as const;
 
 export const AUTOMATION_JOB_NAMES = {
@@ -100,6 +114,10 @@ export const AUTOMATION_JOB_NAMES = {
   chequeBounced: 'ChequeBouncedJob',
   subcontractWorkflow: 'SubcontractorInvoiceWorkflowJob',
   unitCancellation: 'UnitCancellationReleasedJob',
+  /** Scheduled scan for POSTED, unpaid sale invoices past dueDate. */
+  salesInvoiceOverdue: 'SalesInvoiceOverdueScanJob',
+  /** Delivers one AutomationEventEnvelope to the n8n event intake webhook. */
+  dispatchDomainEvent: 'DispatchAutomationDomainEventJob',
 } as const;
 
 export const AUTOMATION_SETTING_KEYS = {

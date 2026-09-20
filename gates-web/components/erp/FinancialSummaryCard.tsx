@@ -3,8 +3,9 @@
 import type { ReactNode } from 'react';
 import { Card, CardContent } from '@/app/components/ui/card';
 import { formatInvoiceMoney } from '@/lib/invoices/computeInvoiceFinancialSummary';
-import { tafqeetEgp } from '@/lib/print/tafqeet';
+import { tafqeetAmount } from '@/lib/print/tafqeet';
 import { DebitCreditTotals } from '@/components/accounting/DebitCreditTotals';
+import { currencyDisplayLabel } from '@/lib/accounting/fx-base';
 
 export type FinancialSummaryRow = {
   label: string;
@@ -20,6 +21,7 @@ type Props = {
   rows: FinancialSummaryRow[];
   netLabel?: string;
   netAmount: number;
+  currencyCode?: string | null;
   showTafqeet?: boolean;
   footer?: ReactNode;
 };
@@ -29,9 +31,11 @@ export function FinancialSummaryCard({
   rows,
   netLabel = 'الصافي المستحق',
   netAmount,
+  currencyCode,
   showTafqeet = true,
   footer,
 }: Props) {
+  const currencyLabel = currencyDisplayLabel(currencyCode);
   const visible = rows.filter((r) => r.show !== false);
   const debitRow = visible.find((r) => r.label === 'إجمالي المدين' || r.label === 'المدين' || r.label === 'مدين');
   const creditRow = visible.find((r) => r.label === 'إجمالي الدائن' || r.label === 'الدائن' || r.label === 'دائن');
@@ -45,18 +49,31 @@ export function FinancialSummaryCard({
       <CardContent className="p-4">
         <h3 className="text-sm font-bold text-slate-800 mb-3">{title}</h3>
         {debitRow && creditRow ? (
-          <DebitCreditTotals debit={debitRow.value} credit={creditRow.value} className="mb-3" />
+          <DebitCreditTotals
+            debit={debitRow.value}
+            credit={creditRow.value}
+            currencyCode={currencyCode || 'EGP'}
+            className="mb-3"
+          />
         ) : null}
         <dl className="space-y-0">
           {otherRows.map((r) => (
-            <SummaryRow key={r.label} label={r.label} value={r.value} dataTour={r.dataTour} suffix={r.suffix} />
+            <SummaryRow
+              key={r.label}
+              label={r.label}
+              value={r.value}
+              currencyLabel={currencyLabel}
+              dataTour={r.dataTour}
+              suffix={r.suffix}
+            />
           ))}
         </dl>
         <div className="bg-[#0E78AA]/5 text-[#0E78AA] rounded-xl p-3 mt-3">
           <div className="flex justify-between items-baseline gap-2">
             <span className="text-sm font-bold">{netLabel}</span>
             <span className="text-2xl font-black tabular-nums">
-              {formatInvoiceMoney(netAmount)} <span className="text-sm font-semibold">ج.م</span>
+              {formatInvoiceMoney(netAmount)}{' '}
+              <span className="text-sm font-semibold">{currencyLabel}</span>
             </span>
           </div>
           {showTafqeet ? (
@@ -64,7 +81,7 @@ export function FinancialSummaryCard({
               className="text-xs text-slate-500 font-medium mt-2 leading-relaxed"
               data-tour="tafqeet-indicator"
             >
-              {tafqeetEgp(netAmount)}
+              {tafqeetAmount(netAmount, currencyCode)}
             </p>
           ) : null}
         </div>
@@ -77,11 +94,13 @@ export function FinancialSummaryCard({
 function SummaryRow({
   label,
   value,
+  currencyLabel,
   dataTour,
   suffix,
 }: {
   label: string;
   value: number;
+  currencyLabel: string;
   dataTour?: string;
   suffix?: ReactNode;
 }) {
@@ -94,7 +113,7 @@ function SummaryRow({
       </span>
       <span className="font-medium tabular-nums text-slate-800">
         {prefix}
-        {formatInvoiceMoney(Math.abs(value))} ج.م
+        {formatInvoiceMoney(Math.abs(value))} {currencyLabel}
       </span>
     </div>
   );

@@ -5,6 +5,7 @@ import { Decimal } from '@prisma/client/runtime/library';
 
 export interface ItemPriceTierFields {
   discount?: number | null;
+  purchasePrice?: number | null;
   wholesale?: number | null;
   semiWholesale?: number | null;
   exportPrice?: number | null;
@@ -33,6 +34,7 @@ function dec(value?: number | null) {
 function tierWriteData(data: ItemPriceTierFields) {
   return {
     ...(data.discount !== undefined && { discount: dec(data.discount) }),
+    ...(data.purchasePrice !== undefined && { purchasePrice: dec(data.purchasePrice) }),
     ...(data.wholesale !== undefined && { wholesale: dec(data.wholesale) }),
     ...(data.semiWholesale !== undefined && { semiWholesale: dec(data.semiWholesale) }),
     ...(data.exportPrice !== undefined && { exportPrice: dec(data.exportPrice) }),
@@ -87,7 +89,6 @@ export class ItemPriceService {
           item: {
             select: {
               id: true,
-              code: true,
               serial: true,
               arabicName: true,
               englishName: true,
@@ -138,7 +139,6 @@ export class ItemPriceService {
           item: {
             select: {
               id: true,
-              code: true,
               serial: true,
               arabicName: true,
               englishName: true,
@@ -206,7 +206,7 @@ export class ItemPriceService {
         where.OR = [
           { item: { arabicName: { contains: options.search } } },
           { item: { englishName: { contains: options.search } } },
-          { item: { code: { contains: options.search } } },
+          { item: { serial: { contains: options.search } } },
           { priceList: { arabicName: { contains: options.search } } },
         ];
       }
@@ -237,7 +237,7 @@ export class ItemPriceService {
             item: {
               select: {
                 id: true,
-                code: true,
+                serial: true,
                 arabicName: true,
               },
             },
@@ -310,7 +310,6 @@ export class ItemPriceService {
           item: {
             select: {
               id: true,
-              code: true,
               serial: true,
               arabicName: true,
               englishName: true,
@@ -423,7 +422,6 @@ export class ItemPriceService {
           item: {
             select: {
               id: true,
-              code: true,
               serial: true,
               arabicName: true,
               englishName: true,

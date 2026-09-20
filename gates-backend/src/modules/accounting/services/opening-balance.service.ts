@@ -83,6 +83,7 @@ export class OpeningBalanceService {
       where: {
         companyId,
         entryType: OPENING_BALANCE_ENTRY_TYPE,
+        isPosted: true,
         isCancelled: false,
       },
       include: {

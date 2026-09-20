@@ -248,7 +248,7 @@ export const inventorySupplierInvoiceFormSchema = inventorySupplierWarehouseHead
   z.object({
     lines: z.preprocess(
       dropBlankInvoiceLines,
-      z.array(inventoryPurchaseOrderLineSchema)
+      z.array(inventoryPurchaseOrderLineSchema).min(1, 'أضف صنفاً واحداً على الأقل')
     ),
   })
 );
@@ -488,6 +488,8 @@ export const salesInvoiceSchema = z.object({
   ),
   costCenterId: z.string().optional(),
   delegateId: z.string().optional(),
+  driverId: z.string().optional(),
+  distributorId: z.string().optional(),
   /** Distinct "Salesman" — separate from the sales-rep delegate above. */
   sellerId: z.string().optional(),
   taxTreatmentType: z.preprocess(
@@ -495,7 +497,10 @@ export const salesInvoiceSchema = z.object({
     z.enum(['taxable', 'exempt', 'export']).optional()
   ),
   allowReturn: z.boolean().optional(),
-  returnDays: z.number().int().positive().optional(),
+  returnDays: z.preprocess(
+    emptyOptional,
+    z.coerce.number().int().positive('أدخل عدد أيام الاسترجاع').optional()
+  ),
   isDelivered: z.boolean().optional(),
   handoverDate: z.string().optional(),
   printTermsOnInvoice: z.boolean().optional(),
@@ -522,7 +527,7 @@ export const salesInvoiceSchema = z.object({
   ),
   lines: z.preprocess(
     dropBlankInvoiceLines,
-    z.array(salesInvoiceLineSchema)
+    z.array(salesInvoiceLineSchema).min(1, 'أضف صنفاً واحداً على الأقل')
   ),
 }).superRefine((data, ctx) => {
   const method = String(data.paymentMethod ?? '').toLowerCase();
@@ -538,6 +543,13 @@ export const salesInvoiceSchema = z.object({
       code: z.ZodIssueCode.custom,
       message: 'حدد الخزينة عند دفع مبلغ في الأول',
       path: ['advanceSafeId'],
+    });
+  }
+  if (data.allowReturn && !(Number(data.returnDays) > 0)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'أدخل عدد أيام الاسترجاع المتاحة',
+      path: ['returnDays'],
     });
   }
 });

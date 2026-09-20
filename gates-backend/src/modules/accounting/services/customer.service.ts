@@ -8,6 +8,7 @@ import { applyFullTextIds, findFullTextIds } from '../../../shared/database/full
 import { customerLedgerAccountService } from './customer-ledger-account.service';
 import { nextNumericCode } from '../../../shared/utils/next-numeric-code';
 import { AppError } from '../../../shared/middleware/error-handler';
+import { emitDomainEvent } from '../../automation/events/automation-event-bus.service';
 
 /** Lean projection for dropdowns / list screens (avoids joining mainAccount). */
 const CUSTOMER_LIST_SELECT = {
@@ -31,6 +32,7 @@ const CUSTOMER_LIST_SELECT = {
   creditLimit: true,
   currencyCode: true,
   priceTier: true,
+  priceListId: true,
   linkedSupplierId: true,
   customerCategoryId: true,
   createdAt: true,
@@ -226,7 +228,22 @@ export class CustomerService {
       });
 
       logger.info({ companyId, customerId: customer.id }, 'Customer created');
-      return withLedger ?? customer;
+
+      const createdCustomer = withLedger ?? customer;
+      void emitDomainEvent({
+        companyId,
+        eventType: 'customer.created',
+        data: {
+          customerId: createdCustomer.id,
+          arabicName: createdCustomer.arabicName,
+          customerType: createdCustomer.customerType ?? null,
+          priceTier: createdCustomer.priceTier,
+          customerCategoryId: createdCustomer.customerCategoryId ?? null,
+          city: createdCustomer.city ?? null,
+        },
+      });
+
+      return createdCustomer;
     } catch (error) {
       logger.error({ error, companyId, data }, 'Error creating customer');
       throw error;

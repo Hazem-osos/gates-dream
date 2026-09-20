@@ -8,6 +8,7 @@ import { itemCostService } from './item-cost.service';
 import { scopedItemQuantityWhere } from '../utils/item-quantity-tenant';
 import { assertWarehouseActive } from '../utils/inventory-system';
 import { assertUpdateCount } from '../../../shared/concurrency/optimistic-lock';
+import { sortForStockLocking } from '../utils/stock-lock-order.util';
 
 export interface IssueLine {
   itemId: string;
@@ -357,7 +358,13 @@ export class IssueService {
       );
 
       await prisma.$transaction(async (tx) => {
-        for (const line of issue.lines) {
+        // Sort lines in canonical lock order to avoid deadlocks with concurrent
+        // invoice/transfer posts that lock (warehouseId, itemId) in the same order.
+        const sortedLines = sortForStockLocking(issue.lines, (l) => ({
+          warehouseId: issue.warehouseId,
+          itemId: l.itemId,
+        }));
+        for (const line of sortedLines) {
           await stockMovementService.postMovementInTx(tx, {
             companyId,
             branchId: issue.branchId ?? undefined,

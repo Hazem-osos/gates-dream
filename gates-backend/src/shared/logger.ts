@@ -38,6 +38,11 @@ export const logger = pino({
   },
   // Redact sensitive fields
   redact: {
+    // Defense-in-depth: the `req`/`res`/`err` serializers above already run
+    // `maskPIIInObject` (which normalizes header names like `x-api-key` and
+    // `authorization` before matching), but this second layer also covers
+    // any future log call that passes headers directly instead of via a
+    // serializer key (e.g. `logger.info({ headers }, ...)`).
     paths: [
       'password',
       'passwordHash',
@@ -52,6 +57,15 @@ export const logger = pino({
       'refresh_token',
       'authorization',
       'cookie',
+      'headers.authorization',
+      'headers.cookie',
+      'headers["x-api-key"]',
+      'req.headers.authorization',
+      'req.headers.cookie',
+      'req.headers["x-api-key"]',
+      '*.headers.authorization',
+      '*.headers.cookie',
+      '*.headers["x-api-key"]',
     ],
     censor: '***REDACTED***',
   },

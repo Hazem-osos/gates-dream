@@ -18,6 +18,7 @@ import {
   ChevronDown,
   ChevronLeft,
   Shuffle,
+  Zap,
   type LucideIcon,
 } from 'lucide-react';
 import { UserAvatar } from '@/app/components/UserAvatar';
@@ -34,6 +35,7 @@ import { BranchSwitchDialog } from '@/app/components/BranchSwitchDialog';
 import { SECTION_PATH_PREFIX } from '@/lib/navigation/app-modules';
 
 const GROUP_ICONS: Record<string, LucideIcon> = {
+  automation: Zap,
   sales: Receipt,
   inventory: Package,
   accounting: Scale,
