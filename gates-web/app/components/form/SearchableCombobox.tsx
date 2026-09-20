@@ -307,9 +307,9 @@ export function SearchableCombobox({
                 }
 
                 if (e.key === 'Enter') {
-                  e.preventDefault();
-                  e.stopPropagation();
                   if (open) {
+                    e.preventDefault();
+                    e.stopPropagation();
                     if (showQuickCreate && activeIndex === filtered.length) {
                       handleQuickCreate();
                       return;
@@ -317,9 +317,13 @@ export function SearchableCombobox({
                     const opt = filtered[activeIndex];
                     if (opt) pick(opt.value);
                     else setOpen(true);
-                  } else {
-                    setOpen(true);
+                    return;
                   }
+                  onInputKeyDown?.(e);
+                  inputKeyDown?.(e);
+                  if (e.defaultPrevented) return;
+                  e.preventDefault();
+                  setOpen(true);
                   return;
                 }
 

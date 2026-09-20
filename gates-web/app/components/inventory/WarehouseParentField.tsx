@@ -2,8 +2,8 @@
 
 import { useMemo, useState } from 'react';
 import { WarehouseSelect } from '@/components/form/WarehouseSelect';
-import { SearchIcon } from '@/components/ui';
-import { CenteredOverlay } from '@/components/erp/CenteredOverlay';
+import { Button, SearchIcon } from '@/components/ui';
+import { MasterEntitySideDrawer } from '@/components/masters/MasterEntitySideDrawer';
 import { WarehousesListSection, type WarehouseRow } from '@/components/inventory/WarehousesListSection';
 import { warehouseCanBranch } from '@/lib/inventory/warehouse-kind';
 
@@ -21,9 +21,11 @@ export function WarehouseParentField({
   const [open, setOpen] = useState(false);
   const blocked = useMemo(() => new Set(excludeIds ?? []), [excludeIds]);
 
+  const close = () => setOpen(false);
+
   const pick = (parentWarehouseId: string) => {
     onChange(parentWarehouseId);
-    setOpen(false);
+    close();
   };
 
   const handleSelect = (row: WarehouseRow) => {
@@ -56,34 +58,31 @@ export function WarehouseParentField({
           <SearchIcon />
         </button>
       </div>
-      <CenteredOverlay
+      <MasterEntitySideDrawer
         open={open}
-        onClose={() => setOpen(false)}
-        width="lg"
-        labelledBy="warehouse-parent-lens-title"
+        onClose={close}
+        title="عدسة المخزن الأب"
+        subtitle="حدّد المخزن اللي هينزل تحته، أو انقله لمخزن تاني. مخزن العمليات مش بيتفرّع منه."
+        footer={
+          <Button type="button" variant="secondary" fullWidth onClick={close}>
+            خروج
+          </Button>
+        }
       >
-        <div className="min-h-0 flex-1 overflow-y-auto p-4" dir="rtl">
-          <h2 id="warehouse-parent-lens-title" className="mb-1 text-lg font-bold text-[#0E79AA]">
-            عدسة المخزن الأب
-          </h2>
-          <p className="mb-3 text-sm text-slate-500">
-            حدّد المخزن اللي هينزل تحته، أو انقله لمخزن تاني. مخزن العمليات مش بيتفرّع منه.
-          </p>
-          <button
-            type="button"
-            className="mb-3 w-full rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] px-3 py-2 text-right text-sm font-semibold text-[#094C6B] hover:bg-white"
-            onClick={() => pick('')}
-          >
-            مخزن رئيسي (بدون أب)
-          </button>
-          <WarehousesListSection
-            headerOnly
-            excludeIds={excludeIds}
-            selectedId={value || null}
-            onSelect={handleSelect}
-          />
-        </div>
-      </CenteredOverlay>
+        <button
+          type="button"
+          className="mb-3 w-full rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] px-3 py-2 text-right text-sm font-semibold text-[#094C6B] hover:bg-white"
+          onClick={() => pick('')}
+        >
+          مخزن رئيسي (بدون أب)
+        </button>
+        <WarehousesListSection
+          headerOnly
+          excludeIds={excludeIds}
+          selectedId={value || null}
+          onSelect={handleSelect}
+        />
+      </MasterEntitySideDrawer>
     </>
   );
 }

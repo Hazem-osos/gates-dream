@@ -52,6 +52,7 @@ import {
   handleLineGridKeyDown,
   lineGridDataAttrs,
   focusLineField,
+  focusNextLineField,
 } from '@/lib/keyboard/gridLineFocus';
 import {
   ERP_INVOICE_ITEMS_CARD_CLASS,
@@ -266,6 +267,9 @@ const PurchaseInvoiceLineRow = memo(function PurchaseInvoiceLineRow({
                   onItemResolved={(picked) => {
                     if (picked && 'units' in picked) {
                       applyPickedItem(index, picked as Item);
+                    }
+                    if (picked) {
+                      focusNextLineField(PURCHASE_GRID_ID, index, fieldOrder, 'item', 16);
                     }
                   }}
                   onAfterBarcodePick={() => {
@@ -824,13 +828,8 @@ export function ProgressivePurchaseInvoiceLineGrid({
 
   useEffect(() => {
     if (readOnly) return;
-    if (lines.length === 0) {
-      appendLine();
-      return;
-    }
-    const lastLine = lines[lines.length - 1];
-    if (lastLine?.itemId?.trim()) appendLine();
-  }, [appendLine, lines, readOnly]);
+    if (lines.length === 0) appendLine();
+  }, [appendLine, lines.length, readOnly]);
 
   const removeLine = useCallback((index: number) => {
     onChangeRef.current(linesRef.current.filter((_, i) => i !== index));

@@ -46,6 +46,18 @@ export function CenteredOverlay({
     onClose();
   };
 
+  useEffect(() => {
+    if (!open) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      if (Date.now() - openedAtRef.current < 250) return;
+      onClose();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [open, onClose]);
+
   if (!open || !mounted) return null;
 
   return createPortal(

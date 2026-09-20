@@ -14,6 +14,30 @@ export function focusLineField(gridId: string, lineIndex: number, field: string)
   return true;
 }
 
+export function nextLineField(fieldOrder: readonly string[], current: string): string | undefined {
+  const idx = fieldOrder.indexOf(current);
+  if (idx === -1 || idx >= fieldOrder.length - 1) return undefined;
+  return fieldOrder[idx + 1];
+}
+
+export function focusNextLineField(
+  gridId: string,
+  lineIndex: number,
+  fieldOrder: readonly string[],
+  current: string,
+  delayMs = 0
+) {
+  const next = nextLineField(fieldOrder, current);
+  if (!next) return false;
+  if (delayMs > 0) {
+    window.setTimeout(() => {
+      focusLineField(gridId, lineIndex, next);
+    }, delayMs);
+    return true;
+  }
+  return focusLineField(gridId, lineIndex, next);
+}
+
 type LineAdvanceOptions = {
   gridId: string;
   lineIndex: number;

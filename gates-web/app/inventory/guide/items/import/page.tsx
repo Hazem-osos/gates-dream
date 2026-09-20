@@ -24,10 +24,16 @@ import { exportRowsToExcel } from '@/lib/export/export-utils';
 import SuccessToast from '@/components/SuccessToast';
 import ErrorToast from '@/components/ErrorToast';
 import type { ItemGroupRow } from '@/components/inventory/ItemGroupsListSection';
+import {
+  matchStatusLabel,
+  tagItemImportRows,
+  type ExistingItemKeys,
+  type ItemImportMatchKind,
+} from '@/lib/inventory/item-import-match';
 
-const ITEM_IMPORT_HEADERS = ['اسم الصنف', 'الوحدة', 'الباركود'];
-const ITEM_IMPORT_SAMPLE = ['صنف تجريبي', 'قطعة', ''];
-const PREVIEW_COLUMNS = ['اسم الصنف', 'الوحدة', 'الباركود', 'المجموعة'];
+const ITEM_IMPORT_HEADERS = ['اسم الصنف', 'الوحدة', 'الباركود', 'سعر البيع', 'سعر الشراء'];
+const ITEM_IMPORT_SAMPLE = ['صنف تجريبي', 'قطعة', '', 100, 80];
+const PREVIEW_COLUMNS = ['اسم الصنف', 'الوحدة', 'الباركود', 'سعر البيع', 'سعر الشراء', 'المجموعة', 'المقارنة'];
 
 const HEADER_TO_FIELD: Record<string, string> = {
   'اسم الصنف': 'arabicName',
@@ -38,8 +44,16 @@ const HEADER_TO_FIELD: Record<string, string> = {
   'الوحدة': 'unit',
   'الباركود': 'barcode',
   'سعر البيع': 'price',
-  'سعر الشراء': 'purchasePrice',
+  'السعر': 'price',
+  'سعر': 'price',
   'السعر 1': 'price',
+  price: 'price',
+  salesPrice: 'price',
+  'سعر الشراء': 'purchasePrice',
+  'سعر التكلفة': 'purchasePrice',
+  'التكلفة': 'purchasePrice',
+  purchasePrice: 'purchasePrice',
+  cost: 'purchasePrice',
   'رقم المجموعة': 'groupCode',
   'اسم المجموعة': 'groupName',
 };
@@ -93,8 +107,9 @@ export default function ImportItemsPage() {
   const [showGroupModal, setShowGroupModal] = useState(false);
   const [newGroupName, setNewGroupName] = useState('');
   const [savingGroup, setSavingGroup] = useState(false);
-  const [previewRows, setPreviewRows] = useState<Record<string, string | number | null>[]>([]);
-  const [importRows, setImportRows] = useState<Record<string, string | number | null>[]>([]);
+  type ImportRow = Record<string, string | number | null> & { matchKind?: ItemImportMatchKind | null };
+  const [previewRows, setPreviewRows] = useState<ImportRow[]>([]);
+  const [importRows, setImportRows] = useState<ImportRow[]>([]);
 
   const { data: groupsRes } = useApiQuery<ItemGroupRow[]>(
     ['item-categories', 'import'],
@@ -105,7 +120,7 @@ export default function ImportItemsPage() {
   const selectedGroup = groups.find((row) => row.id === categoryId);
 
   const importMut = useApiMutation<
-    { created: number; total: number },
+    { created: number; total: number; skipped?: number; skippedExisting?: number; skippedInSheet?: number },
     { entity: 'ITEMS'; categoryId: string; rows: Record<string, unknown>[] }
   >('/onboarding/import-excel', 'POST', {
     showSuccessToast: true,
@@ -122,7 +137,7 @@ export default function ImportItemsPage() {
         [ITEM_IMPORT_SAMPLE],
         'الأصناف'
       );
-      setImportSuccess('تم تنزيل القالب. اكتب اسم الصنف والوحدة فقط، ثم حمّل الملف.');
+      setImportSuccess('تم تنزيل القالب. اكتب الاسم والوحدة والسعر يدويًا، ثم حمّل الملف.');
     } catch (err) {
       setImportError(err instanceof Error ? err.message : 'تعذر تنزيل قالب الإكسيل');
     } finally {
@@ -157,10 +172,35 @@ export default function ImportItemsPage() {
         setImportError('لم يتم العثور على أصناف باسم في الملف');
         return;
       }
+      let existing: ExistingItemKeys[] = [];
+      try {
+        const catalogRes = await apiClient.get<ExistingItemKeys[]>('/inventory/items', {
+          limit: 5000,
+          isActive: true,
+        });
+        existing = Array.isArray(catalogRes.data) ? catalogRes.data : [];
+      } catch {
+        existing = [];
+      }
+      const tagged = tagItemImportRows(
+        mapped.map((row) => ({
+          ...row,
+          arabicName: cellOf(row, ['arabicName', 'name']),
+          barcode: cellOf(row, ['barcode', 'serial']) || null,
+          serial: cellOf(row, ['serial', 'barcode']) || null,
+        })),
+        existing
+      );
+      const newCount = tagged.filter((row) => !row.matchKind).length;
+      const existingCount = tagged.length - newCount;
       setFileName(file.name);
-      setImportRows(mapped);
-      setPreviewRows(mapped.slice(0, 20));
-      setImportSuccess(`تم تحميل ${mapped.length} صنف على مجموعة «${selectedGroup?.arabicName ?? ''}». راجع ثم احفظ.`);
+      setImportRows(tagged);
+      setPreviewRows(tagged.slice(0, 20));
+      setImportSuccess(
+        existingCount
+          ? `تم تحميل ${tagged.length} صف: ${newCount} جديد و${existingCount} موجود أو مكرر ولن يُضاف. راجع ثم احفظ.`
+          : `تم تحميل ${tagged.length} صنف جديد على مجموعة «${selectedGroup?.arabicName ?? ''}». راجع ثم احفظ.`
+      );
     } catch (err) {
       setImportError(err instanceof Error ? err.message : 'تعذر قراءة ملف الإكسيل');
     } finally {
@@ -187,13 +227,19 @@ export default function ImportItemsPage() {
           unit: cellOf(row, ['unit', 'unitName']) || 'قطعة',
           barcode: cellOf(row, ['barcode', 'serial']) || undefined,
           price: row.price ?? row.salesPrice ?? undefined,
+          purchasePrice: row.purchasePrice ?? undefined,
         })),
       },
       {
         onSuccess: (res) => {
           const created = res.data?.created ?? importRows.length;
           const total = res.data?.total ?? importRows.length;
-          setImportSuccess(`تم استيراد ${created} من ${total} صنف على مجموعة «${selectedGroup?.arabicName ?? ''}»`);
+          const skipped = res.data?.skipped ?? 0;
+          setImportSuccess(
+            skipped
+              ? `اتضاف ${created} صنف جديد من ${total}. ${skipped} موجود بالفعل أو مكرر في الشيت واتعدّى عشان ما يتكررش.`
+              : `تم استيراد ${created} من ${total} صنف على مجموعة «${selectedGroup?.arabicName ?? ''}»`
+          );
           invalidate(['items']);
           invalidate(['item-categories']);
         },
@@ -258,7 +304,7 @@ export default function ImportItemsPage() {
         </CompactFormField>
       </FormSectionCard>
 
-      <FormSectionCard title="ملف الاستيراد" subtitle="القالب فيه اسم الصنف والوحدة والباركود فقط">
+      <FormSectionCard title="ملف الاستيراد" subtitle="اكتب الاسم والوحدة والسعر يدويًا في الشيت">
         <div className="sm:col-span-2 lg:col-span-3">
           <label className="mb-1 block text-xs font-semibold text-[#0A3D5E]">ملف الاستيراد</label>
           <div className="flex flex-wrap items-center gap-2">
@@ -298,7 +344,8 @@ export default function ImportItemsPage() {
           </div>
         </div>
         <p className="sm:col-span-2 lg:col-span-3 text-xs text-slate-500">
-          الأعمدة المطلوبة: <strong>اسم الصنف</strong> و<strong>الوحدة</strong>. الباركود اختياري. الأسعار وباقي التفاصيل من بطاقة الصنف بعد الرفع.
+          الأعمدة المطلوبة: <strong>اسم الصنف</strong> و<strong>الوحدة</strong>. اكتب <strong>سعر البيع</strong> و<strong>سعر الشراء</strong> يدويًا في الشيت — هيتسجلوا على بطاقة الصنف ومجموعة الأسعار.
+          الباركود اختياري. النظام يقارن بالموجود بالباركود أو رقم الصنف أو نفس الاسم، والمكرر مش بيتضاف تاني.
         </p>
       </FormSectionCard>
 
@@ -322,11 +369,23 @@ export default function ImportItemsPage() {
                         cellOf(row, ['arabicName', 'name']),
                         cellOf(row, ['unit']),
                         cellOf(row, ['barcode', 'serial']),
+                        cellOf(row, ['price', 'salesPrice']),
+                        cellOf(row, ['purchasePrice']),
                         selectedGroup?.arabicName ?? '—',
+                        matchStatusLabel(row.matchKind ?? null),
                       ]
                     : Array.from({ length: PREVIEW_COLUMNS.length }, () => '—')
                   ).map((cell, col) => (
-                    <td key={col} className={`${denseTdClass} ${row ? 'text-[#094C6B]' : 'text-slate-400'}`}>
+                    <td
+                      key={col}
+                      className={`${denseTdClass} ${
+                        !row
+                          ? 'text-slate-400'
+                          : col === 6 && row.matchKind
+                            ? 'font-semibold text-amber-700'
+                            : 'text-[#094C6B]'
+                      }`}
+                    >
                       {cell || '—'}
                     </td>
                   ))}

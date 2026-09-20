@@ -145,6 +145,7 @@ export class DataImportService {
         barcode: r.barcode != null ? String(r.barcode) : undefined,
         unitName: r.unit != null ? String(r.unit) : r.unitName != null ? String(r.unitName) : undefined,
         salesPrice: r.price != null ? Number(r.price) : r.salesPrice != null ? Number(r.salesPrice) : undefined,
+        purchasePrice: r.purchasePrice != null ? Number(r.purchasePrice) : undefined,
         categoryId,
       }))
     );

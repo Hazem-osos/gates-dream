@@ -114,7 +114,7 @@ function emptyBaseUnitRow(unitId = ''): LocalUnitRow {
 
 const TABS = [
   { id: 'general', label: 'عام', hint: 'المواصفات والوزن وخصائص الصنف' },
-  { id: 'units-prices', label: 'الوحدات والأسعار', hint: 'الوحدة الأساسية من هنا وتتقفل بعد الحفظ. الأسعار من قائمة الأسعار.' },
+  { id: 'units-prices', label: 'الوحدات والأسعار', hint: 'الوحدة الأساسية من هنا، وتقدر تغيّرها عند التعديل. الأسعار من قائمة الأسعار.' },
   { id: 'options', label: 'خيارات', hint: 'الضريبة، القيود، والصورة' },
   { id: 'quantities', label: 'الكميات', hint: 'حدود المخزون والرصيد الافتتاحي' },
   { id: 'assembly', label: 'تجميعي', hint: 'عادي أو تجميعي، ثم المكونات لو تجميعي' },
@@ -289,7 +289,7 @@ function TabPanel({ title, hint, children }: { title: string; hint: string; chil
 function ItemCardPageInner() {
   const invalidateQuery = useInvalidateQuery();
   const router = useRouter();
-  const { isReadOnly, unlockForEdit, lockToView, setMode } = useDocumentMode();
+  const { isReadOnly, isEditing, unlockForEdit, lockToView, setMode } = useDocumentMode();
   const quickCreate = useQuickCreateHost('item');
   const [activeTab, setActiveTab] = useState('general');
   useItemCardTourPrepare(setActiveTab);
@@ -326,7 +326,10 @@ function ItemCardPageInner() {
   const [savedItemId, setSavedItemId] = useState<string | null>(null);
   const searchParams = useOwnTabSearchParams();
   const itemIdFromUrl = searchParams.get('id');
-  const activeItemId = savedItemId ?? itemIdFromUrl;
+  const dismissedItemIdRef = useRef<string | null>(null);
+  const rawItemId = savedItemId ?? itemIdFromUrl;
+  const activeItemId =
+    rawItemId && rawItemId === dismissedItemIdRef.current ? null : rawItemId;
 
   const { data: itemDetailResponse } = useApiQuery<ItemDetail>(
     ['item', activeItemId],
@@ -369,6 +372,10 @@ function ItemCardPageInner() {
     if (!quickCreate.prefillName || activeItemId) return;
     setFormData((prev) => (prev.arabicName ? prev : { ...prev, arabicName: quickCreate.prefillName }));
   }, [activeItemId, quickCreate.prefillName]);
+
+  useEffect(() => {
+    if (!itemIdFromUrl) dismissedItemIdRef.current = null;
+  }, [itemIdFromUrl]);
 
   const [localUnits, setLocalUnits] = useState<LocalUnitRow[]>([emptyBaseUnitRow()]);
   const [unitsHydratedFor, setUnitsHydratedFor] = useState<string | null>(null);
@@ -438,15 +445,25 @@ function ItemCardPageInner() {
     }
   };
 
+  const persistBaseUnitLink = async (itemId: string, unitId: string, existingId?: string) => {
+    if (existingId) {
+      await apiClient.put(`/inventory/item-units/${existingId}`, { unitId });
+      return;
+    }
+    await apiClient.post('/inventory/item-units', {
+      itemId,
+      unitId,
+      conversionFactor: 1,
+      isFactorFixed: true,
+      isBaseUnit: true,
+    });
+  };
+
   const setLocalUnit = (key: string, next: Partial<LocalUnitRow>) => {
     setLocalUnits((prev) => prev.map((row) => (row.key === key ? { ...row, ...next } : row)));
   };
 
   const chooseUnit = async (row: LocalUnitRow, unitId: string) => {
-    if (row.isBaseUnit && activeItemId) {
-      setError('الوحدة الأساسية ثابتة بعد الحفظ ولا يمكن تغييرها');
-      return;
-    }
     setLocalUnit(row.key, { unitId });
     if (row.isBaseUnit) patch({ baseUnitId: unitId });
     if (!unitId || !activeItemId) return;
@@ -455,7 +472,9 @@ function ItemCardPageInner() {
     try {
       if (row.id) {
         await apiClient.put(`/inventory/item-units/${row.id}`, { unitId });
-      } else if (!row.isBaseUnit) {
+      } else if (row.isBaseUnit) {
+        await persistBaseUnitLink(activeItemId, unitId);
+      } else {
         await apiClient.post('/inventory/item-units', {
           itemId: activeItemId,
           unitId,
@@ -584,17 +603,11 @@ function ItemCardPageInner() {
   const persistItem = async (requestBody: Record<string, unknown>) => {
     if (activeItemId) {
       await apiClient.put<ItemDetail>(`/inventory/items/${activeItemId}`, requestBody);
-      const hasBaseUnit = (itemDetail?.units ?? []).some(
-        (row) => row.isBaseUnit || row.unitId === formData.baseUnitId || row.unit?.id === formData.baseUnitId
-      );
-      if (formData.baseUnitId && !hasBaseUnit) {
-        await apiClient.post('/inventory/item-units', {
-          itemId: activeItemId,
-          unitId: formData.baseUnitId,
-          conversionFactor: 1,
-          isFactorFixed: true,
-          isBaseUnit: true,
-        });
+      const serverBase = (itemDetail?.units ?? []).find((row) => row.isBaseUnit);
+      const serverBaseUnitId = serverBase?.unitId || serverBase?.unit?.id || '';
+      if (formData.baseUnitId && formData.baseUnitId !== serverBaseUnitId) {
+        const localBase = localUnits.find((row) => row.isBaseUnit);
+        await persistBaseUnitLink(activeItemId, formData.baseUnitId, localBase?.id || serverBase?.id);
       }
       invalidateQuery(['item', activeItemId]);
       invalidateQuery(['items']);
@@ -781,6 +794,8 @@ function ItemCardPageInner() {
   };
 
   const startNewItem = () => {
+    const currentId = savedItemId ?? itemIdFromUrl;
+    if (currentId) dismissedItemIdRef.current = currentId;
     clearDraft();
     hydratedIdRef.current = null;
     setSavedItemId(null);
@@ -800,14 +815,14 @@ function ItemCardPageInner() {
 
   const handleCancel = () => {
     setError('');
-    if (activeItemId && itemDetail?.id === activeItemId) {
+    if (isEditing && activeItemId && itemDetail?.id === activeItemId) {
       hydrateFromItem(itemDetail);
       lockToView();
       setSuccess('تم التراجع عن التعديلات');
       return;
     }
     startNewItem();
-    setSuccess('تم تفريغ البطاقة');
+    setSuccess(activeItemId ? 'تم التراجع — البطاقة جاهزة لصنف جديد' : 'تم تفريغ البطاقة');
   };
 
   const currentStockQty = (itemDetail?.quantities ?? []).reduce((sum, row) => {
@@ -1061,7 +1076,7 @@ function ItemCardPageInner() {
       )}
 
       {activeTab === 'units-prices' && (
-        <TabPanel title="الوحدات والأسعار" hint="الوحدة الأساسية من هنا. بعد الحفظ تتقفل. باقي الوحدات تحويل. الأسعار من قائمة الأسعار.">
+        <TabPanel title="الوحدات والأسعار" hint="الوحدة الأساسية من هنا، وتقدر تغيّرها عند التعديل. باقي الوحدات تحويل. الأسعار من قائمة الأسعار.">
           <p className="mb-4 rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] px-3 py-2 text-sm text-[#094C6B]">
             {companyPriceSource === 'item_card'
               ? 'مصدر السعر من إعدادات الشركة: قراءة من بطاقة الصنف. ادخل أسعار الشراء والبيع هنا.'
@@ -1144,17 +1159,13 @@ function ItemCardPageInner() {
                             value={row.unitId}
                             units={units}
                             excludeIds={taken}
-                            disabled={
-                              isReadOnly ||
-                              unitBusyKey === row.key ||
-                              Boolean(row.isBaseUnit && activeItemId)
-                            }
+                            disabled={isReadOnly || unitBusyKey === row.key}
                             placeholder="اختَر الوحدة"
                             onChange={(unitId) => void chooseUnit(row, unitId)}
                           />
                         </td>
                         <td className={`${denseTdClass} text-[#0A3D5E]`}>
-                          {row.isBaseUnit ? (activeItemId ? 'أساسية — ثابتة' : 'أساسية') : 'تحويل'}
+                          {row.isBaseUnit ? 'أساسية' : 'تحويل'}
                         </td>
                         <td className={denseTdClass}>
                           <input
@@ -1736,6 +1747,7 @@ function ItemCardPageInner() {
           key={`${lookup}-${showFinder ? 'open' : 'closed'}`}
           initialSearch={lookup}
           onSelectItem={(itemId) => {
+            dismissedItemIdRef.current = null;
             hydratedIdRef.current = null;
             setUnitsHydratedFor(null);
             setSavedItemId(itemId);

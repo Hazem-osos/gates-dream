@@ -28,6 +28,19 @@ async function main() {
 
     assert(result.count >= 40, `expected full COA, got ${result.count} accounts`);
     assert(!!result.warehouseId, 'warehouse created');
+
+    const headerWh = await prisma.warehouse.findFirst({
+      where: { companyId: company.id, warehouseKind: 'HEADER', parentWarehouseId: null },
+    });
+    const postingWh = await prisma.warehouse.findFirst({
+      where: { companyId: company.id, id: result.warehouseId },
+    });
+    assert(!!headerWh, 'header warehouse created');
+    assert(headerWh?.arabicName === 'المخزن الرئيسي', 'header warehouse named المخزن الرئيسي');
+    assert(postingWh?.warehouseKind === 'POSTING', 'default warehouse is posting/حركة');
+    assert(postingWh?.parentWarehouseId === headerWh?.id, 'posting warehouse sits under header');
+    const branch = await prisma.branch.findFirst({ where: { companyId: company.id } });
+    assert(branch?.defaultWarehouseId === postingWh?.id, 'branch default is the posting warehouse');
     assert(!!result.safeId, 'safe created');
     assert(!!result.fiscalYearId, 'fiscal year created');
     assert(!!result.unitId, 'unit PCS created');

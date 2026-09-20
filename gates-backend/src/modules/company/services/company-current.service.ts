@@ -9,6 +9,7 @@ import type {
 import { upsertCompanyFiscalYear } from './fiscal-year-sync.service';
 import { companyOnboardingService } from './company-onboarding.service';
 import { ensureDefaultPieceUnit } from '../../inventory/services/ensure-default-unit';
+import { ensureDefaultWarehouseTree } from '../../inventory/services/ensure-default-warehouse';
 
 function maskSecret(secret: string | null | undefined): string | null {
   if (!secret) return null;
@@ -266,42 +267,30 @@ export class CompanyCurrentService {
         });
       }
 
-      let warehouse =
-        (input.branch.defaultWarehouseId
-          ? await tx.warehouse.findFirst({
-              where: { id: input.branch.defaultWarehouseId, companyId },
-            })
-          : null) ??
-        (await tx.warehouse.findFirst({
-          where: { companyId, branchId: branch.id },
-          orderBy: { createdAt: 'asc' },
-        })) ??
-        (await tx.warehouse.findFirst({
-          where: { companyId },
-          orderBy: { createdAt: 'asc' },
-        }));
-
-      if (!warehouse) {
-        warehouse = await tx.warehouse.create({
-          data: {
-            companyId,
-            branchId: branch.id,
-            code: 'WH-01',
-            arabicName: input.branch.warehouseName.trim(),
-            englishName: input.branch.warehouseName.trim(),
-            isActive: true,
-          },
-        });
-      } else {
-        warehouse = await tx.warehouse.update({
-          where: { id: warehouse.id },
-          data: {
-            arabicName: input.branch.warehouseName.trim(),
-            branchId: warehouse.branchId ?? branch.id,
-            isActive: true,
-          },
-        });
-      }
+      const warehouseName = input.branch.warehouseName.trim();
+      const { header, warehouse } = await ensureDefaultWarehouseTree(companyId, tx, {
+        branchId: branch.id,
+        arabicName: warehouseName,
+        englishName: warehouseName,
+      });
+      await tx.warehouse.update({
+        where: { id: header.id },
+        data: {
+          arabicName: warehouseName,
+          englishName: warehouseName,
+          branchId: header.branchId ?? branch.id,
+          isActive: true,
+        },
+      });
+      await tx.warehouse.update({
+        where: { id: warehouse.id },
+        data: {
+          arabicName: warehouseName,
+          englishName: warehouseName,
+          branchId: warehouse.branchId ?? branch.id,
+          isActive: true,
+        },
+      });
 
       const cashAccount = await tx.account.findFirst({
         where: {

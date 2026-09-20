@@ -145,7 +145,7 @@ function OpeningStockFormInner() {
     { enabled: !selectedId }
   );
 
-  const { data: warehousesResponse } = useWarehousesQuery(1000);
+  const { data: warehousesResponse } = useWarehousesQuery(1000, { leafOnly: true });
   const warehouses = useMemo(() => warehousesResponse?.data ?? [], [warehousesResponse?.data]);
 
   const { data: itemsResponse } = useApiQuery<ItemOption[]>(

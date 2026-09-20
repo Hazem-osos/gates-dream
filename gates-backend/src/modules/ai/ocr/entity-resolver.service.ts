@@ -148,11 +148,18 @@ export class EntityResolverService {
   }
 
   async defaultWarehouse(companyId: string) {
-    return prisma.warehouse.findFirst({
-      where: { companyId, isActive: true },
-      orderBy: { createdAt: 'asc' },
-      select: { id: true, arabicName: true },
-    });
+    return (
+      (await prisma.warehouse.findFirst({
+        where: { companyId, isActive: true, warehouseKind: 'POSTING' },
+        orderBy: { createdAt: 'asc' },
+        select: { id: true, arabicName: true },
+      })) ??
+      prisma.warehouse.findFirst({
+        where: { companyId, isActive: true },
+        orderBy: { createdAt: 'asc' },
+        select: { id: true, arabicName: true },
+      })
+    );
   }
 
   async ensureItemUnit(companyId: string, itemId: string): Promise<{ unitId: string; conversionFactor: number }> {

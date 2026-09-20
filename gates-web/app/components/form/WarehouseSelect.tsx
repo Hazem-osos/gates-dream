@@ -24,7 +24,7 @@ function WarehouseSelectInner({
   className,
   allowEmpty = true,
   emptyLabel = 'اختر المخزن',
-  leafOnly = false,
+  leafOnly = true,
   headerOnly = false,
   nativeSelectProps,
   enableQuickCreate = true,

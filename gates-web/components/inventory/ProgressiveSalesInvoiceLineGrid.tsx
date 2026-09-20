@@ -65,6 +65,7 @@ import {
   handleLineGridKeyDown,
   lineGridDataAttrs,
   focusLineField,
+  focusNextLineField,
 } from '@/lib/keyboard/gridLineFocus';
 import {
   ERP_INVOICE_ITEMS_CARD_CLASS,
@@ -362,13 +363,8 @@ export function ProgressiveSalesInvoiceLineGrid({
 
   useEffect(() => {
     if (readOnly) return;
-    if (fields.length === 0) {
-      onAppendLine();
-      return;
-    }
-    const lastLine = linesW?.[fields.length - 1];
-    if (lastLine?.itemId?.trim()) onAppendLine();
-  }, [fields.length, linesW, onAppendLine, readOnly]);
+    if (fields.length === 0) onAppendLine();
+  }, [fields.length, onAppendLine, readOnly]);
 
   const applyBulkDiscount = () => {
     const raw = window.prompt('نسبة الخصم % لتطبيقها على كل السطور');
@@ -587,6 +583,9 @@ export function ProgressiveSalesInvoiceLineGrid({
                                             shouldDirty: true,
                                           });
                                         }
+                                      }
+                                      if (picked) {
+                                        focusNextLineField(gridId, index, fieldOrder, 'item', 16);
                                       }
                                     }}
                                     onAfterBarcodePick={() => {

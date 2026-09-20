@@ -2,6 +2,7 @@ import prisma from '../../../shared/database/prisma';
 import { logger } from '../../../shared/logger';
 import type { OnboardingSetupInput } from '../schemas/company-onboarding.schema';
 import { tenantProvisioningService } from '../../accounting/services/tenant-provisioning.service';
+import { ensureDefaultWarehouseTree } from '../../inventory/services/ensure-default-warehouse';
 import { retireWelcomeTourNotification } from '../../notifications/services/onboarding-welcome-notification.service';
 
 const LEGACY_STANDARD_COA: Array<{ code: string; arabicName: string; accountType: string }> = [
@@ -245,18 +246,11 @@ export class CompanyOnboardingService {
         data: { defaultSafeId: safe.id },
       });
 
-      let warehouse = await tx.warehouse.findFirst({ where: { companyId, branchId: branch.id } });
-      if (!warehouse) {
-        warehouse = await tx.warehouse.create({
-          data: {
-            companyId,
-            branchId: branch.id,
-            code: input.warehouse.code,
-            arabicName: input.warehouse.arabicName,
-            isActive: true,
-          },
-        });
-      }
+      const { warehouse } = await ensureDefaultWarehouseTree(companyId, tx, {
+        branchId: branch.id,
+        arabicName: input.warehouse.arabicName,
+        postingCode: input.warehouse.code,
+      });
 
       await tx.branch.update({
         where: { id: branch.id },

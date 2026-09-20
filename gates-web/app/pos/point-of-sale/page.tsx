@@ -104,7 +104,7 @@ export default function PointOfSalePage() {
   const { data: warehousesResponse } = useApiQuery<PosLookupRow[]>(
     ['warehouses'],
     '/inventory/warehouses',
-    { limit: 1000, isActive: true }
+    { limit: 1000, isActive: true, leafOnly: true }
   );
   const warehouses = useMemo(() => warehousesResponse?.data ?? [], [warehousesResponse?.data]);
 

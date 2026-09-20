@@ -4,6 +4,7 @@ import { SYSTEM_GL_CODES } from '../../accounting/data/system-account-map';
 import type { Prisma } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
 import { ensureDefaultPieceUnit } from './ensure-default-unit';
+import { ensureDefaultWarehouseTree } from './ensure-default-warehouse';
 
 export const DEMO_ITEM_SERIAL = 'ITEM-01';
 export const DEMO_ITEM_AR = 'صنف تجريبي';
@@ -224,30 +225,13 @@ export class DemoCatalogService {
       const unitIds = await this.ensureExtraUnits(companyId, client);
       unitIds.set('PCS', unit.id);
 
-      let warehouse =
-        (await client.warehouse.findFirst({
-          where: { companyId, code: 'WH-01', isActive: true },
-        })) ??
-        (await client.warehouse.findFirst({
-          where: { companyId, isActive: true },
-          orderBy: { createdAt: 'asc' },
-        }));
-      if (!warehouse) {
-        const branch = await client.branch.findFirst({
-          where: { companyId, deletedAt: null },
-          orderBy: { createdAt: 'asc' },
-        });
-        warehouse = await client.warehouse.create({
-          data: {
-            companyId,
-            branchId: branch?.id ?? null,
-            code: 'WH-01',
-            arabicName: 'المخزن الرئيسي',
-            englishName: 'Main Warehouse',
-            isActive: true,
-          },
-        });
-      }
+      const branch = await client.branch.findFirst({
+        where: { companyId, deletedAt: null },
+        orderBy: { createdAt: 'asc' },
+      });
+      const { warehouse } = await ensureDefaultWarehouseTree(companyId, client, {
+        branchId: branch?.id ?? null,
+      });
 
       const inventoryAccount = await client.account.findFirst({
         where: { companyId, code: SYSTEM_GL_CODES.inventory, deletedAt: null },

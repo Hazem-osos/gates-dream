@@ -298,6 +298,7 @@ model Company {
   whatsappConfig                            CompanyWhatsappConfig?
   whatsappAuthorizedUsers                   WhatsappAuthorizedUser[]
   automationRules                           AutomationRule[]
+  automationActionRuns                      AutomationActionRun[]
 
   @@unique([legacyCompanyCode])
   @@map("companies")
@@ -7354,6 +7355,36 @@ model AutomationRule {
   @@index([companyId, eventType, enabled])
   @@index([companyId])
   @@map("automation_rules")
+}
+
+enum AutomationActionRunStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+}
+
+/// Durable n8n action execution / idempotency record. Generic across action
+/// types. Uniqueness is (companyId, eventId, ruleId, actionType).
+model AutomationActionRun {
+  id               String                     @id @default(uuid())
+  companyId        String
+  eventId          String                     @db.VarChar(255)
+  ruleId           String                     @db.VarChar(36)
+  actionType       String                     @db.VarChar(255)
+  correlationId    String                     @db.VarChar(255)
+  status           AutomationActionRunStatus
+  resultEntityType String?                    @db.VarChar(100)
+  resultEntityId   String?                    @db.VarChar(36)
+  errorMessage     String?                    @db.Text
+  createdAt        DateTime                   @default(now())
+  updatedAt        DateTime                   @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, eventId, ruleId, actionType])
+  @@index([companyId])
+  @@index([companyId, correlationId])
+  @@map("automation_action_runs")
 }
 
 // System-wide settings (not company-specific)

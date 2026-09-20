@@ -14,6 +14,7 @@ import {
 } from '../data/system-account-map';
 import { overlayColumnAccountIds } from '../settings/account-definition-map';
 import { demoCatalogService } from '../../inventory/services/demo-catalog.service';
+import { ensureDefaultWarehouseTree } from '../../inventory/services/ensure-default-warehouse';
 import type { Prisma } from '@prisma/client';
 
 export type TenantProvisionResult = {
@@ -287,26 +288,9 @@ export class TenantProvisioningService {
       data: { defaultSafeId: safe.id },
     });
 
-    let warehouse = await tx.warehouse.findFirst({
-      where: { companyId, branchId: branch.id, code: 'WH-01' },
+    const { warehouse } = await ensureDefaultWarehouseTree(companyId, tx, {
+      branchId: branch.id,
     });
-    if (!warehouse) {
-      warehouse = await tx.warehouse.findFirst({
-        where: { companyId, branchId: branch.id },
-      });
-    }
-    if (!warehouse) {
-      warehouse = await tx.warehouse.create({
-        data: {
-          companyId,
-          branchId: branch.id,
-          code: 'WH-01',
-          arabicName: 'المخزن الرئيسي',
-          englishName: 'Main Warehouse',
-          isActive: true,
-        },
-      });
-    }
 
     await tx.branch.update({
       where: { id: branch.id },

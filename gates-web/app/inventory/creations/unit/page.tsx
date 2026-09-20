@@ -1,6 +1,7 @@
 'use client';
 
-import { Suspense, useEffect, useState } from 'react';
+import { Suspense, useEffect, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { Ruler } from 'lucide-react';
 import {
   CompactFormField,
@@ -43,9 +44,11 @@ function formFromRow(row: UnitRow): UnitForm {
 
 function UnitPageInner() {
   const invalidateQuery = useInvalidateQuery();
+  const router = useRouter();
   const searchParams = useOwnTabSearchParams();
   const idFromUrl = searchParams.get('id');
-  const { isReadOnly, unlockForEdit, lockToView, setMode } = useDocumentMode();
+  const dismissedIdRef = useRef<string | null>(null);
+  const { isReadOnly, isEditing, unlockForEdit, lockToView, setMode } = useDocumentMode();
   const [selectedId, setSelectedId] = useState<string | null>(idFromUrl);
   const [formData, setFormData] = useState<UnitForm>(emptyForm);
   const [snapshot, setSnapshot] = useState<UnitForm>(emptyForm);
@@ -58,7 +61,11 @@ function UnitPageInner() {
   const patch = (next: Partial<UnitForm>) => setFormData((prev) => ({ ...prev, ...next }));
 
   useEffect(() => {
-    if (!idFromUrl) return;
+    if (!idFromUrl) {
+      dismissedIdRef.current = null;
+      return;
+    }
+    if (idFromUrl === dismissedIdRef.current) return;
     let cancelled = false;
     void apiClient
       .get<UnitRow>(`/inventory/units/${idFromUrl}`)
@@ -145,14 +152,19 @@ function UnitPageInner() {
   };
 
   const handleNew = () => {
+    const currentId = selectedId ?? idFromUrl;
+    if (currentId) dismissedIdRef.current = currentId;
     setSelectedId(null);
     setFormData(emptyForm());
     setSnapshot(emptyForm());
     setError('');
+    setSuccess('');
     setMode('create');
+    router.replace('/inventory/creations/unit');
   };
 
   const handleSelect = (row: UnitRow) => {
+    dismissedIdRef.current = null;
     const next = formFromRow(row);
     setSelectedId(row.id);
     setFormData(next);
@@ -165,12 +177,15 @@ function UnitPageInner() {
 
   const handleCancel = () => {
     setError('');
-    if (selectedId) {
+    if (isEditing && selectedId) {
       setFormData(snapshot);
       lockToView();
+      setSuccess('تم التراجع عن التعديلات');
       return;
     }
+    const hadRecord = Boolean(selectedId);
     handleNew();
+    setSuccess(hadRecord ? 'تم التراجع — البطاقة جاهزة لوحدة جديدة' : 'تم تفريغ البطاقة');
   };
 
   const handleDelete = async () => {
