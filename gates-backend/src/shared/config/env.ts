@@ -176,6 +176,13 @@ const envSchema = z.object({
 
   // Gates AI (OpenAI-compatible chat completions). Optional so the API still
   // boots when the key is unset; providers fail closed at call time.
+  /**
+   * Platform n8n → GATES secret for `/internal/v1/automation/*`.
+   * Optional so the API still boots; the internal route rejects requests
+   * when this is unset and no valid GATES API key is presented.
+   * Never commit a real value.
+   */
+  AUTOMATION_INTERNAL_API_KEY: optionalEnvString(),
   OPENAI_API_KEY: optionalEnvString(),
   OPENAI_MODEL: optionalEnvString(),
   OPENAI_BASE_URL: optionalEnvUrl(),

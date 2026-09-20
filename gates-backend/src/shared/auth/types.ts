@@ -56,6 +56,12 @@ export interface AuthRequest extends Request {
   branchId?: string;
   /** Active fiscal year (UUID) from header or resolved for the operation. */
   fiscalYearId?: string;
+  /** Set by `authenticateInternalAutomation` on `/internal/v1/automation/*`. */
+  internalAutomation?: {
+    source: 'platform-secret' | 'api-key';
+    apiKey?: { tenantId?: string; permissions: string[] };
+    scopedCompanyId?: string;
+  };
 }
 
 // ── Permission / Role helper types ───────────────────────────────────────────

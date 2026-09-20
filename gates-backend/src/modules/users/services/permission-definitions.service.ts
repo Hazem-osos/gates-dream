@@ -95,6 +95,7 @@ const ROUTE_ONLY_RESOURCES: {
   { resource: 'sensor', label: 'الحساسات', module: 'manufacturing', actions: READ_ONLY },
   { resource: 'electronic-invoice', label: 'الفاتورة الإلكترونية', module: 'e-invoice', actions: CRUD },
   // System
+  { resource: 'automation-rule', label: 'قواعد الأتمتة', module: 'system', actions: CRUD },
   { resource: 'system-setting', label: 'إعدادات النظام', module: 'system', actions: CRUD },
   { resource: 'operations-management', label: 'إدارة العمليات', module: 'system', actions: CRUD },
   { resource: 'database-tool', label: 'أدوات قاعدة البيانات', module: 'system', actions: EDITABLE },

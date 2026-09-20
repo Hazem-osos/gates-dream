@@ -297,6 +297,7 @@ model Company {
   userTourProgress                          UserTourProgress[]
   whatsappConfig                            CompanyWhatsappConfig?
   whatsappAuthorizedUsers                   WhatsappAuthorizedUser[]
+  automationRules                           AutomationRule[]
 
   @@unique([legacyCompanyCode])
   @@map("companies")
@@ -7331,6 +7332,28 @@ model ApiKey {
   @@index([tenantId])
   @@index([expiresAt])
   @@map("api_keys")
+}
+
+/// Tenant-scoped n8n automation rule definition. Conditions/actions are
+/// declarative JSON — GATES persists and validates them; n8n evaluates
+/// and executes. Do not store integration secrets in `actions`.
+model AutomationRule {
+  id          String   @id @default(uuid())
+  companyId   String
+  name        String   @db.VarChar(255)
+  description String?  @db.Text
+  eventType   String   @db.VarChar(255)
+  enabled     Boolean  @default(true)
+  conditions  Json
+  actions     Json
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, eventType, enabled])
+  @@index([companyId])
+  @@map("automation_rules")
 }
 
 // System-wide settings (not company-specific)

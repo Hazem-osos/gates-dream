@@ -176,6 +176,44 @@ async function main() {
     });
   }
 
+  const largeInvoiceRuleId = '00000000-0000-0000-0000-0000000000a1';
+  const lowStockRuleId = '00000000-0000-0000-0000-0000000000a2';
+
+  await prisma.automationRule.upsert({
+    where: { id: largeInvoiceRuleId },
+    update: {},
+    create: {
+      id: largeInvoiceRuleId,
+      companyId: company.id,
+      name: 'Large invoice alert',
+      description: 'Dev/test rule: notify manager when a posted sales invoice is large.',
+      eventType: 'sales.invoice.posted',
+      enabled: true,
+      conditions: [{ field: 'data.total', operator: 'gt', value: 100000 }],
+      actions: [
+        {
+          type: 'notification.email',
+          config: { recipient: 'manager', template: 'large_invoice' },
+        },
+      ],
+    },
+  });
+
+  await prisma.automationRule.upsert({
+    where: { id: lowStockRuleId },
+    update: {},
+    create: {
+      id: lowStockRuleId,
+      companyId: company.id,
+      name: 'Low stock automation',
+      description: 'Dev/test rule: create a purchase request when stock is low.',
+      eventType: 'inventory.stock.low',
+      enabled: true,
+      conditions: [{ field: 'data.quantity', operator: 'lt', value: 10 }],
+      actions: [{ type: 'gates.createPurchaseRequest', config: {} }],
+    },
+  });
+
   console.log('Seed completed:', { companyId: company.id, periodId: period.id });
 }
 

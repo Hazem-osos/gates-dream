@@ -191,6 +191,8 @@ import etaDocumentsRoutes from './modules/electronic-invoices/routes/eta-documen
 import auditLogRoutes from './modules/common/routes/audit-log.routes';
 import activityLogRoutes from './modules/common/routes/activity-log.routes';
 import apiKeyRoutes from './modules/common/routes/api-key.routes';
+import automationRuleRoutes from './modules/automation/routes/automation-rule.routes';
+import internalAutomationRuleRoutes from './modules/automation/routes/internal-automation-rule.routes';
 import systemSettingRoutes from './modules/common/routes/system-setting.routes';
 import databaseToolsRoutes from './modules/database-tools/routes/database-backup.routes';
 import operationsManagementRoutes from './modules/operations-management/routes/operations-management.routes';
@@ -373,6 +375,10 @@ app.get('/health/ready', async (_req: Request, res: Response) => {
 // Auth routes (login/register carry their own limiter; /me and /verify must not)
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/public/share', publicShareRouter);
+
+// n8n / S2S automation lookup — isolated from JWT + tenant + CSRF.
+// authenticateInternalAutomation rejects missing/invalid keys (no anonymous path).
+app.use('/internal/v1/automation', apiRateLimiter, internalAutomationRuleRoutes);
 
 // API versioning middleware
 import { apiVersionMiddleware } from './shared/middleware/api-version.middleware';
@@ -604,6 +610,7 @@ app.use('/api/v1/jobs', jobStatusRoutes);
 app.use('/api/v1/audit-logs', cache({ ttl: 60 }), auditLogRoutes);
 app.use('/api/v1/activity-logs', cache({ ttl: 60 }), activityLogRoutes);
 app.use('/api/v1/api-keys', apiKeyRoutes);
+app.use('/api/v1/automation/rules', automationRuleRoutes);
 app.use('/api/v1/system-settings', cache({ ttl: 300 }), systemSettingRoutes);
 
 // Database Tools routes
