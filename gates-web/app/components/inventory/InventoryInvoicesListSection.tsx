@@ -40,6 +40,10 @@ export type InvoiceListRow = {
   [key: string]: unknown;
 };
 
+function invoiceNetAmount(row: InvoiceListRow): number {
+  return Number(row.netAmount ?? row.totalAmount ?? 0);
+}
+
 export function InventoryInvoicesListSection({
   title,
   invoiceKind,
@@ -200,9 +204,9 @@ export function InventoryInvoicesListSection({
       { id: 'party', header: partyColumnHeader, getValue: (r) => getPartyName(r) },
       {
         id: 'total',
-        header: 'المجموع',
+        header: 'صافي القيمة',
         numeric: true,
-        getValue: (r) => Number(r.totalAmount ?? r.netAmount ?? 0),
+        getValue: (r) => invoiceNetAmount(r),
       },
       {
         id: 'status',
@@ -304,10 +308,10 @@ export function InventoryInvoicesListSection({
             { id: 'party', header: partyColumnHeader, cell: (r) => getPartyName(r) },
             {
               id: 'total',
-              header: 'المبلغ',
+              header: 'صافي القيمة',
               align: 'end',
               numeric: true,
-              cell: (r) => Number(r.totalAmount ?? r.netAmount ?? 0),
+              cell: (r) => invoiceNetAmount(r),
             },
             {
               id: 'status',
@@ -494,10 +498,10 @@ export function InventoryInvoicesListSection({
           },
           {
             id: 'total',
-            header: 'المجموع',
+            header: 'صافي القيمة',
             align: 'end',
             numeric: true,
-            cell: (r) => Number(r.totalAmount ?? r.netAmount ?? 0),
+            cell: (r) => invoiceNetAmount(r),
           },
           {
             id: 'status',

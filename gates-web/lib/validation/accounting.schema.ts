@@ -500,6 +500,8 @@ export type SecuritiesSinglePaymentFormInput = z.infer<typeof securitiesSinglePa
 
 export const securitiesMultiCollectionFormSchema = z.object({
   receiptIds: z.array(z.string()).min(1, 'يرجى اختيار أوراق للتحصيل'),
+  accountId: z.string().min(1, 'اختر حساب البنك'),
+  date: z.string().min(1, 'أدخل تاريخ التحصيل'),
 });
 
 export type SecuritiesMultiCollectionFormInput = z.infer<typeof securitiesMultiCollectionFormSchema>;

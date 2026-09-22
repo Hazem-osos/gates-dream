@@ -12,8 +12,8 @@ type Props = {
   hasDocument: boolean;
   canPost?: boolean;
   date: string;
-  onDateChange: (value: string) => void;
   dateError?: boolean;
+  fiscalYearName?: string;
   savePending?: boolean;
   canSave?: boolean;
   loadPending?: boolean;
@@ -28,7 +28,9 @@ type Props = {
   onClearAll: () => void;
   onNew?: () => void;
   newDisabled?: boolean;
+  newHint?: string;
   onVoid?: () => void;
+  onRestore?: () => void;
   isCancelled?: boolean;
 };
 
@@ -39,8 +41,8 @@ export function OpeningStockHeader({
   hasDocument,
   canPost,
   date,
-  onDateChange,
   dateError,
+  fiscalYearName,
   savePending,
   canSave,
   loadPending,
@@ -55,7 +57,9 @@ export function OpeningStockHeader({
   onClearAll,
   onNew,
   newDisabled,
+  newHint,
   onVoid,
+  onRestore,
   isCancelled,
 }: Props) {
   return (
@@ -69,8 +73,8 @@ export function OpeningStockHeader({
         ]}
         title="بضاعة أول المدة"
         docNumber={docNumber || 'OS-XXXX'}
-        statusTone={isPosted ? 'success' : 'warning'}
-        statusLabel={isPosted ? 'مرحل ومثبت (Posted)' : 'مسودة (Draft)'}
+        statusTone={isCancelled ? 'danger' : isPosted ? 'success' : 'warning'}
+        statusLabel={isCancelled ? 'ملغي' : isPosted ? 'مرحل ومثبت (Posted)' : 'مسودة (Draft)'}
         onSaveDraft={onSave}
         saveLabel="حفظ"
         savePending={savePending}
@@ -101,14 +105,20 @@ export function OpeningStockHeader({
           onNew,
           newLabel: 'جديد',
           newDisabled,
-          newHint: 'يوجد كشف بضاعة أول المدة بالفعل. احذفه أولاً حتى يمكن إنشاء كشف جديد.',
+          newHint:
+            newHint ?? 'يوجد كشف بضاعة أول المدة بالفعل. عدّل نفس الكشف أو استرجعه إن كان ملغياً.',
           onEdit,
           onPost,
           onUnpost,
           onPrint,
           printLabel: 'طباعة كشف بضاعة أول المدة',
           onVoid,
+          onRestore,
+          allowEditWhenCancelled: true,
           voidLabel: 'إلغاء الكشف',
+          restoreLabel: 'استعادة الكشف',
+          restoreConfirmMessage:
+            'سيتم استعادة نفس كشف بضاعة أول المدة. لو فيه كشف تاني شغال لازم تلغيه الأول.',
           extraItems: [
             { id: 'excel', label: 'تصدير إلى إكسيل', onClick: onExportExcel },
             {
@@ -121,14 +131,18 @@ export function OpeningStockHeader({
           ],
         }}
       />
-      <div className="mb-3 max-w-xs rounded-xl border border-border/80 bg-card p-3 shadow-sm">
+      <div className="mb-3 max-w-md rounded-xl border border-border/80 bg-card p-3 shadow-sm">
         <DatePickerWithHijri
           label="تاريخ بضاعة أول المدة"
           value={date}
-          onChange={onDateChange}
-          disabled={isReadOnly || isPosted}
+          onChange={() => undefined}
+          disabled
           error={dateError}
         />
+        <p className="mt-1.5 text-[11px] text-muted-foreground">
+          نفس تاريخ الرصيد الافتتاحي — اليوم السابق لبداية السنة المالية
+          {fiscalYearName ? ` (${fiscalYearName})` : ''}
+        </p>
       </div>
     </>
   );

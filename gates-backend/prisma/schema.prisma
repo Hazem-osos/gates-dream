@@ -1162,6 +1162,7 @@ model JournalEntryLine {
   exchangeRate Decimal @default(1) @db.Decimal(18, 6)
   debitBase    Decimal @default(0) @db.Decimal(18, 4)
   creditBase   Decimal @default(0) @db.Decimal(18, 4)
+  currencyCode String? @db.VarChar(10)
 
   taxPercentCode String? @db.VarChar(20)
   lineOrder      Int

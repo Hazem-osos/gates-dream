@@ -20,7 +20,6 @@ import {
 } from '@/lib/accounting/ensure-posted-after-save';
 import type { ApiError } from '@/lib/api/types';
 import { confirmAction } from '@/lib/feedback/confirm';
-import { firstPartyPhone } from '@/lib/whatsapp-share';
 import { inventorySupplierInvoiceFormSchema } from '@/lib/validation/inventory.schema';
 import { mapSalesFormToM5CreateBody, mapSalesFormToM5UpdateBody } from '@/lib/invoices/mapFormToM5Invoice';
 import { computeInvoiceFinancialSummary } from '@/lib/invoices/computeInvoiceFinancialSummary';
@@ -49,6 +48,7 @@ import {
   splitsMatchTotal,
   withOnAccountRemainder,
 } from '@/lib/invoices/payment-split.types';
+import { postInvoiceSettlementSplits } from '@/lib/invoices/post-invoice-settlement-splits';
 import {
   bankDraftFromSplits,
   buildCashTenderSplits,
@@ -121,14 +121,6 @@ const MultiPaymentSplitterModal = dynamic(
   { ssr: false, loading: () => <DynamicModalSkeleton label="جاري تحميل توزيع السداد…" /> }
 );
 
-const InvoiceSettlementsHistoryModal = dynamic(
-  () =>
-    import('@/components/invoices/InvoiceSettlementsHistoryModal').then((m) => ({
-      default: m.InvoiceSettlementsHistoryModal,
-    })),
-  { ssr: false, loading: () => <DynamicModalSkeleton label="جاري تحميل المدفوعات…" /> }
-);
-
 const PaymentInstallmentsModal = dynamic(
   () =>
     import('@/components/invoices/PaymentInstallmentsModal').then((m) => ({
@@ -186,8 +178,6 @@ type PurchaseInvoiceDraft = {
   sourceType: string;
   sourceId: string;
   sourceNumber: string;
-  freightAmount: number;
-  supplierDiscountAmount: number;
   paymentSplits: PaymentSplitLine[];
   paymentInstallments: PaymentInstallmentRow[];
   internalNotes: InternalNoteEntry[];
@@ -202,9 +192,7 @@ type PurchaseInvoiceDraft = {
 function isPurchaseInvoiceDraftEmpty(draft: PurchaseInvoiceDraft) {
   const hasLine = (draft.invoiceLines ?? []).some((line) => Boolean(line.itemId?.trim()));
   const hasNotes = (draft.internalNotes ?? []).some((note) => String(note.body ?? '').trim());
-  const hasMoney =
-    Number(draft.freightAmount) !== 0 || Number(draft.supplierDiscountAmount) !== 0;
-  return !draft.supplierId?.trim() && !draft.description?.trim() && !hasLine && !hasNotes && !hasMoney;
+  return !draft.supplierId?.trim() && !draft.description?.trim() && !hasLine && !hasNotes;
 }
 
 function invoiceRemainingForCollect(inv: Record<string, unknown> | undefined): number | null {
@@ -239,7 +227,7 @@ function FinalPurchaseInvoicePageInner() {
   const [isPosted, setIsPosted] = useState(false);
   const [isSalesTaxInvoice, setIsSalesTaxInvoice] = useState(true);
   const [showInvoiceList, setShowInvoiceList] = useState(false);
-  const [settlementsHistoryOpen, setSettlementsHistoryOpen] = useState(false);
+  const [bottomSplitTab, setBottomSplitTab] = useState('gl');
   const [linkAdvanceOpen, setLinkAdvanceOpen] = useState(false);
   const [submitAttempt, setSubmitAttempt] = useState(0);
   
@@ -277,8 +265,6 @@ function FinalPurchaseInvoicePageInner() {
   const [sourceId, setSourceId] = useState('');
   const [sourceNumber, setSourceNumber] = useState('');
   const lockLoadedSource = shouldLockLoadedSource(txSettingsRes?.data, sourceId);
-  const [freightAmount, setFreightAmount] = useState(0);
-  const [supplierDiscountAmount, setSupplierDiscountAmount] = useState(0);
   const prevPurchaseWarehouseRef = useRef(warehouseId);
   const [visibleColumnIds, setVisibleColumnIds] = useVisibleColumnIds(
     'gates:columns:purchase-invoice',
@@ -364,8 +350,6 @@ function FinalPurchaseInvoicePageInner() {
       sourceType,
       sourceId,
       sourceNumber,
-      freightAmount,
-      supplierDiscountAmount,
       paymentSplits,
       paymentInstallments,
       internalNotes,
@@ -396,8 +380,6 @@ function FinalPurchaseInvoicePageInner() {
       sourceType,
       sourceId,
       sourceNumber,
-      freightAmount,
-      supplierDiscountAmount,
       paymentSplits,
       paymentInstallments,
       internalNotes,
@@ -421,7 +403,7 @@ function FinalPurchaseInvoicePageInner() {
     setCostCenterId(payload.costCenterId);
     setDelegateId(payload.delegateId);
     setCurrencyId(payload.currencyId);
-    setPaymentType(payload.paymentType === 'credit' || payload.paymentType === 'split' ? payload.paymentType : 'cash');
+    setPaymentType(payload.paymentType === 'credit' ? 'credit' : 'cash');
     setTreasuryId(payload.treasuryId ?? '');
     setAdvancePaidAmount(Number(payload.advancePaidAmount) || 0);
     setAdvanceSafeId(payload.advanceSafeId ?? '');
@@ -430,8 +412,6 @@ function FinalPurchaseInvoicePageInner() {
     setSourceType(payload.sourceType ?? '');
     setSourceId(payload.sourceId ?? '');
     setSourceNumber(payload.sourceNumber ?? '');
-    setFreightAmount(Number(payload.freightAmount) || 0);
-    setSupplierDiscountAmount(Number(payload.supplierDiscountAmount) || 0);
     setPaymentSplits(Array.isArray(payload.paymentSplits) ? payload.paymentSplits : []);
     setCashTenderKind(payload.cashTenderKind ?? inferCashTenderKind(payload.paymentSplits));
     setCashBankAccountId(payload.cashBankAccountId ?? bankDraftFromSplits(payload.paymentSplits).bankAccountId);
@@ -480,12 +460,6 @@ function FinalPurchaseInvoicePageInner() {
     { enabled: !!selectedInvoiceId }
   );
   const selectedInvoice = invoiceResponse?.data;
-  const landedAllocationsQuery = useApiQuery<Array<{ totalAmount?: number | string; isCancelled?: boolean }>>(
-    ['landed-costs', selectedInvoiceId],
-    '/inventory/landed-costs',
-    selectedInvoiceId ? { invoiceId: selectedInvoiceId } : undefined,
-    { enabled: Boolean(selectedInvoiceId) }
-  );
   const { profile: companyProfile } = useCompanyPrintProfile();
   const printInvoiceDocument = selectedInvoice
     ? ({ ...selectedInvoice, invoiceKind: 'PURCHASE' } as Record<string, unknown>)
@@ -507,10 +481,9 @@ function FinalPurchaseInvoicePageInner() {
           applyTax: isSalesTaxInvoice,
           withholdingTaxAmount: Number(selectedInvoice?.withholdingTaxAmount ?? 0),
           pricingCalculationBasis,
-          additionsAndDiscounts: freightAmount - supplierDiscountAmount,
         }
       ),
-    [invoiceLines, isSalesTaxInvoice, pricingCalculationBasis, selectedInvoice?.withholdingTaxAmount, freightAmount, supplierDiscountAmount]
+    [invoiceLines, isSalesTaxInvoice, pricingCalculationBasis, selectedInvoice?.withholdingTaxAmount]
   );
 
   useEffect(() => {
@@ -565,7 +538,7 @@ function FinalPurchaseInvoicePageInner() {
       Array.isArray(rawSplits) ? rawSplits : [],
       invoiceNet
     );
-    setPaymentType(loaded.method);
+    setPaymentType(!selectedInvoice.isPosted && loaded.method === 'split' ? 'credit' : loaded.method);
     setPaymentSplits(loaded.splits);
     const cashSplit = loaded.splits.find((row) => row.type === 'CASH' && row.safeId);
     const bankDraft = bankDraftFromSplits(loaded.splits);
@@ -652,20 +625,7 @@ function FinalPurchaseInvoicePageInner() {
         }))
       );
     }
-    const headerPercent = Number((selectedInvoice as { headerDiscountPercent?: number }).headerDiscountPercent ?? 0);
-    const merchandise = Number((selectedInvoice as { totalAmount?: number }).totalAmount ?? 0);
-    setSupplierDiscountAmount(
-      headerPercent > 0 && merchandise > 0 ? (merchandise * headerPercent) / 100 : 0
-    );
   }, [selectedInvoice]);
-
-  useEffect(() => {
-    const rows = landedAllocationsQuery.data?.data ?? [];
-    const freight = rows
-      .filter((row) => !row.isCancelled)
-      .reduce((sum, row) => sum + Number(row.totalAmount ?? 0), 0);
-    if (freight > 0) setFreightAmount(freight);
-  }, [landedAllocationsQuery.data?.data]);
 
   const { data: currenciesResponse, isLoading: currenciesLoading } = useApiQuery<Currency[]>(
     ['currencies'],
@@ -773,8 +733,6 @@ function FinalPurchaseInvoicePageInner() {
     setPaymentSplits([]);
     setPaymentInstallments([]);
     setInternalNotes([]);
-    setFreightAmount(0);
-    setSupplierDiscountAmount(0);
     setIsSalesTaxInvoice(true);
     setPricingCalculationBasis(
       parsePricingCalculationBasis(companySettingsRes?.data?.pricingCalculationBasis)
@@ -908,15 +866,13 @@ function FinalPurchaseInvoicePageInner() {
   >(['safes', 'settlement'], '/accounting/safes', { page: 1, limit: 50 });
   const defaultSafeId = pickDefaultSafeId(safesResponse?.data);
 
-  const { data: settlementsResponse, isLoading: settlementsLoading } = useApiQuery<
-    InvoiceCashSettlement[]
-  >(
+  const { data: settlementsResponse } = useApiQuery<InvoiceCashSettlement[]>(
     ['invoice-settlements', selectedInvoiceId],
     `/invoices/${selectedInvoiceId}/settlements`,
     undefined,
     { enabled: !!selectedInvoiceId }
   );
-  const { data: chequesResponse, isLoading: chequesLoading } = useApiQuery<InvoiceChequesPayload>(
+  const { data: chequesResponse } = useApiQuery<InvoiceChequesPayload>(
     ['invoice-settlements-cheques', selectedInvoiceId],
     `/invoices/${selectedInvoiceId}/settlements/cheques`,
     undefined,
@@ -961,6 +917,7 @@ function FinalPurchaseInvoicePageInner() {
         invalidateQuery(['invoice', selectedInvoiceId]);
         invalidateQuery(['invoice-settlements', selectedInvoiceId]);
         invalidateQuery(['invoice-settlements-cheques', selectedInvoiceId]);
+        invalidateQuery(['invoice-installments', selectedInvoiceId]);
       },
       onError: (err) => setError(err.message || 'حدث خطأ أثناء الدفع'),
     }
@@ -990,17 +947,20 @@ function FinalPurchaseInvoicePageInner() {
     if (paymentType === 'cash' || paymentType === 'credit') {
       const cashTreasury = String(treasuryId || defaultSafeId || '').trim();
       const creditSafe = String(advanceSafeId || cashTreasury || '').trim();
+      const paidNow = Number(advancePaidAmount) || 0;
+      const invoiceNet = financialSummary.netAmount;
+      const partialCash = paymentType === 'cash' && paidNow > 0.009 && paidNow + 0.009 < invoiceNet;
       const cashBuilt = buildCashTenderSplits({
         kind: cashKind,
-        netAmount: financialSummary.netAmount,
+        netAmount: invoiceNet,
         treasuryId: paymentType === 'credit' ? creditSafe : cashTreasury,
         bankAccountId: cashBankAccountId,
         bankReference: cashBankReference,
         cheques: cashChequeRows,
         issuingBankAccountId: cashIssuingBankAccountId,
         direction: 'PAYMENT',
-        mode: paymentType === 'credit' ? 'advance' : 'full',
-        paidAmount: Number(advancePaidAmount) || 0,
+        mode: paymentType === 'credit' || partialCash ? 'advance' : 'full',
+        paidAmount: paidNow,
       });
       if (cashBuilt.error) {
         setCashChequeError(cashBuilt.error);
@@ -1068,18 +1028,21 @@ function FinalPurchaseInvoicePageInner() {
     const creditSafe = String(advanceSafeId || cashTreasury || '').trim();
     const creditPaid = Number(advancePaidAmount) || 0;
     const cashKind = resolveCashTenderKind(cashTenderKind, cashBankAccountId, cashChequeRows);
+    const invoiceNet = financialSummary.netAmount;
+    const partialCash =
+      resolvedMethod === 'cash' && creditPaid > 0.009 && creditPaid + 0.009 < invoiceNet;
     const cashBuilt =
       resolvedMethod === 'cash' || resolvedMethod === 'credit'
         ? buildCashTenderSplits({
             kind: cashKind,
-            netAmount: financialSummary.netAmount,
+            netAmount: invoiceNet,
             treasuryId: resolvedMethod === 'credit' ? creditSafe : cashTreasury,
             bankAccountId: cashBankAccountId,
             bankReference: cashBankReference,
             cheques: cashChequeRows,
             issuingBankAccountId: cashIssuingBankAccountId,
             direction: 'PAYMENT',
-            mode: resolvedMethod === 'credit' ? 'advance' : 'full',
+            mode: resolvedMethod === 'credit' || partialCash ? 'advance' : 'full',
             paidAmount: creditPaid,
           })
         : {};
@@ -1197,8 +1160,13 @@ function FinalPurchaseInvoicePageInner() {
       if (resolvedCashKind === 'bank' && !String(cashBankAccountId || '').trim()) {
         map.cashBankAccountId = 'يجب تحديد الحساب البنكي في الفاتورة النقدية';
       }
-      if (resolvedCashKind === 'cheques' && !cashChequeRows.some((row) => row.chequeNumber.trim())) {
-        map.cashCheques = 'أضف شيكاً واحداً على الأقل برقم ومبلغ';
+      if (resolvedCashKind === 'cheques') {
+        const chequeSum = cashChequeRows.reduce((sum, row) => sum + (Number(row.amount) || 0), 0);
+        if (!cashChequeRows.some((row) => row.chequeNumber.trim())) {
+          map.cashCheques = 'أضف شيكاً واحداً على الأقل برقم ومبلغ';
+        } else if (chequeSum + 0.009 < Number(financialSummary.netAmount || 0)) {
+          map.cashCheques = `مجموع الشيكات (${chequeSum.toFixed(2)}) أقل من قيمة الفاتورة`;
+        }
       }
     }
     if (paymentType === 'credit' && (Number(advancePaidAmount) || 0) > 0) {
@@ -1227,6 +1195,7 @@ function FinalPurchaseInvoicePageInner() {
     cashChequeRows,
     advancePaidAmount,
     advanceSafeId,
+    financialSummary.netAmount,
   ]);
 
   const statusTone = isPosted ? 'success' : 'warning';
@@ -1312,15 +1281,6 @@ function FinalPurchaseInvoicePageInner() {
             setError('اختر المورد أولاً');
             return;
           }
-          if (!isPosted) {
-            setError('رحّل الفاتورة أولاً ثم اربط الدفعة المقدمة');
-            return;
-          }
-          const remaining = invoiceRemainingForCollect(selectedInvoice);
-          if (remaining === null) {
-            setError('لا يوجد مبلغ متبقٍ على الفاتورة');
-            return;
-          }
           setLinkAdvanceOpen(true);
         }}
         onPaymentHistory={() => {
@@ -1330,7 +1290,8 @@ function FinalPurchaseInvoicePageInner() {
           }
           invalidateQuery(['invoice-settlements', selectedInvoiceId]);
           invalidateQuery(['invoice-settlements-cheques', selectedInvoiceId]);
-          setSettlementsHistoryOpen(true);
+          invalidateQuery(['invoice-installments', selectedInvoiceId]);
+          setBottomSplitTab('settlements');
         }}
         onCreateReturn={() => {
           if (!selectedInvoiceId) {
@@ -1355,32 +1316,6 @@ function FinalPurchaseInvoicePageInner() {
           }
           unlockForEdit();
         }}
-        whatsAppShare={
-          selectedInvoiceId
-            ? {
-                customerName:
-                  (selectedInvoice as { supplier?: { arabicName?: string } } | undefined)?.supplier
-                    ?.arabicName ||
-                  supplierRef ||
-                  'مورد',
-                customerPhone: firstPartyPhone(
-                  (selectedInvoice as { supplier?: { phone1?: string | null; phone2?: string | null } })
-                    ?.supplier
-                ),
-                companyName: companyProfile?.nameAr || 'Gates',
-                invoiceNumber: invoiceNumber || String(selectedInvoice?.invoiceNumber || ''),
-                invoiceDate: date || (selectedInvoice?.date ? String(selectedInvoice.date).slice(0, 10) : ''),
-                netAmount: Number(financialSummary.netAmount ?? selectedInvoice?.netAmount ?? 0),
-                paidAmount: Number(
-                  (selectedInvoice as { paidAmount?: number | string } | undefined)?.paidAmount ?? 0
-                ),
-                remainingAmount: Number(
-                  (selectedInvoice as { remainingAmount?: number | string } | undefined)?.remainingAmount ??
-                    0
-                ),
-              }
-            : null
-        }
       />
 
       {showInvoiceList ? (
@@ -1435,7 +1370,16 @@ function FinalPurchaseInvoicePageInner() {
         onAdvancePaidAmount={setAdvancePaidAmount}
         advanceSafeId={advanceSafeId}
         onAdvanceSafeId={setAdvanceSafeId}
-        onConfigureSplit={() => setSplitModalOpen(true)}
+        onConfigureSplit={() => {
+          if (isPosted) {
+            const remaining = invoiceRemainingForCollect(selectedInvoice);
+            if (remaining === null) {
+              setError('لا يوجد مبلغ متبقي للسداد');
+              return;
+            }
+          }
+          setSplitModalOpen(true);
+        }}
         onLinkAdvance={() => {
           if (!selectedInvoiceId) {
             setError('احفظ الفاتورة أولاً');
@@ -1445,15 +1389,13 @@ function FinalPurchaseInvoicePageInner() {
             setError('اختر المورد أولاً');
             return;
           }
-          if (!isPosted) {
-            setError('رحّل الفاتورة أولاً ثم اربط الدفعة المقدمة');
-            return;
-          }
           setLinkAdvanceOpen(true);
         }}
         onConfigureInstallments={() => setInstallmentsModalOpen(true)}
         installmentCount={paymentInstallments.length}
         paymentSplits={paymentSplits}
+        splitLocked={!isPosted}
+        splitCollectMode={isPosted}
         warehouseId={warehouseId}
         onWarehouseId={setWarehouseId}
         date={date}
@@ -1504,6 +1446,26 @@ function FinalPurchaseInvoicePageInner() {
         />
       </div>
 
+      <div className="mt-2">
+        <ProgressivePurchaseInvoiceLineGrid
+          storageKey="gates:columns:purchase-invoice"
+          lines={invoiceLines}
+          onChange={setInvoiceLines}
+          warehouseId={warehouseId}
+          visibleColumnIds={visibleColumnIds}
+          onVisibleColumnIdsChange={(ids) =>
+            setVisibleColumnIds(mergeVisibleColumnIds('gates:columns:purchase-invoice', ids))
+          }
+          modernUi
+          clipboardItems={clipboardItems}
+          onClipboardLines={handlePurchaseClipboardLines}
+          pricingCalculationBasis={pricingCalculationBasis}
+          readOnly={isReadOnly || lockLoadedSource}
+          headerDescription={description}
+        />
+            </div>
+      </DocumentFormLock>
+
       {collectModalOpen ? (
         <InvoiceCollectModal
           open
@@ -1531,10 +1493,35 @@ function FinalPurchaseInvoicePageInner() {
         <MultiPaymentSplitterModal
           open
           onClose={() => setSplitModalOpen(false)}
-          grandTotal={financialSummary.netAmount}
+          grandTotal={
+            isPosted
+              ? invoiceRemainingForCollect(selectedInvoice) ?? financialSummary.netAmount
+              : financialSummary.netAmount
+          }
           direction="PAYMENT"
-          initial={paymentSplits}
-          onConfirm={setPaymentSplits}
+          initial={isPosted ? [] : paymentSplits}
+          onConfirm={(splits) => {
+            if (!isPosted) {
+              setPaymentSplits(splits);
+              return;
+            }
+            if (!selectedInvoiceId) {
+              setError('احفظ الفاتورة ورحّلها أولاً');
+              return;
+            }
+            void postInvoiceSettlementSplits(selectedInvoiceId, splits)
+              .then(() => {
+                setSuccess('تم تسجيل الدفع المتعدد');
+                setSplitModalOpen(false);
+                invalidateQuery(['invoice', selectedInvoiceId]);
+                invalidateQuery(['invoice-settlements', selectedInvoiceId]);
+                invalidateQuery(['invoice-settlements-cheques', selectedInvoiceId]);
+                invalidateQuery(['invoice-installments', selectedInvoiceId]);
+              })
+              .catch((err: unknown) => {
+                setError(err instanceof Error ? err.message : 'تعذر تسجيل الدفع المتعدد');
+              });
+          }}
         />
       ) : null}
 
@@ -1550,41 +1537,6 @@ function FinalPurchaseInvoicePageInner() {
           initial={paymentInstallments}
           onConfirm={setPaymentInstallments}
           disabled={isPosted}
-        />
-      ) : null}
-
-      <div className="mt-2">
-        <ProgressivePurchaseInvoiceLineGrid
-          storageKey="gates:columns:purchase-invoice"
-          lines={invoiceLines}
-          onChange={setInvoiceLines}
-          warehouseId={warehouseId}
-          visibleColumnIds={visibleColumnIds}
-          onVisibleColumnIdsChange={(ids) =>
-            setVisibleColumnIds(mergeVisibleColumnIds('gates:columns:purchase-invoice', ids))
-          }
-          modernUi
-          clipboardItems={clipboardItems}
-          onClipboardLines={handlePurchaseClipboardLines}
-          pricingCalculationBasis={pricingCalculationBasis}
-          readOnly={isReadOnly || lockLoadedSource}
-          landedCostExtras={{ freightAmount, supplierDiscountAmount }}
-          headerDescription={description}
-        />
-            </div>
-      </DocumentFormLock>
-
-      {settlementsHistoryOpen ? (
-        <InvoiceSettlementsHistoryModal
-          open
-          onClose={() => setSettlementsHistoryOpen(false)}
-          direction="PAYMENT"
-          settlements={settlements}
-          cheques={settlementCheques}
-          paidAmount={Number((selectedInvoice as { paidAmount?: number } | undefined)?.paidAmount) || 0}
-          remainingAmount={invoiceRemainingForCollect(selectedInvoice) ?? 0}
-          netAmount={Number((selectedInvoice as { netAmount?: number } | undefined)?.netAmount) || financialSummary.netAmount}
-          loading={settlementsLoading || chequesLoading}
         />
       ) : null}
 
@@ -1606,15 +1558,13 @@ function FinalPurchaseInvoicePageInner() {
         journalEntryId={(selectedInvoice as { journalEntryId?: string | null })?.journalEntryId}
         selectedInvoiceId={selectedInvoiceId}
         isPosted={isPosted}
-        freightAmount={freightAmount}
-        supplierDiscountAmount={supplierDiscountAmount}
-        onFreightAmountChange={setFreightAmount}
-        onSupplierDiscountAmountChange={setSupplierDiscountAmount}
-        extrasReadOnly={isReadOnly || lockLoadedSource}
         settlements={settlements}
         cheques={settlementCheques}
+        installments={paymentInstallments}
         paidAmount={Number((selectedInvoice as { paidAmount?: number } | undefined)?.paidAmount) || 0}
         remainingAmount={invoiceRemainingForCollect(selectedInvoice) ?? 0}
+        activeTabId={bottomSplitTab}
+        onActiveTabChange={setBottomSplitTab}
       />
     </ErpDocumentLayout>
   );

@@ -6,6 +6,7 @@ import { useApiMutation, useApiQuery, useInvalidateQuery } from '@/lib/hooks/use
 import { apiClient } from '@/lib/api/client';
 import type { ApiError } from '@/lib/api/types';
 import { QuickCreateDialog } from '@/app/components/form/QuickCreateDialog';
+import { useCompanyBaseCurrency } from '@/lib/hooks/useCompanyBaseCurrency';
 
 export type QuickCreatedBankAccount = {
   id: string;
@@ -26,11 +27,13 @@ type Props = {
 export function QuickCreateBankAccountModal({
   open,
   initialName = '',
-  currencyCode = 'EGP',
+  currencyCode,
   onClose,
   onCreated,
 }: Props) {
   const invalidate = useInvalidateQuery();
+  const { code: companyBaseCurrency } = useCompanyBaseCurrency();
+  const resolvedCurrency = currencyCode || companyBaseCurrency;
   const [name, setName] = useState(initialName);
   const [bankId, setBankId] = useState('');
   const [newBankName, setNewBankName] = useState('');
@@ -88,7 +91,7 @@ export function QuickCreateBankAccountModal({
       const res = await accountMutation.mutateAsync({
         bankId: resolvedBankId,
         arabicName: name.trim(),
-        currencyCode,
+        currencyCode: resolvedCurrency,
       });
       const row = res.data;
       if (!row?.id) {

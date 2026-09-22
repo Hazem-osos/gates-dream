@@ -11,6 +11,7 @@ import SuccessToast from '@/components/SuccessToast';
 import type { ApiError } from '@/lib/api/types';
 import { entityLabel } from '@/lib/quick-create/catalog';
 import { useQuickCreateHost } from '@/lib/quick-create/useQuickCreateTab';
+import { useCompanyBaseCurrency } from '@/lib/hooks/useCompanyBaseCurrency';
 
 type BankRow = { id: string; arabicName: string; code?: string | null };
 type BankAccountRow = { id: string; arabicName: string; code?: string | null };
@@ -18,6 +19,7 @@ type BankAccountRow = { id: string; arabicName: string; code?: string | null };
 export default function BankAccountCardPage() {
   const invalidateQuery = useInvalidateQuery();
   const quickCreate = useQuickCreateHost('bank-account');
+  const { code: companyBaseCurrency } = useCompanyBaseCurrency();
   const [arabicName, setArabicName] = useState('');
   const [bankId, setBankId] = useState('');
   const [newBankName, setNewBankName] = useState('');
@@ -71,7 +73,7 @@ export default function BankAccountCardPage() {
       const res = await accountMutation.mutateAsync({
         bankId: resolvedBankId,
         arabicName: arabicName.trim(),
-        currencyCode: 'EGP',
+        currencyCode: companyBaseCurrency,
       });
       const row = res.data;
       if (!row?.id) {

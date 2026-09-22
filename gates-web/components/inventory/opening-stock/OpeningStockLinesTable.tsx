@@ -5,6 +5,7 @@ import { Trash2 } from 'lucide-react';
 import { ItemSelect } from '@/app/components/form/ItemSelect';
 import { WarehouseSelect } from '@/app/components/form/WarehouseSelect';
 import { UniversalDataGrid } from '@/components/ui/data-entry-grid';
+import { TableNumberInput } from '@/components/grid/TableNumberInput';
 import { dataEntryGridInputClass } from '@/components/ui/data-entry-grid/tokens';
 import {
   handleLineGridKeyDown,
@@ -17,6 +18,7 @@ import {
   emptyOpeningStockLine,
   formatMoney,
   lineValue,
+  openingStockLineIssues,
   type OpeningStockLineForm,
 } from './opening-stock-types';
 
@@ -28,12 +30,8 @@ type Props = {
   disabled?: boolean;
   defaultWarehouseId?: string;
   onItemResolved?: (index: number, item: ItemOption | undefined) => void;
+  onResolveItemCode?: (index: number, code: string) => void;
 };
-
-function parseAmount(raw: string) {
-  const n = Number(String(raw).replace(/,/g, ''));
-  return Number.isFinite(n) ? n : 0;
-}
 
 export function OpeningStockLinesTable({
   lines,
@@ -43,6 +41,7 @@ export function OpeningStockLinesTable({
   disabled,
   defaultWarehouseId,
   onItemResolved,
+  onResolveItemCode,
 }: Props) {
   const gridId = 'opening-stock-lines';
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -110,6 +109,9 @@ export function OpeningStockLinesTable({
         renderCell={(index, columnId) => {
           const line = lines[index] ?? emptyOpeningStockLine(defaultWarehouseId);
           const attrs = (field: string) => lineGridDataAttrs(gridId, index, field);
+          const started = Boolean(line.itemId || line.itemCode || line.itemName || Number(line.quantity) > 0);
+          const issues = started ? openingStockLineIssues(line) : [];
+          const issueHint = issues.length ? issues.join(' · ') : undefined;
 
           if (columnId === 'idx') {
             return (
@@ -124,10 +126,11 @@ export function OpeningStockLinesTable({
               <input
                 type="text"
                 disabled={disabled}
-                className={`${dataEntryGridInputClass} font-mono`}
+                className={`${dataEntryGridInputClass} font-mono ${!line.itemId && started ? 'border-amber-400' : ''}`}
                 value={line.itemCode}
                 placeholder="الكود"
                 onChange={(e) => updateLine(index, { itemCode: e.target.value })}
+                onBlur={() => onResolveItemCode?.(index, line.itemCode)}
                 onKeyDown={(e) => onCellKeyDown(e, index)}
                 {...attrs('itemCode')}
               />
@@ -140,8 +143,13 @@ export function OpeningStockLinesTable({
                 value={line.itemId}
                 disabled={disabled}
                 emptyLabel="اختر الصنف"
-                className={dataEntryGridInputClass}
-                onChange={(id) => updateLine(index, { itemId: id })}
+                className={`${dataEntryGridInputClass} ${!line.itemId && started ? 'border-amber-400' : ''}`}
+                onChange={(id) =>
+                  updateLine(index, {
+                    itemId: id,
+                    warehouseId: line.warehouseId || defaultWarehouseId || '',
+                  })
+                }
                 onItemResolved={(item) => {
                   if (!item) return;
                   const catalog = 'units' in item ? item : undefined;
@@ -154,6 +162,7 @@ export function OpeningStockLinesTable({
                     itemCode: catalog?.code || item.serial || line.itemCode,
                     itemName: item.arabicName,
                     unitName: unit,
+                    warehouseId: line.warehouseId || defaultWarehouseId || '',
                     unitCost: line.unitCost || Number(catalog?.averageCost) || 0,
                   });
                   onItemResolved?.(index, catalog);
@@ -179,7 +188,7 @@ export function OpeningStockLinesTable({
                 value={line.warehouseId}
                 disabled={disabled}
                 emptyLabel="المخزن"
-                className={dataEntryGridInputClass}
+                className={`${dataEntryGridInputClass} ${!line.warehouseId && started ? 'border-amber-400' : ''}`}
                 onChange={(id) => updateLine(index, { warehouseId: id })}
                 nativeSelectProps={{
                   ...attrs('warehouseId'),
@@ -191,13 +200,12 @@ export function OpeningStockLinesTable({
 
           if (columnId === 'quantity') {
             return (
-              <input
-                inputMode="decimal"
+              <TableNumberInput
                 disabled={disabled}
-                className={`${dataEntryGridInputClass} text-end font-mono font-medium`}
-                value={line.quantity ? String(line.quantity) : ''}
+                className={`${dataEntryGridInputClass} text-end font-mono font-medium ${started && !(Number(line.quantity) > 0) ? 'border-amber-400' : ''}`}
+                value={line.quantity}
                 placeholder="0"
-                onChange={(e) => updateLine(index, { quantity: parseAmount(e.target.value) })}
+                onValueCommit={(n) => updateLine(index, { quantity: n })}
                 onKeyDown={(e) => onCellKeyDown(e, index)}
                 {...attrs('quantity')}
               />
@@ -206,13 +214,12 @@ export function OpeningStockLinesTable({
 
           if (columnId === 'unitCost') {
             return (
-              <input
-                inputMode="decimal"
+              <TableNumberInput
                 disabled={disabled}
                 className={`${dataEntryGridInputClass} text-end font-mono font-medium`}
-                value={line.unitCost ? String(line.unitCost) : ''}
+                value={line.unitCost}
                 placeholder="0.00"
-                onChange={(e) => updateLine(index, { unitCost: parseAmount(e.target.value) })}
+                onValueCommit={(n) => updateLine(index, { unitCost: n })}
                 onKeyDown={(e) => onCellKeyDown(e, index)}
                 {...attrs('unitCost')}
               />
@@ -221,9 +228,14 @@ export function OpeningStockLinesTable({
 
           if (columnId === 'total') {
             return (
-              <span className="block px-2 text-end font-mono text-xs font-semibold text-muted-foreground">
-                {formatMoney(lineValue(line))}
-              </span>
+              <div>
+                <span className="block px-2 text-end font-mono text-xs font-semibold text-muted-foreground">
+                  {formatMoney(lineValue(line))}
+                </span>
+                {issueHint ? (
+                  <p className="mt-0.5 px-1 text-[10px] font-medium text-amber-700">{issueHint}</p>
+                ) : null}
+              </div>
             );
           }
 

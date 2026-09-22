@@ -1,6 +1,4 @@
 import { z } from 'zod';
-import { amountsEqualAt4 } from '../../../shared/utils/decimal-round';
-import { sumBaseLines, validateJournalLineSides } from '../../../shared/utils/money.util';
 
 export const journalEntryLineSchema = z
   .object({
@@ -12,6 +10,7 @@ export const journalEntryLineSchema = z
     lineOrder: z.number().int().positive('Line order must be a positive integer'),
     exchangeRate: z.number().positive().optional(),
     currencyId: z.string().optional().nullable(),
+    currencyCode: z.string().optional().nullable(),
     debitBase: z.number().nonnegative().optional(),
     creditBase: z.number().nonnegative().optional(),
     partnerId: z
@@ -35,16 +34,6 @@ export const journalEntryLineSchema = z
     { message: 'Each line must have either debit or credit (not both, not neither)' }
   );
 
-function baseTotals(lines: z.infer<typeof journalEntryLineSchema>[], headerRate: number) {
-  return sumBaseLines(
-    lines.map((line) => ({
-      debit: line.debit,
-      credit: line.credit,
-      exchangeRate: line.exchangeRate ?? headerRate,
-    }))
-  );
-}
-
 export const createJournalEntrySchema = z
   .object({
     voucherNumber: z.string().optional(),
@@ -63,17 +52,8 @@ export const createJournalEntrySchema = z
     lines: z
       .array(journalEntryLineSchema)
       .min(2, 'Journal entry must have at least 2 line items'),
-  })
-  .refine(
-    (data) => {
-      const { debitBase, creditBase } = baseTotals(data.lines, data.exchangeRate ?? 1);
-      return amountsEqualAt4(debitBase, creditBase);
-    },
-    {
-      message: 'Debit base total must equal credit base total (4 decimal places)',
-      path: ['lines'],
-    }
-  );
+  });
+  // Balance is enforced in journalPostingService so SaveUnbalanced can allow drafts.
 
 export const updateJournalEntrySchema = z
   .object({
@@ -99,21 +79,7 @@ export const updateJournalEntrySchema = z
     // changed the entry since the client last read it is rejected with 409
     // instead of silently overwritten.
     expectedVersion: z.number().int().nonnegative().optional(),
-  })
-  .refine(
-    (data) => {
-      if (!data.lines) return true;
-      const { debitBase, creditBase } = baseTotals(
-        data.lines,
-        data.exchangeRate ?? 1
-      );
-      return amountsEqualAt4(debitBase, creditBase);
-    },
-    {
-      message: 'Debit base total must equal credit base total (4 decimal places)',
-      path: ['lines'],
-    }
-  );
+  });
 
 /** Hub/list filters send `YYYY-MM-DD`; keep full ISO datetime accepted too. */
 const optionalQueryDate = z

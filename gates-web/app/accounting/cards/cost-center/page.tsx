@@ -23,6 +23,7 @@ import { entityLabel } from '@/lib/quick-create/catalog';
 import { useQuickCreateHost } from '@/lib/quick-create/useQuickCreateTab';
 import { bumpTrailingCode, isCodeAfter } from '@/lib/masters/nextNumericSerial';
 import { toast } from '@/lib/feedback/toast';
+import { apiClient } from '@/lib/api/client';
 
 const EMPTY_COST_CENTER_FORM = {
   code: '',
@@ -204,6 +205,21 @@ function CostCenterPage() {
       isActive: formData.isActive,
     };
 
+    if (selectedId) {
+      try {
+        await apiClient.put(`/accounting/cost-centers/${selectedId}`, requestBody, {
+          skipSuccessNotify: true,
+        });
+        toast.success('تم حفظ تعديلات مركز التكلفة');
+        invalidateQuery(['cost-centers']);
+        setSuccess('تم حفظ تعديلات مركز التكلفة');
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : 'حدث خطأ أثناء الحفظ';
+        setError(message);
+        toast.error(message);
+      }
+      return;
+    }
     costCenterMutation.mutate(requestBody);
   };
 

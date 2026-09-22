@@ -12,16 +12,8 @@ export type LandedCostLineInput = {
   discountType?: DiscountType | string;
 };
 
-export type LandedCostExtras = {
-  freightAmount?: number;
-  supplierDiscountAmount?: number;
-};
-
 export type LandedCostBreakdown = {
   baseUnitPrice: number;
-  freightShare: number;
-  freightPercentOfInvoice: number;
-  supplierDiscountShare: number;
   landedUnitCost: number;
   lineMerchandiseValue: number;
   invoiceMerchandiseValue: number;
@@ -38,8 +30,7 @@ function merchandiseValue(
 
 export function buildLandedCostBreakdown(
   line: LandedCostLineInput,
-  allLines: LandedCostLineInput[],
-  extras: LandedCostExtras = {},
+  _allLines: LandedCostLineInput[],
   opts?: {
     pricingCalculationBasis?: PricingCalculationBasis | string;
     previousAverageCost?: number;
@@ -50,22 +41,9 @@ export function buildLandedCostBreakdown(
     parseDecimal(line.baseQuantity) || parseDecimal(line.quantity),
     0
   );
-  const pricedQty = Math.max(parseDecimal(line.quantity), qty, 0);
   const unitPrice = parseDecimal(line.unitPrice);
   const lineValue = merchandiseValue(line, opts?.pricingCalculationBasis);
-  const invoiceValue = allLines.reduce(
-    (sum, row) => sum + merchandiseValue(row, opts?.pricingCalculationBasis),
-    0
-  );
-  const share = invoiceValue > 0 ? lineValue / invoiceValue : 0;
-  const freight = Math.max(parseDecimal(extras.freightAmount), 0);
-  const supplierDiscount = Math.max(parseDecimal(extras.supplierDiscountAmount), 0);
-  const freightShareTotal = roundTo4(freight * share);
-  const discountShareTotal = roundTo4(supplierDiscount * share);
-  const divisor = pricedQty > 0 ? pricedQty : 1;
-  const freightShare = pricedQty > 0 ? roundTo4(freightShareTotal / divisor) : 0;
-  const supplierDiscountShare = pricedQty > 0 ? roundTo4(discountShareTotal / divisor) : 0;
-  const landedUnitCost = roundTo4(unitPrice + freightShare - supplierDiscountShare);
+  const landedUnitCost = roundTo4(unitPrice);
 
   const previousAverageCost =
     opts?.previousAverageCost != null && Number.isFinite(opts.previousAverageCost)
@@ -79,12 +57,9 @@ export function buildLandedCostBreakdown(
 
   return {
     baseUnitPrice: roundTo4(unitPrice),
-    freightShare,
-    freightPercentOfInvoice: roundTo4(share * 100),
-    supplierDiscountShare,
     landedUnitCost,
     lineMerchandiseValue: roundTo4(lineValue),
-    invoiceMerchandiseValue: roundTo4(invoiceValue),
+    invoiceMerchandiseValue: roundTo4(lineValue),
     previousAverageCost,
     projectedAverageCost,
   };

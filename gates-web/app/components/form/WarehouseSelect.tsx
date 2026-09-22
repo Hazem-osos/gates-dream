@@ -79,6 +79,7 @@ function WarehouseSelectInner({
     const list = merged
       .filter((w) => {
         if (blocked.has(w.id)) return false;
+        if (w.id === value) return true;
         if (headerOnly) return isHeaderWarehouse(w);
         if (leafOnly) return isOperationsWarehouse(w);
         return true;
@@ -92,7 +93,7 @@ function WarehouseSelectInner({
       return [{ value: '', label: emptyLabel, searchText: '' }, ...list];
     }
     return list;
-  }, [allowEmpty, emptyLabel, excludeIds, headerOnly, leafOnly, merged]);
+  }, [allowEmpty, emptyLabel, excludeIds, headerOnly, leafOnly, merged, value]);
 
   const valueLabel = useMemo(() => {
     if (!value) return undefined;

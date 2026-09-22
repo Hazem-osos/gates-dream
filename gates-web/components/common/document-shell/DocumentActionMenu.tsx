@@ -49,12 +49,15 @@ export type DocumentActionMenuProps = {
   hidePostActions?: boolean;
   /** Keep تعديل enabled on posted docs (in-place journal update on save). */
   allowEditWhenPosted?: boolean;
+  /** Opening docs stay editable after cancel so the same parties can be changed. */
+  allowEditWhenCancelled?: boolean;
   printLabel?: string;
   voidLabel?: string;
   restoreLabel?: string;
   duplicateLabel?: string;
   editLockedHint?: string;
   voidLockedHint?: string;
+  restoreConfirmMessage?: string;
 };
 
 export function DocumentActionMenu({
@@ -84,12 +87,14 @@ export function DocumentActionMenu({
   restorePending,
   hidePostActions = false,
   allowEditWhenPosted = false,
+  allowEditWhenCancelled = false,
   printLabel,
   voidLabel,
   restoreLabel,
   duplicateLabel,
   editLockedHint,
   voidLockedHint,
+  restoreConfirmMessage,
 }: DocumentActionMenuProps) {
   const mode = useOptionalDocumentMode();
   const isReadOnly = mode?.isReadOnly ?? false;
@@ -117,8 +122,10 @@ export function DocumentActionMenu({
   };
 
   const lockEditWhenPosted = isPosted && !hidePostActions && !allowEditWhenPosted;
-  const editDisabled = !hasDocument || isCancelled || lockEditWhenPosted || !onEdit;
-  const editHint = isCancelled
+  const editDisabled =
+    !hasDocument || (isCancelled && !allowEditWhenCancelled) || lockEditWhenPosted || !onEdit;
+  const editHint =
+    isCancelled && !allowEditWhenCancelled
     ? 'المستند ملغي ولا يمكن تعديله'
     : lockEditWhenPosted
       ? editLockedHint ?? 'المستند مرحل ومثبت محاسبياً. فك الترحيل أولاً من قائمة (...)'
@@ -310,8 +317,9 @@ export function DocumentActionMenu({
               {confirm === 'unpost'
                 ? 'سيتم فك الترحيل وإعادة المستند إلى غير مرحل حتى يمكن تعديله أو حذفه. هل تريد المتابعة؟'
                 : confirm === 'restore'
-                  ? 'سيتم استعادة القيد الملغي وترحيله من جديد. هل تريد المتابعة؟'
-                  : 'سيتم إلغاء هذا المستند مع الإبقاء عليه بحالة ملغي. يمكن استعادته لاحقاً. هل تريد المتابعة؟'}
+                  ? restoreConfirmMessage ??
+                    'سيتم استعادة نفس المستند الملغي. لو فيه مستند تاني شغال لنفس العملية لازم تلغيه الأول.'
+                  : 'سيتم إلغاء هذا المستند مع الإبقاء عليه بحالة ملغي. الأطراف تفضل موجودة على نفس الشاشة، و«جديد» يقفل. يمكن استعادته لاحقاً.'}
             </p>
             <div className="mt-5 flex items-center justify-end gap-2">
               <button

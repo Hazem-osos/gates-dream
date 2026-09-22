@@ -28,6 +28,7 @@ import {
   isChequeStatusBlockingInvoiceUnpost,
   shouldSkipInvoiceAutoSettle,
 } from './invoice-settlement-policy';
+import { paymentSplitTenderTotal } from '../types/invoice-payment-split.types';
 
 /**
  * Wave 2 fix: posts the realized FX gain/loss when a foreign-currency
@@ -111,10 +112,15 @@ export function isImmediateCashInvoice(invoice: {
   paymentMethod?: string | null;
   netAmount: Decimal | number;
   paidAmount?: Decimal | number | null;
+  paymentSplits?: unknown;
 }): boolean {
-  const pm = (invoice.paymentMethod ?? '').trim().toUpperCase();
-  if (pm === 'CASH') return true;
   const net = Number(invoice.netAmount);
+  const tendered = paymentSplitTenderTotal(invoice.paymentSplits);
+  if (tendered > 0.0001 && tendered + 0.0001 < net) {
+    return false;
+  }
+  const pm = (invoice.paymentMethod ?? '').trim().toUpperCase();
+  if (pm === 'CASH' || pm === 'نقدي') return true;
   const paid = Number(invoice.paidAmount ?? 0);
   return paid > 0 && amountsEqualAt4(paid, net);
 }
@@ -436,6 +442,7 @@ export class InvoiceSettlementService {
       select: {
         id: true,
         transactionKind: true,
+        documentRole: true,
         voucherNumber: true,
         date: true,
         amount: true,

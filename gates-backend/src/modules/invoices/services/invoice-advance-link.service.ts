@@ -10,6 +10,16 @@ import {
 
 const RECEIPT_KINDS = new Set<InvoiceKind>(['SALE', 'PURCHASE_RETURN']);
 
+function outstandingOf(invoice: {
+  remainingAmount?: unknown;
+  netAmount?: unknown;
+  paidAmount?: unknown;
+}) {
+  const stored = Number(invoice.remainingAmount);
+  if (Number.isFinite(stored) && stored > 0.0001) return roundTo4(stored);
+  return roundTo4(Math.max(Number(invoice.netAmount ?? 0) - Number(invoice.paidAmount ?? 0), 0));
+}
+
 function expectedCashKind(invoiceKind: string | null): 'RECEIPT' | 'PAYMENT' {
   return RECEIPT_KINDS.has(invoiceKind as InvoiceKind) ? 'RECEIPT' : 'PAYMENT';
 }
@@ -46,6 +56,7 @@ export class InvoiceAdvanceLinkService {
         isPosted: true,
         isCancelled: false,
         transactionKind: customerId ? 'RECEIPT' : 'PAYMENT',
+        invoiceId: null,
         ...(customerId ? { customerId } : { supplierId }),
       },
       select: {
@@ -90,6 +101,8 @@ export class InvoiceAdvanceLinkService {
         supplierId: true,
         invoiceKind: true,
         remainingAmount: true,
+        netAmount: true,
+        paidAmount: true,
         isPosted: true,
         isCancelled: true,
       },
@@ -104,7 +117,7 @@ export class InvoiceAdvanceLinkService {
     return {
       invoiceId: invoice.id,
       isPosted: invoice.isPosted,
-      remainingAmount: Number(invoice.remainingAmount),
+      remainingAmount: outstandingOf(invoice),
       cashKind: expectedCashKind(invoice.invoiceKind),
       advances,
     };
@@ -123,15 +136,14 @@ export class InvoiceAdvanceLinkService {
         supplierId: true,
         invoiceKind: true,
         remainingAmount: true,
+        netAmount: true,
+        paidAmount: true,
         isPosted: true,
         isCancelled: true,
       },
     });
     if (!invoice) throw new AppError(404, 'الفاتورة غير موجودة');
     if (invoice.isCancelled) throw new AppError(422, 'لا يمكن ربط دفعة بفاتورة ملغاة');
-    if (!invoice.isPosted) {
-      throw new AppError(422, 'رحّل الفاتورة أولاً ثم اربط الدفعة المقدمة');
-    }
 
     const cashKind = expectedCashKind(invoice.invoiceKind);
     const wantedIds = [...new Set(input.allocations.map((row) => row.cashTransactionId))];
@@ -154,7 +166,7 @@ export class InvoiceAdvanceLinkService {
     }
 
     const byId = new Map(txs.map((tx) => [tx.id, tx]));
-    let remaining = Number(invoice.remainingAmount);
+    let remaining = outstandingOf(invoice);
     if (remaining <= 0.0001) {
       throw new AppError(422, 'لا يوجد مبلغ متبقٍ على الفاتورة');
     }

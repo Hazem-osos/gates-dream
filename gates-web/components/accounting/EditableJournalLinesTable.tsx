@@ -6,6 +6,7 @@ import { CostCenterSelect } from '@/app/components/form/CostCenterSelect';
 import { Button, IconButton, compactControlClass } from '@/components/ui';
 import { isFxRateLocked, rateForCurrency } from '@/lib/accounting/fx-base';
 import { ExchangeRateInput } from '@/components/accounting/ExchangeRateInput';
+import { TableNumberInput } from '@/components/grid/TableNumberInput';
 import { useCompanyBaseCurrency } from '@/lib/hooks/useCompanyBaseCurrency';
 import { costCenterRuleFromAccount } from '@/lib/accounting/cost-center-rule';
 import { ACCOUNT_PICKER_PAGE_SIZE, useAccountsQuery } from '@/lib/hooks/useMasterDataQueries';
@@ -152,29 +153,19 @@ export function EditableJournalLinesTable({
                     />
                   </td>
                   <td className="w-24 border-x border-[#D6EAF3] px-1.5 py-1.5">
-                    <input
-                      type="number"
-                      min={0}
-                      step="0.01"
+                    <TableNumberInput
                       className={`${compactControlClass} text-center`}
-                      value={line.debit || ''}
+                      value={line.debit}
                       disabled={disabled}
-                      onChange={(e) =>
-                        updateLine(index, { debit: parseFloat(e.target.value) || 0, credit: 0 })
-                      }
+                      onValueCommit={(n) => updateLine(index, { debit: n, credit: n > 0 ? 0 : line.credit })}
                     />
                   </td>
                   <td className="w-24 border-x border-[#D6EAF3] px-1.5 py-1.5">
-                    <input
-                      type="number"
-                      min={0}
-                      step="0.01"
+                    <TableNumberInput
                       className={`${compactControlClass} text-center`}
-                      value={line.credit || ''}
+                      value={line.credit}
                       disabled={disabled}
-                      onChange={(e) =>
-                        updateLine(index, { credit: parseFloat(e.target.value) || 0, debit: 0 })
-                      }
+                      onValueCommit={(n) => updateLine(index, { credit: n, debit: n > 0 ? 0 : line.debit })}
                     />
                   </td>
                   <td className="w-32 border-x border-[#D6EAF3] px-1.5 py-1.5">

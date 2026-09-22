@@ -1020,6 +1020,7 @@ export class AccountService {
           costCenterRequired: true,
           accountKind: true,
           isActive: true,
+          currencyCode: true,
         },
         orderBy: [{ code: 'asc' }],
       });

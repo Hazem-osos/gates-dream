@@ -110,7 +110,7 @@ export function filterGuideTree(
     const children = node.children?.length ? filterGuideTree(node.children, q, seen) : [];
     const blob = `${node.code} ${node.name} ${node.subtitle ?? ''}`.toLowerCase();
     if (blob.includes(needle) || children.length > 0) {
-      out.push({ ...node, children: children.length ? children : node.children });
+      out.push({ ...node, children });
     }
   }
   return out;

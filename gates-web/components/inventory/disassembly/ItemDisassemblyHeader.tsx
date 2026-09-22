@@ -187,6 +187,7 @@ export function ItemDisassemblyHeader({
                 className={erpInputClass}
                 disabled={disabled}
                 emptyLabel="المخزن المنصرف منه..."
+                excludeIds={targetWarehouseId ? [targetWarehouseId] : undefined}
               />
             </div>
             <div>
@@ -197,6 +198,7 @@ export function ItemDisassemblyHeader({
                 className={erpInputClass}
                 disabled={disabled}
                 emptyLabel="مخزن قطع الغيار والخامات..."
+                excludeIds={sourceWarehouseId ? [sourceWarehouseId] : undefined}
               />
             </div>
             <div>

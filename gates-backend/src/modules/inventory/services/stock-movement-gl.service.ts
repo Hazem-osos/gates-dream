@@ -856,6 +856,8 @@ export class StockMovementGlService {
     ctx: StockGlPostingContext,
     transfer: TransferDoc
   ) {
+    if (!ctx.fiscalYearId?.trim()) return null;
+
     const itemIds = [...new Set(transfer.lines.map((l) => l.itemId))];
     const [items, unitCosts] = await Promise.all([
       tx.item.findMany({ where: { id: { in: itemIds } }, select: { id: true, mainAccountId: true } }),
@@ -884,6 +886,7 @@ export class StockMovementGlService {
       if (value <= 0) continue;
       const fromAccountId = pickLineInventoryAccount(fromAccounts, itemAccountById.get(line.itemId));
       const toAccountId = pickLineInventoryAccount(toAccounts, itemAccountById.get(line.itemId));
+      if (!fromAccountId || !toAccountId) return null;
       if (fromAccountId !== toAccountId) accountMove = true;
       total += value;
       debitLines.push({
@@ -941,17 +944,20 @@ export class StockMovementGlService {
       lines,
     });
 
-    await tx.costCenterMovement.createMany({
-      data: lines.map((l) => ({
-        companyId: ctx.companyId,
-        accountId: l.accountId,
-        costCenterId: l.costCenterId!,
-        date: transfer.date,
-        debit: l.debit,
-        credit: l.credit,
-        description: l.description,
-      })),
-    });
+    const ccRows = lines.filter((l) => l.accountId && l.costCenterId);
+    if (ccRows.length) {
+      await tx.costCenterMovement.createMany({
+        data: ccRows.map((l) => ({
+          companyId: ctx.companyId,
+          accountId: l.accountId,
+          costCenterId: l.costCenterId!,
+          date: transfer.date,
+          debit: l.debit,
+          credit: l.credit,
+          description: l.description,
+        })),
+      });
+    }
 
     await tx.transfer.update({
       where: { id: transfer.id },

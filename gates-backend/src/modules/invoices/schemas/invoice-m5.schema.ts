@@ -269,5 +269,12 @@ export const linkInvoiceAdvancesSchema = z.object({
 
 export type CreateM5InvoiceInput = z.infer<typeof createM5InvoiceSchema>;
 export type UpdateM5InvoiceInput = z.infer<typeof updateM5InvoiceServiceSchema>;
+export const settleInvoiceSplitsSchema = z.object({
+  date: z.coerce.date().optional(),
+  description: z.string().optional(),
+  paymentSplits: invoicePaymentSplitsSchema,
+});
+
 export type SettleM5InvoiceInput = z.infer<typeof settleM5InvoiceSchema>;
+export type SettleInvoiceSplitsInput = z.infer<typeof settleInvoiceSplitsSchema>;
 export type LinkInvoiceAdvancesInput = z.infer<typeof linkInvoiceAdvancesSchema>;

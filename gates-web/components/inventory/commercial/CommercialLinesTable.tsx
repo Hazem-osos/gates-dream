@@ -5,6 +5,7 @@ import { Trash2 } from 'lucide-react';
 import { ItemSelect } from '@/app/components/form/ItemSelect';
 import { CostCenterSelect } from '@/app/components/form/CostCenterSelect';
 import { UniversalDataGrid } from '@/components/ui/data-entry-grid';
+import { TableNumberInput } from '@/components/grid/TableNumberInput';
 import { dataEntryGridInputClass } from '@/components/ui/data-entry-grid/tokens';
 import {
   COMMERCIAL_LINE_FIELD_ORDER,
@@ -27,11 +28,6 @@ type Props = {
   disabled?: boolean;
   headerDescription?: string;
 };
-
-function parseNum(raw: string) {
-  const n = Number(String(raw).replace(/,/g, ''));
-  return Number.isFinite(n) ? n : 0;
-}
 
 function formatMoney(value: number) {
   return value.toLocaleString('ar-EG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -193,12 +189,11 @@ export function CommercialLinesTable({ lines, onChange, disabled, headerDescript
                     ? line.discount
                     : line.taxRate;
             return (
-              <input
-                inputMode="decimal"
+              <TableNumberInput
                 disabled={disabled}
                 className={`${dataEntryGridInputClass} text-end font-mono`}
-                value={value ? String(value) : ''}
-                onChange={(e) => updateLine(index, { [columnId]: parseNum(e.target.value) })}
+                value={value}
+                onValueCommit={(n) => updateLine(index, { [columnId]: n })}
                 onKeyDown={(e) => onCellKeyDown(e, index)}
                 {...attrs(columnId)}
               />

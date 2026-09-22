@@ -196,7 +196,6 @@ function TemporaryReceiptFormInner() {
       showSuccessToast: false,
       onSuccess: () => {
         invalidateQuery(['treasury-receipts']);
-        resetNew();
         setSuccess('تم تحديث الإيصال المؤقت بنجاح');
       },
       onError: (err: ApiError) => setError(err.message || 'حدث خطأ أثناء التحديث'),

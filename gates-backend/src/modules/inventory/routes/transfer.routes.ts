@@ -10,9 +10,30 @@ import {
 import { transferService } from '../services/transfer.service';
 import { logger } from '../../../shared/logger';
 import { AuthRequest } from '../../../shared/auth/types';
-import { isAdminRequest } from '../../../shared/auth/roles.util';
 import { buildStockGlPostingContext } from '../services/stock-gl-posting-context';
 import { resolveStockListPaging } from '../utils/stock-list-query';
+import { AppError } from '../../../shared/middleware/error-handler';
+
+function transferErrorStatus(error: unknown): number {
+  if (error instanceof AppError) return error.statusCode;
+  if (!(error instanceof Error)) return 500;
+  const message = error.message;
+  if (message === 'Transfer not found') return 404;
+  if (
+    message.includes('cannot be the same') ||
+    message.includes('يجب أن يكونا مختلفين') ||
+    message.includes('غير موجود') ||
+    message.includes('Cannot') ||
+    message.includes('not found') ||
+    message.includes('do not belong') ||
+    message.includes('Insufficient') ||
+    message.includes('لا تكفي') ||
+    message.includes('بالسالب')
+  ) {
+    return 400;
+  }
+  return 500;
+}
 
 const router = Router();
 
@@ -37,7 +58,7 @@ router.post(
         });
       }
 
-      const transfer = await transferService.createTransfer(companyId, {
+      const created = await transferService.createTransfer(companyId, {
         companyId,
         branchId: req.body.branchId || req.branchId || undefined,
         description: req.body.description,
@@ -50,30 +71,32 @@ router.post(
         lines: req.body.lines,
       });
 
-      if (isAdminRequest(req)) {
-        await transferService.postTransfer(companyId, transfer.id, buildStockGlPostingContext(req, companyId));
+      try {
+        await transferService.postTransfer(
+          companyId,
+          created.id,
+          buildStockGlPostingContext(req, companyId)
+        );
+      } catch (error) {
+        await transferService.deleteTransfer(companyId, created.id).catch(() => undefined);
+        throw error;
       }
+
+      const transfer = await transferService.getTransferById(companyId, created.id);
 
       logger.info(
         { companyId, transferId: transfer.id },
-        'Transfer created'
+        'Transfer created and posted'
       );
 
       return void res.status(201).json({
         status: 'success',
-        message: isAdminRequest(req) ? 'تم حفظ وترحيل النقل تلقائياً' : 'Transfer created successfully',
+        message: 'تم حفظ وترحيل النقل',
         data: transfer,
       });
     } catch (error) {
       logger.error({ error }, 'Error creating transfer');
-      const status =
-        error instanceof Error &&
-        (error.message.includes('not found') ||
-          error.message.includes('do not belong') ||
-          error.message.includes('cannot be the same') ||
-          error.message.includes('Insufficient'))
-          ? 400
-          : 500;
+      const status = transferErrorStatus(error);
       return void res.status(status).json({
         status: 'error',
         message:
@@ -210,7 +233,7 @@ router.put(
         });
       }
 
-      const transfer = await transferService.updateTransfer(companyId, req.params.id, {
+      const updated = await transferService.updateTransfer(companyId, req.params.id, {
         companyId,
         branchId: req.body.branchId || req.branchId || undefined,
         description: req.body.description,
@@ -223,21 +246,22 @@ router.put(
         lines: req.body.lines,
       });
 
+      await transferService.postTransfer(
+        companyId,
+        updated.id,
+        buildStockGlPostingContext(req, companyId)
+      );
+
+      const transfer = await transferService.getTransferById(companyId, updated.id);
+
       return void res.json({
         status: 'success',
-        message: 'Transfer updated successfully',
+        message: 'تم حفظ وترحيل النقل',
         data: transfer,
       });
     } catch (error) {
       logger.error({ error }, 'Error updating transfer');
-      const status =
-        error instanceof Error &&
-        (error.message === 'Transfer not found' ||
-          error.message.includes('Cannot') ||
-          error.message.includes('cannot be the same') ||
-          error.message.includes('not found'))
-          ? 400
-          : 500;
+      const status = transferErrorStatus(error);
       return void res.status(status).json({
         status: 'error',
         message: error instanceof Error ? error.message : 'Failed to update transfer',

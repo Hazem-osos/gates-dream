@@ -34,7 +34,7 @@ function filterTree(
     seen.add(node.id);
     const children = node.children?.length ? filterTree(node.children, q, seen) : [];
     if (nodeMatches(node, q) || children.length > 0) {
-      out.push({ ...node, children: children.length ? children : node.children });
+      out.push({ ...node, children });
     }
   }
   return out;

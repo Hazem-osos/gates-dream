@@ -53,7 +53,15 @@ import { toHijriDate } from '@/lib/hijri-date';
 import { useDraftAutosave } from '@/lib/hooks/useDraftAutosave';
 import { onFieldErrors } from '@/lib/forms/on-field-errors';
 import { resolveJournalSourceKind, type JournalSourceType } from '@/lib/accounting/journal-source';
-import { pickCurrencyByCode, rateForCurrency, toBaseAmount } from '@/lib/accounting/fx-base';
+import {
+  isCompanyBaseCurrency,
+  isEgyptianPound,
+  impliedJournalLineRate,
+  pickCurrencyByCode,
+  rateForCurrency,
+  resolveJournalLineCurrencyId,
+  toBaseAmount,
+} from '@/lib/accounting/fx-base';
 import { costCenterRuleFromAccount } from '@/lib/accounting/cost-center-rule';
 import { useCompanyBaseCurrency } from '@/lib/hooks/useCompanyBaseCurrency';
 import {
@@ -99,6 +107,7 @@ type JournalEntryApiBody = {
     invoiceId?: string | null;
     invoiceNumber?: string | null;
     currencyId?: string;
+    currencyCode?: string;
     debitBase?: number;
     creditBase?: number;
   }[];
@@ -119,6 +128,7 @@ type JournalEntryDetail = {
   isCancelled?: boolean;
   isApproved?: boolean;
   currencyCode?: string;
+  exchangeRate?: number | string | null;
   version?: number;
   sourceType?: string | null;
   sourceKind?: string | null;
@@ -130,6 +140,9 @@ type JournalEntryDetail = {
     debit: number | string;
     credit: number | string;
     exchangeRate?: number | string | null;
+    currencyCode?: string | null;
+    debitBase?: number | string | null;
+    creditBase?: number | string | null;
     costCenterId?: string | null;
     partnerId?: string | null;
     partnerType?: string | null;
@@ -190,7 +203,10 @@ function CreateJournalEntryFormInner() {
   );
   const [loadedVersion, setLoadedVersion] = useState<number | undefined>(undefined);
   const skipUrlHydrateRef = useRef(false);
+  const unpostedHoldoffRef = useRef<{ id: string; until: number } | null>(null);
   const skipHeaderFxSyncRef = useRef(false);
+  const prevHeaderCurrencyIdRef = useRef<string>('');
+  const lastHydratedKeyRef = useRef<string | null>(null);
   const [headerRateOverride, setHeaderRateOverride] = useState<number | null>(null);
   const { markUnpostedForEdit, consumeShouldRepost, resetKeepPosted } = useRepostAfterUnpost();
 
@@ -289,6 +305,25 @@ function CreateJournalEntryFormInner() {
 
   useEffect(() => {
     if (!loadedJournalEntry || currencies.length === 0) return;
+    const posted =
+      Boolean(loadedJournalEntry.isPosted) || loadedJournalEntry.postingStatus === 'Post';
+    const holdoff = unpostedHoldoffRef.current;
+    if (
+      posted &&
+      holdoff &&
+      holdoff.id === loadedJournalEntry.id &&
+      Date.now() < holdoff.until
+    ) {
+      setIsPosted(false);
+      setVoucherStatus('غير مرحل');
+      return;
+    }
+    if (!posted && holdoff?.id === loadedJournalEntry.id) {
+      unpostedHoldoffRef.current = null;
+    }
+    const hydrateKey = `${loadedJournalEntry.id}:${loadedJournalEntry.version ?? 0}:${posted ? 1 : 0}`;
+    if (lastHydratedKeyRef.current === hydrateKey) return;
+    lastHydratedKeyRef.current = hydrateKey;
     skipHeaderFxSyncRef.current = true;
     const currency =
       currencies.find((c) => c.code === loadedJournalEntry.currencyCode) ?? currencies[0];
@@ -300,29 +335,34 @@ function CreateJournalEntryFormInner() {
       hijriDate: loadedJournalEntry.hijriDate || '',
       description: loadedJournalEntry.description || '',
       currencyId: currency?.id || '',
-      lines: (loadedJournalEntry.lines ?? []).map((line) => ({
-        accountId: line.accountId,
-        description: line.description || '',
-        debit: Number(line.debit) || 0,
-        credit: Number(line.credit) || 0,
-        currencyId: currency?.id || undefined,
-        exchangeRate: Number(line.exchangeRate) || 1,
-        costCenterId: line.costCenterId || '',
-        partnerId: line.partnerId || undefined,
-        partnerType:
-          line.partnerType === 'CUSTOMER' || line.partnerType === 'SUPPLIER'
-            ? line.partnerType
-            : undefined,
-        isTiedToInvoice: Boolean(line.isTiedToInvoice && line.invoiceId),
-        invoiceId: line.invoiceId ?? null,
-        invoiceNumber: line.invoiceNumber ?? null,
-      })),
+      lines: (loadedJournalEntry.lines ?? []).map((line) => {
+        const lineRate = impliedJournalLineRate(line);
+        return {
+          accountId: line.accountId,
+          description: line.description || '',
+          debit: Number(line.debit) || 0,
+          credit: Number(line.credit) || 0,
+          currencyId: resolveJournalLineCurrencyId(line, currency, currencies, companyBaseCurrency),
+          exchangeRate: lineRate,
+          costCenterId: line.costCenterId || '',
+          partnerId: line.partnerId || undefined,
+          partnerType:
+            line.partnerType === 'CUSTOMER' || line.partnerType === 'SUPPLIER'
+              ? line.partnerType
+              : undefined,
+          isTiedToInvoice: Boolean(line.isTiedToInvoice && line.invoiceId),
+          invoiceId: line.invoiceId ?? null,
+          invoiceNumber: line.invoiceNumber ?? null,
+        };
+      }),
     });
-    const firstLineRate = Number(loadedJournalEntry.lines?.[0]?.exchangeRate);
-    setHeaderRateOverride(firstLineRate > 0 ? firstLineRate : null);
+    const headerIsBase =
+      isEgyptianPound(currency?.code) || isCompanyBaseCurrency(currency?.code, companyBaseCurrency);
+    const savedHeaderRate = Number(loadedJournalEntry.exchangeRate);
+    setHeaderRateOverride(
+      headerIsBase ? null : savedHeaderRate > 0 ? savedHeaderRate : null
+    );
     setIsCyclic(Boolean(loadedJournalEntry.isCyclic || loadedJournalEntry.isRecurring));
-    const posted =
-      Boolean(loadedJournalEntry.isPosted) || loadedJournalEntry.postingStatus === 'Post';
     setIsPosted(posted);
     setIsCancelled(loadedJournalEntry.isCancelled ?? false);
     setIsApproved(loadedJournalEntry.isApproved ?? false);
@@ -338,17 +378,27 @@ function CreateJournalEntryFormInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadedJournalEntry, currencies.length]);
 
-  const journalMutation = useApiMutation<unknown, JournalEntryApiBody>(
+  const journalMutation = useApiMutation<JournalEntryDetail, JournalEntryApiBody>(
     '/accounting/journal-entries',
     'POST',
     {
-      onSuccess: () => {
+      onSuccess: (res) => {
         const message = isCyclic ? 'تم حفظ القيد وإضافته للقيود الدورية' : 'تم حفظ القيد بنجاح';
+        const created = res?.data;
         clearDraft();
         invalidateQuery(['journal-entries']);
         invalidateQuery(['recurring-journal-entries']);
         invalidateQuery(['journal-entry-next-number']);
-        startNewEntry();
+        if (created?.id) {
+          lastHydratedKeyRef.current = `${created.id}:${created.version ?? 0}:0`;
+          skipUrlHydrateRef.current = true;
+          setSavedJournalEntryId(created.id);
+          setLoadedVersion(created.version);
+          setIsPosted(false);
+          setVoucherStatus('غير مرحل');
+          setMode('edit');
+          router.replace(`/accounting/operations/journal-entry?id=${created.id}`, { scroll: false });
+        }
         setSuccess(message);
       },
       onError: (error: ApiError) => {
@@ -369,20 +419,30 @@ function CreateJournalEntryFormInner() {
         invalidateQuery(['journal-entry', id]);
         if (consumeShouldRepost() && id) {
           void postJournalAfterSave(id)
-            .then(() => {
+            .then((result) => {
               invalidateQuery(['journal-entries']);
               invalidateQuery(['journal-entry', id]);
               invalidateTreasuryFundBalances(invalidateQuery);
-              startNewEntry();
-              setSuccess('تم حفظ التعديلات وترحيل القيد');
+              if (result === 'posted') {
+                unpostedHoldoffRef.current = null;
+                setIsPosted(true);
+                setVoucherStatus('مرحل');
+                lockToView();
+                setSuccess('تم حفظ التعديلات وترحيل القيد');
+                return;
+              }
+              setIsPosted(false);
+              setVoucherStatus('غير مرحل');
+              setSuccess('تم حفظ التعديلات بنجاح');
             })
             .catch((error: ApiError) => {
+              setIsPosted(false);
+              setVoucherStatus('غير مرحل');
               setError(error.message || 'تم الحفظ لكن تعذر ترحيل القيد');
             });
           return;
         }
         const message = isCyclic ? 'تم حفظ التعديلات وتحديث القيد الدوري' : 'تم حفظ التعديلات بنجاح';
-        startNewEntry();
         setSuccess(message);
       },
       onError: (error: ApiError) => {
@@ -420,10 +480,17 @@ function CreateJournalEntryFormInner() {
     savedJournalEntryId ? `/accounting/journal-entries/${savedJournalEntryId}/unpost` : '/accounting/journal-entries',
     'POST',
     {
-      onSuccess: () => {
+      onSuccess: (res) => {
+        const row = (res as { data?: JournalEntryDetail } | undefined)?.data;
+        const id = row?.id || savedJournalEntryId;
         setIsPosted(false);
         setIsApproved(false);
         setVoucherStatus('غير مرحل');
+        if (row?.version != null) setLoadedVersion(row.version);
+        if (id) {
+          unpostedHoldoffRef.current = { id, until: Date.now() + 15_000 };
+          lastHydratedKeyRef.current = `${id}:${row?.version ?? (loadedVersion ?? 0)}:0`;
+        }
         markUnpostedForEdit();
         setSuccess('تم فك ترحيل القيد');
         unlockForEdit();
@@ -532,19 +599,29 @@ function CreateJournalEntryFormInner() {
     if (!headerCurrencyId) return;
     if (skipHeaderFxSyncRef.current) {
       skipHeaderFxSyncRef.current = false;
+      prevHeaderCurrencyIdRef.current = headerCurrencyId;
       return;
     }
     const header = currencies.find((c) => c.id === headerCurrencyId);
     const catalogRate = rateForCurrency(header?.code, companyBaseCurrency, header?.exchangeRate);
     const headerRate = headerRateOverride ?? catalogRate;
+    const prevId = prevHeaderCurrencyIdRef.current;
+    const prevHeader = currencies.find((c) => c.id === prevId);
+    const prevRate = prevHeader
+      ? rateForCurrency(prevHeader.code, companyBaseCurrency, prevHeader.exchangeRate)
+      : headerRate;
+    prevHeaderCurrencyIdRef.current = headerCurrencyId;
     const lines = getValues('lines') ?? [];
     if (!lines.length) return;
     replace(
-      lines.map((line) => ({
-        ...line,
-        currencyId: headerCurrencyId,
-        exchangeRate: headerRate,
-      }))
+      lines.map((line) => {
+        const lineRate = Number(line.exchangeRate) || 1;
+        const followsHeader =
+          !line.currencyId ||
+          (line.currencyId === prevId && Math.abs(lineRate - prevRate) < 0.0001);
+        if (!followsHeader) return line;
+        return { ...line, currencyId: headerCurrencyId, exchangeRate: headerRate };
+      })
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [headerCurrencyId]);
@@ -739,12 +816,15 @@ function CreateJournalEntryFormInner() {
       sourceId: sourceId || undefined,
       sourceNumber: sourceNumber || undefined,
       currencyCode,
-      exchangeRate: data.lines[0]?.exchangeRate || 1,
+      exchangeRate:
+        headerRateOverride ??
+        rateForCurrency(headerCurrency?.code, companyBaseCurrency, headerCurrency?.exchangeRate),
       lines: data.lines.map((line, index) => {
         const rate = line.exchangeRate || 1;
         const debit = line.debit || 0;
         const credit = line.credit || 0;
         const tied = Boolean(line.isTiedToInvoice && line.invoiceId);
+        const lineCurrency = currencies.find((c) => c.id === line.currencyId);
         return {
           accountId: line.accountId,
           description: line.description,
@@ -754,6 +834,7 @@ function CreateJournalEntryFormInner() {
           exchangeRate: rate,
           costCenterId: line.costCenterId || undefined,
           currencyId: line.currencyId,
+          currencyCode: lineCurrency?.code,
           debitBase: debit * rate,
           creditBase: credit * rate,
           partnerId: line.partnerId || undefined,
@@ -828,6 +909,8 @@ function CreateJournalEntryFormInner() {
   };
 
   const startNewEntry = () => {
+    lastHydratedKeyRef.current = null;
+    unpostedHoldoffRef.current = null;
     const today = new Date().toISOString().split('T')[0];
     const cur = getValues('currencyId');
     reset({
@@ -1066,17 +1149,30 @@ function CreateJournalEntryFormInner() {
               showRate={showFxColumns}
               disabled={currenciesLoading || isReadOnly || isPosted || isCancelled}
               onCurrencyIdChange={(id, nextRate) => {
+                const prevId = getValues('currencyId');
                 setHeaderRateOverride(null);
                 setValue('currencyId', id, { shouldDirty: true, shouldValidate: true });
                 const lines = getValues('lines') ?? [];
                 if (!lines.length) return;
-                replace(lines.map((line) => ({ ...line, currencyId: id, exchangeRate: nextRate })));
+                replace(
+                  lines.map((line) => {
+                    const followsHeader = !line.currencyId || line.currencyId === prevId;
+                    if (!followsHeader) return line;
+                    return { ...line, currencyId: id, exchangeRate: nextRate };
+                  })
+                );
               }}
               onExchangeRateChange={(rate) => {
                 setHeaderRateOverride(rate);
+                const headerId = getValues('currencyId');
                 const lines = getValues('lines') ?? [];
                 if (!lines.length) return;
-                replace(lines.map((line) => ({ ...line, exchangeRate: rate })));
+                replace(
+                  lines.map((line) => {
+                    if (line.currencyId && line.currencyId !== headerId) return line;
+                    return { ...line, exchangeRate: rate };
+                  })
+                );
               }}
             />
             <FieldError message={errors.currencyId?.message} />

@@ -79,24 +79,26 @@ export class OpeningBalanceService {
 
   async getOpeningBalance(companyId: string) {
     const meta = await this.resolveOpeningDate(companyId);
-    const existing = await prisma.journalEntry.findFirst({
-      where: {
-        companyId,
-        entryType: OPENING_BALANCE_ENTRY_TYPE,
-        isPosted: true,
-        isCancelled: false,
-      },
-      include: {
-        lines: {
-          include: {
-            account: { select: { id: true, code: true, arabicName: true } },
-            costCenter: { select: { id: true, code: true, arabicName: true } },
-          },
-          orderBy: { lineOrder: 'asc' },
+    const include = {
+      lines: {
+        include: {
+          account: { select: { id: true, code: true, arabicName: true } },
+          costCenter: { select: { id: true, code: true, arabicName: true } },
         },
+        orderBy: { lineOrder: 'asc' as const },
       },
-      orderBy: { createdAt: 'desc' },
-    });
+    };
+    const existing =
+      (await prisma.journalEntry.findFirst({
+        where: { companyId, entryType: OPENING_BALANCE_ENTRY_TYPE, isCancelled: false },
+        include,
+        orderBy: { createdAt: 'desc' },
+      })) ??
+      (await prisma.journalEntry.findFirst({
+        where: { companyId, entryType: OPENING_BALANCE_ENTRY_TYPE },
+        include,
+        orderBy: { createdAt: 'desc' },
+      }));
 
     return {
       openingDate: meta.openingDateIso,
@@ -105,6 +107,7 @@ export class OpeningBalanceService {
       fiscalYearId: meta.fiscalYearId,
       fiscalYearStartDate: meta.fiscalYearStartDateIso,
       journalEntryId: existing?.id ?? null,
+      isCancelled: existing?.isCancelled ?? false,
       lines: existing?.lines ?? [],
     };
   }

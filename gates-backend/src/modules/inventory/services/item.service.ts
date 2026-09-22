@@ -349,6 +349,26 @@ export class ItemService {
         throw new Error('Item not found');
       }
 
+      const balances = await prisma.itemWarehouseBalance.findMany({
+        where: { companyId, itemId },
+        include: {
+          warehouse: {
+            select: { id: true, code: true, arabicName: true },
+          },
+        },
+      });
+      if (balances.length) {
+        return {
+          ...item,
+          quantities: balances.map((row) => ({
+            quantity: row.quantityOnHand,
+            warehouseId: row.warehouseId,
+            warehouse: row.warehouse,
+            location: null,
+          })),
+        };
+      }
+
       return item;
     } catch (error) {
       logger.error({ error, companyId, itemId }, 'Error getting item');

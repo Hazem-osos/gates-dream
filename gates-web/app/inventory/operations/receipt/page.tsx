@@ -21,6 +21,9 @@ import {
   compactLabelClass,
 } from '@/components/ui';
 import { StockDocumentsListSection } from '@/components/inventory/StockDocumentsListSection';
+import { WarehouseSelect } from '@/components/form/WarehouseSelect';
+import { InvoiceLineStockBalanceCell } from '@/components/invoices/InvoiceLineStockBalanceCell';
+import { TableNumberInput } from '@/components/grid/TableNumberInput';
 import { useApiQuery, useApiMutation, useInvalidateQuery } from '@/lib/hooks/useApi';
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
@@ -36,13 +39,6 @@ import {
 } from '@/lib/accounting/ensure-posted-after-save';
 import { onFieldErrors } from '@/lib/forms/on-field-errors';
 
-
-interface Warehouse {
-  id: string;
-  code: string;
-  arabicName: string;
-  englishName?: string;
-}
 
 interface Item {
   id: string;
@@ -111,20 +107,14 @@ export default function ReceiptPage() {
   });
 
   const isPosted = watch('isPosted');
+  const warehouseId = watch('warehouseId');
+  const hideExistingQty = watch('hideExistingQty');
 
   const [receiptLines, setReceiptLines] = useState<ReceiptLine[]>([]);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [selectedReceiptId, setSelectedReceiptId] = useState<string | null>(null);
   const [showList, setShowList] = useState(false);
-
-  // Fetch warehouses
-  const { data: warehousesResponse, isLoading: warehousesLoading } = useApiQuery<Warehouse[]>(
-    ['warehouses'],
-    '/inventory/warehouses',
-    { limit: 1000, isActive: true }
-  );
-  const warehouses = warehousesResponse?.data || [];
 
   // Fetch items
   const { data: itemsResponse, isLoading: itemsLoading } = useApiQuery<Item[]>(
@@ -274,7 +264,7 @@ export default function ReceiptPage() {
     }
   );
 
-  const loading = receiptMutation.isPending || receiptUpdateMutation.isPending || receiptDeleteMutation.isPending || warehousesLoading || itemsLoading;
+  const loading = receiptMutation.isPending || receiptUpdateMutation.isPending || receiptDeleteMutation.isPending || itemsLoading;
 
   // Handle post/unpost
   const handlePostUnpost = async (post: boolean) => {
@@ -450,18 +440,18 @@ export default function ReceiptPage() {
           />
           <div data-tour-id="receipt-warehouse-select">
             <CompactFormField label="المخزن" error={errors.warehouseId?.message}>
-              <select
-                className={`${inputCls} ${errors.warehouseId ? 'border-red-400' : ''}`}
-                {...register('warehouseId')}
-                disabled={warehousesLoading}
-              >
-                <option value="">اختر المخزن</option>
-                {warehouses.map((warehouse) => (
-                  <option key={warehouse.id} value={warehouse.id}>
-                    {warehouse.arabicName} ({warehouse.code})
-                  </option>
-                ))}
-              </select>
+              <Controller
+                name="warehouseId"
+                control={control}
+                render={({ field }) => (
+                  <WarehouseSelect
+                    value={field.value || ''}
+                    onChange={field.onChange}
+                    className={`${inputCls} ${errors.warehouseId ? 'border-red-400' : ''}`}
+                    emptyLabel="اختر المخزن"
+                  />
+                )}
+              />
             </CompactFormField>
           </div>
           <CompactFormField label="الشرح" placeholder="إدخل الشرح" {...register('description')} />
@@ -536,26 +526,32 @@ export default function ReceiptPage() {
                     ))}
                   </select>
                 </div>
+                {hideExistingQty ? null : (
+                <div>
+                  <label className={labelCls}>الكمية الموجودة</label>
+                  <span className={`${inputCls} flex items-center`}>
+                    {warehouseId ? (
+                      <InvoiceLineStockBalanceCell itemId={line.itemId} warehouseId={warehouseId} />
+                    ) : (
+                      <span className="text-xs text-slate-400">اختر المخزن</span>
+                    )}
+                  </span>
+                </div>
+                )}
                 <div>
                   <label className={labelCls}>الكمية</label>
-                  <input
-                    type="number"
+                  <TableNumberInput
                     className={inputCls}
-                    value={line.quantity || ''}
-                    onChange={(e) => updateReceiptLine(index, 'quantity', parseFloat(e.target.value) || 0)}
-                    min={0}
-                    step="0.01"
+                    value={line.quantity}
+                    onValueCommit={(n) => updateReceiptLine(index, 'quantity', n)}
                   />
                 </div>
                 <div>
                   <label className={labelCls}>تكلفة الوحدة</label>
-                  <input
-                    type="number"
+                  <TableNumberInput
                     className={inputCls}
-                    value={line.unitPrice || ''}
-                    onChange={(e) => updateReceiptLine(index, 'unitPrice', parseFloat(e.target.value) || 0)}
-                    min={0}
-                    step="0.01"
+                    value={line.unitPrice}
+                    onValueCommit={(n) => updateReceiptLine(index, 'unitPrice', n)}
                   />
                 </div>
                 <div className="flex items-end justify-end">

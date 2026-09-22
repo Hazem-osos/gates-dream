@@ -254,6 +254,8 @@ export class ItemQuantityService {
               serial: true,
               arabicName: true,
               englishName: true,
+              averageCost: true,
+              lastPurchasePrice: true,
             },
           },
         },

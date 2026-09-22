@@ -76,51 +76,44 @@ export class CostCenterMovementService {
 
       // Use transaction to ensure atomicity
       const result = await prisma.$transaction(async (tx) => {
-        // Build where clause for cost center movements
-        const where: any = {
-          companyId,
-          costCenterId: data.fromCostCenterId,
-          date: {
-            gte: data.fromDate,
-            lte: data.toDate,
-          },
-        };
-
-        if (data.accountId) {
-          where.accountId = data.accountId;
-        }
-
-        // Find all cost center movements in the date range
-        const movements = await tx.costCenterMovement.findMany({
-          where: {
-            ...where,
-            ...(data.movementIds?.length ? { id: { in: data.movementIds } } : {}),
-          },
-        });
-
-        const postedLines = await tx.journalEntryLine.findMany({
+        const matchedLines = await tx.journalEntryLine.findMany({
           where: {
             costCenterId: data.fromCostCenterId,
             ...(data.accountId ? { accountId: data.accountId } : {}),
+            ...(data.movementIds?.length ? { id: { in: data.movementIds } } : {}),
             journalEntry: {
               companyId,
-              isPosted: true,
-              isCancelled: false,
               deletedAt: null,
               date: { gte: data.fromDate, lte: data.toDate },
             },
           },
           select: {
+            id: true,
             accountId: true,
             debitBase: true,
             creditBase: true,
+            journalEntry: { select: { isPosted: true, isCancelled: true } },
           },
         });
 
-        if (movements.length === 0 && postedLines.length === 0) {
+        if (matchedLines.length === 0) {
           throw new Error(
             'No cost center movements found for the specified criteria and date range'
           );
+        }
+
+        const postedLines = matchedLines.filter(
+          (line) => line.journalEntry.isPosted && !line.journalEntry.isCancelled
+        );
+        const movableLineIds = matchedLines
+          .filter((line) => !line.journalEntry.isPosted || line.journalEntry.isCancelled)
+          .map((line) => line.id);
+
+        if (movableLineIds.length > 0) {
+          await tx.journalEntryLine.updateMany({
+            where: { id: { in: movableLineIds } },
+            data: { costCenterId: data.toCostCenterId },
+          });
         }
 
         const netByAccount = new Map<string, number>();
@@ -181,6 +174,10 @@ export class CostCenterMovementService {
           }
         }
 
+        if (reclassLines.length === 0 && movableLineIds.length === 0) {
+          throw new AppError(422, 'صافي حركة الفترة صفر — لا يوجد ما يُنقل');
+        }
+
         if (reclassLines.length > 0) {
           const branchId = (
             await tx.branch.findFirst({
@@ -194,6 +191,11 @@ export class CostCenterMovementService {
           }
           const reclassDate = new Date();
           const fiscalYearId = await fiscalYearService.assertOpenForDate(companyId, reclassDate);
+          const companySettings = await tx.companySettings.findUnique({
+            where: { companyId },
+            select: { defaultCurrency: true },
+          });
+          const baseCurrency = (companySettings?.defaultCurrency || 'EGP').toUpperCase();
           const description =
             data.description ??
             `نقل مركز تكلفة: ${fromCostCenter.code} → ${toCostCenter.code}`;
@@ -204,7 +206,7 @@ export class CostCenterMovementService {
               date: reclassDate,
               hijriDate: data.hijriDate,
               description,
-              currencyCode: 'EGP',
+              currencyCode: baseCurrency,
               exchangeRate: 1,
               fiscalYearId,
               entryType: 'RECLASSIFICATION',
@@ -229,24 +231,13 @@ export class CostCenterMovementService {
           });
         }
 
-        const updatedMovements =
-          reclassLines.length === 0 && movements.length > 0
-            ? await tx.costCenterMovement.updateMany({
-                where: { id: { in: movements.map((m) => m.id) } },
-                data: {
-                  costCenterId: data.toCostCenterId,
-                  ...(data.description && { description: data.description }),
-                },
-              })
-            : { count: reclassLines.length };
-
         logger.info(
           {
             companyId,
             fromCostCenterId: data.fromCostCenterId,
             toCostCenterId: data.toCostCenterId,
             dateRange: { from: data.fromDate, to: data.toDate },
-            movementsUpdated: updatedMovements.count,
+            movementsUpdated: matchedLines.length,
             journalEntryId,
             userId,
           },
@@ -254,7 +245,7 @@ export class CostCenterMovementService {
         );
 
         return {
-          movementsTransferredCount: updatedMovements.count + (journalEntryId ? 1 : 0),
+          movementsTransferredCount: matchedLines.length,
           journalEntryId,
           fromCostCenter: {
             id: fromCostCenter.id,
@@ -298,44 +289,57 @@ export class CostCenterMovementService {
         throw new Error('Cost center not found');
       }
 
-      const where: any = {
-        companyId,
-        costCenterId,
-        date: {
-          gte: fromDate,
-          lte: toDate,
-        },
-      };
-
-      if (accountId) {
-        where.accountId = accountId;
-      }
-
-      const [movements, allTime] = await Promise.all([
-        prisma.costCenterMovement.findMany({
-          where,
-          include: {
-            account: {
+      const [periodLines, allTime] = await Promise.all([
+        prisma.journalEntryLine.findMany({
+          where: {
+            costCenterId,
+            ...(accountId ? { accountId } : {}),
+            journalEntry: {
+              companyId,
+              deletedAt: null,
+              date: { gte: fromDate, lte: toDate },
+              reversalOfJournalEntryId: null,
+              NOT: { entryType: 'REVERSAL' },
+            },
+          },
+          select: {
+            id: true,
+            debitBase: true,
+            creditBase: true,
+            description: true,
+            journalEntry: {
               select: {
                 id: true,
-                code: true,
-                arabicName: true,
+                date: true,
+                voucherNumber: true,
+                legacyGlNum: true,
+                description: true,
+                isPosted: true,
+                isCancelled: true,
               },
             },
           },
-          orderBy: { date: 'asc' },
+          orderBy: { journalEntry: { date: 'asc' } },
           take: 500,
         }),
-        prisma.costCenterMovement.aggregate({
-          where: { companyId, costCenterId },
-          _sum: { debit: true, credit: true },
+        prisma.journalEntryLine.aggregate({
+          where: {
+            costCenterId,
+            journalEntry: {
+              companyId,
+              deletedAt: null,
+              reversalOfJournalEntryId: null,
+              NOT: { entryType: 'REVERSAL' },
+            },
+          },
+          _sum: { debitBase: true, creditBase: true },
         }),
       ]);
 
-      const totalDebit = movements.reduce((sum, m) => sum + Number(m.debit), 0);
-      const totalCredit = movements.reduce((sum, m) => sum + Number(m.credit), 0);
+      const totalDebit = periodLines.reduce((sum, line) => sum + Number(line.debitBase), 0);
+      const totalCredit = periodLines.reduce((sum, line) => sum + Number(line.creditBase), 0);
       const currentBalance =
-        Number(allTime._sum.debit ?? 0) - Number(allTime._sum.credit ?? 0);
+        Number(allTime._sum.debitBase ?? 0) - Number(allTime._sum.creditBase ?? 0);
 
       return {
         costCenter: {
@@ -352,16 +356,26 @@ export class CostCenterMovementService {
           totalDebit,
           totalCredit,
           balance: totalDebit - totalCredit,
-          movementsCount: movements.length,
+          movementsCount: periodLines.length,
         },
-        movements: movements.map((m) => ({
-          id: m.id,
-          journalEntryId: null,
-          documentNumber: m.account?.code || m.id.slice(0, 8),
-          date: m.date,
-          description: m.description || m.account?.arabicName || '',
-          debit: Number(m.debit),
-          credit: Number(m.credit),
+        movements: periodLines.map((line) => ({
+          id: line.id,
+          journalEntryId: line.journalEntry.id,
+          documentNumber:
+            line.journalEntry.voucherNumber ||
+            line.journalEntry.legacyGlNum ||
+            line.id.slice(0, 8),
+          date: line.journalEntry.date,
+          description: line.description || line.journalEntry.description || '',
+          debit: Number(line.debitBase),
+          credit: Number(line.creditBase),
+          isPosted: line.journalEntry.isPosted,
+          isCancelled: line.journalEntry.isCancelled,
+          statusLabel: line.journalEntry.isCancelled
+            ? 'ملغي'
+            : line.journalEntry.isPosted
+              ? 'مرحل'
+              : 'غير مرحل',
         })),
       };
     } catch (error) {

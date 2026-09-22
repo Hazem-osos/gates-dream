@@ -71,12 +71,21 @@ const EXACT: Record<string, string> = {
   'cannot update a posted securities payment': 'لا يمكن تعديل ورقة محصّلة',
   'cannot update a cancelled securities receipt': 'لا يمكن تعديل ورقة ملغاة',
   'cannot update a cancelled securities payment': 'لا يمكن تعديل ورقة ملغاة',
+  'invalid payment split configuration on invoice':
+    'بيانات التحصيل غير مكتملة. حدد الخزينة أو البنك أو الشيك ثم أعد الحفظ.',
   'invoice not found': 'الفاتورة غير موجودة',
   'company not found': 'الشركة غير موجودة',
   'account not found': 'الحساب غير موجود',
   'assembly not found': 'مستند التجميع غير موجود',
   'disassembly not found': 'مستند التفكيك غير موجود',
-  'opening stock not found': 'رصيد افتتاحي غير موجود',
+  'opening stock not found': 'كشف بضاعة أول المدة غير موجود',
+  'cannot post cancelled opening stock': 'لا يمكن ترحيل كشف بضاعة أول المدة الملغي. استرجعه أولاً.',
+  'opening stock is already posted': 'كشف بضاعة أول المدة مرحّل مسبقاً',
+  'opening stock is not posted': 'كشف بضاعة أول المدة غير مرحّل',
+  'opening stock is already cancelled': 'كشف بضاعة أول المدة ملغي بالفعل',
+  'cannot cancel posted opening stock. unpost it first.':
+    'لا يمكن إلغاء كشف مرحّل. فك الترحيل أولاً.',
+  'opening stock is not cancelled': 'كشف بضاعة أول المدة ليس ملغياً',
   'transfer not found': 'مستند التحويل غير موجود',
   'stocktaking not found': 'جرد المخزون غير موجود',
   'other adjustment not found': 'التسوية غير موجودة',
@@ -146,6 +155,10 @@ const EXACT: Record<string, string> = {
 
 const RULES: Rule[] = [
   {
+    test: /payment splits must sum to invoice total/i,
+    ar: 'توزيع التحصيل يجب أن يساوي إجمالي الفاتورة',
+  },
+  {
     test: /maximum call stack size exceeded/i,
     ar: 'حصل تكرار لا نهائي أثناء عرض الصفحة. حدّث الصفحة ثم أعد المحاولة.',
   },
@@ -206,12 +219,28 @@ const RULES: Rule[] = [
     ar: 'التاريخ المحدد لا يقع ضمن سنة مالية مفتوحة. للقيد الافتتاحي وبضاعة أول المدة يُقبل تاريخ بداية المدة أو اليوم السابق لها.',
   },
   {
+    test: /قيد افتتاحي ملغي|opening (journal|balance).*(cancelled|canceled)/i,
+    ar: 'يوجد قيد افتتاحي ملغي. استرجعه أو عدّل نفس القيد بدل إنشاء قيد جديد.',
+  },
+  {
+    test: /قيد افتتاحي نشط|active opening (journal|balance)/i,
+    ar: 'يوجد قيد افتتاحي نشط بالفعل. ألغِ الجديد أولاً ثم استرجع الملغي.',
+  },
+  {
     test: /opening (journal|balance) already|قيد افتتاحي بالفعل/i,
-    ar: 'يوجد قيد افتتاحي بالفعل. احذفه أولاً حتى يمكن إنشاء قيد جديد.',
+    ar: 'يوجد قيد افتتاحي بالفعل. عدّل نفس القيد أو استرجعه إن كان ملغياً.',
+  },
+  {
+    test: /كشف بضاعة أول المدة ملغي|opening stock.*(cancelled|canceled)/i,
+    ar: 'يوجد كشف بضاعة أول المدة ملغي. استرجعه أو عدّل نفس الكشف بدل إنشاء كشف جديد.',
+  },
+  {
+    test: /كشف بضاعة أول المدة نشط|active opening stock/i,
+    ar: 'يوجد كشف بضاعة أول المدة نشط بالفعل. ألغِ الجديد أولاً ثم استرجع الملغي.',
   },
   {
     test: /opening stock already|كشف بضاعة أول المدة بالفعل/i,
-    ar: 'يوجد كشف بضاعة أول المدة بالفعل. احذفه أولاً حتى يمكن إنشاء كشف جديد.',
+    ar: 'يوجد كشف بضاعة أول المدة بالفعل. عدّل نفس الكشف أو استرجعه إن كان ملغياً.',
   },
   {
     test: /failed to (create|list|get|update|delete) opening stock/i,

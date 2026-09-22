@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
 import { SafeSelect } from '@/app/components/form/SafeSelect';
+import { BankSelect } from '@/app/components/form/BankSelect';
 import { ErpFieldError, RequiredDot, erpInputClass, erpInputErrorClass, erpLabelClass } from '@/components/erp';
 import {
   emptyChequeDraft,
@@ -9,7 +9,6 @@ import {
   type CashTenderKind,
   type InvoiceChequeDraft,
 } from '@/lib/invoices/cash-tender';
-import { CashBankChequeModal } from '@/components/invoices/CashBankChequeModal';
 
 const KINDS: Array<{ id: CashTenderKind; label: string }> = [
   { id: 'treasury', label: 'خزينة' },
@@ -43,14 +42,35 @@ type Props = {
   showErrors?: boolean;
 };
 
-function instrumentSummary(bankAccountId: string, chequeRows: InvoiceChequeDraft[]): string {
-  const chequeCount = chequeRows.filter((row) => row.chequeNumber.trim()).length;
-  const chequeSum = chequeRows.reduce((sum, row) => sum + parseTenderAmount(row.amount), 0);
-  const parts: string[] = [];
-  if (bankAccountId.trim()) parts.push('بنك');
-  if (chequeCount) parts.push(chequeCount > 1 ? `${chequeCount} شيكات` : 'شيك');
-  if (chequeSum > 0) parts.push(chequeSum.toFixed(2));
-  return parts.join(' · ');
+function AmountField({
+  value,
+  onChange,
+  disabled,
+  error,
+  showErrors,
+}: {
+  value: number;
+  onChange: (amount: number) => void;
+  disabled?: boolean;
+  error?: string;
+  showErrors?: boolean;
+}) {
+  return (
+    <div>
+      <label className={erpLabelClass}>القيمة</label>
+      <input
+        type="number"
+        step="0.01"
+        min="0"
+        className={`${erpInputClass} ${showErrors && error ? erpInputErrorClass : ''}`}
+        disabled={disabled}
+        placeholder="0"
+        value={Number.isFinite(value) ? value : 0}
+        onChange={(e) => onChange(Number(e.target.value) || 0)}
+      />
+      <ErpFieldError message={error} show={showErrors} />
+    </div>
+  );
 }
 
 export function InvoiceCashTenderPanel({
@@ -60,14 +80,13 @@ export function InvoiceCashTenderPanel({
   onTreasuryId,
   bankAccountId,
   onBankAccountId,
-  bankReference,
+  bankReference: _bankReference,
   onBankReference,
   chequeRows,
   onChequeRows,
-  issuingBankAccountId = '',
-  onIssuingBankAccountId,
+  issuingBankAccountId: _issuingBankAccountId,
+  onIssuingBankAccountId: _onIssuingBankAccountId,
   netAmount = 0,
-  direction = 'RECEIPT',
   variant = 'full',
   paidAmount = 0,
   onPaidAmount,
@@ -78,32 +97,36 @@ export function InvoiceCashTenderPanel({
   chequeError,
   showErrors = false,
 }: Props) {
-  const [instrumentOpen, setInstrumentOpen] = useState(false);
-  const [pendingKind, setPendingKind] = useState<CashTenderKind | null>(null);
   const advance = variant === 'advance';
   const needsInstrument = !advance || Number(paidAmount) > 0;
-  const hasConfirmedBank = Boolean(bankAccountId.trim());
-  const hasConfirmedCheque = chequeRows.some(
-    (row) => row.chequeNumber.trim() && parseTenderAmount(row.amount) > 0
-  );
-  const usesInstrument =
-    (kind === 'bank' && hasConfirmedBank) || (kind === 'cheques' && (hasConfirmedCheque || hasConfirmedBank));
-  const highlightKind = instrumentOpen && pendingKind ? pendingKind : usesInstrument ? kind : 'treasury';
-  const summary = instrumentSummary(bankAccountId, chequeRows);
+  const rows = chequeRows.length ? chequeRows : [emptyChequeDraft()];
+  const chequeSum = rows.reduce((sum, row) => sum + parseTenderAmount(row.amount), 0);
 
-  const openInstrument = (next: CashTenderKind) => {
-    setPendingKind(next);
-    if (chequeRows.length === 0) {
-      const seed = advance
-        ? Number(paidAmount) > 0
-          ? String(paidAmount)
-          : ''
-        : netAmount > 0
-          ? String(netAmount)
-          : '';
-      onChequeRows([emptyChequeDraft(next === 'cheques' ? seed : '')]);
+  const selectKind = (next: CashTenderKind) => {
+    if (next === 'treasury') {
+      onBankAccountId('');
+      onBankReference('');
+      onChequeRows([emptyChequeDraft()]);
+      onKindChange('treasury');
+      return;
     }
-    if (!disabled) setInstrumentOpen(true);
+    if (next === 'bank') {
+      onChequeRows([emptyChequeDraft()]);
+      onKindChange('bank');
+      return;
+    }
+    onBankAccountId('');
+    onBankReference('');
+    onChequeRows(chequeRows.length ? chequeRows : [emptyChequeDraft()]);
+    onKindChange('cheques');
+  };
+
+  const updateCheque = (id: string, patch: Partial<InvoiceChequeDraft>) => {
+    const next = rows.map((row) => (row.id === id ? { ...row, ...patch } : row));
+    onChequeRows(next);
+    if (advance && onPaidAmount) {
+      onPaidAmount(next.reduce((sum, row) => sum + parseTenderAmount(row.amount), 0));
+    }
   };
 
   return (
@@ -114,15 +137,9 @@ export function InvoiceCashTenderPanel({
             key={option.id}
             type="button"
             disabled={disabled}
-            onClick={() => {
-              if (option.id === 'treasury') {
-                onKindChange('treasury');
-                return;
-              }
-              openInstrument(option.id);
-            }}
+            onClick={() => selectKind(option.id)}
             className={`flex-1 min-w-[4rem] rounded-md px-2 py-1 text-xs font-medium ${
-              highlightKind === option.id ? 'bg-[#0E78AA] text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'
+              kind === option.id ? 'bg-[#0E78AA] text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'
             }`}
           >
             {option.label}
@@ -130,19 +147,20 @@ export function InvoiceCashTenderPanel({
         ))}
       </div>
 
-      {highlightKind === 'treasury' && !instrumentOpen ? (
+      {kind === 'treasury' ? (
         <div className="space-y-2">
           <div>
             <label className={erpLabelClass}>
               الخزينة
               {needsInstrument ? (
-                <RequiredDot hint={advance ? 'الخزينة مطلوبة عند دفع مبلغ في الأول' : 'الخزينة مطلوبة عند التحصيل النقدي'} />
+                <RequiredDot hint={advance ? 'الخزينة مطلوبة عند إدخال قيمة' : 'الخزينة مطلوبة عند التحصيل النقدي'} />
               ) : null}
             </label>
             <SafeSelect
               value={treasuryId}
               onChange={onTreasuryId}
               disabled={disabled}
+              allowEmpty={!needsInstrument}
               placeholder="اختر الخزينة"
               emptyLabel="اختر الخزينة"
               className={showErrors && treasuryError ? erpInputErrorClass : undefined}
@@ -150,70 +168,108 @@ export function InvoiceCashTenderPanel({
             <ErpFieldError message={treasuryError} show={showErrors} />
           </div>
           {advance && onPaidAmount ? (
-            <div>
-              <label className={erpLabelClass}>المبلغ المدفوع في الأول</label>
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                className={`${erpInputClass} ${showErrors && paidError ? erpInputErrorClass : ''}`}
-                disabled={disabled}
-                placeholder="0"
-                value={Number.isFinite(paidAmount) ? paidAmount : 0}
-                onChange={(e) => onPaidAmount(Number(e.target.value) || 0)}
-              />
-              <ErpFieldError message={paidError} show={showErrors} />
-            </div>
+            <AmountField
+              value={paidAmount}
+              onChange={onPaidAmount}
+              disabled={disabled}
+              error={paidError}
+              showErrors={showErrors}
+            />
           ) : null}
         </div>
       ) : null}
 
-      {usesInstrument ? (
-        <div className="space-y-1.5">
+      {kind === 'bank' ? (
+        <div className="space-y-2">
+          <div>
+            <label className={erpLabelClass}>
+              الحساب البنكي
+              {needsInstrument ? <RequiredDot hint="اختر البنك من العدسة" /> : null}
+            </label>
+            <BankSelect
+              value={bankAccountId}
+              onChange={onBankAccountId}
+              disabled={disabled}
+              placeholder="ابحث واختر البنك"
+              emptyLabel="اختر الحساب البنكي"
+              className={showErrors && bankError ? erpInputErrorClass : undefined}
+            />
+            <ErpFieldError message={bankError} show={showErrors} />
+          </div>
+          {advance && onPaidAmount ? (
+            <AmountField
+              value={paidAmount}
+              onChange={onPaidAmount}
+              disabled={disabled}
+              error={paidError}
+              showErrors={showErrors}
+            />
+          ) : null}
+        </div>
+      ) : null}
+
+      {kind === 'cheques' ? (
+        <div className="space-y-2">
+          {rows.map((row, index) => (
+            <div key={row.id} className="space-y-2 rounded-lg border border-slate-100 bg-slate-50/70 p-2">
+              {rows.length > 1 ? (
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-semibold text-slate-500">شيك {index + 1}</span>
+                  <button
+                    type="button"
+                    className="text-xs font-medium text-rose-600 hover:underline"
+                    disabled={disabled}
+                    onClick={() => {
+                      const next = rows.filter((item) => item.id !== row.id);
+                      onChequeRows(next.length ? next : [emptyChequeDraft()]);
+                      if (advance && onPaidAmount) {
+                        onPaidAmount(next.reduce((sum, item) => sum + parseTenderAmount(item.amount), 0));
+                      }
+                    }}
+                  >
+                    حذف
+                  </button>
+                </div>
+              ) : null}
+              <input
+                placeholder="رقم الشيك"
+                className={erpInputClass}
+                disabled={disabled}
+                value={row.chequeNumber}
+                onChange={(e) => updateCheque(row.id, { chequeNumber: e.target.value })}
+              />
+              <input
+                type="date"
+                className={erpInputClass}
+                disabled={disabled}
+                value={row.dueDate}
+                onChange={(e) => updateCheque(row.id, { dueDate: e.target.value })}
+              />
+              <input
+                type="number"
+                min={0}
+                step="0.01"
+                placeholder="القيمة"
+                className={erpInputClass}
+                disabled={disabled}
+                value={row.amount}
+                onChange={(e) => updateCheque(row.id, { amount: e.target.value })}
+              />
+            </div>
+          ))}
           <button
             type="button"
             disabled={disabled}
             className="text-xs font-semibold text-[#0E78AA] hover:underline"
-            onClick={() => setInstrumentOpen(true)}
+            onClick={() => {
+              const leftover = Math.max(0, Number((netAmount - chequeSum).toFixed(2)));
+              onChequeRows([...rows, emptyChequeDraft(leftover > 0 ? String(leftover) : '')]);
+            }}
           >
-            بنك وشيكات…
+            + إضافة شيك
           </button>
-          {summary ? <p className="text-[11px] text-slate-500">{summary}</p> : (
-            <p className="text-[11px] text-slate-400">افتح لإضافة تحويل بنكي أو قائمة شيكات</p>
-          )}
-          <ErpFieldError message={bankError} show={showErrors} />
           <ErpFieldError message={chequeError} show={showErrors} />
         </div>
-      ) : null}
-
-      {instrumentOpen ? (
-        <CashBankChequeModal
-          open
-          onClose={() => {
-            setInstrumentOpen(false);
-            setPendingKind(null);
-          }}
-          netAmount={netAmount}
-          direction={direction}
-          variant={variant}
-          bankAccountId={bankAccountId}
-          bankReference={bankReference}
-          chequeRows={chequeRows}
-          issuingBankAccountId={issuingBankAccountId}
-          paidAmount={paidAmount}
-          onConfirm={(next) => {
-            onBankAccountId(next.bankAccountId);
-            onBankReference(next.bankReference);
-            onChequeRows(next.chequeRows);
-            if (next.issuingBankAccountId != null) onIssuingBankAccountId?.(next.issuingBankAccountId);
-            if (advance && next.paidAmount != null) onPaidAmount?.(next.paidAmount);
-            const hasCheques = next.chequeRows.some(
-              (row) => row.chequeNumber.trim() && parseTenderAmount(row.amount) > 0
-            );
-            onKindChange(hasCheques ? 'cheques' : 'bank');
-            setPendingKind(null);
-          }}
-        />
       ) : null}
     </div>
   );

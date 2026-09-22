@@ -13,6 +13,7 @@ import {
 import type { EditableJournalLine } from '@/components/accounting/EditableJournalLinesTable';
 import { formatBaseAmount, isFxRateLocked, lineFxRate, rateForCurrency, toBaseAmount } from '@/lib/accounting/fx-base';
 import { ExchangeRateInput } from '@/components/accounting/ExchangeRateInput';
+import { TableNumberInput } from '@/components/grid/TableNumberInput';
 import { useCompanyBaseCurrency } from '@/lib/hooks/useCompanyBaseCurrency';
 import { seedLineDescription, useFollowHeaderDescription } from '@/lib/hooks/useFollowHeaderDescription';
 
@@ -46,14 +47,6 @@ function emptyLine(currencyId?: string, exchangeRate = 1): EditableJournalLine {
     exchangeRate,
     costCenterId: '',
   };
-}
-
-function formatAmountInput(value: number) {
-  if (!value) return '';
-  return value.toLocaleString('en-US', {
-    minimumFractionDigits: value % 1 === 0 ? 0 : 2,
-    maximumFractionDigits: 2,
-  });
 }
 
 export function OpeningBalanceLinesTable({
@@ -201,20 +194,12 @@ export function OpeningBalanceLinesTable({
         }
         if (columnId === 'debit') {
           return (
-            <input
-              type="text"
-              inputMode="decimal"
+            <TableNumberInput
               disabled={disabled}
-              value={formatAmountInput(Number(line.debit) || 0)}
-              onChange={(e) => {
-                const raw = e.target.value.replace(/,/g, '');
-                if (raw === '' || raw === '.') {
-                  updateLine(index, { debit: 0 });
-                  return;
-                }
-                const parsed = Number(raw);
-                if (!Number.isNaN(parsed)) updateLine(index, { debit: parsed, credit: parsed > 0 ? 0 : line.credit });
-              }}
+              value={line.debit}
+              onValueCommit={(parsed) =>
+                updateLine(index, { debit: parsed, credit: parsed > 0 ? 0 : line.credit })
+              }
               className={`${dataEntryGridInputClass} h-9 text-xs text-end font-mono font-medium`}
               placeholder="0.00"
               {...keyHandlers(index, 'debit')}
@@ -223,20 +208,12 @@ export function OpeningBalanceLinesTable({
         }
         if (columnId === 'credit') {
           return (
-            <input
-              type="text"
-              inputMode="decimal"
+            <TableNumberInput
               disabled={disabled}
-              value={formatAmountInput(Number(line.credit) || 0)}
-              onChange={(e) => {
-                const raw = e.target.value.replace(/,/g, '');
-                if (raw === '' || raw === '.') {
-                  updateLine(index, { credit: 0 });
-                  return;
-                }
-                const parsed = Number(raw);
-                if (!Number.isNaN(parsed)) updateLine(index, { credit: parsed, debit: parsed > 0 ? 0 : line.debit });
-              }}
+              value={line.credit}
+              onValueCommit={(parsed) =>
+                updateLine(index, { credit: parsed, debit: parsed > 0 ? 0 : line.debit })
+              }
               className={`${dataEntryGridInputClass} h-9 text-xs text-end font-mono font-medium`}
               placeholder="0.00"
               {...keyHandlers(index, 'credit')}

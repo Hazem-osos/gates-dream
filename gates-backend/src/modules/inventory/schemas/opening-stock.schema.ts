@@ -1,20 +1,36 @@
 import { z } from 'zod';
 
+const emptyToUndefined = (value: unknown) =>
+  value === '' || value === null || value === undefined ? undefined : value;
+
 export const openingStockLineSchema = z.object({
-  itemId: z.string().uuid('Item ID must be a valid UUID'),
-  warehouseId: z.string().uuid('Warehouse ID must be a valid UUID'),
-  locationId: z.string().uuid('Location ID must be a valid UUID').optional().nullable(),
-  quantity: z.number().positive('Quantity must be positive'),
-  unitPrice: z.number().nonnegative('Unit price must be non-negative'),
-  total: z.number().nonnegative('Total must be non-negative'),
+  itemId: z.string().min(1, 'اختر الصنف من الدليل'),
+  warehouseId: z.preprocess(emptyToUndefined, z.string().min(1, 'اختر المخزن التشغيلي على السطر').optional()),
+  locationId: z.preprocess(emptyToUndefined, z.string().optional().nullable()),
+  quantity: z.coerce.number().positive('كمية أول المدة لازم تكون أكبر من صفر'),
+  unitPrice: z.coerce.number().nonnegative('تكلفة الوحدة لا تقل عن صفر'),
+  total: z.coerce.number().nonnegative('إجمالي القيمة غير صالح'),
 });
 
 export const createOpeningStockSchema = z.object({
-  branchId: z.string().uuid('Branch ID must be a valid UUID').optional().nullable(),
+  branchId: z.preprocess(emptyToUndefined, z.string().optional().nullable()),
   description: z.string().optional(),
   serial: z.string().optional(),
-  date: z.string().datetime('Date must be a valid ISO datetime'),
-  lines: z.array(openingStockLineSchema).min(1, 'At least one line is required'),
+  date: z
+    .string()
+    .min(1, 'تاريخ الكشف غير صالح')
+    .transform((value, ctx) => {
+      const raw = value.trim();
+      const parsed = /^\d{4}-\d{2}-\d{2}$/.test(raw)
+        ? new Date(`${raw}T12:00:00`)
+        : new Date(raw);
+      if (Number.isNaN(parsed.getTime())) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'تاريخ الكشف غير صالح' });
+        return raw;
+      }
+      return parsed.toISOString();
+    }),
+  lines: z.array(openingStockLineSchema).min(1, 'أدخل صنفاً وكمية أكبر من صفر في سطر واحد على الأقل'),
 });
 
 const optionalBool = z

@@ -353,7 +353,13 @@ function SupplierPageInner() {
           payload(),
           { skipSuccessNotify: true }
         );
-        toast.success('تم حفظ المورد — تقدر تضيف التالي');
+        toast.success('تم حفظ تعديلات المورد');
+        invalidateQuery(['suppliers']);
+        invalidateQuery(['suppliers', 'guide']);
+        invalidateQuery(['accounts']);
+        invalidateQuery(['chart-of-accounts']);
+        invalidateQuery(['coa-tree']);
+        return;
       } else {
         const createdRes = await apiClient.post<SupplierRecord>('/accounting/suppliers', payload(), {
           skipSuccessNotify: true,

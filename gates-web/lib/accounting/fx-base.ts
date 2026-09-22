@@ -105,3 +105,60 @@ export function isFxRateLocked(
 ): boolean {
   return !currencyCode || isEgyptianPound(currencyCode) || isCompanyBaseCurrency(currencyCode, companyBaseCode);
 }
+
+type JournalLineFxHint = {
+  currencyCode?: string | null;
+  exchangeRate?: number | string | null;
+  debit?: number | string | null;
+  credit?: number | string | null;
+  debitBase?: number | string | null;
+  creditBase?: number | string | null;
+};
+
+export function impliedJournalLineRate(line: JournalLineFxHint): number {
+  const stored = normalizeFxRate(line.exchangeRate);
+  const face = Math.abs(Number(line.debit) || 0) + Math.abs(Number(line.credit) || 0);
+  const base = Math.abs(Number(line.debitBase) || 0) + Math.abs(Number(line.creditBase) || 0);
+  if (face > 0.0001 && base > 0.0001) {
+    const implied = base / face;
+    if (Number.isFinite(implied) && implied > 0) return implied;
+  }
+  return stored;
+}
+
+export function resolveJournalLineCurrencyId<T extends { id: string; code?: string | null; exchangeRate?: number | string | null }>(
+  line: JournalLineFxHint,
+  header: T | undefined,
+  currencies: T[],
+  companyBase: string
+): string | undefined {
+  const savedCode = line.currencyCode?.trim();
+  if (savedCode) {
+    const saved = currencies.find((c) => sameCurrencyCode(c.code, savedCode));
+    if (saved) return saved.id;
+  }
+
+  const rate = impliedJournalLineRate(line);
+  const baseId = pickCurrencyByCode(currencies, companyBase)?.id ?? header?.id;
+  if (Math.abs(rate - 1) < 0.0001) return baseId;
+
+  const headerRate = rateForCurrency(header?.code, companyBase, header?.exchangeRate);
+  if (header && Math.abs(rate - headerRate) < 0.0001) return header.id;
+
+  const fxCurrencies = currencies.filter(
+    (c) => !isEgyptianPound(c.code) && !isCompanyBaseCurrency(c.code, companyBase)
+  );
+  if (fxCurrencies.length === 0) return baseId;
+
+  let best = fxCurrencies[0];
+  let bestDiff = Number.POSITIVE_INFINITY;
+  for (const currency of fxCurrencies) {
+    const catalog = rateForCurrency(currency.code, companyBase, currency.exchangeRate);
+    const diff = Math.abs(catalog - rate);
+    if (diff < bestDiff) {
+      best = currency;
+      bestDiff = diff;
+    }
+  }
+  return best.id;
+}

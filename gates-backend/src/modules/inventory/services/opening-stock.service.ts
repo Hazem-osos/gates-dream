@@ -21,6 +21,7 @@ import {
   loadWarehouseGlMap,
   pickInventoryAccount,
 } from '../utils/inventory-system';
+import { openingBalanceService } from '../../accounting/services/opening-balance.service';
 
 async function collectOpeningInventoryValues(
   companyId: string,
@@ -56,6 +57,49 @@ async function collectOpeningInventoryValues(
 }
 
 const SOURCE_TYPE = 'OB';
+
+async function resolveLockedOpeningDate(companyId: string, fallbackDate?: string) {
+  try {
+    const meta = await openingBalanceService.resolveOpeningDate(companyId);
+    return meta.openingDate;
+  } catch {
+    const parsed = fallbackDate ? new Date(fallbackDate) : new Date();
+    return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+  }
+}
+
+async function firstUsableWarehouseId(companyId: string) {
+  const warehouses = await prisma.warehouse.findMany({
+    where: { companyId, isActive: true },
+    select: {
+      id: true,
+      warehouseKind: true,
+      _count: { select: { childWarehouses: { where: { isActive: true } } } },
+    },
+    orderBy: [{ code: 'asc' }, { arabicName: 'asc' }],
+  });
+  const usable = warehouses.find(
+    (warehouse) =>
+      warehouse.warehouseKind === 'POSTING' || warehouse._count.childWarehouses === 0
+  );
+  return usable?.id ?? warehouses[0]?.id ?? '';
+}
+
+function assertUsableOpeningWarehouse(warehouse: {
+  arabicName: string;
+  isActive: boolean;
+  warehouseKind: string | null;
+  _count: { childWarehouses: number };
+}) {
+  if (!warehouse.isActive) {
+    throw new Error(`المخزن «${warehouse.arabicName}» غير نشط. اختر مخزناً شغّالاً.`);
+  }
+  if (warehouse.warehouseKind === 'HEADER' && warehouse._count.childWarehouses > 0) {
+    throw new Error(
+      `المخزن «${warehouse.arabicName}» مجموعة وليس مخزناً تشغيلياً. اختر مخزناً فرعياً قابلاً للترحيل.`
+    );
+  }
+}
 
 function nextOpeningSerial(existing: Array<string | null | undefined>, year: number): string {
   const prefix = `OS-${year}-`;
@@ -192,18 +236,40 @@ export class OpeningStockService {
   ) {
     try {
       // Validate all items and warehouses belong to company
-      const itemIds = data.lines.map((line) => line.itemId);
-      const warehouseIds = data.lines.map((line) => line.warehouseId).filter(Boolean);
+      const fallbackWarehouseId = await firstUsableWarehouseId(companyId);
+      data.lines = data.lines.map((line) => ({
+        ...line,
+        warehouseId: line.warehouseId || fallbackWarehouseId,
+      }));
+      if (data.lines.some((line) => !line.warehouseId)) {
+        throw new Error('لا يوجد مخزن تشغيلي. أنشئ مخزناً من دليل المخازن ثم أعد الحفظ.');
+      }
+      const itemIds = [...new Set(data.lines.map((line) => line.itemId).filter(Boolean))];
+      const warehouseIds = [...new Set(data.lines.map((line) => line.warehouseId).filter(Boolean))];
+      const lockedDate = await resolveLockedOpeningDate(companyId, data.date);
 
       const items = await prisma.item.findMany({
         where: {
           id: { in: itemIds },
           companyId,
         },
+        select: { id: true, arabicName: true, serial: true, isService: true, inactiveItem: true },
       });
 
       if (items.length !== itemIds.length) {
-        throw new Error('صنف أو أكثر غير موجود أو لا يتبع الشركة');
+        throw new Error('صنف أو أكثر غير موجود أو لا يتبع الشركة. اختر الصنف من الدليل.');
+      }
+      const serviceItem = items.find((item) => item.isService);
+      if (serviceItem) {
+        throw new Error(
+          `الصنف «${serviceItem.arabicName || serviceItem.serial}» خدمي ولا يُدخل في بضاعة أول المدة.`
+        );
+      }
+      const inactiveItem = items.find((item) => item.inactiveItem);
+      if (inactiveItem) {
+        throw new Error(
+          `الصنف «${inactiveItem.arabicName || inactiveItem.serial}» غير نشط. فعّله من بطاقة الصنف أو اختر صنفاً آخر.`
+        );
       }
 
       if (warehouseIds.length > 0) {
@@ -212,30 +278,38 @@ export class OpeningStockService {
             id: { in: warehouseIds },
             companyId,
           },
-          select: { id: true, isActive: true, arabicName: true },
+          select: {
+            id: true,
+            isActive: true,
+            arabicName: true,
+            warehouseKind: true,
+            _count: { select: { childWarehouses: { where: { isActive: true } } } },
+          },
         });
 
         if (warehouses.length !== warehouseIds.length) {
-          throw new Error('مخزن أو أكثر غير موجود أو لا يتبع الشركة');
+          throw new Error('مخزن أو أكثر غير موجود أو لا يتبع الشركة. اختر مخزناً تشغيلياً.');
         }
-        const inactive = warehouses.find((warehouse) => !warehouse.isActive);
-        if (inactive) {
-          throw new Error(`المخزن «${inactive.arabicName}» غير نشط. اختر مخزناً شغّالاً.`);
+        for (const warehouse of warehouses) {
+          assertUsableOpeningWarehouse(warehouse);
         }
       }
 
       const existingOpening = await prisma.openingStock.findFirst({
-        where: { companyId, isCancelled: false },
-        select: { id: true },
+        where: { companyId },
+        select: { id: true, isCancelled: true, isPosted: true },
       });
       if (existingOpening) {
-        throw new Error('يوجد كشف بضاعة أول المدة بالفعل. احذفه أولاً حتى يمكن إنشاء كشف جديد.');
+        if (existingOpening.isPosted) {
+          throw new Error('كشف بضاعة أول المدة مرحّل. فك الترحيل أولاً ثم عدّل نفس الكشف.');
+        }
+        return this.updateOpeningStock(companyId, existingOpening.id, data, glCtx);
       }
 
       // Use transaction to ensure atomicity
       const openingStock = await prisma.$transaction(async (tx) => {
         // Create opening stock record
-        const year = new Date(data.date).getFullYear();
+        const year = lockedDate.getUTCFullYear();
         const usedSerials = await tx.openingStock.findMany({
           where: { companyId, serial: { not: null } },
           select: { serial: true },
@@ -251,7 +325,7 @@ export class OpeningStockService {
             branchId: data.branchId || null,
             description: data.description || null,
             serial,
-            date: new Date(data.date),
+            date: lockedDate,
             isPosted: false,
             isApproved: false,
             isCancelled: false,
@@ -266,7 +340,7 @@ export class OpeningStockService {
         // existing behaviour of taking immediate effect.
         const sourceType = SOURCE_TYPE;
         const sourceNumber = serial;
-        const sourceYearId = String(new Date(data.date).getFullYear());
+        const sourceYearId = String(year);
 
         // Create opening stock lines and update item quantities
         const lines = [];
@@ -322,6 +396,162 @@ export class OpeningStockService {
   }
 
   /**
+   * Replace lines on the singleton opening-stock document (draft or cancelled).
+   * Cancelled docs only persist the new parties; restore re-applies stock.
+   */
+  async updateOpeningStock(
+    companyId: string,
+    openingStockId: string,
+    data: CreateOpeningStockData,
+    glCtx?: StockGlPostingContext
+  ) {
+    const existing = await prisma.openingStock.findFirst({
+      where: { id: openingStockId, companyId },
+      include: { lines: true },
+    });
+    if (!existing) {
+      throw new Error('كشف بضاعة أول المدة غير موجود');
+    }
+    if (existing.isPosted) {
+      throw new Error('لا يمكن تعديل كشف مرحّل. فك الترحيل أولاً.');
+    }
+
+    const fallbackWarehouseId = await firstUsableWarehouseId(companyId);
+    data.lines = data.lines.map((line) => ({
+      ...line,
+      warehouseId: line.warehouseId || fallbackWarehouseId,
+    }));
+    if (data.lines.some((line) => !line.warehouseId)) {
+      throw new Error('لا يوجد مخزن تشغيلي. أنشئ مخزناً من دليل المخازن ثم أعد الحفظ.');
+    }
+    const itemIds = [...new Set(data.lines.map((line) => line.itemId).filter(Boolean))];
+    const warehouseIds = [...new Set(data.lines.map((line) => line.warehouseId).filter(Boolean))];
+    const items = await prisma.item.findMany({
+      where: { id: { in: itemIds }, companyId },
+      select: { id: true, arabicName: true, serial: true, isService: true, inactiveItem: true },
+    });
+    if (items.length !== itemIds.length) {
+      throw new Error('صنف أو أكثر غير موجود أو لا يتبع الشركة. اختر الصنف من الدليل.');
+    }
+    const serviceItem = items.find((item) => item.isService);
+    if (serviceItem) {
+      throw new Error(
+        `الصنف «${serviceItem.arabicName || serviceItem.serial}» خدمي ولا يُدخل في بضاعة أول المدة.`
+      );
+    }
+    const inactiveItem = items.find((item) => item.inactiveItem);
+    if (inactiveItem) {
+      throw new Error(
+        `الصنف «${inactiveItem.arabicName || inactiveItem.serial}» غير نشط. فعّله من بطاقة الصنف أو اختر صنفاً آخر.`
+      );
+    }
+    if (warehouseIds.length > 0) {
+      const warehouses = await prisma.warehouse.findMany({
+        where: { id: { in: warehouseIds }, companyId },
+        select: {
+          id: true,
+          isActive: true,
+          arabicName: true,
+          warehouseKind: true,
+          _count: { select: { childWarehouses: { where: { isActive: true } } } },
+        },
+      });
+      if (warehouses.length !== warehouseIds.length) {
+        throw new Error('مخزن أو أكثر غير موجود أو لا يتبع الشركة. اختر مخزناً تشغيلياً.');
+      }
+      for (const warehouse of warehouses) {
+        assertUsableOpeningWarehouse(warehouse);
+      }
+    }
+
+    const lockedDate = await resolveLockedOpeningDate(companyId, data.date);
+    const sourceType = SOURCE_TYPE;
+    const sourceNumber = existing.serial ?? existing.id.slice(0, 8);
+    const sourceYearId = String(lockedDate.getUTCFullYear());
+
+    return prisma.$transaction(async (tx) => {
+      if (!existing.isCancelled) {
+        for (const line of existing.lines) {
+          await stockMovementService.postMovementInTx(tx, {
+            companyId,
+            branchId: existing.branchId ?? undefined,
+            warehouseId: line.warehouseId,
+            itemId: line.itemId,
+            locationId: line.locationId ?? null,
+            quantityDelta: -Number(line.quantity),
+            movementType: `${sourceType}-EDIT`,
+            sourceType: `${sourceType}-EDIT`,
+            sourceNumber,
+            sourceYearId,
+            documentDate: existing.date,
+          });
+          await itemCostService.removeCostHistoryBySourceInTx(tx, {
+            companyId,
+            itemId: line.itemId,
+            sourceType,
+            sourceNumber,
+            sourceYearId,
+          });
+        }
+        if (glCtx) {
+          await stockMovementGlService.reverseBySourceInTx(
+            tx,
+            glCtx,
+            sourceType,
+            sourceNumber,
+            sourceYearId,
+            'Opening stock lines replaced'
+          );
+        }
+      }
+
+      await tx.openingStockLine.deleteMany({ where: { openingStockId } });
+      const lines = [];
+      for (const lineData of data.lines) {
+        const line = await tx.openingStockLine.create({
+          data: {
+            openingStockId,
+            itemId: lineData.itemId,
+            warehouseId: lineData.warehouseId,
+            locationId: lineData.locationId || null,
+            quantity: lineData.quantity,
+            unitPrice: lineData.unitPrice,
+            total: lineData.total,
+          },
+        });
+        lines.push(line);
+        if (!existing.isCancelled) {
+          await inventoryCostingService.applyInboundMovement(tx, {
+            companyId,
+            branchId: existing.branchId ?? undefined,
+            warehouseId: lineData.warehouseId,
+            itemId: lineData.itemId,
+            locationId: lineData.locationId ?? null,
+            quantity: Number(lineData.quantity),
+            unitCost: Number(lineData.unitPrice),
+            movementType: COSTING_MOVEMENT.ADJUSTMENT_POSITIVE,
+            sourceType,
+            sourceNumber,
+            sourceYearId,
+            sourceDocumentId: openingStockId,
+            transactionDate: lockedDate,
+          });
+        }
+      }
+
+      const record = await tx.openingStock.update({
+        where: { id: openingStockId },
+        data: {
+          description: data.description ?? existing.description,
+          date: lockedDate,
+          totalAmount: data.lines.reduce((sum, line) => sum + line.total, 0),
+        },
+      });
+      return { ...record, lines };
+    });
+  }
+
+  /**
    * Get opening stock by ID
    */
   async getOpeningStockById(companyId: string, openingStockId: string) {
@@ -365,7 +595,7 @@ export class OpeningStockService {
       });
 
       if (!openingStock) {
-        throw new Error('Opening stock not found');
+        throw new Error('كشف بضاعة أول المدة غير موجود');
       }
 
       return openingStock;
@@ -482,15 +712,15 @@ export class OpeningStockService {
       });
 
       if (!openingStock) {
-        throw new Error('Opening stock not found');
+        throw new Error('كشف بضاعة أول المدة غير موجود');
       }
 
       if (openingStock.isCancelled) {
-        throw new Error('Cannot post cancelled opening stock');
+        throw new Error('لا يمكن ترحيل كشف بضاعة أول المدة الملغي. استرجعه أولاً.');
       }
 
       if (openingStock.isPosted) {
-        throw new Error('Opening stock is already posted');
+        throw new Error('كشف بضاعة أول المدة مرحّل مسبقاً');
       }
 
       await fiscalYearService.assertOpenForDate(companyId, openingStock.date, {
@@ -563,11 +793,11 @@ export class OpeningStockService {
       });
 
       if (!openingStock) {
-        throw new Error('Opening stock not found');
+        throw new Error('كشف بضاعة أول المدة غير موجود');
       }
 
       if (!openingStock.isPosted) {
-        throw new Error('Opening stock is not posted');
+        throw new Error('كشف بضاعة أول المدة غير مرحّل');
       }
 
       await fiscalYearService.assertOpenForDate(companyId, openingStock.date, {
@@ -661,15 +891,15 @@ export class OpeningStockService {
       });
 
       if (!openingStock) {
-        throw new Error('Opening stock not found');
+        throw new Error('كشف بضاعة أول المدة غير موجود');
       }
 
       if (openingStock.isCancelled) {
-        throw new Error('Opening stock is already cancelled');
+        throw new Error('كشف بضاعة أول المدة ملغي بالفعل');
       }
 
       if (openingStock.isPosted) {
-        throw new Error('Cannot cancel posted opening stock. Unpost it first.');
+        throw new Error('لا يمكن إلغاء كشف مرحّل. فك الترحيل أولاً.');
       }
 
       // The quantity/cost/GL effect is applied at create time (not post
@@ -760,11 +990,19 @@ export class OpeningStockService {
       });
 
       if (!openingStock) {
-        throw new Error('Opening stock not found');
+        throw new Error('كشف بضاعة أول المدة غير موجود');
       }
 
       if (!openingStock.isCancelled) {
-        throw new Error('Opening stock is not cancelled');
+        throw new Error('كشف بضاعة أول المدة ليس ملغياً');
+      }
+
+      const otherActive = await prisma.openingStock.findFirst({
+        where: { companyId, isCancelled: false, id: { not: openingStockId } },
+        select: { id: true },
+      });
+      if (otherActive) {
+        throw new Error('يوجد كشف بضاعة أول المدة نشط بالفعل. ألغِ الجديد أولاً ثم استرجع الملغي.');
       }
 
       // Symmetric with cancelOpeningStock: re-apply the quantity/cost/GL

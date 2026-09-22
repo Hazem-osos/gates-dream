@@ -187,6 +187,7 @@ export function ItemAssemblyHeader({
                 className={erpInputClass}
                 disabled={disabled}
                 emptyLabel="مخزن المواد الخام..."
+                excludeIds={targetWarehouseId ? [targetWarehouseId] : undefined}
               />
             </div>
             <div>
@@ -197,6 +198,7 @@ export function ItemAssemblyHeader({
                 className={erpInputClass}
                 disabled={disabled}
                 emptyLabel="مخزن المنتج التام..."
+                excludeIds={sourceWarehouseId ? [sourceWarehouseId] : undefined}
               />
             </div>
             <div>

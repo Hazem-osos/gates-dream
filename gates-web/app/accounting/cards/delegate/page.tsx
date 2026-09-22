@@ -254,17 +254,10 @@ function DelegatePageInner() {
         await apiClient.put(`/accounting/delegates/${selectedId}`, payload, {
           skipSuccessNotify: true,
         });
-        toast.success('تم حفظ المندوب بنجاح — تقدر تضيف التالي');
+        toast.success('تم حفظ تعديلات المندوب');
         invalidateQuery(['delegates']);
         invalidateQuery(['delegates', 'groups', 'DELEGATE']);
         invalidateQuery(['delegates', 'guide']);
-        setSelectedId(null);
-        setFormData({
-          ...EMPTY_FORM,
-          groupId: groupIdFromUrl || '',
-        });
-        setMode('create');
-        clearDocumentQuery();
         return;
       }
       await delegateMutation.mutateAsync(payload);

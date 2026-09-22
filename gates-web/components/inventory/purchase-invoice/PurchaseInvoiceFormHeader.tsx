@@ -100,6 +100,8 @@ type Props = {
   hasExistingLines?: boolean;
   sourceDisabled?: boolean;
   fieldsDisabled?: boolean;
+  splitLocked?: boolean;
+  splitCollectMode?: boolean;
 };
 
 export function PurchaseInvoiceFormHeader(props: Props) {
@@ -167,6 +169,8 @@ export function PurchaseInvoiceFormHeader(props: Props) {
     hasExistingLines = false,
     sourceDisabled = false,
     fieldsDisabled = false,
+    splitLocked = false,
+    splitCollectMode = false,
   } = props;
 
   const mounted = useClientMounted();
@@ -227,7 +231,7 @@ export function PurchaseInvoiceFormHeader(props: Props) {
           <button
             type="button"
             onClick={() => onPaymentType('cash')}
-            className={`flex-1 min-w-[4.5rem] text-sm font-medium rounded-md ${
+            className={`flex-1 min-w-[4.5rem] flex items-center justify-center text-sm font-medium rounded-md transition-colors ${
               paymentType === 'cash' ? 'bg-[#0E78AA] text-white shadow-sm' : 'text-slate-600 hover:bg-white'
             }`}
           >
@@ -236,46 +240,90 @@ export function PurchaseInvoiceFormHeader(props: Props) {
           <button
             type="button"
             onClick={() => onPaymentType('credit')}
-            className={`flex-1 min-w-[6.5rem] text-sm font-medium rounded-md ${
+            className={`flex-1 min-w-[6.5rem] flex items-center justify-center text-sm font-medium rounded-md transition-colors ${
               paymentType === 'credit' ? 'bg-[#0E78AA] text-white shadow-sm' : 'text-slate-600 hover:bg-white'
             }`}
           >
             آجل
           </button>
-          <button
-            type="button"
+          <div
+            role="button"
+            tabIndex={splitLocked ? -1 : 0}
+            aria-disabled={splitLocked}
+            title={
+              splitLocked
+                ? 'الدفع المتعدد يتاح بعد حفظ وترحيل الفاتورة'
+                : splitCollectMode
+                  ? 'تحصيل أو تعديل الدفع على الفاتورة المرحلة'
+                  : undefined
+            }
             onClick={() => {
+              if (splitLocked) return;
               onPaymentType('split');
-              onConfigureSplit?.();
             }}
-            className={`flex-1 min-w-[5.5rem] text-sm font-medium rounded-md ${
-              paymentType === 'split' ? 'bg-[#0E78AA] text-white shadow-sm' : 'text-slate-600 hover:bg-white'
+            onKeyDown={(event) => {
+              if (splitLocked) return;
+              if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                onPaymentType('split');
+              }
+            }}
+            className={`flex-1 min-w-[5.5rem] flex items-center justify-center text-sm font-medium rounded-md transition-colors ${
+              splitLocked
+                ? 'cursor-not-allowed text-slate-400 opacity-50'
+                : splitCollectMode
+                  ? 'pointer-events-auto cursor-pointer text-[#0E78AA] hover:bg-white'
+                  : paymentType === 'split'
+                    ? 'cursor-pointer bg-[#0E78AA] text-white shadow-sm'
+                    : 'cursor-pointer text-slate-600 hover:bg-white'
             }`}
           >
             دفع متعدد
-          </button>
+          </div>
         </div>
-        {onLinkAdvance ? (
-          <button
-            type="button"
-            className="mt-1.5 text-xs font-semibold text-[#0E78AA] hover:underline"
-            onClick={onLinkAdvance}
-          >
-            ربط دفعة مقدمة
-          </button>
+        {splitLocked ? (
+          <p className="mt-1.5 text-[11px] text-slate-500">نقدي أو آجل فقط أثناء الإضافة. الدفع المتعدد بعد الترحيل.</p>
         ) : null}
-        {paymentType === 'split' ? (
-          <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
-            <button
-              type="button"
-              className="text-xs font-semibold text-[#0E78AA] hover:underline"
-              onClick={onConfigureSplit}
+        {onLinkAdvance ? (
+          <div className="mt-2 pointer-events-auto">
+            <div
+              role="button"
+              tabIndex={0}
+              className="pointer-events-auto inline-flex cursor-pointer rounded-lg border border-[#0E78AA]/30 bg-white px-3 py-1.5 text-sm font-semibold text-[#0E78AA] hover:bg-[#E8F4FA]"
+              onClick={onLinkAdvance}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault();
+                  onLinkAdvance();
+                }
+              }}
             >
-              توزيع المبالغ…
-            </button>
+              ربط دفعة مقدمة
+            </div>
+            <p className="mt-1 text-[11px] text-slate-500">
+              يفتح سندات المورد غير المرتبطة بفاتورة لربطها كسداد — نقدي أو آجل.
+            </p>
+          </div>
+        ) : null}
+        {paymentType === 'split' && !splitLocked ? (
+          <div className="mt-2 flex flex-wrap items-center gap-2 pointer-events-auto">
+            <div
+              role="button"
+              tabIndex={0}
+              className="pointer-events-auto inline-flex cursor-pointer items-center rounded-lg bg-[#0E78AA] px-3 py-1.5 text-sm font-semibold text-white hover:bg-[#094C6B]"
+              onClick={onConfigureSplit}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault();
+                  onConfigureSplit?.();
+                }
+              }}
+            >
+              تحصيل
+            </div>
             <button
               type="button"
-              className="text-xs font-semibold text-[#0E78AA] hover:underline"
+              className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
               onClick={onConfigureInstallments}
             >
               توزيع الدفعات
@@ -351,6 +399,8 @@ export function PurchaseInvoiceFormHeader(props: Props) {
             onIssuingBankAccountId={onCashIssuingBankAccountId}
             netAmount={cashNetAmount}
             direction="PAYMENT"
+            paidAmount={Number(advancePaidAmount) > 0 ? Number(advancePaidAmount) : cashNetAmount}
+            onPaidAmount={onAdvancePaidAmount}
             disabled={fieldsDisabled}
             treasuryError={errors?.treasuryId}
             bankError={errors?.cashBankAccountId}

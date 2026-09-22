@@ -19,6 +19,7 @@ export function TableNumberInput({
   fractionDigits = 2,
   className,
   onKeyDown: userKeyDown,
+  onFocus: userFocus,
   ...rest
 }: Props) {
   const math = useMathInput({
@@ -41,6 +42,10 @@ export function TableNumberInput({
       className={className}
       value={math.display}
       onChange={(e) => math.setDisplay(e.target.value)}
+      onFocus={(e) => {
+        math.onFocus();
+        userFocus?.(e);
+      }}
       onBlur={math.onBlur}
       onKeyDown={(e) => {
         math.onKeyDown(e);

@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useState, type KeyboardEvent } from 'react';
+import { useCallback, useRef, useState, type KeyboardEvent } from 'react';
 import {
   evaluateMathExpression,
   formatGridNumber,
@@ -16,14 +16,23 @@ type Options = {
 /** Local display state + commit evaluated number on Enter / blur. */
 export function useMathInput({ fractionDigits = 2, onCommit, initialDisplay = '' }: Options) {
   const [display, setDisplay] = useState(initialDisplay);
+  const focusedRef = useRef(false);
+  const lastGoodRef = useRef(initialDisplay);
 
   const commit = useCallback(
     (raw?: string) => {
       const source = (raw ?? display).trim();
-      if (!source) return;
+      if (!source) {
+        setDisplay(lastGoodRef.current);
+        return;
+      }
       const evaluated = evaluateMathExpression(source);
-      if (evaluated == null) return;
+      if (evaluated == null) {
+        setDisplay(lastGoodRef.current);
+        return;
+      }
       const formatted = formatGridNumber(evaluated, fractionDigits);
+      lastGoodRef.current = formatted;
       setDisplay(formatted);
       onCommit(evaluated);
     },
@@ -32,6 +41,10 @@ export function useMathInput({ fractionDigits = 2, onCommit, initialDisplay = ''
 
   const onChange = useCallback((next: string) => {
     setDisplay(sanitizeMathInput(next));
+  }, []);
+
+  const onFocus = useCallback(() => {
+    focusedRef.current = true;
   }, []);
 
   const onKeyDown = useCallback(
@@ -45,14 +58,29 @@ export function useMathInput({ fractionDigits = 2, onCommit, initialDisplay = ''
   );
 
   const syncFromExternal = useCallback((value: string | number | undefined) => {
+    if (focusedRef.current) return;
     if (value === undefined || value === null || value === '') {
+      lastGoodRef.current = '';
       setDisplay('');
       return;
     }
     const n = typeof value === 'number' ? value : Number(String(value).replace(/,/g, ''));
     if (!Number.isFinite(n)) return;
-    setDisplay(formatGridNumber(n, fractionDigits));
+    const formatted = formatGridNumber(n, fractionDigits);
+    lastGoodRef.current = formatted;
+    setDisplay(formatted);
   }, [fractionDigits]);
 
-  return { display, setDisplay: onChange, onBlur: () => commit(), onKeyDown, commit, syncFromExternal };
+  return {
+    display,
+    setDisplay: onChange,
+    onFocus,
+    onBlur: () => {
+      focusedRef.current = false;
+      commit();
+    },
+    onKeyDown,
+    commit,
+    syncFromExternal,
+  };
 }

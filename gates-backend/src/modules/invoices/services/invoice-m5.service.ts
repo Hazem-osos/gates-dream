@@ -62,6 +62,7 @@ import {
   shouldCheckMinusQtyOnDraft,
 } from './invoice-document-type';
 import { invoicePostingOrchestrator } from './invoice-posting-orchestrator';
+import { logger } from '../../../shared/logger';
 import { assertNotSellingBelowCost } from './invoice-below-cost';
 import { assertAllowedLinePrices } from '../../transaction-settings/transaction-settings-invoice-guards';
 import { assertPurchaseReturnPolicy, assertSalesReturnPolicy } from './sales-return.service';
@@ -589,17 +590,25 @@ export class InvoiceM5Service {
       fiscalYearId &&
       (await shouldAutoPostOnSave(companyId, module.moduleCode))
     ) {
-      await invoicePostingOrchestrator.post(
-        { companyId, branchId, fiscalYearId, userId: userId ?? 'system' },
-        created.id
-      );
-      return prisma.invoice.findUnique({
-        where: { id: created.id },
-        include: {
-          lines: { orderBy: { lineOrder: 'asc' } },
-          conditions: true,
-        },
-      });
+      try {
+        await invoicePostingOrchestrator.post(
+          { companyId, branchId, fiscalYearId, userId: userId ?? 'system' },
+          created.id
+        );
+        return prisma.invoice.findUnique({
+          where: { id: created.id },
+          include: {
+            lines: { orderBy: { lineOrder: 'asc' } },
+            conditions: true,
+          },
+        });
+      } catch (error) {
+        logger.warn(
+          { error, companyId, invoiceId: created.id },
+          'Auto-post after invoice save failed; draft kept'
+        );
+        return created;
+      }
     }
 
     return created;

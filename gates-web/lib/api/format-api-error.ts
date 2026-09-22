@@ -1,13 +1,53 @@
 import type { ApiError } from './types';
 import { localizeApiErrorMessage } from './localize-api-error-message';
 
-type ValidationIssue = { path?: string; message?: string };
+type ValidationIssue = { path?: string | Array<string | number>; message?: string };
+
+function openingStockPathLabel(path?: string | Array<string | number>): string | null {
+  const joined = Array.isArray(path) ? path.join('.') : path;
+  if (!joined) return null;
+  const splitMatch = joined.match(/^paymentSplits\.(\d+)\.(\w+)/);
+  if (splitMatch) {
+    const field =
+      splitMatch[2] === 'safeId'
+        ? 'الخزينة'
+        : splitMatch[2] === 'bankAccountId'
+          ? 'الحساب البنكي'
+          : splitMatch[2] === 'amount'
+            ? 'المبلغ'
+            : splitMatch[2];
+    return `تحصيل — ${field}`;
+  }
+  const match = joined.match(/^lines\.(\d+)\.(\w+)/);
+  if (!match) return null;
+  const row = Number(match[1]) + 1;
+  const field =
+    match[2] === 'itemId'
+      ? 'الصنف'
+      : match[2] === 'warehouseId'
+        ? 'المخزن'
+        : match[2] === 'quantity'
+          ? 'الكمية'
+          : match[2] === 'unitPrice'
+            ? 'التكلفة'
+            : match[2] === 'total'
+              ? 'الإجمالي'
+              : match[2] === 'safeId'
+                ? 'الخزينة'
+                : match[2] === 'bankAccountId'
+                  ? 'الحساب البنكي'
+                  : match[2];
+  return `سطر ${row} — ${field}`;
+}
 
 function firstValidationMessage(errors: unknown): string | null {
   if (!errors) return null;
   if (Array.isArray(errors)) {
     const first = errors[0] as ValidationIssue | undefined;
-    return first?.message?.trim() || null;
+    const message = first?.message?.trim() || null;
+    if (!message) return null;
+    const label = openingStockPathLabel(first?.path);
+    return label ? `${label}: ${message}` : message;
   }
   if (typeof errors === 'object') {
     const record = errors as Record<string, string[] | string>;

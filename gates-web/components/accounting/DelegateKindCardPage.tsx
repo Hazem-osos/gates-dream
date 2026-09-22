@@ -285,15 +285,11 @@ function DelegateKindCardInner({ kind }: { kind: DelegateKind }) {
         await apiClient.put(`/accounting/delegates/${selectedId}`, payload, {
           skipSuccessNotify: true,
         });
-        toast.success(`${copy.success} — تقدر تضيف التالي`);
+        toast.success('تم حفظ التعديلات');
         invalidateQuery(listKey);
         invalidateQuery(groupsKey);
         invalidateQuery(['delegates']);
         invalidateQuery(['delegates', 'guide']);
-        setSelectedId(null);
-        setFormData({ ...EMPTY, groupId: groupIdFromUrl || '' });
-        setMode('create');
-        clearDocumentQuery();
         return;
       }
       await mutation.mutateAsync(payload);

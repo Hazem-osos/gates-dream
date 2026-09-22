@@ -13,7 +13,12 @@ import { ErpDocumentBottomSplit } from '@/components/erp/ErpDocumentBottomSplit'
 import { AuditActivityTab } from '@/components/erp/AuditActivityTab';
 import { erpTableHeadCellClass, erpTableHeadRowClass } from '@/components/erp/erpUiTokens';
 import { InvoiceSettlementsHistory } from '@/components/invoices/InvoiceSettlementsHistory';
-import type { InvoiceCashSettlement, InvoiceChequeSettlement } from '@/lib/invoices/invoice-settlements';
+import { useApiQuery } from '@/lib/hooks/useApi';
+import type {
+  InvoiceCashSettlement,
+  InvoiceChequeSettlement,
+  InvoiceInstallmentSource,
+} from '@/lib/invoices/invoice-settlements';
 
 type Props = {
   summary: SummaryModel;
@@ -25,15 +30,13 @@ type Props = {
   isPosted: boolean;
   auditExtra?: ReactNode;
   pricingCalculationBasis?: string;
-  freightAmount?: number;
-  supplierDiscountAmount?: number;
-  onFreightAmountChange?: (value: number) => void;
-  onSupplierDiscountAmountChange?: (value: number) => void;
-  extrasReadOnly?: boolean;
   settlements?: InvoiceCashSettlement[];
   cheques?: InvoiceChequeSettlement[];
+  installments?: InvoiceInstallmentSource[];
   paidAmount?: number;
   remainingAmount?: number;
+  activeTabId?: string;
+  onActiveTabChange?: (tabId: string) => void;
 };
 
 export function PurchaseInvoiceBottomSplit({
@@ -46,16 +49,23 @@ export function PurchaseInvoiceBottomSplit({
   isPosted,
   auditExtra,
   pricingCalculationBasis,
-  freightAmount = 0,
-  supplierDiscountAmount = 0,
-  onFreightAmountChange,
-  onSupplierDiscountAmountChange,
-  extrasReadOnly,
   settlements = [],
   cheques = [],
+  installments = [],
   paidAmount,
   remainingAmount,
+  activeTabId,
+  onActiveTabChange,
 }: Props) {
+  const { data: savedInstallmentsResponse } = useApiQuery<InvoiceInstallmentSource[]>(
+    ['invoice-installments', selectedInvoiceId],
+    `/invoices/${selectedInvoiceId}/installments`,
+    undefined,
+    { enabled: Boolean(selectedInvoiceId), skipErrorNotify: true }
+  );
+  const installmentRows = (savedInstallmentsResponse?.data?.length
+    ? savedInstallmentsResponse.data
+    : installments) ?? [];
   const { gross, commercialDiscount } = computeInvoiceGrossDiscount(lines, pricingCalculationBasis);
   const stockRows = lines.filter(
     (l) => ((Number(l.baseQuantity) || Number(l.quantity) || 0) > 0) && l.itemId
@@ -131,47 +141,21 @@ export function PurchaseInvoiceBottomSplit({
           show: summary.developmentFeeAmount !== 0,
         },
         { label: 'ضريبة خصم المنبع', value: -summary.withholdingTaxAmount, dataTour: 'wht-section' },
-        { label: 'إضافات وتكلفة الشحن', value: summary.additionsAndDiscounts, dataTour: 'landed-cost-extras' },
       ]}
       netAmount={summary.netAmount}
       journalEntryId={journalEntryId}
-      financialFooter={
-        <div className="grid grid-cols-2 gap-2" data-tour="landed-cost-extras">
-          <label className="text-[11px] text-slate-600">
-            مصاريف الشحن
-            <input
-              type="number"
-              min={0}
-              step="0.01"
-              readOnly={extrasReadOnly}
-              value={freightAmount || ''}
-              onChange={(event) => onFreightAmountChange?.(Number(event.target.value) || 0)}
-              className="mt-1 w-full rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] px-2 py-1.5 text-sm tabular-nums"
-            />
-          </label>
-          <label className="text-[11px] text-slate-600">
-            خصم المورد
-            <input
-              type="number"
-              min={0}
-              step="0.01"
-              readOnly={extrasReadOnly}
-              value={supplierDiscountAmount || ''}
-              onChange={(event) => onSupplierDiscountAmountChange?.(Number(event.target.value) || 0)}
-              className="mt-1 w-full rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] px-2 py-1.5 text-sm tabular-nums"
-            />
-          </label>
-        </div>
-      }
+      activeTabId={activeTabId}
+      onActiveTabChange={onActiveTabChange}
       tabs={[
         { id: 'stock', label: 'الأثر المخزني', content: stockContent },
         {
           id: 'settlements',
-          label: 'المدفوعات',
+          label: 'موقف الدفعات',
           content: (
             <InvoiceSettlementsHistory
               settlements={settlements}
               cheques={cheques}
+              installments={installmentRows}
               paidAmount={paidAmount}
               remainingAmount={remainingAmount}
               netAmount={summary.netAmount}

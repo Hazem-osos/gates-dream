@@ -6,7 +6,7 @@ import dynamic from 'next/dynamic';
 import { buildInvoicePrintModelFromApi } from '@/lib/print/buildInvoicePrintModel';
 import type { CompanyPrintProfile } from '@/lib/print/types';
 import type { StatusTone } from '@/components/ui/StatusBadge';
-import type { WhatsAppInvoicePayload } from '@/lib/whatsapp-share';
+import { WhatsAppShareButton } from '@/components/share/WhatsAppShareButton';
 
 const InvoicePrintActions = dynamic(
   () =>
@@ -54,7 +54,6 @@ type Props = {
   currentId?: string | null;
   onNavigate?: (id: string) => void;
   onEdit?: () => void;
-  whatsAppShare?: WhatsAppInvoicePayload | null;
 };
 
 export function PurchaseInvoicePageHeader({
@@ -85,7 +84,6 @@ export function PurchaseInvoicePageHeader({
   currentId,
   onNavigate,
   onEdit,
-  whatsAppShare,
 }: Props) {
   const printModel = useMemo(() => {
     if (!printInvoice) return null;
@@ -120,7 +118,12 @@ export function PurchaseInvoicePageHeader({
       invoiceKind="PURCHASE"
       currentId={currentId}
       onNavigate={onNavigate}
-      extraActions={<InvoicePrintActions invoice={printInvoice} company={company} />}
+      extraActions={
+        <>
+          <InvoicePrintActions invoice={printInvoice} company={company} />
+          {currentId ? <WhatsAppShareButton kind="invoice" invoiceId={currentId} /> : null}
+        </>
+      }
       standardActions={{
         hasDocument: Boolean(currentId),
         isPosted: statusTone === 'success',
@@ -136,7 +139,6 @@ export function PurchaseInvoicePageHeader({
         postPending,
         unpostPending,
         voidPending: deletePending,
-        whatsAppShare,
         extraItems: [
           { id: 'collect', label: 'سداد / دفع', onClick: onCollectPayment },
           { id: 'link-advance', label: 'ربط دفعة مقدمة', onClick: onLinkAdvance ?? (() => {}) },

@@ -22,6 +22,7 @@ import { useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
 import { apiClient } from '@/lib/api/client';
 import { useItemCostAsOf } from '@/lib/hooks/useItemCostAsOf';
 import { ItemSelect } from '@/components/form/ItemSelect';
+import { WarehouseSelect } from '@/components/form/WarehouseSelect';
 import { ItemGroupSelect } from '@/components/form/ItemGroupSelect';
 import { QuickCreateItemModal, type QuickCreatedItem } from '@/app/components/form/QuickCreateItemModal';
 import { useDraftAutosave } from '@/lib/hooks/useDraftAutosave';
@@ -786,6 +787,7 @@ function ItemCardPageInner() {
       assemblyComponents: compactAssemblyRows(assemblyRows),
       preferredSuppliers: compactSupplierRows(supplierRows),
       imageUrl: formData.imageUrl || null,
+      defaultWarehouseId: formData.defaultWarehouseId || null,
     };
 
     setSaving(true);
@@ -961,6 +963,14 @@ function ItemCardPageInner() {
           onChange={(e) => patch({ barcode: e.target.value })}
           placeholder="اختياري"
         />
+        <CompactFormField label="المخزن الافتراضي">
+          <WarehouseSelect
+            value={formData.defaultWarehouseId || ''}
+            onChange={(defaultWarehouseId) => patch({ defaultWarehouseId })}
+            emptyLabel="مخزن الفاتورة"
+            disabled={isReadOnly}
+          />
+        </CompactFormField>
         <div>
           <p className={labelCls}>الرصيد الحالي</p>
           <p className="h-9 rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] px-3 text-sm font-semibold leading-9 text-[#094C6B]">

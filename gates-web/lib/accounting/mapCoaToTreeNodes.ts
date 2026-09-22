@@ -18,6 +18,7 @@ export type CoaHierarchyAccount = {
   defaultCostCenterId?: string | null;
   costCenterRequired?: string | null;
   isActive?: boolean;
+  currencyCode?: string | null;
   children?: CoaHierarchyAccount[];
 };
 

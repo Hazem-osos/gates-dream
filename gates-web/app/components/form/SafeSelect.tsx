@@ -1,9 +1,14 @@
 'use client';
 
-import { memo, useMemo, useState } from 'react';
+import { memo, useEffect, useMemo, useState } from 'react';
 import { SearchableCombobox } from '@/app/components/form/SearchableCombobox';
 import { compactControlClass } from '@/components/ui/forms/formTokens';
-import { PICKER_UNLIMITED_VISIBLE, useSafesQuery, type SafeOption } from '@/lib/hooks/useMasterDataQueries';
+import {
+  PICKER_UNLIMITED_VISIBLE,
+  pickDefaultSafeId,
+  useSafesQuery,
+  type SafeOption,
+} from '@/lib/hooks/useMasterDataQueries';
 import { QuickCreateSafeModal } from '@/app/components/form/QuickCreateSafeModal';
 
 function safeLabel(row: {
@@ -46,6 +51,12 @@ function SafeSelectInner({
   const [quickOpen, setQuickOpen] = useState(false);
   const [quickName, setQuickName] = useState('');
   const [pinned, setPinned] = useState<SafeOption | null>(null);
+
+  useEffect(() => {
+    if (allowEmpty || value || disabled) return;
+    const fallback = pickDefaultSafeId(rows);
+    if (fallback) onChange(fallback);
+  }, [allowEmpty, disabled, onChange, rows, value]);
 
   const options = useMemo(() => {
     const merged = pinned && !rows.some((row) => row.id === pinned.id) ? [pinned, ...rows] : rows;

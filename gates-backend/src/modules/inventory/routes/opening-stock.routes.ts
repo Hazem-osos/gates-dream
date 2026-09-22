@@ -61,13 +61,15 @@ router.post(
       });
     } catch (error) {
       logger.error({ error }, 'Error creating opening stock');
+      const message = error instanceof Error ? error.message : '';
       const status =
-        error instanceof Error &&
-        (error.message.includes('not found') ||
-          error.message.includes('غير موجود') ||
-          error.message.includes('do not belong'))
-          ? 400
-          : 500;
+        message.includes('يوجد كشف') || message.includes('already')
+          ? 409
+          : /غير موجود|مخزن|صنف|تاريخ|لا يوجد|مرحل/.test(message) ||
+              message.includes('not found') ||
+              message.includes('do not belong')
+            ? 400
+            : 500;
       return void res.status(status).json({
         status: 'error',
         message:
@@ -210,6 +212,61 @@ router.get(
           error instanceof Error
             ? error.message
             : 'Failed to get opening stock',
+      });
+    }
+  }
+);
+
+/**
+ * PUT /api/v1/inventory/opening-stock/:id
+ * Replace lines on the existing opening-stock document.
+ */
+router.put(
+  '/:id',
+  authorize({ resource: 'invoice', action: 'edit' }),
+  validate({ body: createOpeningStockSchema }),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const companyId = req.companyId || req.tenantId;
+      if (!companyId) {
+        return void res.status(400).json({
+          status: 'error',
+          message: 'Company ID is required',
+        });
+      }
+
+      const openingStock = await openingStockService.updateOpeningStock(
+        companyId,
+        req.params.id,
+        {
+          companyId,
+          branchId: req.body.branchId || req.branchId || undefined,
+          description: req.body.description,
+          serial: req.body.serial,
+          date: req.body.date,
+          lines: req.body.lines,
+        },
+        buildStockGlPostingContext(req, companyId)
+      );
+
+      return void res.json({
+        status: 'success',
+        message: 'Opening stock updated successfully',
+        data: openingStock,
+      });
+    } catch (error) {
+      logger.error({ error }, 'Error updating opening stock');
+      const status =
+        error instanceof Error &&
+        (error.message.includes('not found') ||
+          error.message.includes('غير موجود') ||
+          error.message.includes('مرحل'))
+          ? 400
+          : 500;
+      return void res.status(status).json({
+        status: 'error',
+        message:
+          error instanceof Error ? error.message : 'تعذر تحديث بضاعة أول المدة',
       });
     }
   }
@@ -391,12 +448,14 @@ router.post(
       });
     } catch (error) {
       logger.error({ error }, 'Error restoring opening stock');
+      const message = error instanceof Error ? error.message : '';
       const status =
-        error instanceof Error &&
-        (error.message === 'Opening stock not found' ||
-          error.message.includes('not cancelled'))
-          ? 400
-          : 500;
+        message.includes('نشط بالفعل') || message.includes('already')
+          ? 409
+          : error instanceof Error &&
+              (message === 'Opening stock not found' || message.includes('not cancelled'))
+            ? 400
+            : 500;
       return void res.status(status).json({
         status: 'error',
         message:

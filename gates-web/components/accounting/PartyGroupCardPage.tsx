@@ -94,8 +94,6 @@ export function PartyGroupCardPage({ kind }: { kind: Kind }) {
     {
       onSuccess: () => {
         invalidateQuery(config.queryKey);
-        setSelectedId(null);
-        setFormData(emptyForm());
       },
       onError: (err: ApiError) => setError(err.message || 'حدث خطأ أثناء الحفظ'),
     }

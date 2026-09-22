@@ -50,7 +50,7 @@ import { printOperationalDocument } from '@/lib/print/printOperationalDocument';
 import type { JournalPrintModel } from '@/lib/print/types';
 import { DynamicChunkSkeleton } from '@/components/ui/DynamicChunkSkeleton';
 import { onFieldErrors } from '@/lib/forms/on-field-errors';
-import { pickCurrencyByCode, toBaseAmount } from '@/lib/accounting/fx-base';
+import { impliedJournalLineRate, pickCurrencyByCode, resolveJournalLineCurrencyId, toBaseAmount } from '@/lib/accounting/fx-base';
 import {
   postJournalAfterSave,
   useRepostAfterUnpost,
@@ -74,6 +74,7 @@ type OpeningBalanceMeta = {
   hijriDate?: string | null;
   fiscalYearName?: string | null;
   journalEntryId?: string | null;
+  isCancelled?: boolean;
 };
 
 type OpeningStockValuation = {
@@ -91,6 +92,7 @@ type JournalEntryDetail = {
   description?: string | null;
   voucherNumber?: string | null;
   isPosted?: boolean;
+  isCancelled?: boolean;
   currencyCode?: string;
   version?: number;
   entryType?: string | null;
@@ -100,6 +102,9 @@ type JournalEntryDetail = {
     debit: number | string;
     credit: number | string;
     exchangeRate?: number | string | null;
+    currencyCode?: string | null;
+    debitBase?: number | string | null;
+    creditBase?: number | string | null;
     costCenterId?: string | null;
   }>;
 };
@@ -153,6 +158,7 @@ function OpeningBalancePageInner() {
     () => journalEntryIdFromUrl?.trim() || null
   );
   const [isPosted, setIsPosted] = useState(false);
+  const [isCancelled, setIsCancelled] = useState(false);
   const [loadedVersion, setLoadedVersion] = useState<number | undefined>(undefined);
   const postAfterSaveRef = useRef(false);
   const { markUnpostedForEdit, consumeShouldRepost, resetKeepPosted } = useRepostAfterUnpost();
@@ -259,6 +265,8 @@ function OpeningBalancePageInner() {
   const lockedHijri = openingMeta?.hijriDate || toHijriDate(lockedDate);
 
   const skipUrlHydrateRef = useRef(false);
+  const lastHydratedKeyRef = useRef<string | null>(null);
+  const unpostedHoldoffRef = useRef<{ id: string; until: number } | null>(null);
 
   useEffect(() => {
     const id = journalEntryIdFromUrl?.trim();
@@ -300,10 +308,22 @@ function OpeningBalancePageInner() {
   const loadedJournalEntry = journalEntryResponse?.data;
 
   useEffect(() => {
-    if (!loadedJournalEntry) return;
+    if (!loadedJournalEntry || currencies.length === 0) return;
+    const posted = Boolean(loadedJournalEntry.isPosted);
+    const holdoff = unpostedHoldoffRef.current;
+    if (posted && holdoff && holdoff.id === loadedJournalEntry.id && Date.now() < holdoff.until) {
+      setIsPosted(false);
+      return;
+    }
+    if (!posted && holdoff?.id === loadedJournalEntry.id) {
+      unpostedHoldoffRef.current = null;
+    }
+    const hydrateKey = `${loadedJournalEntry.id}:${loadedJournalEntry.version ?? 0}:${posted ? 1 : 0}:${loadedJournalEntry.isCancelled ? 1 : 0}`;
+    if (lastHydratedKeyRef.current === hydrateKey) return;
+    lastHydratedKeyRef.current = hydrateKey;
     const locked = openingMeta?.openingDate;
     reset({
-      isPosted: loadedJournalEntry.isPosted ?? false,
+      isPosted: posted,
       entryNumber: loadedJournalEntry.voucherNumber || defaultEntryNumber(),
       description: loadedJournalEntry.description || '',
       currency: 'جنية مصري',
@@ -316,14 +336,20 @@ function OpeningBalancePageInner() {
         description: line.description || '',
         debit: Number(line.debit) || 0,
         credit: Number(line.credit) || 0,
-        currencyId: defaultCurrency?.id,
-        exchangeRate: Number(line.exchangeRate) || 1,
+        currencyId: resolveJournalLineCurrencyId(
+          line,
+          defaultCurrency,
+          currencies,
+          companyBaseCurrency
+        ),
+        exchangeRate: impliedJournalLineRate(line),
         costCenterId: line.costCenterId || '',
       }))
     );
-    setIsPosted(loadedJournalEntry.isPosted ?? false);
+    setIsPosted(posted);
+    setIsCancelled(loadedJournalEntry.isCancelled ?? false);
     setLoadedVersion(loadedJournalEntry.version);
-  }, [loadedJournalEntry, reset, defaultCurrency?.id, openingMeta?.openingDate, openingMeta?.hijriDate]);
+  }, [loadedJournalEntry, reset, defaultCurrency?.id, currencies, companyBaseCurrency, openingMeta?.openingDate, openingMeta?.hijriDate]);
 
   const totals = useMemo(() => {
     const debit = lines.reduce((s, l) => s + toBaseAmount(l.debit, l.exchangeRate), 0);
@@ -411,14 +437,20 @@ function OpeningBalancePageInner() {
         const id = savedJournalEntryId;
         if (consumeShouldRepost() && id) {
           void postJournalAfterSave(id)
-            .then(() => {
-              setIsPosted(true);
+            .then((result) => {
               invalidateQuery(['journal-entries']);
               invalidateQuery(['opening-balance-meta']);
               invalidateQuery(['journal-entry', id]);
               invalidateTreasuryFundBalances(invalidateQuery);
-              lockToView();
-              setSuccess('تم حفظ التعديلات وترحيل القيد');
+              if (result === 'posted') {
+                unpostedHoldoffRef.current = null;
+                setIsPosted(true);
+                lockToView();
+                setSuccess('تم حفظ التعديلات وترحيل القيد');
+                return;
+              }
+              setIsPosted(false);
+              setSuccess('تم حفظ تعديلات الرصيد الافتتاحي');
             })
             .catch((err: ApiError) =>
               setError(err.message || 'تم الحفظ لكن تعذر ترحيل القيد')
@@ -456,11 +488,17 @@ function OpeningBalancePageInner() {
     'POST',
     {
       onSuccess: () => {
+        const id = savedJournalEntryId;
         setIsPosted(false);
+        if (id) {
+          unpostedHoldoffRef.current = { id, until: Date.now() + 15_000 };
+          lastHydratedKeyRef.current = `${id}:${loadedVersion ?? 0}:0`;
+        }
         markUnpostedForEdit();
         setSuccess('تم فك ترحيل القيد');
         unlockForEdit();
         invalidateQuery(['journal-entries']);
+        invalidateQuery(['journal-entry', savedJournalEntryId]);
         invalidateTreasuryFundBalances(invalidateQuery);
       },
       onError: (err: ApiError) => setError(err.message || 'حدث خطأ أثناء فك الترحيل'),
@@ -486,6 +524,7 @@ function OpeningBalancePageInner() {
         credit: line.credit || 0,
         lineOrder: index + 1,
         exchangeRate: line.exchangeRate || 1,
+        currencyCode: currencies.find((c) => c.id === line.currencyId)?.code,
         debitBase: toBaseAmount(line.debit, line.exchangeRate),
         creditBase: toBaseAmount(line.credit, line.exchangeRate),
         costCenterId: line.costCenterId || undefined,
@@ -545,6 +584,10 @@ function OpeningBalancePageInner() {
 
   const handlePost = () => {
     setError('');
+    if (isCancelled) {
+      setError('القيد ملغي. استرجعه من قائمة (...) قبل الترحيل.');
+      return;
+    }
     if (Math.abs(totals.diff) > 0.01) {
       const message = 'يجب أن يكون القيد متزناً للترحيل';
       setError(message);
@@ -564,7 +607,7 @@ function OpeningBalancePageInner() {
 
   const startNewEntry = () => {
     if (existingOpeningId) {
-      setError('يوجد قيد افتتاحي بالفعل. احذفه من السابق أولاً حتى يمكن إنشاء قيد جديد.');
+      setError('يوجد قيد افتتاحي بالفعل. عدّل نفس القيد أو استرجعه إن كان ملغياً.');
       return;
     }
     const dateIso = openingMeta?.openingDate || todayIso();
@@ -579,11 +622,13 @@ function OpeningBalancePageInner() {
     setLines([]);
     resetFxToSetting();
     setIsPosted(false);
+    setIsCancelled(false);
     resetKeepPosted();
     setLoadedVersion(undefined);
     setError('');
     setSuccess('');
     skipUrlHydrateRef.current = true;
+    lastHydratedKeyRef.current = null;
     openEntry(null);
     setMode('create');
     clearDraft();
@@ -591,6 +636,7 @@ function OpeningBalancePageInner() {
 
   const handleDuplicate = () => {
     const dateIso = openingMeta?.openingDate || todayIso();
+    lastHydratedKeyRef.current = null;
     setSavedJournalEntryId(null);
     resetKeepPosted();
     setIsPosted(false);
@@ -632,7 +678,7 @@ function OpeningBalancePageInner() {
         debit: Number(data.totalValuation) || 0,
         credit: 0,
         currencyId: defaultCurrency?.id,
-        exchangeRate: 1,
+        exchangeRate: Number(defaultCurrency?.exchangeRate) || 1,
         costCenterId: '',
       };
 
@@ -647,7 +693,7 @@ function OpeningBalancePageInner() {
       }
       setLines(nextLines);
       setSuccess(
-        `تم تحديث قيمة بضاعة أول المدة بنجاح: ${Number(data.totalValuation).toLocaleString('ar-EG')} ج.م (${data.itemsCount} صنف)`
+        `تم تحديث قيمة بضاعة أول المدة بنجاح: ${Number(data.totalValuation).toLocaleString('ar-EG')} ${companyBaseCurrency} (${data.itemsCount} صنف)`
       );
     } catch (err) {
       const apiErr = err as ApiError;
@@ -657,8 +703,41 @@ function OpeningBalancePageInner() {
     }
   };
 
+  const handleVoid = async () => {
+    if (!savedJournalEntryId) return;
+    if (isPosted) {
+      setError('فك الترحيل أولاً من قائمة (...) ثم ألغِ القيد.');
+      return;
+    }
+    try {
+      await apiClient.post(`/accounting/journal-entries/${savedJournalEntryId}/cancel`, {});
+      setIsCancelled(true);
+      unlockForEdit();
+      invalidateQuery(['journal-entries']);
+      invalidateQuery(['opening-balance-meta']);
+      invalidateQuery(['journal-entry', savedJournalEntryId]);
+      setSuccess('تم إلغاء نفس القيد. الأطراف موجودة وتقدر تعدّلها — «جديد» مقفول.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'تعذر إلغاء القيد');
+    }
+  };
+
+  const handleRestore = async () => {
+    if (!savedJournalEntryId) return;
+    try {
+      await apiClient.post(`/accounting/journal-entries/${savedJournalEntryId}/restore`, {});
+      setIsCancelled(false);
+      invalidateQuery(['journal-entries']);
+      invalidateQuery(['opening-balance-meta']);
+      invalidateQuery(['journal-entry', savedJournalEntryId]);
+      setSuccess('تم استعادة نفس القيد الافتتاحي');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'تعذر استعادة القيد');
+    }
+  };
+
   const onCancel = () => {
-    startNewEntry();
+    void handleVoid();
   };
 
   const financialBusy =
@@ -721,6 +800,8 @@ function OpeningBalancePageInner() {
         standardActions={{
           hasDocument: Boolean(savedJournalEntryId),
           isPosted,
+          isCancelled,
+          allowEditWhenCancelled: true,
           onEdit: () => {
             if (isPosted) {
               setError('فك الترحيل أولاً من قائمة (...) حتى يمكن التعديل');
@@ -729,6 +810,12 @@ function OpeningBalancePageInner() {
             unlockForEdit();
           },
           onPost: handlePost,
+          onVoid: () => void handleVoid(),
+          onRestore: () => void handleRestore(),
+          voidLabel: 'إلغاء القيد',
+          restoreLabel: 'استعادة القيد',
+          restoreConfirmMessage:
+            'سيتم استعادة نفس القيد الافتتاحي. لو فيه قيد افتتاحي تاني شغال لازم تلغيه الأول.',
           onUnapprove: () => {
             if (!savedJournalEntryId) return;
             void apiClient
@@ -760,8 +847,8 @@ function OpeningBalancePageInner() {
           postPending: postJournalMutation.isPending,
           onNew: startNewEntry,
           newLabel: 'جديد',
-          newDisabled: Boolean(existingOpeningId),
-          newHint: 'يوجد قيد افتتاحي بالفعل. احذفه من السابق أولاً حتى يمكن إنشاء قيد جديد.',
+          newDisabled: Boolean(existingOpeningId || savedJournalEntryId),
+          newHint: 'يوجد قيد افتتاحي بالفعل. عدّل نفس القيد أو استرجعه إن كان ملغياً.',
         }}
         openingDate={lockedDate}
         hijriDate={lockedHijri}
@@ -774,6 +861,7 @@ function OpeningBalancePageInner() {
         currency={currencyW || 'جنية مصري'}
         onCurrencyChange={(v) => setValue('currency', v, { shouldDirty: true })}
         readOnly={isReadOnly || isPosted}
+        isCancelled={isCancelled}
       />
 
       <DocumentBrowseDrawer open={showList} onClose={() => setShowList(false)} title="القيود الافتتاحية السابقة">
@@ -789,6 +877,11 @@ function OpeningBalancePageInner() {
       </DocumentBrowseDrawer>
 
       <DocumentReadOnlyBanner />
+      {isCancelled ? (
+        <div className="mb-3 rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-800">
+          القيد ملغي على نفس الرقم. الأطراف موجودة وتقدر تعدّلها. «جديد» مقفول — استرجع هذا القيد من قائمة (...). لو فيه قيد افتتاحي تاني شغال، ألغِه الأول.
+        </div>
+      ) : null}
 
       <DocumentFormLock>
         <div className="mt-3">

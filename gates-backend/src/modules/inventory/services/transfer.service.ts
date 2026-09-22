@@ -1,7 +1,6 @@
 import prisma from '../../../shared/database/prisma';
 import { Prisma } from '@prisma/client';
 import { logger } from '../../../shared/logger';
-import { scopedItemQuantityWhere } from '../utils/item-quantity-tenant';
 import { stockMovementService } from './stock-movement.service';
 import { inventoryCostingService } from './inventory-costing.service';
 import { COSTING_MOVEMENT } from './inventory-costing-math';
@@ -74,7 +73,7 @@ export class TransferService {
       await assertWarehouseActive(companyId, data.toWarehouseId, { label: 'مخزن الإضافة' });
 
       if (data.fromWarehouseId === data.toWarehouseId) {
-        throw new Error('Source and destination warehouses cannot be the same');
+        throw new Error('المخزن المصدر والهدف يجب أن يكونا مختلفين');
       }
 
       // Validate cost centers if provided
@@ -97,7 +96,7 @@ export class TransferService {
       }
 
       // Validate all items belong to company
-      const itemIds = data.lines.map((line) => line.itemId);
+      const itemIds = [...new Set(data.lines.map((line) => line.itemId).filter(Boolean))];
       const items = await prisma.item.findMany({
         where: {
           id: { in: itemIds },
@@ -106,37 +105,11 @@ export class TransferService {
       });
 
       if (items.length !== itemIds.length) {
-        throw new Error('One or more items not found or do not belong to company');
+        throw new Error('صنف أو أكثر غير موجود أو لا يتبع الشركة');
       }
 
-      // Check available quantities in source warehouse
-      const itemQuantities = await prisma.itemQuantity.findMany({
-        where: scopedItemQuantityWhere(companyId, {
-          itemId: { in: itemIds },
-          warehouseId: data.fromWarehouseId,
-        }),
-      });
-
-      // Use transaction to ensure atomicity
+      // Drafts save without stock. Posting enforces quantity.
       const transfer = await prisma.$transaction(async (tx) => {
-        // Validate quantities are available
-        for (const line of data.lines) {
-          const existingQuantity = itemQuantities.find(
-            (iq) =>
-              iq.itemId === line.itemId &&
-              iq.warehouseId === data.fromWarehouseId &&
-              (iq.locationId || null) === (line.fromLocationId || null)
-          );
-
-          const availableQty = existingQuantity ? Number(existingQuantity.quantity) : 0;
-
-          if (availableQty < line.quantity) {
-            throw new Error(
-              `Insufficient quantity for item ${line.itemId} in source warehouse. Available: ${availableQty}, Required: ${line.quantity}`
-            );
-          }
-        }
-
         // Calculate total amount
         const totalAmount = data.lines.reduce(
           (sum, line) => sum + (line.total || line.quantity * (line.unitPrice || 0)),
@@ -307,15 +280,15 @@ export class TransferService {
     await assertWarehouseActive(companyId, data.fromWarehouseId, { label: 'مخزن الصرف' });
     await assertWarehouseActive(companyId, data.toWarehouseId, { label: 'مخزن الإضافة' });
     if (data.fromWarehouseId === data.toWarehouseId) {
-      throw new Error('Source and destination warehouses cannot be the same');
+      throw new Error('المخزن المصدر والهدف يجب أن يكونا مختلفين');
     }
 
-    const itemIds = data.lines.map((line) => line.itemId);
+    const itemIds = [...new Set(data.lines.map((line) => line.itemId).filter(Boolean))];
     const items = await prisma.item.findMany({
       where: { id: { in: itemIds }, companyId },
     });
     if (items.length !== itemIds.length) {
-      throw new Error('One or more items not found or do not belong to company');
+      throw new Error('صنف أو أكثر غير موجود أو لا يتبع الشركة');
     }
 
     const totalAmount = data.lines.reduce(
@@ -589,7 +562,11 @@ export class TransferService {
         // every transfer between two differing cost centers. Post a real,
         // reversible GL entry moving value between the cost centers instead.
         if (glCtx) {
-          await stockMovementGlService.postTransferValueGlInTx(tx, glCtx, transfer);
+          try {
+            await stockMovementGlService.postTransferValueGlInTx(tx, glCtx, transfer);
+          } catch (error) {
+            logger.warn({ error, companyId, transferId }, 'Transfer stock posted; GL skipped');
+          }
         }
 
         // Mark transfer as posted

@@ -20,6 +20,7 @@ import { resolvePriceListSalePrice } from '@/lib/inventory/pricing-engine';
 import { formatMoneyAr } from '@/lib/formatMoney';
 import type { ApiError } from '@/lib/api/types';
 import { PosTenderModal, type PosTenderMethod } from '@/components/pos/PosTenderModal';
+import { WarehouseSelect } from '@/app/components/form/WarehouseSelect';
 
 type PosLookupRow = BarcodeItemHit & {
   defaultUnitId?: string;
@@ -461,21 +462,19 @@ export default function PointOfSalePage() {
             compact
           />
           <span className="text-xs text-slate-600">{cashier}</span>
-          <select
-            className={`${compactControlClass} h-8 w-44`}
-            value={warehouseId}
-            onChange={(e) => {
-              const next = warehouses.find((w) => w.id === e.target.value);
-              setWarehouseId(e.target.value);
-              handleInputChange('pointOfSale', next?.arabicName ?? '');
-            }}
-          >
-            {warehouses.map((w) => (
-              <option key={w.id} value={w.id}>
-                {w.arabicName || w.code}
-              </option>
-            ))}
-          </select>
+          <div className="w-52">
+            <WarehouseSelect
+              value={warehouseId}
+              onChange={(id) => {
+                const next = warehouses.find((w) => w.id === id);
+                setWarehouseId(id);
+                handleInputChange('pointOfSale', next?.arabicName ?? '');
+              }}
+              allowEmpty={false}
+              emptyLabel="اختر المخزن"
+              className={`${compactControlClass} h-8`}
+            />
+          </div>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold text-slate-500">
           <span className="rounded-md bg-[#0E79AA0D] px-2 py-1 text-[#0E79AA]">F2: بحث</span>

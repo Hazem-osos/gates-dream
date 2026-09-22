@@ -451,6 +451,9 @@ export class WarehouseService {
               englishName: true,
             },
           },
+          _count: {
+            select: { childWarehouses: { where: { isActive: true } } },
+          },
         },
       });
 
@@ -509,7 +512,17 @@ export class WarehouseService {
         where.childWarehouses = { none: { isActive: true } };
       }
       if (options.headerOnly) {
-        where.warehouseKind = 'HEADER';
+        // HEADER folders, plus legacy rows that already have children.
+        const headerFilter = {
+          OR: [
+            { warehouseKind: 'HEADER' },
+            {
+              warehouseKind: { not: 'POSTING' },
+              childWarehouses: { some: { isActive: true } },
+            },
+          ],
+        };
+        where.AND = [...(where.AND ?? []), headerFilter];
       }
 
       const [warehouses, total] = await Promise.all([

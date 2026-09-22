@@ -1,6 +1,5 @@
 // @ts-nocheck — strict cleanup pending; tracked for incremental typing.
 import prisma from '../../../shared/database/prisma';
-import { scopedItemQuantityWhere } from '../utils/item-quantity-tenant';
 import { logger } from '../../../shared/logger';
 import { stockMovementService } from './stock-movement.service';
 import { inventoryCostingService } from './inventory-costing.service';
@@ -91,13 +90,16 @@ export class StocktakingService {
         throw new Error('One or more items not found or do not belong to company');
       }
 
-      // Get current book quantities from ItemQuantity
-      const itemQuantities = await prisma.itemQuantity.findMany({
-        where: scopedItemQuantityWhere(companyId, {
+      const warehouseBalances = await prisma.itemWarehouseBalance.findMany({
+        where: {
+          companyId,
           itemId: { in: itemIds },
           warehouseId: data.warehouseId,
-        }),
+        },
       });
+      const liveBookByItem = new Map(
+        warehouseBalances.map((row) => [row.itemId, Number(row.quantityOnHand) || 0])
+      );
 
       // Use transaction to ensure atomicity
       const stocktaking = await prisma.$transaction(async (tx) => {
@@ -107,19 +109,10 @@ export class StocktakingService {
 
         // Process lines and calculate differences
         const processedLines = data.lines.map((line) => {
-          const existingQuantity = itemQuantities.find(
-            (iq) =>
-              iq.itemId === line.itemId &&
-              iq.warehouseId === line.warehouseId &&
-              (iq.locationId || null) === (line.locationId || null)
-          );
-
-          const bookQty = existingQuantity
-            ? Number(existingQuantity.quantity)
-            : 0;
+          const bookQty = line.bookQuantity || liveBookByItem.get(line.itemId) || 0;
 
           const differences = this.calculateDifferences(
-            line.bookQuantity || bookQty,
+            bookQty,
             line.actualQuantity,
             line.unitPrice
           );

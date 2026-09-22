@@ -92,6 +92,7 @@ import { useAccountingSettingsQuery } from '@/lib/hooks/useAccountingSettings';
 import {
   pickCurrencyByCode,
   rateForCurrency,
+  sameCurrencyCode,
   treasuryBalanceInCurrency,
   withHeaderCurrency,
 } from '@/lib/accounting/fx-base';
@@ -578,7 +579,11 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
         invalidateQuery(['journal-entries']);
         invalidateTreasuryFundBalances(invalidateQuery);
         dispatchAcademyTrigger('API_SUCCESS', variant.academyTrigger);
-        resetForm();
+        if (row?.id) {
+          lastHydratedIdRef.current = null;
+          setSavedVoucherId(row.id);
+          if (typeof row.version === 'number') setDocumentVersion(row.version);
+        }
         setSuccess(message);
       },
       onError: (err: ApiError) => {
@@ -616,16 +621,16 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
               invalidateQuery(['journal-entry']);
               invalidateQuery(['journal-entries']);
               invalidateTreasuryFundBalances(invalidateQuery);
-              resetForm();
+              lastHydratedIdRef.current = null;
               setSuccess(`تم حفظ تعديلات ${variant.title} وترحيل القيد`);
             })
             .catch((err: ApiError) => {
-              resetForm();
+              lastHydratedIdRef.current = null;
               setError(err.message || 'تم الحفظ لكن تعذر ترحيل القيد');
             });
           return;
         }
-        resetForm();
+        lastHydratedIdRef.current = null;
         setSuccess(
           row?.isPosted
             ? `تم حفظ تعديلات ${variant.title} وتحديث القيد`
@@ -751,16 +756,25 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
   }, [dateW, showHijri, setValue]);
 
   const skipHeaderFxSyncRef = useRef(false);
+  const prevHeaderCurrencyCodeRef = useRef('');
   const [headerRateOverride, setHeaderRateOverride] = useState<number | null>(null);
   const applyHeaderCurrencyToRows = useCallback(
     (code: string, catalogRate?: number | string | null) => {
       if (!code) return;
+      const prevCode = prevHeaderCurrencyCodeRef.current;
+      const follow = (line: { currencyCode?: string }) =>
+        !line.currencyCode || sameCurrencyCode(line.currencyCode, prevCode) || sameCurrencyCode(line.currencyCode, code);
       setVoucherLines((prev) =>
-        prev.map((line) => withHeaderCurrency(line, code, catalogRate, companyBaseCurrency))
+        prev.map((line) =>
+          follow(line) ? withHeaderCurrency(line, code, catalogRate, companyBaseCurrency) : line
+        )
       );
       setCreditLines((prev) =>
-        prev.map((line) => withHeaderCurrency(line, code, catalogRate, companyBaseCurrency))
+        prev.map((line) =>
+          follow(line) ? withHeaderCurrency(line, code, catalogRate, companyBaseCurrency) : line
+        )
       );
+      prevHeaderCurrencyCodeRef.current = code;
     },
     [companyBaseCurrency]
   );
@@ -770,6 +784,7 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
     if (!header?.code) return;
     if (skipHeaderFxSyncRef.current) {
       skipHeaderFxSyncRef.current = false;
+      prevHeaderCurrencyCodeRef.current = header.code;
       return;
     }
     setHeaderRateOverride(null);
@@ -1151,7 +1166,7 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
     }
     if (allocations.length > 0) {
       const allocated = allocations.reduce((s, a) => s + a.allocatedAmount, 0);
-      const target = isModernVoucher ? mainTotal : totalAmount;
+      const target = totalAmount;
       if (Math.abs(allocated - target) > 0.009) {
         return 'إجمالي التوزيع على الفواتير يجب أن يساوي مبلغ السند تماماً';
       }
@@ -1189,7 +1204,7 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
         supplierId: settlementSupplierId || undefined,
         customerId: settlementCustomerId || undefined,
         offsetAccountId: voucherLines[0]?.accountId || undefined,
-        exchangeRate: voucherLines[0]?.exchangeRate,
+        exchangeRate: headerFxRate,
         isRecurring: values.isCyclic,
         departmentId: values.departmentId || undefined,
         sourceOrderId: values.sourceOrderId || undefined,
@@ -1209,7 +1224,7 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
       if (savedVoucherId) {
         updateMutation.mutate({
           ...payload,
-          ...(documentVersion > 0 ? { expectedVersion: documentVersion } : {}),
+          expectedVersion: documentVersion,
         });
         return;
       }

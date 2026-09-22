@@ -26,6 +26,7 @@ import { useApiQuery, useApiMutation, useInvalidateQuery } from '@/lib/hooks/use
 import { apiClient } from '@/lib/api/client';
 import type { ApiError } from '@/lib/api/types';
 import { cn } from '@/lib/utils';
+import { WarehouseSelect } from '@/app/components/form/WarehouseSelect';
 
 interface BomLine {
   id: string;
@@ -58,13 +59,6 @@ interface ProductionOrder {
   unitCost: string | number;
   materialsIssueJournalEntryId: string | null;
   completionJournalEntryId: string | null;
-}
-
-interface Warehouse {
-  id: string;
-  arabicName?: string;
-  name?: string;
-  code?: string;
 }
 
 const POSTED_STATUSES = ['IN_PROGRESS', 'COMPLETED'];
@@ -130,16 +124,8 @@ export default function ManufacturingOperationPage() {
   const [busy, setBusy] = useState(false);
 
   const { data: bomsResponse } = useApiQuery<Bom[]>(['manufacturing-boms'], '/manufacturing/boms');
-  const { data: warehousesResponse } = useApiQuery<Warehouse[] | { data: Warehouse[] }>(
-    ['warehouses'],
-    '/inventory/warehouses',
-    { limit: 200 }
-  );
 
   const boms = bomsResponse?.data ?? [];
-  const warehouses = Array.isArray(warehousesResponse?.data)
-    ? (warehousesResponse?.data as Warehouse[])
-    : [];
 
   const { data: bomDetailResponse } = useApiQuery<Bom>(
     ['manufacturing-bom', model],
@@ -389,19 +375,13 @@ export default function ManufacturingOperationPage() {
           </select>
         </CompactFormField>
         <CompactFormField label="من مخزن" required>
-          <select
+          <WarehouseSelect
             value={fromWarehouse}
-            onChange={(e) => setFromWarehouse(e.target.value)}
+            onChange={setFromWarehouse}
             disabled={!!order}
             className={compactControlClass}
-          >
-            <option value="">اختر المخزن</option>
-            {warehouses.map((w) => (
-              <option key={w.id} value={w.id}>
-                {w.arabicName ?? w.name ?? w.code}
-              </option>
-            ))}
-          </select>
+            emptyLabel="اختر المخزن"
+          />
         </CompactFormField>
         <CompactFormField
           label="الكمية المخططة"

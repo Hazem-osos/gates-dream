@@ -42,11 +42,9 @@ import {
 import { computeLineSubtotalAfterDiscount } from '@/lib/invoices/computeInvoiceFinancialSummary';
 import { VAT_LABEL_AR, type DiscountType } from '@/lib/invoices/discount-type';
 import { InvoiceLineDiscountInput } from '@/components/inventory/InvoiceLineDiscountInput';
+import { TableNumberInput } from '@/components/grid/TableNumberInput';
 import { LandedCostInspector } from '@/components/inventory/purchase-invoice/LandedCostInspector';
-import {
-  buildLandedCostBreakdown,
-  type LandedCostExtras,
-} from '@/lib/invoices/landed-cost-breakdown';
+import { buildLandedCostBreakdown } from '@/lib/invoices/landed-cost-breakdown';
 import { formatInvoiceMoney } from '@/lib/invoices/computeInvoiceFinancialSummary';
 import {
   handleLineGridKeyDown,
@@ -131,7 +129,6 @@ type Props = {
   readOnly?: boolean;
   lockUnitPrice?: boolean;
   hideAddLine?: boolean;
-  landedCostExtras?: LandedCostExtras;
   allLinesForLandedCost?: PurchaseInvoiceLine[];
   headerDescription?: string;
 };
@@ -158,7 +155,6 @@ type PurchaseLineRowProps = {
   applyPickedItem: (index: number, picked: Item | undefined) => void;
   pricingCalculationBasis?: PricingCalculationBasis | string;
   lockUnitPrice?: boolean;
-  landedCostExtras?: LandedCostExtras;
   allLines?: PurchaseInvoiceLine[];
 };
 
@@ -180,7 +176,6 @@ const PurchaseInvoiceLineRow = memo(function PurchaseInvoiceLineRow({
   applyPickedItem,
   pricingCalculationBasis = 'SELECTED_UNIT_QTY',
   lockUnitPrice = false,
-  landedCostExtras,
   allLines,
 }: PurchaseLineRowProps) {
   const handlers = {
@@ -287,16 +282,10 @@ const PurchaseInvoiceLineRow = memo(function PurchaseInvoiceLineRow({
           case 'quantity':
             return (
               <td key={col.id} className={`py-2 px-2 border-x border-[#D6EAF3] ${ERP_PURCHASE_COLUMN_WIDTH.quantity ?? ''}`}>
-                <input
-                  type="text"
-                  inputMode="decimal"
+                <TableNumberInput
                   className={`${lineInputCls} text-sm text-center`}
                   value={line.quantity}
-                  onChange={(e) =>
-                    onPatch(index, {
-                      quantity: Number(e.target.value) || 0,
-                    })
-                  }
+                  onValueCommit={(n) => onPatch(index, { quantity: n })}
                   {...lineGridDataAttrs(PURCHASE_GRID_ID, index, 'quantity')}
                   onKeyDown={(e) => handleLineGridKeyDown(e, handlers)}
                 />
@@ -305,18 +294,12 @@ const PurchaseInvoiceLineRow = memo(function PurchaseInvoiceLineRow({
           case 'unitPrice':
             return (
               <td key={col.id} className={`py-2 px-2 border-x border-[#D6EAF3] ${ERP_PURCHASE_COLUMN_WIDTH.unitPrice ?? ''}`}>
-                <input
-                  type="text"
-                  inputMode="decimal"
+                <TableNumberInput
                   className={`${lineInputCls} text-sm text-center ${lockUnitPrice ? 'bg-slate-50 text-slate-500' : ''}`}
                   value={line.unitPrice}
                   disabled={lockUnitPrice}
                   title={lockUnitPrice ? 'السعر مثبت على سعر فاتورة البيع الأصلية' : undefined}
-                  onChange={(e) =>
-                    onPatch(index, {
-                      unitPrice: Number(e.target.value) || 0,
-                    })
-                  }
+                  onValueCommit={(n) => onPatch(index, { unitPrice: n })}
                   {...lineGridDataAttrs(PURCHASE_GRID_ID, index, 'unitPrice')}
                   onKeyDown={(e) => handleLineGridKeyDown(e, handlers)}
                 />
@@ -324,7 +307,7 @@ const PurchaseInvoiceLineRow = memo(function PurchaseInvoiceLineRow({
             );
           case 'landedCost': {
             const item = itemsForBaseUnit.find((row) => row.id === line.itemId);
-            const breakdown = buildLandedCostBreakdown(line, allLines ?? [line], landedCostExtras, {
+            const breakdown = buildLandedCostBreakdown(line, allLines ?? [line], {
               pricingCalculationBasis,
               previousAverageCost: item?.averageCost != null ? Number(item.averageCost) : undefined,
               onHandQuantity: item?.onHandQuantity != null ? Number(item.onHandQuantity) : undefined,
@@ -428,15 +411,11 @@ const PurchaseInvoiceLineRow = memo(function PurchaseInvoiceLineRow({
                 className={`py-2 px-2 border-x border-[#D6EAF3] ${ERP_PURCHASE_COLUMN_WIDTH.baseQuantity ?? ''}`}
               >
                 <div className="flex items-center gap-1">
-                  <input
-                    type="text"
-                    inputMode="decimal"
+                  <TableNumberInput
                     disabled={fixed}
                     className={`${lineInputCls} text-sm text-center ${fixed ? 'bg-slate-50 text-slate-600' : ''}`}
-                    value={line.baseQuantity ?? ''}
-                    onChange={(e) =>
-                      onPatch(index, { baseQuantity: Number(e.target.value) || 0 })
-                    }
+                    value={line.baseQuantity}
+                    onValueCommit={(n) => onPatch(index, { baseQuantity: n })}
                     {...lineGridDataAttrs(PURCHASE_GRID_ID, index, 'baseQuantity')}
                     onKeyDown={(e) => handleLineGridKeyDown(e, handlers)}
                   />
@@ -470,14 +449,12 @@ const PurchaseInvoiceLineRow = memo(function PurchaseInvoiceLineRow({
                 title={VAT_LABEL_AR}
                 className={`py-2 px-2 border-x border-[#D6EAF3] ${ERP_PURCHASE_COLUMN_WIDTH.taxRate ?? ''}`}
               >
-                <input
-                  type="text"
-                  inputMode="decimal"
+                <TableNumberInput
                   title={VAT_LABEL_AR}
                   aria-label={VAT_LABEL_AR}
                   className={`${lineInputCls} text-sm text-center`}
                   value={line.tax ?? 0}
-                  onChange={(e) => onPatch(index, { tax: Number(e.target.value) || 0 })}
+                  onValueCommit={(n) => onPatch(index, { tax: n })}
                   {...lineGridDataAttrs(PURCHASE_GRID_ID, index, 'taxRate')}
                   onKeyDown={(e) => handleLineGridKeyDown(e, handlers)}
                 />
@@ -694,7 +671,6 @@ export function ProgressivePurchaseInvoiceLineGrid({
   readOnly = false,
   lockUnitPrice = false,
   hideAddLine = false,
-  landedCostExtras,
   headerDescription = '',
 }: Props) {
   const gridContainerRef = useRef<HTMLDivElement>(null);
@@ -969,7 +945,6 @@ export function ProgressivePurchaseInvoiceLineGrid({
                       applyPickedItem={applyPickedItem}
                       pricingCalculationBasis={pricingCalculationBasis}
                       lockUnitPrice={lockUnitPrice}
-                      landedCostExtras={landedCostExtras}
                       allLines={lines}
                     />
                   );

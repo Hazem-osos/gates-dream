@@ -11,23 +11,7 @@ export function LandedCostInspector({ breakdown }: { breakdown: LandedCostBreakd
       value: `${formatInvoiceMoney(breakdown.baseUnitPrice)} ج.م`,
     },
     {
-      label: '+ نصيب الصنف من مصاريف الشحن',
-      value: `+ ${formatInvoiceMoney(breakdown.freightShare)} ج.م`,
-      tone: 'plus' as const,
-      hint:
-        breakdown.invoiceMerchandiseValue > 0
-          ? `بنسبة ${breakdown.freightPercentOfInvoice.toLocaleString('ar-EG', {
-              maximumFractionDigits: 1,
-            })}٪ من إجمالي الفاتورة`
-          : undefined,
-    },
-    {
-      label: '- نصيب الصنف من خصم المورد',
-      value: `- ${formatInvoiceMoney(breakdown.supplierDiscountShare)} ج.م`,
-      tone: 'minus' as const,
-    },
-    {
-      label: '= التكلفة الفعلية للوحدة',
+      label: '= تكلفة الوحدة',
       value: `${formatInvoiceMoney(breakdown.landedUnitCost)} ج.م`,
       tone: 'total' as const,
     },
@@ -44,7 +28,7 @@ export function LandedCostInspector({ breakdown }: { breakdown: LandedCostBreakd
 
   return (
     <CalculationInspector
-      title="تفاصيل التكلفة الفعلية"
+      title="تفاصيل التكلفة"
       triggerLabel="تفاصيل الاحتساب"
       rows={rows}
       footer={<p className="mt-2 border-t border-[#E6F0F7] pt-2 text-[11px] leading-5 text-slate-600">{stockImpact}</p>}

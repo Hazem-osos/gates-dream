@@ -110,8 +110,8 @@ export function LinkAdvancePaymentModal({
 
   const title = isReceipt ? 'ربط دفعة مقدمة — تحصيل' : 'ربط دفعة مقدمة — سداد';
   const emptyLabel = isReceipt
-    ? 'لا توجد عمليات تحصيل غير موزّعة على هذا العميل'
-    : 'لا توجد عمليات سداد غير موزّعة على هذا المورد';
+    ? 'لا توجد سندات تحصيل على هذا العميل غير مربوطة بفاتورة'
+    : 'لا توجد سندات سداد على هذا المورد غير مربوطة بفاتورة';
 
   const toggle = (row: AdvanceVoucherRow) => {
     setSelected((prev) => {
@@ -166,7 +166,7 @@ export function LinkAdvancePaymentModal({
           <p className="mt-1 text-sm text-slate-600">
             المتبقي على الفاتورة:{' '}
             <strong>{money(invoiceRemaining)} ج.م</strong>
-            {' — '}اختَر عملية {isReceipt ? 'تحصيل' : 'سداد'} على نفس الطرف.
+            {' — '}السندات التالية على نفس {isReceipt ? 'العميل' : 'المورد'} وغير مربوطة بفاتورة.
           </p>
         </div>
 

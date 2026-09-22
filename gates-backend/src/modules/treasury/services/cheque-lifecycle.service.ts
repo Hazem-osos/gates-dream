@@ -48,7 +48,7 @@ export interface CreateOutwardChequeInput {
   amount: number;
   currencyCode: string;
   supplierId: string;
-  bankAccountId: string;
+  bankAccountId?: string;
   description?: string;
 }
 

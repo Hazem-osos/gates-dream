@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useForm, type Resolver, type SubmitHandler, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -32,14 +32,10 @@ import {
 import type { ApiError } from '@/lib/api/types';
 import { onFieldErrors } from '@/lib/forms/on-field-errors';
 import { StockMovementBottomSplit } from '@/components/inventory/stock/StockMovementBottomSplit';
+import { TableNumberInput } from '@/components/grid/TableNumberInput';
+import { WarehouseSelect } from '@/components/form/WarehouseSelect';
+import { apiClient } from '@/lib/api/client';
 
-
-interface Warehouse {
-  id: string;
-  code: string;
-  arabicName: string;
-  englishName?: string;
-}
 
 interface Item {
   id: string;
@@ -109,20 +105,14 @@ export default function AdjustmentPage() {
   });
 
   const isPosted = watch('isPosted');
+  const warehouseId = watch('warehouseId');
+  const hideExistingQty = watch('hideExistingQty');
 
   const [adjustmentLines, setAdjustmentLines] = useState<AdjustmentLine[]>([]);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [showList, setShowList] = useState(false);
   const [selectedAdjustmentId, setSelectedAdjustmentId] = useState<string | null>(null);
-
-  // Fetch warehouses
-  const { data: warehousesResponse, isLoading: warehousesLoading } = useApiQuery<Warehouse[]>(
-    ['warehouses'],
-    '/inventory/warehouses',
-    { limit: 1000, isActive: true }
-  );
-  const warehouses = warehousesResponse?.data || [];
 
   // Fetch items
   const { data: itemsResponse, isLoading: itemsLoading } = useApiQuery<Item[]>(
@@ -260,7 +250,7 @@ export default function AdjustmentPage() {
     }
   );
 
-  const loading = adjustmentMutation.isPending || adjustmentUpdateMutation.isPending || adjustmentDeleteMutation.isPending || warehousesLoading || itemsLoading;
+  const loading = adjustmentMutation.isPending || adjustmentUpdateMutation.isPending || adjustmentDeleteMutation.isPending || itemsLoading;
 
   // Handle post/unpost
   const handlePostUnpost = async (post: boolean) => {
@@ -335,6 +325,48 @@ export default function AdjustmentPage() {
     }
   };
 
+  const applyBookQty = useCallback(
+    async (index: number, itemId: string, warehouse: string) => {
+      if (!itemId || !warehouse) return;
+      try {
+        const res = await apiClient.get<{ quantityOnHand?: number; availableQuantity?: number }>(
+          `/inventory/items/${itemId}/stock-balance`,
+          { warehouseId: warehouse }
+        );
+        const book = Number(res.data?.quantityOnHand ?? res.data?.availableQuantity) || 0;
+        setAdjustmentLines((prev) => {
+          const next = [...prev];
+          const line = next[index];
+          if (!line || line.itemId !== itemId) return prev;
+          const actual = line.actualQuantity || 0;
+          const unitPrice = line.unitPrice || 0;
+          next[index] = {
+            ...line,
+            bookQuantity: book,
+            adjustmentQuantity: actual - book,
+            adjustmentTotal: Math.abs(actual - book) * unitPrice,
+          };
+          return next;
+        });
+      } catch {
+        // keep the entered book qty if live stock is unavailable
+      }
+    },
+    []
+  );
+
+  const prevWarehouseRef = useRef(warehouseId);
+  useEffect(() => {
+    const prev = prevWarehouseRef.current;
+    prevWarehouseRef.current = warehouseId;
+    if (!warehouseId || prev === warehouseId || !prev) return;
+    adjustmentLines.forEach((line, index) => {
+      if (line.itemId) void applyBookQty(index, line.itemId, warehouseId);
+    });
+    // only refill when the user switches the header warehouse
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [warehouseId, applyBookQty]);
+
   // Add adjustment line
   const addAdjustmentLine = () => {
     setAdjustmentLines([...adjustmentLines, {
@@ -367,6 +399,9 @@ export default function AdjustmentPage() {
     updatedLines[index].adjustmentTotal = Math.abs(updatedLines[index].adjustmentQuantity || 0) * unitPrice;
     
     setAdjustmentLines(updatedLines);
+    if (field === 'itemId' && warehouseId && value) {
+      void applyBookQty(index, String(value), warehouseId);
+    }
   };
 
   // Calculate totals
@@ -455,18 +490,18 @@ export default function AdjustmentPage() {
             {...register('date')}
           />
           <CompactFormField label="المخزن" error={errors.warehouseId?.message}>
-            <select
-              className={`${inputCls} ${errors.warehouseId ? 'border-red-400' : ''}`}
-              {...register('warehouseId')}
-              disabled={warehousesLoading}
-            >
-              <option value="">اختر المخزن</option>
-              {warehouses.map((warehouse) => (
-                <option key={warehouse.id} value={warehouse.id}>
-                  {warehouse.arabicName} ({warehouse.code})
-                </option>
-              ))}
-            </select>
+            <Controller
+              name="warehouseId"
+              control={control}
+              render={({ field }) => (
+                <WarehouseSelect
+                  value={field.value || ''}
+                  onChange={field.onChange}
+                  className={`${inputCls} ${errors.warehouseId ? 'border-red-400' : ''}`}
+                  emptyLabel="اختر المخزن"
+                />
+              )}
+            />
           </CompactFormField>
           <CompactFormField label="الشرح" placeholder="إدخل الشرح" {...register('description')} />
       </FormSectionCard>
@@ -520,7 +555,7 @@ export default function AdjustmentPage() {
                 <tr>
                   <th className={denseThClass}>م</th>
                   <th className={denseThClass}>الصنف</th>
-                  <th className={denseThClass}>الكمية الدفترية</th>
+                  {hideExistingQty ? null : <th className={denseThClass}>الكمية الدفترية</th>}
                   <th className={denseThClass}>الكمية الفعلية</th>
                   <th className={denseThClass}>كمية التسوية</th>
                   <th className={denseThClass}>السعر</th>
@@ -531,7 +566,7 @@ export default function AdjustmentPage() {
               <tbody>
                 {adjustmentLines.length === 0 ? (
                   <tr className={denseTrClass}>
-                    <td colSpan={8} className={`${denseTdClass} py-8 text-center text-slate-500`}>
+                    <td colSpan={hideExistingQty ? 7 : 8} className={`${denseTdClass} py-8 text-center text-slate-500`}>
                       لا توجد أصناف. اضغط على &quot;إضافة صنف&quot; لإضافة صنف جديد.
                     </td>
                   </tr>
@@ -554,24 +589,20 @@ export default function AdjustmentPage() {
                           ))}
                         </select>
                       </td>
+                      {hideExistingQty ? null : (
                       <td className={denseTdClass}>
-                        <input
-                          type="number"
+                        <TableNumberInput
                           className={inputCls}
-                          value={line.bookQuantity || ''}
-                          onChange={(e) => updateAdjustmentLine(index, 'bookQuantity', parseFloat(e.target.value) || 0)}
-                          min="0"
-                          step="0.01"
+                          value={line.bookQuantity}
+                          onValueCommit={(n) => updateAdjustmentLine(index, 'bookQuantity', n)}
                         />
                       </td>
+                      )}
                       <td className={denseTdClass}>
-                        <input
-                          type="number"
+                        <TableNumberInput
                           className={inputCls}
-                          value={line.actualQuantity || ''}
-                          onChange={(e) => updateAdjustmentLine(index, 'actualQuantity', parseFloat(e.target.value) || 0)}
-                          min="0"
-                          step="0.01"
+                          value={line.actualQuantity}
+                          onValueCommit={(n) => updateAdjustmentLine(index, 'actualQuantity', n)}
                         />
                       </td>
                       <td className={denseTdClass}>
@@ -583,13 +614,10 @@ export default function AdjustmentPage() {
                         />
                       </td>
                       <td className={denseTdClass}>
-                        <input
-                          type="number"
+                        <TableNumberInput
                           className={inputCls}
-                          value={line.unitPrice || ''}
-                          onChange={(e) => updateAdjustmentLine(index, 'unitPrice', parseFloat(e.target.value) || 0)}
-                          min="0"
-                          step="0.01"
+                          value={line.unitPrice}
+                          onValueCommit={(n) => updateAdjustmentLine(index, 'unitPrice', n)}
                         />
                       </td>
                       <td className={denseTdClass}>

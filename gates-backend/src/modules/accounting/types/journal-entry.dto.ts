@@ -3,6 +3,7 @@ export interface JournalEntryLineDto {
   debit: number;
   credit: number;
   currencyId?: string;
+  currencyCode?: string | null;
   exchangeRate?: number;
   debitBase?: number;
   creditBase?: number;

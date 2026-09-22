@@ -16,6 +16,7 @@ import {
   linkInvoiceAdvancesSchema,
   m5InvoiceQuerySchema,
   partyAdvancesQuerySchema,
+  settleInvoiceSplitsSchema,
   settleM5InvoiceSchema,
   updateM5InvoiceSchema,
 } from '../schemas/invoice-m5.schema';
@@ -27,6 +28,7 @@ import { invoiceInstallmentService } from '../services/invoice-installment.servi
 import { invoiceM5Service } from '../services/invoice-m5.service';
 import { invoicePostingOrchestrator } from '../services/invoice-posting-orchestrator';
 import { invoiceSettlementService } from '../services/invoice-settlement.service';
+import { invoiceSettlementSplitService } from '../services/invoice-settlement-split.service';
 import { invoiceAdvanceLinkService } from '../services/invoice-advance-link.service';
 // Was a byte-for-byte duplicate of the shared builder, minus the `isAdmin`
 // flag that AdvancedRights needs for the legacy Admin bypass.
@@ -491,6 +493,21 @@ router.get(
       return void res.json({ status: 'success', data });
     } catch (e: unknown) {
       return respondError(res, e, 'Failed to load cheques under collection');
+    }
+  }
+);
+
+router.post(
+  '/:id/settlements/split',
+  authorize({ resource: 'invoice', action: 'edit' }),
+  validate({ body: settleInvoiceSplitsSchema }),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const ctx = buildPostingContext(req);
+      const data = await invoiceSettlementSplitService.settleAdditional(ctx, req.params.id, req.body);
+      return void res.status(201).json({ status: 'success', data, message: 'Settlement posted' });
+    } catch (e: unknown) {
+      return respondError(res, e, 'Settlement failed');
     }
   }
 );

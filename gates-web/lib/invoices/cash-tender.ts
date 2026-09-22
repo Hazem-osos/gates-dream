@@ -30,20 +30,12 @@ export function parseTenderAmount(value: string | number | undefined): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-/** Bank/cheques only stick after a real instrument is entered; otherwise treat as treasury. */
 export function resolveCashTenderKind(
   kind: CashTenderKind | undefined,
-  bankAccountId?: string,
-  cheques?: InvoiceChequeDraft[]
+  _bankAccountId?: string,
+  _cheques?: InvoiceChequeDraft[]
 ): CashTenderKind {
-  const raw = kind ?? 'treasury';
-  const hasBank = Boolean(String(bankAccountId ?? '').trim());
-  const hasCheques = (cheques ?? []).some(
-    (row) => row.chequeNumber.trim() && parseTenderAmount(row.amount) > 0
-  );
-  if ((raw === 'bank' || raw === 'cheques') && !hasBank && !hasCheques) return 'treasury';
-  if (raw === 'bank' && !hasBank && hasCheques) return 'cheques';
-  return raw;
+  return kind ?? 'treasury';
 }
 
 export function inferCashTenderKind(splits: PaymentSplitLine[] | undefined): CashTenderKind {
@@ -108,10 +100,6 @@ function chequeLinesFromDrafts(
 
   if (!autoFilled.length) {
     return {};
-  }
-
-  if (direction === 'PAYMENT' && autoFilled.some((row) => !String(row.bankAccountId ?? '').trim()) && !issuing) {
-    return { error: 'حدد حساب البنك المصدر للشيكات' };
   }
 
   return {
@@ -222,9 +210,10 @@ export function buildCashTenderSplits(input: {
   const sum = lines.reduce((total, line) => total + line.amount, 0);
   if (Math.abs(sum - net) > 0.009) {
     return {
-      error: leftover > 0.009 && !bankAccountId
-        ? 'أكمل المبلغ بتحويل بنكي أو شيكات'
-        : `مجموع البنك والشيكات (${sum.toFixed(2)}) يجب أن يساوي إجمالي الفاتورة (${net.toFixed(2)})`,
+      error:
+        leftover > 0.009
+          ? `مجموع الشيكات (${sum.toFixed(2)}) أقل من قيمة الفاتورة (${net.toFixed(2)})`
+          : `مجموع الشيكات (${sum.toFixed(2)}) يجب أن يساوي قيمة الفاتورة (${net.toFixed(2)})`,
     };
   }
   return { splits: lines };

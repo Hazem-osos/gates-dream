@@ -539,13 +539,8 @@ export const salesInvoiceSchema = z.object({
   const cashKind = data.cashTenderKind ?? 'treasury';
   const hasBank = Boolean(String(data.cashBankAccountId ?? '').trim());
   if (method === 'cash') {
-    if (cashKind === 'treasury' && !String(data.treasuryId ?? '').trim()) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: 'يجب تحديد الخزينة في الفاتورة النقدية',
-        path: ['treasuryId'],
-      });
-    }
+    // Treasury can be filled from the company default safe on submit.
+    // Blocking here made نقدي fail save when the picker was still empty.
     if (cashKind === 'bank' && !hasBank) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,

@@ -15,12 +15,21 @@ export function isAlreadyPostedError(error: unknown): boolean {
   return message.includes('مرحّل مسبقاً') || /already posted/i.test(message);
 }
 
+function isJournalAutoPostNoop(error: unknown): boolean {
+  const message = errorMessage(error);
+  return (
+    isAlreadyPostedError(error) ||
+    message.includes('حالته الحالية') ||
+    /current workflow state/i.test(message)
+  );
+}
+
 export async function postJournalAfterSave(journalEntryId: string): Promise<'posted' | 'kept'> {
   try {
     await apiClient.post(`/accounting/journal-entries/${journalEntryId}/post`, {});
     return 'posted';
   } catch (error) {
-    if (isAlreadyPostedError(error)) return 'kept';
+    if (isJournalAutoPostNoop(error)) return 'kept';
     throw error;
   }
 }

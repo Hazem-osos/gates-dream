@@ -393,12 +393,11 @@ export default function CustomerPage() {
         await apiClient.put<CustomerRecord>(`/accounting/customers/${selectedId}`, payload, {
           skipSuccessNotify: true,
         });
-        toast.success('تم حفظ العميل — تقدر تضيف التالي');
+        toast.success('تم حفظ تعديلات العميل');
         invalidateQuery(['customers']);
         invalidateQuery(['accounts']);
         invalidateQuery(['chart-of-accounts']);
         invalidateQuery(['coa-tree']);
-        handleCancel();
         return;
       }
       await customerMutation.mutateAsync(payload);

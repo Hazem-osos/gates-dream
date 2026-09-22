@@ -1,7 +1,9 @@
 'use client';
 
-import { Suspense, useEffect, useMemo, useState } from 'react';
-import { useOwnTabSearchParams } from '@/lib/navigation/tab-route-lock';
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { useClearDocumentQuery, useOwnTabSearchParams } from '@/lib/navigation/tab-route-lock';
+import { rememberTabHref, rememberTabSearch } from '@/lib/navigation/tab-memory';
+import { normalizeAppPath } from '@/lib/navigation/app-module-root';
 import { Warehouse } from 'lucide-react';
 import {
   CompactFormField,
@@ -13,7 +15,7 @@ import { DocumentModeProvider, useDocumentMode } from '@/components/common/docum
 import { WarehousesListSection, asWarehouseRows, type WarehouseRow } from '@/components/inventory/WarehousesListSection';
 import { WarehouseParentField } from '@/components/inventory/WarehouseParentField';
 import { ChildWarehouseKindDialog } from '@/components/inventory/ChildWarehouseKindDialog';
-import { inheritWarehouseAccounts, type WarehouseKind } from '@/lib/inventory/warehouse-kind';
+import { inheritWarehouseAccounts, warehouseRoleLabel, type WarehouseKind } from '@/lib/inventory/warehouse-kind';
 import { AccountSelect } from '@/components/form/AccountSelect';
 import { useApiMutation, useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
 import { apiClient } from '@/lib/api/client';
@@ -47,10 +49,27 @@ const emptyForm = (code = ''): WarehouseForm => ({
   costAccountId: '',
 });
 
+function pinWarehouseCardSearch(id: string | null) {
+  if (typeof window === 'undefined') return;
+  const path = normalizeAppPath(window.location.pathname);
+  if (id) {
+    const qs = `id=${id}`;
+    window.history.replaceState(null, '', `?${qs}`);
+    rememberTabSearch(path, qs);
+    rememberTabHref(path, `${path}?${qs}`);
+    return;
+  }
+  window.history.replaceState(null, '', path);
+  rememberTabSearch(path, '');
+  rememberTabHref(path, path);
+}
+
 function StoresPageInner() {
   const searchParams = useOwnTabSearchParams();
+  const clearDocumentQuery = useClearDocumentQuery();
   const idFromUrl = searchParams.get('id');
   const { isReadOnly, unlockForEdit, lockToView, setMode } = useDocumentMode();
+  const hydratedUrlIdRef = useRef<string | null>(null);
   const invalidateQuery = useInvalidateQuery();
   const quickCreate = useQuickCreateHost('warehouse');
   const [selectedId, setSelectedId] = useState<string | null>(idFromUrl);
@@ -114,9 +133,14 @@ function StoresPageInner() {
   );
 
   useEffect(() => {
-    if (!idFromUrl) return;
+    if (!idFromUrl) {
+      hydratedUrlIdRef.current = null;
+      return;
+    }
     const row = warehouses.find((item) => item.id === idFromUrl) ?? warehouseByIdRes?.data;
     if (!row) return;
+    if (hydratedUrlIdRef.current === idFromUrl) return;
+    hydratedUrlIdRef.current = idFromUrl;
     fillFromRow(row);
   }, [idFromUrl, warehouses, warehouseByIdRes?.data, lockToView]);
 
@@ -136,9 +160,12 @@ function StoresPageInner() {
         }
         invalidateQuery(['warehouses']);
         invalidateQuery(['warehouses', 'next-code']);
+        hydratedUrlIdRef.current = idFromUrl || '__new__';
         setSelectedId(null);
         setFormData(emptyForm());
         setMode('create');
+        clearDocumentQuery();
+        pinWarehouseCardSearch(null);
         setSuccess('تم حفظ المخزن — تقدر تضيف التالي');
       },
       onError: (err: ApiError) => {
@@ -172,7 +199,9 @@ function StoresPageInner() {
       ...prev,
       parentWarehouseId: parentId,
       storeType: parentId ? 'SUB' : 'MAIN',
-      warehouseKind: parentId ? warehouseKind ?? (prev.warehouseKind === 'HEADER' ? 'HEADER' : 'POSTING') : 'HEADER',
+      warehouseKind: parentId
+        ? warehouseKind ?? (prev.warehouseKind === 'HEADER' ? 'HEADER' : 'POSTING')
+        : warehouseKind ?? (prev.warehouseKind === 'POSTING' ? 'POSTING' : 'HEADER'),
       inventoryAccountId: parentId ? prev.inventoryAccountId || inherited.inventoryAccountId : prev.inventoryAccountId,
       costAccountId: parentId ? prev.costAccountId || inherited.costAccountId : prev.costAccountId,
     }));
@@ -212,10 +241,13 @@ function StoresPageInner() {
   });
 
   const resetNew = () => {
+    hydratedUrlIdRef.current = idFromUrl || '__new__';
     setSelectedId(null);
     setFormData(emptyForm());
     setError('');
     setMode('create');
+    clearDocumentQuery();
+    pinWarehouseCardSearch(null);
   };
 
   const handleDelete = async () => {
@@ -255,7 +287,9 @@ function StoresPageInner() {
   };
 
   const handleSelect = (row: WarehouseRow) => {
+    hydratedUrlIdRef.current = row.id;
     fillFromRow(row);
+    pinWarehouseCardSearch(row.id);
     setError('');
     setSuccess('');
     setShowGuide(false);
@@ -350,6 +384,11 @@ function StoresPageInner() {
             disabled={isReadOnly}
           />
         </CompactFormField>
+        <CompactFormField
+          label="نوع المخزن"
+          value={warehouseRoleLabel(formData)}
+          disabled
+        />
         <CompactFormField
           label="حساب المخزون"
           hint={formData.parentWarehouseId ? 'متاخد من الأب — تقدر تغيّره' : undefined}

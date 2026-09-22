@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useForm, type Resolver } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { AlertCircle } from 'lucide-react';
@@ -25,6 +25,7 @@ import {
   type InventoryOpeningStockHeaderFormInput,
 } from '@/lib/validation/inventory.schema';
 import type { ApiError } from '@/lib/api/types';
+import { localizeUnknownError } from '@/lib/api/localize-api-error-message';
 import { confirmAction } from '@/lib/feedback/confirm';
 import { onFieldErrors } from '@/lib/forms/on-field-errors';
 import { OpeningStockHeader } from './OpeningStockHeader';
@@ -36,6 +37,7 @@ import {
   formatMoney,
   isEnteredOpeningStockLine,
   lineValue,
+  summarizeOpeningStockIssues,
   type OpeningStockLineForm,
 } from './opening-stock-types';
 
@@ -61,6 +63,18 @@ type OpeningStockRecord = {
 
 function todayIso() {
   return new Date().toISOString().split('T')[0];
+}
+
+function isoDatePart(value?: string | null) {
+  return String(value || '').slice(0, 10);
+}
+
+function dayBeforeIso(isoDate: string) {
+  const [year, month, day] = isoDate.split('-').map(Number);
+  if (!year || !month || !day) return '';
+  const date = new Date(Date.UTC(year, month - 1, day));
+  date.setUTCDate(date.getUTCDate() - 1);
+  return date.toISOString().slice(0, 10);
 }
 
 function toNumber(value: unknown) {
@@ -157,9 +171,34 @@ function OpeningStockFormInner() {
   const { data: existingOpeningRes } = useApiQuery<OpeningStockRecord[]>(
     ['opening-stock-browse', 'singleton'],
     '/inventory/opening-stock',
-    { skip: 0, take: 1, isCancelled: false }
+    { skip: 0, take: 20 }
   );
-  const existingOpeningStockId = existingOpeningRes?.data?.[0]?.id ?? null;
+  const existingOpenings = existingOpeningRes?.data ?? [];
+  const existingOpeningStockId =
+    existingOpenings.find((row) => !row.isCancelled)?.id ?? existingOpenings[0]?.id ?? null;
+  const { data: openingMetaRes } = useApiQuery<{
+    openingDate?: string;
+    fiscalYearName?: string | null;
+  }>(['opening-balance-meta'], '/accounting/opening-balance', undefined, {
+    requireFullTenant: false,
+  });
+  const { data: fiscalYearsRes } = useApiQuery<
+    { startDate?: string; arabicName?: string | null; englishName?: string | null }[]
+  >(['company-fiscal-years'], '/company/fiscal-years', { page: 1, limit: 50 }, {
+    requireFullTenant: false,
+  });
+  const firstFiscalYear = useMemo(() => {
+    const rows = Array.isArray(fiscalYearsRes?.data) ? fiscalYearsRes.data : [];
+    return [...rows].sort((a, b) => isoDatePart(a.startDate).localeCompare(isoDatePart(b.startDate)))[0];
+  }, [fiscalYearsRes?.data]);
+  const lockedOpeningDate =
+    isoDatePart(openingMetaRes?.data?.openingDate) ||
+    (isoDatePart(firstFiscalYear?.startDate) ? dayBeforeIso(isoDatePart(firstFiscalYear?.startDate)) : '');
+  const fiscalYearName =
+    openingMetaRes?.data?.fiscalYearName ||
+    firstFiscalYear?.arabicName ||
+    firstFiscalYear?.englishName ||
+    undefined;
 
   const {
     handleSubmit,
@@ -171,7 +210,7 @@ function OpeningStockFormInner() {
   } = useForm<InventoryOpeningStockHeaderFormInput>({
     resolver: zodResolver(inventoryOpeningStockHeaderFormSchema) as Resolver<InventoryOpeningStockHeaderFormInput>,
     defaultValues: {
-      date: todayIso(),
+      date: lockedOpeningDate || todayIso(),
       description: '',
       warehouseId: '',
     },
@@ -188,14 +227,38 @@ function OpeningStockFormInner() {
     }
   }, [warehouseId, warehouses, setValue]);
 
+  useEffect(() => {
+    if (!defaultWarehouseId) return;
+    setLines((prev) => {
+      if (!prev.some((line) => !line.warehouseId)) return prev;
+      return prev.map((line) =>
+        line.warehouseId ? line : { ...line, warehouseId: defaultWarehouseId }
+      );
+    });
+  }, [defaultWarehouseId, setLines]);
+
+  useEffect(() => {
+    if (!lockedOpeningDate || selectedId) return;
+    setValue('date', lockedOpeningDate, { shouldValidate: false });
+  }, [lockedOpeningDate, selectedId, setValue]);
+
   const isPosted = Boolean(loaded?.isPosted);
   const isCancelled = Boolean(loaded?.isCancelled);
   const hasDocument = Boolean(selectedId || loaded?.id);
   const gridLocked = isReadOnly || isPosted;
 
+  const linesRef = useRef(lines);
+  linesRef.current = lines;
+
   const validLines = useMemo(
-    () => lines.filter((line) => line.itemId && line.warehouseId && Number(line.quantity) > 0),
-    [lines]
+    () =>
+      lines
+        .map((line) => ({
+          ...line,
+          warehouseId: line.warehouseId || defaultWarehouseId,
+        }))
+        .filter((line) => line.itemId && line.warehouseId && Number(line.quantity) > 0),
+    [defaultWarehouseId, lines]
   );
   const itemCount = useMemo(() => lines.filter((line) => Boolean(line.itemId)).length, [lines]);
   const totalQuantity = useMemo(
@@ -204,7 +267,10 @@ function OpeningStockFormInner() {
   );
   const totalValue = useMemo(() => lines.reduce((sum, line) => sum + lineValue(line), 0), [lines]);
   const canPost = !isPosted && (hasDocument || validLines.length > 0);
-  const canSave = !gridLocked && !hasDocument && validLines.length > 0;
+  const canSave =
+    !isPosted &&
+    !isReadOnly &&
+    lines.some((line) => Boolean(line.itemId || line.itemCode || Number(line.quantity) > 0));
   const docNumber = loaded?.serial || `OS-${(date || todayIso()).slice(0, 4)}`;
 
   const findCatalogItem = useCallback(
@@ -235,14 +301,15 @@ function OpeningStockFormInner() {
 
   const applyRecord = (record: OpeningStockRecord) => {
     reset({
-      date: record.date ? String(record.date).slice(0, 10) : todayIso(),
+      date: record.date ? String(record.date).slice(0, 10) : lockedOpeningDate || todayIso(),
       description: record.description || '',
       warehouseId: record.lines?.[0]?.warehouseId || defaultWarehouseId,
     });
     setLines(recordToLines(record));
     setSelectedId(record.id);
     setLoaded(record);
-    lockToView();
+    if (record.isCancelled || !record.isPosted) unlockForEdit();
+    else lockToView();
   };
 
   const createMutation = useApiMutation<OpeningStockRecord, Record<string, unknown>>(
@@ -250,25 +317,57 @@ function OpeningStockFormInner() {
     'POST',
     {
       showSuccessToast: false,
-      onError: (err: ApiError) => setError(err.message || 'حدث خطأ أثناء حفظ بضاعة أول المدة'),
+      onError: (err: ApiError) => setError(localizeUnknownError(err) || 'حدث خطأ أثناء حفظ بضاعة أول المدة'),
     }
   );
 
   const persistDraft = async (): Promise<string | null> => {
     const values = getValues();
-    if (hasDocument) {
-      setError('هذا الكشف محفوظ مسبقاً. أنشئ كشفاً جديداً لتعديل البنود.');
+    if (isPosted) {
+      setError('الكشف مرحّل. فك الترحيل أولاً حتى يمكن تعديل البنود.');
       return selectedId;
     }
-    if (validLines.length === 0) {
-      setError('أدخل صنفاً وكمية أكبر من صفر في سطر واحد على الأقل');
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    await new Promise((resolve) => window.setTimeout(resolve, 30));
+    const latest = linesRef.current.map((line) => {
+      const resolved = line.itemId ? undefined : findCatalogItem(line.itemCode || line.itemName);
+      return {
+        ...line,
+        itemId: line.itemId || resolved?.id || '',
+        itemCode: line.itemCode || resolved?.code || resolved?.serial || '',
+        itemName: line.itemName || resolved?.arabicName || '',
+        unitName: line.unitName || (resolved ? itemUnitName(resolved) : ''),
+        warehouseId: line.warehouseId || defaultWarehouseId,
+        unitCost: line.unitCost || (resolved ? toNumber(resolved.averageCost) : 0),
+      };
+    });
+    if (
+      latest.some(
+        (line, index) =>
+          line.itemId !== lines[index]?.itemId || line.warehouseId !== lines[index]?.warehouseId
+      )
+    ) {
+      setLines(latest);
+    }
+    const ready = latest.filter((line) => line.itemId && Number(line.quantity) > 0);
+    if (ready.length === 0) {
+      const issues = summarizeOpeningStockIssues(latest);
+      setError(
+        issues[0] || 'أدخل صنفاً من الدليل وكمية أكبر من صفر في سطر واحد على الأقل'
+      );
       return null;
     }
     setError('');
+    const datePart = isoDatePart(lockedOpeningDate || values.date) || todayIso();
+    const payloadDate = new Date(`${datePart}T12:00:00`);
+    if (Number.isNaN(payloadDate.getTime())) {
+      setError('تاريخ الكشف غير صالح. راجع تاريخ أول المدة في إعدادات السنة المالية.');
+      return null;
+    }
     const payload = {
       description: values.description?.trim() || 'بضاعة أول المدة',
-      date: new Date(`${values.date || todayIso()}T12:00:00`).toISOString(),
-      lines: validLines.map((line) => ({
+      date: payloadDate.toISOString(),
+      lines: ready.map((line) => ({
         itemId: line.itemId,
         warehouseId: line.warehouseId,
         quantity: Number(line.quantity),
@@ -276,23 +375,31 @@ function OpeningStockFormInner() {
         total: lineValue(line),
       })),
     };
-    const res = await createMutation.mutateAsync(payload);
-    const created = res.data;
-    if (!created?.id) {
-      setError('تعذر حفظ بضاعة أول المدة');
+    try {
+      const targetId = selectedId || existingOpeningStockId;
+      const res = targetId
+        ? await apiClient.put<OpeningStockRecord>(`/inventory/opening-stock/${targetId}`, payload)
+        : await createMutation.mutateAsync(payload);
+      const saved = res.data;
+      if (!saved?.id) {
+        setError('تعذر حفظ بضاعة أول المدة');
+        return null;
+      }
+      clearDraft();
+      applyRecord(saved);
+      invalidateQuery(['opening-stock']);
+      invalidateQuery(['opening-stock-browse']);
+      return saved.id;
+    } catch (err) {
+      setError(localizeUnknownError(err));
       return null;
     }
-    clearDraft();
-    invalidateQuery(['opening-stock']);
-    return created.id;
   };
 
   const onSave = () => {
     void handleSubmit(async () => {
       const id = await persistDraft();
       if (!id) return;
-      invalidateQuery(['opening-stock-browse']);
-      await loadRecord(id);
       setSuccess('تم حفظ بضاعة أول المدة كمسودة');
     }, onFieldErrors(setError))();
   };
@@ -358,7 +465,7 @@ function OpeningStockFormInner() {
       }
       const existingIds = new Set(lines.map((line) => line.itemId).filter(Boolean));
       const incoming = items
-        .filter((item) => !existingIds.has(item.id))
+        .filter((item) => !existingIds.has(item.id) && !(item as ItemOption & { isService?: boolean }).isService)
         .map((item) => itemToLine(item, defaultWarehouseId));
       setLines((prev) => {
         const kept = prev.filter((line) => line.itemId);
@@ -374,6 +481,10 @@ function OpeningStockFormInner() {
   };
 
   const handlePost = async () => {
+    if (isCancelled) {
+      setError('الكشف ملغي. استرجعه من قائمة (...) قبل الترحيل.');
+      return;
+    }
     if (!(await confirmAction('هل تريد ترحيل كشف بضاعة أول المدة؟'))) return;
     setLifecyclePending(true);
     try {
@@ -419,8 +530,8 @@ function OpeningStockFormInner() {
       invalidateQuery(['opening-stock']);
       invalidateQuery(['opening-stock-browse']);
       setLoaded((prev) => (prev ? { ...prev, isCancelled: true } : prev));
-      lockToView();
-      setSuccess('تم إلغاء كشف بضاعة أول المدة');
+      unlockForEdit();
+      setSuccess('تم إلغاء نفس الكشف. البنود موجودة وتقدر تعدّلها — «جديد» مقفول.');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'تعذر إلغاء الكشف');
     } finally {
@@ -429,11 +540,11 @@ function OpeningStockFormInner() {
   };
 
   const resetNew = () => {
-    if (existingOpeningStockId && !isCancelled) {
-      setError('يوجد كشف بضاعة أول المدة بالفعل. احذفه أولاً حتى يمكن إنشاء كشف جديد.');
+    if (existingOpeningStockId) {
+      setError('يوجد كشف بضاعة أول المدة بالفعل. عدّل نفس الكشف أو استرجعه إن كان ملغياً.');
       return;
     }
-    reset({ date: todayIso(), description: '', warehouseId: defaultWarehouseId });
+    reset({ date: lockedOpeningDate || todayIso(), description: '', warehouseId: defaultWarehouseId });
     setLines([emptyOpeningStockLine(defaultWarehouseId)]);
     setSelectedId(null);
     setLoaded(null);
@@ -478,7 +589,7 @@ function OpeningStockFormInner() {
         th{background:#f3f4f6}
       </style></head><body>
         <h1>كشف بضاعة أول المدة ${docNumber}</h1>
-        <div>التاريخ: ${date || ''} — الحالة: ${isPosted ? 'مرحل ومثبت' : 'مسودة'}</div>
+        <div>التاريخ: ${date || ''} — الحالة: ${isCancelled ? 'ملغي' : isPosted ? 'مرحل ومثبت' : 'مسودة'}</div>
         <table>
           <thead><tr>
             <th>#</th><th>كود الصنف</th><th>اسم الصنف</th><th>الوحدة</th><th>المخزن</th>
@@ -512,6 +623,24 @@ function OpeningStockFormInner() {
       rows,
       'بضاعة أول المدة'
     );
+  };
+
+  const handleRestore = async () => {
+    if (!selectedId) return;
+    if (!(await confirmAction('استعادة كشف بضاعة أول المدة الملغي؟'))) return;
+    setLifecyclePending(true);
+    try {
+      await apiClient.post(`/inventory/opening-stock/${selectedId}/restore`);
+      invalidateQuery(['opening-stock']);
+      invalidateQuery(['opening-stock-browse']);
+      setLoaded((prev) => (prev ? { ...prev, isCancelled: false } : prev));
+      unlockForEdit();
+      setSuccess('تم استعادة نفس كشف بضاعة أول المدة');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'تعذر استعادة الكشف');
+    } finally {
+      setLifecyclePending(false);
+    }
   };
 
   const handleRestoreDraft = () => {
@@ -548,9 +677,9 @@ function OpeningStockFormInner() {
           isReadOnly={isReadOnly}
           hasDocument={hasDocument}
           canPost={canPost}
-          date={date}
-          onDateChange={(value) => setValue('date', value, { shouldValidate: true })}
+          date={lockedOpeningDate || date}
           dateError={Boolean(errors.date)}
+          fiscalYearName={fiscalYearName}
           savePending={saving}
           canSave={canSave}
           loadPending={loadPending}
@@ -564,8 +693,10 @@ function OpeningStockFormInner() {
           onExportExcel={() => void handleExportExcel()}
           onClearAll={handleClearAll}
           onNew={resetNew}
-          newDisabled={Boolean(existingOpeningStockId && !isCancelled)}
+          newDisabled={Boolean(existingOpeningStockId || selectedId)}
+          newHint="يوجد كشف بضاعة أول المدة بالفعل. عدّل نفس الكشف أو استرجعه إن كان ملغياً."
           onVoid={() => void handleVoid()}
+          onRestore={() => void handleRestore()}
           isCancelled={isCancelled}
         />
 
@@ -597,6 +728,12 @@ function OpeningStockFormInner() {
           />
         ) : null}
 
+        {isCancelled ? (
+          <div className="mb-3 rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-800">
+            الكشف ملغي على نفس الرقم. البنود موجودة وتقدر تعدّلها. «جديد» مقفول — استرجع هذا الكشف من قائمة (...). لو فيه كشف تاني شغال، ألغِه الأول.
+          </div>
+        ) : null}
+
         {gridLocked ? (
           <div className="mb-3 flex items-center gap-2 rounded-xl border border-border/70 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
             <AlertCircle className="h-3.5 w-3.5" />
@@ -607,6 +744,11 @@ function OpeningStockFormInner() {
         {error ? <ErrorToast message={error} onClose={() => setError('')} /> : null}
         {success ? <SuccessToast message={success} onClose={() => setSuccess('')} /> : null}
 
+        <div className="mb-2 rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] px-3 py-2 text-xs text-[#0A3D5E]">
+          شروط السطر: <strong>صنف من الدليل</strong> + <strong>مخزن تشغيلي</strong> +{' '}
+          <strong>كمية أكبر من صفر</strong>. التكلفة اختيارية (صفر مسموح). الأصناف الخدمية أو غير النشطة لا تُحفظ.
+        </div>
+
         <OpeningStockLinesTable
           lines={lines}
           onChange={setLines}
@@ -614,6 +756,26 @@ function OpeningStockFormInner() {
           onPasteText={handlePasteText}
           disabled={gridLocked}
           defaultWarehouseId={defaultWarehouseId}
+          onResolveItemCode={(index, code) => {
+            if (lines[index]?.itemId) return;
+            const matched = findCatalogItem(code);
+            if (!matched) return;
+            setLines((prev) =>
+              prev.map((line, i) =>
+                i === index
+                  ? {
+                      ...line,
+                      itemId: matched.id,
+                      itemCode: matched.code || matched.serial || code,
+                      itemName: matched.arabicName,
+                      unitName: itemUnitName(matched),
+                      warehouseId: line.warehouseId || defaultWarehouseId,
+                      unitCost: line.unitCost || toNumber(matched.averageCost),
+                    }
+                  : line
+              )
+            );
+          }}
         />
 
         <OpeningStockStickyFooter
@@ -657,9 +819,11 @@ function OpeningStockFormInner() {
               },
             ]}
             resolveStatus={(row) =>
-              row.isPosted
-                ? { variant: 'success', label: 'مرحل' }
-                : { variant: 'warning', label: 'مسودة' }
+              row.isCancelled
+                ? { variant: 'danger', label: 'ملغي' }
+                : row.isPosted
+                  ? { variant: 'success', label: 'مرحل' }
+                  : { variant: 'warning', label: 'مسودة' }
             }
             onSelect={(id) => {
               setBrowseOpen(false);

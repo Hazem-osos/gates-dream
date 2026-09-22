@@ -242,19 +242,7 @@ function InputDesign() {
     try {
       if (selectedId) {
         await updateMut.mutateAsync({ id: selectedId, ...payload });
-        setSuccess('تم تحديث الحساب بنجاح — تقدر تضيف التالي');
-        setSelectedId(null);
-        setLoadedParentId('');
-        setLoadedCode('');
-        setFormData({
-          ...EMPTY_ACCOUNT_FORM,
-          parentId: formData.parentId,
-          accountType: formData.accountType,
-          accountSide: formData.accountSide,
-          accountNature: formData.accountNature,
-          statementType: formData.statementType,
-          accountKind: formData.accountKind,
-        });
+        setSuccess('تم حفظ تعديلات الحساب');
       } else {
         const res = await createMut.mutateAsync(payload);
         const created = res?.data as { id?: string; arabicName?: string; code?: string } | undefined;

@@ -40,6 +40,7 @@ type Props = {
   currency: string;
   onCurrencyChange: (value: string) => void;
   readOnly?: boolean;
+  isCancelled?: boolean;
 };
 
 export function OpeningBalanceHeader({
@@ -67,6 +68,7 @@ export function OpeningBalanceHeader({
   currency,
   onCurrencyChange,
   readOnly,
+  isCancelled,
 }: Props) {
   return (
     <>
@@ -78,8 +80,8 @@ export function OpeningBalanceHeader({
         ]}
         title="قيد الرصيد الافتتاحي للسنة المالية"
         docNumber={docNumber}
-        statusTone={isPosted ? 'success' : 'warning'}
-        statusLabel={isPosted ? 'مرحل ومثبت (Posted)' : 'مسودة (Draft)'}
+        statusTone={isCancelled ? 'danger' : isPosted ? 'success' : 'warning'}
+        statusLabel={isCancelled ? 'ملغي' : isPosted ? 'مرحل ومثبت (Posted)' : 'مسودة (Draft)'}
         onSaveDraft={onSaveDraft}
         savePending={savePending}
         canSave={canSave}

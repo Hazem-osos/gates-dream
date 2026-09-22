@@ -1,6 +1,5 @@
 // @ts-nocheck — strict cleanup pending; tracked for incremental typing.
 import prisma from '../../../shared/database/prisma';
-import { scopedItemQuantityWhere } from '../utils/item-quantity-tenant';
 import { logger } from '../../../shared/logger';
 import { inventoryCostingService } from './inventory-costing.service';
 import { COSTING_MOVEMENT } from './inventory-costing-math';
@@ -88,13 +87,16 @@ export class AdjustmentService {
         }
       }
 
-      // Get current quantities to populate book quantities
-      const itemQuantities = await prisma.itemQuantity.findMany({
-        where: scopedItemQuantityWhere(companyId, {
+      const warehouseBalances = await prisma.itemWarehouseBalance.findMany({
+        where: {
+          companyId,
           itemId: { in: itemIds },
           warehouseId: data.warehouseId,
-        }),
+        },
       });
+      const liveBookByItem = new Map(
+        warehouseBalances.map((row) => [row.itemId, Number(row.quantityOnHand) || 0])
+      );
 
       // Use transaction to ensure atomicity
       const adjustment = await prisma.$transaction(async (tx) => {
@@ -106,13 +108,7 @@ export class AdjustmentService {
           // Get current book quantity from system if not provided
           let bookQty = lineData.bookQuantity;
           if (!bookQty) {
-            const existingQuantity = itemQuantities.find(
-              (iq) =>
-                iq.itemId === lineData.itemId &&
-                iq.warehouseId === data.warehouseId &&
-                (iq.locationId || null) === (lineData.locationId || null)
-            );
-            bookQty = existingQuantity ? Number(existingQuantity.quantity) : 0;
+            bookQty = liveBookByItem.get(lineData.itemId) ?? 0;
           }
 
           const unitPrice = lineData.unitPrice || 0;
@@ -147,13 +143,7 @@ export class AdjustmentService {
           // Get current book quantity from system if not provided
           let bookQty = lineData.bookQuantity;
           if (!bookQty) {
-            const existingQuantity = itemQuantities.find(
-              (iq) =>
-                iq.itemId === lineData.itemId &&
-                iq.warehouseId === data.warehouseId &&
-                (iq.locationId || null) === (lineData.locationId || null)
-            );
-            bookQty = existingQuantity ? Number(existingQuantity.quantity) : 0;
+            bookQty = liveBookByItem.get(lineData.itemId) ?? 0;
           }
 
           const unitPrice = lineData.unitPrice || 0;

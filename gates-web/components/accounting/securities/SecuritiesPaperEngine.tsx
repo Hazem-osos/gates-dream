@@ -330,15 +330,22 @@ export function SecuritiesPaperEngine({ kind }: Props) {
 
   const createMutation = useApiMutation<SecuritiesPaperRecord, Record<string, unknown>>(apiPath, 'POST', {
     showSuccessToast: false,
-    onSuccess: () => {
+    onSuccess: (res) => {
       const message =
         kind === 'payment'
           ? 'تم حفظ ورقة المدفوعات وإنشاء قيد التحرير'
           : 'تم حفظ ورقة المقبوضات وإنشاء قيد التحرير';
+      const row = res?.data;
+      if (row?.id) {
+        setSelectedId(row.id);
+        setLoaded(row);
+        const latestJournal =
+          row.journals?.[row.journals.length - 1]?.id || row.journalEntryId || null;
+        if (latestJournal) setSelectedJournalId(latestJournal);
+      }
       invalidateQuery([listKey]);
       invalidateQuery([`${listKey}-browse`]);
       invalidateQuery(['journal-entry']);
-      resetNew();
       setSuccess(message);
     },
     onError: (err: ApiError) => setError(err.message || 'حدث خطأ أثناء الحفظ'),
@@ -456,17 +463,18 @@ export function SecuritiesPaperEngine({ kind }: Props) {
         if (selectedId) {
           setSaving(true);
           try {
-            await apiClient.put<SecuritiesPaperRecord>(`${apiPath}/${selectedId}`, body);
-            invalidateQuery([listKey]);
-            invalidateQuery([listKey, 'one', selectedId]);
-            invalidateQuery(['journal-entry']);
+            const updated = await apiClient.put<SecuritiesPaperRecord>(`${apiPath}/${selectedId}`, body);
+            if (updated.data) applyLoaded(updated.data, selectedId);
+            else {
+              invalidateQuery([listKey]);
+              invalidateQuery([listKey, 'one', selectedId]);
+              invalidateQuery(['journal-entry']);
+            }
             if (consumeShouldRepost() && selectedId) {
               try {
                 await postNamedDocumentAfterSave(`${apiPath}/${selectedId}/post`);
-                resetNew();
                 setSuccess('تم حفظ التعديلات وترحيل الورقة');
               } catch (repostErr) {
-                resetNew();
                 setError(
                   repostErr instanceof Error
                     ? repostErr.message
@@ -474,7 +482,6 @@ export function SecuritiesPaperEngine({ kind }: Props) {
                 );
               }
             } else {
-              resetNew();
               setSuccess('تم تحديث الورقة وقيد التحرير');
             }
           } catch (err) {
@@ -673,10 +680,11 @@ export function SecuritiesPaperEngine({ kind }: Props) {
           onNew: resetNew,
           newLabel: 'جديد',
           onEdit: () => {
-            if (loaded?.isPosted) {
-              setError('فك الترحيل أولاً حتى يُفتح التعديل');
+            if (locked) {
+              setError(`الورقة حالتها «${status.label}» — فك الحالة أولاً حتى يُفتح التعديل`);
               return;
             }
+            setSuccess('الحقول مفتوحة للتعديل — احفظ بعد التغيير');
           },
           onPost: () => void onPostDoc(),
           onUnpost: () => void onUnpostDoc(),

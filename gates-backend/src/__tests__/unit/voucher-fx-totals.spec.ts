@@ -2,7 +2,10 @@ import {
   splitVoucherLineForeignTotals,
   splitVoucherLineTotals,
 } from '../../modules/treasury/types/vouchers.dto';
-import { postedCashFundAmount } from '../../modules/treasury/services/cash-fund-amount';
+import {
+  cashOffsetInHeaderCurrency,
+  postedCashFundAmount,
+} from '../../modules/treasury/services/cash-fund-amount';
 import { persistJournalLineFxRate } from '../../modules/accounting/utils/company-fx-rate';
 
 describe('voucher FX totals', () => {
@@ -48,6 +51,13 @@ describe('voucher FX totals', () => {
         transactionKind: 'RECEIPT',
       })
     ).toBe(500000);
+  });
+
+  it('EGP header + USD lines posts cash in pounds so debitBase equals creditBase', () => {
+    const netCashBase = splitVoucherLineTotals(usdReceipt, 'RECEIPT').netCash;
+    expect(cashOffsetInHeaderCurrency(netCashBase, 1)).toBe(5000);
+    expect(cashOffsetInHeaderCurrency(netCashBase, 1) * 1).toBe(netCashBase);
+    expect(cashOffsetInHeaderCurrency(netCashBase, 50)).toBe(100);
   });
 
   it('keeps a USD line rate when the journal header is EGP', () => {

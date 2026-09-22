@@ -1,7 +1,11 @@
 'use client';
 
 import { InvoiceSettlementsHistory } from '@/components/invoices/InvoiceSettlementsHistory';
-import type { InvoiceCashSettlement, InvoiceChequeSettlement } from '@/lib/invoices/invoice-settlements';
+import type {
+  InvoiceCashSettlement,
+  InvoiceChequeSettlement,
+  InvoiceInstallmentSource,
+} from '@/lib/invoices/invoice-settlements';
 
 type Props = {
   open: boolean;
@@ -9,6 +13,7 @@ type Props = {
   direction?: 'RECEIPT' | 'PAYMENT';
   settlements?: InvoiceCashSettlement[];
   cheques?: InvoiceChequeSettlement[];
+  installments?: InvoiceInstallmentSource[];
   paidAmount?: number;
   remainingAmount?: number;
   netAmount?: number;
@@ -21,13 +26,14 @@ export function InvoiceSettlementsHistoryModal({
   direction = 'RECEIPT',
   settlements,
   cheques,
+  installments,
   paidAmount,
   remainingAmount,
   netAmount,
   loading = false,
 }: Props) {
   if (!open) return null;
-  const title = direction === 'PAYMENT' ? 'المدفوعات السابقة' : 'التحصيلات السابقة';
+  const title = 'موقف الدفعات';
 
   return (
     <div
@@ -57,6 +63,7 @@ export function InvoiceSettlementsHistoryModal({
           <InvoiceSettlementsHistory
             settlements={settlements}
             cheques={cheques}
+            installments={installments}
             paidAmount={paidAmount}
             remainingAmount={remainingAmount}
             netAmount={netAmount}

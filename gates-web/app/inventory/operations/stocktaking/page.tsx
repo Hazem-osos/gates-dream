@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useRef } from 'react';
 import { useForm, type Resolver, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { ErpDocumentLayout, ErpDocumentPageHeader } from '@/components/erp';
@@ -22,6 +22,9 @@ import {
 } from '@/components/ui';
 import { Plus, Trash2 } from 'lucide-react';
 import { useApiQuery, useApiMutation, useInvalidateQuery } from '@/lib/hooks/useApi';
+import { apiClient } from '@/lib/api/client';
+import { WarehouseSelect } from '@/components/form/WarehouseSelect';
+import { TableNumberInput } from '@/components/grid/TableNumberInput';
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
 import {
@@ -34,13 +37,6 @@ import { dispatchAcademyTrigger } from '@/lib/onboarding/tourCheckpoints';
 
 import { formatMoneyAr } from '@/lib/formatMoney';
 import { itemLabel } from '@/lib/inventory/itemDisplay';
-
-interface Warehouse {
-  id: string;
-  code: string;
-  arabicName: string;
-  englishName?: string;
-}
 
 interface StocktakingLine {
   itemId: string;
@@ -98,13 +94,10 @@ export default function StocktakingPage() {
   const [stocktakingLines, setStocktakingLines] = useState<StocktakingLine[]>([]);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-
-  const { data: warehousesResponse, isLoading: warehousesLoading } = useApiQuery<Warehouse[]>(
-    ['warehouses'],
-    '/inventory/warehouses',
-    { limit: 1000, isActive: true }
-  );
-  const warehouses = warehousesResponse?.data || [];
+  const [refreshing, setRefreshing] = useState(false);
+  const warehouseId = watch('warehouseId');
+  const excludeZeroValue = watch('excludeZeroValue');
+  const hideExistingQty = watch('hideExistingQty');
 
   const { data: itemsResponse } = useApiQuery<Item[]>(
     ['items'],
@@ -123,18 +116,36 @@ export default function StocktakingPage() {
     return { surplus, shortage };
   }, [stocktakingLines]);
 
-  const stocktakingMutation = useApiMutation<unknown, Record<string, unknown>>(
+  const postAfterSaveRef = useRef(false);
+  const stocktakingMutation = useApiMutation<{ id?: string }, Record<string, unknown>>(
     '/inventory/stocktaking',
     'POST',
     {
-      onSuccess: () => {
-        setSuccess('تم حفظ تسوية الجرد بنجاح');
-        invalidateQuery(['stocktaking']);
-        reset(emptyStocktakingDefaults(new Date().toISOString().split('T')[0]));
-        setStocktakingLines([]);
-        dispatchAcademyTrigger('API_SUCCESS', 'stocktaking.save-success');
+      onSuccess: (res) => {
+        const createdId = res.data?.id;
+        const shouldPost = postAfterSaveRef.current;
+        postAfterSaveRef.current = false;
+        const finish = (message: string) => {
+          setSuccess(message);
+          invalidateQuery(['stocktaking']);
+          reset(emptyStocktakingDefaults(new Date().toISOString().split('T')[0]));
+          setStocktakingLines([]);
+          dispatchAcademyTrigger('API_SUCCESS', 'stocktaking.save-success');
+        };
+        if (shouldPost && createdId) {
+          void apiClient
+            .post(`/inventory/stocktaking/${createdId}/post`)
+            .then(() => finish('تم ترحيل الجرد بنجاح'))
+            .catch((err: unknown) => {
+              setError(err instanceof Error ? err.message : 'تم الحفظ وتعذر الترحيل');
+              invalidateQuery(['stocktaking']);
+            });
+          return;
+        }
+        finish('تم حفظ تسوية الجرد بنجاح');
       },
       onError: (error: ApiError) => {
+        postAfterSaveRef.current = false;
         setError(error.message || 'حدث خطأ أثناء الحفظ');
       },
     }
@@ -153,31 +164,69 @@ export default function StocktakingPage() {
     reset(emptyStocktakingDefaults(new Date().toISOString().split('T')[0]));
   };
 
+  const handleRefreshStock = async () => {
+    setError('');
+    setSuccess('');
+    if (!warehouseId) {
+      setError('يرجى اختيار المخزن أولاً');
+      return;
+    }
+    setRefreshing(true);
+    try {
+      const res = await apiClient.get<
+        { itemId?: string; quantity?: number | string; quantityOnHand?: number | string; item?: { averageCost?: unknown; lastPurchasePrice?: unknown } }[]
+      >(`/inventory/item-quantities/warehouse/${warehouseId}`);
+      const rows = Array.isArray(res.data) ? res.data : [];
+      const next = rows
+        .map((row) => {
+          const bookValue = Number(row.quantityOnHand ?? row.quantity) || 0;
+          const cost = Number(row.item?.averageCost ?? row.item?.lastPurchasePrice);
+          return {
+            itemId: String(row.itemId ?? ''),
+            bookValue,
+            actualValue: bookValue,
+            shortage: 0,
+            surplus: 0,
+            unitPrice: Number.isFinite(cost) && cost > 0 ? cost : 0,
+          };
+        })
+        .filter((line) => line.itemId && (!excludeZeroValue || line.bookValue !== 0));
+      setStocktakingLines(next);
+      if (!next.length) {
+        setError('لا يوجد رصيد في هذا المخزن');
+        return;
+      }
+      setSuccess('تم تحميل أرصدة المخزن');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'تعذر تحميل أرصدة المخزن');
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
   const handleSave = () =>
     void handleSubmit((values) => {
       setError('');
       setSuccess('');
-      if (stocktakingLines.length === 0) {
+      const filled = stocktakingLines.filter((line) => line.itemId);
+      if (filled.length === 0) {
         setError('يرجى إضافة أصناف لتسوية الجرد');
         return;
       }
       stocktakingMutation.mutate({
-        serialNumber: values.serialNumber,
+        serial: values.serialNumber || undefined,
         description: values.description,
-        date: values.date || new Date().toISOString(),
+        date: new Date(values.date).toISOString(),
         hijriDate: values.hijriDate,
         warehouseId: values.warehouseId,
-        isPosted: values.isPosted,
-        useBarcode: values.useBarcode,
-        hideExistingQty: values.hideExistingQty,
-        excludeZeroValue: values.excludeZeroValue,
-        lines: stocktakingLines.map((line) => ({
+        lines: filled.map((line) => ({
           itemId: line.itemId,
-          bookValue: line.bookValue,
-          actualValue: line.actualValue,
-          shortage: line.shortage,
-          surplus: line.surplus,
+          warehouseId: values.warehouseId,
+          bookQuantity: line.bookValue,
+          actualQuantity: line.actualValue,
           unitPrice: line.unitPrice,
+          shortageQuantity: line.shortage,
+          increaseQuantity: line.surplus,
         })),
       });
     }, onFieldErrors(setError))();
@@ -209,7 +258,7 @@ export default function StocktakingPage() {
           hasDocument: stocktakingLines.length > 0,
           isPosted: Boolean(isPosted),
           onPost: () => {
-            setValue('isPosted', true);
+            postAfterSaveRef.current = true;
             handleSave();
           },
           onUnpost: () => setValue('isPosted', false),
@@ -227,18 +276,18 @@ export default function StocktakingPage() {
           />
           <div data-tour-id="stocktaking-warehouse-select">
             <CompactFormField label="المخزن" error={errors.warehouseId?.message}>
-              <select
-                className={`${inputCls} ${errors.warehouseId ? 'border-red-400' : ''}`}
-                {...register('warehouseId')}
-                disabled={warehousesLoading}
-              >
-                <option value="">اختر المخزن</option>
-                {warehouses.map((warehouse) => (
-                  <option key={warehouse.id} value={warehouse.id}>
-                    {warehouse.arabicName} ({warehouse.code})
-                  </option>
-                ))}
-              </select>
+              <Controller
+                name="warehouseId"
+                control={control}
+                render={({ field }) => (
+                  <WarehouseSelect
+                    value={field.value || ''}
+                    onChange={field.onChange}
+                    className={`${inputCls} ${errors.warehouseId ? 'border-red-400' : ''}`}
+                    emptyLabel="اختر المخزن"
+                  />
+                )}
+              />
             </CompactFormField>
           </div>
           <CompactFormField
@@ -248,8 +297,13 @@ export default function StocktakingPage() {
             {...register('description')}
           />
           <div className="flex items-end">
-            <button type="button" className="h-9 px-4 bg-white border border-[#D6EAF3] rounded-lg text-sm font-semibold text-[#094C6B]">
-              تحديث الجرد
+            <button
+              type="button"
+              disabled={refreshing}
+              onClick={() => void handleRefreshStock()}
+              className="h-9 px-4 bg-white border border-[#D6EAF3] rounded-lg text-sm font-semibold text-[#094C6B] disabled:opacity-50"
+            >
+              {refreshing ? 'جاري التحميل…' : 'تحديث الجرد'}
             </button>
           </div>
       </FormSectionCard>
@@ -288,6 +342,21 @@ export default function StocktakingPage() {
                 </label>
               )}
             />
+            <Controller
+              name="hideExistingQty"
+              control={control}
+              render={({ field: { value, onChange } }) => (
+                <label className="inline-flex items-center gap-2 text-xs font-semibold text-[#094C6B]">
+                  <input
+                    type="checkbox"
+                    checked={value}
+                    onChange={(e) => onChange(e.target.checked)}
+                    className="h-4 w-4 rounded border-[#0E78AA]/50"
+                  />
+                  عدم إظهار الكمية الموجودة
+                </label>
+              )}
+            />
           </div>
           <div className="col-span-full">
             <p className={labelCls}>التجميع</p>
@@ -320,9 +389,28 @@ export default function StocktakingPage() {
       </AdvancedFieldsSection>
 
       <div className="mb-4 mt-6 flex flex-wrap items-center gap-2">
-        <Button type="button" variant="secondary">تسوية الجرد</Button>
-        <Button type="button" variant="secondary">إلغاء التسوية</Button>
-        <Button type="button" variant="secondary">إستعادة</Button>
+        <Button
+          type="button"
+          variant="secondary"
+          onClick={() => {
+            postAfterSaveRef.current = true;
+            handleSave();
+          }}
+          disabled={loading}
+        >
+          تسوية الجرد
+        </Button>
+        <Button type="button" variant="secondary" onClick={handleNew}>
+          إلغاء التسوية
+        </Button>
+        <Button
+          type="button"
+          variant="secondary"
+          onClick={() => void handleRefreshStock()}
+          disabled={refreshing}
+        >
+          إستعادة
+        </Button>
       </div>
 
       <FormSectionCard title="فروقات الجرد" subtitle="جدول إدخال — الكمية الفعلية تُحسب منها العجز/الزيادة وتُرسل مع الحفظ" bodyClassName="space-y-3">
@@ -349,7 +437,7 @@ export default function StocktakingPage() {
                 <tr>
                   <th className={denseThClass}>م</th>
                   <th className={denseThClass}>الصنف</th>
-                  <th className={denseThClass}>القيمة الدفترية</th>
+                  {hideExistingQty ? null : <th className={denseThClass}>القيمة الدفترية</th>}
                   <th className={denseThClass}>الكمية الفعلية</th>
                   <th className={denseThClass}>العجز</th>
                   <th className={denseThClass}>الزيادة</th>
@@ -362,7 +450,7 @@ export default function StocktakingPage() {
               <tbody>
                 {stocktakingLines.length === 0 ? (
                   <tr>
-                    <td colSpan={10} className="py-6 text-sm text-slate-500">
+                    <td colSpan={hideExistingQty ? 9 : 10} className="py-6 text-sm text-slate-500">
                       لا توجد بنود جرد — أضف صنفاً وأدخل الكمية الفعلية قبل الحفظ.
                     </td>
                   </tr>
@@ -388,15 +476,12 @@ export default function StocktakingPage() {
                           ))}
                         </select>
                       </td>
+                      {hideExistingQty ? null : (
                       <td className="py-1.5 px-2 border-x border-[#D6EAF3]">
-                        <input
-                          type="number"
-                          min={0}
-                          step="0.01"
+                        <TableNumberInput
                           className={inputCls}
-                          value={line.bookValue || ''}
-                          onChange={(e) => {
-                            const bookValue = parseFloat(e.target.value) || 0;
+                          value={line.bookValue}
+                          onValueCommit={(bookValue) => {
                             const actualValue = stocktakingLines[i].actualValue;
                             const delta = actualValue - bookValue;
                             const next = [...stocktakingLines];
@@ -410,15 +495,12 @@ export default function StocktakingPage() {
                           }}
                         />
                       </td>
+                      )}
                       <td className="py-1.5 px-2 border-x border-[#D6EAF3]">
-                        <input
-                          type="number"
-                          min={0}
-                          step="0.01"
+                        <TableNumberInput
                           className={inputCls}
-                          value={line.actualValue || ''}
-                          onChange={(e) => {
-                            const actualValue = parseFloat(e.target.value) || 0;
+                          value={line.actualValue}
+                          onValueCommit={(actualValue) => {
                             const bookValue = stocktakingLines[i].bookValue;
                             const delta = actualValue - bookValue;
                             const next = [...stocktakingLines];
@@ -439,15 +521,12 @@ export default function StocktakingPage() {
                         <input className={inputCls} value={line.surplus} readOnly />
                       </td>
                       <td className="py-1.5 px-2 border-x border-[#D6EAF3]">
-                        <input
-                          type="number"
-                          min={0}
-                          step="0.01"
+                        <TableNumberInput
                           className={inputCls}
-                          value={line.unitPrice || ''}
-                          onChange={(e) => {
+                          value={line.unitPrice}
+                          onValueCommit={(unitPrice) => {
                             const next = [...stocktakingLines];
-                            next[i] = { ...next[i], unitPrice: parseFloat(e.target.value) || 0 };
+                            next[i] = { ...next[i], unitPrice };
                             setStocktakingLines(next);
                           }}
                         />

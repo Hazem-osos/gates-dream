@@ -129,6 +129,7 @@ export function AccountFormModal({
         budget: (initial as { budget?: number | null }).budget ?? null,
         accountKind: initial.accountKind === 'POSTING' ? 'POSTING' : 'HEADER',
         statementType: statementTypeFromAccountType(initial.accountType) ?? 'BALANCE_SHEET',
+        currencyCode: initial.currencyCode ?? null,
       });
     } else {
       const inheritedSide =

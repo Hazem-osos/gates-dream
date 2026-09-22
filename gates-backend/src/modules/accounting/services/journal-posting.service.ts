@@ -120,12 +120,14 @@ export class JournalPostingService {
   private buildLineRows(
     journalEntryId: string,
     lines: JournalEntryLineData[],
-    headerRate: number
+    headerRate: number,
+    headerCurrencyCode?: string
   ) {
     return lines.map((line) => {
-      const rate = new Decimal(line.exchangeRate ?? headerRate);
+      const rate = new Decimal(lineFxRate(headerCurrencyCode, line, headerRate));
       const debit = toDecimal4(line.debit);
       const credit = toDecimal4(line.credit);
+      const lineCurrency = String(line.currencyCode || '').trim().toUpperCase() || null;
       return {
         journalEntryId,
         lineNumber: line.lineOrder,
@@ -137,6 +139,7 @@ export class JournalPostingService {
         exchangeRate: rate,
         debitBase: mulToDecimal4(debit, rate),
         creditBase: mulToDecimal4(credit, rate),
+        currencyCode: lineCurrency,
         lineOrder: line.lineOrder,
         partnerId: line.partnerId,
         partnerType: line.partnerType,
@@ -251,14 +254,15 @@ export class JournalPostingService {
         where: {
           companyId: ctx.companyId,
           entryType: 'OPENING_BALANCE',
-          isCancelled: false,
         },
-        select: { id: true },
+        select: { id: true, isCancelled: true },
       });
       if (existingOpening) {
         throw new AppError(
           409,
-          'يوجد قيد افتتاحي بالفعل. احذفه أولاً حتى يمكن إنشاء قيد افتتاحي جديد.'
+          existingOpening.isCancelled
+            ? 'يوجد قيد افتتاحي ملغي. استرجعه أو عدّل نفس القيد بدل إنشاء قيد جديد.'
+            : 'يوجد قيد افتتاحي بالفعل. عدّل نفس القيد بدل إنشاء قيد جديد.'
         );
       }
     }
@@ -332,7 +336,7 @@ export class JournalPostingService {
       });
 
       await tx.journalEntryLine.createMany({
-        data: this.buildLineRows(created.id, lines, headerRate),
+        data: this.buildLineRows(created.id, lines, headerRate, data.currencyCode),
       });
 
       // C12 fix: recorded *inside* this transaction (passing `tx`) rather
@@ -501,7 +505,7 @@ export class JournalPostingService {
       },
     });
 
-    const postedLines = this.buildLineRows(created.id, data.lines, headerRate);
+    const postedLines = this.buildLineRows(created.id, data.lines, headerRate, data.currencyCode);
     await tx.journalEntryLine.createMany({
       data: postedLines,
     });
@@ -746,7 +750,7 @@ export class JournalPostingService {
     });
     await tx.journalEntryLine.deleteMany({ where: { journalEntryId } });
     await tx.journalEntryLine.createMany({
-      data: this.buildLineRows(journalEntryId, resolvedLines, headerRate),
+      data: this.buildLineRows(journalEntryId, resolvedLines, headerRate, data.currencyCode),
     });
 
     const nextLines = await tx.journalEntryLine.findMany({
@@ -798,7 +802,7 @@ export class JournalPostingService {
         'القيد مرحّل ولا يمكن تعديله. فك الترحيل أولاً من قائمة (...).'
       );
     }
-    if (existing.isCancelled) {
+    if (existing.isCancelled && existing.entryType !== 'OPENING_BALANCE') {
       throw new AppError(400, 'القيد ملغي ولا يمكن تعديله');
     }
     if (data.voucherNumber !== undefined) {
@@ -916,7 +920,12 @@ export class JournalPostingService {
       if (data.lines) {
         await tx.journalEntryLine.deleteMany({ where: { journalEntryId } });
         await tx.journalEntryLine.createMany({
-          data: this.buildLineRows(journalEntryId, data.lines, headerRate),
+          data: this.buildLineRows(
+            journalEntryId,
+            data.lines,
+            headerRate,
+            data.currencyCode ?? existing.currencyCode
+          ),
         });
       }
 
@@ -1183,6 +1192,7 @@ export class JournalPostingService {
           postedAt: null,
           postedBy: null,
           activeSourceKey: null,
+          version: { increment: 1 },
         },
         include: this.journalInclude(),
       });

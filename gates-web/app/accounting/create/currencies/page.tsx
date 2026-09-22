@@ -179,14 +179,16 @@ function CurrenciesPageInner() {
     setSaving(true);
     try {
       if (selectedId) {
-        await apiClient.put<CurrencyRow>(`/accounting/currencies/${selectedId}`, body);
+        const res = await apiClient.put<CurrencyRow>(`/accounting/currencies/${selectedId}`, body);
+        invalidateQuery(['currencies']);
+        if (res.data) hydrate(res.data);
         setSuccess('تم تحديث العملة');
       } else {
         await apiClient.post<CurrencyRow>('/accounting/currencies', body);
         setSuccess('تم حفظ العملة');
+        invalidateQuery(['currencies']);
+        resetNew();
       }
-      invalidateQuery(['currencies']);
-      resetNew();
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'حدث خطأ أثناء الحفظ';
       setError(message);

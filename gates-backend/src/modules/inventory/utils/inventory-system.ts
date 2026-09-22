@@ -50,7 +50,7 @@ export async function assertWarehouseActive(
   }
   const warehouse = await prisma.warehouse.findFirst({
     where: { id: warehouseId, companyId },
-    select: { id: true, isActive: true, arabicName: true, code: true },
+    select: { id: true, isActive: true, arabicName: true, code: true, warehouseKind: true },
   });
   if (!warehouse) {
     throw new AppError(404, `${label} غير موجود`);
@@ -60,6 +60,17 @@ export async function assertWarehouseActive(
       409,
       `${label} «${warehouse.arabicName}» غير نشط. اختر مخزناً شغّالاً.`
     );
+  }
+  if (warehouse.warehouseKind === 'HEADER') {
+    const childCount = await prisma.warehouse.count({
+      where: { companyId, parentWarehouseId: warehouse.id, isActive: true },
+    });
+    if (childCount > 0) {
+      throw new AppError(
+        409,
+        `${label} «${warehouse.arabicName}» مخزن رئيسي وله فروع. اختَر مخزن عمليات.`
+      );
+    }
   }
   return warehouse;
 }

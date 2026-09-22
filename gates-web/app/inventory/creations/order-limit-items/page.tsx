@@ -331,7 +331,6 @@ export default function OrderLimitItemsPage() {
               setForm((prev) => ({ ...prev, warehouseId: nextWarehouseId, code: '', description: '' }));
             }}
             emptyLabel="اختر المخزن"
-            leafOnly={false}
             enableQuickCreate={false}
           />
         </CompactFormField>

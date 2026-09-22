@@ -84,6 +84,17 @@ export function hrefForCashTransaction(row: {
     : `/accounting/operations/treasury/payment-voucher?id=${q}`;
 }
 
+export function hrefForCheque(row: {
+  id: string;
+  direction?: string | null;
+}): string {
+  const q = encodeURIComponent(row.id);
+  const outward = (row.direction || '').toUpperCase() === 'OUTWARD';
+  return outward
+    ? `/accounting/cheques/outgoing?id=${q}`
+    : `/accounting/cheques/incoming?id=${q}`;
+}
+
 function stockSourceHref(sourceType: string | null | undefined, sourceId: string): string {
   const q = encodeURIComponent(sourceId);
   switch ((sourceType || '').toUpperCase()) {

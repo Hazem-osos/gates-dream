@@ -521,7 +521,8 @@ export class JournalEntryService {
   }
 
   /**
-   * Restore a cancelled journal entry and post it again.
+   * Restore a cancelled journal entry. Opening balance stays on the same
+   * unposted document; other journals are posted again after restore.
    */
   async restoreJournalEntry(
     companyId: string,
@@ -540,14 +541,35 @@ export class JournalEntryService {
       throw new AppError(400, 'القيد ليس ملغياً');
     }
 
-    await prisma.journalEntry.update({
+    if (journalEntry.entryType === 'OPENING_BALANCE') {
+      const otherOpening = await prisma.journalEntry.findFirst({
+        where: {
+          companyId,
+          entryType: 'OPENING_BALANCE',
+          isCancelled: false,
+          id: { not: journalEntryId },
+        },
+        select: { id: true },
+      });
+      if (otherOpening) {
+        throw new AppError(
+          409,
+          'يوجد قيد افتتاحي نشط بالفعل. ألغِ الجديد أولاً ثم استرجع الملغي.'
+        );
+      }
+    }
+
+    const restored = await prisma.journalEntry.update({
       where: { id: journalEntryId },
       data: {
         isCancelled: false,
-        isApproved: true,
-        workflowStatus: 'APPROVED',
       },
     });
+
+    if (journalEntry.entryType === 'OPENING_BALANCE') {
+      logger.info({ companyId, journalEntryId }, 'Opening balance journal restored');
+      return restored;
+    }
 
     try {
       const posted = await this.postJournalEntry(companyId, journalEntryId, context);

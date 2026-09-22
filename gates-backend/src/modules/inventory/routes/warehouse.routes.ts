@@ -85,7 +85,8 @@ router.get(
           message: 'Company ID is required',
         });
       }
-      const parentWarehouseId = (req.query.parentWarehouseId as string) || null;
+      const rawParent = String(req.query.parentWarehouseId ?? '').trim();
+      const parentWarehouseId = /^[0-9a-f-]{36}$/i.test(rawParent) ? rawParent : null;
       const code = await warehouseService.suggestNextWarehouseCode(companyId, parentWarehouseId);
       return void res.json({
         status: 'success',

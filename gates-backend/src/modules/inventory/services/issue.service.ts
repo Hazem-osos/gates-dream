@@ -5,7 +5,6 @@ import { stockMovementGlService, type StockGlPostingContext } from './stock-move
 import { journalPostingService } from '../../accounting/services/journal-posting.service';
 import { stockMovementService } from './stock-movement.service';
 import { itemCostService } from './item-cost.service';
-import { scopedItemQuantityWhere } from '../utils/item-quantity-tenant';
 import { assertWarehouseActive } from '../utils/inventory-system';
 import { assertUpdateCount } from '../../../shared/concurrency/optimistic-lock';
 import { sortForStockLocking } from '../utils/stock-lock-order.util';
@@ -49,7 +48,7 @@ export class IssueService {
       });
 
       if (items.length !== itemIds.length) {
-        throw new Error('One or more items not found or do not belong to company');
+        throw new Error('صنف أو أكثر غير موجود أو لا يتبع الشركة');
       }
 
       // Validate locations if provided
@@ -66,38 +65,12 @@ export class IssueService {
         });
 
         if (locations.length !== locationIds.length) {
-          throw new Error('One or more locations not found or do not belong to warehouse');
+          throw new Error('موقع أو أكثر لا يتبع المخزن المختار');
         }
       }
 
-      // Get current quantities to validate availability
-      const itemQuantities = await prisma.itemQuantity.findMany({
-        where: scopedItemQuantityWhere(companyId, {
-          itemId: { in: itemIds },
-          warehouseId: data.warehouseId,
-        }),
-      });
-
-      // Use transaction to ensure atomicity
+      // Drafts save without stock. Posting enforces quantity.
       const issue = await prisma.$transaction(async (tx) => {
-        // Validate quantities are available
-        for (const line of data.lines) {
-          const existingQuantity = itemQuantities.find(
-            (iq) =>
-              iq.itemId === line.itemId &&
-              iq.warehouseId === data.warehouseId &&
-              (iq.locationId || null) === (line.locationId || null)
-          );
-
-          const availableQty = existingQuantity ? Number(existingQuantity.quantity) : 0;
-
-          if (availableQty < line.quantity) {
-            throw new Error(
-              `Insufficient quantity for item ${line.itemId} in warehouse. Available: ${availableQty}, Required: ${line.quantity}`
-            );
-          }
-        }
-
         // Calculate total amount
         const totalAmount = data.lines.reduce(
           (sum, line) => sum + (line.total || line.quantity * (line.unitPrice || 0)),

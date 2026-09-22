@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useState, useRef } from 'react';
+import React, { useMemo, useState } from 'react';
 import OuterCard from '@/components/OuterCard';
-import { useApiQuery, useApiMutation, useInvalidateQuery } from '@/lib/hooks/useApi';
+import { useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
 import { useForm, type Resolver } from 'react-hook-form';
@@ -11,79 +11,65 @@ import {
   securitiesMultiCollectionFormSchema,
   type SecuritiesMultiCollectionFormInput,
 } from '@/lib/validation/accounting.schema';
-import type { ApiError } from '@/lib/api/types';
+import { AccountSelect } from '@/app/components/form/AccountSelect';
+import { DatePickerWithHijri } from '@/components/ui/DatePickerWithHijri';
+import { apiClient } from '@/lib/api/client';
+import { SECURITIES_PAPER_CASES } from '@/components/accounting/securities/securities-paper-status';
 
-interface SecuritiesReceipt {
+interface SecuritiesPayment {
   id: string;
   serial?: string;
-  receiptNumber?: string;
+  paymentNumber?: string;
+  securityNumber?: string;
   date: string;
   hijriDate?: string;
   description?: string;
-  amount: number;
-  account?: {
-    code: string;
-    arabicName: string;
-  };
-  costCenter?: {
-    code: string;
-    arabicName: string;
-  };
+  amount: number | string;
+  paperCase?: string | null;
+  isCancelled?: boolean;
+  supplier?: { code?: string; arabicName?: string };
+  customer?: { code?: string; arabicName?: string };
+}
+
+function todayIso() {
+  return new Date().toISOString().split('T')[0];
+}
+
+function money(value: number) {
+  return value.toLocaleString('ar-EG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 export default function MultiCollectionPage() {
   const invalidateQuery = useInvalidateQuery();
-  const queueRef = useRef<string[]>([]);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [loading, setLoading] = useState(false);
 
   const { watch, setValue, getValues, handleSubmit, formState: { errors } } =
     useForm<SecuritiesMultiCollectionFormInput>({
       resolver: zodResolver(securitiesMultiCollectionFormSchema) as Resolver<SecuritiesMultiCollectionFormInput>,
-      defaultValues: { receiptIds: [] },
+      defaultValues: { receiptIds: [], accountId: '', date: todayIso() },
       mode: 'onTouched',
     });
 
   const receiptIds = watch('receiptIds');
+  const accountId = watch('accountId');
+  const collectionDate = watch('date');
 
-  const { data: receiptsResponse, isLoading } = useApiQuery<SecuritiesReceipt[]>(
-    ['securities-receipts', 'multi-collection'],
-    '/accounting/securities-receipts',
-    { limit: 100, isPosted: false }
+  const { data: paymentsResponse, isLoading } = useApiQuery<SecuritiesPayment[]>(
+    ['securities-payments', 'multi-collection'],
+    '/accounting/securities-payments',
+    { limit: 200 }
   );
-  const receipts = receiptsResponse?.data || [];
-
-  const processNext = () => {
-    const q = queueRef.current;
-    if (q.length === 0) {
-      setSuccess('تم تحصيل جميع الأوراق بنجاح');
-      invalidateQuery(['securities-receipts']);
-      invalidateQuery(['securities-receipts', 'multi-collection']);
-      setValue('receiptIds', []);
-      return;
-    }
-    const id = q[0];
-    queueRef.current = q.slice(1);
-    collectionMutation.mutate({
-      id,
-      isPosted: true,
-    });
-  };
-
-  const collectionMutation = useApiMutation<unknown, Record<string, unknown>>(
-    '/accounting/securities-receipts',
-    'PUT',
-    {
-      onSuccess: () => {
-        processNext();
-      },
-      onError: (error: ApiError) => {
-        setError(error.message || 'حدث خطأ أثناء التحصيل');
-      },
-    }
+  const payments = useMemo(
+    () =>
+      (paymentsResponse?.data || []).filter(
+        (row) =>
+          !row.isCancelled &&
+          (row.paperCase || SECURITIES_PAPER_CASES.ISSUED) === SECURITIES_PAPER_CASES.ISSUED
+      ),
+    [paymentsResponse?.data]
   );
-
-  const loading = collectionMutation.isPending;
 
   const toggleReceipt = (id: string) => {
     const cur = getValues('receiptIds');
@@ -98,18 +84,43 @@ export default function MultiCollectionPage() {
     }
   };
 
-  const rows = receipts.map((receipt) => ({
-    id: receipt.id,
-    desc: receipt.description || '',
-    date: receipt.date ? new Date(receipt.date).toLocaleDateString('ar-EG') : '',
-    hijri: receipt.hijriDate || '',
-    account: receipt.account ? `${receipt.account.code} - ${receipt.account.arabicName}` : '',
-    costCenter: receipt.costCenter ? `${receipt.costCenter.code} - ${receipt.costCenter.arabicName}` : '',
-    amount: receipt.amount?.toFixed(2) || '0.00',
-    commission: '0.00',
-  }));
+  const rows = payments.map((payment) => {
+    const party = payment.supplier || payment.customer;
+    return {
+      id: payment.id,
+      desc: payment.description || payment.securityNumber || '',
+      date: payment.date ? new Date(payment.date).toLocaleDateString('ar-EG') : '',
+      hijri: payment.hijriDate || '',
+      account: party ? `${party.code || ''} - ${party.arabicName || ''}`.replace(/^ - /, '') : '',
+      amount: Number(payment.amount) || 0,
+    };
+  });
 
-  const totalAmount = receipts.reduce((sum, receipt) => sum + (receipt.amount || 0), 0);
+  const selectedRows = rows.filter((row) => receiptIds.includes(row.id));
+  const totalAmount = selectedRows.reduce((sum, row) => sum + row.amount, 0);
+
+  const collectSelected = async (data: SecuritiesMultiCollectionFormInput) => {
+    setError('');
+    setSuccess('');
+    setLoading(true);
+    try {
+      for (const id of data.receiptIds) {
+        await apiClient.post(`/accounting/securities-payments/${id}/collect`, {
+          accountId: data.accountId,
+          date: data.date,
+        });
+      }
+      setSuccess('تم تحصيل الأوراق المحددة');
+      invalidateQuery(['securities-payments']);
+      invalidateQuery(['securities-payments', 'multi-collection']);
+      invalidateQuery(['journal-entry']);
+      setValue('receiptIds', []);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'حدث خطأ أثناء التحصيل');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <div className="p-8 flex flex-col items-center min-h-[60vh] w-full bg-[#F6FBFD]" style={{ direction: 'rtl' }}>
@@ -120,6 +131,29 @@ export default function MultiCollectionPage() {
         </div>
       </div>
       <OuterCard>
+        <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-2">
+          <DatePickerWithHijri
+            label="تاريخ التحصيل"
+            value={collectionDate}
+            onChange={(value) => setValue('date', value, { shouldValidate: true })}
+            required
+          />
+          <div className="space-y-1">
+            <label className="text-xs font-semibold text-foreground">حساب البنك</label>
+            <AccountSelect
+              value={accountId}
+              onChange={(value) => setValue('accountId', value, { shouldValidate: true })}
+              leafOnly
+              bankOnly
+              emptyLabel="اختر حساب البنك"
+              placeholder="اختر حساب البنك"
+            />
+            {errors.accountId ? (
+              <p className="text-red-600 text-sm text-right">{errors.accountId.message}</p>
+            ) : null}
+          </div>
+        </div>
+        {errors.date ? <p className="text-red-600 text-sm text-right mb-2">{errors.date.message}</p> : null}
         {errors.receiptIds && (
           <p className="text-red-600 text-sm text-right mb-2">{errors.receiptIds.message}</p>
         )}
@@ -131,20 +165,18 @@ export default function MultiCollectionPage() {
                 <th className="bg-gradient-to-b from-[#0E78AA] to-[#0A5F8A] text-white py-4 px-3 font-bold shadow-md border-r border-white/20">الشرح</th>
                 <th className="bg-gradient-to-b from-[#0E78AA] to-[#0A5F8A] text-white py-4 px-3 font-bold shadow-md border-r border-white/20">التاريخ</th>
                 <th className="bg-gradient-to-b from-[#0E78AA] to-[#0A5F8A] text-white py-4 px-3 font-bold shadow-md border-r border-white/20">هجري</th>
-                <th className="bg-gradient-to-b from-[#0E78AA] to-[#0A5F8A] text-white py-4 px-3 font-bold shadow-md border-r border-white/20">حساب</th>
-                <th className="bg-gradient-to-b from-[#0E78AA] to-[#0A5F8A] text-white py-4 px-3 font-bold shadow-md border-r border-white/20">مركز التكلفة</th>
-                <th className="bg-gradient-to-b from-[#0E78AA] to-[#0A5F8A] text-white py-4 px-3 font-bold shadow-md border-r border-white/20">المبلغ</th>
-                <th className="bg-gradient-to-b from-[#0E78AA] to-[#0A5F8A] text-white py-4 px-3 font-bold shadow-md rounded-tl-2xl">العمولة</th>
+                <th className="bg-gradient-to-b from-[#0E78AA] to-[#0A5F8A] text-white py-4 px-3 font-bold shadow-md border-r border-white/20">الطرف</th>
+                <th className="bg-gradient-to-b from-[#0E78AA] to-[#0A5F8A] text-white py-4 px-3 font-bold shadow-md rounded-tl-2xl">المبلغ</th>
               </tr>
             </thead>
             <tbody>
               {isLoading ? (
                 <tr>
-                  <td colSpan={8} className="py-4 text-center text-gray-500">جاري التحميل...</td>
+                  <td colSpan={6} className="py-4 text-center text-gray-500">جاري التحميل...</td>
                 </tr>
               ) : rows.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="py-4 text-center text-gray-500">لا توجد أوراق للتحصيل</td>
+                  <td colSpan={6} className="py-4 text-center text-gray-500">لا توجد أوراق للتحصيل</td>
                 </tr>
               ) : (
                 rows.map((row, idx) => (
@@ -166,9 +198,7 @@ export default function MultiCollectionPage() {
                     <td className="py-2 px-2 text-black">{row.date}</td>
                     <td className="py-2 px-2 text-black">{row.hijri}</td>
                     <td className="py-2 px-2 text-black">{row.account}</td>
-                    <td className="py-2 px-2 text-black">{row.costCenter}</td>
-                    <td className="py-2 px-2 text-black">{row.amount}</td>
-                    <td className="py-2 px-2 text-black">{row.commission}</td>
+                    <td className="py-2 px-2 text-black">{money(row.amount)}</td>
                   </tr>
                 ))
               )}
@@ -180,7 +210,7 @@ export default function MultiCollectionPage() {
 
         <div className="flex w-full mt-6 gap-2">
           <div className="flex-1 bg-[#E8F7ED] text-[#25BB64] text-center font-bold py-3 rounded-l-xl border border-[#C6EAD6]">
-            {totalAmount.toLocaleString('ar-EG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            {money(totalAmount)}
           </div>
           <div className="flex-1 bg-[#E8F7ED] text-[#25BB64] text-center font-bold py-3 rounded-r-xl border border-[#C6EAD6]">الإجمالي</div>
         </div>
@@ -201,14 +231,7 @@ export default function MultiCollectionPage() {
               type="button"
               className="bg-green-500 hover:bg-green-600 text-white font-bold px-12 py-2 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
               disabled={loading}
-              onClick={() =>
-                void handleSubmit((data) => {
-                  setError('');
-                  setSuccess('');
-                  queueRef.current = [...data.receiptIds];
-                  processNext();
-                })()
-              }
+              onClick={() => void handleSubmit((data) => void collectSelected(data))()}
             >
               {loading ? 'جاري التحصيل...' : 'حفظ'}
             </button>

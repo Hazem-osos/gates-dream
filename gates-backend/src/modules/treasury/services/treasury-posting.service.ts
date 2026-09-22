@@ -18,9 +18,9 @@ import {
 } from './cash-transaction.service';
 import type { TreasuryPostingContext } from '../types/treasury.types';
 import { cashDisbursementWorkflowService } from './cash-disbursement-workflow.service';
-import { splitVoucherLineForeignTotals, splitVoucherLineTotals } from '../types/vouchers.dto';
+import { splitVoucherLineTotals } from '../types/vouchers.dto';
 import { asFxRate } from '../../accounting/utils/company-fx-rate';
-import { postedCashFundAmount } from './cash-fund-amount';
+import { cashOffsetInHeaderCurrency, postedCashFundAmount } from './cash-fund-amount';
 
 type CashTx = Prisma.CashTransactionGetPayload<{
   include: {
@@ -133,17 +133,8 @@ export class TreasuryPostingService {
       );
       const netCashBase = creditTotal - debitTotal;
       const headerRate = asFxRate(tx.exchangeRate, 1);
-      const netCashForeign = splitVoucherLineForeignTotals(
-        voucherLines.map((line) => ({
-          amount: Number(line.amount),
-          entrySide:
-            (line as { entrySide?: string }).entrySide === 'DEBIT' && hasCreditLeg
-              ? 'DEBIT'
-              : 'CREDIT',
-        })),
-        'RECEIPT'
-      ).netCash;
-      if (netCashBase <= 0 || netCashForeign <= 0) {
+      const cashAmount = cashOffsetInHeaderCurrency(netCashBase, headerRate);
+      if (netCashBase <= 0 || cashAmount <= 0) {
         throw new AppError(
           422,
           tx.bankAccountId
@@ -157,7 +148,7 @@ export class TreasuryPostingService {
         lines: [
           {
             accountId: destAccountId,
-            debit: netCashForeign,
+            debit: cashAmount,
             credit: 0,
             lineOrder: lineOrder++,
             exchangeRate: headerRate,
@@ -252,14 +243,8 @@ export class TreasuryPostingService {
       );
       const netCashBase = debitTotal - creditTotal;
       const headerRate = asFxRate(tx.exchangeRate, 1);
-      const netCashForeign = splitVoucherLineForeignTotals(
-        voucherLines.map((line) => ({
-          amount: Number(line.amount),
-          entrySide: (line as { entrySide?: string }).entrySide === 'CREDIT' ? 'CREDIT' : 'DEBIT',
-        })),
-        'PAYMENT'
-      ).netCash;
-      if (netCashBase <= 0 || netCashForeign <= 0) {
+      const cashAmount = cashOffsetInHeaderCurrency(netCashBase, headerRate);
+      if (netCashBase <= 0 || cashAmount <= 0) {
         throw new AppError(
           422,
           tx.bankAccountId
@@ -275,7 +260,7 @@ export class TreasuryPostingService {
           {
             accountId: sourceAccountId,
             debit: 0,
-            credit: netCashForeign,
+            credit: cashAmount,
             lineOrder: order,
             exchangeRate: headerRate,
           },

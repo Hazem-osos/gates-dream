@@ -15,7 +15,12 @@ import { formatInvoiceMoney } from '@/lib/invoices/computeInvoiceFinancialSummar
 import { CalculationInspector } from '@/components/ai/CalculationInspector';
 import { currencyDisplayLabel } from '@/lib/accounting/fx-base';
 import { InvoiceSettlementsHistory } from '@/components/invoices/InvoiceSettlementsHistory';
-import type { InvoiceCashSettlement, InvoiceChequeSettlement } from '@/lib/invoices/invoice-settlements';
+import { useApiQuery } from '@/lib/hooks/useApi';
+import type {
+  InvoiceCashSettlement,
+  InvoiceChequeSettlement,
+  InvoiceInstallmentSource,
+} from '@/lib/invoices/invoice-settlements';
 
 
 type Props = {
@@ -28,6 +33,7 @@ type Props = {
   isPosted: boolean;
   settlements?: InvoiceCashSettlement[];
   cheques?: InvoiceChequeSettlement[];
+  installments?: InvoiceInstallmentSource[];
   paidAmount?: number;
   remainingAmount?: number;
   auditExtra?: ReactNode;
@@ -48,6 +54,7 @@ export function SalesInvoiceBottomSplit({
   isPosted,
   settlements = [],
   cheques = [],
+  installments = [],
   paidAmount,
   remainingAmount,
   auditExtra,
@@ -57,6 +64,15 @@ export function SalesInvoiceBottomSplit({
   pricingCalculationBasis,
   currencyCode,
 }: Props) {
+  const { data: savedInstallmentsResponse } = useApiQuery<InvoiceInstallmentSource[]>(
+    ['invoice-installments', selectedInvoiceId],
+    `/invoices/${selectedInvoiceId}/installments`,
+    undefined,
+    { enabled: Boolean(selectedInvoiceId), skipErrorNotify: true }
+  );
+  const installmentRows = (savedInstallmentsResponse?.data?.length
+    ? savedInstallmentsResponse.data
+    : installments) ?? [];
   const currencyLabel = currencyDisplayLabel(currencyCode);
   const { gross, commercialDiscount } = computeInvoiceGrossDiscount(lines, pricingCalculationBasis);
   const stockRows = lines.filter(
@@ -99,6 +115,7 @@ export function SalesInvoiceBottomSplit({
     <InvoiceSettlementsHistory
       settlements={settlements}
       cheques={cheques}
+      installments={installmentRows}
       paidAmount={paidAmount}
       remainingAmount={remainingAmount}
       netAmount={summary.netAmount}
@@ -161,7 +178,7 @@ export function SalesInvoiceBottomSplit({
       onActiveTabChange={onActiveTabChange}
       tabs={[
         { id: 'stock', label: 'الأثر المخزني', content: stockContent },
-        { id: 'settlements', label: 'التحصيلات', content: settlementsContent },
+        { id: 'settlements', label: 'موقف الدفعات', content: settlementsContent },
         {
           id: 'audit',
           label: 'سجل النشاط',

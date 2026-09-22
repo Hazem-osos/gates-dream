@@ -422,7 +422,12 @@ export default function WarehouseGuidePage() {
                 onStockReport={openStockReport}
                 onView={(node) => {
                   if (node.synthetic) return;
-                  router.push(`/inventory/creations/stores?id=${node.id}`);
+                  const href = `/inventory/creations/stores?id=${node.id}`;
+                  if (tabs) {
+                    tabs.openAppTab(href);
+                    return;
+                  }
+                  router.push(href);
                 }}
                 onEdit={openEdit}
                 onDelete={(node) => void handleDelete(node)}

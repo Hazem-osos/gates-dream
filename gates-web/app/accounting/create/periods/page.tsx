@@ -167,17 +167,19 @@ function AccountingPeriodsPageInner() {
     setSaving(true);
     try {
       if (selectedId) {
-        await apiClient.put<PeriodRow>(`/accounting/periods/${selectedId}`, body);
+        const res = await apiClient.put<PeriodRow>(`/accounting/periods/${selectedId}`, body);
+        await refetchPeriods();
+        if (res.data) hydrate(res.data);
         setSuccess('تم تحديث الفترة المحاسبية');
       } else {
         await apiClient.post<PeriodRow>('/accounting/periods', body);
         setSuccess('تم حفظ الفترة المحاسبية');
+        await refetchPeriods();
+        resetNew(
+          addDaysIso(form.endDate, 1),
+          nextPeriodSerial([...periods.map((row) => row.code), serial])
+        );
       }
-      await refetchPeriods();
-      resetNew(
-        addDaysIso(form.endDate, 1),
-        nextPeriodSerial([...periods.map((row) => row.code), serial])
-      );
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'حدث خطأ أثناء الحفظ');
     } finally {
