@@ -440,7 +440,8 @@ export class WarehouseService {
       where.isActive = options.isActive !== undefined ? options.isActive : true;
 
       if (options.leafOnly) {
-        where.warehouseKind = 'POSTING';
+        // Any warehouse with no active children is selectable for documents —
+        // including a lone HEADER created from دليل المخازن.
         where.childWarehouses = { none: { isActive: true } };
       }
       if (options.headerOnly) {

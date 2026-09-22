@@ -111,6 +111,18 @@ export function formatItemLabel(item: ItemOption) {
   return `[${code}] ${item.arabicName}${unitSuffix}${priceSuffix}`;
 }
 
+function unwrapMasterRows<T>(data: unknown, nestedKeys: string[] = []): T[] {
+  if (Array.isArray(data)) return data as T[];
+  if (data && typeof data === 'object') {
+    const record = data as Record<string, unknown>;
+    for (const key of [...nestedKeys, 'data']) {
+      const nested = record[key];
+      if (Array.isArray(nested)) return nested as T[];
+    }
+  }
+  return [];
+}
+
 /** First page for searchable pickers — never download the whole master list. */
 export const PICKER_PAGE_SIZE = 30;
 const PICKER_SEARCH_DEBOUNCE_MS = 300;
@@ -167,9 +179,10 @@ export function useAccountsQuery(
 }
 
 export function isHeaderWarehouse(warehouse: WarehouseOption): boolean {
-  if (warehouse.warehouseKind === 'HEADER') return true;
+  const childCount = warehouse._count?.childWarehouses ?? 0;
+  if (childCount > 0) return true;
   if (warehouse.warehouseKind === 'POSTING') return false;
-  return (warehouse._count?.childWarehouses ?? 0) > 0 || !warehouse.parentWarehouseId;
+  return false;
 }
 
 export function isOperationsWarehouse(warehouse: WarehouseOption): boolean {
@@ -193,11 +206,8 @@ export function useWarehousesQuery(
       enabled: opts?.enabled !== false,
     }
   );
-  const data = Array.isArray(query.data?.data)
-    ? query.data
-    : query.data
-      ? { ...query.data, data: [] as WarehouseOption[] }
-      : query.data;
+  const rows = unwrapMasterRows<WarehouseOption>(query.data?.data, ['warehouses', 'items']);
+  const data = query.data ? { ...query.data, data: rows } : query.data;
   return { ...query, data };
 }
 
@@ -208,12 +218,15 @@ export function useItemsQuery(
 ) {
   const debounced = useDebouncedValue(search ?? '', PICKER_SEARCH_DEBOUNCE_MS);
   const params = pickerParams(debounced, limit, extra);
-  return useApiQuery<ItemOption[]>(
+  const query = useApiQuery<ItemOption[]>(
     queryKeys.items(params),
     '/inventory/items',
     params,
     { staleTime: staleTimes.masterMs, gcTime: staleTimes.masterGcMs }
   );
+  const rows = unwrapMasterRows<ItemOption>(query.data?.data, ['items']);
+  const data = query.data ? { ...query.data, data: rows } : query.data;
+  return { ...query, data };
 }
 
 export function useCustomersQuery(limit = 200, search?: string, enabled = true) {
