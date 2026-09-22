@@ -75,12 +75,36 @@ export function isCompanyBootstrapApiPath(url: string): boolean {
   );
 }
 
-/** Mutations: onboarding and first-time company setup only need company (branch/FY created by the call). */
+/**
+ * Master cards / guides (warehouses, items, COA, units) are company-scoped.
+ * They must work before a fiscal year exists — FY is only required for posting.
+ */
+export function isMasterCatalogApiPath(url: string): boolean {
+  const path = url.split('?')[0] ?? url;
+  return (
+    path.startsWith('/inventory/warehouses') ||
+    path.startsWith('/inventory/items') ||
+    path.startsWith('/inventory/item-categories') ||
+    path.startsWith('/inventory/item-units') ||
+    path.startsWith('/inventory/units') ||
+    path.startsWith('/inventory/price-lists') ||
+    path.startsWith('/inventory/item-prices') ||
+    path.startsWith('/inventory/item-quantities') ||
+    path.startsWith('/inventory/item-order-limits') ||
+    path.startsWith('/inventory/clothing-matrix') ||
+    path.startsWith('/accounting/accounts') ||
+    path.startsWith('/accounting/cost-centers') ||
+    path.startsWith('/accounting/currencies')
+  );
+}
+
+/** Mutations: onboarding, first-time setup, and master catalogs only need company. */
 export function isMutationTenantReady(url: string, ctx: TenantContextSnapshot): boolean {
   const path = url.split('?')[0] ?? url;
   if (path === '/users/me' || path.startsWith('/users/me/')) return Boolean(ctx.companyId);
   if (isOnboardingApiPath(url)) return Boolean(ctx.companyId);
   if (isCompanyBootstrapApiPath(url)) return Boolean(ctx.companyId);
+  if (isMasterCatalogApiPath(url)) return Boolean(ctx.companyId);
   return Boolean(ctx.companyId && ctx.branchId && ctx.fiscalYearId);
 }
 

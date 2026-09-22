@@ -16,7 +16,11 @@ import { isSoftQueryFailure } from '../api/isAbortError';
 import { fetchApiQuery } from '../api/query-fetch';
 import { ApiResponse, QueryParams, ApiError } from '../api/types';
 import { useTenantContextReady, useCompanyContextReady } from './useTenantContextReady';
-import { getTenantContext, isMutationTenantReady } from '../tenant/tenant-context-storage';
+import {
+  getTenantContext,
+  isMasterCatalogApiPath,
+  isMutationTenantReady,
+} from '../tenant/tenant-context-storage';
 import { bumpMasterCatalog, isMasterCatalogKey } from '@/lib/query/master-catalog-sync';
 
 export type UseApiMutationExtraOptions = {
@@ -62,7 +66,10 @@ export function useApiQuery<T>(
 ) {
   const tenantReady = useTenantContextReady();
   const companyReady = useCompanyContextReady();
-  const requireFullTenant = options?.requireFullTenant !== false;
+  const requireFullTenant =
+    options?.requireFullTenant !== undefined
+      ? options.requireFullTenant
+      : !isMasterCatalogApiPath(url);
   const userEnabled = options?.enabled ?? true;
   const userRetry = options?.retry;
   const requestTimeout = options?.requestTimeout;
@@ -127,7 +134,9 @@ export function useApiMutation<TData = unknown, TVariables = unknown>(
       const ctx = getTenantContext();
       if (!isMutationTenantReady(url, ctx)) {
         throw Object.assign(
-          new Error('سياق الشركة/الفرع/السنة المالية غير جاهز بعد. انتظر لحظة ثم أعد المحاولة.'),
+          new Error(
+            'لا يمكن حفظ الحركة قبل تعريف سنة مالية مفتوحة. عرّف السنة من إعدادات الشركة ثم أعد المحاولة.'
+          ),
           { status: 'error' as const, code: '428' }
         ) as ApiError;
       }

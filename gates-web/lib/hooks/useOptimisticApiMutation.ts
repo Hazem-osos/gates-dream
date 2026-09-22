@@ -16,7 +16,9 @@ async function runApiMutation<TData, TVariables>(
   const ctx = getTenantContext();
   if (!isMutationTenantReady(url, ctx)) {
     throw Object.assign(
-      new Error('سياق الشركة/الفرع/السنة المالية غير جاهز بعد. انتظر لحظة ثم أعد المحاولة.'),
+      new Error(
+        'لا يمكن حفظ الحركة قبل تعريف سنة مالية مفتوحة. عرّف السنة من إعدادات الشركة ثم أعد المحاولة.'
+      ),
       { status: 'error' as const, code: '428' }
     ) as ApiError;
   }
