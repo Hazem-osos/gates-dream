@@ -1,7 +1,7 @@
 import { apiClient } from '@/lib/api/client';
 
 function usesCancelPost(apiPath: string): boolean {
-  return /cash-transaction|securities|invoice|treasury-receipt|receipt|issue|transfer|assembl|disassembl|opening-stock|price-quote|purchase-order|adjustment|stocktaking/i.test(
+  return /cash-transaction|securities|invoice|treasury-receipt|receipt|issue|assembl|disassembl|opening-stock|price-quote|purchase-order|adjustment|stocktaking/i.test(
     apiPath
   );
 }

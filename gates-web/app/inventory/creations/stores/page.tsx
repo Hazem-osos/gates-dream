@@ -11,8 +11,13 @@ import { DocumentBrowseDrawer } from '@/components/erp/DocumentBrowseDrawer';
 import { ErpDocumentLayout, ErpDocumentPageHeader } from '@/components/erp';
 import { DocumentModeProvider, useDocumentMode } from '@/components/common/document-shell';
 import { WarehousesListSection, asWarehouseRows, type WarehouseRow } from '@/components/inventory/WarehousesListSection';
+import { WarehouseParentField } from '@/components/inventory/WarehouseParentField';
+import { ChildWarehouseKindDialog } from '@/components/inventory/ChildWarehouseKindDialog';
+import { inheritWarehouseAccounts, type WarehouseKind } from '@/lib/inventory/warehouse-kind';
 import { AccountSelect } from '@/components/form/AccountSelect';
 import { useApiMutation, useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
+import { apiClient } from '@/lib/api/client';
+import { confirmAction } from '@/lib/feedback/confirm';
 import { isCodeAfter } from '@/lib/masters/nextNumericSerial';
 import { useAccountingSettingsQuery } from '@/lib/hooks/useAccountingSettings';
 import ErrorToast from '@/components/ErrorToast';
@@ -29,9 +34,6 @@ type WarehouseForm = {
   parentWarehouseId: string;
   inventoryAccountId: string;
   costAccountId: string;
-  giftAccountId: string;
-  address: string;
-  keeperName: string;
 };
 
 const emptyForm = (code = ''): WarehouseForm => ({
@@ -43,9 +45,6 @@ const emptyForm = (code = ''): WarehouseForm => ({
   parentWarehouseId: '',
   inventoryAccountId: '',
   costAccountId: '',
-  giftAccountId: '',
-  address: '',
-  keeperName: '',
 });
 
 function StoresPageInner() {
@@ -59,6 +58,7 @@ function StoresPageInner() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [showGuide, setShowGuide] = useState(false);
+  const [kindPickerParent, setKindPickerParent] = useState<{ id: string; label: string } | null>(null);
 
   const { data: warehousesRes } = useApiQuery<WarehouseRow[]>(
     ['warehouses', { page: 1, pageSize: 1000 }],
@@ -66,12 +66,6 @@ function StoresPageInner() {
     { limit: 1000, isActive: true }
   );
   const warehouses = useMemo(() => asWarehouseRows(warehousesRes?.data), [warehousesRes?.data]);
-  const parentDisplayName = useMemo(() => {
-    if (!formData.parentWarehouseId) return 'المخزن الأب';
-    const parent = warehouses.find((row) => row.id === formData.parentWarehouseId);
-    if (!parent) return 'المخزن الأب';
-    return parent.code ? `${parent.code} — ${parent.arabicName}` : parent.arabicName;
-  }, [formData.parentWarehouseId, warehouses]);
   const { data: settingsRes } = useAccountingSettingsQuery();
   const warehouseAuto = settingsRes?.data?.general?.warehouseAutoNumbering !== false;
   const parentForCode = formData.parentWarehouseId;
@@ -97,10 +91,7 @@ function StoresPageInner() {
     setFormData((prev) => (prev.arabicName ? prev : { ...prev, arabicName: quickCreate.prefillName }));
   }, [quickCreate.prefillName, selectedId]);
 
-  useEffect(() => {
-    if (!idFromUrl) return;
-    const row = warehouses.find((item) => item.id === idFromUrl);
-    if (!row) return;
+  const fillFromRow = (row: WarehouseRow) => {
     lockToView();
     setSelectedId(row.id);
     setFormData({
@@ -112,11 +103,22 @@ function StoresPageInner() {
       parentWarehouseId: row.parentWarehouseId ?? '',
       inventoryAccountId: row.inventoryAccountId ?? '',
       costAccountId: row.costAccountId ?? '',
-      giftAccountId: row.giftAccountId ?? '',
-      address: row.address ?? '',
-      keeperName: row.keeperName ?? '',
     });
-  }, [idFromUrl, warehouses, lockToView]);
+  };
+
+  const { data: warehouseByIdRes } = useApiQuery<WarehouseRow>(
+    ['warehouse', idFromUrl || 'none'],
+    idFromUrl ? `/inventory/warehouses/${idFromUrl}` : '/inventory/warehouses',
+    undefined,
+    { enabled: Boolean(idFromUrl) && !warehouses.some((row) => row.id === idFromUrl) }
+  );
+
+  useEffect(() => {
+    if (!idFromUrl) return;
+    const row = warehouses.find((item) => item.id === idFromUrl) ?? warehouseByIdRes?.data;
+    if (!row) return;
+    fillFromRow(row);
+  }, [idFromUrl, warehouses, warehouseByIdRes?.data, lockToView]);
 
   const createMutation = useApiMutation<unknown, Record<string, unknown>>(
     '/inventory/warehouses',
@@ -151,7 +153,8 @@ function StoresPageInner() {
     {
       onSuccess: () => {
         invalidateQuery(['warehouses']);
-        resetNew();
+        if (selectedId) invalidateQuery(['warehouse', selectedId]);
+        lockToView();
         setSuccess('تم تحديث المخزن');
       },
       onError: (err: ApiError) => {
@@ -162,6 +165,38 @@ function StoresPageInner() {
 
   const loading = createMutation.isPending || updateMutation.isPending;
   const patch = (next: Partial<WarehouseForm>) => setFormData((prev) => ({ ...prev, ...next }));
+
+  const applyParent = (parentId: string, warehouseKind?: WarehouseKind) => {
+    const inherited = inheritWarehouseAccounts(warehouses, parentId);
+    setFormData((prev) => ({
+      ...prev,
+      parentWarehouseId: parentId,
+      storeType: parentId ? 'SUB' : 'MAIN',
+      warehouseKind: parentId ? warehouseKind ?? (prev.warehouseKind === 'HEADER' ? 'HEADER' : 'POSTING') : 'HEADER',
+      inventoryAccountId: parentId ? prev.inventoryAccountId || inherited.inventoryAccountId : prev.inventoryAccountId,
+      costAccountId: parentId ? prev.costAccountId || inherited.costAccountId : prev.costAccountId,
+    }));
+  };
+
+  const handleParentChange = (parentId: string) => {
+    if (!parentId) {
+      applyParent('');
+      return;
+    }
+    if (!selectedId) {
+      const parent = warehouses.find((row) => row.id === parentId);
+      setKindPickerParent({
+        id: parentId,
+        label: parent
+          ? parent.code
+            ? `${parent.code} — ${parent.arabicName}`
+            : parent.arabicName
+          : 'المخزن الأب',
+      });
+      return;
+    }
+    applyParent(parentId);
+  };
 
   const requestBody = () => ({
     code: formData.code.trim() || undefined,
@@ -174,9 +209,6 @@ function StoresPageInner() {
     parentWarehouseId: formData.parentWarehouseId || null,
     inventoryAccountId: formData.inventoryAccountId || null,
     costAccountId: formData.costAccountId || null,
-    giftAccountId: formData.giftAccountId || null,
-    address: formData.address || null,
-    keeperName: formData.keeperName || null,
   });
 
   const resetNew = () => {
@@ -184,6 +216,21 @@ function StoresPageInner() {
     setFormData(emptyForm());
     setError('');
     setMode('create');
+  };
+
+  const handleDelete = async () => {
+    if (!selectedId) return;
+    if (!(await confirmAction('حذف بطاقة المخزن؟'))) return;
+    setError('');
+    try {
+      await apiClient.delete(`/inventory/warehouses/${selectedId}`);
+      resetNew();
+      setSuccess('تم حذف المخزن');
+      invalidateQuery(['warehouses']);
+      invalidateQuery(['warehouses', 'guide']);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'تعذر حذف المخزن');
+    }
   };
 
   const handleSave = async () => {
@@ -208,21 +255,7 @@ function StoresPageInner() {
   };
 
   const handleSelect = (row: WarehouseRow) => {
-    lockToView();
-    setSelectedId(row.id);
-    setFormData({
-      code: row.code ?? '',
-      arabicName: row.arabicName ?? '',
-      englishName: row.englishName ?? '',
-      storeType: row.storeType === 'SUB' || row.parentWarehouseId ? 'SUB' : 'MAIN',
-      warehouseKind: row.warehouseKind === 'POSTING' ? 'POSTING' : 'HEADER',
-      parentWarehouseId: row.parentWarehouseId ?? '',
-      inventoryAccountId: row.inventoryAccountId ?? '',
-      costAccountId: row.costAccountId ?? '',
-      giftAccountId: row.giftAccountId ?? '',
-      address: row.address ?? '',
-      keeperName: row.keeperName ?? '',
-    });
+    fillFromRow(row);
     setError('');
     setSuccess('');
     setShowGuide(false);
@@ -257,6 +290,22 @@ function StoresPageInner() {
         editDisabled={!selectedId}
         moreMenuItems={[
           { id: 'new', label: 'جديد', onClick: resetNew },
+          {
+            id: 'edit',
+            label: 'تعديل',
+            onClick: () => {
+              if (!selectedId) return;
+              unlockForEdit();
+            },
+            disabled: !selectedId || !isReadOnly,
+          },
+          {
+            id: 'delete',
+            label: 'حذف',
+            onClick: () => void handleDelete(),
+            disabled: !selectedId,
+            destructive: true,
+          },
         ]}
         onBrowseList={() => setShowGuide(true)}
         browseListLabel="السابق"
@@ -293,11 +342,14 @@ function StoresPageInner() {
           onChange={(e) => patch({ englishName: e.target.value })}
           placeholder="إدخل الإسم بالإنجليزي"
         />
-        <CompactFormField
-          label="المخزن الأب"
-          value={parentDisplayName}
-          disabled
-        />
+        <CompactFormField label="المخزن الأب">
+          <WarehouseParentField
+            value={formData.parentWarehouseId}
+            onChange={handleParentChange}
+            excludeIds={selectedId ? [selectedId] : undefined}
+            disabled={isReadOnly}
+          />
+        </CompactFormField>
         <CompactFormField
           label="حساب المخزون"
           hint={formData.parentWarehouseId ? 'متاخد من الأب — تقدر تغيّره' : undefined}
@@ -324,34 +376,22 @@ function StoresPageInner() {
             disabled={isReadOnly}
           />
         </CompactFormField>
-        <CompactFormField label="ح/الهدايا">
-          <AccountSelect
-            value={formData.giftAccountId}
-            onChange={(giftAccountId) => patch({ giftAccountId })}
-            leafOnly
-            placeholder="حساب الهدايا"
-            disabled={isReadOnly}
-          />
-        </CompactFormField>
-        <CompactFormField
-          label="العنوان"
-          value={formData.address}
-          disabled={isReadOnly}
-          onChange={(e) => patch({ address: e.target.value })}
-          placeholder="إدخل العنوان"
-        />
-        <CompactFormField
-          label="أمين المخزن"
-          value={formData.keeperName}
-          disabled={isReadOnly}
-          onChange={(e) => patch({ keeperName: e.target.value })}
-          placeholder="أمين المخزن"
-        />
       </FormSectionCard>
 
       <DocumentBrowseDrawer open={showGuide} onClose={() => setShowGuide(false)} title="دليل المخازن السابق">
         <WarehousesListSection onSelect={handleSelect} selectedId={selectedId} />
       </DocumentBrowseDrawer>
+
+      <ChildWarehouseKindDialog
+        open={Boolean(kindPickerParent)}
+        parentLabel={kindPickerParent?.label ?? ''}
+        onClose={() => setKindPickerParent(null)}
+        onPick={(kind) => {
+          if (!kindPickerParent) return;
+          applyParent(kindPickerParent.id, kind);
+          setKindPickerParent(null);
+        }}
+      />
     </ErpDocumentLayout>
   );
 }

@@ -24,14 +24,23 @@ export function formatApiErrorMessage(error: Error & Partial<ApiError>): string 
   const base = error.message?.trim() || 'حدث خطأ';
   let formatted = base;
 
-  if (base === 'Validation error' || base === 'Validation Error') {
+  const isGenericValidation =
+    base === 'Validation error' ||
+    base === 'Validation Error' ||
+    base.includes('راجع الحقول المعلّمة') ||
+    base.includes('راجع الخانات المعلمة') ||
+    base.includes('بعض الحقول غير صحيحة');
+  if (isGenericValidation) {
     const detail = firstValidationMessage(error.errors);
     if (!detail) formatted = 'يرجى التحقق من الحقول المدخلة';
     else if (/invalid email/i.test(detail)) formatted = 'البريد الإلكتروني غير صالح';
     else if (/avatar image is too large/i.test(detail))
       formatted = 'صورة الملف الشخصي كبيرة جداً — استخدم صورة أصغر من 2 ميجابايت';
     else if (/avatar must be/i.test(detail)) formatted = 'صيغة صورة الملف الشخصي غير مدعومة';
-    else formatted = detail;
+    else if (/invalid uuid|must be a valid uuid/i.test(detail)) formatted = 'قيمة غير صالحة في أحد الحقول — راجع العميل والمخزن وبنود الفاتورة';
+    else if (/expected number/i.test(detail)) formatted = 'أدخل رقماً صحيحاً في الكمية أو السعر';
+    else if (/required/i.test(detail)) formatted = 'أكمل الحقول المطلوبة ثم احفظ';
+    else formatted = /[\u0600-\u06FF]/.test(detail) ? detail : 'راجع البيانات المدخلة ثم احفظ';
   }
 
   const code = error.code ?? '';

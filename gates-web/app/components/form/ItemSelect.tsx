@@ -14,6 +14,7 @@ import { compactControlClass } from '@/components/ui/forms/formTokens';
 import { toast } from '@/lib/feedback/toast';
 import { findItemByBarcode } from '@/lib/inventory/findItemByBarcode';
 import { useOpenQuickCreateTab } from '@/lib/quick-create/useQuickCreateTab';
+import { apiClient } from '@/lib/api/client';
 
 const selectCls = compactControlClass;
 
@@ -74,6 +75,22 @@ function ItemSelectInner({
   );
   const items = data?.data ?? [];
   const [pinnedItem, setPinnedItem] = useState<ItemOption | QuickCreatedItem | null>(null);
+
+  useEffect(() => {
+    if (!value) return;
+    let cancelled = false;
+    void apiClient
+      .get<ItemOption>(`/inventory/items/${value}`, undefined, { skipErrorNotify: true })
+      .then((res) => {
+        const row = res.data;
+        if (cancelled || !row?.id) return;
+        setPinnedItem(row);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [value]);
 
   const mergedItems = useMemo(() => {
     if (pinnedItem && !items.some((it) => it.id === pinnedItem.id)) {

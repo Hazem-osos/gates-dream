@@ -34,7 +34,7 @@ export class ClothingMatrixService {
   async removeColor(companyId: string, id: string) {
     const existing = await prisma.clothingColor.findFirst({ where: { id, companyId } });
     if (!existing) throw new Error('Color not found');
-    await prisma.clothingColor.update({ where: { id }, data: { isActive: false } });
+    await prisma.clothingColor.delete({ where: { id } });
     return { success: true };
   }
 
@@ -64,7 +64,7 @@ export class ClothingMatrixService {
   async removeSize(companyId: string, id: string) {
     const existing = await prisma.clothingSize.findFirst({ where: { id, companyId } });
     if (!existing) throw new Error('Size not found');
-    await prisma.clothingSize.update({ where: { id }, data: { isActive: false } });
+    await prisma.clothingSize.delete({ where: { id } });
     return { success: true };
   }
 

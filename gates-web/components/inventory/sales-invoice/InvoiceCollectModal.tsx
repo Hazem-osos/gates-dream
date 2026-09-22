@@ -18,6 +18,7 @@ type Props = {
   safes: Safe[];
   defaultSafeId?: string;
   pending?: boolean;
+  mode?: 'collect' | 'pay';
   onClose: () => void;
   onConfirm: (payload: InvoiceCollectPayload) => void;
 };
@@ -32,9 +33,30 @@ export function InvoiceCollectModal({
   safes,
   defaultSafeId,
   pending,
+  mode = 'collect',
   onClose,
   onConfirm,
 }: Props) {
+  const pay = mode === 'pay';
+  const copy = pay
+    ? {
+        title: 'سداد الفاتورة',
+        leftover: 'بعد هذا السداد سيبقى على الفاتورة',
+        amount: 'المبلغ المراد سداده',
+        pending: 'جاري السداد…',
+        partial: 'سداد جزئي',
+        full: 'سداد كامل',
+        amountError: 'أدخل مبلغ سداد أكبر من صفر',
+      }
+    : {
+        title: 'تحصيل الفاتورة',
+        leftover: 'بعد هذا التحصيل سيبقى على الفاتورة',
+        amount: 'المبلغ المراد تحصيله',
+        pending: 'جاري التحصيل…',
+        partial: 'تحصيل جزئي',
+        full: 'تحصيل كامل',
+        amountError: 'أدخل مبلغ تحصيل أكبر من صفر',
+      };
   const [amount, setAmount] = useState(String(remaining));
   const [safeId, setSafeId] = useState(defaultSafeId ?? '');
   const [date, setDate] = useState(todayIsoDate);
@@ -55,7 +77,7 @@ export function InvoiceCollectModal({
   const submit = () => {
     const parsed = Number(amount);
     if (!Number.isFinite(parsed) || parsed <= 0) {
-      setError('أدخل مبلغ تحصيل أكبر من صفر');
+      setError(copy.amountError);
       return;
     }
     if (parsed > remaining + 0.0001) {
@@ -87,7 +109,7 @@ export function InvoiceCollectModal({
     >
       <div className="w-full max-w-md rounded-2xl border border-[#E6F0F7] bg-white p-6 shadow-2xl">
         <h2 id="invoice-collect-title" className="mb-1 text-lg font-bold text-[#0A3D5E]">
-          تحصيل الفاتورة
+          {copy.title}
         </h2>
         <p className="mb-4 text-sm text-slate-600">
           المتبقي:{' '}
@@ -97,7 +119,7 @@ export function InvoiceCollectModal({
 
         <div className="space-y-3">
           <label className="block">
-            <span className="mb-1 block text-xs font-semibold text-[#094C6B]">المبلغ المراد تحصيله</span>
+            <span className="mb-1 block text-xs font-semibold text-[#094C6B]">{copy.amount}</span>
             <input
               type="number"
               min={0.01}
@@ -141,7 +163,7 @@ export function InvoiceCollectModal({
         </div>
 
         <p className="mt-3 text-xs text-slate-500">
-          بعد هذا التحصيل سيبقى على الفاتورة:{' '}
+          {copy.leftover}:{' '}
           <strong>{leftover.toLocaleString('ar-EG', { minimumFractionDigits: 2 })} ج.م</strong>
         </p>
         {error ? <p className="mt-2 text-sm text-red-600">{error}</p> : null}
@@ -161,7 +183,7 @@ export function InvoiceCollectModal({
             onClick={submit}
             disabled={pending}
           >
-            {pending ? 'جاري التحصيل…' : leftover > 0 ? 'تحصيل جزئي' : 'تحصيل كامل'}
+            {pending ? copy.pending : leftover > 0 ? copy.partial : copy.full}
           </button>
         </div>
       </div>

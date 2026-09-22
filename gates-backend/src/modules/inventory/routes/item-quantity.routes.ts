@@ -17,7 +17,7 @@ router.use(setTenantContext);
  */
 router.get(
   '/item/:itemId',
-  authorize({ resource: 'item-quantity', action: 'view' }),
+  authorize({ resource: 'item', action: 'view' }),
   async (req: AuthRequest, res: Response) => {
     try {
       const companyId = req.companyId || req.tenantId;
@@ -61,7 +61,7 @@ router.get(
  */
 router.get(
   '/item/:itemId/total',
-  authorize({ resource: 'item-quantity', action: 'view' }),
+  authorize({ resource: 'item', action: 'view' }),
   async (req: AuthRequest, res: Response) => {
     try {
       const companyId = req.companyId || req.tenantId;
@@ -104,7 +104,7 @@ router.get(
  */
 router.get(
   '/warehouse/:warehouseId',
-  authorize({ resource: 'item-quantity', action: 'view' }),
+  authorize({ resource: 'item', action: 'view' }),
   async (req: AuthRequest, res: Response) => {
     try {
       const companyId = req.companyId || req.tenantId;
@@ -150,7 +150,7 @@ router.get(
  */
 router.get(
   '/item/:itemId/warehouse/:warehouseId',
-  authorize({ resource: 'item-quantity', action: 'view' }),
+  authorize({ resource: 'item', action: 'view' }),
   async (req: AuthRequest, res: Response) => {
     try {
       const companyId = req.companyId || req.tenantId;

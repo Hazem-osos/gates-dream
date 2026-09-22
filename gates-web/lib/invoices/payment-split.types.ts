@@ -47,6 +47,26 @@ export function splitsMatchTotal(lines: PaymentSplitLine[], grandTotal: number):
   return Math.abs(sumPaymentSplits(lines) - grandTotal) < 0.0001;
 }
 
+function money(n: number): string {
+  return n.toLocaleString('ar-EG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+/** Compact Arabic mix: نقدي + بنك + N شيك. */
+export function summarizePaymentSplits(lines: PaymentSplitLine[] | undefined): string {
+  const rows = Array.isArray(lines) ? lines : [];
+  const cash = sumPaymentSplits(rows.filter((line) => line.type === 'CASH'));
+  const bank = sumPaymentSplits(rows.filter((line) => line.type === 'BANK'));
+  const cheques = rows.filter((line) => line.type === 'CHEQUE');
+  const chequeSum = sumPaymentSplits(cheques);
+  const onAccount = sumPaymentSplits(rows.filter((line) => line.type === 'ON_ACCOUNT'));
+  const parts: string[] = [];
+  if (cash > 0.009) parts.push(`نقدي ${money(cash)}`);
+  if (bank > 0.009) parts.push(`بنك ${money(bank)}`);
+  if (cheques.length) parts.push(`${cheques.length > 1 ? `${cheques.length} شيكات` : 'شيك'} ${money(chequeSum)}`);
+  if (onAccount > 0.009) parts.push(`آجل ${money(onAccount)}`);
+  return parts.join(' · ');
+}
+
 /** Keep cash/bank/cheque lines and refill the deferred remainder so the split always covers the invoice. */
 export function withOnAccountRemainder(lines: PaymentSplitLine[], grandTotal: number): PaymentSplitLine[] {
   const allocated = lines.filter(
@@ -85,6 +105,9 @@ export function resolveInvoicePaymentUi(
   const pm = String(paymentMethod ?? '').trim().toLowerCase();
   if (pm === 'cash' || pm === 'نقدي') {
     return { method: 'cash', splits: raw };
+  }
+  if (pm === 'credit' || pm === 'آجل' || pm === 'دفع قبل أجل') {
+    return { method: 'credit', splits: withOnAccountRemainder(raw, grandTotal) };
   }
   const splits = withOnAccountRemainder(raw, grandTotal);
   if (pm === 'split' && isComplexPaymentSplit(splits)) {

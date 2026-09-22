@@ -1126,7 +1126,20 @@ export class InvoiceM5Service {
     const row = await prisma.invoice.findFirst({
       where: { id, companyId },
       include: {
-        lines: { orderBy: { lineOrder: 'asc' } },
+        lines: {
+          orderBy: { lineOrder: 'asc' },
+          include: {
+            item: {
+              select: {
+                id: true,
+                arabicName: true,
+                serial: true,
+                barcode: true,
+                categoryId: true,
+              },
+            },
+          },
+        },
         conditions: true,
         customer: {
           select: {
@@ -1190,6 +1203,7 @@ export class InvoiceM5Service {
       /** Wave 5 fix: restrict to invoices with a positive remaining balance. */
       openOnly?: boolean;
       profileId?: string;
+      includeCancelled?: boolean;
       branchId?: string;
       /** Legacy `UserBranchesCond` — see `shared/auth/branch-scope.ts`. */
       permittedBranchIds?: string[] | null;
@@ -1206,8 +1220,11 @@ export class InvoiceM5Service {
     if (opts.isPosted !== undefined) where.isPosted = opts.isPosted;
     if (opts.customerId) where.customerId = opts.customerId;
     if (opts.supplierId) where.supplierId = opts.supplierId;
-    if (opts.openOnly) {
+    // Draft "delete" is a cancel. السابق must not bring those rows back.
+    if (opts.includeCancelled !== true) {
       where.isCancelled = false;
+    }
+    if (opts.openOnly) {
       where.remainingAmount = { gt: 0 };
     }
     if (opts.search) {

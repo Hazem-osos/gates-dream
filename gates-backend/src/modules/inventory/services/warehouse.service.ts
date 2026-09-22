@@ -112,14 +112,24 @@ async function assertWarehouseIdle(companyId: string, warehouseId: string) {
     childrenCount,
     stockRows,
     movementCount,
-    defaultBranch,
     invoiceCount,
+    invoiceLineCount,
     receiptCount,
     issueCount,
     transferCount,
+    adjustmentCount,
+    openingStockCount,
+    stocktakingCount,
+    purchaseOrderCount,
+    purchaseReturnCount,
+    priceQuoteCount,
+    assemblyCount,
+    disassemblyCount,
+    posTerminalCount,
+    productionCount,
   ] = await Promise.all([
     prisma.warehouse.count({
-      where: { companyId, parentWarehouseId: warehouseId },
+      where: { companyId, parentWarehouseId: warehouseId, isActive: true },
     }),
     prisma.itemWarehouseBalance.count({
       where: {
@@ -131,17 +141,29 @@ async function assertWarehouseIdle(companyId: string, warehouseId: string) {
     prisma.inventoryMovement.count({
       where: { companyId, warehouseId },
     }),
-    prisma.branch.findFirst({
-      where: { companyId, defaultWarehouseId: warehouseId },
-      select: { id: true, arabicName: true },
-    }),
     prisma.invoice.count({ where: { companyId, warehouseId } }),
+    prisma.invoiceLine.count({ where: { warehouseId } }),
     prisma.receipt.count({ where: { companyId, warehouseId } }),
     prisma.issue.count({ where: { companyId, warehouseId } }),
     prisma.transfer.count({
       where: {
         companyId,
         OR: [{ fromWarehouseId: warehouseId }, { toWarehouseId: warehouseId }],
+      },
+    }),
+    prisma.adjustment.count({ where: { companyId, warehouseId } }),
+    prisma.openingStockLine.count({ where: { warehouseId } }),
+    prisma.stocktaking.count({ where: { companyId, warehouseId } }),
+    prisma.purchaseOrder.count({ where: { companyId, warehouseId } }),
+    prisma.purchaseReturn.count({ where: { companyId, warehouseId } }),
+    prisma.priceQuote.count({ where: { companyId, warehouseId } }),
+    prisma.assembly.count({ where: { companyId, warehouseId } }),
+    prisma.disassembly.count({ where: { companyId, warehouseId } }),
+    prisma.posTerminal.count({ where: { companyId, warehouseId } }),
+    prisma.productionOrder.count({
+      where: {
+        companyId,
+        OR: [{ warehouseIdRaw: warehouseId }, { warehouseIdFinished: warehouseId }],
       },
     }),
   ]);
@@ -158,18 +180,60 @@ async function assertWarehouseIdle(companyId: string, warehouseId: string) {
       'لا يمكن حذف المخزن لأن عليه رصيد أو حركات مخزنية. سوِّ الرصيد أو انقل الحركات أولاً.'
     );
   }
-  if (invoiceCount + receiptCount + issueCount + transferCount > 0) {
+  if (
+    invoiceCount +
+      invoiceLineCount +
+      receiptCount +
+      issueCount +
+      transferCount +
+      adjustmentCount +
+      openingStockCount +
+      stocktakingCount +
+      purchaseOrderCount +
+      purchaseReturnCount +
+      priceQuoteCount +
+      assemblyCount +
+      disassemblyCount >
+    0
+  ) {
     throw new AppError(
       409,
       'لا يمكن حذف المخزن لأنه مستخدم في فواتير أو أذون أو تحويلات.'
     );
   }
-  if (defaultBranch) {
-    throw new AppError(
-      409,
-      `لا يمكن حذف المخزن لأنه المخزن الافتراضي للفرع «${defaultBranch.arabicName}».`
-    );
+  if (posTerminalCount > 0) {
+    throw new AppError(409, 'لا يمكن حذف المخزن لأنه مربوط بنقطة بيع.');
   }
+  if (productionCount > 0) {
+    throw new AppError(409, 'لا يمكن حذف المخزن لأنه مستخدم في أوامر تشغيل.');
+  }
+}
+
+async function detachWarehousePointers(
+  tx: Parameters<Parameters<typeof prisma.$transaction>[0]>[0],
+  companyId: string,
+  warehouseId: string
+) {
+  await tx.branch.updateMany({
+    where: { companyId, defaultWarehouseId: warehouseId },
+    data: { defaultWarehouseId: null },
+  });
+  await tx.transactionSettings.updateMany({
+    where: { companyId, defaultWarehouseId: warehouseId },
+    data: { defaultWarehouseId: null },
+  });
+  await tx.documentProfile.updateMany({
+    where: { companyId, defaultWarehouseId: warehouseId },
+    data: { defaultWarehouseId: null },
+  });
+  await tx.item.updateMany({
+    where: { companyId, defaultWarehouseId: warehouseId },
+    data: { defaultWarehouseId: null },
+  });
+  await tx.itemOrderLimitList.deleteMany({ where: { companyId, warehouseId } });
+  await tx.itemQuantity.deleteMany({ where: { warehouseId } });
+  await tx.itemWarehouseBalance.deleteMany({ where: { companyId, warehouseId } });
+  await tx.location.deleteMany({ where: { warehouseId } });
 }
 
 function warehouseLabel(row: { code?: string | null; arabicName: string }) {
@@ -612,8 +676,21 @@ export class WarehouseService {
       await assertWarehouseIdle(companyId, warehouseId);
 
       try {
-        await prisma.warehouse.delete({ where: { id: warehouseId } });
+        await prisma.$transaction(async (tx) => {
+          const idleChildren = await tx.warehouse.findMany({
+            where: { companyId, parentWarehouseId: warehouseId, isActive: false },
+            select: { id: true },
+          });
+          for (const child of idleChildren) {
+            await assertWarehouseIdle(companyId, child.id);
+            await detachWarehousePointers(tx, companyId, child.id);
+            await tx.warehouse.delete({ where: { id: child.id } });
+          }
+          await detachWarehousePointers(tx, companyId, warehouseId);
+          await tx.warehouse.delete({ where: { id: warehouseId } });
+        });
       } catch (error) {
+        if (error instanceof AppError) throw error;
         const code =
           error && typeof error === 'object' && 'code' in error
             ? String((error as { code?: string }).code)

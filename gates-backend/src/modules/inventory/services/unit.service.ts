@@ -183,7 +183,7 @@ export class UnitService {
   }
 
   /**
-   * Delete unit (soft delete)
+   * Permanent delete
    */
   async deleteUnit(companyId: string, unitId: string) {
     try {
@@ -205,12 +205,20 @@ export class UnitService {
         );
       }
 
-      await prisma.unit.update({
-        where: { id: unitId },
-        data: { isActive: false },
-      });
+      try {
+        await prisma.unit.delete({ where: { id: unitId } });
+      } catch (error) {
+        const code =
+          error && typeof error === 'object' && 'code' in error
+            ? String((error as { code?: string }).code)
+            : '';
+        if (code === 'P2003' || code === 'P2014') {
+          throw new AppError(409, 'لا يمكن حذف الوحدة لأنها مرتبطة ببيانات أخرى.');
+        }
+        throw error;
+      }
 
-      logger.info({ companyId, unitId }, 'Unit deleted');
+      logger.info({ companyId, unitId }, 'Unit permanently deleted');
       return { success: true };
     } catch (error) {
       logger.error({ error, companyId, unitId }, 'Error deleting unit');

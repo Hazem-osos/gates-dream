@@ -154,6 +154,7 @@ export function SalesOrderForm() {
     setPaymentTerms(payload.paymentTerms);
     setLines(payload.lines?.length ? payload.lines : [emptyCommercialLine()]);
   }, []);
+  const skipServerHydrateRef = useRef(false);
   const {
     restoreOffer,
     acceptRestore,
@@ -162,8 +163,13 @@ export function SalesOrderForm() {
   } = useDraftAutosave({
     documentType: 'sales-order',
     value: salesOrderDraft,
-    enabled: !selectedId,
-    applyRestore: applySalesOrderDraft,
+    mode: selectedId ? 'edit' : 'new',
+    documentId: selectedId,
+    enabled: true,
+    applyRestore: (payload) => {
+      skipServerHydrateRef.current = true;
+      applySalesOrderDraft(payload);
+    },
     isEmpty: (draft) =>
       !draft.customerId?.trim() &&
       !draft.description?.trim() &&
@@ -228,6 +234,10 @@ export function SalesOrderForm() {
   }, [currencies, currencyId]);
 
   useEffect(() => {
+    if (skipServerHydrateRef.current) {
+      skipServerHydrateRef.current = false;
+      return;
+    }
     if (!loaded || !selectedId) return;
     setOrderNumber(loaded.invoiceNumber || '');
     setDescription(String(loaded.description || '').replace(/^\[أمر بيع\]\s*/, ''));

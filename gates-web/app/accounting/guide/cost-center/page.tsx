@@ -294,6 +294,7 @@ export default function CostCentersGuidePage() {
                 childNoun="مراكز فرعية"
                 onAddChild={openCreateChild}
                 canAddChild={(n) => Boolean(n.folder)}
+                onView={openEdit}
                 onEdit={openEdit}
                 onDelete={(n) => void handleDelete(n)}
               />

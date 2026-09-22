@@ -103,11 +103,11 @@ export function useDraftAutosave<T>(config: UseDraftAutosaveConfig<T>) {
     }
   }, []);
 
-  const persistNow = useCallback((payload: T) => {
+  const persistNow = useCallback((payload: T, force = false) => {
     probeCount('persistNow');
     if (clearedRef.current) return false;
     if (!enabledRef.current) return false;
-    if (isEmptyRef.current?.(payload)) return false;
+    if (!force && isEmptyRef.current?.(payload)) return false;
     writeSeqRef.current += 1;
     const meta = metaRef.current;
     const savedAt = writeDraft(keyRef.current, payload, {
@@ -150,28 +150,30 @@ export function useDraftAutosave<T>(config: UseDraftAutosaveConfig<T>) {
     if (restoredKeyRef.current === storageKey) return;
     const parsed = readDraft<T>(storageKey);
     if (!parsed?.payload) return;
-    if (isEmptyRef.current?.(parsed.payload)) {
+    const fromQc = consumeQcReturn(homePath);
+    if (!fromQc && isEmptyRef.current?.(parsed.payload)) {
       removeDraft(storageKey);
       restoredKeyRef.current = storageKey;
       return;
     }
-    if (/(?:^|&)(id|invoiceId|fromInvoice|orderId|quoteId)=/i.test(recalledTabSearch(homePath))) {
+    if (
+      !fromQc &&
+      /(?:^|&)(id|invoiceId|fromInvoice|orderId|quoteId)=/i.test(recalledTabSearch(homePath))
+    ) {
       restoredKeyRef.current = storageKey;
       return;
     }
-    if (isEmptyRef.current && !isEmptyRef.current(valueRef.current)) {
+    if (!fromQc && isEmptyRef.current && !isEmptyRef.current(valueRef.current)) {
       restoredKeyRef.current = storageKey;
       return;
     }
 
-    consumeQcReturn(homePath);
     restoredKeyRef.current = storageKey;
 
     const announce = restoreMessageRef.current || 'يوجد مسودة غير محفوظة على هذه الصفحة';
-    if (shouldAutoRestoreDraft(parsed, companyId) && applyRestoreRef.current) {
+    if ((fromQc || shouldAutoRestoreDraft(parsed, companyId)) && applyRestoreRef.current) {
       skipNextSave.current = true;
       applyRestoreRef.current(parsed.payload);
-      toast.success(announce, { id: 'gates-page-draft', duration: 6000 });
       return;
     }
 
@@ -182,7 +184,7 @@ export function useDraftAutosave<T>(config: UseDraftAutosaveConfig<T>) {
   useEffect(() => {
     const becameActive = isActive && !wasActiveRef.current;
     if (wasActiveRef.current && !isActive && enabledRef.current) {
-      persistNow(valueRef.current);
+      persistNow(valueRef.current, true);
     }
     wasActiveRef.current = isActive;
     if (becameActive) getDraftSessionId();
@@ -191,7 +193,7 @@ export function useDraftAutosave<T>(config: UseDraftAutosaveConfig<T>) {
   useEffect(() => {
     const onFlush = () => {
       if (!enabledRef.current || !isActiveRef.current) return;
-      persistNow(valueRef.current);
+      persistNow(valueRef.current, true);
     };
     window.addEventListener(FLUSH_DRAFTS_EVENT, onFlush);
     const onHide = () => {
@@ -204,7 +206,7 @@ export function useDraftAutosave<T>(config: UseDraftAutosaveConfig<T>) {
       document.removeEventListener('visibilitychange', onHide);
       window.removeEventListener('pagehide', onFlush);
       if (enabledRef.current && !clearedRef.current) {
-        persistNow(valueRef.current);
+        persistNow(valueRef.current, true);
       }
     };
   }, [persistNow]);

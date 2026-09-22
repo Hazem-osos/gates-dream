@@ -1,10 +1,11 @@
 import { z } from 'zod';
 
-const optionalUuid = z.string().uuid().optional().nullable();
+const emptyToNull = (value: unknown) => (value === '' || value === undefined ? null : value);
+const optionalUuid = z.preprocess(emptyToNull, z.string().uuid().optional().nullable());
 
 export const createWarehouseSchema = z.object({
   code: z.string().optional(),
-  arabicName: z.string().min(1, 'Arabic name is required'),
+  arabicName: z.string().min(1, 'يرجى إدخال اسم المخزن'),
   englishName: z.string().optional(),
   branchId: optionalUuid,
   storeType: z.enum(['MAIN', 'SUB']).optional().nullable(),

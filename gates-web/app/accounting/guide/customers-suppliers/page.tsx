@@ -89,6 +89,7 @@ export default function CustomersSuppliersGuidePage() {
       code: group.code || group.legacyCode || '—',
       name: group.arabicName,
       groupKey: group.id,
+      synthetic: false,
       children: leavesIn(group.id),
     }));
 
@@ -99,6 +100,7 @@ export default function CustomersSuppliersGuidePage() {
         code: '—',
         name: 'بدون مجموعة',
         groupKey: '',
+        synthetic: true,
         children: ungrouped,
       });
     }
@@ -249,6 +251,7 @@ export default function CustomersSuppliersGuidePage() {
             childNoun={isCustomers ? 'عملاء' : 'موردين'}
             onAddChild={startAdd}
             canAddChild={(n) => Boolean(n.folder || n.synthetic)}
+            onView={openEdit}
             onEdit={openEdit}
             onDelete={(n) => void handleDelete(n)}
           />

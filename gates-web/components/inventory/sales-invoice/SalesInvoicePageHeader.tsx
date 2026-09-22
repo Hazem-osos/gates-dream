@@ -54,6 +54,7 @@ type Props = {
   onDelete: () => void;
   onOpenJournal: () => void;
   onCollectPayment: () => void;
+  onLinkAdvance?: () => void;
   onPaymentHistory: () => void;
   onCreateReturn?: () => void;
   onDuplicate?: () => void;
@@ -96,6 +97,7 @@ export function SalesInvoicePageHeader(props: Props) {
     onDelete,
     onOpenJournal,
     onCollectPayment,
+    onLinkAdvance,
     onPaymentHistory,
     onCreateReturn,
     onDuplicate,
@@ -184,6 +186,7 @@ export function SalesInvoicePageHeader(props: Props) {
       disabled: !onDuplicate || duplicatePending,
     },
     { id: 'collect', label: 'تحصيل / قبض', onClick: onCollectPayment },
+    { id: 'link-advance', label: 'ربط دفعة مقدمة', onClick: onLinkAdvance ?? (() => {}) },
     { id: 'history', label: 'تحصيلات سابقة', onClick: onPaymentHistory },
     { id: 'journal', label: 'فتح القيد المحاسبي', onClick: onOpenJournal },
     {

@@ -193,6 +193,98 @@ router.get(
 );
 
 /**
+ * PUT /api/v1/inventory/transfers/:id
+ * Replace a draft transfer
+ */
+router.put(
+  '/:id',
+  authorize({ resource: 'invoice', action: 'edit' }),
+  validate({ body: createTransferSchema }),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const companyId = req.companyId || req.tenantId;
+      if (!companyId) {
+        return void res.status(400).json({
+          status: 'error',
+          message: 'Company ID is required',
+        });
+      }
+
+      const transfer = await transferService.updateTransfer(companyId, req.params.id, {
+        companyId,
+        branchId: req.body.branchId || req.branchId || undefined,
+        description: req.body.description,
+        serial: req.body.serial,
+        date: req.body.date,
+        fromWarehouseId: req.body.fromWarehouseId,
+        toWarehouseId: req.body.toWarehouseId,
+        fromCostCenterId: req.body.fromCostCenterId || undefined,
+        toCostCenterId: req.body.toCostCenterId || undefined,
+        lines: req.body.lines,
+      });
+
+      return void res.json({
+        status: 'success',
+        message: 'Transfer updated successfully',
+        data: transfer,
+      });
+    } catch (error) {
+      logger.error({ error }, 'Error updating transfer');
+      const status =
+        error instanceof Error &&
+        (error.message === 'Transfer not found' ||
+          error.message.includes('Cannot') ||
+          error.message.includes('cannot be the same') ||
+          error.message.includes('not found'))
+          ? 400
+          : 500;
+      return void res.status(status).json({
+        status: 'error',
+        message: error instanceof Error ? error.message : 'Failed to update transfer',
+      });
+    }
+  }
+);
+
+/**
+ * DELETE /api/v1/inventory/transfers/:id
+ * Hard-delete an unposted transfer
+ */
+router.delete(
+  '/:id',
+  authorize({ resource: 'invoice', action: 'edit' }),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const companyId = req.companyId || req.tenantId;
+      if (!companyId) {
+        return void res.status(400).json({
+          status: 'error',
+          message: 'Company ID is required',
+        });
+      }
+
+      await transferService.deleteTransfer(companyId, req.params.id);
+
+      return void res.json({
+        status: 'success',
+        message: 'Transfer deleted successfully',
+      });
+    } catch (error) {
+      logger.error({ error }, 'Error deleting transfer');
+      const status =
+        error instanceof Error &&
+        (error.message === 'Transfer not found' || error.message.includes('Cannot'))
+          ? 400
+          : 500;
+      return void res.status(status).json({
+        status: 'error',
+        message: error instanceof Error ? error.message : 'Failed to delete transfer',
+      });
+    }
+  }
+);
+
+/**
  * POST /api/v1/inventory/transfers/:id/post
  * Post transfer (move quantities between warehouses)
  */

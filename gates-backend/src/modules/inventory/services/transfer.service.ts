@@ -288,6 +288,96 @@ export class TransferService {
   }
 
   /**
+   * Replace a draft transfer (header + lines). Posted documents must be unposted first.
+   */
+  async updateTransfer(companyId: string, transferId: string, data: CreateTransferData) {
+    const existing = await prisma.transfer.findFirst({
+      where: { id: transferId, companyId },
+    });
+    if (!existing) {
+      throw new Error('Transfer not found');
+    }
+    if (existing.isPosted) {
+      throw new Error('Cannot edit a posted transfer');
+    }
+    if (existing.isCancelled) {
+      throw new Error('Cannot edit a cancelled transfer');
+    }
+
+    await assertWarehouseActive(companyId, data.fromWarehouseId, { label: 'مخزن الصرف' });
+    await assertWarehouseActive(companyId, data.toWarehouseId, { label: 'مخزن الإضافة' });
+    if (data.fromWarehouseId === data.toWarehouseId) {
+      throw new Error('Source and destination warehouses cannot be the same');
+    }
+
+    const itemIds = data.lines.map((line) => line.itemId);
+    const items = await prisma.item.findMany({
+      where: { id: { in: itemIds }, companyId },
+    });
+    if (items.length !== itemIds.length) {
+      throw new Error('One or more items not found or do not belong to company');
+    }
+
+    const totalAmount = data.lines.reduce(
+      (sum, line) => sum + (line.total || line.quantity * (line.unitPrice || 0)),
+      0
+    );
+
+    await prisma.$transaction(async (tx) => {
+      await tx.transferLine.deleteMany({ where: { transferId } });
+      await tx.transfer.update({
+        where: { id: transferId },
+        data: {
+          branchId: data.branchId || existing.branchId,
+          description: data.description || null,
+          serial: data.serial || existing.serial,
+          date: new Date(data.date),
+          fromWarehouseId: data.fromWarehouseId,
+          toWarehouseId: data.toWarehouseId,
+          fromCostCenterId: data.fromCostCenterId || null,
+          toCostCenterId: data.toCostCenterId || null,
+          totalAmount,
+        },
+      });
+      const lineRows = data.lines.map((lineData) => {
+        const unitPrice = lineData.unitPrice || 0;
+        const total = lineData.total || lineData.quantity * unitPrice;
+        return {
+          transferId,
+          itemId: lineData.itemId,
+          fromLocationId: lineData.fromLocationId || null,
+          toLocationId: lineData.toLocationId || null,
+          quantity: lineData.quantity,
+          unitPrice,
+          total,
+        };
+      });
+      await bulkCreateMany((args) => tx.transferLine.createMany(args), lineRows);
+    });
+
+    return this.getTransferById(companyId, transferId);
+  }
+
+  /**
+   * Hard-delete an unposted transfer.
+   */
+  async deleteTransfer(companyId: string, transferId: string) {
+    const existing = await prisma.transfer.findFirst({
+      where: { id: transferId, companyId },
+    });
+    if (!existing) {
+      throw new Error('Transfer not found');
+    }
+    if (existing.isPosted) {
+      throw new Error('Cannot delete posted transfer. Unpost it first.');
+    }
+
+    await prisma.transfer.delete({ where: { id: transferId } });
+    logger.info({ companyId, transferId }, 'Transfer deleted');
+    return { success: true };
+  }
+
+  /**
    * List transfer entries
    */
   async listTransfers(

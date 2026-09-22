@@ -14,15 +14,9 @@ import { erpTableHeadCellClass, erpTableHeadRowClass } from '@/components/erp/er
 import { formatInvoiceMoney } from '@/lib/invoices/computeInvoiceFinancialSummary';
 import { CalculationInspector } from '@/components/ai/CalculationInspector';
 import { currencyDisplayLabel } from '@/lib/accounting/fx-base';
+import { InvoiceSettlementsHistory } from '@/components/invoices/InvoiceSettlementsHistory';
+import type { InvoiceCashSettlement, InvoiceChequeSettlement } from '@/lib/invoices/invoice-settlements';
 
-type SettlementRow = {
-  id: string;
-  transactionKind: string;
-  voucherNumber?: string | null;
-  date: string;
-  amount: number | string;
-  journalEntryId?: string | null;
-};
 
 type Props = {
   summary: SummaryModel;
@@ -32,7 +26,10 @@ type Props = {
   journalEntryId?: string | null;
   selectedInvoiceId: string | null;
   isPosted: boolean;
-  settlements?: SettlementRow[];
+  settlements?: InvoiceCashSettlement[];
+  cheques?: InvoiceChequeSettlement[];
+  paidAmount?: number;
+  remainingAmount?: number;
   auditExtra?: ReactNode;
   termsAction?: ReactNode;
   activeTabId?: string;
@@ -50,6 +47,9 @@ export function SalesInvoiceBottomSplit({
   selectedInvoiceId,
   isPosted,
   settlements = [],
+  cheques = [],
+  paidAmount,
+  remainingAmount,
   auditExtra,
   termsAction,
   activeTabId,
@@ -95,31 +95,16 @@ export function SalesInvoiceBottomSplit({
     </table>
   );
 
-  const settlementsContent =
-    settlements.length === 0 ? (
-      <p className="text-slate-500 p-2">لا توجد تحصيلات مسجلة على هذه الفاتورة.</p>
-    ) : (
-      <table className="w-full text-sm">
-        <thead>
-          <tr className={erpTableHeadRowClass}>
-            <th className={erpTableHeadCellClass}>رقم</th>
-            <th className={erpTableHeadCellClass}>نوع</th>
-            <th className={erpTableHeadCellClass}>المبلغ</th>
-            <th className={erpTableHeadCellClass}>التاريخ</th>
-          </tr>
-        </thead>
-        <tbody>
-          {settlements.map((s) => (
-            <tr key={s.id} className="border-b border-slate-100">
-              <td className="py-2">{s.voucherNumber || s.id.slice(0, 8)}</td>
-              <td className="py-2">{s.transactionKind === 'RECEIPT' ? 'قبض' : 'صرف'}</td>
-              <td className="py-2 tabular-nums">{Number(s.amount).toFixed(2)}</td>
-              <td className="py-2">{new Date(s.date).toLocaleDateString('ar-EG')}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    );
+  const settlementsContent = (
+    <InvoiceSettlementsHistory
+      settlements={settlements}
+      cheques={cheques}
+      paidAmount={paidAmount}
+      remainingAmount={remainingAmount}
+      netAmount={summary.netAmount}
+      direction="RECEIPT"
+    />
+  );
 
   return (
     <div data-tour="invoice-impact-tabs">

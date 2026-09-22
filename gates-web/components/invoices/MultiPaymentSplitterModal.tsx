@@ -5,6 +5,8 @@ import { ActionButtons } from '@/components/ui/ActionButtons';
 import { useApiQuery } from '@/lib/hooks/useApi';
 import { pickDefaultSafeId } from '@/lib/hooks/useMasterDataQueries';
 import { SafeSelect } from '@/app/components/form/SafeSelect';
+import { BankSelect } from '@/app/components/form/BankSelect';
+import { erpInputClass, erpLabelClass } from '@/components/erp';
 import {
   type PaymentSplitLine,
   splitsMatchTotal,
@@ -13,20 +15,17 @@ import {
 } from '@/lib/invoices/payment-split.types';
 
 type SafeRow = { id: string; arabicName: string; code?: string | null; isDefault?: boolean };
-type BankRow = {
-  id: string;
-  accountNumber: string;
-  bank?: { arabicName?: string };
-};
 
-type CashDraft = { type: 'CASH'; safeId: string; amount: string };
+type CashDraft = { id: string; type: 'CASH'; safeId: string; amount: string };
 type BankDraft = {
+  id: string;
   type: 'BANK';
   bankAccountId: string;
   referenceNumber: string;
   amount: string;
 };
 type ChequeDraft = {
+  id: string;
   type: 'CHEQUE';
   chequeNumber: string;
   bankName: string;
@@ -45,11 +44,46 @@ type Props = {
 };
 
 const EMPTY_SAFES: SafeRow[] = [];
-const EMPTY_BANKS: BankRow[] = [];
 
 function parseAmount(s: string): number {
   const n = Number(String(s).replace(',', '.'));
   return Number.isFinite(n) ? n : 0;
+}
+
+function newId(prefix: string): string {
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+function emptyCash(safeId = ''): CashDraft {
+  return { id: newId('cash'), type: 'CASH', safeId, amount: '' };
+}
+
+function emptyBank(): BankDraft {
+  return { id: newId('bank'), type: 'BANK', bankAccountId: '', referenceNumber: '', amount: '' };
+}
+
+function emptyCheque(amount = ''): ChequeDraft {
+  return {
+    id: newId('chq'),
+    type: 'CHEQUE',
+    chequeNumber: '',
+    bankName: '',
+    dueDate: new Date().toISOString().slice(0, 10),
+    bankAccountId: '',
+    amount,
+  };
+}
+
+function leftoverOf(grandTotal: number, cash: CashDraft[], bank: BankDraft[], cheque: ChequeDraft[]): number {
+  const used =
+    cash.reduce((sum, row) => sum + parseAmount(row.amount), 0) +
+    bank.reduce((sum, row) => sum + parseAmount(row.amount), 0) +
+    cheque.reduce((sum, row) => sum + parseAmount(row.amount), 0);
+  return Math.max(0, Number((grandTotal - used).toFixed(2)));
+}
+
+function leftoverHint(value: number): string {
+  return value > 0 ? String(value) : '';
 }
 
 function draftsFromInitial(initial: PaymentSplitLine[] | undefined, defaultSafeId: string) {
@@ -58,9 +92,10 @@ function draftsFromInitial(initial: PaymentSplitLine[] | undefined, defaultSafeI
   const cheque: ChequeDraft[] = [];
   for (const line of initial ?? []) {
     if (line.type === 'CASH') {
-      cash.push({ type: 'CASH', safeId: line.safeId, amount: String(line.amount) });
+      cash.push({ id: newId('cash'), type: 'CASH', safeId: line.safeId, amount: String(line.amount) });
     } else if (line.type === 'BANK') {
       bank.push({
+        id: newId('bank'),
         type: 'BANK',
         bankAccountId: line.bankAccountId,
         referenceNumber: line.referenceNumber ?? '',
@@ -68,18 +103,19 @@ function draftsFromInitial(initial: PaymentSplitLine[] | undefined, defaultSafeI
       });
     } else if (line.type === 'CHEQUE') {
       cheque.push({
+        id: newId('chq'),
         type: 'CHEQUE',
         chequeNumber: line.chequeNumber,
-        bankName: line.bankName,
-        dueDate: line.dueDate.slice(0, 10),
+        bankName: line.bankName === '—' ? '' : line.bankName,
+        dueDate: String(line.dueDate).slice(0, 10),
         bankAccountId: line.bankAccountId ?? '',
         amount: String(line.amount),
       });
     }
   }
-  if (!cash.length) {
-    cash.push({ type: 'CASH', safeId: defaultSafeId, amount: '' });
-  }
+  if (!cash.length) cash.push(emptyCash(defaultSafeId));
+  if (!bank.length) bank.push(emptyBank());
+  if (!cheque.length) cheque.push(emptyCheque());
   return { cash, bank, cheque };
 }
 
@@ -102,17 +138,9 @@ export function MultiPaymentSplitterModal({
     { limit: 200, isActive: true },
     { enabled: open }
   );
-  const { data: banksRes } = useApiQuery<BankRow[]>(
-    ['banks-split'],
-    '/accounting/bank-accounts',
-    { limit: 200, isActive: true },
-    { enabled: open }
-  );
   const safes = safesRes?.data ?? EMPTY_SAFES;
-  const banks = banksRes?.data ?? EMPTY_BANKS;
   const defaultSafeId = pickDefaultSafeId(safes) ?? '';
 
-  // Seed drafts when the modal opens (not on every safes[] identity change).
   useEffect(() => {
     if (!open) return;
     setError('');
@@ -120,48 +148,45 @@ export function MultiPaymentSplitterModal({
     setCashRows(cash);
     setBankRows(bank);
     setChequeRows(cheque);
-    // intentionally omit `initial` content churn while open — parent keeps paymentSplits stable
     // eslint-disable-next-line react-hooks/exhaustive-deps -- seed on open only
   }, [open]);
 
-  // When safes finish loading after open, fill blank safe pickers once.
   useEffect(() => {
     if (!open || !defaultSafeId) return;
     setCashRows((prev) => {
-      if (!prev.some((r) => !r.safeId)) return prev;
-      return prev.map((r) => (r.safeId ? r : { ...r, safeId: defaultSafeId }));
+      if (!prev.some((row) => !row.safeId)) return prev;
+      return prev.map((row) => (row.safeId ? row : { ...row, safeId: defaultSafeId }));
     });
   }, [open, defaultSafeId]);
 
+  const leftover = leftoverOf(grandTotal, cashRows, bankRows, chequeRows);
+
   const builtLines = useMemo((): PaymentSplitLine[] => {
     const out: Exclude<PaymentSplitLine, { type: 'ON_ACCOUNT' }>[] = [];
-    for (const r of cashRows) {
-      if (r.type !== 'CASH') continue;
-      const amount = parseAmount(r.amount);
-      if (amount > 0 && r.safeId) out.push({ type: 'CASH', safeId: r.safeId, amount });
+    for (const row of cashRows) {
+      const amount = parseAmount(row.amount);
+      if (amount > 0 && row.safeId) out.push({ type: 'CASH', safeId: row.safeId, amount });
     }
-    for (const r of bankRows) {
-      if (r.type !== 'BANK') continue;
-      const amount = parseAmount(r.amount);
-      if (amount > 0 && r.bankAccountId) {
+    for (const row of bankRows) {
+      const amount = parseAmount(row.amount);
+      if (amount > 0 && row.bankAccountId) {
         out.push({
           type: 'BANK',
-          bankAccountId: r.bankAccountId,
-          referenceNumber: r.referenceNumber.trim() || undefined,
+          bankAccountId: row.bankAccountId,
+          referenceNumber: row.referenceNumber.trim() || undefined,
           amount,
         });
       }
     }
-    for (const r of chequeRows) {
-      if (r.type !== 'CHEQUE') continue;
-      const amount = parseAmount(r.amount);
-      if (amount > 0 && r.chequeNumber.trim()) {
+    for (const row of chequeRows) {
+      const amount = parseAmount(row.amount);
+      if (amount > 0 && row.chequeNumber.trim()) {
         out.push({
           type: 'CHEQUE',
-          chequeNumber: r.chequeNumber.trim(),
-          bankName: r.bankName.trim() || '—',
-          dueDate: r.dueDate || new Date().toISOString().slice(0, 10),
-          bankAccountId: r.bankAccountId || undefined,
+          chequeNumber: row.chequeNumber.trim(),
+          bankName: row.bankName.trim() || '—',
+          dueDate: row.dueDate || new Date().toISOString().slice(0, 10),
+          bankAccountId: row.bankAccountId || undefined,
           amount,
         });
       }
@@ -169,8 +194,8 @@ export function MultiPaymentSplitterModal({
     return buildSplitWithOnAccount(out, grandTotal);
   }, [cashRows, bankRows, chequeRows, grandTotal]);
 
-  const allocated = sumPaymentSplits(builtLines.filter((l) => l.type !== 'ON_ACCOUNT'));
-  const onAccount = builtLines.find((l) => l.type === 'ON_ACCOUNT')?.amount ?? 0;
+  const allocated = sumPaymentSplits(builtLines.filter((line) => line.type !== 'ON_ACCOUNT'));
+  const onAccount = builtLines.find((line) => line.type === 'ON_ACCOUNT')?.amount ?? 0;
   const remaining = grandTotal - allocated - onAccount;
   const valid = splitsMatchTotal(builtLines, grandTotal);
 
@@ -197,21 +222,28 @@ export function MultiPaymentSplitterModal({
       <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-[#E6F0F7] bg-white p-6 shadow-2xl">
         <h2 className="mb-1 text-lg font-bold text-[#0A3D5E]">{title}</h2>
         <p className="mb-4 text-sm text-gray-600">
-          الإجمالي:{' '}
+          يمكن الجمع بين نقدي وبنك وقائمة شيكات. الإجمالي:{' '}
           <strong>{grandTotal.toLocaleString('ar-EG', { minimumFractionDigits: 2 })} ج.م</strong>
         </p>
 
         <section className="mb-4 rounded-xl border border-slate-200 p-3">
-          <h3 className="mb-2 text-sm font-semibold text-slate-800">نقدية</h3>
-          {cashRows.map((row, i) => (
-            <div key={i} className="mb-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <h3 className="text-sm font-semibold text-slate-800">نقدي</h3>
+            <button
+              type="button"
+              className="text-xs font-semibold text-[#0E78AA] hover:underline"
+              onClick={() => setCashRows([...cashRows, { ...emptyCash(defaultSafeId), amount: leftoverHint(leftover) }])}
+            >
+              + سطر نقدي
+            </button>
+          </div>
+          {cashRows.map((row) => (
+            <div key={row.id} className="mb-2 grid grid-cols-1 gap-2 sm:grid-cols-[1fr_8rem_auto]">
               <SafeSelect
                 value={row.safeId}
-                onChange={(safeId) => {
-                  const next = [...cashRows];
-                  next[i] = { type: 'CASH', safeId, amount: row.amount };
-                  setCashRows(next);
-                }}
+                onChange={(safeId) =>
+                  setCashRows(cashRows.map((item) => (item.id === row.id ? { ...item, safeId } : item)))
+                }
                 safes={safes}
                 placeholder="اختر الخزينة"
                 emptyLabel="اختر الخزينة"
@@ -221,183 +253,174 @@ export function MultiPaymentSplitterModal({
                 min={0}
                 step="0.01"
                 placeholder="المبلغ"
-                className="rounded-lg border border-gray-300 p-2 text-sm"
+                className={erpInputClass}
                 value={row.amount}
-                onChange={(e) => {
-                  const next = [...cashRows];
-                  next[i] = { type: 'CASH', safeId: row.safeId, amount: e.target.value };
-                  setCashRows(next);
-                }}
+                onChange={(e) =>
+                  setCashRows(cashRows.map((item) => (item.id === row.id ? { ...item, amount: e.target.value } : item)))
+                }
               />
+              {cashRows.length > 1 ? (
+                <button
+                  type="button"
+                  className="text-xs font-medium text-rose-600 hover:underline"
+                  onClick={() => setCashRows(cashRows.filter((item) => item.id !== row.id))}
+                >
+                  حذف
+                </button>
+              ) : (
+                <span />
+              )}
             </div>
           ))}
-          <button
-            type="button"
-            className="text-xs font-medium text-[#0E78AA]"
-            onClick={() =>
-              setCashRows([...cashRows, { type: 'CASH', safeId: pickDefaultSafeId(safes) ?? '', amount: '' }])
-            }
-          >
-            + سطر نقدية
-          </button>
         </section>
 
         <section className="mb-4 rounded-xl border border-slate-200 p-3">
-          <h3 className="mb-2 text-sm font-semibold text-slate-800">تحويل بنكي / إنستاباي</h3>
-          {bankRows.length === 0 ? (
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <h3 className="text-sm font-semibold text-slate-800">بنك</h3>
             <button
               type="button"
-              className="text-xs font-medium text-[#0E78AA]"
-              onClick={() =>
-                setBankRows([
-                  {
-                    type: 'BANK',
-                    bankAccountId: banks[0]?.id ?? '',
-                    referenceNumber: '',
-                    amount: '',
-                  },
-                ])
-              }
+              className="text-xs font-semibold text-[#0E78AA] hover:underline"
+              onClick={() => setBankRows([...bankRows, { ...emptyBank(), amount: leftoverHint(leftover) }])}
             >
-              + إضافة تحويل بنكي
+              + تحويل بنكي
             </button>
-          ) : (
-            bankRows.map((row, i) => (
-              <div key={i} className="mb-2 space-y-2">
-                <select
-                  className="w-full rounded-lg border border-gray-300 p-2 text-sm"
-                  value={row.bankAccountId}
-                  onChange={(e) => {
-                    const next = [...bankRows];
-                    next[i] = { ...row, bankAccountId: e.target.value };
-                    setBankRows(next);
-                  }}
-                >
-                  <option value="">حساب بنكي</option>
-                  {banks.map((b) => (
-                    <option key={b.id} value={b.id}>
-                      {b.bank?.arabicName ?? ''} — {b.accountNumber}
-                    </option>
-                  ))}
-                </select>
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                  <input
-                    placeholder="رقم العملية / المرجع"
-                    className="rounded-lg border border-gray-300 p-2 text-sm"
-                    value={row.referenceNumber}
-                    onChange={(e) => {
-                      const next = [...bankRows];
-                      next[i] = { ...row, referenceNumber: e.target.value };
-                      setBankRows(next);
-                    }}
-                  />
-                  <input
-                    type="number"
-                    min={0}
-                    step="0.01"
-                    placeholder="المبلغ"
-                    className="rounded-lg border border-gray-300 p-2 text-sm"
-                    value={row.amount}
-                    onChange={(e) => {
-                      const next = [...bankRows];
-                      next[i] = { ...row, amount: e.target.value };
-                      setBankRows(next);
-                    }}
-                  />
-                </div>
+          </div>
+          {bankRows.map((row) => (
+            <div key={row.id} className="mb-3 space-y-2 rounded-lg border border-slate-100 bg-slate-50/70 p-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[11px] font-semibold text-slate-500">تحويل بنكي</span>
+                {bankRows.length > 1 ? (
+                  <button
+                    type="button"
+                    className="text-xs font-medium text-rose-600 hover:underline"
+                    onClick={() => setBankRows(bankRows.filter((item) => item.id !== row.id))}
+                  >
+                    حذف
+                  </button>
+                ) : null}
               </div>
-            ))
-          )}
+              <BankSelect
+                value={row.bankAccountId}
+                onChange={(bankAccountId) =>
+                  setBankRows(bankRows.map((item) => (item.id === row.id ? { ...item, bankAccountId } : item)))
+                }
+                placeholder="اختر الحساب البنكي"
+                emptyLabel="اختر الحساب البنكي"
+              />
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <input
+                  placeholder="رقم العملية / المرجع"
+                  className={erpInputClass}
+                  value={row.referenceNumber}
+                  onChange={(e) =>
+                    setBankRows(
+                      bankRows.map((item) => (item.id === row.id ? { ...item, referenceNumber: e.target.value } : item))
+                    )
+                  }
+                />
+                <input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  placeholder="المبلغ"
+                  className={erpInputClass}
+                  value={row.amount}
+                  onChange={(e) =>
+                    setBankRows(bankRows.map((item) => (item.id === row.id ? { ...item, amount: e.target.value } : item)))
+                  }
+                />
+              </div>
+            </div>
+          ))}
         </section>
 
         <section className="mb-4 rounded-xl border border-slate-200 p-3">
-          <h3 className="mb-2 text-sm font-semibold text-slate-800">شيك بنكي</h3>
-          {chequeRows.length === 0 ? (
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <h3 className="text-sm font-semibold text-slate-800">قائمة شيكات</h3>
             <button
               type="button"
-              className="text-xs font-medium text-[#0E78AA]"
-              onClick={() =>
-                setChequeRows([
-                  {
-                    type: 'CHEQUE',
-                    chequeNumber: '',
-                    bankName: '',
-                    dueDate: new Date().toISOString().slice(0, 10),
-                    bankAccountId: banks[0]?.id ?? '',
-                    amount: '',
-                  },
-                ])
-              }
+              className="text-xs font-semibold text-[#0E78AA] hover:underline"
+              onClick={() => setChequeRows([...chequeRows, emptyCheque(leftoverHint(leftover))])}
             >
               + إضافة شيك
             </button>
-          ) : (
-            chequeRows.map((row, i) => (
-              <div key={i} className="mb-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+          </div>
+          {chequeRows.map((row, index) => (
+            <div key={row.id} className="mb-3 space-y-2 rounded-lg border border-slate-100 bg-slate-50/70 p-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[11px] font-semibold text-slate-500">شيك {index + 1}</span>
+                {chequeRows.length > 1 ? (
+                  <button
+                    type="button"
+                    className="text-xs font-medium text-rose-600 hover:underline"
+                    onClick={() => setChequeRows(chequeRows.filter((item) => item.id !== row.id))}
+                  >
+                    حذف
+                  </button>
+                ) : null}
+              </div>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 <input
                   placeholder="رقم الشيك"
-                  className="rounded-lg border border-gray-300 p-2 text-sm"
+                  className={erpInputClass}
                   value={row.chequeNumber}
-                  onChange={(e) => {
-                    const next = [...chequeRows];
-                    next[i] = { ...row, chequeNumber: e.target.value };
-                    setChequeRows(next);
-                  }}
+                  onChange={(e) =>
+                    setChequeRows(
+                      chequeRows.map((item) => (item.id === row.id ? { ...item, chequeNumber: e.target.value } : item))
+                    )
+                  }
                 />
                 <input
-                  placeholder="اسم البنك"
-                  className="rounded-lg border border-gray-300 p-2 text-sm"
+                  placeholder={direction === 'PAYMENT' ? 'بنك المستفيد' : 'بنك الساحب'}
+                  className={erpInputClass}
                   value={row.bankName}
-                  onChange={(e) => {
-                    const next = [...chequeRows];
-                    next[i] = { ...row, bankName: e.target.value };
-                    setChequeRows(next);
-                  }}
+                  onChange={(e) =>
+                    setChequeRows(
+                      chequeRows.map((item) => (item.id === row.id ? { ...item, bankName: e.target.value } : item))
+                    )
+                  }
                 />
                 <input
                   type="date"
-                  className="rounded-lg border border-gray-300 p-2 text-sm"
+                  className={erpInputClass}
                   value={row.dueDate}
-                  onChange={(e) => {
-                    const next = [...chequeRows];
-                    next[i] = { ...row, dueDate: e.target.value };
-                    setChequeRows(next);
-                  }}
+                  onChange={(e) =>
+                    setChequeRows(
+                      chequeRows.map((item) => (item.id === row.id ? { ...item, dueDate: e.target.value } : item))
+                    )
+                  }
                 />
                 <input
                   type="number"
                   min={0}
                   step="0.01"
                   placeholder="مبلغ الشيك"
-                  className="rounded-lg border border-gray-300 p-2 text-sm"
+                  className={erpInputClass}
                   value={row.amount}
-                  onChange={(e) => {
-                    const next = [...chequeRows];
-                    next[i] = { ...row, amount: e.target.value };
-                    setChequeRows(next);
-                  }}
+                  onChange={(e) =>
+                    setChequeRows(
+                      chequeRows.map((item) => (item.id === row.id ? { ...item, amount: e.target.value } : item))
+                    )
+                  }
                 />
-                {direction === 'PAYMENT' ? (
-                  <select
-                    className="sm:col-span-2 rounded-lg border border-gray-300 p-2 text-sm"
-                    value={row.bankAccountId}
-                    onChange={(e) => {
-                      const next = [...chequeRows];
-                      next[i] = { ...row, bankAccountId: e.target.value };
-                      setChequeRows(next);
-                    }}
-                  >
-                    <option value="">حساب بنك للإصدار</option>
-                    {banks.map((b) => (
-                      <option key={b.id} value={b.id}>
-                        {b.bank?.arabicName ?? ''} — {b.accountNumber}
-                      </option>
-                    ))}
-                  </select>
-                ) : null}
               </div>
-            ))
-          )}
+              {direction === 'PAYMENT' ? (
+                <div>
+                  <label className={erpLabelClass}>حساب البنك المصدر</label>
+                  <BankSelect
+                    value={row.bankAccountId}
+                    onChange={(bankAccountId) =>
+                      setChequeRows(
+                        chequeRows.map((item) => (item.id === row.id ? { ...item, bankAccountId } : item))
+                      )
+                    }
+                    placeholder="اختر حساب البنك"
+                    emptyLabel="اختر حساب البنك"
+                  />
+                </div>
+              ) : null}
+            </div>
+          ))}
         </section>
 
         <div

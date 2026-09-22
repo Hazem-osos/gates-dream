@@ -604,6 +604,9 @@ export function ProgressiveSalesInvoiceLineGrid({
                                     onInputKeyDown={(e) =>
                                       handleLineGridKeyDown(e, invoiceLineKeyHandlers(index))
                                     }
+                                    fallbackLabel={
+                                      itemsForConversion.find((it) => it.id === line?.itemId)?.arabicName
+                                    }
                                     quickCreateModal={ItemQuickAddModal}
                                   />
                                 )}

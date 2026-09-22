@@ -53,6 +53,13 @@ export type SalesInvoiceLineForm = {
   lineAccountId?: string;
 };
 
+function optionalUuid(value?: string | null): string | undefined {
+  const id = String(value ?? '').trim();
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)
+    ? id
+    : undefined;
+}
+
 export function resolveItemUnitId(
   itemId: string,
   items: ItemLike[],
@@ -150,33 +157,33 @@ export function mapSalesFormToM5CreateBody(
       item?.units,
       { quantity: line.quantity || 1, baseQuantity: line.baseQuantity }
     );
-    const qty = synced.quantity || 1;
+    const qty = Number(synced.quantity) || 1;
     return {
       itemId: line.itemId,
-      ...(unitId ? { unitId } : {}),
+      ...(optionalUuid(unitId) ? { unitId: optionalUuid(unitId) } : {}),
       quantity: qty,
-      baseQuantity: synced.baseQuantity || qty,
-      conversionFactor: synced.conversionFactor || 1,
-      baseUnitId: synced.baseUnitId || undefined,
-      price: line.unitPrice ?? 0,
+      baseQuantity: Number(synced.baseQuantity) || qty,
+      conversionFactor: Number(synced.conversionFactor) || 1,
+      baseUnitId: optionalUuid(synced.baseUnitId),
+      price: Number(line.unitPrice) || 0,
       ...mapDiscountToM5Payload(line),
       taxPercent: applyTax ? (line.taxRate ?? 0) : 0,
       lineOrder: index + 1,
-      originalInvoiceLineId: line.originalInvoiceLineId || undefined,
+      originalInvoiceLineId: optionalUuid(line.originalInvoiceLineId),
       batchNumber: line.batchNumber || undefined,
       expiryDate: line.expiryDate ? new Date(line.expiryDate).toISOString() : undefined,
       productionDate: line.productionDate ? new Date(line.productionDate).toISOString() : undefined,
       serialNumbers: line.serialNumbers || undefined,
       lineNotes: line.lineNotes || undefined,
       taxExemptionReason: line.taxExemptionReason || undefined,
-      warehouseId: line.warehouseId || data.warehouseId || undefined,
-      costCenterId: line.costCenterId || undefined,
+      warehouseId: optionalUuid(line.warehouseId) || optionalUuid(data.warehouseId),
+      costCenterId: optionalUuid(line.costCenterId),
       withholdingTaxRate: line.withholdingTaxRate || undefined,
       withholdingTaxAmount: line.withholdingTaxAmount || undefined,
       batchAllocations: line.batchAllocations?.length ? line.batchAllocations : undefined,
       color: line.color || undefined,
       size: line.size || undefined,
-      customRevenueAccountId: line.customRevenueAccountId || line.lineAccountId || undefined,
+      customRevenueAccountId: optionalUuid(line.customRevenueAccountId) || optionalUuid(line.lineAccountId),
     };
   });
 
@@ -189,25 +196,25 @@ export function mapSalesFormToM5CreateBody(
     hijriDate: data.hijriDate || undefined,
     currencyCode,
     exchangeRate: data.exchangeRate && data.exchangeRate > 0 ? data.exchangeRate : undefined,
-    customerId: data.customerId || undefined,
-    supplierId: data.supplierId || undefined,
+    customerId: optionalUuid(data.customerId),
+    supplierId: optionalUuid(data.supplierId),
     warehouseId: data.warehouseId,
-    documentProfileId: data.documentProfileId || undefined,
+    documentProfileId: optionalUuid(data.documentProfileId),
     sourceType: data.sourceType && data.sourceType !== 'NONE' ? data.sourceType : 'NONE',
-    sourceId: data.sourceId || undefined,
+    sourceId: optionalUuid(data.sourceId),
     sourceNumber: data.sourceNumber || undefined,
-    originalInvoiceId: data.originalInvoiceId || undefined,
+    originalInvoiceId: optionalUuid(data.originalInvoiceId),
     originalInvoiceNumber: data.originalInvoiceNumber || undefined,
-    costCenterId: data.costCenterId || undefined,
-    representativeId: data.delegateId || undefined,
-    ...(data.driverId?.trim() ? { driverId: data.driverId } : {}),
-    ...(data.distributorId?.trim() ? { distributorId: data.distributorId } : {}),
-    sellerId: data.sellerId || undefined,
+    costCenterId: optionalUuid(data.costCenterId),
+    representativeId: optionalUuid(data.delegateId),
+    ...(optionalUuid(data.driverId) ? { driverId: optionalUuid(data.driverId) } : {}),
+    ...(optionalUuid(data.distributorId) ? { distributorId: optionalUuid(data.distributorId) } : {}),
+    sellerId: optionalUuid(data.sellerId),
     taxTreatmentType: data.taxTreatmentType || undefined,
     isDelivered: data.isDelivered ?? false,
     handoverDate: data.handoverDate ? new Date(data.handoverDate).toISOString() : undefined,
     paymentMethod: data.paymentMethod,
-    paymentSplits: data.paymentSplits,
+    paymentSplits: Array.isArray(data.paymentSplits) && data.paymentSplits.length ? data.paymentSplits : undefined,
     internalNotes: data.internalNotes,
     isSalesTaxInvoice: applyTax,
     allowReturn: data.allowReturn ?? false,
@@ -255,6 +262,8 @@ export function mapSalesFormToM5UpdateBody(
 ): Record<string, unknown> {
   const body = mapSalesFormToM5CreateBody(data, opts);
   delete body.invoiceKind;
-  body.expectedVersion = opts.expectedVersion ?? 0;
+  if (typeof opts.expectedVersion === 'number') {
+    body.expectedVersion = opts.expectedVersion;
+  }
   return body;
 }

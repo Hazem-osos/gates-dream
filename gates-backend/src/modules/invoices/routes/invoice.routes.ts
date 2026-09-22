@@ -13,7 +13,9 @@ import { isAdminRequest } from '../../../shared/auth/roles.util';
 import { requestPermittedBranchIds } from '../../../shared/auth/branch-scope';
 import {
   createM5InvoiceSchema,
+  linkInvoiceAdvancesSchema,
   m5InvoiceQuerySchema,
+  partyAdvancesQuerySchema,
   settleM5InvoiceSchema,
   updateM5InvoiceSchema,
 } from '../schemas/invoice-m5.schema';
@@ -25,6 +27,7 @@ import { invoiceInstallmentService } from '../services/invoice-installment.servi
 import { invoiceM5Service } from '../services/invoice-m5.service';
 import { invoicePostingOrchestrator } from '../services/invoice-posting-orchestrator';
 import { invoiceSettlementService } from '../services/invoice-settlement.service';
+import { invoiceAdvanceLinkService } from '../services/invoice-advance-link.service';
 // Was a byte-for-byte duplicate of the shared builder, minus the `isAdmin`
 // flag that AdvancedRights needs for the legacy Admin bypass.
 import { buildInvoicePostingContext as buildPostingContext } from '../services/invoice-posting-context';
@@ -103,6 +106,23 @@ router.get(
       });
     } catch (e: unknown) {
       return respondError(res, e, 'List failed');
+    }
+  }
+);
+
+router.get(
+  '/party-advances',
+  authorize({ resource: 'invoice', action: 'view' }),
+  validate({ query: partyAdvancesQuerySchema }),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const data = await invoiceAdvanceLinkService.listPartyAdvances(requireCompany(req), {
+        customerId: req.query.customerId as string | undefined,
+        supplierId: req.query.supplierId as string | undefined,
+      });
+      return void res.json({ status: 'success', data });
+    } catch (e: unknown) {
+      return respondError(res, e, 'تعذر تحميل الدفعات المقدمة');
     }
   }
 );
@@ -411,6 +431,40 @@ router.post(
       });
     } catch (e: unknown) {
       return respondError(res, e, 'Installment collection failed');
+    }
+  }
+);
+
+router.get(
+  '/:id/available-advances',
+  authorize({ resource: 'invoice', action: 'view' }),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const data = await invoiceAdvanceLinkService.listAvailableForInvoice(
+        requireCompany(req),
+        req.params.id
+      );
+      return void res.json({ status: 'success', data });
+    } catch (e: unknown) {
+      return respondError(res, e, 'تعذر تحميل الدفعات المقدمة');
+    }
+  }
+);
+
+router.post(
+  '/:id/link-advances',
+  authorize({ resource: 'invoice', action: 'edit' }),
+  validate({ body: linkInvoiceAdvancesSchema }),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const data = await invoiceAdvanceLinkService.applyToInvoice(
+        requireCompany(req),
+        req.params.id,
+        req.body
+      );
+      return void res.json({ status: 'success', data, message: 'تم ربط الدفعة المقدمة' });
+    } catch (e: unknown) {
+      return respondError(res, e, 'تعذر ربط الدفعة المقدمة');
     }
   }
 );

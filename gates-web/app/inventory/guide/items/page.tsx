@@ -20,6 +20,7 @@ import type { ItemRow } from '@/components/inventory/ItemsCatalogListSection';
 import type { ItemGroupRow } from '@/components/inventory/ItemGroupsListSection';
 import { ItemGroupSelect } from '@/components/form/ItemGroupSelect';
 import { ChildItemKindDialog } from '@/components/inventory/ChildItemKindDialog';
+import { isUngroupedCategory } from '@/lib/inventory/guide-visible-items';
 
 function asRows<T>(data: unknown): T[] {
   if (Array.isArray(data)) return data as T[];
@@ -49,7 +50,7 @@ export default function ItemsGuidePage() {
   const { data: itemsRes, isLoading: itemsLoading, refetch: refetchItems } = useApiQuery<ItemRow[]>(
     ['items', 'guide'],
     '/inventory/items',
-    { limit: 1000 },
+    { limit: 1000, isActive: true },
     { staleTime: 15_000 }
   );
 
@@ -72,9 +73,13 @@ export default function ItemsGuidePage() {
   const [bulkDeleting, setBulkDeleting] = useState(false);
 
   const tree = useMemo(() => {
+    const ungroupedGroupIds = new Set(
+      groups.filter((row) => isUngroupedCategory(row)).map((row) => row.id)
+    );
     const itemsByGroup = new Map<string | null, ItemRow[]>();
     for (const item of items) {
-      const key = (item.categoryId as string | null | undefined) ?? null;
+      const rawKey = (item.categoryId as string | null | undefined) ?? null;
+      const key = rawKey && ungroupedGroupIds.has(rawKey) ? null : rawKey;
       const list = itemsByGroup.get(key) ?? [];
       list.push(item);
       itemsByGroup.set(key, list);
@@ -90,7 +95,9 @@ export default function ItemsGuidePage() {
     });
 
     const groupTree = buildParentTree(
-      groups.map((row) => ({ ...row, parentId: row.parentCategoryId ?? null })),
+      groups
+        .filter((row) => !isUngroupedCategory(row))
+        .map((row) => ({ ...row, parentId: row.parentCategoryId ?? null })),
       (group, children) => ({
         id: group.id,
         code: group.code || '',
@@ -411,9 +418,12 @@ export default function ItemsGuidePage() {
                 onAddChild={openCreateChild}
                 canAddChild={(node) => node.groupKey === 'group'}
                 onView={(node) => {
+                  if (node.synthetic) return;
                   if (node.groupKey === 'item') {
                     router.push(`/inventory/creations/item-card?id=${node.id}`);
+                    return;
                   }
+                  router.push(`/inventory/creations/item-groups?id=${node.id}`);
                 }}
                 onEdit={openEditGroup}
                 onDelete={(node) => void handleDelete(node)}

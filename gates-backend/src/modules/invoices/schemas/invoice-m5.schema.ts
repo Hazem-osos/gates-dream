@@ -247,6 +247,27 @@ export const m5InvoiceQuerySchema = z.object({
   profileId: z.string().uuid().optional(),
 });
 
+export const partyAdvancesQuerySchema = z
+  .object({
+    customerId: z.string().uuid().optional(),
+    supplierId: z.string().uuid().optional(),
+  })
+  .refine((data) => Boolean(data.customerId || data.supplierId), {
+    message: 'حدد العميل أو المورد',
+  });
+
+export const linkInvoiceAdvancesSchema = z.object({
+  allocations: z
+    .array(
+      z.object({
+        cashTransactionId: z.string().uuid(),
+        amount: z.number().positive(),
+      })
+    )
+    .min(1, 'اختر دفعة مقدمة واحدة على الأقل'),
+});
+
 export type CreateM5InvoiceInput = z.infer<typeof createM5InvoiceSchema>;
 export type UpdateM5InvoiceInput = z.infer<typeof updateM5InvoiceServiceSchema>;
 export type SettleM5InvoiceInput = z.infer<typeof settleM5InvoiceSchema>;
+export type LinkInvoiceAdvancesInput = z.infer<typeof linkInvoiceAdvancesSchema>;

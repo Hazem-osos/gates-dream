@@ -12,6 +12,8 @@ import { CalculationInspector } from '@/components/ai/CalculationInspector';
 import { ErpDocumentBottomSplit } from '@/components/erp/ErpDocumentBottomSplit';
 import { AuditActivityTab } from '@/components/erp/AuditActivityTab';
 import { erpTableHeadCellClass, erpTableHeadRowClass } from '@/components/erp/erpUiTokens';
+import { InvoiceSettlementsHistory } from '@/components/invoices/InvoiceSettlementsHistory';
+import type { InvoiceCashSettlement, InvoiceChequeSettlement } from '@/lib/invoices/invoice-settlements';
 
 type Props = {
   summary: SummaryModel;
@@ -28,6 +30,10 @@ type Props = {
   onFreightAmountChange?: (value: number) => void;
   onSupplierDiscountAmountChange?: (value: number) => void;
   extrasReadOnly?: boolean;
+  settlements?: InvoiceCashSettlement[];
+  cheques?: InvoiceChequeSettlement[];
+  paidAmount?: number;
+  remainingAmount?: number;
 };
 
 export function PurchaseInvoiceBottomSplit({
@@ -45,6 +51,10 @@ export function PurchaseInvoiceBottomSplit({
   onFreightAmountChange,
   onSupplierDiscountAmountChange,
   extrasReadOnly,
+  settlements = [],
+  cheques = [],
+  paidAmount,
+  remainingAmount,
 }: Props) {
   const { gross, commercialDiscount } = computeInvoiceGrossDiscount(lines, pricingCalculationBasis);
   const stockRows = lines.filter(
@@ -155,6 +165,20 @@ export function PurchaseInvoiceBottomSplit({
       }
       tabs={[
         { id: 'stock', label: 'الأثر المخزني', content: stockContent },
+        {
+          id: 'settlements',
+          label: 'المدفوعات',
+          content: (
+            <InvoiceSettlementsHistory
+              settlements={settlements}
+              cheques={cheques}
+              paidAmount={paidAmount}
+              remainingAmount={remainingAmount}
+              netAmount={summary.netAmount}
+              direction="PAYMENT"
+            />
+          ),
+        },
         {
           id: 'audit',
           label: 'سجل النشاط',

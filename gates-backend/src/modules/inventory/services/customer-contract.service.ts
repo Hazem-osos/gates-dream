@@ -254,7 +254,7 @@ export class CustomerContractService {
   }
 
   /**
-   * Delete customer contract (soft delete)
+   * Permanent delete
    */
   async deleteCustomerContract(companyId: string, contractId: string) {
     try {
@@ -266,12 +266,9 @@ export class CustomerContractService {
         throw new Error('Customer contract not found');
       }
 
-      await prisma.customerContract.update({
-        where: { id: contractId },
-        data: { isActive: false },
-      });
+      await prisma.customerContract.delete({ where: { id: contractId } });
 
-      logger.info({ companyId, contractId }, 'Customer contract deleted');
+      logger.info({ companyId, contractId }, 'Customer contract permanently deleted');
       return { success: true };
     } catch (error) {
       logger.error({ error, companyId, contractId }, 'Error deleting customer contract');

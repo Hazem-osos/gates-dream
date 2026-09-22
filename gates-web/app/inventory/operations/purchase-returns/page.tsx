@@ -186,9 +186,9 @@ export default function PurchaseReturnsPage() {
         itemId: String(line.itemId ?? ''),
         unitId: String(line.unitId ?? ''),
         quantity: Number(line.quantity) || 1,
-        unitPrice: Number(line.unitPrice) || 0,
+        unitPrice: Number(line.price ?? line.unitPrice) || 0,
         discount: Number(line.discount ?? 0) || 0,
-        taxRate: Number(line.tax ?? line.taxRate ?? 0) || 0,
+        taxRate: Number(line.taxPercent ?? line.tax ?? line.taxRate ?? 0) || 0,
         originalInvoiceLineId: line.originalInvoiceLineId
           ? String(line.originalInvoiceLineId)
           : undefined,

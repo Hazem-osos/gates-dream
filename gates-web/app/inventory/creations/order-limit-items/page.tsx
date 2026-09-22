@@ -118,19 +118,19 @@ export default function OrderLimitItemsPage() {
     ['items', 'order-limits'],
     '/inventory/items',
     { limit: 1000, isActive: true },
-    { enabled: Boolean(warehouseId), staleTime: 15_000 }
+    { enabled: Boolean(warehouseId), staleTime: 15_000, skipErrorNotify: true }
   );
   const { data: qtyRes, isLoading: qtyLoading } = useApiQuery<QtyRow[]>(
     ['item-quantities', warehouseId],
     warehouseId ? `/inventory/item-quantities/warehouse/${warehouseId}` : '/inventory/item-quantities',
     undefined,
-    { enabled: Boolean(warehouseId), staleTime: 10_000 }
+    { enabled: Boolean(warehouseId), staleTime: 10_000, skipErrorNotify: true }
   );
   const { data: listsRes, isLoading: listsLoading } = useApiQuery<OrderLimitListRow[]>(
     ['item-order-limits', warehouseId],
     '/inventory/item-order-limits',
     { limit: 20, isActive: true, warehouseId },
-    { enabled: Boolean(warehouseId), staleTime: 10_000 }
+    { enabled: Boolean(warehouseId), staleTime: 10_000, skipErrorNotify: true }
   );
 
   const patch = (next: Partial<FormState>) => setForm((prev) => ({ ...prev, ...next }));
@@ -138,8 +138,10 @@ export default function OrderLimitItemsPage() {
     setLines((prev) => prev.map((row) => (row.key === key ? { ...row, ...next } : row)));
   };
 
-  const items = itemsRes?.data;
-  const lists = listsRes?.data;
+  const items = Array.isArray(itemsRes?.data)
+    ? itemsRes.data
+    : ((itemsRes?.data as { items?: CatalogItem[] } | undefined)?.items ?? undefined);
+  const lists = Array.isArray(listsRes?.data) ? listsRes.data : undefined;
   const existingListId = lists?.find((row) => row.warehouseId === warehouseId)?.id ?? '';
   const itemIdsKey = (items ?? []).map((item) => item.id).join(',');
   const hydrateKey = `${warehouseId}:${itemIdsKey}:${existingListId}`;
@@ -249,9 +251,9 @@ export default function OrderLimitItemsPage() {
       return;
     }
     const payload = {
-      code: form.code || null,
+      code: form.code.trim() || null,
       warehouseId: form.warehouseId,
-      description: form.description || null,
+      description: form.description.trim() || null,
       lines: lines
         .filter((row) => row.itemId && (row.orderLimit || row.lowerLimit || row.upperLimit))
         .map((row) => ({
@@ -263,15 +265,17 @@ export default function OrderLimitItemsPage() {
     };
     setSaving(true);
     try {
-      const res = selectedId
-        ? await apiClient.put<ApiDetail>(`/inventory/item-order-limits/${selectedId}`, payload)
+      const targetId = selectedId || existingListId || '';
+      const res = targetId
+        ? await apiClient.put<ApiDetail>(`/inventory/item-order-limits/${targetId}`, payload)
         : await apiClient.post<ApiDetail>('/inventory/item-order-limits', payload);
       if (res.data?.id) setSelectedId(res.data.id);
       invalidateQuery(['item-order-limits']);
       invalidateQuery(['items']);
       setSuccess('تم حفظ حدود الأصناف — التنبيه هيشتغل حسب رصيد المخزن المختار');
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'حدث خطأ أثناء الحفظ');
+      const message = err instanceof Error ? err.message : '';
+      setError(message && !/^failed to /i.test(message) ? message : 'تعذر حفظ حدود الأصناف. راجع المخزن ثم أعد المحاولة.');
     } finally {
       setSaving(false);
     }

@@ -316,8 +316,7 @@ class ApiClient {
       const code =
         (typeof bodyRecord?.code === 'string' ? bodyRecord.code : null) ||
         String(response.status);
-      const displayMessage = localizeApiErrorMessage(message, response.status);
-      const err = Object.assign(new Error(displayMessage), {
+      const err = Object.assign(new Error(message), {
         status: 'error' as const,
         errors: bodyRecord?.errors as ApiError['errors'] | Array<{ path?: string; message?: string }> | undefined,
         code,

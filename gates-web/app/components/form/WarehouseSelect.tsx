@@ -7,6 +7,7 @@ import {
   isOperationsWarehouse,
   type WarehouseOption,
 } from '@/lib/hooks/useMasterDataQueries';
+import { useApiQuery } from '@/lib/hooks/useApi';
 import { SearchableCombobox } from '@/app/components/form/SearchableCombobox';
 import { compactControlClass } from '@/components/ui/forms/formTokens';
 import { useOpenQuickCreateTab } from '@/lib/quick-create/useQuickCreateTab';
@@ -43,12 +44,19 @@ function WarehouseSelectInner({
   enableQuickCreate?: boolean;
   excludeIds?: string[];
 }) {
-  const { data, isLoading, isError } = useWarehousesQuery(200, {
+  const { data, isLoading, isError } = useWarehousesQuery(1000, {
     leafOnly: headerOnly ? false : leafOnly,
     headerOnly,
   });
   const rows = data?.data ?? [];
   const [pinned, setPinned] = useState<WarehouseOption | null>(null);
+  const missingSelected = Boolean(value && !rows.some((row) => row.id === value) && pinned?.id !== value);
+  const { data: selectedRes } = useApiQuery<WarehouseOption>(
+    ['warehouses', 'pin', value || 'none'],
+    value ? `/inventory/warehouses/${value}` : '/inventory/warehouses',
+    undefined,
+    { enabled: missingSelected }
+  );
   const openQuickCreate = useOpenQuickCreateTab('warehouse', (entity) => {
     const row = {
       id: entity.id,
@@ -60,11 +68,11 @@ function WarehouseSelectInner({
   });
 
   const merged = useMemo(() => {
-    if (pinned && !rows.some((w) => w.id === pinned.id)) {
-      return [pinned, ...rows];
-    }
-    return rows;
-  }, [pinned, rows]);
+    const extra = [pinned, selectedRes?.data].filter((row): row is WarehouseOption => Boolean(row?.id));
+    const seen = new Set(rows.map((row) => row.id));
+    const extras = extra.filter((row) => !seen.has(row.id));
+    return extras.length ? [...extras, ...rows] : rows;
+  }, [pinned, rows, selectedRes?.data]);
 
   const options = useMemo(() => {
     const blocked = new Set(excludeIds ?? []);

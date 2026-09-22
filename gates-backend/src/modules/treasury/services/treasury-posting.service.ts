@@ -20,6 +20,7 @@ import type { TreasuryPostingContext } from '../types/treasury.types';
 import { cashDisbursementWorkflowService } from './cash-disbursement-workflow.service';
 import { splitVoucherLineForeignTotals, splitVoucherLineTotals } from '../types/vouchers.dto';
 import { asFxRate } from '../../accounting/utils/company-fx-rate';
+import { postedCashFundAmount } from './cash-fund-amount';
 
 type CashTx = Prisma.CashTransactionGetPayload<{
   include: {
@@ -559,7 +560,7 @@ export class TreasuryPostingService {
 
     return prisma.$transaction(async (tx) => {
       const isReceipt = previous.transactionKind === 'RECEIPT';
-      const previousAmount = Number(previous.amount);
+      const previousAmount = postedCashFundAmount(previous);
       if (isReceipt) {
         await this.reverseReceiptBalances(tx, previous, previousAmount);
       } else {
@@ -658,7 +659,7 @@ export class TreasuryPostingService {
       return row;
     }
 
-    const amount = Number(row.amount);
+    const amount = postedCashFundAmount(row);
     const isReceipt = row.transactionKind === 'RECEIPT';
 
     if (row.isPosted) {

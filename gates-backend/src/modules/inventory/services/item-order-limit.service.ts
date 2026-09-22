@@ -2,6 +2,7 @@
 import { Decimal } from '@prisma/client/runtime/library';
 import prisma from '../../../shared/database/prisma';
 import { logger } from '../../../shared/logger';
+import { AppError } from '../../../shared/middleware/error-handler';
 import type {
   CreateItemOrderLimitInput,
   ItemOrderLimitLineInput,
@@ -86,7 +87,7 @@ export class ItemOrderLimitService {
       where: { id, companyId },
       include: includeDetail,
     });
-    if (!row) throw new Error('Order limit list not found');
+    if (!row) throw new AppError(404, 'بطاقة حد الطلب غير موجودة');
     return row;
   }
 
@@ -103,7 +104,7 @@ export class ItemOrderLimitService {
         where: { companyId, id: { in: itemIds } },
         select: { id: true },
       });
-      if (items.length !== itemIds.length) throw new Error('Item not found');
+      if (items.length !== itemIds.length) throw new AppError(400, 'صنف أو أكثر غير موجود');
     }
 
     await tx.itemOrderLimitLine.deleteMany({ where: { listId } });
@@ -134,13 +135,30 @@ export class ItemOrderLimitService {
     const warehouse = await prisma.warehouse.findFirst({
       where: { id: data.warehouseId, companyId },
     });
-    if (!warehouse) throw new Error('Warehouse not found');
+    if (!warehouse) throw new AppError(400, 'المخزن غير موجود');
+
+    const existing = await prisma.itemOrderLimitList.findFirst({
+      where: { companyId, warehouseId: data.warehouseId, isActive: true },
+      select: { id: true },
+    });
+    if (existing) {
+      return this.update(companyId, existing.id, data);
+    }
+
+    const requested = data.code?.trim() || null;
+    const codeClash = requested
+      ? await prisma.itemOrderLimitList.findFirst({
+          where: { companyId, code: requested },
+          select: { id: true },
+        })
+      : null;
+    const code = codeClash ? `OL-${warehouse.code || warehouse.id.slice(0, 8)}` : requested;
 
     const created = await prisma.$transaction(async (tx) => {
       const list = await tx.itemOrderLimitList.create({
         data: {
           companyId,
-          code: data.code || null,
+          code,
           warehouseId: data.warehouseId,
           description: data.description || null,
         },
@@ -157,13 +175,13 @@ export class ItemOrderLimitService {
     const existing = await prisma.itemOrderLimitList.findFirst({
       where: { id, companyId },
     });
-    if (!existing) throw new Error('Order limit list not found');
+    if (!existing) throw new AppError(404, 'بطاقة حد الطلب غير موجودة');
 
     if (data.warehouseId) {
       const warehouse = await prisma.warehouse.findFirst({
         where: { id: data.warehouseId, companyId },
       });
-      if (!warehouse) throw new Error('Warehouse not found');
+      if (!warehouse) throw new AppError(400, 'المخزن غير موجود');
     }
 
     await prisma.$transaction(async (tx) => {
@@ -189,12 +207,9 @@ export class ItemOrderLimitService {
     const existing = await prisma.itemOrderLimitList.findFirst({
       where: { id, companyId },
     });
-    if (!existing) throw new Error('Order limit list not found');
-    await prisma.itemOrderLimitList.update({
-      where: { id },
-      data: { isActive: false },
-    });
-    logger.info({ companyId, id }, 'Item order limit list deleted');
+    if (!existing) throw new AppError(404, 'بطاقة حد الطلب غير موجودة');
+    await prisma.itemOrderLimitList.delete({ where: { id } });
+    logger.info({ companyId, id }, 'Item order limit list permanently deleted');
     return { success: true };
   }
 }

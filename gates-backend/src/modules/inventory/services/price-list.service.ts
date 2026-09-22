@@ -368,29 +368,53 @@ export class PriceListService {
   }
 
   /**
-   * Delete price list (soft delete)
+   * Permanent delete — prices go with the list.
    */
   async deletePriceList(companyId: string, priceListId: string) {
+    const priceList = await prisma.priceList.findFirst({
+      where: { id: priceListId, companyId },
+      select: { id: true },
+    });
+
+    if (!priceList) {
+      throw new Error('Price list not found');
+    }
+
     try {
-      const priceList = await prisma.priceList.findFirst({
-        where: { id: priceListId, companyId },
+      await prisma.$transaction(async (tx) => {
+        await tx.itemPrice.deleteMany({ where: { priceListId } });
+        await tx.customer.updateMany({
+          where: { companyId, priceListId },
+          data: { priceListId: null },
+        });
+        await tx.delegate.updateMany({
+          where: { companyId, priceListId },
+          data: { priceListId: null },
+        });
+        await tx.newModule.updateMany({
+          where: { priceListId },
+          data: { priceListId: null },
+        });
+        await tx.person.updateMany({
+          where: { companyId, priceListId },
+          data: { priceListId: null },
+        });
+        await tx.priceList.delete({ where: { id: priceListId } });
       });
-
-      if (!priceList) {
-        throw new Error('Price list not found');
-      }
-
-      await prisma.priceList.update({
-        where: { id: priceListId },
-        data: { isActive: false },
-      });
-
-      logger.info({ companyId, priceListId }, 'Price list deleted');
-      return { success: true };
     } catch (error) {
+      const code =
+        error && typeof error === 'object' && 'code' in error
+          ? String((error as { code?: string }).code)
+          : '';
+      if (code === 'P2003' || code === 'P2014') {
+        throw new Error('لا يمكن حذف قائمة الأسعار لأنها مرتبطة ببيانات أخرى.');
+      }
       logger.error({ error, companyId, priceListId }, 'Error deleting price list');
       throw error;
     }
+
+    logger.info({ companyId, priceListId }, 'Price list permanently deleted');
+    return { success: true };
   }
 }
 

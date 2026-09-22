@@ -28,6 +28,27 @@ export function persistFxRate(
   return asFxRate(rate, 1);
 }
 
+/**
+ * Mixed journal: header may be EGP while a line is 2 USD at 50.
+ * Never flatten that line to 1 just because the header currency is the pound.
+ */
+export function persistJournalLineFxRate(params: {
+  headerCurrencyCode?: string | null;
+  lineCurrencyCode?: string | null;
+  lineRate?: unknown;
+  headerRate?: unknown;
+}): number {
+  const headerRate = asFxRate(params.headerRate, 1);
+  const rate = params.lineRate != null ? asFxRate(params.lineRate, headerRate) : headerRate;
+  if (params.lineCurrencyCode) {
+    return persistFxRate(params.lineCurrencyCode, rate);
+  }
+  if (isUnitRateCurrency(params.headerCurrencyCode) && rate !== 1) {
+    return rate;
+  }
+  return persistFxRate(params.headerCurrencyCode, rate);
+}
+
 export function persistFxDecimal(
   currencyCode?: string | null,
   rate?: unknown,

@@ -256,6 +256,7 @@ export default function ChartOfAccountsPage() {
                 collapseAllToken={collapseToken}
                 revealAccountId={revealAccountId}
                 onAddChild={openCreateChild}
+                onView={openEdit}
                 onEdit={openEdit}
                 onDelete={(n) => void confirmDelete(n)}
                 onLedger={(n) => {

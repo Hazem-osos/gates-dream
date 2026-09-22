@@ -34,6 +34,7 @@ export type InvoiceListRow = {
   totalAmount?: number | string | null;
   netAmount?: number | string | null;
   isPosted?: boolean;
+  isCancelled?: boolean;
   customer?: { arabicName?: string };
   supplier?: { arabicName?: string };
   [key: string]: unknown;
@@ -124,10 +125,11 @@ export function InventoryInvoicesListSection({
     { staleTime: staleTimes.transactionalMs, gcTime: staleTimes.transactionalGcMs }
   );
 
-  const fetchedRows = data?.data ?? [];
+  const fetchedRows = (data?.data ?? []).filter((row) => row.isCancelled !== true);
   const filteredRows = useMemo(() => {
     if (!hasLocalFilters) return fetchedRows;
     return fetchedRows.filter((row) => {
+      if (row.isCancelled === true) return false;
       if (!rowMatchesSearch(row, search)) return false;
       if (!rowMatchesDateRange(row, startDate, endDate)) return false;
       if (!rowMatchesPostedStatus(row, postedFilter)) return false;

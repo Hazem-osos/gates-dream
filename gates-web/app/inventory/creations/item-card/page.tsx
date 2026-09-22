@@ -798,22 +798,6 @@ function ItemCardPageInner() {
     }
   };
 
-  const handleArchive = async () => {
-    if (!activeItemId) {
-      setError('احفظ الصنف قبل الأرشفة');
-      return;
-    }
-    setError('');
-    try {
-      await apiClient.put(`/inventory/items/${activeItemId}`, { isActive: false, inactiveItem: true });
-      setSuccess('تم أرشفة الصنف');
-      patch({ inactiveItem: true });
-      invalidateQuery(['items']);
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'تعذر أرشفة الصنف');
-    }
-  };
-
   const handlePermanentDelete = async () => {
     if (!activeItemId) {
       setError('احفظ الصنف قبل الحذف');
@@ -907,14 +891,8 @@ function ItemCardPageInner() {
             disabled: !activeItemId || !isReadOnly,
           },
           {
-            id: 'archive',
-            label: 'أرشفة',
-            onClick: () => void handleArchive(),
-            disabled: !activeItemId,
-          },
-          {
             id: 'delete',
-            label: 'حذف نهائي',
+            label: 'حذف',
             onClick: () => void handlePermanentDelete(),
             disabled: !activeItemId,
             destructive: true,

@@ -280,6 +280,7 @@ const PurchaseInvoiceLineRow = memo(function PurchaseInvoiceLineRow({
                     ...lineGridDataAttrs(PURCHASE_GRID_ID, index, 'item'),
                   }}
                   onInputKeyDown={(e) => handleLineGridKeyDown(e, handlers)}
+                  fallbackLabel={itemsForBaseUnit.find((it) => it.id === line.itemId)?.arabicName}
                 />
               </td>
             );

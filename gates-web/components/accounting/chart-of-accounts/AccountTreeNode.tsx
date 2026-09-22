@@ -1,6 +1,6 @@
 'use client';
 
-import { ArrowLeftRight, ChevronDown, ChevronLeft, CornerDownLeft, FolderTree, Landmark } from 'lucide-react';
+import { ArrowLeftRight, ChevronDown, ChevronLeft, CornerDownLeft, Eye, FolderTree, Landmark } from 'lucide-react';
 import {
   isSystemCashPostingAccount,
   resolveCoaTreeRole,
@@ -105,6 +105,7 @@ export function AccountTreeNode({
   onToggle,
   searchQuery,
   onAddChild,
+  onView,
   onEdit,
   onDelete,
   onLedger,
@@ -117,6 +118,7 @@ export function AccountTreeNode({
   onToggle: () => void;
   searchQuery: string;
   onAddChild: (n: CoaHierarchyAccount) => void;
+  onView?: (n: CoaHierarchyAccount) => void;
   onEdit: (n: CoaHierarchyAccount) => void;
   onDelete: (n: CoaHierarchyAccount) => void;
   onLedger: (n: CoaHierarchyAccount) => void;
@@ -210,7 +212,19 @@ export function AccountTreeNode({
         {formatBalance(node.currentBalance)}
       </span>
 
-      <div className="opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity flex items-center gap-1 ms-auto pl-2 shrink-0 z-[1]">
+      <div className="flex items-center gap-1 ms-auto pl-2 shrink-0 z-[1]">
+        {onView ? (
+          <button
+            type="button"
+            title="عرض البيانات"
+            aria-label="عرض البيانات"
+            className="rounded-md p-1.5 text-[#0E79AA] hover:bg-[#0E79AA]/10"
+            onClick={() => onView(node)}
+          >
+            <Eye className="h-4 w-4" />
+          </button>
+        ) : null}
+        <div className="opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity flex items-center gap-1">
         {lockBranching ? null : (
           <button
             type="button"
@@ -230,6 +244,7 @@ export function AccountTreeNode({
         <button type="button" title="حذف" className="p-1.5 rounded-md hover:bg-red-50" onClick={() => onDelete(node)}>
           🗑️
         </button>
+        </div>
       </div>
     </div>
   );

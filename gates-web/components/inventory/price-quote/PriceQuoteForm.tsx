@@ -150,6 +150,7 @@ export function PriceQuoteForm() {
     setDeliveryPeriod(payload.deliveryPeriod);
     setLines(payload.lines?.length ? payload.lines : [emptyCommercialLine()]);
   }, []);
+  const skipServerHydrateRef = useRef(false);
   const {
     restoreOffer,
     acceptRestore,
@@ -158,8 +159,13 @@ export function PriceQuoteForm() {
   } = useDraftAutosave({
     documentType: 'price-quote',
     value: priceQuoteDraft,
-    enabled: !selectedId,
-    applyRestore: applyPriceQuoteDraft,
+    mode: selectedId ? 'edit' : 'new',
+    documentId: selectedId,
+    enabled: true,
+    applyRestore: (payload) => {
+      skipServerHydrateRef.current = true;
+      applyPriceQuoteDraft(payload);
+    },
     isEmpty: (draft) =>
       !draft.customerId?.trim() &&
       !draft.description?.trim() &&
@@ -207,6 +213,10 @@ export function PriceQuoteForm() {
   }, [currencies, currencyId]);
 
   useEffect(() => {
+    if (skipServerHydrateRef.current) {
+      skipServerHydrateRef.current = false;
+      return;
+    }
     if (!loaded || !selectedId) return;
     setQuoteNumber(loaded.quoteNumber || '');
     setDescription(loaded.description || '');

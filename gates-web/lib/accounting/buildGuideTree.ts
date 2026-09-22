@@ -78,8 +78,9 @@ export function groupAsFolders(
     groupKey?: string;
     toneIndex?: number;
     children: GuideTreeNode[];
+    synthetic?: boolean;
   }[],
-  options?: { keepEmpty?: boolean }
+  options?: { keepEmpty?: boolean; synthetic?: boolean }
 ): GuideTreeNode[] {
   return groups
     .filter((g) => options?.keepEmpty || g.children.length > 0)
@@ -88,7 +89,7 @@ export function groupAsFolders(
       code: g.code,
       name: g.name,
       folder: true,
-      synthetic: true,
+      synthetic: g.synthetic ?? options?.synthetic ?? true,
       groupKey: g.groupKey,
       toneIndex: g.toneIndex,
       children: sortGuideNodes(g.children),

@@ -32,8 +32,21 @@ import {
 } from '../utils/journal-source';
 import { recurringEntriesService } from './recurring-entries.service';
 import { JournalSourceType } from '@prisma/client';
-import { persistFxRate } from '../utils/company-fx-rate';
+import { persistFxRate, persistJournalLineFxRate } from '../utils/company-fx-rate';
 import { AUTOMATION_SYSTEM_ACTOR_ID } from '../../automation/constants';
+
+function lineFxRate(
+  headerCurrencyCode: string | null | undefined,
+  line: { exchangeRate?: number; currencyCode?: string | null },
+  headerRate: number
+): number {
+  return persistJournalLineFxRate({
+    headerCurrencyCode,
+    lineCurrencyCode: line.currencyCode,
+    lineRate: line.exchangeRate,
+    headerRate,
+  });
+}
 
 function journalNumberKeys(value: string | null | undefined): string[] {
   const trimmed = value?.trim();
@@ -226,7 +239,7 @@ export class JournalPostingService {
     const lineInputs = data.lines.map((l) => ({
       debit: l.debit,
       credit: l.credit,
-      exchangeRate: persistFxRate(data.currencyCode, l.exchangeRate ?? headerRate),
+      exchangeRate: lineFxRate(data.currencyCode, l, headerRate),
     }));
     const { isBalanced } = this.validateDoubleEntryBalance(lineInputs, {
       allowUnbalanced: saveUnbalanced,
@@ -419,7 +432,7 @@ export class JournalPostingService {
     const lineInputs = data.lines.map((l) => ({
       debit: l.debit,
       credit: l.credit,
-      exchangeRate: persistFxRate(data.currencyCode, l.exchangeRate ?? headerRate),
+      exchangeRate: lineFxRate(data.currencyCode, l, headerRate),
     }));
     validateJournalLineSides(lineInputs);
     const { isBalanced } = this.validateDoubleEntryBalance(lineInputs, {
@@ -706,7 +719,7 @@ export class JournalPostingService {
     const lineInputs = resolvedLines.map((line) => ({
       debit: line.debit,
       credit: line.credit,
-      exchangeRate: persistFxRate(data.currencyCode, line.exchangeRate ?? headerRate),
+      exchangeRate: lineFxRate(data.currencyCode, line, headerRate),
     }));
     validateJournalLineSides(lineInputs);
     this.validateDoubleEntryBalance(lineInputs, { allowUnbalanced: false, requireStrictLines: false });
@@ -828,9 +841,10 @@ export class JournalPostingService {
         data.lines.map((l) => ({
           debit: l.debit,
           credit: l.credit,
-          exchangeRate: persistFxRate(
+          exchangeRate: lineFxRate(
             data.currencyCode ?? existing.currencyCode,
-            l.exchangeRate ?? headerRate
+            l,
+            headerRate
           ),
         })),
         { allowUnbalanced: saveUnbalanced }
@@ -874,9 +888,10 @@ export class JournalPostingService {
           data.lines.map((l) => ({
             debit: l.debit,
             credit: l.credit,
-            exchangeRate: persistFxRate(
+            exchangeRate: lineFxRate(
             data.currencyCode ?? existing.currencyCode,
-            l.exchangeRate ?? headerRate
+            l,
+            headerRate
           ),
           })),
           { allowUnbalanced: saveUnbalanced }

@@ -4201,7 +4201,7 @@ model TransactionSettings {
   defaultCostCenter   CostCenter? @relation(fields: [defaultCostCenterId], references: [id])
 
   defaultWarehouseId String?
-  defaultWarehouse   Warehouse? @relation(fields: [defaultWarehouseId], references: [id])
+  defaultWarehouse   Warehouse? @relation(fields: [defaultWarehouseId], references: [id], onDelete: SetNull)
 
   pricingPolicy              PricingPolicy              @default(LAST_SALE)
   costCenterSide             CostCenterPostingSide      @default(DEBIT)

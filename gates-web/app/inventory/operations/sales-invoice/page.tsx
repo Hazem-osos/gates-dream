@@ -94,11 +94,26 @@ import { InternalNotesScratchpad } from '@/components/documents/InternalNotesScr
 import { ElectronicInvoiceDetailsButton } from '@/components/inventory/sales-invoice/ElectronicInvoiceDetailsButton';
 import type { InternalNoteEntry, PaymentSplitLine } from '@/lib/invoices/payment-split.types';
 import {
-  creditAdvanceToSplits,
+  unwrapInvoiceCheques,
+  type InvoiceCashSettlement,
+  type InvoiceChequesPayload,
+} from '@/lib/invoices/invoice-settlements';
+import {
   resolveInvoicePaymentUi,
   splitsMatchTotal,
   withOnAccountRemainder,
 } from '@/lib/invoices/payment-split.types';
+import {
+  bankDraftFromSplits,
+  buildCashTenderSplits,
+  chequeDraftsFromSplits,
+  emptyChequeDraft,
+  inferCashTenderKind,
+  resolveCashTenderKind,
+  tenderPaidFromSplits,
+  type CashTenderKind,
+  type InvoiceChequeDraft,
+} from '@/lib/invoices/cash-tender';
 import {
   extractEInvoiceDetails,
   stripEInvoiceDetailsNote,
@@ -158,12 +173,28 @@ const BarcodePrintModal = dynamic(
   { ssr: false, loading: () => <DynamicModalSkeleton label="جاري تحميل طباعة الباركود…" /> }
 );
 
+const InvoiceSettlementsHistoryModal = dynamic(
+  () =>
+    import('@/components/invoices/InvoiceSettlementsHistoryModal').then((m) => ({
+      default: m.InvoiceSettlementsHistoryModal,
+    })),
+  { ssr: false, loading: () => <DynamicModalSkeleton label="جاري تحميل التحصيلات…" /> }
+);
+
 const InvoiceCollectModal = dynamic(
   () =>
     import('@/components/inventory/sales-invoice/InvoiceCollectModal').then((m) => ({
       default: m.InvoiceCollectModal,
     })),
   { ssr: false, loading: () => <DynamicModalSkeleton label="جاري تحميل التحصيل…" /> }
+);
+
+const LinkAdvancePaymentModal = dynamic(
+  () =>
+    import('@/components/invoices/LinkAdvancePaymentModal').then((m) => ({
+      default: m.LinkAdvancePaymentModal,
+    })),
+  { ssr: false, loading: () => <DynamicModalSkeleton label="جاري تحميل الدفعات المقدمة…" /> }
 );
 
 const ConditionEditor = dynamic(
@@ -302,6 +333,7 @@ type SalesInvoiceDraft = {
   isSalesTaxInvoice: boolean;
   extrasOpen?: boolean;
   headerExtrasOpen?: boolean;
+  cashChequeRows?: InvoiceChequeDraft[];
 };
 
 function headerExtrasHaveValues(form: SalesInvoiceFormValues | null | undefined): boolean {
@@ -344,6 +376,9 @@ function emptySalesInvoiceDefaults(): SalesInvoiceFormValues {
     date: today,
     dueDate: '',
     paymentMethod: 'cash',
+    cashTenderKind: 'treasury',
+    cashBankAccountId: '',
+    cashBankReference: '',
     paymentTermsMethod: '',
     pricingCalculationBasis: 'SELECTED_UNIT_QTY',
     advancePaidAmount: 0,
@@ -434,6 +469,8 @@ function SalesInvoicePageInner() {
   const [dontPrintEmptyLines, setDontPrintEmptyLines] = useState(false);
   const [showPrint, setShowPrint] = useState(false);
   const [collectModalOpen, setCollectModalOpen] = useState(false);
+  const [linkAdvanceOpen, setLinkAdvanceOpen] = useState(false);
+  const [settlementsHistoryOpen, setSettlementsHistoryOpen] = useState(false);
   const [showTermsModal, setShowTermsModal] = useState(false);
   const [conditions, setConditions] = useState<string[]>(['']);
   const [isSalesTaxInvoice, setIsSalesTaxInvoice] = useState(false);
@@ -464,6 +501,9 @@ function SalesInvoicePageInner() {
   const invoiceNumberW = watch('invoiceNumber');
   const dateW = watch('date');
   const paymentMethodW = watch('paymentMethod');
+  const cashTenderKindW = watch('cashTenderKind');
+  const cashBankAccountIdW = watch('cashBankAccountId');
+  const cashBankReferenceW = watch('cashBankReference');
   const warehouseIdW = watch('warehouseId');
   const prevHeaderWarehouseRef = useRef(warehouseIdW);
   const allowReturnW = watch('allowReturn');
@@ -555,6 +595,7 @@ function SalesInvoicePageInner() {
 
   const skipUrlHydrateRef = useRef(false);
   const saveLockRef = useRef(false);
+  const persistIntentRef = useRef<'save' | 'post'>('save');
 
   useEffect(() => {
     const id = invoiceIdFromUrl?.trim();
@@ -613,6 +654,8 @@ function SalesInvoicePageInner() {
   );
   const [bottomSplitTab, setBottomSplitTab] = useState('gl');
   const [paymentSplits, setPaymentSplits] = useState<PaymentSplitLine[]>([]);
+  const [cashChequeRows, setCashChequeRows] = useState<InvoiceChequeDraft[]>([emptyChequeDraft()]);
+  const [cashChequeError, setCashChequeError] = useState('');
   const [invoiceExtras, setInvoiceExtras] = useState<InvoiceExtraRow[]>([]);
   const [extrasOpen, setExtrasOpen] = useState(false);
   const [headerExtrasOpen, setHeaderExtrasOpen] = useState(false);
@@ -626,7 +669,8 @@ function SalesInvoicePageInner() {
     code?: string | null;
   } | null>(null);
 
-  const draftEnabled = !selectedInvoiceId && !isPosted;
+  const skipServerHydrateRef = useRef(false);
+  const draftEnabled = !isPosted;
   const salesInvoiceDraft = useMemo<SalesInvoiceDraft>(() => {
     const live = getValues();
     const lines = (watchedLines?.length ? watchedLines : live.lines) ?? [];
@@ -637,6 +681,7 @@ function SalesInvoicePageInner() {
         lines,
       }),
       paymentSplits,
+      cashChequeRows,
       invoiceExtras,
       paymentInstallments,
       internalNotes,
@@ -658,6 +703,7 @@ function SalesInvoicePageInner() {
     isSalesTaxInvoice,
     paymentInstallments,
     paymentSplits,
+    cashChequeRows,
     watchedLines,
   ]);
   const applySalesInvoiceDraft = useCallback(
@@ -666,6 +712,12 @@ function SalesInvoicePageInner() {
       reset(form);
       replace(form.lines?.length ? form.lines : [blankSalesInvoiceLine()]);
       setPaymentSplits(Array.isArray(payload.paymentSplits) ? payload.paymentSplits : []);
+      setCashChequeRows(
+        payload.cashChequeRows?.length
+          ? payload.cashChequeRows
+          : chequeDraftsFromSplits(payload.paymentSplits)
+      );
+      setCashChequeError('');
       setInvoiceExtras(Array.isArray(payload.invoiceExtras) ? payload.invoiceExtras : []);
       setPaymentInstallments(Array.isArray(payload.paymentInstallments) ? payload.paymentInstallments : []);
       setInternalNotes(Array.isArray(payload.internalNotes) ? payload.internalNotes : []);
@@ -688,9 +740,14 @@ function SalesInvoicePageInner() {
     clearDraft,
   } = useDraftAutosave({
     documentType: 'sales-invoice',
+    mode: selectedInvoiceId ? 'edit' : 'new',
+    documentId: selectedInvoiceId,
     value: salesInvoiceDraft,
     enabled: draftEnabled,
-    applyRestore: applySalesInvoiceDraft,
+    applyRestore: (payload) => {
+      skipServerHydrateRef.current = true;
+      applySalesInvoiceDraft(payload);
+    },
     isEmpty: isSalesInvoiceDraftEmpty,
     restoreMessage: 'تم استعادة المسودة المحفوظة',
   });
@@ -896,6 +953,10 @@ function SalesInvoicePageInner() {
 
   // Load invoice data when selected
   useEffect(() => {
+    if (skipServerHydrateRef.current) {
+      skipServerHydrateRef.current = false;
+      return;
+    }
     if (selectedInvoice) {
       const rawSplits = (selectedInvoice as { paymentSplits?: PaymentSplitLine[] }).paymentSplits;
       const invoiceNet = Number(
@@ -910,6 +971,10 @@ function SalesInvoicePageInner() {
         invoiceNet
       );
       setPaymentSplits(loadedSplits);
+      const cashKind = inferCashTenderKind(loadedSplits);
+      const bankDraft = bankDraftFromSplits(loadedSplits);
+      setCashChequeRows(chequeDraftsFromSplits(loadedSplits));
+      setCashChequeError('');
       const loadedExtras = extrasFromApi(selectedInvoice.adjustments);
       setInvoiceExtras(loadedExtras);
       setExtrasOpen(loadedExtras.length > 0);
@@ -960,8 +1025,12 @@ function SalesInvoicePageInner() {
           ? new Date(selectedInvoice.dueDate).toISOString().split('T')[0]
           : '',
         paymentMethod: pt,
+        cashTenderKind: pt === 'cash' || pt === 'credit' ? cashKind : 'treasury',
+        cashBankAccountId: bankDraft.bankAccountId,
+        cashBankReference: bankDraft.reference,
         paymentTermsMethod: extractPaymentTermsMethod(notesList),
-        advancePaidAmount: creditCashSplit?.amount ?? 0,
+        advancePaidAmount:
+          pt === 'credit' ? tenderPaidFromSplits(loadedSplits) : creditCashSplit?.amount ?? 0,
         advanceSafeId: creditCashSplit?.safeId ?? '',
         warehouseId: selectedInvoice.warehouseId || '',
         invoiceNumber: selectedInvoice.invoiceNumber || '',
@@ -1325,6 +1394,8 @@ function SalesInvoicePageInner() {
     resetKeepPosted();
     setIsApproved(false);
     setPaymentSplits([]);
+    setCashChequeRows([emptyChequeDraft()]);
+    setCashChequeError('');
     setPaymentInstallments([]);
     setInvoiceExtras([]);
     setExtrasOpen(false);
@@ -1348,6 +1419,7 @@ function SalesInvoicePageInner() {
     {
       showSuccessToast: false,
       onSuccess: (res) => {
+        persistIntentRef.current = 'save';
         saveLockRef.current = false;
         const num =
           String(res?.data?.invoiceNumber ?? '').trim() ||
@@ -1364,6 +1436,7 @@ function SalesInvoicePageInner() {
         afterSaveReset();
       },
       onError: (error: ApiError) => {
+        persistIntentRef.current = 'save';
         saveLockRef.current = false;
         toastInvoiceSaveError(error.message || 'حدث خطأ أثناء الحفظ');
       },
@@ -1380,6 +1453,15 @@ function SalesInvoicePageInner() {
         saveLockRef.current = false;
         const num = resolveInvoiceNumber();
         const id = selectedInvoiceId;
+        const shouldPostNow = persistIntentRef.current === 'post';
+        persistIntentRef.current = 'save';
+        if (shouldPostNow && id) {
+          consumeShouldRepost();
+          postInvoiceMutation.mutate({});
+          invalidateQuery(['invoices']);
+          invalidateQuery(['invoice', id]);
+          return;
+        }
         const finish = (posted: boolean) => {
           toast.success(posted ? 'تم حفظ التعديلات وترحيل الفاتورة' : 'تم حفظ المسودة', {
             description: posted
@@ -1407,6 +1489,7 @@ function SalesInvoicePageInner() {
       },
       onError: (error: ApiError) => {
         saveLockRef.current = false;
+        persistIntentRef.current = 'save';
         if (isOptimisticLockApiError(error)) {
           toastVersionConflict(error.message, () => {
             invalidateQuery(['invoice', selectedInvoiceId]);
@@ -1455,6 +1538,8 @@ function SalesInvoicePageInner() {
         });
         invalidateQuery(['invoices']);
         invalidateQuery(['invoice', selectedInvoiceId]);
+        invalidateQuery(['invoice-settlements', selectedInvoiceId]);
+        invalidateQuery(['invoice-settlements-cheques', selectedInvoiceId]);
         dispatchAcademyTrigger('API_SUCCESS', 'sales-invoice.post-success');
       },
       onError: (error: ApiError) => {
@@ -1478,6 +1563,8 @@ function SalesInvoicePageInner() {
         markUnpostedForEdit();
         invalidateQuery(['invoices']);
         invalidateQuery(['invoice', selectedInvoiceId]);
+        invalidateQuery(['invoice-settlements', selectedInvoiceId]);
+        invalidateQuery(['invoice-settlements-cheques', selectedInvoiceId]);
       },
       onError: (error: ApiError) => {
         toast.error('تعذر فك ترحيل الفاتورة', {
@@ -1502,6 +1589,15 @@ function SalesInvoicePageInner() {
 
   useEffect(() => {
     if (paymentMethodW !== 'cash') return;
+    const resolved = resolveCashTenderKind(
+      getValues('cashTenderKind'),
+      getValues('cashBankAccountId'),
+      cashChequeRows
+    );
+    if (resolved !== (getValues('cashTenderKind') ?? 'treasury')) {
+      setValue('cashTenderKind', resolved, { shouldDirty: false, shouldValidate: true });
+    }
+    if (resolved !== 'treasury') return;
     if (!getValues('treasuryId')) {
       const fallback = getValues('advanceSafeId') || defaultSafeId;
       if (fallback) {
@@ -1509,7 +1605,7 @@ function SalesInvoicePageInner() {
       }
     }
     void trigger('treasuryId');
-  }, [paymentMethodW, defaultSafeId, getValues, setValue, trigger]);
+  }, [paymentMethodW, defaultSafeId, cashChequeRows, getValues, setValue, trigger]);
 
   useEffect(() => {
     if (paymentMethodW !== 'credit') return;
@@ -1525,24 +1621,22 @@ function SalesInvoicePageInner() {
     }
   }, [paymentMethodW, defaultSafeId, getValues, setValue]);
 
-  const { data: settlementsResponse } = useApiQuery<
-    Array<{
-      id: string;
-      transactionKind: string;
-      voucherNumber?: string | null;
-      date: string;
-      amount: number | string;
-      isPosted: boolean;
-      isCancelled: boolean;
-      journalEntryId?: string | null;
-    }>
+  const { data: settlementsResponse, isLoading: settlementsLoading } = useApiQuery<
+    InvoiceCashSettlement[]
   >(
     ['invoice-settlements', selectedInvoiceId],
     `/invoices/${selectedInvoiceId}/settlements`,
     undefined,
     { enabled: !!selectedInvoiceId }
   );
+  const { data: chequesResponse, isLoading: chequesLoading } = useApiQuery<InvoiceChequesPayload>(
+    ['invoice-settlements-cheques', selectedInvoiceId],
+    `/invoices/${selectedInvoiceId}/settlements/cheques`,
+    undefined,
+    { enabled: !!selectedInvoiceId }
+  );
   const settlements = settlementsResponse?.data || [];
+  const { cheques: settlementCheques } = unwrapInvoiceCheques(chequesResponse?.data);
 
   const collectPaymentMutation = useApiMutation<unknown, Record<string, unknown>>(
     selectedInvoiceId ? `/invoices/${selectedInvoiceId}/settlements` : '/invoices',
@@ -1555,6 +1649,7 @@ function SalesInvoicePageInner() {
         invalidateQuery(['invoices']);
         invalidateQuery(['invoice', selectedInvoiceId]);
         invalidateQuery(['invoice-settlements', selectedInvoiceId]);
+        invalidateQuery(['invoice-settlements-cheques', selectedInvoiceId]);
       },
       onError: (error: ApiError) => {
         toast.error('تعذر تسجيل التحصيل', {
@@ -1563,6 +1658,27 @@ function SalesInvoicePageInner() {
       },
     }
   );
+
+  const handleToolbarLinkAdvance = () => {
+    if (!selectedInvoiceId) {
+      toast.error('احفظ الفاتورة أولاً');
+      return;
+    }
+    if (!String(getValues('customerId') ?? '').trim()) {
+      toast.error('اختر العميل أولاً');
+      return;
+    }
+    if (!selectedInvoice?.isPosted) {
+      toast.error('رحّل الفاتورة أولاً ثم اربط الدفعة المقدمة');
+      return;
+    }
+    const remaining = invoiceRemainingForCollect(selectedInvoice as Record<string, unknown> | undefined);
+    if (remaining === null) {
+      toast.error('لا يوجد مبلغ متبقٍ على الفاتورة');
+      return;
+    }
+    setLinkAdvanceOpen(true);
+  };
 
   const handleToolbarCollectPayment = () => {
     if (!selectedInvoiceId) {
@@ -1591,10 +1707,11 @@ function SalesInvoicePageInner() {
       return;
     }
     invalidateQuery(['invoice-settlements', selectedInvoiceId]);
+    invalidateQuery(['invoice-settlements-cheques', selectedInvoiceId]);
     invalidateQuery(['invoice', selectedInvoiceId]);
     invalidateQuery(['invoices']);
     setBottomSplitTab('settlements');
-    toast.success('تم تحديث بيانات التحصيلات');
+    setSettlementsHistoryOpen(true);
   };
 
   const handleToolbarOpenJournal = () => {
@@ -1616,7 +1733,10 @@ function SalesInvoicePageInner() {
       : undefined;
 
   const onValidSubmit = (data: SalesInvoiceFormValues) => {
-    if (financialBusy || saveLockRef.current) return;
+    if (financialBusy || saveLockRef.current) {
+      persistIntentRef.current = 'save';
+      return;
+    }
     try {
       const resolvedMethod = data.paymentMethod;
       const splitLines =
@@ -1624,6 +1744,7 @@ function SalesInvoicePageInner() {
           ? withOnAccountRemainder(paymentSplits, financialSummary.netAmount)
           : undefined;
       if (resolvedMethod === 'split' && !splitsMatchTotal(splitLines ?? [], financialSummary.netAmount)) {
+        persistIntentRef.current = 'save';
         toast.error('وزّع الدفع المتعدد ليطابق إجمالي الفاتورة');
         setSplitModalOpen(true);
         return;
@@ -1636,6 +1757,7 @@ function SalesInvoicePageInner() {
             (Number(row.additionValue) > 0 || Number(row.discountValue) > 0)
         )
       ) {
+        persistIntentRef.current = 'save';
         toast.error('حدد الحساب لكل إضافة أو خصم');
         setExtrasOpen(true);
         return;
@@ -1643,23 +1765,35 @@ function SalesInvoicePageInner() {
       const creditPaid = Number(data.advancePaidAmount) || 0;
       const treasuryId = String(data.treasuryId || defaultSafeId || '').trim();
       const creditSafe = String(data.advanceSafeId || treasuryId || '').trim();
-      if (resolvedMethod === 'cash' && !treasuryId) {
-        toast.error('يجب تحديد الخزنة في الفاتورة النقدية');
+      const cashKind = resolveCashTenderKind(
+        data.cashTenderKind,
+        data.cashBankAccountId,
+        cashChequeRows
+      );
+      const cashBuilt =
+        resolvedMethod === 'cash' || resolvedMethod === 'credit'
+          ? buildCashTenderSplits({
+              kind: cashKind,
+              netAmount: financialSummary.netAmount,
+              treasuryId: resolvedMethod === 'credit' ? creditSafe : treasuryId,
+              bankAccountId: data.cashBankAccountId,
+              bankReference: data.cashBankReference,
+              cheques: cashChequeRows,
+              direction: 'RECEIPT',
+              mode: resolvedMethod === 'credit' ? 'advance' : 'full',
+              paidAmount: creditPaid,
+            })
+          : {};
+      if ((resolvedMethod === 'cash' || resolvedMethod === 'credit') && cashBuilt.error) {
+        persistIntentRef.current = 'save';
+        setCashChequeError(cashBuilt.error);
+        toast.error(cashBuilt.error);
         return;
       }
-      if (resolvedMethod === 'credit' && creditPaid > 0 && !creditSafe) {
-        toast.error('حدد الخزينة عند دفع مبلغ في الأول');
-        return;
-      }
+      setCashChequeError('');
       const trimmedConditions = conditions.map((c) => c.trim()).filter(Boolean);
-      const cashTreasurySplits =
-        resolvedMethod === 'cash' && treasuryId && financialSummary.netAmount > 0
-          ? [{ type: 'CASH' as const, safeId: treasuryId, amount: financialSummary.netAmount }]
-          : undefined;
-      const creditSplits =
-        resolvedMethod === 'credit'
-          ? creditAdvanceToSplits(creditPaid, creditSafe, financialSummary.netAmount)
-          : undefined;
+      const cashTreasurySplits = resolvedMethod === 'cash' ? cashBuilt.splits : undefined;
+      const creditSplits = resolvedMethod === 'credit' ? cashBuilt.splits : undefined;
       const formData = {
         ...data,
         lines: data.lines ?? [],
@@ -1711,12 +1845,14 @@ function SalesInvoicePageInner() {
 
       invoiceMutation.mutate(mapSalesFormToM5CreateBody(formData, opts));
     } catch (e) {
+      persistIntentRef.current = 'save';
       saveLockRef.current = false;
       toastInvoiceSaveError(e instanceof Error ? e.message : 'تعذر تجهيز الفاتورة');
     }
   };
 
   const onInvalidSubmit = (formErrors: FieldErrors<SalesInvoiceFormValues>) => {
+    persistIntentRef.current = 'save';
     toastInvoiceSaveError(
       firstErrorMessage(formErrors) ?? 'يرجى إكمال العميل والمخزن وبنود الفاتورة قبل الحفظ'
     );
@@ -1750,21 +1886,58 @@ function SalesInvoicePageInner() {
         setSplitModalOpen(true);
         return;
       }
-      if (paymentMethodW === 'cash' && !getValues('treasuryId')?.trim()) {
-        toast.error('يجب تحديد الخزنة في الفاتورة النقدية');
-        void trigger('treasuryId');
-        return;
-      }
-      if (paymentMethodW === 'credit') {
-        const paid = Number(getValues('advancePaidAmount')) || 0;
-        const safe = String(getValues('advanceSafeId') || getValues('treasuryId') || '').trim();
-        if (paid > 0 && !safe) {
-          toast.error('حدد الخزينة عند دفع مبلغ في الأول');
-          void trigger('advanceSafeId');
+      if (paymentMethodW === 'cash') {
+        const cashKind = resolveCashTenderKind(
+          getValues('cashTenderKind'),
+          getValues('cashBankAccountId'),
+          cashChequeRows
+        );
+        const cashBuilt = buildCashTenderSplits({
+          kind: cashKind,
+          netAmount: financialSummary.netAmount,
+          treasuryId: String(getValues('treasuryId') || defaultSafeId || '').trim(),
+          bankAccountId: getValues('cashBankAccountId'),
+          bankReference: getValues('cashBankReference'),
+          cheques: cashChequeRows,
+          direction: 'RECEIPT',
+        });
+        if (cashBuilt.error) {
+          setCashChequeError(cashBuilt.error);
+          toast.error(cashBuilt.error);
+          if (cashKind === 'treasury') void trigger('treasuryId');
+          if (cashKind === 'bank') void trigger('cashBankAccountId');
           return;
         }
+        setCashChequeError('');
       }
-      postInvoiceMutation.mutate({});
+      if (paymentMethodW === 'credit') {
+        const cashKind = resolveCashTenderKind(
+          getValues('cashTenderKind'),
+          getValues('cashBankAccountId'),
+          cashChequeRows
+        );
+        const cashBuilt = buildCashTenderSplits({
+          kind: cashKind,
+          netAmount: financialSummary.netAmount,
+          treasuryId: String(getValues('advanceSafeId') || getValues('treasuryId') || defaultSafeId || '').trim(),
+          bankAccountId: getValues('cashBankAccountId'),
+          bankReference: getValues('cashBankReference'),
+          cheques: cashChequeRows,
+          direction: 'RECEIPT',
+          mode: 'advance',
+          paidAmount: Number(getValues('advancePaidAmount')) || 0,
+        });
+        if (cashBuilt.error) {
+          setCashChequeError(cashBuilt.error);
+          toast.error(cashBuilt.error);
+          if (cashKind === 'treasury') void trigger('advanceSafeId');
+          if (cashKind === 'bank') void trigger('cashBankAccountId');
+          return;
+        }
+        setCashChequeError('');
+      }
+      persistIntentRef.current = 'post';
+      void handleSubmit(onValidSubmit, onInvalidSubmit)();
     } else {
       unpostInvoiceMutation.mutate({});
     }
@@ -1831,6 +2004,8 @@ function SalesInvoicePageInner() {
     setIsSalesTaxInvoice(readSalesInvoiceVatDefault());
     setCustomerSeed(null);
     setPaymentSplits([]);
+    setCashChequeRows([emptyChequeDraft()]);
+    setCashChequeError('');
     setPaymentInstallments([]);
     setInvoiceExtras([]);
     setExtrasOpen(false);
@@ -1888,7 +2063,7 @@ function SalesInvoicePageInner() {
           invalidateQuery(['invoices']);
           if (id) {
             invalidateQuery(['invoice', id]);
-            setSelectedInvoiceId(id);
+            openInvoice(id);
           }
         },
         onError: (error: Error) => {
@@ -1942,8 +2117,17 @@ function SalesInvoicePageInner() {
         canSave={!isReadOnly && !isPosted && !financialBusy}
         saveLabel={isEditing ? 'حفظ التعديلات' : 'حفظ الفاتورة'}
         onSaveDraft={() => {
+          const resolvedKind = resolveCashTenderKind(
+            getValues('cashTenderKind'),
+            getValues('cashBankAccountId'),
+            cashChequeRows
+          );
+          if (resolvedKind !== (getValues('cashTenderKind') ?? 'treasury')) {
+            setValue('cashTenderKind', resolvedKind, { shouldDirty: false, shouldValidate: true });
+          }
           if (
             getValues('paymentMethod') === 'cash' &&
+            resolvedKind === 'treasury' &&
             !String(getValues('treasuryId') ?? '').trim() &&
             defaultSafeId
           ) {
@@ -1981,6 +2165,7 @@ function SalesInvoicePageInner() {
         onDelete={handleDelete}
         onOpenJournal={handleToolbarOpenJournal}
         onCollectPayment={handleToolbarCollectPayment}
+        onLinkAdvance={handleToolbarLinkAdvance}
         onPaymentHistory={handleToolbarRefreshPayments}
         onCreateReturn={isPosted ? handleCreateReturn : undefined}
         onDuplicate={selectedInvoiceId ? handleDuplicateDocument : undefined}
@@ -2052,9 +2237,21 @@ function SalesInvoicePageInner() {
         onHeaderExtrasOpenChange={setHeaderExtrasOpen}
         onSourceHydrate={handleSourceHydrate}
         paymentMethod={paymentMethodW ?? 'cash'}
+        cashTenderKind={(cashTenderKindW ?? 'treasury') as CashTenderKind}
+        onCashTenderKind={(kind) => setValue('cashTenderKind', kind, { shouldDirty: true, shouldValidate: true })}
+        cashBankAccountId={cashBankAccountIdW ?? ''}
+        onCashBankAccountId={(id) => setValue('cashBankAccountId', id, { shouldDirty: true, shouldValidate: true })}
+        cashBankReference={cashBankReferenceW ?? ''}
+        onCashBankReference={(value) => setValue('cashBankReference', value, { shouldDirty: true })}
+        cashChequeRows={cashChequeRows}
+        onCashChequeRows={setCashChequeRows}
+        cashNetAmount={financialSummary.netAmount}
+        cashChequeError={cashChequeError}
         onConfigureSplit={() => setSplitModalOpen(true)}
+        onLinkAdvance={handleToolbarLinkAdvance}
         onConfigureInstallments={() => setInstallmentsModalOpen(true)}
         installmentCount={paymentInstallments.length}
+        paymentSplits={paymentSplits}
         safes={safesResponse?.data ?? []}
         isSalesTaxInvoice={isSalesTaxInvoice}
         onSalesTaxChange={handleSalesTaxChange}
@@ -2094,6 +2291,16 @@ function SalesInvoicePageInner() {
         }
       />
 
+      {linkAdvanceOpen ? (
+        <LinkAdvancePaymentModal
+          open
+          invoiceId={selectedInvoiceId}
+          remaining={invoiceRemainingForCollect(selectedInvoice as Record<string, unknown> | undefined) ?? 0}
+          kind="RECEIPT"
+          onClose={() => setLinkAdvanceOpen(false)}
+        />
+      ) : null}
+
       {collectModalOpen ? (
         <InvoiceCollectModal
           open
@@ -2103,6 +2310,22 @@ function SalesInvoicePageInner() {
           pending={collectPaymentMutation.isPending}
           onClose={() => setCollectModalOpen(false)}
           onConfirm={(payload) => collectPaymentMutation.mutate(payload)}
+        />
+      ) : null}
+
+      {settlementsHistoryOpen ? (
+        <InvoiceSettlementsHistoryModal
+          open
+          onClose={() => setSettlementsHistoryOpen(false)}
+          direction="RECEIPT"
+          settlements={settlements}
+          cheques={settlementCheques}
+          paidAmount={Number((selectedInvoice as { paidAmount?: number } | undefined)?.paidAmount) || 0}
+          remainingAmount={
+            invoiceRemainingForCollect(selectedInvoice as Record<string, unknown> | undefined) ?? 0
+          }
+          netAmount={Number((selectedInvoice as { netAmount?: number } | undefined)?.netAmount) || financialSummary.netAmount}
+          loading={settlementsLoading || chequesLoading}
         />
       ) : null}
 
@@ -2217,6 +2440,11 @@ function SalesInvoicePageInner() {
           selectedInvoiceId={selectedInvoiceId}
           isPosted={isPosted}
           settlements={settlements}
+          cheques={settlementCheques}
+          paidAmount={Number((selectedInvoice as { paidAmount?: number } | undefined)?.paidAmount) || 0}
+          remainingAmount={
+            invoiceRemainingForCollect(selectedInvoice as Record<string, unknown> | undefined) ?? 0
+          }
           activeTabId={bottomSplitTab}
           onActiveTabChange={setBottomSplitTab}
           termsAction={

@@ -239,7 +239,7 @@ router.put(
 
 /**
  * DELETE /api/v1/inventory/price-lists/:id
- * Delete price list (soft delete)
+ * Permanent delete
  */
 router.delete(
   '/:id',

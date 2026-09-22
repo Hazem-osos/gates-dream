@@ -8,7 +8,6 @@ import { CustomerSelect } from '@/components/form/PartySelect';
 import { DynamicModalSkeleton } from '@/components/ui/DynamicChunkSkeleton';
 import { WarehouseSelect } from '@/components/form/WarehouseSelect';
 import { CostCenterSelect } from '@/components/form/CostCenterSelect';
-import { SafeSelect } from '@/app/components/form/SafeSelect';
 import type { SalesInvoiceFormValues } from '@/lib/validation/inventory.schema';
 import { PRICING_CALCULATION_BASIS_LABELS } from '@/lib/invoices/unit-conversion';
 import { toHijriDate } from '@/lib/hijri-date';
@@ -28,8 +27,11 @@ import { useFollowCurrencyCardRate } from '@/lib/hooks/useFollowCurrencyCardRate
 import { ExchangeRateInput } from '@/components/accounting/ExchangeRateInput';
 import { useCompanyBaseCurrency } from '@/lib/hooks/useCompanyBaseCurrency';
 import { InvoiceSourceDocumentControl } from '@/components/invoices/InvoiceSourceDocumentControl';
+import { InvoiceCashTenderPanel } from '@/components/invoices/InvoiceCashTenderPanel';
 import type { SourceHydratePayload } from '@/lib/invoices/sourceDocument';
 import { formatUserDisplayName } from '@/lib/user/profile';
+import type { CashTenderKind, InvoiceChequeDraft } from '@/lib/invoices/cash-tender';
+import { summarizePaymentSplits, type PaymentSplitLine } from '@/lib/invoices/payment-split.types';
 
 const CustomerQuickAddModal = dynamic(
   () =>
@@ -70,7 +72,9 @@ type Props = {
   safes?: Array<{ id: string; arabicName?: string; code?: string | null }>;
   onConfigureSplit?: () => void;
   onConfigureInstallments?: () => void;
+  onLinkAdvance?: () => void;
   installmentCount?: number;
+  paymentSplits?: PaymentSplitLine[];
   isSalesTaxInvoice: boolean;
   onSalesTaxChange: (v: boolean) => void;
   onOpenTerms?: () => void;
@@ -100,6 +104,16 @@ type Props = {
   onHeaderExtrasOpenChange?: (open: boolean) => void;
   onSourceHydrate?: (payload: SourceHydratePayload) => void;
   includeAllAccounts?: boolean;
+  cashTenderKind?: CashTenderKind;
+  onCashTenderKind?: (kind: CashTenderKind) => void;
+  cashBankAccountId?: string;
+  onCashBankAccountId?: (id: string) => void;
+  cashBankReference?: string;
+  onCashBankReference?: (value: string) => void;
+  cashChequeRows?: InvoiceChequeDraft[];
+  onCashChequeRows?: (rows: InvoiceChequeDraft[]) => void;
+  cashNetAmount?: number;
+  cashChequeError?: string;
 };
 
 export function SalesInvoiceFormHeader({
@@ -114,7 +128,9 @@ export function SalesInvoiceFormHeader({
   onOpenTerms,
   onConfigureSplit,
   onConfigureInstallments,
+  onLinkAdvance,
   installmentCount = 0,
+  paymentSplits,
   currencies,
   delegates,
   drivers,
@@ -139,6 +155,16 @@ export function SalesInvoiceFormHeader({
   onHeaderExtrasOpenChange,
   onSourceHydrate,
   includeAllAccounts = false,
+  cashTenderKind = 'treasury',
+  onCashTenderKind,
+  cashBankAccountId = '',
+  onCashBankAccountId,
+  cashBankReference = '',
+  onCashBankReference,
+  cashChequeRows = [],
+  onCashChequeRows,
+  cashNetAmount = 0,
+  cashChequeError,
 }: Props) {
   const mounted = useClientMounted();
   const { code: companyBase } = useCompanyBaseCurrency();
@@ -179,12 +205,14 @@ export function SalesInvoiceFormHeader({
   const developmentFeeEnabled = useWatch({ control, name: 'developmentFeeEnabled' });
   const developmentFeeMode = useWatch({ control, name: 'developmentFeeMode' });
   const advancePaidAmount = useWatch({ control, name: 'advancePaidAmount' });
-  const creditNeedsSafe = paymentMethod === 'credit' && (Number(advancePaidAmount) || 0) > 0;
+  const treasuryIdW = useWatch({ control, name: 'treasuryId' });
+  const advanceSafeIdW = useWatch({ control, name: 'advanceSafeId' });
   const paymentMethodOptions = {
     onChange: (event: { target: { value: string } }) => {
       if (event.target.value === 'split') onConfigureSplit?.();
     },
   } as const;
+  const splitSummary = summarizePaymentSplits(paymentSplits);
   useEffect(() => {
     setValue('hijriDate', toHijriDate(invoiceDate ?? ''), { shouldDirty: false, shouldValidate: false });
   }, [invoiceDate, setValue]);
@@ -282,7 +310,7 @@ export function SalesInvoiceFormHeader({
             }`}
           >
             <input type="radio" value="credit" className="sr-only" {...register('paymentMethod', paymentMethodOptions)} />
-            دفع قبل أجل
+            آجل
           </label>
           <label
             className={`flex-1 min-w-[5.5rem] flex items-center justify-center text-sm font-medium cursor-pointer rounded-md transition-colors ${
@@ -297,6 +325,13 @@ export function SalesInvoiceFormHeader({
             دفع متعدد
           </label>
         </div>
+        {onLinkAdvance ? (
+          <div className="mt-2">
+            <Button type="button" size="sm" variant="secondary" onClick={onLinkAdvance}>
+              ربط دفعة مقدمة
+            </Button>
+          </div>
+        ) : null}
         {paymentMethod === 'split' ? (
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <Button type="button" size="sm" onClick={onConfigureSplit}>
@@ -310,46 +345,50 @@ export function SalesInvoiceFormHeader({
                 </span>
               ) : null}
             </Button>
+            {splitSummary ? <p className="w-full text-[11px] text-slate-500">{splitSummary}</p> : null}
           </div>
         ) : null}
         {paymentMethod === 'credit' ? (
-          <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
-            <div>
-              <label className={erpLabelClass}>
-                الخزينة
-                {creditNeedsSafe ? <RequiredDot hint="الخزينة مطلوبة عند دفع مبلغ في الأول" /> : null}
-              </label>
-              <Controller
-                name="advanceSafeId"
-                control={control}
-                render={({ field }) => (
-                  <SafeSelect
-                    value={field.value || ''}
-                    onChange={field.onChange}
-                    disabled={lockTreasury}
-                    safes={safes}
-                    placeholder="اختر الخزينة"
-                    emptyLabel="اختر الخزينة"
-                    className={errors.advanceSafeId ? erpInputErrorClass : undefined}
-                  />
-                )}
-              />
-              <ErpFieldError message={errors.advanceSafeId?.message} show={!!errors.advanceSafeId?.message} />
-            </div>
-            <div>
-              <label className={erpLabelClass}>المبلغ المدفوع في الأول</label>
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                className={`${erpInputClass} ${errors.advancePaidAmount ? erpInputErrorClass : ''}`}
-                placeholder="0"
-                {...register('advancePaidAmount', { valueAsNumber: true })}
-              />
-              <ErpFieldError message={errors.advancePaidAmount?.message} show={!!errors.advancePaidAmount?.message} />
-            </div>
+          <div>
+            <InvoiceCashTenderPanel
+              kind={cashTenderKind}
+              onKindChange={(kind) => {
+                onCashTenderKind?.(kind);
+                setValue('cashTenderKind', kind, { shouldDirty: true, shouldValidate: true });
+              }}
+              treasuryId={advanceSafeIdW || treasuryIdW || ''}
+              onTreasuryId={(id) => {
+                setValue('advanceSafeId', id, { shouldDirty: true, shouldValidate: true });
+                if (!treasuryIdW) setValue('treasuryId', id, { shouldDirty: false });
+              }}
+              bankAccountId={cashBankAccountId}
+              onBankAccountId={(id) => {
+                onCashBankAccountId?.(id);
+                setValue('cashBankAccountId', id, { shouldDirty: true, shouldValidate: true });
+              }}
+              bankReference={cashBankReference}
+              onBankReference={(value) => {
+                onCashBankReference?.(value);
+                setValue('cashBankReference', value, { shouldDirty: true });
+              }}
+              chequeRows={cashChequeRows}
+              onChequeRows={(rows) => onCashChequeRows?.(rows)}
+              netAmount={cashNetAmount}
+              direction="RECEIPT"
+              variant="advance"
+              paidAmount={Number(advancePaidAmount) || 0}
+              onPaidAmount={(amount) =>
+                setValue('advancePaidAmount', amount, { shouldDirty: true, shouldValidate: true })
+              }
+              paidError={errors.advancePaidAmount?.message}
+              disabled={lockTreasury || fieldsDisabled}
+              treasuryError={errors.advanceSafeId?.message}
+              bankError={errors.cashBankAccountId?.message}
+              chequeError={cashChequeError}
+              showErrors={showValidationErrors}
+            />
             {onConfigureInstallments ? (
-              <div className="sm:col-span-2">
+              <div className="mt-2">
                 <Button type="button" size="sm" variant="secondary" onClick={onConfigureInstallments}>
                   توزيع الدفعات
                   {installmentCount > 0 ? (
@@ -363,28 +402,34 @@ export function SalesInvoiceFormHeader({
           </div>
         ) : null}
         {paymentMethod === 'cash' ? (
-          <div className="mt-2">
-            <label className={erpLabelClass}>
-              الخزنة
-              <RequiredDot hint="الخزنة مطلوبة في الفاتورة النقدية" />
-            </label>
-            <Controller
-              name="treasuryId"
-              control={control}
-              render={({ field }) => (
-                <SafeSelect
-                  value={field.value || ''}
-                  onChange={field.onChange}
-                  disabled={lockTreasury}
-                  safes={safes}
-                  placeholder="اختر الخزنة"
-                  emptyLabel="اختر الخزنة"
-                  className={errors.treasuryId ? erpInputErrorClass : undefined}
-                />
-              )}
-            />
-            <ErpFieldError message={errors.treasuryId?.message} show={!!errors.treasuryId?.message} />
-          </div>
+          <InvoiceCashTenderPanel
+            kind={cashTenderKind}
+            onKindChange={(kind) => {
+              onCashTenderKind?.(kind);
+              setValue('cashTenderKind', kind, { shouldDirty: true, shouldValidate: true });
+            }}
+            treasuryId={treasuryIdW || ''}
+            onTreasuryId={(id) => setValue('treasuryId', id, { shouldDirty: true, shouldValidate: true })}
+            bankAccountId={cashBankAccountId}
+            onBankAccountId={(id) => {
+              onCashBankAccountId?.(id);
+              setValue('cashBankAccountId', id, { shouldDirty: true, shouldValidate: true });
+            }}
+            bankReference={cashBankReference}
+            onBankReference={(value) => {
+              onCashBankReference?.(value);
+              setValue('cashBankReference', value, { shouldDirty: true });
+            }}
+            chequeRows={cashChequeRows}
+            onChequeRows={(rows) => onCashChequeRows?.(rows)}
+            netAmount={cashNetAmount}
+            direction="RECEIPT"
+            disabled={lockTreasury || fieldsDisabled}
+            treasuryError={errors.treasuryId?.message}
+            bankError={errors.cashBankAccountId?.message}
+            chequeError={cashChequeError}
+            showErrors={showValidationErrors}
+          />
         ) : null}
       </div>
     </>

@@ -179,18 +179,22 @@ export function useAccountsQuery(
 }
 
 export function isHeaderWarehouse(warehouse: WarehouseOption): boolean {
-  const childCount = warehouse._count?.childWarehouses ?? 0;
-  if (childCount > 0) return true;
+  if (warehouse.warehouseKind === 'HEADER') return true;
   if (warehouse.warehouseKind === 'POSTING') return false;
-  return false;
+  return (warehouse._count?.childWarehouses ?? 0) > 0;
 }
 
 export function isOperationsWarehouse(warehouse: WarehouseOption): boolean {
-  return !isHeaderWarehouse(warehouse);
+  if (warehouse.warehouseKind === 'POSTING') return true;
+  if (warehouse.warehouseKind === 'HEADER') {
+    // A lone HEADER is still usable on documents until it grows children.
+    return (warehouse._count?.childWarehouses ?? 0) === 0;
+  }
+  return (warehouse._count?.childWarehouses ?? 0) === 0;
 }
 
 export function useWarehousesQuery(
-  limit = 200,
+  limit = 1000,
   opts?: { leafOnly?: boolean; headerOnly?: boolean; enabled?: boolean }
 ) {
   const extra: Record<string, string | number | boolean> = { limit, isActive: true };

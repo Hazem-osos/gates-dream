@@ -32,10 +32,17 @@ export function isSplitPaymentInvoice(invoice: {
   paymentSplits?: unknown;
 }): boolean {
   const method = (invoice.paymentMethod ?? '').trim().toUpperCase();
-  if (method === 'SPLIT') return true;
-  if (method !== 'CREDIT' && method !== 'آجل') return false;
   const parsed = invoicePaymentSplitsSchema.safeParse(invoice.paymentSplits);
-  return parsed.success && parsed.data.some((line) => line.type !== 'ON_ACCOUNT');
+  const tenders = parsed.success
+    ? parsed.data.filter((line) => line.type !== 'ON_ACCOUNT')
+    : [];
+  if (method === 'SPLIT') return true;
+  // Cash + explicit treasury/bank/cheque lines must settle those instruments —
+  // otherwise posting falls back to the company default safe and ignores the
+  // treasury the user picked on the invoice.
+  if ((method === 'CASH' || method === 'نقدي') && tenders.length > 0) return true;
+  if (method !== 'CREDIT' && method !== 'آجل') return false;
+  return tenders.length > 0;
 }
 
 export class InvoiceSettlementSplitService {

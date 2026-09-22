@@ -90,6 +90,7 @@ function TreeBranch({
   isLastSibling,
   rootDigit,
   onAddChild,
+  onView,
   onEdit,
   onDelete,
   onLedger,
@@ -103,6 +104,7 @@ function TreeBranch({
   isLastSibling?: boolean;
   rootDigit: string;
   onAddChild: (n: CoaHierarchyAccount) => void;
+  onView?: (n: CoaHierarchyAccount) => void;
   onEdit: (n: CoaHierarchyAccount) => void;
   onDelete: (n: CoaHierarchyAccount) => void;
   onLedger: (n: CoaHierarchyAccount) => void;
@@ -133,6 +135,7 @@ function TreeBranch({
         onToggle={() => toggleId(node.id)}
         searchQuery={searchQuery}
         onAddChild={onAddChild}
+        onView={onView}
         onEdit={onEdit}
         onDelete={onDelete}
         onLedger={onLedger}
@@ -174,6 +177,7 @@ function TreeBranch({
                 isLastSibling={idx === node.children!.length - 1}
                 rootDigit={branchRoot}
                 onAddChild={onAddChild}
+                onView={onView}
                 onEdit={onEdit}
                 onDelete={onDelete}
                 onLedger={onLedger}
@@ -204,6 +208,7 @@ export function AccountTree({
   collapseAllToken,
   revealAccountId,
   onAddChild,
+  onView,
   onEdit,
   onDelete,
   onLedger,
@@ -215,6 +220,7 @@ export function AccountTree({
   collapseAllToken?: number;
   revealAccountId?: string | null;
   onAddChild: (n: CoaHierarchyAccount) => void;
+  onView?: (n: CoaHierarchyAccount) => void;
   onEdit: (n: CoaHierarchyAccount) => void;
   onDelete: (n: CoaHierarchyAccount) => void;
   onLedger: (n: CoaHierarchyAccount) => void;
@@ -334,6 +340,7 @@ export function AccountTree({
                   onToggle={() => toggleId(row.node.id)}
                   searchQuery={searchTrim}
                   onAddChild={onAddChild}
+                  onView={onView}
                   onEdit={onEdit}
                   onDelete={onDelete}
                   onLedger={onLedger}
@@ -359,6 +366,7 @@ export function AccountTree({
           isLastSibling={idx === filtered.length - 1}
           rootDigit=""
           onAddChild={onAddChild}
+          onView={onView}
           onEdit={onEdit}
           onDelete={onDelete}
           onLedger={onLedger}

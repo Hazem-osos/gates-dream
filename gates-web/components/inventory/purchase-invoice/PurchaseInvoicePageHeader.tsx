@@ -43,6 +43,7 @@ type Props = {
   onDelete: () => void;
   onOpenJournal: () => void;
   onCollectPayment: () => void;
+  onLinkAdvance?: () => void;
   onPaymentHistory: () => void;
   /** H4 fix: the sanctioned correction path for a posted (incl. approved)
    * purchase invoice — creates a PURCHASE_RETURN referencing its lines. */
@@ -75,6 +76,7 @@ export function PurchaseInvoicePageHeader({
   onDelete,
   onOpenJournal,
   onCollectPayment,
+  onLinkAdvance,
   onPaymentHistory,
   onCreateReturn,
   unpostPending,
@@ -137,6 +139,7 @@ export function PurchaseInvoicePageHeader({
         whatsAppShare,
         extraItems: [
           { id: 'collect', label: 'سداد / دفع', onClick: onCollectPayment },
+          { id: 'link-advance', label: 'ربط دفعة مقدمة', onClick: onLinkAdvance ?? (() => {}) },
           { id: 'history', label: 'مدفوعات سابقة', onClick: onPaymentHistory },
           { id: 'journal', label: 'فتح القيد', onClick: onOpenJournal },
           ...(onCreateReturn

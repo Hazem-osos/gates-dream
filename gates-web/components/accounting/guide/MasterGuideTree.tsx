@@ -142,7 +142,7 @@ function GuideTreeRow({
       </div>
 
       <div className="z-[1] ms-auto flex shrink-0 items-center gap-1 pl-2">
-        {onView && !isFolder && !node.synthetic ? (
+        {onView && !node.synthetic ? (
           <button
             type="button"
             title="عرض البيانات"

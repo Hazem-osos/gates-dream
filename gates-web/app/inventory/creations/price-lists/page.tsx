@@ -22,6 +22,7 @@ import { useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
 import { apiClient } from '@/lib/api/client';
 import { queryKeys } from '@/lib/query/query-keys';
 import type { ItemOption } from '@/lib/hooks/useMasterDataQueries';
+import { asItemList, isUngroupedCategory, isVisibleInItemsGuide } from '@/lib/inventory/guide-visible-items';
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
 
@@ -77,6 +78,8 @@ type ApiPrice = {
 type CatalogItem = ItemOption & {
   categoryId?: string | null;
   category?: { id?: string } | null;
+  isActive?: boolean | null;
+  inactiveItem?: boolean | null;
   purchasePrice?: number | string | null;
   lastPurchasePrice?: number | string | null;
   priceRetail?: number | string | null;
@@ -202,11 +205,11 @@ function PriceListsPageInner() {
   const currencies = currenciesResponse?.data ?? [];
 
   const { data: groupsResponse } = useApiQuery<{ id: string; arabicName: string }[]>(
-    queryKeys.itemCategories({ limit: 200 }),
+    queryKeys.itemCategories({ limit: 1000, guide: true }),
     '/inventory/item-categories',
-    { limit: 200, isActive: true }
+    { limit: 1000, isActive: true }
   );
-  const groups = groupsResponse?.data ?? [];
+  const groups = asItemList<{ id: string; arabicName: string }>(groupsResponse?.data);
 
   const { data: listsResponse } = useApiQuery<PriceListRow[]>(
     queryKeys.priceLists({ picker: true }),
@@ -220,7 +223,15 @@ function PriceListsPageInner() {
     '/inventory/items',
     { limit: 1000, isActive: true }
   );
-  const catalog = itemsResponse?.data ?? [];
+  const catalog = useMemo(() => {
+    const raw = asItemList<CatalogItem>(itemsResponse?.data);
+    if (!groupsResponse) return [];
+    const activeGroupIds = new Set(groups.map((group) => group.id));
+    const ungroupedCategoryIds = new Set(
+      groups.filter((group) => isUngroupedCategory(group)).map((group) => group.id)
+    );
+    return raw.filter((item) => isVisibleInItemsGuide(item, activeGroupIds, ungroupedCategoryIds));
+  }, [itemsResponse?.data, groups, groupsResponse]);
 
   const patch = (next: Partial<FormState>) => setForm((prev) => ({ ...prev, ...next }));
   const patchLine = (key: string, next: Partial<PriceLine>) => {
@@ -287,7 +298,7 @@ function PriceListsPageInner() {
   };
 
   useEffect(() => {
-    if (!itemsResponse) return;
+    if (!itemsResponse || !groupsResponse) return;
     const catalogJustArrived = lastCatalogLen.current === 0 && catalog.length > 0;
     lastCatalogLen.current = catalog.length;
     if (selectedId) {
@@ -298,7 +309,7 @@ function PriceListsPageInner() {
       seedFromCatalog();
       catalogSeeded.current = true;
     }
-  }, [itemsResponse, selectedId, catalog]);
+  }, [itemsResponse, groupsResponse, selectedId, catalog]);
 
   const visible = useMemo(() => {
     return lines.filter((row) => {

@@ -243,7 +243,18 @@ export default function RepresentativesGuidePage() {
   };
 
   const openView = (node: GuideTreeNode) => {
-    if (node.folder || node.synthetic) return;
+    if (node.synthetic) return;
+    if (node.folder) {
+      setEditGroup({
+        id: node.id,
+        code: node.code === '—' ? '' : node.code,
+        arabicName: node.name,
+        folderRole: folderRoleOf(node.groupKey),
+      });
+      setParentGroup(node);
+      setGroupModalOpen(true);
+      return;
+    }
     openCard(staffCardHref(staffKindFromRole(node.groupKey), node.id, { mode: 'view' }));
   };
 

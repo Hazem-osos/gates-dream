@@ -504,8 +504,11 @@ export const salesInvoiceSchema = z.object({
   isDelivered: z.boolean().optional(),
   handoverDate: z.string().optional(),
   printTermsOnInvoice: z.boolean().optional(),
-  /** خزنة التحصيل النقدي — إجبارية عندما طريقة الدفع نقدي */
+  /** خزنة التحصيل النقدي — إجبارية عندما طريقة الدفع نقدي عبر خزينة */
   treasuryId: z.string().optional(),
+  cashTenderKind: z.enum(['treasury', 'bank', 'cheques']).optional(),
+  cashBankAccountId: z.string().optional(),
+  cashBankReference: z.string().optional(),
   salesOrderNumber: z.string().optional(),
   salesOrderDescription: z.string().optional(),
   purchaseOrderNumber: z.string().optional(),
@@ -531,19 +534,41 @@ export const salesInvoiceSchema = z.object({
   ),
 }).superRefine((data, ctx) => {
   const method = String(data.paymentMethod ?? '').toLowerCase();
-  if (method === 'cash' && !String(data.treasuryId ?? '').trim()) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: 'يجب تحديد الخزنة في الفاتورة النقدية',
-      path: ['treasuryId'],
-    });
+  // Cheque drafts live in React state, not this schema — trust cashTenderKind
+  // instead of collapsing شيكات back to treasury when no bank id is set.
+  const cashKind = data.cashTenderKind ?? 'treasury';
+  const hasBank = Boolean(String(data.cashBankAccountId ?? '').trim());
+  if (method === 'cash') {
+    if (cashKind === 'treasury' && !String(data.treasuryId ?? '').trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'يجب تحديد الخزينة في الفاتورة النقدية',
+        path: ['treasuryId'],
+      });
+    }
+    if (cashKind === 'bank' && !hasBank) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'يجب تحديد الحساب البنكي في الفاتورة النقدية',
+        path: ['cashBankAccountId'],
+      });
+    }
   }
-  if (method === 'credit' && (Number(data.advancePaidAmount) || 0) > 0 && !String(data.advanceSafeId ?? '').trim()) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: 'حدد الخزينة عند دفع مبلغ في الأول',
-      path: ['advanceSafeId'],
-    });
+  if (method === 'credit' && (Number(data.advancePaidAmount) || 0) > 0) {
+    if (cashKind === 'treasury' && !String(data.advanceSafeId ?? data.treasuryId ?? '').trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'حدد الخزينة عند دفع مبلغ في الأول',
+        path: ['advanceSafeId'],
+      });
+    }
+    if (cashKind === 'bank' && !hasBank) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'حدد الحساب البنكي عند دفع مبلغ في الأول',
+        path: ['cashBankAccountId'],
+      });
+    }
   }
   if (data.allowReturn && !(Number(data.returnDays) > 0)) {
     ctx.addIssue({

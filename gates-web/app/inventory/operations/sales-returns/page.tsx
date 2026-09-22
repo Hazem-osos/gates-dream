@@ -186,9 +186,9 @@ export default function SalesReturnsPage() {
         itemId: String(line.itemId ?? ''),
         unitId: String(line.unitId ?? ''),
         quantity: Number(line.quantity) || 1,
-        unitPrice: Number(line.unitPrice) || 0,
+        unitPrice: Number(line.price ?? line.unitPrice) || 0,
         discount: Number(line.discount ?? 0) || 0,
-        taxRate: Number(line.tax ?? line.taxRate ?? 0) || 0,
+        taxRate: Number(line.taxPercent ?? line.tax ?? line.taxRate ?? 0) || 0,
         originalInvoiceLineId: line.originalInvoiceLineId
           ? String(line.originalInvoiceLineId)
           : undefined,
@@ -226,9 +226,9 @@ export default function SalesReturnsPage() {
       itemId: String(line.itemId ?? ''),
       unitId: String(line.unitId ?? ''),
       quantity: Number(line.quantity) || 1,
-      unitPrice: Number(line.unitPrice) || 0,
+      unitPrice: Number(line.price ?? line.unitPrice) || 0,
       discount: Number(line.discount ?? 0) || 0,
-      taxRate: Number(line.tax ?? line.taxRate ?? 0) || 0,
+      taxRate: Number(line.taxPercent ?? line.tax ?? line.taxRate ?? 0) || 0,
       // H10 fix: `line.id` here is the ORIGINAL sold line — carry it through so
       // the server can enforce that this return never exceeds what was sold.
       originalInvoiceLineId: line.id ? String(line.id) : undefined,

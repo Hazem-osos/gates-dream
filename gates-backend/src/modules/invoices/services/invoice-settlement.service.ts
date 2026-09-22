@@ -440,11 +440,20 @@ export class InvoiceSettlementService {
         date: true,
         amount: true,
         currencyCode: true,
+        description: true,
         safeId: true,
         bankAccountId: true,
         isPosted: true,
         isCancelled: true,
         journalEntryId: true,
+        safe: { select: { id: true, arabicName: true, code: true } },
+        bankAccount: {
+          select: {
+            id: true,
+            accountNumber: true,
+            bank: { select: { arabicName: true } },
+          },
+        },
       },
     });
   }
@@ -462,11 +471,13 @@ export class InvoiceSettlementService {
       select: {
         id: true,
         chequeNumber: true,
+        bankName: true,
         direction: true,
         status: true,
         dueDate: true,
         amount: true,
         currencyCode: true,
+        description: true,
       },
     });
     const underCollection = roundTo4(

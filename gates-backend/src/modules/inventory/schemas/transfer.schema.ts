@@ -9,18 +9,36 @@ export const transferLineSchema = z.object({
   total: z.number().nonnegative('Total must be non-negative').optional(),
 });
 
-export const createTransferSchema = z.object({
-  branchId: z.string().uuid('Branch ID must be a valid UUID').optional().nullable(),
-  description: z.string().optional(),
-  serial: z.string().optional(),
-  date: z.string().datetime('Date must be a valid ISO datetime'),
-  hijriDate: z.string().optional(),
-  fromWarehouseId: z.string().uuid('From warehouse ID must be a valid UUID'),
-  toWarehouseId: z.string().uuid('To warehouse ID must be a valid UUID'),
-  fromCostCenterId: z.string().uuid('From cost center ID must be a valid UUID').optional().nullable(),
-  toCostCenterId: z.string().uuid('To cost center ID must be a valid UUID').optional().nullable(),
-  lines: z.array(transferLineSchema).min(1, 'At least one line is required'),
-});
+const transferDateSchema = z
+  .string()
+  .min(1, 'Date is required')
+  .transform((value, ctx) => {
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Date must be a valid ISO datetime' });
+      return z.NEVER;
+    }
+    return parsed.toISOString();
+  });
+
+export const createTransferSchema = z
+  .object({
+    branchId: z.string().uuid('Branch ID must be a valid UUID').optional().nullable(),
+    description: z.string().optional(),
+    serial: z.string().optional(),
+    serialNumber: z.string().optional(),
+    date: transferDateSchema,
+    hijriDate: z.string().optional(),
+    fromWarehouseId: z.string().uuid('From warehouse ID must be a valid UUID'),
+    toWarehouseId: z.string().uuid('To warehouse ID must be a valid UUID'),
+    fromCostCenterId: z.string().uuid('From cost center ID must be a valid UUID').optional().nullable(),
+    toCostCenterId: z.string().uuid('To cost center ID must be a valid UUID').optional().nullable(),
+    lines: z.array(transferLineSchema).min(1, 'At least one line is required'),
+  })
+  .transform((data) => ({
+    ...data,
+    serial: data.serial || data.serialNumber,
+  }));
 
 const queryFlag = z
   .union([z.boolean(), z.enum(['true', 'false', '1', '0'])])

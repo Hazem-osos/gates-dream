@@ -12,16 +12,18 @@ import {
   erpLabelClass,
   erpFormGridClass,
 } from '@/components/erp';
-import { SafeSelect } from '@/app/components/form/SafeSelect';
 import { useClientMounted } from '@/lib/hooks/useClientMounted';
 import {
   PRICING_CALCULATION_BASIS_LABELS,
   type PricingCalculationBasis,
 } from '@/lib/invoices/unit-conversion';
 import { InvoiceSourceDocumentControl } from '@/components/invoices/InvoiceSourceDocumentControl';
+import { InvoiceCashTenderPanel } from '@/components/invoices/InvoiceCashTenderPanel';
 import type { SelectableSourceType, SourceHydratePayload } from '@/lib/invoices/sourceDocument';
 import { DatePickerWithHijri } from '@/components/ui/DatePickerWithHijri';
 import { toHijriDate } from '@/lib/hijri-date';
+import type { CashTenderKind, InvoiceChequeDraft } from '@/lib/invoices/cash-tender';
+import { summarizePaymentSplits, type PaymentSplitLine } from '@/lib/invoices/payment-split.types';
 
 type Currency = { id: string; code: string; arabicName: string };
 type Delegate = { id: string; code: string; arabicName: string };
@@ -32,7 +34,9 @@ type Props = {
   onPaymentType: (v: 'cash' | 'credit' | 'split') => void;
   onConfigureSplit?: () => void;
   onConfigureInstallments?: () => void;
+  onLinkAdvance?: () => void;
   installmentCount?: number;
+  paymentSplits?: PaymentSplitLine[];
   paymentType: 'cash' | 'credit' | 'split';
   warehouseId: string;
   onWarehouseId: (v: string) => void;
@@ -66,7 +70,27 @@ type Props = {
   onAdvancePaidAmount?: (v: number) => void;
   advanceSafeId?: string;
   onAdvanceSafeId?: (v: string) => void;
-  errors?: { supplierId?: string; warehouseId?: string; date?: string; treasuryId?: string; advanceSafeId?: string };
+  cashTenderKind?: CashTenderKind;
+  onCashTenderKind?: (kind: CashTenderKind) => void;
+  cashBankAccountId?: string;
+  onCashBankAccountId?: (id: string) => void;
+  cashBankReference?: string;
+  onCashBankReference?: (value: string) => void;
+  cashChequeRows?: InvoiceChequeDraft[];
+  onCashChequeRows?: (rows: InvoiceChequeDraft[]) => void;
+  cashIssuingBankAccountId?: string;
+  onCashIssuingBankAccountId?: (id: string) => void;
+  cashNetAmount?: number;
+  cashChequeError?: string;
+  errors?: {
+    supplierId?: string;
+    warehouseId?: string;
+    date?: string;
+    treasuryId?: string;
+    advanceSafeId?: string;
+    cashBankAccountId?: string;
+    cashCheques?: string;
+  };
   showValidationErrors?: boolean;
   sourceType?: string;
   sourceId?: string;
@@ -86,7 +110,9 @@ export function PurchaseInvoiceFormHeader(props: Props) {
     onPaymentType,
     onConfigureSplit,
     onConfigureInstallments,
+    onLinkAdvance,
     installmentCount = 0,
+    paymentSplits,
     warehouseId,
     onWarehouseId,
     date,
@@ -119,6 +145,18 @@ export function PurchaseInvoiceFormHeader(props: Props) {
     onAdvancePaidAmount,
     advanceSafeId = '',
     onAdvanceSafeId,
+    cashTenderKind = 'treasury',
+    onCashTenderKind,
+    cashBankAccountId = '',
+    onCashBankAccountId,
+    cashBankReference = '',
+    onCashBankReference,
+    cashChequeRows = [],
+    onCashChequeRows,
+    cashIssuingBankAccountId = '',
+    onCashIssuingBankAccountId,
+    cashNetAmount = 0,
+    cashChequeError,
     errors,
     showValidationErrors = false,
     sourceType = '',
@@ -136,6 +174,7 @@ export function PurchaseInvoiceFormHeader(props: Props) {
   const currenciesBusy = mounted && Boolean(currenciesLoading);
   const err = (has?: boolean) => (showValidationErrors && has ? erpInputErrorClass : '');
   const creditNeedsSafe = paymentType === 'credit' && (Number(advancePaidAmount) || 0) > 0;
+  const splitSummary = summarizePaymentSplits(paymentSplits);
 
   const row1 = (
     <>
@@ -201,13 +240,13 @@ export function PurchaseInvoiceFormHeader(props: Props) {
               paymentType === 'credit' ? 'bg-[#0E78AA] text-white shadow-sm' : 'text-slate-600 hover:bg-white'
             }`}
           >
-            دفع قبل أجل
+            آجل
           </button>
           <button
             type="button"
             onClick={() => {
               onPaymentType('split');
-              if (paymentType === 'split') onConfigureSplit?.();
+              onConfigureSplit?.();
             }}
             className={`flex-1 min-w-[5.5rem] text-sm font-medium rounded-md ${
               paymentType === 'split' ? 'bg-[#0E78AA] text-white shadow-sm' : 'text-slate-600 hover:bg-white'
@@ -216,6 +255,15 @@ export function PurchaseInvoiceFormHeader(props: Props) {
             دفع متعدد
           </button>
         </div>
+        {onLinkAdvance ? (
+          <button
+            type="button"
+            className="mt-1.5 text-xs font-semibold text-[#0E78AA] hover:underline"
+            onClick={onLinkAdvance}
+          >
+            ربط دفعة مقدمة
+          </button>
+        ) : null}
         {paymentType === 'split' ? (
           <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
             <button
@@ -237,38 +285,40 @@ export function PurchaseInvoiceFormHeader(props: Props) {
                 </span>
               ) : null}
             </button>
+            {splitSummary ? <p className="w-full text-[11px] text-slate-500">{splitSummary}</p> : null}
           </div>
         ) : null}
         {paymentType === 'credit' ? (
-          <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
-            <div>
-              <label className={erpLabelClass}>
-                الخزينة
-                {creditNeedsSafe ? <RequiredDot hint="الخزينة مطلوبة عند دفع مبلغ في الأول" /> : null}
-              </label>
-              <SafeSelect
-                value={advanceSafeId}
-                onChange={(id) => onAdvanceSafeId?.(id)}
-                placeholder="اختر الخزينة"
-                emptyLabel="اختر الخزينة"
-                className={errors?.advanceSafeId ? erpInputErrorClass : undefined}
-              />
-              <ErpFieldError message={errors?.advanceSafeId} show={showValidationErrors} />
-            </div>
-            <div>
-              <label className={erpLabelClass}>المبلغ المدفوع في الأول</label>
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                className={erpInputClass}
-                placeholder="0"
-                value={Number.isFinite(advancePaidAmount) ? advancePaidAmount : 0}
-                onChange={(e) => onAdvancePaidAmount?.(Number(e.target.value) || 0)}
-              />
-            </div>
+          <div>
+            <InvoiceCashTenderPanel
+              kind={cashTenderKind}
+              onKindChange={(kind) => onCashTenderKind?.(kind)}
+              treasuryId={advanceSafeId || treasuryId}
+              onTreasuryId={(id) => {
+                onAdvanceSafeId?.(id);
+                if (!treasuryId) onTreasuryId?.(id);
+              }}
+              bankAccountId={cashBankAccountId}
+              onBankAccountId={(id) => onCashBankAccountId?.(id)}
+              bankReference={cashBankReference}
+              onBankReference={(value) => onCashBankReference?.(value)}
+              chequeRows={cashChequeRows}
+              onChequeRows={(rows) => onCashChequeRows?.(rows)}
+              issuingBankAccountId={cashIssuingBankAccountId}
+              onIssuingBankAccountId={onCashIssuingBankAccountId}
+              netAmount={cashNetAmount}
+              direction="PAYMENT"
+              variant="advance"
+              paidAmount={advancePaidAmount}
+              onPaidAmount={onAdvancePaidAmount}
+              disabled={fieldsDisabled}
+              treasuryError={errors?.advanceSafeId}
+              bankError={errors?.cashBankAccountId}
+              chequeError={cashChequeError ?? errors?.cashCheques}
+              showErrors={showValidationErrors}
+            />
             {onConfigureInstallments ? (
-              <div className="sm:col-span-2">
+              <div className="mt-2">
                 <button
                   type="button"
                   className="text-xs font-semibold text-[#0E78AA] hover:underline"
@@ -286,20 +336,27 @@ export function PurchaseInvoiceFormHeader(props: Props) {
           </div>
         ) : null}
         {paymentType === 'cash' ? (
-          <div className="mt-2">
-            <label className={erpLabelClass}>
-              الخزنة
-              <RequiredDot hint="الخزنة مطلوبة في الفاتورة النقدية" />
-            </label>
-            <SafeSelect
-              value={treasuryId}
-              onChange={(id) => onTreasuryId?.(id)}
-              placeholder="اختر الخزنة"
-              emptyLabel="اختر الخزنة"
-              className={errors?.treasuryId ? erpInputErrorClass : undefined}
-            />
-            <ErpFieldError message={errors?.treasuryId} show={showValidationErrors} />
-          </div>
+          <InvoiceCashTenderPanel
+            kind={cashTenderKind}
+            onKindChange={(kind) => onCashTenderKind?.(kind)}
+            treasuryId={treasuryId}
+            onTreasuryId={(id) => onTreasuryId?.(id)}
+            bankAccountId={cashBankAccountId}
+            onBankAccountId={(id) => onCashBankAccountId?.(id)}
+            bankReference={cashBankReference}
+            onBankReference={(value) => onCashBankReference?.(value)}
+            chequeRows={cashChequeRows}
+            onChequeRows={(rows) => onCashChequeRows?.(rows)}
+            issuingBankAccountId={cashIssuingBankAccountId}
+            onIssuingBankAccountId={onCashIssuingBankAccountId}
+            netAmount={cashNetAmount}
+            direction="PAYMENT"
+            disabled={fieldsDisabled}
+            treasuryError={errors?.treasuryId}
+            bankError={errors?.cashBankAccountId}
+            chequeError={cashChequeError ?? errors?.cashCheques}
+            showErrors={showValidationErrors}
+          />
         ) : null}
       </div>
     </>

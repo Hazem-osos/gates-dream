@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useOwnTabSearchParams } from '@/lib/navigation/tab-route-lock';
 import {
   DocumentFormLock,
@@ -16,6 +16,7 @@ import { ErpDocumentLayout } from '@/components/erp/ErpDocumentLayout';
 import { ErpDocumentPageHeader } from '@/components/erp/ErpDocumentPageHeader';
 import { DocumentBrowseDrawer } from '@/components/erp/DocumentBrowseDrawer';
 import { StockMovementBottomSplit } from '@/components/inventory/stock/StockMovementBottomSplit';
+import { PageDraftRestoreBanner } from '@/components/erp/PageDraftRestoreBanner';
 import { Plus, Trash2 } from 'lucide-react';
 import {
   FormSectionCard,
@@ -31,6 +32,7 @@ import { StockDocumentsListSection } from '@/components/inventory/StockDocuments
 import { WarehouseSelect } from '@/components/form/WarehouseSelect';
 import { CostCenterSelect } from '@/components/form/CostCenterSelect';
 import { ItemSelect } from '@/components/form/ItemSelect';
+import { InvoiceLineStockBalanceCell } from '@/components/invoices/InvoiceLineStockBalanceCell';
 import { useApiQuery, useApiMutation, useInvalidateQuery } from '@/lib/hooks/useApi';
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
@@ -39,21 +41,37 @@ import {
   inventoryStdLineSchema,
   type InventoryTransferHeaderFormInput,
 } from '@/lib/validation/inventory.schema';
-import type { ApiError } from '@/lib/api/types';
+import type { ApiError, ApiResponse } from '@/lib/api/types';
 import {
   postNamedDocumentAfterSave,
   useRepostAfterUnpost,
 } from '@/lib/accounting/ensure-posted-after-save';
 import { onFieldErrors } from '@/lib/forms/on-field-errors';
+import { useDraftAutosave } from '@/lib/hooks/useDraftAutosave';
+import { rememberTabHref, rememberTabSearch } from '@/lib/navigation/tab-memory';
+import { normalizeAppPath } from '@/lib/navigation/app-module-root';
 
 
 interface TransferLine {
   itemId: string;
+  itemName?: string;
   quantity: number;
   unitPrice: number;
 }
 
+function resolveItemCost(item: object | undefined): number {
+  if (!item) return 0;
+  const catalog = item as { averageCost?: unknown; lastPurchasePrice?: unknown };
+  const average = Number(catalog.averageCost);
+  if (Number.isFinite(average) && average > 0) return average;
+  const lastPurchase = Number(catalog.lastPurchasePrice);
+  if (Number.isFinite(lastPurchase) && lastPurchase > 0) return lastPurchase;
+  return 0;
+}
+
 interface TransferDocumentDetail extends Record<string, unknown> {
+  id?: string;
+  serial?: string;
   serialNumber?: string;
   description?: string;
   date?: string;
@@ -66,6 +84,11 @@ interface TransferDocumentDetail extends Record<string, unknown> {
   items?: Record<string, unknown>[];
   lines?: Record<string, unknown>[];
 }
+
+type TransferDraft = {
+  form: InventoryTransferHeaderFormInput;
+  lines: TransferLine[];
+};
 
 function emptyTransferFormDefaults(): InventoryTransferHeaderFormInput {
   const t = new Date().toISOString().split('T')[0];
@@ -80,8 +103,85 @@ function emptyTransferFormDefaults(): InventoryTransferHeaderFormInput {
     toCostCenterId: '',
     statusPosted: false,
     useBarcode: true,
-    hideExistingQty: true,
+    hideExistingQty: false,
   };
+}
+
+function headerFromTransferDoc(doc: TransferDocumentDetail): InventoryTransferHeaderFormInput {
+  return {
+    serialNumber: String(doc.serialNumber ?? doc.serial ?? ''),
+    description: String(doc.description ?? ''),
+    date: doc.date
+      ? new Date(String(doc.date)).toISOString().split('T')[0]
+      : new Date().toISOString().split('T')[0],
+    hijriDate: String(doc.hijriDate ?? ''),
+    fromWarehouseId: String(doc.fromWarehouseId ?? ''),
+    toWarehouseId: String(doc.toWarehouseId ?? ''),
+    fromCostCenterId: String(doc.fromCostCenterId ?? ''),
+    toCostCenterId: String(doc.toCostCenterId ?? ''),
+    statusPosted: Boolean(doc.isPosted),
+    useBarcode: true,
+    hideExistingQty: false,
+  };
+}
+
+function linesFromTransferDoc(doc: TransferDocumentDetail): TransferLine[] {
+  const raw = Array.isArray(doc.lines)
+    ? doc.lines
+    : Array.isArray(doc.items)
+      ? doc.items
+      : [];
+  return raw.map((line) => {
+    const item =
+      line.item && typeof line.item === 'object'
+        ? (line.item as Record<string, unknown>)
+        : null;
+    return {
+      itemId: String(line.itemId ?? ''),
+      itemName: item
+        ? String(item.arabicName ?? item.englishName ?? '')
+        : String(line.itemName ?? ''),
+      quantity: Number(
+        line.transMainQty ?? line.transQty ?? line.quantity ?? line.qty ?? 0,
+      ),
+      unitPrice: Number(line.unitPrice ?? line.price ?? 0),
+    };
+  });
+}
+
+function isTransferDraftEmpty(draft: TransferDraft): boolean {
+  const form = draft.form;
+  return (
+    !form.serialNumber?.trim() &&
+    !form.description?.trim() &&
+    !form.fromWarehouseId &&
+    !form.toWarehouseId &&
+    !(draft.lines ?? []).some((line) => line.itemId || Number(line.quantity) || Number(line.unitPrice))
+  );
+}
+
+function transferIdFromResponse(res: ApiResponse<unknown> | undefined): string | null {
+  const data = res?.data;
+  if (data && typeof data === 'object' && 'id' in data) {
+    const id = (data as { id?: unknown }).id;
+    if (typeof id === 'string' && id.trim()) return id;
+  }
+  return null;
+}
+
+function pinTransferTabSearch(id: string | null) {
+  if (typeof window === 'undefined') return;
+  const path = normalizeAppPath(window.location.pathname);
+  if (id) {
+    const qs = `id=${id}`;
+    window.history.replaceState(null, '', `?${qs}`);
+    rememberTabSearch(path, qs);
+    rememberTabHref(path, `${path}?${qs}`);
+    return;
+  }
+  window.history.replaceState(null, '', path);
+  rememberTabSearch(path, '');
+  rememberTabHref(path, path);
 }
 
 export default function TransferPage() {
@@ -98,6 +198,7 @@ function TransferPageInner() {
   const { markUnpostedForEdit, consumeShouldRepost, resetKeepPosted } = useRepostAfterUnpost();
   const invalidateQuery = useInvalidateQuery();
   const todayStr = new Date().toISOString().split('T')[0];
+  const skipServerHydrateRef = useRef(false);
 
   const inputCls = compactControlClass;
   const labelCls = compactLabelClass;
@@ -123,12 +224,15 @@ function TransferPageInner() {
       toCostCenterId: '',
       statusPosted: false,
       useBarcode: true,
-      hideExistingQty: true,
+      hideExistingQty: false,
     },
     mode: 'onTouched',
   });
 
   const statusPosted = watch('statusPosted');
+  const hideExistingQty = watch('hideExistingQty');
+  const fromWarehouseId = watch('fromWarehouseId');
+  const watchedForm = watch();
 
   const [transferLines, setTransferLines] = useState<TransferLine[]>([]);
   const [error, setError] = useState('');
@@ -146,12 +250,41 @@ function TransferPageInner() {
     else setMode('edit');
   }, [lockToView, selectedTransferId, setMode, statusPosted]);
 
-  const openTransfer = (id: string | null) => {
+  const openTransfer = useCallback((id: string | null) => {
     setSelectedTransferId(id);
-    if (id) window.history.replaceState(null, '', `?id=${id}`);
-    else window.history.replaceState(null, '', window.location.pathname);
-  };
+    pinTransferTabSearch(id);
+  }, []);
   const [showList, setShowList] = useState(false);
+
+  const draftSnapshot = useMemo<TransferDraft>(
+    () => ({ form: watchedForm, lines: transferLines }),
+    [watchedForm, transferLines]
+  );
+
+  const applyTransferDraft = useCallback(
+    (payload: TransferDraft) => {
+      skipServerHydrateRef.current = true;
+      reset({ ...emptyTransferFormDefaults(), ...payload.form });
+      setTransferLines(Array.isArray(payload.lines) ? payload.lines : []);
+    },
+    [reset]
+  );
+
+  const {
+    restoreOffer,
+    acceptRestore,
+    dismissRestore,
+    clearDraft,
+  } = useDraftAutosave({
+    documentType: 'stock-transfer',
+    mode: selectedTransferId ? 'edit' : 'new',
+    documentId: selectedTransferId,
+    value: draftSnapshot,
+    enabled: !statusPosted,
+    applyRestore: applyTransferDraft,
+    isEmpty: isTransferDraftEmpty,
+    restoreMessage: 'تم استعادة مسودة النقل المخزني',
+  });
 
   // Fetch single transfer for editing
   const { data: transferResponse } = useApiQuery<TransferDocumentDetail>(
@@ -160,55 +293,36 @@ function TransferPageInner() {
     undefined,
     { enabled: !!selectedTransferId }
   );
-  const selectedTransfer = transferResponse?.data;
+  const selectedTransfer = selectedTransferId ? transferResponse?.data : undefined;
 
   // Load transfer data when selected
   useEffect(() => {
-    if (selectedTransfer) {
-      reset({
-        serialNumber: selectedTransfer.serialNumber || '',
-        description: selectedTransfer.description || '',
-        date: selectedTransfer.date
-          ? new Date(selectedTransfer.date).toISOString().split('T')[0]
-          : new Date().toISOString().split('T')[0],
-        hijriDate: selectedTransfer.hijriDate || '',
-        fromWarehouseId: selectedTransfer.fromWarehouseId || '',
-        toWarehouseId: selectedTransfer.toWarehouseId || '',
-        fromCostCenterId: selectedTransfer.fromCostCenterId || '',
-        toCostCenterId: selectedTransfer.toCostCenterId || '',
-        statusPosted: selectedTransfer.isPosted || false,
-        useBarcode: true,
-        hideExistingQty: true,
-      });
-      if (selectedTransfer.items || selectedTransfer.lines) {
-        const lines = selectedTransfer.items || selectedTransfer.lines || [];
-        setTransferLines(
-          lines.map((line: Record<string, unknown>) => ({
-            itemId: String(line.itemId ?? ''),
-            quantity: Number(
-              line.transMainQty ??
-                line.transQty ??
-                line.quantity ??
-                line.qty ??
-                0,
-            ),
-            unitPrice: Number(line.unitPrice ?? line.price ?? 0),
-          }))
-        );
-      } else {
-        setTransferLines([]);
-      }
+    if (skipServerHydrateRef.current) {
+      skipServerHydrateRef.current = false;
+      return;
     }
-  }, [selectedTransfer, reset]);
+    if (!selectedTransferId || !selectedTransfer) return;
+    reset(headerFromTransferDoc(selectedTransfer));
+    setTransferLines(linesFromTransferDoc(selectedTransfer));
+  }, [selectedTransfer, selectedTransferId, reset]);
+
+  const stayOnTransfer = (id: string | null) => {
+    if (id) {
+      openTransfer(id);
+      invalidateQuery(['transfer', id]);
+    }
+    invalidateQuery(['transfers']);
+  };
 
   // Transfer create mutation
   const transferMutation = useApiMutation<unknown, Record<string, unknown>>(
     '/inventory/transfers',
     'POST',
     {
-      onSuccess: () => {
-        invalidateQuery(['transfers']);
-        handleNew();
+      onSuccess: (res) => {
+        clearDraft();
+        const id = transferIdFromResponse(res);
+        stayOnTransfer(id);
         setSuccess('تم حفظ النقل المخزني بنجاح');
       },
       onError: (error: ApiError) => {
@@ -223,21 +337,21 @@ function TransferPageInner() {
     'PUT',
     {
       onSuccess: () => {
-        invalidateQuery(['transfers']);
+        clearDraft();
         const id = selectedTransferId;
         if (consumeShouldRepost() && id) {
           void postNamedDocumentAfterSave(`/inventory/transfers/${id}/post`)
             .then(() => {
-              handleNew();
+              stayOnTransfer(id);
               setSuccess('تم حفظ التعديلات وترحيل النقل المخزني');
             })
             .catch((error: ApiError) => {
-              handleNew();
+              stayOnTransfer(id);
               setError(error.message || 'تم الحفظ لكن تعذر ترحيل النقل');
             });
           return;
         }
-        handleNew();
+        stayOnTransfer(id);
         setSuccess('تم تحديث النقل المخزني بنجاح');
       },
       onError: (error: ApiError) => {
@@ -254,7 +368,9 @@ function TransferPageInner() {
       onSuccess: () => {
         setSuccess('تم حذف النقل المخزني بنجاح');
         invalidateQuery(['transfers']);
+        clearDraft();
         setSelectedTransferId(null);
+        pinTransferTabSearch(null);
         setTransferLines([]);
         reset(emptyTransferFormDefaults());
       },
@@ -330,11 +446,19 @@ function TransferPageInner() {
   // Handle new transfer
   const handleNew = () => {
     resetKeepPosted();
+    clearDraft();
     openTransfer(null);
     setTransferLines([]);
     setError('');
     setSuccess('');
     reset(emptyTransferFormDefaults());
+  };
+
+  const handleRestoreDraft = () => {
+    const payload = acceptRestore();
+    if (!payload) return;
+    applyTransferDraft(payload);
+    setSuccess('تم استعادة مسودة النقل المخزني');
   };
 
   const addTransferLine = () => {
@@ -366,16 +490,15 @@ function TransferPageInner() {
       return;
     }
     const requestBody = {
-      serialNumber: values.serialNumber,
+      serial: values.serialNumber || undefined,
+      serialNumber: values.serialNumber || undefined,
       description: values.description,
-      date: values.date || new Date().toISOString(),
-      hijriDate: values.hijriDate,
+      date: new Date(values.date).toISOString(),
+      hijriDate: values.hijriDate || undefined,
       fromWarehouseId: values.fromWarehouseId,
       toWarehouseId: values.toWarehouseId,
       fromCostCenterId: values.fromCostCenterId || undefined,
       toCostCenterId: values.toCostCenterId || undefined,
-      isPosted: values.statusPosted || false,
-      useBarcode: values.useBarcode,
       lines: transferLines.map((line) => ({
         itemId: line.itemId,
         quantity: line.quantity,
@@ -393,6 +516,14 @@ function TransferPageInner() {
     <ErpDocumentLayout>
       {error && <ErrorToast message={error} onClose={() => setError('')} />}
       {success && <SuccessToast message={success} onClose={() => setSuccess('')} />}
+
+      {restoreOffer && !selectedTransferId ? (
+        <PageDraftRestoreBanner
+          message="يوجد مسودة غير محفوظة من قبل ما خرجت من الصفحة."
+          onRestore={handleRestoreDraft}
+          onDismiss={dismissRestore}
+        />
+      ) : null}
 
       <ErpDocumentPageHeader
         breadcrumbs={[
@@ -560,7 +691,7 @@ function TransferPageInner() {
       </AdvancedFieldsSection>
 
       <div data-tour-id="transfer-lines-card">
-      <FormSectionCard title="بنود التحويل" subtitle="الصنف والكمية والسعر" bodyClassName="space-y-3">
+      <FormSectionCard title="بنود التحويل" subtitle="الصنف والكمية والتكلفة" bodyClassName="space-y-3">
           {isReadOnly ? null : (
           <div className="flex items-center justify-end">
             <Button type="button" variant="primary" className="gap-2" onClick={addTransferLine}>
@@ -581,23 +712,50 @@ function TransferPageInner() {
                   <label className={labelCls}>الصنف</label>
                   <ItemSelect
                     value={line.itemId}
-                    onChange={(id) => updateTransferLine(index, 'itemId', id)}
+                    onChange={(id) => {
+                      if (!id) {
+                        setTransferLines((prev) => {
+                          const next = [...prev];
+                          next[index] = { ...next[index], itemId: '', itemName: '', unitPrice: 0 };
+                          return next;
+                        });
+                        return;
+                      }
+                      updateTransferLine(index, 'itemId', id);
+                    }}
+                    onItemResolved={(item) => {
+                      if (!item) return;
+                      setTransferLines((prev) => {
+                        const next = [...prev];
+                        next[index] = {
+                          ...next[index],
+                          itemId: item.id,
+                          itemName: item.arabicName,
+                          unitPrice: resolveItemCost(item),
+                        };
+                        return next;
+                      });
+                    }}
                     className={inputCls}
                     emptyLabel="اختر الصنف"
+                    fallbackLabel={line.itemName}
                   />
                 </div>
+                {hideExistingQty ? null : (
                 <div>
-                  <label className={labelCls}>
-                    {selectedTransferId ? 'الكمية المنقولة' : 'الكمية المتاحة'}
-                  </label>
-                  <span className={`${inputCls} flex items-center text-slate-500`}>
-                    {selectedTransferId
-                      ? (line.quantity || 0).toLocaleString('ar-EG', {
-                          maximumFractionDigits: 4,
-                        })
-                      : '—'}
+                  <label className={labelCls}>الكمية الموجودة</label>
+                  <span className={`${inputCls} flex items-center`}>
+                    {fromWarehouseId ? (
+                      <InvoiceLineStockBalanceCell
+                        itemId={line.itemId}
+                        warehouseId={fromWarehouseId}
+                      />
+                    ) : (
+                      <span className="text-xs text-slate-400">اختر مخزن المصدر</span>
+                    )}
                   </span>
                 </div>
+                )}
                 <div>
                   <label className={labelCls}>الكمية المنقولة</label>
                   <input
@@ -612,7 +770,7 @@ function TransferPageInner() {
                   />
                 </div>
                 <div>
-                  <label className={labelCls}>السعر</label>
+                  <label className={labelCls}>التكلفة</label>
                   <input
                     type="number"
                     className={inputCls}
@@ -656,6 +814,3 @@ function TransferPageInner() {
     </ErpDocumentLayout>
   );
 }
-
-
-
