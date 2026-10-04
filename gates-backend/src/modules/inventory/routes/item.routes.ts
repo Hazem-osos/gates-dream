@@ -23,6 +23,7 @@ import { AppError } from '../../../shared/middleware/error-handler';
 import { itemPricingPolicyQuerySchema } from '../../transaction-settings/transaction-settings.schema';
 import { resolveItemPricingPolicy } from '../../transaction-settings/item-pricing-policy.service';
 import { refuseProductionSeed } from '../../../shared/config/prod-seed';
+import { isAdminRequest } from '../../../shared/auth/roles.util';
 
 const router = Router();
 
@@ -46,7 +47,7 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -58,6 +59,7 @@ router.get(
         categoryId: req.query.categoryId as string | undefined,
         isActive: req.query.isActive as boolean | undefined,
         isAssembly: req.query.isAssembly as boolean | undefined,
+        warehouseId: req.query.warehouseId as string | undefined,
       });
 
       logger.info(
@@ -98,11 +100,18 @@ router.post(
     }
 
     try {
+      if (!isAdminRequest(req)) {
+        return void res.status(403).json({
+          status: 'error',
+          message: 'تهيئة البيانات التجريبية متاحة للمسؤول فقط',
+        });
+      }
+
       const companyId = req.companyId || req.tenantId;
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -139,7 +148,7 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -177,7 +186,7 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
       const result = await itemService.searchItemFinder(companyId, {
@@ -216,7 +225,7 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
       const data = await itemBomExplosionService.explode(
@@ -251,7 +260,7 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
       const data = await itemBomExplosionService.explodeForDisassembly(
@@ -284,15 +293,17 @@ router.get(
     try {
       const companyId = req.companyId || req.tenantId;
       if (!companyId) {
-        return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+        return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
       }
       const data = await resolveItemPricingPolicy({
         companyId,
         itemId: String(req.params.itemId),
         customerId: req.query.customerId as string | undefined,
+        supplierId: req.query.supplierId as string | undefined,
         priceListId: req.query.priceListId as string | undefined,
         unitId: req.query.unitId as string | undefined,
         policy: req.query.policy as never,
+        kind: (req.query.kind as 'sale' | 'purchase' | undefined) ?? 'sale',
       });
       return void res.json({ status: 'success', data });
     } catch (error) {
@@ -318,7 +329,7 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -357,7 +368,7 @@ router.post(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -372,7 +383,8 @@ router.post(
       });
     } catch (error) {
       logger.error({ error, body: req.body }, 'Error creating item');
-      return void res.status(500).json({
+      const status = error instanceof AppError ? error.statusCode : 500;
+      return void res.status(status).json({
         status: 'error',
         message:
           error instanceof Error ? error.message : 'Failed to create item',
@@ -395,7 +407,7 @@ router.put(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -413,9 +425,11 @@ router.put(
     } catch (error) {
       logger.error({ error, itemId: req.params.id }, 'Error updating item');
       const status =
-        error instanceof Error && error.message === 'Item not found'
-          ? 404
-          : 500;
+        error instanceof AppError
+          ? error.statusCode
+          : error instanceof Error && error.message === 'Item not found'
+            ? 404
+            : 500;
       return void res.status(status).json({
         status: 'error',
         message:
@@ -438,7 +452,7 @@ router.delete(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 

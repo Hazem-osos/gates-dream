@@ -44,6 +44,10 @@ export interface AutoGlCommitInput {
   costCenterId?: string | null;
   /** When false, skip company `autoPostGl` (explicit post still honors `GLPost`). */
   requireAutoPostFlag?: boolean;
+  /** Leave customer/safe/bank card columns for a later apply in the same transaction. */
+  skipCardColumns?: boolean;
+  /** Fired only when this call inserts a new posted journal, not when it reuses one. */
+  onJournalCreated?: (journalEntryId: string) => void;
 }
 
 export interface AutoGlPostDocumentInput {

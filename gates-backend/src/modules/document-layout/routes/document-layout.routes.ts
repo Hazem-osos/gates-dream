@@ -29,7 +29,7 @@ router.get(
   async (req: AuthRequest, res: Response) => {
     try {
       const companyId = req.companyId ?? req.tenantId;
-      if (!companyId) throw new AppError(400, 'Company ID is required');
+      if (!companyId) throw new AppError(400, 'معرّف الشركة مطلوب');
 
       const query = req.query as unknown as { documentType?: string; branchId?: string };
       const data = await documentLayoutService.list(companyId, query);
@@ -51,7 +51,7 @@ router.get(
   async (req: AuthRequest, res: Response) => {
     try {
       const companyId = req.companyId ?? req.tenantId;
-      if (!companyId) throw new AppError(400, 'Company ID is required');
+      if (!companyId) throw new AppError(400, 'معرّف الشركة مطلوب');
 
       const query = req.query as unknown as { documentType: string; branchId?: string };
       const data = await documentLayoutService.resolveEffective(
@@ -77,7 +77,7 @@ router.get(
   async (req: AuthRequest, res: Response) => {
     try {
       const companyId = req.companyId ?? req.tenantId;
-      if (!companyId) throw new AppError(400, 'Company ID is required');
+      if (!companyId) throw new AppError(400, 'معرّف الشركة مطلوب');
       const documentType = normalizeDocumentLayoutType(req.params.documentType) ?? 'ALL';
       const data = await documentLayoutService.resolveEffective(
         companyId,
@@ -102,7 +102,7 @@ router.put(
   async (req: AuthRequest, res: Response) => {
     try {
       const companyId = req.companyId ?? req.tenantId;
-      if (!companyId) throw new AppError(400, 'Company ID is required');
+      if (!companyId) throw new AppError(400, 'معرّف الشركة مطلوب');
       const documentType = normalizeDocumentLayoutType(req.params.documentType) ?? 'ALL';
       const data = await documentLayoutService.upsert(companyId, { ...req.body, documentType });
       return void res.json({ status: 'success', data });
@@ -122,7 +122,7 @@ router.get(
   async (req: AuthRequest, res: Response) => {
     try {
       const companyId = req.companyId ?? req.tenantId;
-      if (!companyId) throw new AppError(400, 'Company ID is required');
+      if (!companyId) throw new AppError(400, 'معرّف الشركة مطلوب');
 
       const asType = normalizeDocumentLayoutType(req.params.id);
       const data = asType
@@ -146,8 +146,10 @@ router.post(
   async (req: AuthRequest, res: Response) => {
     try {
       const companyId = req.companyId ?? req.tenantId;
-      if (!companyId) throw new AppError(400, 'Company ID is required');
-      const { id: _ignored, ...body } = req.body as { id?: string };
+      if (!companyId) throw new AppError(400, 'معرّف الشركة مطلوب');
+      const { id: _ignored, ...body } = req.body as { id?: string } & Parameters<
+        typeof documentLayoutService.upsert
+      >[1];
       const data = await documentLayoutService.upsert(companyId, body);
       return void res.json({ status: 'success', data });
     } catch (e) {
@@ -167,7 +169,7 @@ router.put(
   async (req: AuthRequest, res: Response) => {
     try {
       const companyId = req.companyId ?? req.tenantId;
-      if (!companyId) throw new AppError(400, 'Company ID is required');
+      if (!companyId) throw new AppError(400, 'معرّف الشركة مطلوب');
 
       const data = await documentLayoutService.upsert(companyId, req.body);
       return void res.json({ status: 'success', data });
@@ -187,7 +189,7 @@ router.delete(
   async (req: AuthRequest, res: Response) => {
     try {
       const companyId = req.companyId ?? req.tenantId;
-      if (!companyId) throw new AppError(400, 'Company ID is required');
+      if (!companyId) throw new AppError(400, 'معرّف الشركة مطلوب');
 
       const data = await documentLayoutService.remove(companyId, req.params.id);
       return void res.json({ status: 'success', data });

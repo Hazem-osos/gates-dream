@@ -73,7 +73,7 @@ export function DocumentPreviousBrowser({
         <List className="h-3.5 w-3.5" />
         {label}
         {adjacent?.totalCount ? (
-          <span className="mr-0.5 inline-flex min-w-[1.15rem] items-center justify-center rounded-full bg-[#0E79AA]/15 px-1 text-[10px] text-[#094C6B]">
+          <span className="mr-0.5 inline-flex min-w-[1.15rem] items-center justify-center rounded-full bg-[#0E78AA]/15 px-1 text-[10px] text-[#094C6B]">
             {adjacent.totalCount}
           </span>
         ) : null}

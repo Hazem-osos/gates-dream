@@ -7,13 +7,14 @@ export default function SupplierAccountItemsPage() {
     <InventoryReportFilterPage
       urlPath="/inventory/reports/supplier-account-items"
       icon="📦"
-      subtitle="حركة الأصناف لكل مورد خلال الفترة."
+      subtitle="حركة المورد بالصنف والكمية وسعر الوحدة، مع السداد وقيد اليومية والتسوية، وفي الآخر مدين ودائن ورصيد."
       fields={{
         dates: 'range',
         supplier: true,
         item: true,
         branch: true,
         showUnposted: true,
+        allAccounts: true,
       }}
     />
   );

@@ -88,7 +88,7 @@ export const listCashTransactionsQuerySchema = z.object({
 });
 
 export const createInwardChequeSchema = z.object({
-  chequeNumber: z.string().min(1).max(50),
+  chequeNumber: z.string().trim().min(1, 'رقم الشيك مطلوب').max(50),
   bankName: z.string().optional(),
   dueDate: z.coerce.date().optional(),
   amount: z.number().positive(),
@@ -98,7 +98,7 @@ export const createInwardChequeSchema = z.object({
 });
 
 export const updateChequeHeaderSchema = z.object({
-  chequeNumber: z.string().min(1).max(50).optional(),
+  chequeNumber: z.string().trim().min(1, 'رقم الشيك مطلوب').max(50).optional(),
   bankName: z.string().optional().nullable(),
   dueDate: z.coerce.date().optional().nullable(),
   description: z.string().optional().nullable(),
@@ -141,7 +141,7 @@ export const chequeStatsQuerySchema = z.object({
 });
 
 export const createOutwardChequeSchema = z.object({
-  chequeNumber: z.string().min(1).max(50),
+  chequeNumber: z.string().trim().min(1, 'رقم الشيك مطلوب').max(50),
   bankName: z.string().optional(),
   dueDate: z.coerce.date().optional(),
   amount: z.number().positive(),

@@ -1,4 +1,5 @@
 import prisma from '../../../shared/database/prisma';
+import { permanentDelete } from '../../../shared/database/permanent-delete.util';
 import { logger } from '../../../shared/logger';
 import { Decimal } from '@prisma/client/runtime/library';
 
@@ -605,7 +606,7 @@ export class EmployeeContractService {
   }
 
   /**
-   * Delete employee contract (soft delete)
+   * Delete permanently (blocked if referenced)
    */
   async deleteEmployeeContract(companyId: string, contractId: string) {
     try {
@@ -622,10 +623,7 @@ export class EmployeeContractService {
         throw new Error('Employee contract not found');
       }
 
-      await prisma.employeeContract.update({
-        where: { id: contractId },
-        data: { isActive: false },
-      });
+      await permanentDelete('السجل', () => prisma.employeeContract.delete({ where: { id: contractId } }));
 
       logger.info({ companyId, contractId }, 'Employee contract deleted');
       return { success: true };

@@ -1,5 +1,7 @@
 /** Standard GL codes provisioned for every tenant (Egyptian COA template). */
 export const SYSTEM_GL_CODES = {
+  /** Header under 111. Movement safes, including 1111, sit under this folder. */
+  cashSafesFolder: '1110',
   cashMain: '1111',
   bankDefault: '1112',
   ar: '1121',
@@ -148,8 +150,9 @@ export function buildAccountDefinitions(codeToId: Map<string, string>): Record<s
     salesCostAccount: cogs,
     vatOutputAccount: vatOut,
     salesTaxAccount: vatOut,
-    vatInputAccount: vatIn,
-    purchaseTaxAccount: vatIn,
+    // Single net-VAT control account (2131): purchases debit / sales credit the same slot.
+    vatInputAccount: vatOut,
+    purchaseTaxAccount: vatOut,
 
     // Withholding tax. The legacy-parity aliases below (`daribaManbaAccount` /
     // `daribaManbaAccountDebit`) were seeded but never read: the invoice

@@ -87,7 +87,19 @@ export function buildPaymentIssueLines(opts: LineOpts): JournalEntryLineData[] {
   ];
 }
 
-/** تحصيل مقبوضات: مدين البنك / دائن أوراق قبض */
+/**
+ * إيداع ورقة قبض برسم التحصيل: مدين أوراق القبض برسم التحصيل / دائن أوراق القبض تحت اليد.
+ * حساب البنك لا يتحرك هنا — يتحرك عند التحصيل فقط.
+ */
+export function buildReceiptDepositLines(opts: LineOpts): JournalEntryLineData[] {
+  if (!opts.bankAccountId) throw new Error('حساب أوراق القبض برسم التحصيل مطلوب');
+  return [
+    line(opts.bankAccountId, opts.amount, 0, 1, opts),
+    line(opts.notesAccountId, 0, opts.amount, 2, opts),
+  ];
+}
+
+/** تحصيل مقبوضات: مدين البنك / دائن أوراق قبض (أو برسم التحصيل لو الورقة اتودعت) */
 export function buildReceiptCollectLines(opts: LineOpts): JournalEntryLineData[] {
   if (!opts.bankAccountId) throw new Error('حساب التحصيل مطلوب');
   return [

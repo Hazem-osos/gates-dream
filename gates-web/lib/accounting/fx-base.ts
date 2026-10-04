@@ -65,6 +65,29 @@ export function sameCurrencyCode(
   return Boolean(a) && a === b;
 }
 
+/** When the header is not EGP, a line that used another currency takes the header currency and rate. */
+export function lockedLineFx(
+  lineCurrency: string | null | undefined,
+  headerCurrency: string | null | undefined,
+  lineRate: number,
+  headerRate: number
+): { currencyCode: string; exchangeRate: number } {
+  const header = (headerCurrency || lineCurrency || POUND_CURRENCY).trim();
+  if (!headerLocksLineCurrency(header)) {
+    return { currencyCode: (lineCurrency || header).trim() || POUND_CURRENCY, exchangeRate: lineRate };
+  }
+  if (sameCurrencyCode(lineCurrency, header)) {
+    return { currencyCode: header, exchangeRate: lineRate };
+  }
+  return { currencyCode: header, exchangeRate: headerRate > 0 ? headerRate : lineRate };
+}
+
+/** Line currency is editable only while the document header is the Egyptian pound. */
+export function headerLocksLineCurrency(headerCurrencyCode?: string | null): boolean {
+  const code = (headerCurrencyCode || '').trim();
+  return Boolean(code) && !isEgyptianPound(code);
+}
+
 export function withHeaderCurrency<T extends { currencyCode?: string; exchangeRate?: number }>(
   line: T,
   headerCurrencyCode: string,
@@ -76,6 +99,32 @@ export function withHeaderCurrency<T extends { currencyCode?: string; exchangeRa
     currencyCode: headerCurrencyCode,
     exchangeRate: rateForCurrency(headerCurrencyCode, companyBaseCode, catalogRate),
   };
+}
+
+/**
+ * Push the header currency onto a line.
+ * A non-EGP header replaces every line currency. An EGP header only replaces lines
+ * that were still on the previous header currency, so a line can keep its own currency.
+ * A rate edit (header code unchanged) updates lines that follow the header.
+ */
+export function applyDocumentCurrencyToLine<T extends { currencyCode?: string; exchangeRate?: number }>(
+  line: T,
+  headerCurrencyCode: string,
+  headerRate: number | string | null | undefined,
+  companyBaseCode: string | null | undefined,
+  previousHeaderCode?: string | null
+): T {
+  const lockAll = headerLocksLineCurrency(headerCurrencyCode);
+  const follows =
+    lockAll ||
+    !line.currencyCode ||
+    sameCurrencyCode(line.currencyCode, previousHeaderCode) ||
+    sameCurrencyCode(line.currencyCode, headerCurrencyCode);
+  if (!follows) return line;
+  const alreadyOnHeader = sameCurrencyCode(line.currencyCode, headerCurrencyCode);
+  const headerCodeUnchanged = sameCurrencyCode(previousHeaderCode, headerCurrencyCode);
+  if (alreadyOnHeader && !headerCodeUnchanged) return line;
+  return withHeaderCurrency(line, headerCurrencyCode, headerRate, companyBaseCode);
 }
 
 /** Safe/bank `balance` is stored in company base. Show it in the document currency. */

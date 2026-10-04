@@ -17,6 +17,7 @@ export default function ReviewBalancePage() {
         branch: true,
         level: true,
         voucherRange: true,
+        reportOptions: ['showIdleAccounts'],
       }}
     />
   );

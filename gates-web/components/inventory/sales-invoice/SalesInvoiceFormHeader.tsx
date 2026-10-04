@@ -3,7 +3,6 @@
 import { Controller, useWatch, type Control, type FieldErrors, type UseFormRegister, type UseFormSetValue } from 'react-hook-form';
 import dynamic from 'next/dynamic';
 import { useEffect, type ReactNode } from 'react';
-import { Button } from '@/components/ui';
 import { CustomerSelect } from '@/components/form/PartySelect';
 import { DynamicModalSkeleton } from '@/components/ui/DynamicChunkSkeleton';
 import { WarehouseSelect } from '@/components/form/WarehouseSelect';
@@ -27,11 +26,10 @@ import { useFollowCurrencyCardRate } from '@/lib/hooks/useFollowCurrencyCardRate
 import { ExchangeRateInput } from '@/components/accounting/ExchangeRateInput';
 import { useCompanyBaseCurrency } from '@/lib/hooks/useCompanyBaseCurrency';
 import { InvoiceSourceDocumentControl } from '@/components/invoices/InvoiceSourceDocumentControl';
-import { InvoiceCashTenderPanel } from '@/components/invoices/InvoiceCashTenderPanel';
 import type { SourceHydratePayload } from '@/lib/invoices/sourceDocument';
 import { formatUserDisplayName } from '@/lib/user/profile';
 import type { CashTenderKind, InvoiceChequeDraft } from '@/lib/invoices/cash-tender';
-import { summarizePaymentSplits, type PaymentSplitLine } from '@/lib/invoices/payment-split.types';
+import type { PaymentSplitLine } from '@/lib/invoices/payment-split.types';
 
 const CustomerQuickAddModal = dynamic(
   () =>
@@ -71,12 +69,15 @@ type Props = {
   paymentMethod: 'cash' | 'credit' | 'split';
   safes?: Array<{ id: string; arabicName?: string; code?: string | null }>;
   onConfigureSplit?: () => void;
+  onCollectPayment?: () => void;
   onConfigureInstallments?: () => void;
   onLinkAdvance?: () => void;
   installmentCount?: number;
   paymentSplits?: PaymentSplitLine[];
   isSalesTaxInvoice: boolean;
   onSalesTaxChange: (v: boolean) => void;
+  applyWithholding: boolean;
+  onApplyWithholdingChange: (v: boolean) => void;
   onOpenTerms?: () => void;
   currencies: Currency[];
   delegates: Delegate[];
@@ -124,16 +125,11 @@ export function SalesInvoiceFormHeader({
   register,
   setValue,
   errors,
-  paymentMethod,
-  safes = [],
   isSalesTaxInvoice,
   onSalesTaxChange,
+  applyWithholding,
+  onApplyWithholdingChange,
   onOpenTerms,
-  onConfigureSplit,
-  onConfigureInstallments,
-  onLinkAdvance,
-  installmentCount = 0,
-  paymentSplits,
   currencies,
   delegates,
   drivers,
@@ -149,7 +145,6 @@ export function SalesInvoiceFormHeader({
   customerSeed,
   convertedFromInvoice,
   lockWarehouse = false,
-  lockTreasury = false,
   lockCostCenter = false,
   hasExistingLines = false,
   sourceDisabled = false,
@@ -158,18 +153,6 @@ export function SalesInvoiceFormHeader({
   onHeaderExtrasOpenChange,
   onSourceHydrate,
   includeAllAccounts = false,
-  cashTenderKind = 'treasury',
-  onCashTenderKind,
-  cashBankAccountId = '',
-  onCashBankAccountId,
-  cashBankReference = '',
-  onCashBankReference,
-  cashChequeRows = [],
-  onCashChequeRows,
-  cashNetAmount = 0,
-  cashChequeError,
-  splitLocked = false,
-  splitCollectMode = false,
 }: Props) {
   const mounted = useClientMounted();
   const { code: companyBase } = useCompanyBaseCurrency();
@@ -209,10 +192,6 @@ export function SalesInvoiceFormHeader({
   const invoiceDate = useWatch({ control, name: 'date' });
   const developmentFeeEnabled = useWatch({ control, name: 'developmentFeeEnabled' });
   const developmentFeeMode = useWatch({ control, name: 'developmentFeeMode' });
-  const advancePaidAmount = useWatch({ control, name: 'advancePaidAmount' });
-  const treasuryIdW = useWatch({ control, name: 'treasuryId' });
-  const advanceSafeIdW = useWatch({ control, name: 'advanceSafeId' });
-  const splitSummary = summarizePaymentSplits(paymentSplits);
   useEffect(() => {
     setValue('hijriDate', toHijriDate(invoiceDate ?? ''), { shouldDirty: false, shouldValidate: false });
   }, [invoiceDate, setValue]);
@@ -289,204 +268,6 @@ export function SalesInvoiceFormHeader({
           )}
         />
         <ErpFieldError message={errors.warehouseId?.message} show={showValidationErrors} />
-      </div>
-      <div className="min-w-[18rem]">
-        <label className={erpLabelClass}>طريقة الدفع</label>
-        <div
-          className="flex min-h-10 flex-wrap rounded-lg border border-slate-200 overflow-hidden bg-slate-50 p-0.5 gap-0.5"
-          data-tour="multi-tender-btn"
-        >
-          <label
-            className={`flex-1 min-w-[4.5rem] flex items-center justify-center text-sm font-medium cursor-pointer rounded-md transition-colors ${
-              paymentMethod === 'cash' ? 'bg-[#0E78AA] text-white shadow-sm' : 'text-slate-600 hover:bg-white'
-            }`}
-          >
-            <input type="radio" value="cash" className="sr-only" {...register('paymentMethod')} />
-            نقدي
-          </label>
-          <label
-            className={`flex-1 min-w-[6.5rem] flex items-center justify-center text-sm font-medium cursor-pointer rounded-md transition-colors ${
-              paymentMethod === 'credit' ? 'bg-[#0E78AA] text-white shadow-sm' : 'text-slate-600 hover:bg-white'
-            }`}
-          >
-            <input type="radio" value="credit" className="sr-only" {...register('paymentMethod')} />
-            آجل
-          </label>
-          <div
-            role="button"
-            tabIndex={splitLocked ? -1 : 0}
-            aria-disabled={splitLocked}
-            title={
-              splitLocked
-                ? 'الدفع المتعدد يتاح بعد حفظ وترحيل الفاتورة'
-                : splitCollectMode
-                  ? 'تحصيل أو تعديل الدفع على الفاتورة المرحلة'
-                  : undefined
-            }
-            className={`flex-1 min-w-[5.5rem] flex items-center justify-center text-sm font-medium rounded-md transition-colors ${
-              splitLocked
-                ? 'cursor-not-allowed text-slate-400 opacity-50'
-                : splitCollectMode
-                  ? 'pointer-events-auto cursor-pointer text-[#0E78AA] hover:bg-white'
-                  : paymentMethod === 'split'
-                    ? 'cursor-pointer bg-[#0E78AA] text-white shadow-sm'
-                    : 'cursor-pointer text-slate-600 hover:bg-white'
-            }`}
-            data-academy-trigger-id="sales-invoice.tender-open-click"
-            onClick={() => {
-              if (splitLocked) return;
-              setValue('paymentMethod', 'split', { shouldDirty: false });
-            }}
-            onKeyDown={(event) => {
-              if (splitLocked) return;
-              if (event.key === 'Enter' || event.key === ' ') {
-                event.preventDefault();
-                setValue('paymentMethod', 'split', { shouldDirty: false });
-              }
-            }}
-          >
-            دفع متعدد
-          </div>
-        </div>
-        {splitLocked ? (
-          <p className="mt-1.5 text-[11px] text-slate-500">نقدي أو آجل فقط أثناء الإضافة. الدفع المتعدد بعد الترحيل.</p>
-        ) : null}
-        {onLinkAdvance ? (
-          <div className="mt-2 pointer-events-auto">
-            <div
-              role="button"
-              tabIndex={0}
-              className="pointer-events-auto inline-flex cursor-pointer rounded-lg border border-[#0E78AA]/30 bg-white px-3 py-1.5 text-sm font-semibold text-[#0E78AA] hover:bg-[#E8F4FA]"
-              onClick={onLinkAdvance}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' || event.key === ' ') {
-                  event.preventDefault();
-                  onLinkAdvance();
-                }
-              }}
-            >
-              ربط دفعة مقدمة
-            </div>
-            <p className="mt-1 text-[11px] text-slate-500">
-              يفتح سندات العميل غير المرتبطة بفاتورة لربطها كسداد — نقدي أو آجل.
-            </p>
-          </div>
-        ) : null}
-        {paymentMethod === 'split' && !splitLocked ? (
-          <div className="mt-2 flex flex-wrap items-center gap-2 pointer-events-auto">
-            <div
-              role="button"
-              tabIndex={0}
-              className="pointer-events-auto inline-flex cursor-pointer items-center rounded-lg bg-[#0E78AA] px-3 py-1.5 text-sm font-semibold text-white hover:bg-[#094C6B]"
-              onClick={onConfigureSplit}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' || event.key === ' ') {
-                  event.preventDefault();
-                  onConfigureSplit?.();
-                }
-              }}
-            >
-              تحصيل
-            </div>
-            <Button type="button" size="sm" variant="secondary" onClick={onConfigureInstallments}>
-              توزيع الدفعات
-              {installmentCount > 0 ? (
-                <span className="mr-1 inline-flex min-w-[1.15rem] items-center justify-center rounded-full bg-[#0E78AA]/15 px-1 text-[10px] text-[#094C6B]">
-                  {installmentCount}
-                </span>
-              ) : null}
-            </Button>
-            {splitSummary ? <p className="w-full text-[11px] text-slate-500">{splitSummary}</p> : null}
-          </div>
-        ) : null}
-        {paymentMethod === 'credit' ? (
-          <div>
-            <InvoiceCashTenderPanel
-              kind={cashTenderKind}
-              onKindChange={(kind) => {
-                onCashTenderKind?.(kind);
-                setValue('cashTenderKind', kind, { shouldDirty: true, shouldValidate: true });
-              }}
-              treasuryId={advanceSafeIdW || treasuryIdW || ''}
-              onTreasuryId={(id) => {
-                setValue('advanceSafeId', id, { shouldDirty: true, shouldValidate: true });
-                if (!treasuryIdW) setValue('treasuryId', id, { shouldDirty: false });
-              }}
-              bankAccountId={cashBankAccountId}
-              onBankAccountId={(id) => {
-                onCashBankAccountId?.(id);
-                setValue('cashBankAccountId', id, { shouldDirty: true, shouldValidate: true });
-              }}
-              bankReference={cashBankReference}
-              onBankReference={(value) => {
-                onCashBankReference?.(value);
-                setValue('cashBankReference', value, { shouldDirty: true });
-              }}
-              chequeRows={cashChequeRows}
-              onChequeRows={(rows) => onCashChequeRows?.(rows)}
-              netAmount={cashNetAmount}
-              direction="RECEIPT"
-              variant="advance"
-              paidAmount={Number(advancePaidAmount) || 0}
-              onPaidAmount={(amount) =>
-                setValue('advancePaidAmount', amount, { shouldDirty: true, shouldValidate: true })
-              }
-              paidError={errors.advancePaidAmount?.message}
-              disabled={lockTreasury || fieldsDisabled}
-              treasuryError={errors.advanceSafeId?.message}
-              bankError={errors.cashBankAccountId?.message}
-              chequeError={cashChequeError}
-              showErrors={showValidationErrors}
-            />
-            {onConfigureInstallments ? (
-              <div className="mt-2">
-                <Button type="button" size="sm" variant="secondary" onClick={onConfigureInstallments}>
-                  توزيع الدفعات
-                  {installmentCount > 0 ? (
-                    <span className="mr-1 inline-flex min-w-[1.15rem] items-center justify-center rounded-full bg-[#0E78AA]/15 px-1 text-[10px] text-[#094C6B]">
-                      {installmentCount}
-                    </span>
-                  ) : null}
-                </Button>
-              </div>
-            ) : null}
-          </div>
-        ) : null}
-        {paymentMethod === 'cash' ? (
-          <InvoiceCashTenderPanel
-            kind={cashTenderKind}
-            onKindChange={(kind) => {
-              onCashTenderKind?.(kind);
-              setValue('cashTenderKind', kind, { shouldDirty: true, shouldValidate: true });
-            }}
-            treasuryId={treasuryIdW || ''}
-            onTreasuryId={(id) => setValue('treasuryId', id, { shouldDirty: true, shouldValidate: true })}
-            bankAccountId={cashBankAccountId}
-            onBankAccountId={(id) => {
-              onCashBankAccountId?.(id);
-              setValue('cashBankAccountId', id, { shouldDirty: true, shouldValidate: true });
-            }}
-            bankReference={cashBankReference}
-            onBankReference={(value) => {
-              onCashBankReference?.(value);
-              setValue('cashBankReference', value, { shouldDirty: true });
-            }}
-            chequeRows={cashChequeRows}
-            onChequeRows={(rows) => onCashChequeRows?.(rows)}
-            netAmount={cashNetAmount}
-            direction="RECEIPT"
-            paidAmount={Number(advancePaidAmount) > 0 ? Number(advancePaidAmount) : cashNetAmount}
-            onPaidAmount={(amount) =>
-              setValue('advancePaidAmount', amount, { shouldDirty: true, shouldValidate: true })
-            }
-            paidError={errors.advancePaidAmount?.message}
-            disabled={lockTreasury || fieldsDisabled}
-            treasuryError={errors.treasuryId?.message}
-            bankError={errors.cashBankAccountId?.message}
-            chequeError={cashChequeError}
-            showErrors={showValidationErrors}
-          />
-        ) : null}
       </div>
     </>
   );
@@ -602,6 +383,15 @@ export function SalesInvoiceFormHeader({
           className="rounded border-slate-300 text-[#0E78AA] focus:ring-[#0E78AA]"
         />
         فاتورة خاضعة لضريبة القيمة المضافة (ض.ق.م)
+      </label>
+      <label className="flex items-end gap-2 pb-2 text-sm text-slate-700 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={applyWithholding}
+          onChange={(e) => onApplyWithholdingChange(e.target.checked)}
+          className="rounded border-slate-300 text-[#0E78AA] focus:ring-[#0E78AA]"
+        />
+        ضريبة خصم المنبع
       </label>
       <p
         className={`w-full text-xs text-slate-500 -mt-2 ${isSalesTaxInvoice ? 'hidden' : ''}`}

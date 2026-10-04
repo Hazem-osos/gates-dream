@@ -15,7 +15,15 @@ import {
 } from './stock-movement-gl.service';
 import { roundTo4 } from '../../../shared/utils/decimal-round';
 import { assertWarehouseActive } from '../utils/inventory-system';
+import {
+  ensurePerpetualInventoryGlReady,
+  runCompanyStockGlPosting,
+} from '../utils/stock-gl-posting-guard';
 import { sortForStockLocking } from '../utils/stock-lock-order.util';
+import { AppError } from '../../../shared/middleware/error-handler';
+import { fiscalYearService } from '../../platform/services/fiscal-year.service';
+import { claimDocumentPost, claimDocumentUnpost } from '../utils/claim-document-post';
+import { resolveStoreDocumentSerialInTx } from './store-document-numbering.service';
 
 export interface AssemblyComponentLine {
   componentItemId: string; // Component item ID
@@ -115,7 +123,7 @@ export class AssemblyService {
       });
 
       if (items.length !== allItemIds.size) {
-        throw new Error('One or more items not found or do not belong to company');
+        throw new AppError(422, 'صنف أو أكثر غير موجود أو لا يخص الشركة');
       }
 
       // Drafts may be saved before stock is available — availability is
@@ -128,12 +136,20 @@ export class AssemblyService {
           totalAmount += assembledTotal;
         });
 
+        const serial = await resolveStoreDocumentSerialInTx(tx, {
+          companyId,
+          branchId: data.branchId ?? null,
+          fiscalYearId: null,
+          kind: 'assembly',
+          clientSerial: data.serial,
+        });
+
         const record = await tx.assembly.create({
           data: {
             companyId,
             branchId: data.branchId || null,
             description: data.description || null,
-            serial: data.serial || null,
+            serial,
             date: new Date(data.date),
             hijriDate: data.hijriDate || null,
             warehouseId: data.warehouseId,
@@ -237,7 +253,6 @@ export class AssemblyService {
               assembledItem: {
                 select: {
                   id: true,
-                  code: true,
                   serial: true,
                   arabicName: true,
                   englishName: true,
@@ -248,7 +263,6 @@ export class AssemblyService {
                   componentItem: {
                     select: {
                       id: true,
-                      code: true,
                       serial: true,
                       arabicName: true,
                       englishName: true,
@@ -346,7 +360,6 @@ export class AssemblyService {
                 assembledItem: {
                   select: {
                     id: true,
-                    code: true,
                     serial: true,
                     arabicName: true,
                   },
@@ -408,19 +421,20 @@ export class AssemblyService {
       });
 
       if (!assembly) {
-        throw new Error('Assembly not found');
+        throw new AppError(404, 'أمر التجميع غير موجود');
       }
 
       if (assembly.isCancelled) {
-        throw new Error('Cannot post cancelled assembly');
+        throw new AppError(422, 'لا يمكن ترحيل أمر تجميع ملغي');
       }
 
       if (assembly.isPosted) {
-        throw new Error('Assembly is already posted');
+        throw new AppError(422, 'أمر التجميع مرحّل بالفعل');
       }
 
       const extras = parseAssemblyExtras(assembly.record);
       const destWarehouseId = extras.toWarehouseId || assembly.warehouseId;
+      await fiscalYearService.assertOpenForDate(companyId, assembly.date);
       await assertWarehouseActive(companyId, assembly.warehouseId);
       if (destWarehouseId !== assembly.warehouseId) {
         await assertWarehouseActive(companyId, destWarehouseId, { label: 'مخزن الإضافة' });
@@ -429,25 +443,40 @@ export class AssemblyService {
       const sourceNumber = assembly.serial ?? assembly.id.slice(0, 8);
       const sourceYearId = String(new Date(assembly.date).getFullYear());
 
+      const inventorySystem = await ensurePerpetualInventoryGlReady(
+        companyId,
+        glCtx,
+        assembly.warehouseId
+      );
+
       const componentItemIds = [
         ...new Set(assembly.lines.flatMap((l) => l.components.map((c) => c.componentItemId))),
       ];
       const assembledItemIds = [...new Set(assembly.lines.map((l) => l.assembledItemId))];
       const allItemIds = [...new Set([...componentItemIds, ...assembledItemIds])];
 
+      const resolveGlAccountsPair = async () => {
+        if (!glCtx) return null;
+        if (inventorySystem === 'PERPETUAL') {
+          const [source, dest] = await Promise.all([
+            resolveStockGlAccounts(companyId, assembly.warehouseId),
+            resolveStockGlAccounts(companyId, destWarehouseId),
+          ]);
+          return { source, dest };
+        }
+        const [source, dest] = await Promise.all([
+          resolveStockGlAccounts(companyId, assembly.warehouseId).catch(() => null),
+          resolveStockGlAccounts(companyId, destWarehouseId).catch(() => null),
+        ]);
+        return source && dest ? { source, dest } : null;
+      };
+
       const [items, glAccounts] = await Promise.all([
         prisma.item.findMany({
           where: { id: { in: allItemIds }, companyId },
           select: { id: true, mainAccountId: true },
         }),
-        glCtx
-          ? Promise.all([
-              resolveStockGlAccounts(companyId, assembly.warehouseId),
-              resolveStockGlAccounts(companyId, destWarehouseId),
-            ])
-              .then(([source, dest]) => ({ source, dest }))
-              .catch(() => null)
-          : Promise.resolve(null),
+        resolveGlAccountsPair(),
       ]);
       const itemAccountById = new Map(items.map((i) => [i.id, i.mainAccountId]));
       const defaultInventoryAccountId = glAccounts?.source.inventoryAccountId;
@@ -464,6 +493,7 @@ export class AssemblyService {
       }));
 
       await prisma.$transaction(async (tx) => {
+        await claimDocumentPost((args) => tx.assembly.updateMany(args), assemblyId, companyId);
         for (const line of sortedLines) {
           let lineComponentCost = 0;
 
@@ -474,6 +504,9 @@ export class AssemblyService {
           }));
 
           for (const component of sortedComponents) {
+            if (component.componentItemId === line.assembledItemId) {
+              throw new AppError(422, 'لا يمكن أن يكون مكوّن التجميع هو نفس الصنف المُجمَّع');
+            }
             const requiredQty = Number(component.quantity);
             const outbound = await inventoryCostingService.applyOutboundMovement(tx, {
               companyId,
@@ -507,8 +540,16 @@ export class AssemblyService {
           }
 
           lineComponentCost = roundTo4(lineComponentCost);
+          const extraItem = await tx.item.findFirst({
+            where: { id: line.assembledItemId, companyId },
+            select: { extraAssemblyCost: true, extraAssemblyCostPct: true },
+          });
+          const extraFixed = Number(extraItem?.extraAssemblyCost ?? 0) * Number(line.assembledQuantity);
+          const extraPct = lineComponentCost * (Number(extraItem?.extraAssemblyCostPct ?? 0) / 100);
+          const extraValue = roundTo4(extraFixed + extraPct);
+          const inboundTotal = roundTo4(lineComponentCost + extraValue);
           const assembledUnitCost =
-            line.assembledQuantity > 0 ? roundTo4(lineComponentCost / line.assembledQuantity) : 0;
+            line.assembledQuantity > 0 ? roundTo4(inboundTotal / line.assembledQuantity) : 0;
 
           await inventoryCostingService.applyInboundMovement(tx, {
             companyId,
@@ -530,7 +571,7 @@ export class AssemblyService {
             where: { id: line.id },
             data: {
               assembledUnitPrice: assembledUnitCost,
-              assembledTotal: lineComponentCost,
+              assembledTotal: inboundTotal,
             },
           });
 
@@ -543,8 +584,16 @@ export class AssemblyService {
             if (acctId) {
               debitLines.push({
                 accountId: acctId,
-                amount: lineComponentCost,
+                amount: inboundTotal,
                 description: `Assembly — finished item ${line.assembledItemId} received`,
+              });
+            }
+            const extraAccountId = glAccounts.source.assemblyExtraCostAccountId || glAccounts.source.adjustmentAccountId;
+            if (extraValue > 0 && extraAccountId) {
+              creditLines.push({
+                accountId: extraAccountId,
+                amount: extraValue,
+                description: 'تكلفة تجميع إضافية',
               });
             }
           }
@@ -552,16 +601,18 @@ export class AssemblyService {
 
         let journalEntryId: string | undefined;
         if (glCtx && glAccounts) {
-          const je = await stockMovementGlService.postInventoryTransformationGlInTx(
-            tx,
-            glCtx,
-            assembly,
-            'ASSEMBLY',
-            debitLines,
-            creditLines,
-            'assembly'
-          );
-          journalEntryId = je?.id;
+          await runCompanyStockGlPosting(inventorySystem, async () => {
+            const je = await stockMovementGlService.postInventoryTransformationGlInTx(
+              tx,
+              glCtx,
+              assembly,
+              'ASSEMBLY',
+              debitLines,
+              creditLines,
+              'assembly'
+            );
+            journalEntryId = je?.id;
+          });
         }
 
         await tx.assembly.update({
@@ -583,7 +634,12 @@ export class AssemblyService {
       return { success: true };
     } catch (error) {
       logger.error({ error, companyId, assemblyId }, 'Error posting assembly');
-      throw error;
+      if (error instanceof AppError) throw error;
+      const msg = error instanceof Error ? error.message : '';
+      if (/insufficient|not enough|negative/i.test(msg)) {
+        throw new AppError(422, 'الكمية غير كافية في المخزن لترحيل التجميع');
+      }
+      throw new AppError(422, msg || 'تعذر ترحيل أمر التجميع');
     }
   }
 
@@ -612,48 +668,52 @@ export class AssemblyService {
       });
 
       if (!assembly) {
-        throw new Error('Assembly not found');
+        throw new AppError(404, 'أمر التجميع غير موجود');
       }
 
       if (!assembly.isPosted) {
-        throw new Error('Assembly is not posted');
+        throw new AppError(422, 'أمر التجميع غير مرحّل');
       }
 
       const extras = parseAssemblyExtras(assembly.record);
       const destWarehouseId = extras.toWarehouseId || assembly.warehouseId;
+      await fiscalYearService.assertOpenForDate(companyId, assembly.date);
       const sourceType = 'ASM';
       const sourceNumber = assembly.serial ?? assembly.id.slice(0, 8);
       const sourceYearId = String(new Date(assembly.date).getFullYear());
 
       await prisma.$transaction(async (tx) => {
+        await claimDocumentUnpost((args) => tx.assembly.updateMany(args), assemblyId, companyId);
         for (const line of assembly.lines) {
           for (const component of line.components) {
             const requiredQty = Number(component.quantity);
-            await stockMovementService.postMovementInTx(tx, {
+            await inventoryCostingService.applyInboundMovement(tx, {
               companyId,
               branchId: assembly.branchId ?? undefined,
               warehouseId: assembly.warehouseId,
               itemId: component.componentItemId,
-              quantityDelta: requiredQty,
+              quantity: requiredQty,
+              inheritCurrentCost: true,
+              updateLastPurchasePrice: false,
               movementType: `${sourceType}-UNPOST`,
               sourceType: `${sourceType}-UNPOST`,
               sourceNumber,
               sourceYearId,
-              documentDate: assembly.date,
+              transactionDate: new Date(assembly.date),
             });
           }
 
-          await stockMovementService.postMovementInTx(tx, {
+          await inventoryCostingService.applyOutboundMovement(tx, {
             companyId,
             branchId: assembly.branchId ?? undefined,
             warehouseId: destWarehouseId,
             itemId: line.assembledItemId,
-            quantityDelta: -Number(line.assembledQuantity),
+            quantity: Number(line.assembledQuantity),
             movementType: `${sourceType}-UNPOST`,
             sourceType: `${sourceType}-UNPOST`,
             sourceNumber,
             sourceYearId,
-            documentDate: assembly.date,
+            transactionDate: new Date(assembly.date),
           });
 
           await itemCostService.removeCostHistoryBySourceInTx(tx, {
@@ -694,7 +754,12 @@ export class AssemblyService {
       return { success: true };
     } catch (error) {
       logger.error({ error, companyId, assemblyId }, 'Error unposting assembly');
-      throw error;
+      if (error instanceof AppError) throw error;
+      const msg = error instanceof Error ? error.message : '';
+      if (/insufficient|not enough|negative/i.test(msg)) {
+        throw new AppError(422, 'تعذر فك الترحيل لأن كمية المنتج التام لم تعد متاحة في المخزن');
+      }
+      throw new AppError(422, msg || 'تعذر فك ترحيل أمر التجميع');
     }
   }
 
@@ -806,7 +871,7 @@ export class AssemblyService {
       totalAmount += line.assembledTotal || totalCost;
     });
 
-    return prisma.$transaction(async (tx) => {
+    await prisma.$transaction(async (tx) => {
       await tx.assemblyComponent.deleteMany({
         where: { assemblyLine: { assemblyId } },
       });
@@ -855,8 +920,8 @@ export class AssemblyService {
         }
       }
 
-      return this.getAssemblyById(companyId, assemblyId);
     });
+    return this.getAssemblyById(companyId, assemblyId);
   }
 }
 

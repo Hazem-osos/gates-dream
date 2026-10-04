@@ -69,6 +69,7 @@ export function isCompanyBootstrapApiPath(url: string): boolean {
     path === '/company/fiscal-years' ||
     path.startsWith('/company/onboarding') ||
     path === '/accounting/settings' ||
+    path === '/electronic-invoices/settings' ||
     path === '/accounting/accounts/seed-defaults' ||
     path === '/accounting/accounts/seed-default-coa' ||
     path.startsWith('/accounting/accounts/seed-')

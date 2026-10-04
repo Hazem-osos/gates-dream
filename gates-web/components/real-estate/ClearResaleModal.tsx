@@ -46,7 +46,7 @@ export function ClearResaleModal({
   return (
     <div className="fixed inset-0 z-[140] flex items-center justify-center bg-black/40 p-4" dir="rtl">
       <div className="w-full max-w-lg space-y-4 rounded-xl bg-white p-5 shadow-xl">
-        <h2 className="text-lg font-bold text-[#0E79AA]">تصفية رسوم التنازل وتنفيذ التحويل</h2>
+        <h2 className="text-lg font-bold text-[#0E78AA]">تصفية رسوم التنازل وتنفيذ التحويل</h2>
         <p className="text-sm text-slate-600">
           العقد {transfer.contract?.contractNumber} — من {transfer.seller?.arabicName} إلى {transfer.newBuyer?.arabicName}
         </p>

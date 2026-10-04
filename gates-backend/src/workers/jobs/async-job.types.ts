@@ -15,6 +15,7 @@ export type TaxPortalJobKind =
   | 'eta-submit-invoice'
   | 'eta-submit-receipt'
   | 'eta-submit-batch'
+  | 'eta-submit-amendment-batch'
   | 'eta-poll-status'
   | 'form41-export';
 

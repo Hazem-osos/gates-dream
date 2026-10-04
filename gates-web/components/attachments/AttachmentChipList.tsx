@@ -26,12 +26,12 @@ export function AttachmentChipList({
             <button
               type="button"
               onClick={() => onOpen(row)}
-              className="inline-flex max-w-[280px] items-center gap-2 rounded-full border border-[#D6EAF3] bg-[#F6FBFD] px-3 py-1.5 text-start text-sm hover:border-[#0E79AA]"
+              className="inline-flex max-w-[280px] items-center gap-2 rounded-full border border-[#D6EAF3] bg-[#F6FBFD] px-3 py-1.5 text-start text-sm hover:border-[#0E78AA]"
             >
               {isImage ? (
-                <ImageIcon className="h-4 w-4 shrink-0 text-[#0E79AA]" />
+                <ImageIcon className="h-4 w-4 shrink-0 text-[#0E78AA]" />
               ) : (
-                <FileText className="h-4 w-4 shrink-0 text-[#0E79AA]" />
+                <FileText className="h-4 w-4 shrink-0 text-[#0E78AA]" />
               )}
               <span className="min-w-0">
                 <span className="block truncate font-semibold text-[#094C6B]">{row.originalFileName}</span>

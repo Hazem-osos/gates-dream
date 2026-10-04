@@ -59,7 +59,7 @@ router.post(
   validate({
     body: z.object({
       entity: z.enum(['CUSTOMERS', 'ITEMS']),
-      rows: z.array(z.record(z.union([z.string(), z.number(), z.null()]))).min(1).max(500),
+      rows: z.array(z.record(z.union([z.string(), z.number(), z.null()]))).min(1).max(10000),
     }),
   }),
   async (req: AuthRequest, res: Response) => {

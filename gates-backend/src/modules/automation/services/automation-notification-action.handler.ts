@@ -13,6 +13,14 @@ import { AutomationActionDispatchError, type ActionExecutionContext, type Action
 
 const RESULT_ENTITY_NOTIFICATION = 'SystemNotification';
 
+function safeNotificationLink(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const raw = value.trim().slice(0, 500);
+  if (raw.startsWith('/') && !raw.startsWith('//')) return raw;
+  if (/^https?:\/\//i.test(raw)) return raw;
+  return null;
+}
+
 function requiredString(value: unknown, field: string, maxLength: number): string {
   if (typeof value !== 'string' || value.trim().length === 0) {
     throw new AutomationActionDispatchError(400, `Config field "${field}" resolved to an empty value`);
@@ -27,7 +35,7 @@ export const notificationActionHandler: ActionHandler = {
     const title = requiredString(resolveConfigValue(ctx.config.title, ctx.eventData), 'title', 200);
     const message = requiredString(resolveConfigValue(ctx.config.message, ctx.eventData), 'message', 2000);
     const linkUrlRaw = resolveConfigValue(ctx.config.linkUrl, ctx.eventData);
-    const linkUrl = typeof linkUrlRaw === 'string' && linkUrlRaw.trim() ? linkUrlRaw.slice(0, 500) : null;
+    const linkUrl = safeNotificationLink(linkUrlRaw);
     const userId = typeof ctx.config.userId === 'string' ? ctx.config.userId : null;
     const severity = typeof ctx.config.severity === 'string' ? ctx.config.severity : 'info';
 

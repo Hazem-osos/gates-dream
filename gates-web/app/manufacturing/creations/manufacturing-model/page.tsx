@@ -1,6 +1,7 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Plus, Trash2 } from 'lucide-react';
 import { useBackendReachability } from '@/lib/hooks/useBackendReachability';
 import {
@@ -21,15 +22,33 @@ import {
   mfgTrClass,
 } from '@/components/manufacturing/ManufacturingPageChrome';
 import { useApiQuery, useApiMutation, useInvalidateQuery } from '@/lib/hooks/useApi';
+import { apiClient } from '@/lib/api/client';
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
 import type { ApiError } from '@/lib/api/types';
 import { cn } from '@/lib/utils';
+import { PageSkeleton } from '@/components/ui/skeletons';
 
 type ComponentLine = {
   rawItemId: string;
   quantity: string;
   scrapPercentage: string;
+};
+
+type BomDetail = {
+  id: string;
+  name: string;
+  finishedItemId: string;
+  baseQuantity: string | number;
+  standardLaborCost: string | number;
+  standardOverheadCost: string | number;
+  finishedItem?: { id: string; arabicName: string; serial?: string | null };
+  lines?: Array<{
+    rawItemId: string;
+    quantity: string | number;
+    scrapPercentage: string | number;
+    lineOrder?: number;
+  }>;
 };
 
 function calcLineQty(quantity: string, scrapPercentage: string): number {
@@ -39,13 +58,22 @@ function calcLineQty(quantity: string, scrapPercentage: string): number {
   return qty * (1 + scrap / 100);
 }
 
+function emptyLines(): ComponentLine[] {
+  return [{ rawItemId: '', quantity: '1', scrapPercentage: '0' }];
+}
+
 export default function ManufacturingModelPage() {
   useBackendReachability();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const invalidateQuery = useInvalidateQuery();
+
+  const idFromUrl = searchParams.get('id')?.trim() || null;
+  const [bomId, setBomId] = useState<string | null>(idFromUrl);
+  const hydratedRef = useRef<string | null>(null);
 
   const [serial, setSerial] = useState('');
   const [description, setDescription] = useState('');
-  const [model, setModel] = useState('');
   const [fromWarehouse, setFromWarehouse] = useState('');
   const [costCenter, setCostCenter] = useState('');
   const [finishedItemId, setFinishedItemId] = useState('');
@@ -53,11 +81,21 @@ export default function ManufacturingModelPage() {
   const [laborCost, setLaborCost] = useState('0');
   const [overheadCost, setOverheadCost] = useState('0');
   const [stage, setStage] = useState('');
-  const [componentLines, setComponentLines] = useState<ComponentLine[]>([
-    { rawItemId: '', quantity: '1', scrapPercentage: '0' },
-  ]);
+  const [componentLines, setComponentLines] = useState<ComponentLine[]>(emptyLines);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setBomId(idFromUrl);
+    if (!idFromUrl) hydratedRef.current = null;
+  }, [idFromUrl]);
+
+  const openBom = (id: string | null) => {
+    setBomId(id);
+    if (id) router.replace(`/manufacturing/creations/manufacturing-model?id=${encodeURIComponent(id)}`, { scroll: false });
+    else router.replace('/manufacturing/creations/manufacturing-model', { scroll: false });
+  };
 
   const { data: itemsResponse } = useApiQuery<Array<{ id: string; arabicName: string; serial?: string | null }>>(
     ['inventory-items-bom'],
@@ -66,22 +104,56 @@ export default function ManufacturingModelPage() {
   );
   const items = itemsResponse?.data ?? [];
 
-  const createBomMutation = useApiMutation<{ data: { id: string; name: string } }, Record<string, unknown>>(
+  const { data: bomListResponse } = useApiQuery<Array<{ id: string; name: string }>>(
+    ['manufacturing-boms'],
+    '/manufacturing/boms'
+  );
+  const bomList = bomListResponse?.data ?? [];
+
+  const { data: bomDetailResponse, isLoading: bomLoading } = useApiQuery<BomDetail>(
+    ['manufacturing-bom', bomId],
+    `/manufacturing/boms/${bomId}`,
+    undefined,
+    { enabled: Boolean(bomId) }
+  );
+  const bomDetail = bomDetailResponse?.data ?? null;
+
+  useEffect(() => {
+    if (!bomId || !bomDetail || bomDetail.id !== bomId) return;
+    if (hydratedRef.current === bomId) return;
+    hydratedRef.current = bomId;
+    setDescription(bomDetail.name ?? '');
+    setSerial(bomDetail.finishedItem?.serial ?? '');
+    setFinishedItemId(bomDetail.finishedItemId);
+    setBaseQuantity(String(bomDetail.baseQuantity ?? '1'));
+    setLaborCost(String(bomDetail.standardLaborCost ?? '0'));
+    setOverheadCost(String(bomDetail.standardOverheadCost ?? '0'));
+    const lines = (bomDetail.lines ?? []).map((line) => ({
+      rawItemId: line.rawItemId,
+      quantity: String(line.quantity ?? '1'),
+      scrapPercentage: String(line.scrapPercentage ?? '0'),
+    }));
+    setComponentLines(lines.length > 0 ? lines : emptyLines());
+  }, [bomId, bomDetail]);
+
+  const createBomMutation = useApiMutation<{ id: string; name: string }, Record<string, unknown>>(
     '/manufacturing/boms',
     'POST',
     {
       onSuccess: (res) => {
         const created = (res as unknown as { data: { id: string; name: string } }).data;
-        setModel(created.id);
         setSuccess('تم حفظ نموذج التصنيع (BOM)');
         invalidateQuery(['manufacturing-boms']);
+        invalidateQuery(['manufacturing-bom', created.id]);
+        hydratedRef.current = null;
+        openBom(created.id);
       },
       onError: (err: ApiError) => setError(err.message || 'تعذر حفظ النموذج'),
     }
   );
 
   const finishedItem = items.find((it) => it.id === finishedItemId);
-  const advancedFilledCount = [fromWarehouse, costCenter, stage, model].filter(Boolean).length;
+  const advancedFilledCount = [fromWarehouse, costCenter, stage, bomId].filter(Boolean).length;
 
   const labor = Number(laborCost) || 0;
   const overhead = Number(overheadCost) || 0;
@@ -89,7 +161,7 @@ export default function ManufacturingModelPage() {
 
   const costSlices = useMemo(
     () => [
-      { id: 'materials', label: 'المواد الخام', value: 0, color: '#0E79AA' },
+      { id: 'materials', label: 'المواد الخام', value: 0, color: '#0E78AA' },
       { id: 'labor', label: 'أجور مباشرة', value: labor, color: '#38bdf8' },
       { id: 'overhead', label: 'مصاريف صناعية', value: overhead, color: '#94a3b8' },
     ],
@@ -113,23 +185,29 @@ export default function ManufacturingModelPage() {
     setComponentLines((prev) => prev.filter((_, i) => i !== index));
   }
 
-  const handleSave = async () => {
-    setError(null);
-    setSuccess(null);
-    if (!finishedItemId) return setError('اختر الصنف الناتج');
-
+  function buildPayload(): Record<string, unknown> | null {
+    if (!finishedItemId) {
+      setError('اختر الصنف الناتج');
+      return null;
+    }
     const filledLines = componentLines.filter((l) => l.rawItemId.trim());
-    if (filledLines.length === 0) return setError('اختر مادة خام واحدة على الأقل');
-
+    if (filledLines.length === 0) {
+      setError('اختر مادة خام واحدة على الأقل');
+      return null;
+    }
     for (const line of filledLines) {
       const qty = Number(line.quantity);
-      if (!Number.isFinite(qty) || qty <= 0) return setError('كمية المادة الخام غير صالحة');
+      if (!Number.isFinite(qty) || qty <= 0) {
+        setError('كمية المادة الخام غير صالحة');
+        return null;
+      }
     }
-
     const baseQty = Number(baseQuantity);
-    if (!Number.isFinite(baseQty) || baseQty <= 0) return setError('الكمية الأساسية غير صالحة');
-
-    await createBomMutation.mutateAsync({
+    if (!Number.isFinite(baseQty) || baseQty <= 0) {
+      setError('الكمية الأساسية غير صالحة');
+      return null;
+    }
+    return {
       name: description.trim() || serial.trim() || `BOM-${Date.now()}`,
       finishedItemId,
       baseQuantity: baseQty,
@@ -141,19 +219,70 @@ export default function ManufacturingModelPage() {
         scrapPercentage: Number(line.scrapPercentage) || 0,
         lineOrder: i + 1,
       })),
-    });
+    };
+  }
+
+  const handleSave = async () => {
+    setError(null);
+    setSuccess(null);
+    const payload = buildPayload();
+    if (!payload) return;
+
+    if (bomId) {
+      setSaving(true);
+      try {
+        await apiClient.put(`/manufacturing/boms/${bomId}`, payload);
+        setSuccess('تم تحديث نموذج التصنيع (BOM)');
+        invalidateQuery(['manufacturing-boms']);
+        invalidateQuery(['manufacturing-bom', bomId]);
+        hydratedRef.current = null;
+      } catch (err) {
+        setError((err as ApiError).message || 'تعذر تحديث النموذج');
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
+
+    await createBomMutation.mutateAsync(payload);
   };
+
+  const handleNew = () => {
+    hydratedRef.current = null;
+    setDescription('');
+    setSerial('');
+    setFinishedItemId('');
+    setBaseQuantity('1');
+    setLaborCost('0');
+    setOverheadCost('0');
+    setComponentLines(emptyLines());
+    setFromWarehouse('');
+    setCostCenter('');
+    setStage('');
+    openBom(null);
+  };
+
+  if (bomId && bomLoading && !bomDetail) {
+    return <PageSkeleton />;
+  }
 
   return (
     <ManufacturingPageChrome
       title="نموذج التصنيع"
-      statusLabel={model ? 'محفوظ' : 'جديد'}
+      statusLabel={bomId ? 'محفوظ' : 'جديد'}
       docNumber={serial || undefined}
-      currentId={model || null}
+      currentId={bomId}
       favoriteHref="/manufacturing/creations/manufacturing-model"
       onSave={() => void handleSave()}
-      savePending={createBomMutation.isPending}
-      saveLabel="حفظ النموذج"
+      savePending={createBomMutation.isPending || saving}
+      saveLabel={bomId ? 'تحديث النموذج' : 'حفظ النموذج'}
+      extraActions={
+        bomId ? (
+          <Button type="button" variant="secondary" size="sm" onClick={handleNew}>
+            جديد
+          </Button>
+        ) : null
+      }
     >
         <FormSectionCard
           title="البيانات الأساسية"
@@ -215,10 +344,22 @@ export default function ManufacturingModelPage() {
               value={stage}
               onChange={(e) => setStage(e.target.value)}
             />
-            <CompactFormField label="معرّف النموذج">
-              <select value={model} onChange={(e) => setModel(e.target.value)} className={compactControlClass}>
-                <option value="">— بعد الحفظ —</option>
-                {model ? <option value={model}>{model}</option> : null}
+            <CompactFormField label="قائمة المواد المحفوظة">
+              <select
+                value={bomId ?? ''}
+                onChange={(e) => {
+                  const next = e.target.value || null;
+                  hydratedRef.current = null;
+                  openBom(next);
+                }}
+                className={compactControlClass}
+              >
+                <option value="">— جديد —</option>
+                {bomList.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.name}
+                  </option>
+                ))}
               </select>
             </CompactFormField>
           </div>
@@ -282,7 +423,7 @@ export default function ManufacturingModelPage() {
                         className={compactControlClass}
                       />
                     </td>
-                    <td className={cn(mfgTdClass, 'tabular-nums font-semibold text-[#0E79AA]')}>
+                    <td className={cn(mfgTdClass, 'tabular-nums font-semibold text-[#0E78AA]')}>
                       {calcLineQty(line.quantity, line.scrapPercentage).toLocaleString('en-US', {
                         maximumFractionDigits: 4,
                       })}

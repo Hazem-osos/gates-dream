@@ -29,15 +29,20 @@ process.env.DATABASE_URL = resolveDatabaseUrl();
 process.env.PRISMA_HIDE_UPDATE_MESSAGE = process.env.PRISMA_HIDE_UPDATE_MESSAGE || '1';
 
 function run(command, args) {
+  const status = runAllowFail(command, args);
+  if (status !== 0) process.exit(status ?? 1);
+}
+
+function runAllowFail(command, args) {
   const result = spawnSync(command, args, {
     cwd: root,
     env: process.env,
     stdio: 'inherit',
   });
-  if (result.status !== 0) {
-    process.exit(result.status ?? 1);
-  }
+  return result.status ?? 1;
 }
+
+const runWorkers = truthy(process.env.GATES_RUN_WORKERS);
 
 const prismaClientReady =
   existsSync(path.join(root, 'node_modules/.prisma/client/index.js')) ||
@@ -47,9 +52,25 @@ if (prismaClientReady) {
 } else {
   run('npx', ['prisma', 'generate']);
 }
-run('npx', ['prisma', 'migrate', 'deploy']);
 
-if (truthy(process.env.SEED_ON_BOOT)) {
+if (runWorkers) {
+  console.log('GATES_RUN_WORKERS=1 — starting the worker process, skipping migrate and seed.');
+} else {
+  const migrated = runAllowFail('npx', ['prisma', 'migrate', 'deploy']);
+  if (migrated !== 0) {
+    console.log('Clearing failed WhatsApp migration so the corrected SQL can apply.');
+    runAllowFail('npx', [
+      'prisma',
+      'migrate',
+      'resolve',
+      '--rolled-back',
+      '20260924170000_whatsapp_embedded_signup',
+    ]);
+    run('npx', ['prisma', 'migrate', 'deploy']);
+  }
+}
+
+if (!runWorkers && truthy(process.env.SEED_ON_BOOT)) {
   const prod = process.env.NODE_ENV === 'production';
   if (prod && !truthy(process.env.ALLOW_PROD_SEED)) {
     console.warn('SEED_ON_BOOT ignored in production — ALLOW_PROD_SEED is not set.');
@@ -63,9 +84,9 @@ if (truthy(process.env.SEED_ON_BOOT)) {
   }
 }
 
-const entry = path.join(root, 'src/index.ts');
+const entry = path.join(root, runWorkers ? 'src/workers/index.ts' : 'src/index.ts');
 if (!existsSync(entry)) {
-  console.error('src/index.ts is missing from the deploy.');
+  console.error(`${entry} is missing from the deploy.`);
   process.exit(1);
 }
 

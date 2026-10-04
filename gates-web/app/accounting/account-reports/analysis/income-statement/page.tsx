@@ -8,7 +8,7 @@ export default function IncomeStatementPage() {
       urlPath="/accounting/account-reports/analysis/income-statement"
       icon="📑"
       subtitle="الإيرادات والمصروفات وصافي الربح خلال الفترة."
-      fields={{ dates: 'range', branch: true }}
+      fields={{ dates: 'range', costCenter: true, branch: true, compareYear: true }}
     />
   );
 }

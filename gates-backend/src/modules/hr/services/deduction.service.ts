@@ -1,10 +1,12 @@
 import prisma from '../../../shared/database/prisma';
+import { permanentDelete } from '../../../shared/database/permanent-delete.util';
 import { logger } from '../../../shared/logger';
 
 export interface CreateDeductionData {
   code?: string;
   arabicName: string;
   englishName?: string;
+  defaultAmount?: number | null;
 }
 
 export interface UpdateDeductionData extends Partial<CreateDeductionData> {
@@ -20,6 +22,7 @@ export class DeductionService {
           code: data.code,
           arabicName: data.arabicName,
           englishName: data.englishName,
+          defaultAmount: data.defaultAmount ?? null,
         },
       });
 
@@ -153,10 +156,7 @@ export class DeductionService {
         throw new Error('Deduction not found');
       }
 
-      await prisma.deduction.update({
-        where: { id: deductionId },
-        data: { isActive: false },
-      });
+      await permanentDelete('السجل', () => prisma.deduction.delete({ where: { id: deductionId } }));
 
       logger.info({ companyId, deductionId }, 'Deduction deleted');
       return { success: true };

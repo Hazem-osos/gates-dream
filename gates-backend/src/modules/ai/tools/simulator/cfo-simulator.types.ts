@@ -61,7 +61,7 @@ export type CfoSimulatorPorts = {
     costOfGoodsSold?: number;
     grossProfit?: number;
     operatingExpenses?: number;
-    summary?: Record<string, number>;
+    summary?: Record<string, number | string>;
   }>;
   salesMix: (input: {
     companyId: string;

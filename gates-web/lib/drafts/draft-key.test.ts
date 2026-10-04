@@ -30,3 +30,4 @@ assert(
 );
 
 console.log('draft-key ok');
+test('draft key assertions', () => {});

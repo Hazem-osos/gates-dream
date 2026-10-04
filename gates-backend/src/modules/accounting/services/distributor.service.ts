@@ -1,4 +1,5 @@
 import prisma from '../../../shared/database/prisma';
+import { permanentDelete } from '../../../shared/database/permanent-delete.util';
 import { logger } from '../../../shared/logger';
 import { CreateDistributorInput, UpdateDistributorInput } from '../schemas/distributor.schema';
 
@@ -176,7 +177,7 @@ export class DistributorService {
   }
 
   /**
-   * Delete distributor (soft delete)
+   * Delete distributor (permanent delete)
    */
   async deleteDistributor(companyId: string, distributorId: string) {
     try {
@@ -192,10 +193,7 @@ export class DistributorService {
         throw new Error('Distributor not found');
       }
 
-      await prisma.distributor.update({
-        where: { id: distributorId },
-        data: { deletedAt: new Date() },
-      });
+      await permanentDelete('الموزع', () => prisma.distributor.delete({ where: { id: distributorId } }));
 
       logger.info({ companyId, distributorId }, 'Distributor deleted');
       return { success: true };

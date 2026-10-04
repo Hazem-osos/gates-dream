@@ -16,7 +16,7 @@ router.post(
   async (req: AuthRequest, res: Response) => {
     const companyId = req.companyId ?? req.tenantId;
     if (!companyId) {
-      return void res.status(400).json({ status: 'error', message: 'Company ID required' });
+      return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     }
     try {
       const data = await realEstateUnitService.createProject(companyId, req.body);
@@ -25,28 +25,7 @@ router.post(
       const status = e instanceof AppError ? e.statusCode : 500;
       return void res.status(status).json({
         status: 'error',
-        message: e instanceof Error ? e.message : 'Create project failed',
-      });
-    }
-  }
-);
-
-router.post(
-  '/',
-  authorize({ resource: 'invoice', action: 'edit' }),
-  async (req: AuthRequest, res: Response) => {
-    const companyId = req.companyId ?? req.tenantId;
-    if (!companyId) {
-      return void res.status(400).json({ status: 'error', message: 'Company ID required' });
-    }
-    try {
-      const data = await realEstateUnitService.createUnit(companyId, req.body);
-      return void res.status(201).json({ status: 'success', data });
-    } catch (e) {
-      const status = e instanceof AppError ? e.statusCode : 500;
-      return void res.status(status).json({
-        status: 'error',
-        message: e instanceof Error ? e.message : 'Create unit failed',
+        message: e instanceof Error ? e.message : 'تعذر إنشاء المشروع',
       });
     }
   }
@@ -58,7 +37,7 @@ router.get(
   async (req: AuthRequest, res: Response) => {
     const companyId = req.companyId ?? req.tenantId;
     if (!companyId) {
-      return void res.status(400).json({ status: 'error', message: 'Company ID required' });
+      return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     }
     try {
       const data = await realEstateUnitService.listProjects(companyId);
@@ -67,7 +46,70 @@ router.get(
       const status = e instanceof AppError ? e.statusCode : 500;
       return void res.status(status).json({
         status: 'error',
-        message: e instanceof Error ? e.message : 'List projects failed',
+        message: e instanceof Error ? e.message : 'تعذر تحميل المشاريع',
+      });
+    }
+  }
+);
+
+router.get(
+  '/projects/:id',
+  authorize({ resource: 'invoice', action: 'view' }),
+  async (req: AuthRequest, res: Response) => {
+    const companyId = req.companyId ?? req.tenantId;
+    if (!companyId) {
+      return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
+    }
+    try {
+      const data = await realEstateUnitService.getProject(companyId, req.params.id);
+      return void res.json({ status: 'success', data });
+    } catch (e) {
+      const status = e instanceof AppError ? e.statusCode : 500;
+      return void res.status(status).json({
+        status: 'error',
+        message: e instanceof Error ? e.message : 'تعذر تحميل المشروع',
+      });
+    }
+  }
+);
+
+router.put(
+  '/projects/:id',
+  authorize({ resource: 'invoice', action: 'edit' }),
+  async (req: AuthRequest, res: Response) => {
+    const companyId = req.companyId ?? req.tenantId;
+    if (!companyId) {
+      return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
+    }
+    try {
+      const data = await realEstateUnitService.updateProject(companyId, req.params.id, req.body);
+      return void res.json({ status: 'success', data });
+    } catch (e) {
+      const status = e instanceof AppError ? e.statusCode : 500;
+      return void res.status(status).json({
+        status: 'error',
+        message: e instanceof Error ? e.message : 'تعذر تحديث المشروع',
+      });
+    }
+  }
+);
+
+router.post(
+  '/',
+  authorize({ resource: 'invoice', action: 'edit' }),
+  async (req: AuthRequest, res: Response) => {
+    const companyId = req.companyId ?? req.tenantId;
+    if (!companyId) {
+      return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
+    }
+    try {
+      const data = await realEstateUnitService.createUnit(companyId, req.body);
+      return void res.status(201).json({ status: 'success', data });
+    } catch (e) {
+      const status = e instanceof AppError ? e.statusCode : 500;
+      return void res.status(status).json({
+        status: 'error',
+        message: e instanceof Error ? e.message : 'تعذر إنشاء الوحدة',
       });
     }
   }
@@ -79,7 +121,7 @@ router.get(
   async (req: AuthRequest, res: Response) => {
     const companyId = req.companyId ?? req.tenantId;
     if (!companyId) {
-      return void res.status(400).json({ status: 'error', message: 'Company ID required' });
+      return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     }
     try {
       const data = await realEstateUnitService.listUnits(companyId, {
@@ -93,7 +135,7 @@ router.get(
       const status = e instanceof AppError ? e.statusCode : 500;
       return void res.status(status).json({
         status: 'error',
-        message: e instanceof Error ? e.message : 'List units failed',
+        message: e instanceof Error ? e.message : 'تعذر تحميل الوحدات',
       });
     }
   }
@@ -105,7 +147,7 @@ router.get(
   async (req: AuthRequest, res: Response) => {
     const companyId = req.companyId ?? req.tenantId;
     if (!companyId) {
-      return void res.status(400).json({ status: 'error', message: 'Company ID required' });
+      return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     }
     try {
       const data = await realEstateUnitService.getUnit(companyId, req.params.id);
@@ -114,7 +156,28 @@ router.get(
       const status = e instanceof AppError ? e.statusCode : 500;
       return void res.status(status).json({
         status: 'error',
-        message: e instanceof Error ? e.message : 'Get unit failed',
+        message: e instanceof Error ? e.message : 'تعذر تحميل الوحدة',
+      });
+    }
+  }
+);
+
+router.put(
+  '/:id',
+  authorize({ resource: 'invoice', action: 'edit' }),
+  async (req: AuthRequest, res: Response) => {
+    const companyId = req.companyId ?? req.tenantId;
+    if (!companyId) {
+      return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
+    }
+    try {
+      const data = await realEstateUnitService.updateUnit(companyId, req.params.id, req.body);
+      return void res.json({ status: 'success', data });
+    } catch (e) {
+      const status = e instanceof AppError ? e.statusCode : 500;
+      return void res.status(status).json({
+        status: 'error',
+        message: e instanceof Error ? e.message : 'تعذر تحديث الوحدة',
       });
     }
   }

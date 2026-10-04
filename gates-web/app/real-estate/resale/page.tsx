@@ -79,7 +79,7 @@ export default function ResalePage() {
                 {rows.map((row, index) => (
                   <tr key={row.id} className={index % 2 ? 'bg-[#F6FBFD]' : 'bg-white'}>
                     <td className="px-3 py-3">
-                      <Link href={`/real-estate/contracts/${row.unitContractId}`} className="text-[#0E79AA] underline">
+                      <Link href={`/real-estate/contracts/${row.unitContractId}`} className="text-[#0E78AA] underline">
                         {row.contract?.contractNumber}
                       </Link>
                       <div className="text-xs">{row.contract?.unit?.unitCode}</div>

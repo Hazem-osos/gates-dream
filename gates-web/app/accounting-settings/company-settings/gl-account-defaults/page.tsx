@@ -40,6 +40,7 @@ const DIRECT_POSTING_SLOTS: Array<{ webAlias: string; legacyKey: string; label: 
   { webAlias: 'ohdaAccount', legacyKey: 'OhdaAccount', label: 'حساب عهدة الموظفين' },
   { webAlias: 'ehlakAccount', legacyKey: 'EhlakAccount', label: 'حساب إهلاك الأصول الثابتة' },
   { webAlias: 'itemLossAccount', legacyKey: 'ItemLossAccount', label: 'حساب هالك المخزون' },
+  { webAlias: 'assemblyExtraCostAccount', legacyKey: 'AssemblyExtraCostAccount', label: 'حساب تكلفة التجميع الإضافية' },
   { webAlias: 'offerAccount', legacyKey: 'OfferAccount', label: 'حساب خصومات العروض والترويج' },
   { webAlias: 'marketingExpensesAccount', legacyKey: 'MarketingExpensesAccount', label: 'حساب مصروفات التسويق والعمولات' },
   { webAlias: 'salesTaxAccount', legacyKey: 'SalesTaxAccount', label: 'حساب ضريبة المبيعات' },

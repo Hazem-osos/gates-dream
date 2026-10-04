@@ -13,7 +13,7 @@ export interface JournalEntryLineDto {
   invoiceId?: string | null;
   invoiceNumber?: string | null;
   partnerId?: string | null;
-  partnerType?: 'CUSTOMER' | 'SUPPLIER';
+  partnerType?: 'CUSTOMER' | 'SUPPLIER' | 'SUBCONTRACTOR';
   lineOrder?: number;
 }
 

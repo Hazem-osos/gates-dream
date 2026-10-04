@@ -34,9 +34,9 @@ export default function ExtractsCommand() {
       refreshing={isFetching}
       onRefresh={() => void refetch()}
       shortcuts={[
-        { key: 'F2', label: 'مستخلص', href: '/extracts/operations/projects/make-extract' },
-        { key: 'F4', label: 'سداد', href: '/extracts/operations/extract-payment' },
-        { key: 'F6', label: 'مشاريع', href: '/extracts/operations/projects' },
+        { key: 'F2', label: 'Enterprise', href: '/contracting/projects' },
+        { key: 'F4', label: 'سداد قديم', href: '/extracts/operations/extract-payment' },
+        { key: 'F6', label: 'مشاريع قديمة', href: '/extracts/operations/projects' },
       ]}
     >
       <MetricBar
@@ -60,7 +60,7 @@ export default function ExtractsCommand() {
               segments={(s?.charts.statusFunnel ?? []).map((r, i) => ({
                 label: r.label,
                 value: r.value,
-                color: ['#D97706', '#059669', '#64748B'][i] ?? '#0E79AA',
+                color: ['#D97706', '#059669', '#64748B'][i] ?? '#0E78AA',
               }))}
             />
           </div>
@@ -75,7 +75,7 @@ export default function ExtractsCommand() {
             amount: item.amount != null ? <SensitiveValue>{formatEgp(item.amount)}</SensitiveValue> : undefined,
             href: item.href,
             tone: item.tone === 'red' ? 'bad' : item.tone === 'amber' ? 'warn' : 'info',
-            actions: [{ label: 'ترحيل', href: item.href }],
+            actions: [{ label: 'فتح', href: item.href }],
           }))}
         />
         <DataGridDense

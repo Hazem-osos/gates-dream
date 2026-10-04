@@ -90,7 +90,7 @@ export default function PublicSharePage() {
       </table>
       <button
         type="button"
-        className="mt-6 rounded-lg bg-[#0E79AA] px-4 py-2 text-sm font-bold text-white print:hidden"
+        className="mt-6 rounded-lg bg-[#0E78AA] px-4 py-2 text-sm font-bold text-white print:hidden"
         onClick={() => void printPageContent(data.title)}
       >
         طباعة / حفظ PDF

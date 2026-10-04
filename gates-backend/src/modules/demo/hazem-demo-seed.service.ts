@@ -1,13 +1,17 @@
 import bcrypt from 'bcryptjs';
-import crypto from 'crypto';
 import prisma from '../../shared/database/prisma';
 import { logger } from '../../shared/logger';
 import { Decimal } from '@prisma/client/runtime/library';
 import { tenantProvisioningService } from '../accounting/services/tenant-provisioning.service';
 import { demoCatalogService } from '../inventory/services/demo-catalog.service';
+import { inventoryCostingService } from '../inventory/services/inventory-costing.service';
+import { COSTING_MOVEMENT } from '../inventory/services/inventory-costing-math';
+import { shouldSeedDemoOpening } from '../inventory/services/inventory-integrity';
+import { scopedItemQuantityWhere } from '../inventory/utils/item-quantity-tenant';
 import { SYSTEM_GL_CODES } from '../accounting/data/system-account-map';
 import { invoicePostingContextFromIds } from '../invoices/services/invoice-posting-context';
 import { seedHazemDemoTransactions } from './hazem-demo-transactions';
+import { acquireUniqueKey, UNIQUE_KINDS } from '../../shared/database/company-unique-key';
 import {
   HAZEM_EMAIL,
   HAZEM_DEMO_MARKER,
@@ -93,12 +97,9 @@ export class HazemDemoSeedService {
       // database it's run against. `DEMO_HAZEM_PASSWORD` lets a developer
       // pin one; otherwise a random password is generated and logged once so
       // it can still be used to log in locally.
-      const password = process.env.DEMO_HAZEM_PASSWORD || crypto.randomBytes(9).toString('base64url');
-      if (!process.env.DEMO_HAZEM_PASSWORD) {
-        logger.warn(
-          { email: HAZEM_EMAIL, password },
-          'Generated random password for new demo user (set DEMO_HAZEM_PASSWORD to pin one)'
-        );
+      const password = process.env.DEMO_HAZEM_PASSWORD;
+      if (!password) {
+        throw new Error('DEMO_HAZEM_PASSWORD is required before creating the demo user');
       }
       const passwordHash = await bcrypt.hash(password, 10);
       const company = await prisma.company.create({
@@ -395,16 +396,19 @@ export class HazemDemoSeedService {
 
       let row = await prisma.item.findFirst({ where: { companyId, serial: item.serial } });
       if (!row) {
-        row = await prisma.item.create({
-          data: {
-            companyId,
-            serial: item.serial,
-            arabicName: item.arabicName,
-            mainAccountId: inv?.id ?? null,
-            itemType: 'normal',
-            property1: item.group,
-            isActive: true,
-          },
+        row = await prisma.$transaction(async (tx) => {
+          await acquireUniqueKey(tx, companyId, UNIQUE_KINDS.itemName, item.arabicName);
+          return tx.item.create({
+            data: {
+              companyId,
+              serial: item.serial,
+              arabicName: item.arabicName,
+              mainAccountId: inv?.id ?? null,
+              itemType: 'normal',
+              property1: item.group,
+              isActive: true,
+            },
+          });
         });
       } else {
         await prisma.item.update({
@@ -421,18 +425,48 @@ export class HazemDemoSeedService {
       });
 
       if (item.qty > 0) {
-        const qtyRow = await prisma.itemQuantity.findFirst({
-          where: { itemId: row.id, warehouseId: whId, locationId: null },
-        });
-        if (!qtyRow) {
-          await prisma.itemQuantity.create({
-            data: {
+        const [qtyRow, movement, warehouse] = await Promise.all([
+          prisma.itemQuantity.findFirst({
+            where: scopedItemQuantityWhere(companyId, {
               itemId: row.id,
               warehouseId: whId,
               locationId: null,
-              quantity: new Decimal(item.qty),
+            }),
+            select: { id: true },
+          }),
+          prisma.inventoryMovement.findFirst({
+            where: {
+              companyId,
+              itemId: row.id,
+              warehouseId: whId,
+              sourceType: 'DEMO_OPENING',
+              sourceNumber: item.serial,
             },
-          });
+            select: { id: true },
+          }),
+          prisma.warehouse.findFirst({
+            where: { id: whId, companyId, isActive: true },
+            select: { branchId: true },
+          }),
+        ]);
+        if (warehouse && shouldSeedDemoOpening(Boolean(qtyRow), Boolean(movement))) {
+          await prisma.$transaction((tx) =>
+            inventoryCostingService.applyInboundMovement(tx, {
+              companyId,
+              branchId: warehouse.branchId ?? mainBranchId,
+              warehouseId: whId,
+              itemId: row.id,
+              locationId: null,
+              quantity: item.qty,
+              unitCost: item.cost,
+              movementType: COSTING_MOVEMENT.ADJUSTMENT_POSITIVE,
+              sourceType: 'DEMO_OPENING',
+              sourceNumber: item.serial,
+              sourceYearId: String(new Date().getFullYear()),
+              transactionDate: new Date(),
+              updateLastPurchasePrice: item.cost > 0,
+            })
+          );
         }
       }
 

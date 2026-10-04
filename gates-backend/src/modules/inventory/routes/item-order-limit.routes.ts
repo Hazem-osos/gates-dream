@@ -32,7 +32,7 @@ router.get(
     try {
       const companyId = req.companyId || req.tenantId;
       if (!companyId) {
-        return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+        return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
       }
       const result = await itemOrderLimitService.list(companyId, {
         page: req.query.page as number | undefined,
@@ -59,7 +59,7 @@ router.get(
     try {
       const companyId = req.companyId || req.tenantId;
       if (!companyId) {
-        return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+        return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
       }
       const row = await itemOrderLimitService.getById(companyId, req.params.id);
       return void res.json({ status: 'success', data: row });
@@ -77,7 +77,7 @@ router.post(
     try {
       const companyId = req.companyId || req.tenantId;
       if (!companyId) {
-        return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+        return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
       }
       const row = await itemOrderLimitService.create(companyId, req.body);
       return void res.status(201).json({ status: 'success', data: row });
@@ -95,7 +95,7 @@ router.put(
     try {
       const companyId = req.companyId || req.tenantId;
       if (!companyId) {
-        return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+        return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
       }
       const row = await itemOrderLimitService.update(companyId, req.params.id, req.body);
       return void res.json({ status: 'success', data: row });
@@ -112,7 +112,7 @@ router.delete(
     try {
       const companyId = req.companyId || req.tenantId;
       if (!companyId) {
-        return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+        return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
       }
       await itemOrderLimitService.remove(companyId, req.params.id);
       return void res.status(204).send();

@@ -159,3 +159,11 @@ export function toPurchaseOrderResultMetadata(order: {
 }): AutomationResultMetadata {
   return { orderNumber: order.orderNumber ?? null };
 }
+
+/** First line only, no stack traces. */
+export function sanitizeErrorMessage(message: string | null | undefined): string | null {
+  if (!message) return null;
+  const firstLine = message.split(/\r?\n/)[0]?.trim() ?? '';
+  if (!firstLine) return null;
+  return firstLine.slice(0, 500);
+}

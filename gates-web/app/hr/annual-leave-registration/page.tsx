@@ -11,7 +11,7 @@ import {
 } from '@/lib/validation/hr.schema';
 
 const defaults: AnnualLeaveRegistrationFormInput = {
-  serialNumber: '1212378971212',
+  serialNumber: '',
   employee: '',
   fromDate: '2025-11-26',
   fromHijriDate: '2025-11-26',

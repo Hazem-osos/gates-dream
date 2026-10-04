@@ -155,7 +155,7 @@ export default function PostAllFinancialOperationsPage() {
                         type="checkbox"
                         checked={selected.has(t.id)}
                         onChange={() => toggleType(t.id)}
-                        className="w-5 h-5 text-[#0E78AA] bg-[#F6FBFD] border-[#D6EAF3] rounded focus:ring-[#0E79AA] focus:ring-2"
+                        className="w-5 h-5 text-[#0E78AA] bg-[#F6FBFD] border-[#D6EAF3] rounded focus:ring-[#0E78AA] focus:ring-2"
                       />
                       <span>{t.label}</span>
                     </label>

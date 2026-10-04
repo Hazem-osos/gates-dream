@@ -1,6 +1,9 @@
+import '../shared/format/english-digits';
+import http from 'http';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { logger } from '../shared/logger';
+import { AUTOMATION_QUEUE_NAMES } from '../modules/automation';
 import {
   closeAutomationWorkers,
   registerAutomationWorkers,
@@ -25,6 +28,9 @@ const reportExportWorker = createReportExportWorker();
 const initializeWorkers = () => {
   try {
     registerAutomationWorkers();
+    void import('../modules/ereceipt/worker')
+      .then(({ registerEreceiptWorker }) => registerEreceiptWorker())
+      .catch((error) => logger.error({ error }, 'Failed to register eReceipt worker'));
     void scheduleAutomationJobs().catch((error) => {
       logger.error({ error }, 'Failed to register automation cron jobs');
     });
@@ -58,6 +64,7 @@ async function shutdownWorkers(signal: string): Promise<void> {
     taxPortalSyncWorker.close(),
     reportExportWorker.close(),
     closeAutomationWorkers(),
+    import('../modules/ereceipt/worker').then(({ closeEreceiptWorker }) => closeEreceiptWorker()),
     closeQueueManager(),
     closeBullmqRedisPool(),
   ]);
@@ -68,13 +75,34 @@ const isDirectRun =
   typeof process.argv[1] === 'string' &&
   fileURLToPath(import.meta.url) === path.resolve(process.argv[1]);
 
+function startWorkerHealthServer(): http.Server {
+  const port = Number(process.env.PORT || 3001);
+  const server = http.createServer((req, res) => {
+    const pathOnly = (req.url || '/').split('?')[0];
+    if (pathOnly === '/health/live' || pathOnly === '/health') {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ status: 'ok', role: 'worker' }));
+      return;
+    }
+    res.writeHead(404);
+    res.end();
+  });
+  server.listen(port, '0.0.0.0', () => {
+    logger.info({ port, queue: AUTOMATION_QUEUE_NAMES.domainEvents }, 'Worker health server listening');
+  });
+  return server;
+}
+
 if (isDirectRun || process.env.GATES_RUN_WORKERS === '1') {
+  const healthServer = startWorkerHealthServer();
   initializeWorkers();
 
   process.on('SIGTERM', () => {
+    healthServer.close();
     void shutdownWorkers('SIGTERM');
   });
   process.on('SIGINT', () => {
+    healthServer.close();
     void shutdownWorkers('SIGINT');
   });
 }

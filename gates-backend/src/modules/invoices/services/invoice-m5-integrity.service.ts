@@ -178,6 +178,6 @@ export async function loadInvoiceKind(
     where: { id: invoiceId, companyId },
     select: { invoiceKind: true },
   });
-  if (!row?.invoiceKind) throw new AppError(404, 'Invoice not found');
+  if (!row?.invoiceKind) throw new AppError(404, 'الفاتورة غير موجودة');
   return row.invoiceKind as InvoiceKind;
 }

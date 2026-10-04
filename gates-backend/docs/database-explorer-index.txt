@@ -1,0 +1,272 @@
+GATES database explorer index — 270 tables / 4111 columns / 1358 relations / 67 enums
+
+001  tenants                                     المستأجرون القدامى                    تراث قديم  cols=4 rels=1
+002  users_legacy                                مستخدمو النظام القديم                 تراث قديم  cols=5 rels=1
+003  rate_limits                                 حدود الطلبات                          تراث قديم  cols=6 rels=0
+004  activity_logs                               سجل النشاط                            الشركة والفروع والإعدادات  cols=14 rels=0
+005  companies                                   الشركات                               الشركة والفروع والإعدادات  cols=27 rels=177
+006  branches                                    الفروع                                الشركة والفروع والإعدادات  cols=23 rels=24
+007  company_settings                            إعدادات الشركة                        الشركة والفروع والإعدادات  cols=47 rels=3
+008  company_setting_entries                     مفاتيح إعداد إضافية                   الشركة والفروع والإعدادات  cols=7 rels=2
+009  fiscal_years                                السنوات المالية                       الشركة والفروع والإعدادات  cols=14 rels=17
+010  fiscal_periods                              فترات السنة                           الشركة والفروع والإعدادات  cols=10 rels=2
+011  document_sequences                          مسلسلات المستندات                     الشركة والفروع والإعدادات  cols=10 rels=3
+012  new_modules                                 نسخ أنواع المستندات                   الشركة والفروع والإعدادات  cols=13 rels=4
+013  new_module_stores                           مخازن الموديول                        الشركة والفروع والإعدادات  cols=5 rels=3
+014  other_module_rights                         صلاحية قراءة بين الموديولات           الشركة والفروع والإعدادات  cols=5 rels=1
+015  users                                       المستخدمون                            مستخدمين وصلاحيات  cols=13 rels=11
+016  system_notifications                        إشعارات النظام                        الشركة والفروع والإعدادات  cols=10 rels=2
+017  ai_notifications                            إشعارات الذكاء الاصطناعي              ذكاء اصطناعي ونمو  cols=15 rels=0
+018  user_branch_permissions                     صلاحية المستخدم على الفرع             مستخدمين وصلاحيات  cols=6 rels=2
+019  user_groups                                 مجموعات المستخدمين                    مستخدمين وصلاحيات  cols=16 rels=2
+020  user_group_members                          أعضاء المجموعة                        مستخدمين وصلاحيات  cols=5 rels=2
+021  user_permissions                            صلاحيات الشاشات                       مستخدمين وصلاحيات  cols=10 rels=1
+022  user_advanced_permissions                   صلاحيات متقدمة                        مستخدمين وصلاحيات  cols=7 rels=1
+023  accounts                                    دليل الحسابات                         محاسبة وقيود  cols=21 rels=34
+024  cost_centers                                مراكز التكلفة                         محاسبة وقيود  cols=13 rels=24
+025  cost_center_movements                       حركة مراكز التكلفة                    محاسبة وقيود  cols=9 rels=3
+026  journal_entries                             قيود اليومية                          محاسبة وقيود  cols=44 rels=36
+027  journal_entry_lines                         سطور القيود                           محاسبة وقيود  cols=20 rels=4
+028  recurring_journal_entries                   قوالب قيود متكررة                     محاسبة وقيود  cols=10 rels=2
+029  recurring_journal_lines                     سطور القالب المتكرر                   محاسبة وقيود  cols=7 rels=3
+030  account_period_balances                     الأرصدة الشهرية للحسابات              محاسبة وقيود  cols=9 rels=2
+031  partner_running_balances                    أرصدة العملاء والموردين               محاسبة وقيود  cols=13 rels=1
+032  gl_posting_violations                       مخالفات الترحيل                       محاسبة وقيود  cols=8 rels=2
+033  customers                                   العملاء                               أطراف (عميل/مورد/مندوب)  cols=57 rels=27
+034  customer_categories                         تصنيفات العملاء                       أطراف (عميل/مورد/مندوب)  cols=8 rels=2
+035  supplier_categories                         تصنيفات الموردين                      أطراف (عميل/مورد/مندوب)  cols=8 rels=2
+036  customer_contracts                          عقود العملاء                          أطراف (عميل/مورد/مندوب)  cols=12 rels=3
+037  customer_contract_groups                    مجموعات عقود العملاء                  أطراف (عميل/مورد/مندوب)  cols=8 rels=2
+038  suppliers                                   الموردون                              أطراف (عميل/مورد/مندوب)  cols=43 rels=19
+039  delegates                                   المندوبون                             أطراف (عميل/مورد/مندوب)  cols=30 rels=4
+040  currencies                                  العملات                               محاسبة وقيود  cols=11 rels=5
+041  periods                                     فترات محاسبية مساعدة                  الشركة والفروع والإعدادات  cols=10 rels=1
+042  banks                                       البنوك                                خزينة وبنوك وشيكات  cols=8 rels=4
+043  bank_accounts                               الحسابات البنكية                      خزينة وبنوك وشيكات  cols=14 rels=12
+044  safes                                       الخزائن                               خزينة وبنوك وشيكات  cols=11 rels=9
+045  treasury_receipts                           سندات قبض قديمة                       خزينة وبنوك وشيكات  cols=30 rels=10
+046  treasury_payments                           سندات صرف قديمة                       خزينة وبنوك وشيكات  cols=30 rels=10
+047  cash_transactions                           سندات وأوامر الخزينة                  خزينة وبنوك وشيكات  cols=41 rels=20
+048  cash_transaction_lines                      بنود سند الخزينة                      خزينة وبنوك وشيكات  cols=15 rels=5
+049  exchange_rate_histories                     تاريخ أسعار التحويل                   محاسبة وقيود  cols=9 rels=1
+050  payment_allocations                         تخصيصات السداد                        خزينة وبنوك وشيكات  cols=9 rels=4
+051  counterparty_offsets                        مقاصة طرفين                           خزينة وبنوك وشيكات  cols=14 rels=7
+052  cheques                                     الشيكات                               خزينة وبنوك وشيكات  cols=27 rels=16
+053  bank_box_rights                             صلاحية الخزينة/البنك                  مستخدمين وصلاحيات  cols=9 rels=3
+054  securities_receipts                         أوراق قبض (أوراق مالية)               خزينة وبنوك وشيكات  cols=31 rels=3
+055  securities_payments                         أوراق دفع (أوراق مالية)               خزينة وبنوك وشيكات  cols=31 rels=3
+056  multi_collection_lines                      تحصيل متعدد للأوراق                   خزينة وبنوك وشيكات  cols=11 rels=1
+057  securities_renewals                         تجديد الأوراق                         خزينة وبنوك وشيكات  cols=22 rels=1
+058  units                                       وحدات القياس                          مخازن وأصناف  cols=8 rels=14
+059  item_categories                             مجموعات الأصناف                       مخازن وأصناف  cols=16 rels=5
+060  items                                       الأصناف                               مخازن وأصناف  cols=66 rels=37
+061  item_units                                  وحدات الصنف                           مخازن وأصناف  cols=6 rels=2
+062  price_lists                                 قوائم الأسعار                         مخازن وأصناف  cols=12 rels=3
+063  item_prices                                 أسعار الأصناف في القائمة              مخازن وأصناف  cols=12 rels=3
+064  warehouses                                  المخازن                               مخازن وأصناف  cols=17 rels=36
+065  locations                                   مواقع داخل المخزن                     مخازن وأصناف  cols=7 rels=12
+066  item_quantities                             كمية الصنف في الموقع                  مخازن وأصناف  cols=5 rels=3
+067  item_order_limit_lists                      قوائم حدود الطلب                      مخازن وأصناف  cols=8 rels=3
+068  item_order_limit_lines                      سطور حدود الطلب                       مخازن وأصناف  cols=4 rels=2
+069  clothing_colors                             ألوان الملابس                         مخازن وأصناف  cols=9 rels=2
+070  clothing_sizes                              مقاسات الملابس                        مخازن وأصناف  cols=9 rels=2
+071  clothing_combos                             تركيبات لون×مقاس                      مخازن وأصناف  cols=8 rels=3
+072  item_warehouse_balances                     رصيد الصنف في المخزن                  مخازن وأصناف  cols=8 rels=3
+073  opening_stocks                              بضاعة أول المدة                       مخازن وأصناف  cols=19 rels=3
+074  opening_stock_lines                         سطور أول المدة                        مخازن وأصناف  cols=10 rels=4
+075  stocktaking                                 الجرد                                 مخازن وأصناف  cols=21 rels=4
+076  stocktaking_lines                           سطور الجرد                            مخازن وأصناف  cols=15 rels=5
+077  transfers                                   التحويل المخزني                       مخازن وأصناف  cols=23 rels=7
+078  transfer_lines                              سطور التحويل                          مخازن وأصناف  cols=10 rels=4
+079  assemblies                                  التجميع                               مخازن وأصناف  cols=18 rels=3
+080  assembly_lines                              سطور ناتج التجميع                     مخازن وأصناف  cols=8 rels=3
+081  assembly_components                         مكونات التجميع                        مخازن وأصناف  cols=8 rels=2
+082  disassemblies                               التفكيك                               مخازن وأصناف  cols=18 rels=3
+083  disassembly_lines                           سطور ناتج التفكيك                     مخازن وأصناف  cols=8 rels=3
+084  disassembly_components                      مصدر التفكيك                          مخازن وأصناف  cols=8 rels=2
+085  receipts                                    إذن إضافة                             مخازن وأصناف  cols=20 rels=4
+086  receipt_lines                               سطور إذن الإضافة                      مخازن وأصناف  cols=9 rels=3
+087  issues                                      إذن صرف                               مخازن وأصناف  cols=20 rels=4
+088  issue_lines                                 سطور إذن الصرف                        مخازن وأصناف  cols=9 rels=3
+089  adjustments                                 تسوية المخزون                         مخازن وأصناف  cols=20 rels=4
+090  adjustment_lines                            سطور التسوية                          مخازن وأصناف  cols=11 rels=3
+091  landed_cost_allocations                     توزيع التكلفة الإضافية                مخازن وأصناف  cols=17 rels=4
+092  landed_cost_allocation_lines                سطور توزيع التكلفة                    مخازن وأصناف  cols=8 rels=3
+093  other_adjustments                           تسويات مخزنية أخرى                    مخازن وأصناف  cols=18 rels=3
+094  other_adjustment_lines                      سطور التسوية الأخرى                   مخازن وأصناف  cols=10 rels=4
+095  other_adjustment_sources                    مصادر التسوية الأخرى                  مخازن وأصناف  cols=6 rels=1
+096  purchase_orders                             أوامر الشراء                          بيع وشراء وفواتير  cols=28 rels=8
+097  purchase_order_lines                        سطور أمر الشراء                       بيع وشراء وفواتير  cols=16 rels=4
+098  purchase_order_conditions                   شروط أمر الشراء                       بيع وشراء وفواتير  cols=5 rels=1
+099  purchase_returns                            مرتجع المشتريات (جدول قديم)           بيع وشراء وفواتير  cols=29 rels=9
+100  purchase_return_lines                       سطور مرتجع الشراء القديم              بيع وشراء وفواتير  cols=17 rels=4
+101  purchase_return_conditions                  شروط مرتجع الشراء                     بيع وشراء وفواتير  cols=5 rels=1
+102  price_quotes                                عروض الأسعار                          بيع وشراء وفواتير  cols=33 rels=9
+103  price_quote_lines                           سطور عرض السعر                        بيع وشراء وفواتير  cols=16 rels=4
+104  price_quote_conditions                      شروط العرض                            بيع وشراء وفواتير  cols=5 rels=1
+105  item_offers                                 عروض الأصناف                          مخازن وأصناف  cols=28 rels=5
+106  invoices                                    الفواتير                              بيع وشراء وفواتير  cols=75 rels=31
+107  invoice_installments                        أقساط الفاتورة                        بيع وشراء وفواتير  cols=13 rels=2
+108  invoice_adjustments                         تسويات على الفاتورة                   بيع وشراء وفواتير  cols=15 rels=5
+109  document_profiles                           بروفايل المستند                       الشركة والفروع والإعدادات  cols=19 rels=5
+110  transaction_settings                        إعدادات حركة المستند                  الشركة والفروع والإعدادات  cols=33 rels=9
+111  invoice_lines                               سطور الفاتورة                         بيع وشراء وفواتير  cols=32 rels=10
+112  invoice_conditions                          شروط الفاتورة                         بيع وشراء وفواتير  cols=5 rels=1
+113  employees                                   الموظفون                              موارد بشرية  cols=51 rels=19
+114  employee_contracts                          عقود الموظفين                         موارد بشرية  cols=30 rels=11
+115  employee_procedures                         إجراءات شؤون الموظفين                 موارد بشرية  cols=12 rels=1
+116  employee_advances                           سلف الموظفين                          موارد بشرية  cols=17 rels=1
+117  hr_settings                                 إعدادات الموارد البشرية               موارد بشرية  cols=13 rels=1
+118  payroll_runs                                تشغيل المسير                          موارد بشرية  cols=21 rels=4
+119  payroll_run_items                           سطور المسير                           موارد بشرية  cols=16 rels=2
+120  manufacturing_settings                      إعدادات التصنيع                       تصنيع  cols=9 rels=1
+121  bill_of_materials                           قوائم المكونات BOM                    تصنيع  cols=10 rels=4
+122  bom_lines                                   سطور قائمة المكونات                   تصنيع  cols=8 rels=2
+123  production_orders                           أوامر التشغيل                         تصنيع  cols=24 rels=8
+124  production_material_issues                  صرف خام للتشغيل                       تصنيع  cols=7 rels=2
+125  production_material_issue_lines             سطور صرف الخام                        تصنيع  cols=8 rels=2
+126  contracting_settings                        إعدادات المقاولات                     مقاولات ومستخلصات  cols=19 rels=1
+127  contracting_projects                        مشاريع المقاولات                      مقاولات ومستخلصات  cols=16 rels=15
+128  project_subcontracts                        تعاقدات الباطن على المشروع            مقاولات ومستخلصات  cols=10 rels=4
+129  client_extracts                             مستخلصات العميل (مختصر)               مقاولات ومستخلصات  cols=17 rels=1
+130  subcontractor_extracts                      مستخلصات مقاول الباطن                 مقاولات ومستخلصات  cols=20 rels=3
+131  project_boq_items                           بنود جدول الكميات (نسخة مشروع)        مقاولات ومستخلصات  cols=11 rels=2
+132  contract_extracts                           مستخلصات العقد                        مقاولات ومستخلصات  cols=27 rels=4
+133  contract_extract_lines                      سطور المستخلص                         مقاولات ومستخلصات  cols=9 rels=2
+134  subcontractors                              المقاولون من الباطن                   مقاولات ومستخلصات  cols=15 rels=2
+135  subcontracts                                عقود الباطن                           مقاولات ومستخلصات  cols=19 rels=10
+136  subcontract_boq_items                       بنود عقد الباطن                       مقاولات ومستخلصات  cols=13 rels=3
+137  subcontract_invoices                        مطالبات الباطن                        مقاولات ومستخلصات  cols=26 rels=8
+138  subcontract_invoice_items                   سطور مطالبة الباطن                    مقاولات ومستخلصات  cols=9 rels=2
+139  material_reconciliation_logs                مطابقة خامات الموقع                   مقاولات ومستخلصات  cols=14 rels=4
+140  site_penalties_and_snags                    غرامات وعيوب الموقع                   مقاولات ومستخلصات  cols=11 rels=3
+141  direct_execution_charges                    تحميل تنفيذ مباشر                     مقاولات ومستخلصات  cols=11 rels=2
+142  project_owner_boq_items                     بنود جدول كميات المالك                مقاولات ومستخلصات  cols=16 rels=7
+143  boq_rate_analysis_items                     تحليل تسعير البند                     مقاولات ومستخلصات  cols=15 rels=2
+144  boq_markup_structures                       هيكل هامش الـ BOQ                     مقاولات ومستخلصات  cols=11 rels=3
+145  executive_measurement_sheets                حصر تنفيذي                            مقاولات ومستخلصات  cols=21 rels=5
+146  financial_adjustment_notes                  إشعارات تسوية مالية للمشروع           مقاولات ومستخلصات  cols=21 rels=6
+147  financial_adjustment_line_items             سطور إشعار التسوية                    مقاولات ومستخلصات  cols=9 rels=3
+148  client_contracts                            عقود العميل (مقاولات)                 مقاولات ومستخلصات  cols=14 rels=6
+149  client_invoices                             فواتير/مطالبات العميل                 مقاولات ومستخلصات  cols=22 rels=7
+150  client_invoice_items                        سطور مطالبة العميل                    مقاولات ومستخلصات  cols=11 rels=3
+151  site_stock_materials                        مخزون موقع المشروع                    مقاولات ومستخلصات  cols=14 rels=3
+152  project_letters_of_guarantee                خطابات ضمان المشروع                   مقاولات ومستخلصات  cols=20 rels=6
+153  lg_action_histories                         تاريخ حركة خطاب الضمان                مقاولات ومستخلصات  cols=13 rels=2
+154  real_estate_settings                        إعدادات الاستثمار العقاري             عقارات  cols=9 rels=1
+155  real_estate_projects                        مشاريع عقارية                         عقارات  cols=7 rels=3
+156  real_estate_buildings                       مباني المشروع العقاري                 عقارات  cols=7 rels=2
+157  real_estate_units                           وحدات عقارية                          عقارات  cols=13 rels=4
+158  real_estate_reservations                    حجوزات الوحدات                        عقارات  cols=14 rels=3
+159  property_projects                           مشاريع أملاك                          عقارات  cols=11 rels=3
+160  property_phases                             مراحل المشروع العقاري                 عقارات  cols=10 rels=2
+161  property_units                              وحدات الأملاك                         عقارات  cols=15 rels=5
+162  unit_contracts                              عقود الوحدات                          مخازن وأصناف  cols=26 rels=10
+163  unit_installments                           أقساط الوحدة                          مخازن وأصناف  cols=18 rels=4
+164  post_dated_cheques                          شيكات آجلة للوحدات                    خزينة وبنوك وشيكات  cols=15 rels=4
+165  unit_resale_transfers                       تنازل/إعادة بيع وحدة                  مخازن وأصناف  cols=12 rels=4
+166  unit_cancellation_settlements               تسوية فسخ الوحدة                      مخازن وأصناف  cols=10 rels=1
+167  rental_pool_agreements                      اتفاقيات صندوق التأجير                عقارات  cols=11 rels=5
+168  rental_distributions                        توزيع عائد الإيجار                    عقارات  cols=11 rels=1
+169  school_settings                             إعدادات المدارس                       مدارس  cols=10 rels=1
+170  school_academic_years                       سنوات دراسية                          مدارس  cols=9 rels=4
+171  school_academic_terms                       فصول دراسية                           مدارس  cols=9 rels=1
+172  academic_grades                             الصفوف الدراسية                       مدارس  cols=9 rels=3
+173  school_bus_routes                           خطوط الأتوبيس                         مدارس  cols=7 rels=2
+174  school_students                             طلبة المدرسة (كارت مدرسي)             مدارس  cols=11 rels=6
+175  student_fee_contracts                       عقود مصروفات الطالب                   مدارس  cols=19 rels=4
+176  student_fee_installments                    أقساط المصروفات                       مدارس  cols=11 rels=2
+177  monthly_salaries                            الرواتب الشهرية (مستند)               موارد بشرية  cols=26 rels=3
+178  housing_allowance_clearances                إخلاء بدل السكن                       موارد بشرية  cols=20 rels=3
+179  end_of_service_clearances                   إخلاء نهاية الخدمة                    موارد بشرية  cols=24 rels=3
+180  annual_leave_entitlements_clearances        إخلاء رصيد الإجازات                   موارد بشرية  cols=33 rels=3
+181  customer_followups                          متابعة العملاء                        أطراف (عميل/مورد/مندوب)  cols=15 rels=2
+182  nationalities                               الجنسيات                              أطراف (عميل/مورد/مندوب)  cols=8 rels=2
+183  religions                                   الديانات                              أطراف (عميل/مورد/مندوب)  cols=8 rels=2
+184  marital_statuses                            الحالة الاجتماعية                     أطراف (عميل/مورد/مندوب)  cols=8 rels=2
+185  job_titles                                  المسميات الوظيفية                     أطراف (عميل/مورد/مندوب)  cols=8 rels=3
+186  job_cadres                                  الكادرات الوظيفية                     أطراف (عميل/مورد/مندوب)  cols=8 rels=2
+187  departments                                 الإدارات                              أطراف (عميل/مورد/مندوب)  cols=9 rels=6
+188  cities                                      المدن                                 أطراف (عميل/مورد/مندوب)  cols=8 rels=2
+189  wage_policies                               سياسات الأجور                         موارد بشرية  cols=8 rels=2
+190  allowances                                  البدلات                               موارد بشرية  cols=8 rels=1
+191  deductions                                  الاستقطاعات                           موارد بشرية  cols=8 rels=1
+192  students                                    الطلبة (كارت عام)                     مدارس  cols=19 rels=4
+193  student_installments                        أقساط الطالب                          مدارس  cols=12 rels=1
+194  stages                                      المراحل الدراسية                      مدارس  cols=8 rels=2
+195  semesters                                   التيرمات                              مدارس  cols=8 rels=2
+196  collectors                                  المحصّلون                             أطراف (عميل/مورد/مندوب)  cols=8 rels=1
+197  projects                                    المشاريع (مستخلصات عامة)              مقاولات ومستخلصات  cols=19 rels=8
+198  project_buildings                           مباني المشروع                         مقاولات ومستخلصات  cols=9 rels=3
+199  project_work_items                          بنود أعمال المشروع                    مقاولات ومستخلصات  cols=15 rels=4
+200  contractors                                 المقاولون                             مقاولات ومستخلصات  cols=12 rels=7
+201  contractor_settings                         إعدادات المقاولين                     مقاولات ومستخلصات  cols=8 rels=1
+202  contractor_assignments                      تعيين مقاول على مشروع                 مقاولات ومستخلصات  cols=8 rels=3
+203  extracts                                    المستخلصات                            مقاولات ومستخلصات  cols=18 rels=4
+204  extract_items                               بنود المستخلص                         مقاولات ومستخلصات  cols=17 rels=3
+205  extract_payments                            صرفيات المستخلص                       مقاولات ومستخلصات  cols=21 rels=3
+206  project_measurement_definitions             تعريفات الحصر                         مقاولات ومستخلصات  cols=8 rels=1
+207  manpower_logs                               سجل العمالة في الموقع                 مقاولات ومستخلصات  cols=11 rels=1
+208  serial_numbers                              الأرقام التسلسلية                     مخازن وأصناف  cols=8 rels=1
+209  electronic_invoice_items                    أصناف الإي-فاتورة (كتالوج)            ضرائب وإي-فاتورة  cols=15 rels=3
+210  electronic_invoice_customers                عملاء الإي-فاتورة                     ضرائب وإي-فاتورة  cols=17 rels=4
+211  electronic_invoices                         الإي-فواتير                           ضرائب وإي-فاتورة  cols=22 rels=4
+212  electronic_invoice_lines                    سطور الإي-فاتورة                      ضرائب وإي-فاتورة  cols=19 rels=2
+213  sensor_readings                             قراءات أجهزة                          ضرائب وإي-فاتورة  cols=9 rels=0
+214  api_keys                                    مفاتيح الـ API                        الشركة والفروع والإعدادات  cols=12 rels=0
+215  system_settings                             إعدادات المنصة العامة                 الشركة والفروع والإعدادات  cols=9 rels=0
+216  documentary_credit_definitions              قوالب الاعتماد المستندي               استيراد واعتمادات  cols=23 rels=2
+217  documentary_credits                         الاعتمادات المستندية                  استيراد واعتمادات  cols=56 rels=2
+218  letter_of_guarantee_settings                إعدادات خطابات الضمان                 استيراد واعتمادات  cols=11 rels=1
+219  letters_of_guarantee                        خطابات الضمان                         استيراد واعتمادات  cols=63 rels=3
+220  tax_periods                                 الفترات الضريبية                      ضرائب وإي-فاتورة  cols=14 rels=4
+221  tax_declarations                            الإقرارات الضريبية                    ضرائب وإي-فاتورة  cols=12 rels=5
+222  tax_settlements                             تسويات الضريبة                        ضرائب وإي-فاتورة  cols=11 rels=3
+223  pos_terminals                               نقاط البيع                            خزينة وبنوك وشيكات  cols=12 rels=7
+224  pos_shifts                                  ورديات نقطة البيع                     خزينة وبنوك وشيكات  cols=23 rels=6
+225  pos_orders                                  طلبات نقطة البيع                      خزينة وبنوك وشيكات  cols=23 rels=8
+226  pos_order_lines                             سطور طلب POS                          خزينة وبنوك وشيكات  cols=13 rels=3
+227  e_invoice_settings                          إعدادات بوابة الإي-فاتورة             ضرائب وإي-فاتورة  cols=12 rels=1
+228  e_invoice_documents                         مستندات البوابة الضريبية              ضرائب وإي-فاتورة  cols=22 rels=3
+229  trade_settings                              إعدادات التجارة الخارجية              استيراد واعتمادات  cols=10 rels=1
+230  letter_of_credits                           خطابات الاعتماد (مسار تجارة)          استيراد واعتمادات  cols=22 rels=8
+231  lc_expenses                                 مصاريف الاعتماد                       استيراد واعتمادات  cols=13 rels=1
+232  lc_receipt_lines                            سطور استلام بضاعة الاعتماد            استيراد واعتمادات  cols=11 rels=2
+233  guarantee_letters                           خطابات الضمان (مسار تجارة)            استيراد واعتمادات  cols=23 rels=4
+234  withholding_tax_payments                    سداد ضريبة الخصم من المنبع            استيراد واعتمادات  cols=19 rels=1
+235  end_of_service_disbursements                صرف نهاية الخدمة                      موارد بشرية  cols=14 rels=2
+236  annual_leave_entitlements_disbursements     صرف مقابل الإجازة                     موارد بشرية  cols=14 rels=2
+237  monthly_salaries_disbursements              صرف الرواتب الشهرية                   موارد بشرية  cols=10 rels=1
+238  housing_allowance_entitlements_disbursements  صرف بدل السكن                         موارد بشرية  cols=14 rels=2
+239  other_addition_discount_types               أنواع إضافات/خصومات أخرى              مخازن وأصناف  cols=12 rels=2
+240  other_addition_discount_percentages         نسب الإضافة/الخصم                     مخازن وأصناف  cols=8 rels=1
+241  representative_commission_quantities        عمولة المندوب بالكمية                 بيع وشراء وفواتير  cols=14 rels=2
+242  representative_commission_values            عمولة المندوب بالقيمة                 بيع وشراء وفواتير  cols=8 rels=2
+243  representative_commission_value_tiers       شرائح عمولة القيمة                    بيع وشراء وفواتير  cols=5 rels=1
+244  representative_commission_policies          سياسات عمولة المندوب                  بيع وشراء وفواتير  cols=7 rels=2
+245  representative_commission_policy_tiers      شرائح سياسة العمولة                   بيع وشراء وفواتير  cols=8 rels=1
+246  distributors                                الموزعون                              أطراف (عميل/مورد/مندوب)  cols=23 rels=1
+247  drivers                                     السائقون                              أطراف (عميل/مورد/مندوب)  cols=23 rels=1
+248  person_groups                               مجموعات الأشخاص                       أطراف (عميل/مورد/مندوب)  cols=8 rels=2
+249  persons                                     الأشخاص                               أطراف (عميل/مورد/مندوب)  cols=12 rels=4
+250  person_item_prices                          أسعار خاصة لشخص                       أطراف (عميل/مورد/مندوب)  cols=11 rels=4
+251  item_cost_history                           تاريخ تكلفة الصنف                     مخازن وأصناف  cols=13 rels=3
+252  inventory_movements                         دفتر حركة المخزون                     مخازن وأصناف  cols=17 rels=5
+253  document_attachments                        مرفقات المستندات                      الشركة والفروع والإعدادات  cols=33 rels=12
+254  tenant_subscriptions                        اشتراكات المستأجر                     الشركة والفروع والإعدادات  cols=13 rels=1
+255  document_layout_configs                     تخطيطات الطباعة                       الشركة والفروع والإعدادات  cols=31 rels=2
+256  ai_conversations                            محادثات المساعد                       ذكاء اصطناعي ونمو  cols=6 rels=5
+257  ai_messages                                 رسائل المحادثة                        ذكاء اصطناعي ونمو  cols=6 rels=1
+258  ai_tool_executions                          تنفيذ أدوات الذكاء                    ذكاء اصطناعي ونمو  cols=8 rels=1
+259  ai_audit_logs                               سجل تدقيق الذكاء الاصطناعي            ذكاء اصطناعي ونمو  cols=16 rels=2
+260  ai_pending_actions                          إجراءات ذكاء معلّقة                   ذكاء اصطناعي ونمو  cols=14 rels=1
+261  ai_documents                                مستندات معرفة الذكاء                  ذكاء اصطناعي ونمو  cols=13 rels=3
+262  ai_document_chunks                          قطع المستند                           ذكاء اصطناعي ونمو  cols=8 rels=1
+263  ai_insights                                 استنتاجات الذكاء                      ذكاء اصطناعي ونمو  cols=12 rels=1
+264  user_tour_progress                          تقدّم جولة المنتج                     مستخدمين وصلاحيات  cols=10 rels=2
+265  ai_sentinel_snapshots                       لقطات المراقب                         ذكاء اصطناعي ونمو  cols=7 rels=1
+266  company_whatsapp_configs                    إعداد واتساب الشركة                   الشركة والفروع والإعدادات  cols=9 rels=1
+267  whatsapp_authorized_users                   مستخدمو واتساب المصرّحون              ذكاء اصطناعي ونمو  cols=8 rels=1
+268  growth_opportunities                        فرص النمو                             ذكاء اصطناعي ونمو  cols=32 rels=3
+269  growth_opportunity_actions                  إجراءات الفرصة                        ذكاء اصطناعي ونمو  cols=8 rels=2
+270  growth_attributions                         إسناد نتيجة النمو                     ذكاء اصطناعي ونمو  cols=10 rels=2

@@ -24,6 +24,8 @@ export const updateCompanyCurrentSchema = z.object({
       tokenPin: z.string().max(100).optional().nullable(),
       environment: z.string().max(30).optional(),
       issuerTaxId: z.string().max(50).optional().nullable(),
+      issuerName: z.string().max(255).optional().nullable(),
+      issuerAddress: z.record(z.string(), z.unknown()).optional().nullable(),
     })
     .optional(),
 });
@@ -44,6 +46,17 @@ export const companyBasicsSchema = updateCompanyCurrentSchema.extend({
     safeName: z.string().min(1).max(255),
     defaultWarehouseId: z.string().uuid().optional().nullable(),
     defaultSafeId: z.string().uuid().optional().nullable(),
+    branchNumber: z.string().max(50).optional().nullable(),
+    activityCode: z.string().max(50).optional().nullable(),
+    registrationNumber: z.string().max(100).optional().nullable(),
+    country: z.string().max(10).optional().nullable(),
+    governorate: z.string().max(100).optional().nullable(),
+    city: z.string().max(100).optional().nullable(),
+    district: z.string().max(100).optional().nullable(),
+    buildingNumber: z.string().max(50).optional().nullable(),
+    streetName: z.string().max(255).optional().nullable(),
+    postalCode: z.string().max(20).optional().nullable(),
+    address: z.string().max(500).optional().nullable(),
   }),
   fiscalYear: upsertTenantFiscalYearSchema,
 });

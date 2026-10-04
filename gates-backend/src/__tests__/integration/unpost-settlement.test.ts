@@ -9,7 +9,6 @@ import { invoicePostingOrchestrator } from '../../modules/invoices/services/invo
 import { invoicePostingContextFromIds } from '../../modules/invoices/services/invoice-posting-context';
 import { AppError } from '../../shared/middleware/error-handler';
 import {
-  INVOICE_DELETE_SETTLEMENT_LOCK_MESSAGE,
   INVOICE_UNPOST_BLOCKED_CHEQUE_MESSAGE,
 } from '../../modules/invoices/services/invoice-settlement-policy';
 
@@ -227,10 +226,10 @@ describe('unpost-settlement', () => {
     closeTo(Number(customerAfter!.balance), customerInitial);
     closeTo(Number(safeAfter!.balance), safeInitial);
 
-    await expect(invoiceM5Service.remove(COMPANY_ID, invoice!.id)).rejects.toMatchObject({
-      statusCode: 422,
-      message: INVOICE_DELETE_SETTLEMENT_LOCK_MESSAGE,
-    });
+    await invoiceM5Service.remove(COMPANY_ID, invoice!.id);
+    const cancelled = await prisma.invoice.findUnique({ where: { id: invoice!.id } });
+    expect(cancelled?.isCancelled).toBe(true);
+    expect(cancelled?.id).toBe(invoice!.id);
   });
 
   it('blocks unpost when a linked cheque has been sent to the bank', async () => {

@@ -27,7 +27,7 @@ export function WorkflowPipelineTracker({
                 className={cn(
                   'w-full rounded-lg border px-3 py-2.5',
                   active
-                    ? 'border-[#0E79AA]/30 bg-[#0E79AA]/5'
+                    ? 'border-[#0E78AA]/30 bg-[#0E78AA]/5'
                     : 'border-slate-200/75 bg-slate-50/80'
                 )}
               >
@@ -43,7 +43,7 @@ export function WorkflowPipelineTracker({
                 <div
                   className={cn(
                     'mt-2 h-0.5 rounded-full',
-                    active ? 'bg-[#0E79AA]' : 'bg-slate-200'
+                    active ? 'bg-[#0E78AA]' : 'bg-slate-200'
                   )}
                 />
               </div>

@@ -1,5 +1,10 @@
 import { Prisma } from '@prisma/client';
 import prisma from '../../../shared/database/prisma';
+import { openingFiguresFromSums } from './opening-stock-card';
+import {
+  openingLinesWithoutWarehouseOverlap,
+  openingStockInventoryStillApplied,
+} from './opening-stock-valuation';
 import { logger } from '../../../shared/logger';
 import { Decimal } from '@prisma/client/runtime/library';
 import { AppError } from '../../../shared/middleware/error-handler';
@@ -7,6 +12,43 @@ import { applyFullTextIds, findFullTextIds } from '../../../shared/database/full
 import { nextNumericCode } from '../../../shared/utils/next-numeric-code';
 import { ensureDefaultPieceUnit } from './ensure-default-unit';
 import { ensureDefaultUngroupedCategory } from './ensure-default-item-category';
+import { attachStockSummaries, stockSummariesForItems } from './item-stock-summary';
+import { scopedItemQuantityWhere } from '../utils/item-quantity-tenant';
+import { acquireUniqueKey, releaseUniqueKeyIfUnused, UNIQUE_KINDS } from '../../../shared/database/company-unique-key';
+
+async function openingStockCardFigures(companyId: string, itemId: string) {
+  const docs = await prisma.openingStock.findMany({
+    where: { companyId, isCancelled: false },
+    select: {
+      id: true,
+      isPosted: true,
+      updatedAt: true,
+      journalEntryId: true,
+      lines: {
+        where: { itemId },
+        select: { quantity: true, total: true, warehouseId: true, itemId: true },
+      },
+    },
+  });
+  const withLines = docs
+    .filter((doc) => doc.lines.length > 0 && openingStockInventoryStillApplied(doc))
+    .map((doc) => ({
+      id: doc.id,
+      isPosted: doc.isPosted,
+      updatedAt: doc.updatedAt,
+      lines: doc.lines,
+    }));
+  const kept = openingLinesWithoutWarehouseOverlap(withLines);
+  let quantity = 0;
+  let total = 0;
+  for (const doc of kept) {
+    for (const line of doc.lines) {
+      quantity += Number(line.quantity) || 0;
+      total += Number(line.total) || 0;
+    }
+  }
+  return openingFiguresFromSums(quantity, total);
+}
 
 function decimalOp(
   op?: 'none' | 'eq' | 'gt' | 'lt' | 'between',
@@ -48,6 +90,9 @@ function itemCardExtraFields(data: CreateItemData) {
       : {}),
     ...(data.preferredSuppliers !== undefined
       ? { preferredSuppliers: asJson(data.preferredSuppliers) ?? Prisma.JsonNull }
+      : {}),
+    ...(data.etaProfile !== undefined
+      ? { etaProfile: asJson(data.etaProfile) ?? Prisma.JsonNull }
       : {}),
     imageUrl: data.imageUrl ?? null,
     defaultWarehouseId: data.defaultWarehouseId ?? null,
@@ -120,6 +165,7 @@ export interface CreateItemData {
   defaultWarehouseId?: string | null;
   priceSource?: string | null;
   lastPurchasePrice?: number | null;
+  etaProfile?: Record<string, unknown> | null;
 }
 
 function resolveItemPriceTiers(data: Pick<
@@ -153,12 +199,48 @@ export class ItemService {
     return nextNumericCode(rows.map((row) => row.serial));
   }
 
+  private async assertSerialUnique(companyId: string, serial: string | null | undefined, exceptItemId?: string) {
+    const code = serial?.trim();
+    if (!code) return;
+    const taken = await prisma.item.findFirst({
+      where: {
+        companyId,
+        serial: code,
+        ...(exceptItemId ? { id: { not: exceptItemId } } : {}),
+      },
+      select: { id: true },
+    });
+    if (taken) {
+      throw new AppError(409, 'كود الصنف مستخدم لصنف آخر');
+    }
+  }
+
+  private async assertBarcodeUnique(companyId: string, barcode: string | null | undefined, exceptItemId?: string) {
+    const code = barcode?.trim();
+    if (!code) return;
+    const taken = await prisma.item.findFirst({
+      where: {
+        companyId,
+        barcode: code,
+        ...(exceptItemId ? { id: { not: exceptItemId } } : {}),
+      },
+      select: { id: true },
+    });
+    if (taken) {
+      throw new AppError(409, 'الباركود مستخدم لصنف آخر');
+    }
+  }
+
   async createItem(companyId: string, data: CreateItemData) {
     try {
+      const arabicName = data.arabicName?.trim() ?? '';
+      if (!arabicName) throw new AppError(400, 'اسم الصنف مطلوب');
       let serial = data.serial?.trim() ?? '';
       if (!serial) {
         serial = await this.suggestNextItemSerial(companyId);
       }
+      await this.assertSerialUnique(companyId, serial);
+      await this.assertBarcodeUnique(companyId, data.barcode);
       // Sales Invoice Enterprise Redesign: "auto-assign GL accounts by
       // category" — when a category is selected, snapshot its defaults onto
       // any of mainAccountId/salesAccountId/cogsAccountId the caller left
@@ -193,12 +275,13 @@ export class ItemService {
         }
 
         const priceTiers = resolveItemPriceTiers(data);
+        await acquireUniqueKey(tx, companyId, UNIQUE_KINDS.itemName, arabicName);
 
         const created = await tx.item.create({
           data: {
             companyId,
             serial,
-            arabicName: data.arabicName,
+            arabicName,
             englishName: data.englishName,
             mainAccountId,
             costCenterId: data.costCenterId,
@@ -349,6 +432,7 @@ export class ItemService {
         throw new Error('Item not found');
       }
 
+      const opening = await openingStockCardFigures(companyId, itemId);
       const balances = await prisma.itemWarehouseBalance.findMany({
         where: { companyId, itemId },
         include: {
@@ -357,19 +441,44 @@ export class ItemService {
           },
         },
       });
-      if (balances.length) {
+      const balanceQtyByWarehouse = new Map(
+        balances.map((row) => [row.warehouseId, Number(row.quantityOnHand) || 0])
+      );
+      const mergedQuantities = new Map<
+        string,
+        { quantity: unknown; warehouseId: string; warehouse: (typeof balances)[0]['warehouse']; location: null }
+      >();
+      for (const row of balances) {
+        mergedQuantities.set(row.warehouseId, {
+          quantity: row.quantityOnHand,
+          warehouseId: row.warehouseId,
+          warehouse: row.warehouse,
+          location: null,
+        });
+      }
+      for (const row of item.quantities) {
+        const whId = row.warehouseId;
+        if (!whId) continue;
+        const balQty = balanceQtyByWarehouse.get(whId);
+        if (balQty != null && balQty !== 0) continue;
+        const locQty = Number(row.quantity) || 0;
+        if (locQty === 0 && mergedQuantities.has(whId)) continue;
+        mergedQuantities.set(whId, {
+          quantity: locQty,
+          warehouseId: whId,
+          warehouse: row.warehouse,
+          location: row.location,
+        });
+      }
+      if (mergedQuantities.size > 0) {
         return {
           ...item,
-          quantities: balances.map((row) => ({
-            quantity: row.quantityOnHand,
-            warehouseId: row.warehouseId,
-            warehouse: row.warehouse,
-            location: null,
-          })),
+          ...opening,
+          quantities: [...mergedQuantities.values()],
         };
       }
 
-      return item;
+      return { ...item, ...opening };
     } catch (error) {
       logger.error({ error, companyId, itemId }, 'Error getting item');
       throw error;
@@ -389,6 +498,7 @@ export class ItemService {
       isActive?: boolean;
       categoryId?: string;
       isAssembly?: boolean;
+      warehouseId?: string;
     }
   ) {
     try {
@@ -406,6 +516,7 @@ export class ItemService {
         const scoped = applyFullTextIds(where, ftIds);
         if (scoped === 'empty') {
           where.OR = [
+            { arabicName: { startsWith: prefix } },
             { englishName: { startsWith: prefix } },
             { serial: { startsWith: prefix } },
             { barcode: { startsWith: prefix } },
@@ -413,6 +524,7 @@ export class ItemService {
         } else if (ftIds?.length) {
           where.OR = [
             { id: { in: ftIds } },
+            { arabicName: { startsWith: prefix } },
             { englishName: { startsWith: prefix } },
           ];
           delete where.id;
@@ -462,9 +574,16 @@ export class ItemService {
               select: {
                 price: true,
                 retailPrice: true,
+                purchasePrice: true,
+                discount: true,
                 unitId: true,
                 priceList: {
-                  select: { id: true, priceMode: true, isActive: true },
+                  select: {
+                    id: true,
+                    priceMode: true,
+                    isActive: true,
+                    discountPercentage: true,
+                  },
                 },
               },
             },
@@ -473,8 +592,15 @@ export class ItemService {
         prisma.item.count({ where }),
       ]);
 
+      const mapped = items.map(({ prices, ...item }) => ({ ...item, itemPrices: prices }));
+      const summaries = await stockSummariesForItems(
+        companyId,
+        mapped.map((item) => item.id),
+        options.warehouseId
+      );
+
       return {
-        items: items.map(({ prices, ...item }) => ({ ...item, itemPrices: prices })),
+        items: attachStockSummaries(mapped, summaries),
         pagination: {
           page,
           limit,
@@ -519,9 +645,16 @@ export class ItemService {
           select: {
             price: true,
             retailPrice: true,
+            purchasePrice: true,
+            discount: true,
             unitId: true,
             priceList: {
-              select: { id: true, priceMode: true, isActive: true },
+              select: {
+                id: true,
+                priceMode: true,
+                isActive: true,
+                discountPercentage: true,
+              },
             },
           },
         },
@@ -529,7 +662,39 @@ export class ItemService {
     });
 
     if (!item) {
-      throw new AppError(404, 'الباركود غير مسجل');
+      const combo = await prisma.clothingCombo.findFirst({
+        where: { companyId, barcode: code, isActive: true, itemId: { not: null } },
+        include: {
+          color: { select: { arabicName: true } },
+          size: { select: { arabicName: true } },
+        },
+      });
+      if (!combo?.itemId) {
+        throw new AppError(404, 'الباركود غير مسجل');
+      }
+      const comboItem = await prisma.item.findFirst({
+        where: { id: combo.itemId, companyId, isActive: true },
+        include: {
+          category: { select: { id: true, code: true, arabicName: true, englishName: true } },
+          units: { include: { unit: { select: { id: true, code: true, arabicName: true } } } },
+          prices: {
+            select: {
+              price: true,
+              retailPrice: true,
+              unitId: true,
+              priceList: { select: { id: true, priceMode: true, isActive: true } },
+            },
+          },
+        },
+      });
+      if (!comboItem) throw new AppError(404, 'الباركود غير مسجل');
+      const { prices: comboPrices, ...comboRest } = comboItem;
+      return {
+        ...comboRest,
+        itemPrices: comboPrices,
+        color: combo.color?.arabicName || null,
+        size: combo.size?.arabicName || null,
+      };
     }
 
     const { prices, ...rest } = item as typeof item & { prices: unknown };
@@ -555,8 +720,15 @@ export class ItemService {
 
       const updateData: any = {};
 
-      if (data.serial !== undefined) updateData.serial = data.serial || null;
-      if (data.arabicName !== undefined) updateData.arabicName = data.arabicName;
+      if (data.serial !== undefined) {
+        await this.assertSerialUnique(companyId, data.serial, itemId);
+        updateData.serial = data.serial || null;
+      }
+      if (data.arabicName !== undefined) {
+        const arabicName = data.arabicName.trim();
+        if (!arabicName) throw new AppError(400, 'اسم الصنف مطلوب');
+        updateData.arabicName = arabicName;
+      }
       if (data.englishName !== undefined)
         updateData.englishName = data.englishName;
       if (data.manufacturerId !== undefined) updateData.manufacturerId = data.manufacturerId || null;
@@ -595,6 +767,9 @@ export class ItemService {
         updateData.defaultWarehouseId = data.defaultWarehouseId || null;
       }
       if (data.priceSource !== undefined) updateData.priceSource = data.priceSource || null;
+      if (data.etaProfile !== undefined) {
+        updateData.etaProfile = asJson(data.etaProfile) ?? Prisma.JsonNull;
+      }
       if (data.lastPurchasePrice !== undefined) {
         updateData.lastPurchasePrice =
           data.lastPurchasePrice != null ? new Decimal(data.lastPurchasePrice) : new Decimal(0);
@@ -612,7 +787,10 @@ export class ItemService {
           updateData.categoryId = fallback.id;
         }
       }
-      if (data.barcode !== undefined) updateData.barcode = data.barcode;
+      if (data.barcode !== undefined) {
+        await this.assertBarcodeUnique(companyId, data.barcode, itemId);
+        updateData.barcode = data.barcode?.trim() || null;
+      }
       if (data.salesAccountId !== undefined) updateData.salesAccountId = data.salesAccountId;
       if (data.cogsAccountId !== undefined) updateData.cogsAccountId = data.cogsAccountId;
       if (data.isTaxExempt) {
@@ -683,26 +861,23 @@ export class ItemService {
           data.beginningCostPrice != null ? new Decimal(data.beginningCostPrice) : null;
       }
 
-      const item = await prisma.item.update({
-        where: { id: itemId },
-        data: updateData,
-        include: {
-          units: {
-            include: {
-              unit: {
-                select: {
-                  id: true,
-                  code: true,
-                  arabicName: true,
-                },
-              },
-            },
-          },
-        },
+      const nextName = typeof updateData.arabicName === 'string' ? updateData.arabicName : undefined;
+      const previousName = existing.arabicName.trim();
+      await prisma.$transaction(async (tx) => {
+        if (nextName && nextName !== previousName) {
+          await acquireUniqueKey(tx, companyId, UNIQUE_KINDS.itemName, nextName);
+        }
+        await tx.item.update({
+          where: { id: itemId },
+          data: updateData,
+        });
+        if (nextName && nextName !== previousName) {
+          await releaseUniqueKeyIfUnused(tx, companyId, UNIQUE_KINDS.itemName, previousName);
+        }
       });
 
       logger.info({ companyId, itemId }, 'Item updated');
-      return item;
+      return this.getItemById(companyId, itemId);
     } catch (error) {
       logger.error({ error, companyId, itemId, data }, 'Error updating item');
       throw error;
@@ -735,7 +910,6 @@ export class ItemService {
       where.OR = [
         { barcode: { contains: barcode } },
         { serial: { contains: barcode } },
-        { code: { contains: barcode } },
       ];
     }
     if (name) {
@@ -872,6 +1046,7 @@ export class ItemService {
       priceQuotes,
       assemblies,
       stockRows,
+      locationRows,
     ] = await Promise.all([
       prisma.inventoryMovement.count({ where: { companyId, itemId } }),
       prisma.invoiceLine.count({ where: { itemId } }),
@@ -893,6 +1068,9 @@ export class ItemService {
           OR: [{ quantityOnHand: { not: 0 } }, { reservedQuantity: { not: 0 } }],
         },
       }),
+      prisma.itemQuantity.count({
+        where: scopedItemQuantityWhere(companyId, { itemId, quantity: { not: 0 } }),
+      }),
     ]);
 
     if (
@@ -909,7 +1087,8 @@ export class ItemService {
         posOrders +
         priceQuotes +
         assemblies +
-        stockRows >
+        stockRows +
+        locationRows >
       0
     ) {
       throw new AppError(409, 'لا يمكن حذف الصنف لأن عليه حركات أو مستندات. انقل أو سوِّ الرصيد أولاً.');
@@ -919,7 +1098,9 @@ export class ItemService {
       await prisma.$transaction(async (tx) => {
         await tx.itemUnit.deleteMany({ where: { itemId } });
         await tx.itemPrice.deleteMany({ where: { itemId } });
-        await tx.itemQuantity.deleteMany({ where: { itemId } });
+        await tx.itemQuantity.deleteMany({
+          where: scopedItemQuantityWhere(companyId, { itemId }),
+        });
         await tx.itemWarehouseBalance.deleteMany({ where: { companyId, itemId } });
         await tx.personItemPrice.deleteMany({ where: { itemId } });
         await tx.itemOrderLimitLine.deleteMany({ where: { itemId } });

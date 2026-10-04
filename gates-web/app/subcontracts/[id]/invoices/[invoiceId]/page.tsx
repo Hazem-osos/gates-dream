@@ -8,6 +8,8 @@ import { PageHeader } from '@/components/ui/PageHeader';
 import { AttachmentDropzone } from '@/components/attachments/AttachmentDropzone';
 import { InvoiceApprovalStepper } from '@/components/subcontracts/InvoiceApprovalStepper';
 import { InvoiceFinancialBreakdown } from '@/components/subcontracts/InvoiceFinancialBreakdown';
+import { ContractingCertificateSettlementPanel } from '@/components/contracting/ContractingCertificateSettlementPanel';
+import { ContractingCertificateReversalPanel } from '@/components/contracting/ContractingCertificateReversalPanel';
 import { InvoiceStatusBadge } from '@/components/subcontracts/SubcontractStatusBadge';
 import { SubcontractCard, SubcontractPageShell, SubcontractSkeleton } from '@/components/subcontracts/SubcontractPageShell';
 import { useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
@@ -27,6 +29,7 @@ export default function InvoiceDetailsPage() {
   const subcontract = data?.data;
   const invoice = subcontract?.invoices.find((row) => row.id === params.invoiceId);
   const locked = invoice?.status === 'FINANCE_POSTED' || invoice?.status === 'PAID';
+  const reversed = invoice?.status === 'REVERSED';
 
   const refresh = () => {
     invalidate(queryKeys.subcontracts.detail(params.id));
@@ -72,15 +75,41 @@ export default function InvoiceDetailsPage() {
               </div>
               <div>
                 <p className="text-slate-500">الصافي</p>
-                <p className="font-bold text-[#0E79AA]">{formatEgp(invoice.netPayableAmount)}</p>
+                <p className="font-bold text-[#0E78AA]">{formatEgp(invoice.netPayableAmount)}</p>
               </div>
             </div>
             <InvoiceApprovalStepper subcontract={subcontract} invoice={invoice} onChanged={refresh} />
+            {locked && !reversed ? (
+              <div className="mt-4">
+                <ContractingCertificateSettlementPanel
+                  mode="subcontractor"
+                  settlementPath={`/subcontracts/${params.id}/invoices/${params.invoiceId}/settlement`}
+                  collectPath={`/subcontracts/${params.id}/invoices/${params.invoiceId}/payments`}
+                  collectLabel="سداد المستخلص"
+                  amountLabel="صافي المستحق"
+                  onChanged={refresh}
+                />
+              </div>
+            ) : null}
+            {locked || reversed ? (
+              <div className="mt-4">
+                <ContractingCertificateReversalPanel
+                  reversePath={`/subcontracts/${params.id}/invoices/${params.invoiceId}/reverse-finance`}
+                  originalJournalEntryId={invoice?.journalEntryId}
+                  reversalJournalEntryId={invoice?.reversalJournalEntryId}
+                  reversedAt={invoice?.reversedAt}
+                  reversedBy={invoice?.reversedBy}
+                  reversalReason={invoice?.reversalReason}
+                  status={invoice?.status ?? 'DRAFT'}
+                  onChanged={refresh}
+                />
+              </div>
+            ) : null}
           </SubcontractCard>
 
           <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
             <SubcontractCard>
-              <h2 className="mb-3 text-lg font-bold text-[#0E79AA]">بنود المستخلص</h2>
+              <h2 className="mb-3 text-lg font-bold text-[#0E78AA]">بنود المستخلص</h2>
               <div className="overflow-x-auto rounded-xl border border-[#E6F0F7]">
                 <table className="w-full min-w-[720px] text-center text-sm">
                   <thead>

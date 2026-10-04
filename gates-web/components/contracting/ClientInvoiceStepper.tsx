@@ -13,6 +13,8 @@ import { CLIENT_INVOICE_STEPS, type ClientContractDetail, type ClientInvoice, ty
 import { formatEgp } from '@/lib/subcontracts/money';
 import { usePrintDocument } from '@/lib/documentLayout/usePrintDocument';
 import { pickSavedDocumentLayout } from '@/lib/documentLayout/pickSavedDocumentLayout';
+import { ContractingCertificateSettlementPanel } from '@/components/contracting/ContractingCertificateSettlementPanel';
+import { ContractingCertificateReversalPanel } from '@/components/contracting/ContractingCertificateReversalPanel';
 
 export function ClientInvoiceStepper({
   contract,
@@ -30,6 +32,7 @@ export function ClientInvoiceStepper({
   const { printDocument } = usePrintDocument();
   const currentIndex = Math.max(0, (CLIENT_INVOICE_STEPS as readonly string[]).indexOf(invoice.status));
   const posted = invoice.status === 'FINANCE_POSTED' || invoice.status === 'PAID';
+  const reversed = invoice.status === 'REVERSED';
   const glLines = useMemo(() => buildClientInvoiceGlPreview(invoice), [invoice]);
 
   const mutateStatus = useMutation({
@@ -63,13 +66,13 @@ export function ClientInvoiceStepper({
             <li
               key={step}
               className={`rounded-xl border px-3 py-3 text-sm ${
-                done || active ? 'border-[#0E79AA] bg-[#F0F7FB]' : 'border-slate-200 bg-white'
+                done || active ? 'border-[#0E78AA] bg-[#F0F7FB]' : 'border-slate-200 bg-white'
               }`}
             >
               <div className="mb-1 flex items-center gap-2 font-bold text-[#094C6B]">
                 <span
                   className={`flex h-6 w-6 items-center justify-center rounded-full text-xs ${
-                    done || active ? 'bg-[#0E79AA] text-white' : 'bg-slate-200 text-slate-600'
+                    done || active ? 'bg-[#0E78AA] text-white' : 'bg-slate-200 text-slate-600'
                   }`}
                 >
                   {done ? <Check className="h-3.5 w-3.5" /> : index + 1}
@@ -101,12 +104,42 @@ export function ClientInvoiceStepper({
             مرحّل — قيد: {invoice.journalEntryId ?? '—'}
           </span>
         ) : null}
+        {reversed ? (
+          <span className="inline-flex items-center gap-1 rounded-lg bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">
+            <Lock className="h-4 w-4" />
+            معكوس مالياً
+          </span>
+        ) : null}
       </div>
+
+      {posted && !reversed ? (
+        <ContractingCertificateSettlementPanel
+          mode="owner"
+          settlementPath={`/contracting/client-billing/invoices/${invoice.id}/settlement`}
+          collectPath={`/contracting/client-billing/invoices/${invoice.id}/collections`}
+          collectLabel="تحصيل المستخلص"
+          amountLabel="صافي المستخلص"
+          onChanged={onChanged}
+        />
+      ) : null}
+
+      {posted || reversed ? (
+        <ContractingCertificateReversalPanel
+          reversePath={`/contracting/client-billing/invoices/${invoice.id}/reverse-finance`}
+          originalJournalEntryId={invoice.journalEntryId}
+          reversalJournalEntryId={invoice.reversalJournalEntryId}
+          reversedAt={invoice.reversedAt}
+          reversedBy={invoice.reversedBy}
+          reversalReason={invoice.reversalReason}
+          status={invoice.status}
+          onChanged={onChanged}
+        />
+      ) : null}
 
       {approveOpen ? (
         <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/40 p-4" dir="rtl">
           <div className="w-full max-w-md space-y-4 rounded-xl bg-white p-5 shadow-xl">
-            <h2 className="text-lg font-bold text-[#0E79AA]">تأكيد اعتماد المستخلص</h2>
+            <h2 className="text-lg font-bold text-[#0E78AA]">تأكيد اعتماد المستخلص</h2>
             <p className="text-sm text-slate-600">
               سيتم اعتماد المستخلص رقم {invoice.invoiceNumber} من العميل. الصافي المستحق {formatEgp(invoice.netPayableByClient)}.
             </p>
@@ -125,7 +158,7 @@ export function ClientInvoiceStepper({
       {financeOpen ? (
         <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/40 p-4" dir="rtl">
           <div className="w-full max-w-xl space-y-4 rounded-xl bg-white p-5 shadow-xl">
-            <h2 className="text-lg font-bold text-[#0E79AA]">معاينة قيد اليومية قبل الترحيل</h2>
+            <h2 className="text-lg font-bold text-[#0E78AA]">معاينة قيد اليومية قبل الترحيل</h2>
             <ul className="space-y-2 text-sm">
               {glLines.map((line) => (
                 <li key={`${line.side}-${line.label}`} className="flex justify-between gap-3 rounded-lg bg-[#F6FBFD] px-3 py-2">

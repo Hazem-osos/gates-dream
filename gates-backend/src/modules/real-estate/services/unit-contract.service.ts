@@ -151,14 +151,14 @@ export class UnitContractService {
         cancellationSettlements: { orderBy: { createdAt: 'desc' } },
       },
     });
-    if (!row) throw new AppError(404, 'Unit contract not found');
+    if (!row) throw new AppError(404, 'عقد الوحدة غير موجود');
     return row;
   }
 
   async postContractExecution(ctx: JournalPostingContext, contractId: string) {
     const contract = await this.getById(ctx.companyId, contractId);
     if (contract.contractJournalEntryId) {
-      throw new AppError(400, 'Contract already posted to GL');
+      throw new AppError(400, 'العقد مرحّل مسبقاً إلى دفتر الأستاذ');
     }
 
     const accounts = await realEstateAccountResolverService.resolveAccounts(ctx.companyId);
@@ -216,17 +216,14 @@ export class UnitContractService {
   async unpostContractExecution(ctx: JournalPostingContext, contractId: string) {
     const contract = await this.getById(ctx.companyId, contractId);
     if (!contract.contractJournalEntryId) {
-      throw new AppError(400, 'Contract has no execution journal entry to reverse');
+      throw new AppError(400, 'لا يوجد قيد ترحيل للعقد يمكن عكسه');
     }
     if (contract.handoverJournalEntryId) {
-      throw new AppError(400, 'Unpost the handover before unposting contract execution');
+      throw new AppError(400, 'ألغِ ترحيل التسليم قبل إلغاء ترحيل العقد');
     }
     const anyPaid = contract.installments.some((i) => i.status === 'PAID');
     if (anyPaid) {
-      throw new AppError(
-        400,
-        'Cannot unpost contract execution while installments have been collected against it'
-      );
+      throw new AppError(400, 'لا يمكن إلغاء ترحيل العقد بعد تحصيل أقساط عليه');
     }
 
     return prisma.$transaction(async (tx) => {
@@ -279,6 +276,7 @@ export class UnitContractService {
       ctx.fiscalYearId,
       {
         transactionKind: 'RECEIPT',
+        serialGroup: 'REALEST',
         voucherNumber: input.voucherNumber,
         date: input.collectionDate ?? new Date(),
         amount,
@@ -317,19 +315,19 @@ export class UnitContractService {
   async handoverUnit(ctx: JournalPostingContext, contractId: string, handoverDate?: Date) {
     const contract = await this.getById(ctx.companyId, contractId);
     if (!contract.contractJournalEntryId) {
-      throw new AppError(422, 'Post contract execution before handover');
+      throw new AppError(422, 'يجب ترحيل العقد قبل تسليم الوحدة');
     }
     if (contract.handoverJournalEntryId) {
-      throw new AppError(400, 'Unit already handed over');
+      throw new AppError(400, 'تم تسليم الوحدة مسبقاً');
     }
     if (contract.status === 'COMPLETED') {
-      throw new AppError(400, 'Contract already completed');
+      throw new AppError(400, 'العقد مكتمل مسبقاً');
     }
 
     const accounts = await realEstateAccountResolverService.resolveAccounts(ctx.companyId);
     const unearned = roundTo4(Number(contract.unearnedRevenueBalance));
     if (unearned <= 0) {
-      throw new AppError(422, 'No unearned revenue balance to recognize');
+      throw new AppError(422, 'لا يوجد رصيد إيراد مؤجل للاعتراف به');
     }
 
     const ccId = contract.unit.building.project.costCenterId ?? undefined;
@@ -395,7 +393,7 @@ export class UnitContractService {
   async unpostHandover(ctx: JournalPostingContext, contractId: string) {
     const contract = await this.getById(ctx.companyId, contractId);
     if (!contract.handoverJournalEntryId) {
-      throw new AppError(400, 'Contract has no handover journal entry to reverse');
+      throw new AppError(400, 'لا يوجد قيد تسليم يمكن عكسه');
     }
 
     return prisma.$transaction(async (tx) => {

@@ -94,7 +94,7 @@ export default function RealEstatePortfolioCommand() {
             <SegmentedBar
               segments={[
                 { label: 'حفظ', value: s?.cheques.custody.count ?? 0, color: '#64748B' },
-                { label: 'تحصيل', value: s?.cheques.underCollection.count ?? 0, color: '#0E79AA' },
+                { label: 'تحصيل', value: s?.cheques.underCollection.count ?? 0, color: '#0E78AA' },
                 { label: 'محصّل', value: s?.cheques.cleared.count ?? 0, color: '#059669' },
                 { label: 'مرتد', value: s?.cheques.bounced.count ?? 0, color: '#E11D48' },
               ]}

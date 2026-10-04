@@ -7,19 +7,35 @@ export class GrowthImpactService {
       where: { companyId, status: { in: ['ACTION_TAKEN', 'WON'] } },
     });
 
-    for (const opp of actioned) {
-      if (opp.type === 'overdue-receivable' && opp.entityId) {
-        const invoices = await prisma.invoice.findMany({
+    const overdueCustomerIds = actioned
+      .filter((opp) => opp.type === 'overdue-receivable' && opp.entityId)
+      .map((opp) => opp.entityId as string);
+    const overdueInvoices = overdueCustomerIds.length
+      ? await prisma.invoice.findMany({
           where: {
             companyId,
-            customerId: opp.entityId,
+            customerId: { in: overdueCustomerIds },
             invoiceKind: 'SALE',
             isPosted: true,
             isCancelled: false,
-            date: { lte: opp.createdAt },
           },
-          select: { id: true, invoiceNumber: true, remainingAmount: true, paidAmount: true, netAmount: true },
-        });
+          select: {
+            id: true,
+            customerId: true,
+            date: true,
+            invoiceNumber: true,
+            remainingAmount: true,
+            paidAmount: true,
+            netAmount: true,
+          },
+        })
+      : [];
+
+    for (const opp of actioned) {
+      if (opp.type === 'overdue-receivable' && opp.entityId) {
+        const invoices = overdueInvoices.filter(
+          (row) => row.customerId === opp.entityId && row.date <= opp.createdAt
+        );
         const allocations = await prisma.paymentAllocation.findMany({
           where: {
             companyId,

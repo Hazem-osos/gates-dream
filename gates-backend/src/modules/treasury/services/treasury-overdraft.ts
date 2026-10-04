@@ -54,7 +54,7 @@ export async function assertCashOverdraftAllowed(params: {
   if (balance + 1e-6 < needed) {
     throw new AppError(
       422,
-      `رصيد ${label} غير كافٍ لإتمام سند الصرف. الرصيد الحالي ${balance.toFixed(2)} والمطلوب ${needed.toFixed(2)}.`
+      `رصيد ${label} غير كافٍ لإتمام سند الصرف. الرصيد الحالي ${balance.toLocaleString()} والمطلوب ${needed.toLocaleString()}.`
     );
   }
 }

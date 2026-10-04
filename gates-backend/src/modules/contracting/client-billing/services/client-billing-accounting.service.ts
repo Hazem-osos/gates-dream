@@ -20,6 +20,8 @@ type JournalLineSpec = {
   debit: number;
   credit: number;
   description: string;
+  partnerId?: string;
+  partnerType?: 'CUSTOMER' | 'SUBCONTRACTOR';
 };
 
 export class ClientBillingAccountingService {
@@ -27,7 +29,7 @@ export class ClientBillingAccountingService {
     companyId: string,
     invoiceId: string,
     userId: string,
-    branchId: string
+    branchId?: string | null,
   ) {
     return prisma.$transaction((tx) =>
       this.postClientInvoiceToGeneralLedgerInTx(tx, companyId, invoiceId, userId, branchId)
@@ -39,7 +41,7 @@ export class ClientBillingAccountingService {
     companyId: string,
     invoiceId: string,
     userId: string,
-    branchId: string
+    branchId?: string | null,
   ) {
     const invoice = await db.clientInvoice.findFirst({
       where: { id: invoiceId, companyId },
@@ -94,7 +96,17 @@ export class ClientBillingAccountingService {
     const netMos = money(invoice.materialsOnSiteCurrent).minus(invoice.materialsOnSiteDeduction);
 
     const lines: JournalLineSpec[] = [];
-    pushSigned(lines, accounts.clientReceivableAccountId, netPayable, 'debit', 'حسابات مدينة - عملاء عقود مقاولات');
+    pushSigned(
+      lines,
+      accounts.clientReceivableAccountId,
+      netPayable,
+      'debit',
+      'حسابات مدينة - عملاء عقود مقاولات',
+      {
+        partnerId: invoice.clientContract.clientCustomerId,
+        partnerType: 'CUSTOMER',
+      }
+    );
     pushSigned(
       lines,
       accounts.retentionHeldByOthersAccountId,
@@ -156,7 +168,8 @@ function pushSigned(
   accountId: string,
   amount: ReturnType<typeof money>,
   prefer: 'debit' | 'credit',
-  description: string
+  description: string,
+  partner?: { partnerId: string; partnerType: 'CUSTOMER' | 'SUBCONTRACTOR' }
 ) {
   if (amount.eq(0)) return;
   const abs = money(amount.abs());
@@ -166,6 +179,7 @@ function pushSigned(
     debit: debitSide ? toLineAmount(abs) : 0,
     credit: debitSide ? 0 : toLineAmount(abs),
     description,
+    ...(partner ?? {}),
   });
 }
 

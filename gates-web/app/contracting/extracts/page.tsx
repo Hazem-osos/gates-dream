@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ExtractsPageChrome } from '@/components/extracts/ExtractsPageChrome';
 import { AppTable } from '@/components/ui';
@@ -28,13 +29,12 @@ export default function ContractingExtractsListPage() {
 
   return (
     <ExtractsPageChrome
-      title="مستخلصات العقود"
+      title="أرشيف مستخلصات Wave3"
       breadcrumbs={[
         { href: '/extracts', label: 'المستخلصات' },
         { href: '/contracting', label: 'المقاولات' },
-        { label: 'مستخلصات العقود' },
+        { label: 'أرشيف Wave3' },
       ]}
-      onNew={() => router.push('/contracting/extracts/new')}
       statusLabel="عرض"
       favoriteHref="/contracting/extracts"
       browseList={{
@@ -48,6 +48,20 @@ export default function ContractingExtractsListPage() {
         onSelect: (id) => router.push(`/contracting/extracts/${id}`),
       }}
     >
+      <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+        <p className="font-bold">مسار Enterprise للمشاريع الجديدة</p>
+        <p className="mt-1 text-amber-900">
+          المقايسة والحصر والمستخلصات المالية من{' '}
+          <Link href="/contracting/projects" className="font-semibold text-[#0E78AA] underline">
+            مساحة المشروع
+          </Link>{' '}
+          (مكتب فني → مستخلصات المالك). مقاول الباطن من{' '}
+          <Link href="/subcontracts/contracts" className="font-semibold text-[#0E78AA] underline">
+            عقود الباطن
+          </Link>
+          . هذه الشاشة للاطلاع على مستخلصات Wave3 القديمة فقط — لا تُنشئ مستخلصاً جديداً من هنا.
+        </p>
+      </div>
       <AppTable
         columns={[
           { id: 'number', header: 'رقم المستخلص', accessor: 'extractNumber' },
@@ -83,10 +97,10 @@ export default function ContractingExtractsListPage() {
         data={rows}
         getRowKey={(r) => r.id}
         isLoading={isLoading}
-        emptyTitle="لا توجد مستخلصات"
-        emptyDescription="أنشئ مستخلص عميل أو مقاول باطن من «جديد»."
+        emptyTitle="لا توجد مستخلصات Wave3"
+        emptyDescription="للمشاريع الجديدة استخدم مساحة المشروع."
         onRowClick={(r) => router.push(`/contracting/extracts/${r.id}`)}
-        exportFileName="contract-extracts"
+        exportFileName="contract-extracts-archive"
       />
     </ExtractsPageChrome>
   );

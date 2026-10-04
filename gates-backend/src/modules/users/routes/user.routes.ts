@@ -194,7 +194,7 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -214,6 +214,31 @@ router.get(
 );
 
 /**
+ * GET /api/v1/users/report-options
+ * Company users for report filters. Report viewers may not have user:view.
+ */
+router.get(
+  '/report-options',
+  authorize({ resource: 'report', action: 'view' }),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const companyId = req.companyId || req.tenantId;
+      if (!companyId) {
+        return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
+      }
+      const users = await userService.listSellers(companyId);
+      return void res.json({ status: 'success', data: users });
+    } catch (error) {
+      logger.error({ error }, 'Error listing report user options');
+      return void res.status(500).json({
+        status: 'error',
+        message: error instanceof Error ? error.message : 'Failed to list users',
+      });
+    }
+  }
+);
+
+/**
  * GET /api/v1/users
  * List users with pagination and filters
  */
@@ -227,7 +252,7 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -269,7 +294,7 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -307,7 +332,7 @@ router.post(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -357,7 +382,7 @@ router.put(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -400,7 +425,7 @@ router.delete(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -435,7 +460,7 @@ router.patch(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -475,7 +500,7 @@ router.post(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 

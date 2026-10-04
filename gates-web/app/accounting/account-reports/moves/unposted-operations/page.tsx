@@ -8,7 +8,7 @@ export default function UnpostedOperationsPage() {
       urlPath="/accounting/account-reports/moves/unposted-operations"
       icon="📋"
       subtitle="القيود والعمليات غير المرحلة."
-      fields={{ dates: 'range', branch: true }}
+      fields={{ dates: 'range', branch: true, account: true, costCenter: true }}
     />
   );
 }

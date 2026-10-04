@@ -31,83 +31,83 @@ export const accountingSettingsModules: (ModuleItem | ModuleWithChildren)[] = [
     key: 'company-data',
     icon: '',
     label: 'بيانات الشركة',
-    color: '#0E79AA',
+    color: '#0E78AA',
     href: '/settings/company'
   },
   {
     key: 'create-user-groups',
     icon: '',
     label: 'إنشاء مجموعات المستخدمين',
-    color: '#0E79AA',
-    href: '/accounting-settings/create-user-groups'
-  },
-  {
-    key: 'create-users',
-    icon: '',
-    label: 'إنشاء المستخدمين',
-    color: '#0E79AA',
+    color: '#0E78AA',
     href: '/accounting-settings/create-user-groups'
   },
   {
     key: 'company-settings',
     icon: '',
     label: 'إعدادات الشركة',
-    color: '#0E79AA',
+    color: '#0E78AA',
     children: [
+      {
+        key: 'company-whatsapp',
+        icon: '',
+        label: 'واتساب بيزنس',
+        color: '#0E78AA',
+        href: '/accounting-settings/company-settings/whatsapp'
+      },
+      {
+        key: 'company-email',
+        icon: '',
+        label: 'إعدادات البريد',
+        color: '#0E78AA',
+        href: '/accounting-settings/company-settings/email'
+      },
       {
         key: 'accounting-settings',
         icon: '',
         label: 'الإعدادات المحاسبية للشركة',
-        color: '#0E79AA',
+        color: '#0E78AA',
         href: '/accounting-settings/company-settings/accounting-settings'
-      },
-      {
-        key: 'income-statement-accounts',
-        icon: '',
-        label: 'إعداد حسابات قائمة الدخل',
-        color: '#0E79AA',
-        href: '/accounting-settings/company-settings/income-statement-settings'
       },
       {
         key: 'income-statement-settings',
         icon: '',
         label: 'إعدادات قائمة الدخل',
-        color: '#0E79AA',
+        color: '#0E78AA',
         href: '/accounting-settings/company-settings/income-statement-settings'
       },
       {
         key: 'financial-position-settings',
         icon: '',
         label: 'إعدادات قائمة المركز المالي',
-        color: '#0E79AA',
+        color: '#0E78AA',
         href: '/accounting-settings/company-settings/financial-position-settings'
       },
       {
         key: 'create-input-unit',
         icon: '',
         label: 'إنشاء وحدة إدخال جديدة',
-        color: '#0E79AA',
+        color: '#0E78AA',
         href: '/accounting-settings/company-settings/create-input-unit'
       },
       {
         key: 'document-layout',
         icon: '',
         label: 'تخصيص طباعة المستندات',
-        color: '#0E79AA',
+        color: '#0E78AA',
         href: '/accounting-settings/company-settings/document-layout'
       },
       {
         key: 'gl-account-defaults',
         icon: '',
         label: 'الحسابات الافتراضية للنظام',
-        color: '#0E79AA',
+        color: '#0E78AA',
         href: '/accounting-settings/company-settings/gl-account-defaults'
       },
       {
         key: 'legacy-catalog',
         icon: '',
         label: 'كتالوج إعدادات الشركة',
-        color: '#0E79AA',
+        color: '#0E78AA',
         href: '/accounting-settings/company-settings/legacy-catalog'
       }
     ]
@@ -116,48 +116,48 @@ export const accountingSettingsModules: (ModuleItem | ModuleWithChildren)[] = [
     key: 'operations-management',
     icon: '',
     label: 'إدارة العمليات',
-    color: '#0E79AA',
+    color: '#0E78AA',
     children: [
       {
         key: 'post-all',
         icon: '',
         label: 'ترحيل الكل',
-        color: '#0E79AA',
+        color: '#0E78AA',
         href: '/accounting-settings/operations-management/post-all'
       },
       {
         key: 'delete-cancelled-operations',
         icon: '',
         label: 'حذف العمليات الملغاه من قاعدة البيانات',
-        color: '#0E79AA',
+        color: '#0E78AA',
         href: '/accounting-settings/operations-management/delete-cancelled-operations'
       },
       {
         key: 'fix-average-cost',
         icon: '',
         label: 'إصلاح متوسط التكلفة',
-        color: '#0E79AA',
+        color: '#0E78AA',
         href: '/accounting-settings/operations-management/fix-average-cost'
       },
       {
         key: 'import-entry',
         icon: '',
         label: 'إستيراد قيد',
-        color: '#0E79AA',
+        color: '#0E78AA',
         href: '/accounting-settings/operations-management/import-entry'
       },
       {
         key: 'late-payment-penalty',
         icon: '',
         label: 'غرامة التأخير في السداد',
-        color: '#0E79AA',
+        color: '#0E78AA',
         href: '/accounting-settings/operations-management/late-payment-penalty'
       },
       {
         key: 'define-new-operation-screens',
         icon: '',
         label: 'تعريف شاشات عمليات جديدة',
-        color: '#0E79AA',
+        color: '#0E78AA',
         href: '/accounting-settings/operations-management/define-new-operation-screens'
       }
     ]
@@ -166,41 +166,41 @@ export const accountingSettingsModules: (ModuleItem | ModuleWithChildren)[] = [
     key: 'database-tools',
     icon: '',
     label: 'أدوات قواعد البيانات',
-    color: '#0E79AA',
+    color: '#0E78AA',
     children: [
       {
         key: 'renumber-financial-operations',
         icon: '',
         label: 'إعادة ترقيم العمليات المالية',
-        color: '#0E79AA',
+        color: '#0E78AA',
         href: '/accounting-settings/database-tools/renumber-financial-operations'
       },
       {
         key: 'approve-documents',
         icon: '',
         label: 'إعتماد المستندات',
-        color: '#0E79AA',
+        color: '#0E78AA',
         href: '/accounting-settings/database-tools/approve-documents'
       },
       {
         key: 'export-import-data',
         icon: '',
         label: 'تصدير و إستيراد البيانات',
-        color: '#0E79AA',
+        color: '#0E78AA',
         href: '/accounting-settings/database-tools/export-import-data'
       },
       {
         key: 'database-backup',
         icon: '',
         label: 'النسخ الإحتياطي القاعدة البيانات',
-        color: '#0E79AA',
+        color: '#0E78AA',
         href: '/accounting-settings/database-tools/database-backup'
       },
       {
         key: 'database-restore',
         icon: '',
         label: 'الإسترجاع القاعدة البيانات',
-        color: '#0E79AA',
+        color: '#0E78AA',
         href: '/accounting-settings/database-tools/database-restore'
       }
     ]
@@ -209,20 +209,20 @@ export const accountingSettingsModules: (ModuleItem | ModuleWithChildren)[] = [
     key: 'translation',
     icon: '',
     label: 'الترجمة',
-    color: '#0E79AA',
+    color: '#0E78AA',
     children: [
       {
         key: 'translate-messages',
         icon: '',
         label: 'ترجمة الرسائل',
-        color: '#0E79AA',
+        color: '#0E78AA',
         href: '/accounting-settings/translation/translate-messages'
       },
       {
         key: 'translate-screens',
         icon: '',
         label: 'ترجمة الشاشات',
-        color: '#0E79AA',
+        color: '#0E78AA',
         href: '/accounting-settings/translation/translate-screens'
       }
     ]
@@ -234,28 +234,28 @@ export const accountingModules: ModuleWithChildren[] = [
     key: 'create',
     icon: '',
     label: 'إنشاءات الحسابات',
-    color: '#0E79AA',
+    color: '#0E78AA',
     children: [
       {
         key: 'definitions',
         icon: '',
         label: 'التعريفات',
-        color: '#0E79AA',
+        color: '#0E78AA',
         children: [
-          { key: 'periods', icon: '↻', label: 'الفترات المحاسبية', color: '#0E79AA', href: '/accounting/create/periods' },
-          { key: 'currencies', icon: '💱', label: 'تعريف العملات', color: '#0E79AA', href: '/accounting/create/currencies' },
+          { key: 'periods', icon: '↻', label: 'الفترات المحاسبية', color: '#0E78AA', href: '/accounting/create/periods' },
+          { key: 'currencies', icon: '💱', label: 'تعريف العملات', color: '#0E78AA', href: '/accounting/create/currencies' },
         ],
       },
       {
         key: 'guide',
         icon: '📖',
         label: 'الدليل',
-        color: '#0E79AA',
+        color: '#0E78AA',
         children: [
-          { key: 'accounts-guide', icon: '📚', label: 'دليل الحسابات', color: '#0E79AA' , href: '/accounting/chart-of-accounts' },
-          { key: 'customers-suppliers-guide', icon: '👥', label: 'دليل العملاء والموردين', color: '#0E79AA', href: '/accounting/guide/customers-suppliers' },
-          { key: 'cost-centers-guide', icon: '📊', label: 'دليل مراكز التكلفة', color: '#0E79AA' , href: '/accounting/guide/cost-center'  },
-          { key: 'representatives-guide', icon: '👥', label: 'دليل المندوبين والتوزيع', color: '#0E79AA' , href: '/accounting/guide/representatives-guide' },
+          { key: 'accounts-guide', icon: '📚', label: 'دليل الحسابات', color: '#0E78AA' , href: '/accounting/chart-of-accounts' },
+          { key: 'customers-suppliers-guide', icon: '👥', label: 'دليل العملاء والموردين', color: '#0E78AA', href: '/accounting/guide/customers-suppliers' },
+          { key: 'cost-centers-guide', icon: '📊', label: 'دليل مراكز التكلفة', color: '#0E78AA' , href: '/accounting/guide/cost-center'  },
+          { key: 'representatives-guide', icon: '👥', label: 'دليل المندوبين والتوزيع', color: '#0E78AA' , href: '/accounting/guide/representatives-guide' },
         ]
       },
     ]
@@ -264,51 +264,52 @@ export const accountingModules: ModuleWithChildren[] = [
     key: 'operations',
     icon: '⤢',
     label: 'عمليات الحسابات',
-    color: '#0E79AA',
+    color: '#0E78AA',
     children: [
       {
         key: 'basic-operations',
         icon: '⚙️',
         label: 'عمليات أساسية',
-        color: '#0E79AA',
+        color: '#0E78AA',
         children: [
-          { key: 'opening-balance', icon: '📝', label: 'الرصيد الإفتتاحي', color: '#0E79AA', href: '/accounting/operations/basic-operations/opening-balance' },
-          { key: 'journal-entry', icon: '📓', label: 'سند قيد يومية', color: '#0E79AA', href: '/accounting/operations/journal-entry' },
-          { key: 'account-movement', icon: '🔄', label: 'نقل حركة حساب', color: '#0E79AA', href: '/accounting/tools/transfer-account' },
-          { key: 'cost-center-movement', icon: '🔄', label: 'نقل حركة مركز التكلفة', color: '#0E79AA', href: '/accounting/tools/transfer-cost-center' },
+          { key: 'opening-balance', icon: '📝', label: 'الرصيد الإفتتاحي', color: '#0E78AA', href: '/accounting/operations/basic-operations/opening-balance' },
+          { key: 'opening-securities', icon: '📄', label: 'أوراق مالية سابقة', color: '#0E78AA', href: '/accounting/operations/basic-operations/opening-securities' },
+          { key: 'journal-entry', icon: '📓', label: 'سند قيد يومية', color: '#0E78AA', href: '/accounting/operations/journal-entry' },
+          { key: 'account-movement', icon: '🔄', label: 'نقل حركة حساب', color: '#0E78AA', href: '/accounting/tools/transfer-account' },
+          { key: 'cost-center-movement', icon: '🔄', label: 'نقل حركة مركز التكلفة', color: '#0E78AA', href: '/accounting/tools/transfer-cost-center' },
         ]
       },
       {
         key: 'treasury',
         icon: '💵',
         label: 'الصندوق',
-        color: '#0E79AA',
+        color: '#0E78AA',
         children: [
-          { key: 'cash-payment', icon: '💸', label: 'أمر صرف نقدية', color: '#0E79AA', href: '/accounting/orders/payment-order/new' },
-          { key: 'cash-receipt', icon: '💰', label: 'أمر توريد نقدية', color: '#0E79AA', href: '/accounting/orders/receipt-order/new' },
-          { key: 'payment-voucher', icon: '📄', label: 'سند صرف نقدية', color: '#0E79AA', href: '/accounting/operations/treasury/payment-voucher' },
-          { key: 'receipt-voucher', icon: '📃', label: 'سند قبض نقدية', color: '#0E79AA', href: '/accounting/operations/treasury/receipt-voucher' },
-          { key: 'temp-receipt', icon: '🧾', label: 'إيصال مؤقت', color: '#0E79AA', href: '/accounting/operations/treasury/temp-receipt' },
+          { key: 'cash-payment', icon: '💸', label: 'أمر صرف نقدية', color: '#0E78AA', href: '/accounting/orders/payment-order/new' },
+          { key: 'cash-receipt', icon: '💰', label: 'أمر توريد نقدية', color: '#0E78AA', href: '/accounting/orders/receipt-order/new' },
+          { key: 'payment-voucher', icon: '📄', label: 'سند صرف نقدية', color: '#0E78AA', href: '/accounting/operations/treasury/payment-voucher' },
+          { key: 'receipt-voucher', icon: '📃', label: 'سند قبض نقدية', color: '#0E78AA', href: '/accounting/operations/treasury/receipt-voucher' },
+          { key: 'temp-receipt', icon: '🧾', label: 'إيصال استلام مؤقت', color: '#0E78AA', href: '/accounting/operations/treasury/temp-receipt' },
         ]
       },
       {
         key: 'banks',
         icon: '🏦',
         label: 'البنوك',
-        color: '#0E79AA',
+        color: '#0E78AA',
         children: [
-          { key: 'bank-discount', icon: '🏦', label: 'إشعار خصم بنكي', color: '#0E79AA', href: '/accounting/operations/banks/bank-discount' },
-          { key: 'bank-addition', icon: '🏦', label: 'إشعار إضافة بنكية', color: '#0E79AA', href: '/accounting/operations/banks/bank-addition' },
+          { key: 'bank-discount', icon: '🏦', label: 'إشعار خصم بنكي', color: '#0E78AA', href: '/accounting/operations/banks/bank-discount' },
+          { key: 'bank-addition', icon: '🏦', label: 'إشعار إضافة بنكية', color: '#0E78AA', href: '/accounting/operations/banks/bank-addition' },
         ]
       },
       {
         key: 'securities',
         icon: '📄',
         label: 'الأوراق المالية',
-        color: '#0E79AA',
+        color: '#0E78AA',
         children: [
-          { key: 'received-paper', icon: '📄', label: 'ورقة مقبوضات', color: '#0E79AA', href: '/accounting/operations/securities/reciept' },
-          { key: 'paid-paper', icon: '📄', label: 'ورقة مدفوعات', color: '#0E79AA', href: '/accounting/operations/securities/payment' },
+          { key: 'received-paper', icon: '📄', label: 'ورقة مقبوضات', color: '#0E78AA', href: '/accounting/operations/securities/receipt' },
+          { key: 'paid-paper', icon: '📄', label: 'ورقة مدفوعات', color: '#0E78AA', href: '/accounting/operations/securities/payment' },
         ]
       },
     ]
@@ -317,72 +318,74 @@ export const accountingModules: ModuleWithChildren[] = [
     key: 'reports',
     icon: '',
     label: 'تقارير الحسابات',
-    color: '#0E79AA',
+    color: '#0E78AA',
     children: [
       {
         key: 'ledgers',
         icon: '📒',
         label: 'دفاتر',
-        color: '#0E79AA',
+        color: '#0E78AA',
         children: [
-          { key: 'general-ledger', icon: '📗', label: 'دفتر الاستاذ', color: '#0E79AA', href: '/accounting/account-reports/books/daftar-ostaz' },
-          { key: 'daily-journal', icon: '📘', label: 'دفتر اليومية', color: '#0E79AA', href: '/accounting/account-reports/books/journal-book' },
-          { key: 'cost-center-ledger', icon: '📙', label: 'دفتر استاذ مركز تكلفة', color: '#0E79AA', href: '/accounting/account-reports/books/cost-center-ledger' },
+          { key: 'general-ledger', icon: '📗', label: 'دفتر الاستاذ', color: '#0E78AA', href: '/accounting/account-reports/books/daftar-ostaz' },
+          { key: 'daily-journal', icon: '📘', label: 'دفتر اليومية', color: '#0E78AA', href: '/accounting/account-reports/books/journal-book' },
+          { key: 'cost-center-ledger', icon: '📙', label: 'دفتر استاذ مركز تكلفة', color: '#0E78AA', href: '/accounting/account-reports/books/cost-center-ledger' },
         ]
       },
       {
         key: 'analysis',
         icon: '📈',
         label: 'الأداء والتحليل',
-        color: '#0E79AA',
+        color: '#0E78AA',
         children: [
-          { key: 'trading-account', icon: '💹', label: 'حساب المتاجرة', color: '#0E79AA' , href: '/accounting/account-reports/analysis/trading-account'},
-          { key: 'profit-loss', icon: '📊', label: 'حساب الارباح و الخسائر', color: '#0E79AA' , href: '/accounting/account-reports/analysis/profit-loss'},
-          { key: 'expenses-analysis', icon: '📉', label: 'تحليل المصروفات المؤيدة و الغير مؤيدة', color: '#0E79AA' , href: '/accounting/account-reports/analysis/expenses-analysis'},
-          { key: 'operations-analysis', icon: '📋', label: 'تحليل العمليات المراجعة والغير المراجعة', color: '#0E79AA' , href: '/accounting/account-reports/analysis/operations-analysis'},
-          { key: 'income-statement', icon: '📑', label: 'قائمة الدخل', color: '#0E79AA' , href: '/accounting/account-reports/analysis/income-statement'},
+          { key: 'trading-account', icon: '💹', label: 'حساب المتاجرة', color: '#0E78AA' , href: '/accounting/account-reports/analysis/trading-account'},
+          { key: 'profit-loss', icon: '📊', label: 'حساب الارباح و الخسائر', color: '#0E78AA' , href: '/accounting/account-reports/analysis/profit-loss'},
+          { key: 'expenses-analysis', icon: '📉', label: 'تحليل المصروفات المؤيدة و الغير مؤيدة', color: '#0E78AA' , href: '/accounting/account-reports/analysis/expenses-analysis'},
+          { key: 'income-statement', icon: '📑', label: 'قائمة الدخل', color: '#0E78AA' , href: '/accounting/account-reports/analysis/income-statement'},
+          { key: 'monthly-performance', icon: '✨', label: 'الأداء المالي الشهري', color: '#0E78AA' , href: '/accounting/account-reports/analysis/monthly-performance'},
+          { key: 'cost-center-profitability', icon: '🏛️', label: 'ربحية مراكز التكلفة', color: '#0E78AA' , href: '/accounting/account-reports/analysis/cost-center-profitability'},
         ]
       },
       {
         key: 'balances',
         icon: '⚖️',
         label: 'موازين',
-        color: '#0E79AA',
+        color: '#0E78AA',
         children: [
-          { key: 'review-balance', icon: '📊', label: 'ميزان المراجعة', color: '#0E79AA' , href: '/accounting/account-reports/balances/review-balance' },
-          { key: 'monthly-review-balance', icon: '📅', label: 'ميزان المراجعة الشهري', color: '#0E79AA' , href: '/accounting/account-reports/balances/monthly-review-balance' },
-          { key: 'budget', icon: '💼', label: 'الميزانية', color: '#0E79AA' , href: '/accounting/account-reports/balances/budget'},
-          { key: 'accounts-balance', icon: '📈', label: 'موازنة الحسابات', color: '#0E79AA' , href: '/accounting/account-reports/balances/accounts-balance'},
-          { key: 'cost-centers-balancee', icon: '📉', label: 'ميزان مراجعة مراكز التكلفة', color: '#0E79AA' , href: '/accounting/account-reports/balances/cost-center-balancee'},
-          { key: 'cost-centers-balance', icon: '📉', label: 'ميزان  مراكز التكلفة', color: '#0E79AA' , href: '/accounting/account-reports/balances/cost-centers-balance'},
+          { key: 'review-balance', icon: '📊', label: 'ميزان المراجعة', color: '#0E78AA' , href: '/accounting/account-reports/balances/review-balance' },
+          { key: 'monthly-review-balance', icon: '📅', label: 'ميزان المراجعة الشهري', color: '#0E78AA' , href: '/accounting/account-reports/balances/monthly-review-balance' },
+          { key: 'budget', icon: '💼', label: 'موازنة الحسابات', color: '#0E78AA' , href: '/accounting/account-reports/balances/budget'},
+          { key: 'cost-centers-balance', icon: '📉', label: 'موازنة مراكز التكلفة', color: '#0E78AA' , href: '/accounting/account-reports/balances/cost-centers-balance'},
+          { key: 'accounts-balance', icon: '📈', label: 'المركز المالي', color: '#0E78AA' , href: '/accounting/account-reports/balances/accounts-balance'},
+          { key: 'cost-centers-balancee', icon: '📉', label: 'ميزان مراجعة مراكز التكلفة', color: '#0E78AA' , href: '/accounting/account-reports/balances/cost-center-balance'},
         ]
       },
       {
         key: 'financial-position',
         icon: '💰',
         label: 'الرصيد والمركز المالي',
-        color: '#0E79AA',
+        color: '#0E78AA',
         children: [
-          { key: 'accounts-balances', icon: '💳', label: 'أرصدة الحسابات', color: '#0E79AA', href: '/accounting/account-reports/credit/account-balances' },
-          { key: 'suppliers-balances', icon: '🏭', label: 'أرصدة الموردين لمراكز التكلفة عرضي', color: '#0E79AA' , href: '/accounting/account-reports/credit/suppliers-balances'},
-          { key: 'financial-position-statement', icon: '📊', label: 'قائمة المركز المالي', color: '#0E79AA' , href: '/accounting/account-reports/credit/financial-position-statement'},
-          { key: 'financial-papers', icon: '📜', label: 'تقارير الأوراق المالية', color: '#0E79AA' , href: '/accounting/account-reports/credit/financial-papers'},
-          { key: 'treasury-collections', icon: '💰', label: 'تقرير التحصيلات الخزنية لأوراق الدفع و القبض', color: '#0E79AA' , href: '/accounting/account-reports/credit/treasury-collections'},
-          { key: 'safe', icon: '💰', label: 'تقارير الخزينة ', color: '#0E79AA' , href: '/accounting/account-reports/credit/safe'}
+          { key: 'accounts-balances', icon: '💳', label: 'أرصدة الحسابات', color: '#0E78AA', href: '/accounting/account-reports/credit/account-balances' },
+          { key: 'aged-receivables', icon: '📆', label: 'أعمار الذمم المدينة', color: '#0E78AA', href: '/accounting/account-reports/credit/aged-receivables' },
+          { key: 'aged-payables', icon: '📆', label: 'أعمار الذمم الدائنة', color: '#0E78AA', href: '/accounting/account-reports/credit/aged-payables' },
+          { key: 'financial-position-statement', icon: '📊', label: 'الميزانية', color: '#0E78AA' , href: '/accounting/account-reports/credit/financial-position-statement'},
+          { key: 'financial-papers', icon: '📜', label: 'تقارير الأوراق المالية', color: '#0E78AA' , href: '/accounting/account-reports/credit/financial-papers'},
+          { key: 'treasury-collections', icon: '💰', label: 'تقرير التحصيلات الخزنية لأوراق الدفع و القبض', color: '#0E78AA' , href: '/accounting/account-reports/credit/treasury-collections'},
+          { key: 'safe', icon: '💰', label: 'تقارير الخزينة ', color: '#0E78AA' , href: '/accounting/account-reports/credit/safe'}
         ]
       },
       {
         key: 'movement',
         icon: '🔄',
         label: 'الحركة والتدفقات',
-        color: '#0E79AA',
+        color: '#0E78AA',
         children: [
-          { key: 'bank-movement', icon: '🏦', label: 'كشف حركة البنك', color: '#0E79AA' , href: '/accounting/account-reports/moves/bank-movement' },
-          { key: 'cash-flow', icon: '💰', label: 'تدفق الأموال بالخزينة والبنك', color: '#0E79AA' , href: '/accounting/account-reports/moves/cash-flow'},
-          { key: 'financial-papers-flow', icon: '📜', label: 'تدفقات الأوراق المالية', color: '#0E79AA' , href: '/accounting/account-reports/moves/financial-papers-flow'},
-          { key: 'temp-receipts-report', icon: '🧾', label: 'تقرير الإيصالات المؤقتة', color: '#0E79AA' , href: '/accounting/account-reports/moves/temp-receipts-report'},
-          { key: 'unposted-operations', icon: '📋', label: 'تقارير العمليات الغير مرحلة', color: '#0E79AA' , href: '/accounting/account-reports/moves/unposted-operations'},
-          { key: 'cancelled-operations', icon: '📋', label: 'تقارير العمليات  الملغاة', color: '#0E79AA' , href: '/accounting/account-reports/moves/cancelled-operations'},
+          { key: 'bank-movement', icon: '🏦', label: 'كشف حركة البنك', color: '#0E78AA' , href: '/accounting/account-reports/moves/bank-movement' },
+          { key: 'cash-flow', icon: '💰', label: 'تدفق الأموال بالخزينة والبنك', color: '#0E78AA' , href: '/accounting/account-reports/moves/cash-flow'},
+          { key: 'financial-papers-flow', icon: '📜', label: 'تدفقات الأوراق المالية', color: '#0E78AA' , href: '/accounting/account-reports/moves/financial-papers-flow'},
+          { key: 'temp-receipts-report', icon: '🧾', label: 'تقرير الإيصالات المؤقتة', color: '#0E78AA' , href: '/accounting/account-reports/moves/temp-receipts-report'},
+          { key: 'unposted-operations', icon: '📋', label: 'تقارير العمليات الغير مرحلة', color: '#0E78AA' , href: '/accounting/account-reports/moves/unposted-operations'},
+          { key: 'cancelled-operations', icon: '📋', label: 'تقارير العمليات  الملغاة', color: '#0E78AA' , href: '/accounting/account-reports/moves/cancelled-operations'},
         ]
       }
     ]

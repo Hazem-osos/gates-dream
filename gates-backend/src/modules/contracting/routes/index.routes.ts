@@ -8,6 +8,8 @@ import technicalOfficeRoutes from './technical-office.routes';
 import clientBillingRoutes from './client-billing.routes';
 import lettersOfGuaranteeRoutes from './letters-of-guarantee.routes';
 import costControlRoutes from './cost-control.routes';
+import executionRoutes from './execution.routes';
+import tenderRoutes from './tender.routes';
 import dashboardRoutes from './dashboard.routes';
 import excelRoutes from './excel.routes';
 
@@ -24,5 +26,7 @@ router.use('/technical-office', technicalOfficeRoutes);
 router.use('/client-billing', clientBillingRoutes);
 router.use('/letters-of-guarantee', lettersOfGuaranteeRoutes);
 router.use('/cost-control', costControlRoutes);
+router.use('/execution', executionRoutes);
+router.use('/tenders', tenderRoutes);
 
 export default router;

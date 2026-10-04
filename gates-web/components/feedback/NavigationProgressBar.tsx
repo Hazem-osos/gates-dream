@@ -96,11 +96,11 @@ export function NavigationProgressBar() {
       aria-valuenow={Math.round(progress)}
     >
       <div
-        className="h-[2.5px] origin-right bg-[#0E79AA] transition-[width,opacity] duration-300 ease-in-out"
+        className="h-[2.5px] origin-right bg-[#0E78AA] transition-[width,opacity] duration-300 ease-in-out"
         style={{
           width: `${progress}%`,
           opacity: visible ? 1 : 0,
-          boxShadow: '0 0 10px #0E79AA, 0 0 5px #0E79AA',
+          boxShadow: '0 0 10px #0E78AA, 0 0 5px #0E78AA',
         }}
       />
     </div>

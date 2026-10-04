@@ -160,7 +160,7 @@ function asVisualization(value: unknown): AiVisualizationPayload | null {
     .map((item, index) => ({
       key: String(item.key ?? ''),
       nameAr: String(item.nameAr ?? item.key ?? ''),
-      color: typeof item.color === 'string' ? item.color : ['#0E79AA', '#CB5B53', '#D4A017', '#5B8C5A'][index % 4],
+      color: typeof item.color === 'string' ? item.color : ['#0E78AA', '#CB5B53', '#D4A017', '#5B8C5A'][index % 4],
     }))
     .filter((item): item is AiVisualizationDataKey => Boolean(item.key));
   return {

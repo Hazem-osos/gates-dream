@@ -55,6 +55,7 @@ import {
   postJournalAfterSave,
   useRepostAfterUnpost,
 } from '@/lib/accounting/ensure-posted-after-save';
+import { resolvePostedFlag } from '@/lib/documents/posting-trust';
 import { useCompanyBaseCurrency } from '@/lib/hooks/useCompanyBaseCurrency';
 
 const JournalEntriesListSection = dynamic(
@@ -68,6 +69,34 @@ const JournalEntriesListSection = dynamic(
 const OPENING_ENTRY_TYPE = 'OPENING_BALANCE';
 const OPENING_HREF = '/accounting/operations/basic-operations/opening-balance';
 const INVENTORY_SYNC_DESCRIPTION = 'بضاعة أول المدة - محدثة آلياً من كشف المخزون';
+const PAPERS_SYNC_PREFIX = 'أوراق مالية سابقة';
+
+function openingPaperJournalLines(
+  groups: Array<{ accountId: string; direction: 'RECEIPT' | 'PAYMENT'; amount: number }>,
+  currencyId?: string,
+  exchangeRate = 1
+): EditableJournalLine[] {
+  return groups.map((group) => ({
+    accountId: group.accountId,
+    description:
+      group.direction === 'PAYMENT'
+        ? `${PAPERS_SYNC_PREFIX} - أوراق دفع`
+        : `${PAPERS_SYNC_PREFIX} - أوراق قبض`,
+    debit: group.direction === 'PAYMENT' ? 0 : Number(group.amount) || 0,
+    credit: group.direction === 'PAYMENT' ? Number(group.amount) || 0 : 0,
+    currencyId,
+    exchangeRate,
+    costCenterId: '',
+  }));
+}
+
+function withoutOpeningPaperLines(current: EditableJournalLine[]): EditableJournalLine[] {
+  return current.filter(
+    (line) =>
+      !(line.description || '').startsWith(PAPERS_SYNC_PREFIX) &&
+      (line.accountId || Number(line.debit) || Number(line.credit))
+  );
+}
 
 type OpeningBalanceMeta = {
   openingDate: string;
@@ -77,12 +106,33 @@ type OpeningBalanceMeta = {
   isCancelled?: boolean;
 };
 
+type OpeningPaperGroup = {
+  accountId: string;
+  direction: 'RECEIPT' | 'PAYMENT';
+  amount: number;
+  count: number;
+};
+
+type OpeningPapersTotal = {
+  totalAmount: number;
+  papersCount: number;
+  lines: OpeningPaperGroup[];
+};
+
+type OpeningStockValuationGroup = {
+  warehouseId: string;
+  warehouseName: string;
+  accountId: string;
+  valuation: number;
+};
+
 type OpeningStockValuation = {
   totalValuation: number;
   currency: string;
   itemsCount: number;
   warehousesCount: number;
   defaultStockAccountId: string | null;
+  groups?: OpeningStockValuationGroup[];
 };
 
 type JournalEntryDetail = {
@@ -117,19 +167,6 @@ function defaultEntryNumber() {
   return `OB-${new Date().getFullYear()}`;
 }
 
-function isInventoryOpeningAccount(
-  accountId: string,
-  defaultStockAccountId: string | null,
-  accounts: Array<{ id: string; code: string; arabicName: string }>
-) {
-  if (defaultStockAccountId && accountId === defaultStockAccountId) return true;
-  const account = accounts.find((a) => a.id === accountId);
-  if (!account) return false;
-  const code = (account.code || '').replace(/\s/g, '');
-  const name = account.arabicName || '';
-  return code.startsWith('123') || name.includes('بضاعة أول المدة') || name.includes('مخزون');
-}
-
 export default function OpeningBalancePage() {
   return (
     <DocumentModeProvider>
@@ -147,6 +184,8 @@ function OpeningBalancePageInner() {
   const { profile: companyProfile } = useCompanyPrintProfile();
 
   const [lines, setLines] = useState<EditableJournalLine[]>([]);
+  const linesRef = useRef(lines);
+  linesRef.current = lines;
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [showList, setShowList] = useState(false);
@@ -154,6 +193,7 @@ function OpeningBalancePageInner() {
     'OPENING_BALANCE'
   );
   const [isSyncingInventory, setIsSyncingInventory] = useState(false);
+  const [isSyncingPapers, setIsSyncingPapers] = useState(false);
   const [savedJournalEntryId, setSavedJournalEntryId] = useState<string | null>(
     () => journalEntryIdFromUrl?.trim() || null
   );
@@ -161,10 +201,12 @@ function OpeningBalancePageInner() {
   const [isCancelled, setIsCancelled] = useState(false);
   const [loadedVersion, setLoadedVersion] = useState<number | undefined>(undefined);
   const postAfterSaveRef = useRef(false);
+  const draftSaveRef = useRef(false);
   const { markUnpostedForEdit, consumeShouldRepost, resetKeepPosted } = useRepostAfterUnpost();
 
   const {
     handleSubmit,
+    getValues,
     reset,
     watch,
     setValue,
@@ -266,7 +308,6 @@ function OpeningBalancePageInner() {
 
   const skipUrlHydrateRef = useRef(false);
   const lastHydratedKeyRef = useRef<string | null>(null);
-  const unpostedHoldoffRef = useRef<{ id: string; until: number } | null>(null);
 
   useEffect(() => {
     const id = journalEntryIdFromUrl?.trim();
@@ -309,15 +350,7 @@ function OpeningBalancePageInner() {
 
   useEffect(() => {
     if (!loadedJournalEntry || currencies.length === 0) return;
-    const posted = Boolean(loadedJournalEntry.isPosted);
-    const holdoff = unpostedHoldoffRef.current;
-    if (posted && holdoff && holdoff.id === loadedJournalEntry.id && Date.now() < holdoff.until) {
-      setIsPosted(false);
-      return;
-    }
-    if (!posted && holdoff?.id === loadedJournalEntry.id) {
-      unpostedHoldoffRef.current = null;
-    }
+    const posted = resolvePostedFlag(loadedJournalEntry);
     const hydrateKey = `${loadedJournalEntry.id}:${loadedJournalEntry.version ?? 0}:${posted ? 1 : 0}:${loadedJournalEntry.isCancelled ? 1 : 0}`;
     if (lastHydratedKeyRef.current === hydrateKey) return;
     lastHydratedKeyRef.current = hydrateKey;
@@ -404,6 +437,11 @@ function OpeningBalancePageInner() {
         invalidateQuery(['opening-balance-meta']);
         clearDraft();
         if (id) openEntry(id);
+        if (draftSaveRef.current) {
+          draftSaveRef.current = false;
+          setSuccess('تم حفظ القيد الافتتاحي كمسودة. تقدر تكمل وبعدين تحفظه عادياً.');
+          return;
+        }
         if (postAfterSaveRef.current && id) {
           postAfterSaveRef.current = false;
           apiClient
@@ -419,7 +457,11 @@ function OpeningBalancePageInner() {
         }
         setSuccess('تم حفظ القيد الافتتاحي');
       },
-      onError: (err: ApiError) => setError(err.message || 'حدث خطأ أثناء الحفظ'),
+      onError: (err: ApiError) => {
+        draftSaveRef.current = false;
+        postAfterSaveRef.current = false;
+        setError(err.message || 'حدث خطأ أثناء الحفظ');
+      },
     }
   );
 
@@ -435,6 +477,11 @@ function OpeningBalancePageInner() {
         invalidateQuery(['opening-balance-meta']);
         invalidateQuery(['journal-entry', savedJournalEntryId]);
         const id = savedJournalEntryId;
+        if (draftSaveRef.current) {
+          draftSaveRef.current = false;
+          setSuccess('تم حفظ القيد الافتتاحي كمسودة. تقدر تكمل وبعدين تحفظه عادياً.');
+          return;
+        }
         if (consumeShouldRepost() && id) {
           void postJournalAfterSave(id)
             .then((result) => {
@@ -443,7 +490,6 @@ function OpeningBalancePageInner() {
               invalidateQuery(['journal-entry', id]);
               invalidateTreasuryFundBalances(invalidateQuery);
               if (result === 'posted') {
-                unpostedHoldoffRef.current = null;
                 setIsPosted(true);
                 lockToView();
                 setSuccess('تم حفظ التعديلات وترحيل القيد');
@@ -459,7 +505,10 @@ function OpeningBalancePageInner() {
         }
         setSuccess('تم حفظ تعديلات الرصيد الافتتاحي');
       },
-      onError: (err: ApiError) => setError(err.message || 'حدث خطأ أثناء التحديث'),
+      onError: (err: ApiError) => {
+        draftSaveRef.current = false;
+        setError(err.message || 'حدث خطأ أثناء التحديث');
+      },
     }
   );
 
@@ -487,12 +536,12 @@ function OpeningBalancePageInner() {
       : '/accounting/journal-entries',
     'POST',
     {
-      onSuccess: () => {
+      onSuccess: (res) => {
         const id = savedJournalEntryId;
+        const row = (res as { data?: { version?: number } } | undefined)?.data;
         setIsPosted(false);
         if (id) {
-          unpostedHoldoffRef.current = { id, until: Date.now() + 15_000 };
-          lastHydratedKeyRef.current = `${id}:${loadedVersion ?? 0}:0`;
+          lastHydratedKeyRef.current = `${id}:${row?.version ?? loadedVersion ?? 0}:0:0`;
         }
         markUnpostedForEdit();
         setSuccess('تم فك ترحيل القيد');
@@ -515,7 +564,7 @@ function OpeningBalancePageInner() {
       voucherNumber: values.entryNumber || undefined,
       currencyCode,
       entryType: OPENING_ENTRY_TYPE,
-      lines: lines
+      lines: linesRef.current
         .filter((line) => line.accountId || Number(line.debit) || Number(line.credit))
         .map((line, index) => ({
         accountId: line.accountId,
@@ -562,9 +611,33 @@ function OpeningBalancePageInner() {
     return true;
   };
 
+  const usableLines = () =>
+    lines.filter((line) => {
+      const debit = Number(line.debit) || 0;
+      const credit = Number(line.credit) || 0;
+      return Boolean(line.accountId) && (debit > 0) !== (credit > 0);
+    });
+
+  const validateDraftLines = () => {
+    const filled = usableLines();
+    if (filled.length < 1) {
+      setError('أدخل سطراً واحداً على الأقل بحساب ومبلغ، ثم احفظ المسودة');
+      return false;
+    }
+    for (let i = 0; i < filled.length; i += 1) {
+      const parsed = journalLineSchema.safeParse(filled[i]);
+      if (!parsed.success) {
+        setError(`سطر ${i + 1}: ${parsed.error.issues[0]?.message || 'بيانات غير مكتملة'}`);
+        return false;
+      }
+    }
+    return true;
+  };
+
   const onSave: SubmitHandler<OpeningBalanceHeaderInput> = (values) => {
     setError('');
     setSuccess('');
+    draftSaveRef.current = false;
     if (isPosted) {
       postAfterSaveRef.current = false;
       setError('فك الترحيل أولاً من قائمة (...) حتى يمكن التعديل');
@@ -582,14 +655,76 @@ function OpeningBalancePageInner() {
     journalMutation.mutate(body);
   };
 
-  const handlePost = () => {
+  const onSaveAsDraft: SubmitHandler<OpeningBalanceHeaderInput> = (values) => {
+    setError('');
+    setSuccess('');
+    postAfterSaveRef.current = false;
+    if (isPosted) {
+      draftSaveRef.current = false;
+      setError('فك الترحيل أولاً من قائمة (...) حتى يمكن التعديل');
+      return;
+    }
+    if (!validateDraftLines()) {
+      draftSaveRef.current = false;
+      return;
+    }
+    draftSaveRef.current = true;
+    const body = {
+      ...buildRequestBody(values),
+      lines: usableLines().map((line, index) => ({
+        accountId: line.accountId,
+        description: line.description || undefined,
+        debit: line.debit || 0,
+        credit: line.credit || 0,
+        lineOrder: index + 1,
+        exchangeRate: line.exchangeRate || 1,
+        currencyCode: currencies.find((c) => c.id === line.currencyId)?.code,
+        debitBase: toBaseAmount(line.debit, line.exchangeRate),
+        creditBase: toBaseAmount(line.credit, line.exchangeRate),
+        costCenterId: line.costCenterId || undefined,
+      })),
+      saveAsDraft: true,
+    };
+    if (savedJournalEntryId) {
+      journalUpdateMutation.mutate({ ...body, expectedVersion: loadedVersion });
+      return;
+    }
+    journalMutation.mutate(body);
+  };
+
+  const handlePost = async () => {
     setError('');
     if (isCancelled) {
       setError('القيد ملغي. استرجعه من قائمة (...) قبل الترحيل.');
       return;
     }
-    if (Math.abs(totals.diff) > 0.01) {
-      const message = 'يجب أن يكون القيد متزناً للترحيل';
+    let nextLines = linesRef.current;
+    try {
+      const res = await apiClient.get<OpeningPapersTotal>('/accounting/securities-receipts/opening-total');
+      const groups = res.data?.lines ?? [];
+      nextLines = [
+        ...withoutOpeningPaperLines(linesRef.current),
+        ...openingPaperJournalLines(
+          groups,
+          defaultCurrency?.id,
+          Number(defaultCurrency?.exchangeRate) || 1
+        ),
+      ];
+      linesRef.current = nextLines;
+      setLines(nextLines);
+    } catch (err) {
+      const apiErr = err as ApiError;
+      setError(apiErr.message || 'تعذر تحديث شيكات الأوراق السابقة قبل الترحيل');
+      return;
+    }
+    const filled = nextLines.filter(
+      (line) => line.accountId || Number(line.debit) || Number(line.credit)
+    );
+    const debit = filled.reduce((sum, line) => sum + toBaseAmount(line.debit, line.exchangeRate), 0);
+    const credit = filled.reduce((sum, line) => sum + toBaseAmount(line.credit, line.exchangeRate), 0);
+    if (Math.abs(debit - credit) > 0.01) {
+      const message =
+        'اتحدثت شيكات الأوراق السابقة والقيد بقى غير متزن. ظبّط الطرف المقابل ثم رحّل تاني.';
       setError(message);
       toast.error('القيد غير متزن', { id: 'gates-form-error', description: message, duration: 6000 });
       return;
@@ -602,7 +737,25 @@ function OpeningBalancePageInner() {
       })();
       return;
     }
-    postJournalMutation.mutate({});
+    try {
+      const body = buildRequestBody(getValues());
+      const updated = await apiClient.put<JournalEntryDetail>(
+        `/accounting/journal-entries/${savedJournalEntryId}`,
+        { ...body, expectedVersion: loadedVersion }
+      );
+      if (updated.data?.version != null) setLoadedVersion(updated.data.version);
+      await apiClient.post(`/accounting/journal-entries/${savedJournalEntryId}/post`, {});
+      setIsPosted(true);
+      lockToView();
+      setSuccess('تم ترحيل قيد الرصيد الافتتاحي بعد تحديث شيكات الأوراق السابقة');
+      invalidateQuery(['journal-entries']);
+      invalidateQuery(['opening-balance-meta']);
+      invalidateQuery(['journal-entry', savedJournalEntryId]);
+      invalidateTreasuryFundBalances(invalidateQuery);
+    } catch (err) {
+      const apiErr = err as ApiError;
+      setError(apiErr.message || 'تعذر ترحيل قيد الرصيد الافتتاحي');
+    }
   };
 
   const startNewEntry = () => {
@@ -668,38 +821,69 @@ function OpeningBalancePageInner() {
         return;
       }
 
-      const nextLines = [...lines];
-      const existingIndex = nextLines.findIndex((line) =>
-        isInventoryOpeningAccount(line.accountId, data.defaultStockAccountId, accounts)
+      const groups =
+        data.groups?.filter((row) => row.accountId && Number(row.valuation) > 0) ?? [];
+      if (!groups.length) {
+        setError('لا توجد بضاعة أول المدة مرحّلة لأي مخزن.');
+        return;
+      }
+
+      const withoutInventorySync = lines.filter(
+        (line) => !(line.description || '').startsWith(INVENTORY_SYNC_DESCRIPTION)
       );
-      const patched: EditableJournalLine = {
-        accountId: data.defaultStockAccountId,
-        description: INVENTORY_SYNC_DESCRIPTION,
-        debit: Number(data.totalValuation) || 0,
+      const imported: EditableJournalLine[] = groups.map((group) => ({
+        accountId: group.accountId,
+        description: `${INVENTORY_SYNC_DESCRIPTION} — ${group.warehouseName}`,
+        debit: Number(group.valuation) || 0,
         credit: 0,
         currencyId: defaultCurrency?.id,
         exchangeRate: Number(defaultCurrency?.exchangeRate) || 1,
         costCenterId: '',
-      };
-
-      if (existingIndex >= 0) {
-        nextLines[existingIndex] = {
-          ...nextLines[existingIndex],
-          ...patched,
-          accountId: nextLines[existingIndex].accountId || patched.accountId,
-        };
-      } else {
-        nextLines.push(patched);
-      }
-      setLines(nextLines);
+      }));
+      setLines([...withoutInventorySync, ...imported]);
       setSuccess(
-        `تم تحديث قيمة بضاعة أول المدة بنجاح: ${Number(data.totalValuation).toLocaleString('ar-EG')} ${companyBaseCurrency} (${data.itemsCount} صنف)`
+        `تم تحميل بضاعة أول المدة على ${groups.length} طرف (مخزن): ${Number(data.totalValuation).toLocaleString('ar-EG')} ${companyBaseCurrency} (${data.itemsCount} صنف)`
       );
     } catch (err) {
       const apiErr = err as ApiError;
       setError(apiErr.message || 'تعذر تحديث بضاعة أول المدة');
     } finally {
       setIsSyncingInventory(false);
+    }
+  };
+
+  const handleSyncOpeningPapers = async () => {
+    if (isPosted || isReadOnly) return;
+    setIsSyncingPapers(true);
+    setError('');
+    try {
+      const res = await apiClient.get<OpeningPapersTotal>('/accounting/securities-receipts/opening-total');
+      const data = res.data;
+      if (!data) {
+        setError('تعذر قراءة قيمة الأوراق المالية السابقة');
+        return;
+      }
+      if (!data.papersCount || !data.lines?.length) {
+        setError('لا توجد شيكات في شاشة الأوراق المالية السابقة.');
+        return;
+      }
+
+      const imported = openingPaperJournalLines(
+        data.lines,
+        defaultCurrency?.id,
+        Number(defaultCurrency?.exchangeRate) || 1
+      );
+      const nextLines = [...withoutOpeningPaperLines(linesRef.current), ...imported];
+      linesRef.current = nextLines;
+      setLines(nextLines);
+      setSuccess(
+        `تم استيراد الأوراق المالية السابقة على ${imported.length} حساب: ${Number(data.totalAmount).toLocaleString('ar-EG')} ${companyBaseCurrency} (${data.papersCount} شيك)`
+      );
+    } catch (err) {
+      const apiErr = err as ApiError;
+      setError(apiErr.message || 'تعذر تحميل الأوراق المالية السابقة');
+    } finally {
+      setIsSyncingPapers(false);
     }
   };
 
@@ -767,9 +951,12 @@ function OpeningBalancePageInner() {
         docNumber={entryNumberW || defaultEntryNumber()}
         isPosted={isPosted}
         isSyncingInventory={isSyncingInventory}
+        isSyncingPapers={isSyncingPapers}
         canSync={!isReadOnly && !isPosted}
         onSyncOpeningInventory={() => void handleSyncOpeningInventory()}
+        onSyncOpeningPapers={() => void handleSyncOpeningPapers()}
         onSaveDraft={() => void handleSubmit(onSave, onFieldErrors(setError))()}
+        onSaveAsDraft={() => void handleSubmit(onSaveAsDraft, onFieldErrors(setError))()}
         savePending={financialBusy}
         canSave={!isReadOnly && !isPosted && !financialBusy}
         onBrowseList={() => setShowList(true)}

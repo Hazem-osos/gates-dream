@@ -1,0 +1,30 @@
+---
+description: Gates performance work - evidence first, baseline measurements, report and large-list review, no speculative optimization. Use for reports, heavy queries, large lists, exports/imports, indexes, caching or any optimization task.
+globs: gates-backend/src/modules/**/services/**/*report*.ts,gates-backend/src/modules/**/routes/**/*report*.ts,gates-backend/src/modules/analytics/**,gates-backend/src/modules/database-tools/**,gates-web/components/report/**,gates-web/lib/reportEngine/**
+alwaysApply: false
+---
+
+# Performance
+
+## Evidence first
+- Measure before any major optimization: new indexes on large tables, caching layers, pagination of accounting reports, rewrites of core report queries, pool changes. No speculative optimization.
+- Use the canonical plan: @docs/architecture/PERFORMANCE_BASELINE_PLAN.md (dataset tiers, workflows, p50/p95/p99, query count and duration, response size, CPU, memory, connections, lock waits, error rate).
+- Capture `EXPLAIN ANALYZE` for the queries you change, before and after.
+- Do not call something scalable from code reading alone.
+- Small obviously safe fixes (adding `select`, bounding a query behind a paged screen) do not need a full baseline.
+
+## Reports over growing data
+Check: bounded date range, server-side filtering, pagination or streaming, aggregation strategy (period balances vs live journal sums), supporting indexes, memory, timeout. Never rebuild caches inside a report request. Never change accounting meaning to make a report faster.
+
+Known hotspots (see ARCHITECTURE_AUDIT.md): unbounded account and cost-center ledgers with a per-row subquery (H-05), trial balance rebuild in request (H-06), whole-dataset reports paginated in memory and per-bank-per-month loops (M-08).
+
+## Caching
+- Do not cache to hide a slow query; find the cause first.
+- A new cache defines source of truth, key (with `companyId`), TTL, invalidation and stale-data consequence, and reuses the existing Redis / query / tenant caches.
+- Posting, balances, stock availability and costing never read from caches.
+
+## Heavy work
+- Company-wide exports, imports, backups and recalculations run as BullMQ jobs, not inside normal requests (audit H-07).
+
+## Connections
+- Pool size is not set explicitly today (audit M-11). Scaling decisions count (API instances + workers) x pool size and are based on measured connections.

@@ -100,7 +100,7 @@ export class TaxPeriodService {
     if (closed) {
       throw new AppError(
         403,
-        `Tax period ${closed.periodNumber} is closed; posting is locked for this date`
+        `فترة الضريبة رقم ${closed.periodNumber} مغلقة — لا يمكن الترحيل في تاريخ هذه الفاتورة.`
       );
     }
   }

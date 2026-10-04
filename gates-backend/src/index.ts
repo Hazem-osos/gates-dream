@@ -126,6 +126,13 @@ const server = app.listen(PORT, '0.0.0.0', () => {
     mqttEnabled: env.MQTT_ENABLED,
     frontendUrl: env.FRONTEND_URL,
   });
+  import('./modules/automation/services/automation-delivery-diagnostics')
+    .then(({ logAutomationDeliveryDiagnostics }) => {
+      logAutomationDeliveryDiagnostics();
+    })
+    .catch((error) => {
+      logger.warn({ error }, 'Failed to report automation delivery diagnostics');
+    });
 });
 
 /**

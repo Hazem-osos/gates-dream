@@ -1,28 +1,8 @@
 'use client';
 
-import { useMemo, useState } from 'react';
-import { ErpDocumentPageHeader } from '@/components/erp/ErpDocumentPageHeader';
-import dynamic from 'next/dynamic';
-import { buildInvoicePrintModelFromApi } from '@/lib/print/buildInvoicePrintModel';
+import { SalesInvoicePageHeader } from '@/components/inventory/sales-invoice/SalesInvoicePageHeader';
 import type { CompanyPrintProfile } from '@/lib/print/types';
 import type { StatusTone } from '@/components/ui/StatusBadge';
-import { WhatsAppShareButton } from '@/components/share/WhatsAppShareButton';
-
-const InvoicePrintActions = dynamic(
-  () =>
-    import('@/app/components/print/InvoicePrintActions').then((m) => ({
-      default: m.InvoicePrintActions,
-    })),
-  { ssr: false }
-);
-
-const ThermalPrintModal = dynamic(
-  () =>
-    import('@/components/printer/ThermalPrintModal').then((m) => ({
-      default: m.ThermalPrintModal,
-    })),
-  { ssr: false }
-);
 
 type Props = {
   invoiceNumber: string;
@@ -45,8 +25,6 @@ type Props = {
   onCollectPayment: () => void;
   onLinkAdvance?: () => void;
   onPaymentHistory: () => void;
-  /** H4 fix: the sanctioned correction path for a posted (incl. approved)
-   * purchase invoice — creates a PURCHASE_RETURN referencing its lines. */
   onCreateReturn?: () => void;
   unpostPending?: boolean;
   deletePending?: boolean;
@@ -54,110 +32,56 @@ type Props = {
   currentId?: string | null;
   onNavigate?: (id: string) => void;
   onEdit?: () => void;
+  journalEntryId?: string | null;
+  journalNumber?: string | null;
+  onPreviewJournal?: () => void;
 };
 
-export function PurchaseInvoicePageHeader({
-  invoiceNumber,
-  statusTone,
-  statusLabel,
-  savePending,
-  postPending,
-  canPost = true,
-  canSave = true,
-  onSaveDraft,
-  onPost,
-  onNew,
-  printInvoice,
-  company,
-  onUnpost,
-  onUnapprove,
-  isApproved,
-  onDelete,
-  onOpenJournal,
-  onCollectPayment,
-  onLinkAdvance,
-  onPaymentHistory,
-  onCreateReturn,
-  unpostPending,
-  deletePending,
-  onBrowseList,
-  currentId,
-  onNavigate,
-  onEdit,
-}: Props) {
-  const printModel = useMemo(() => {
-    if (!printInvoice) return null;
-    return buildInvoicePrintModelFromApi(printInvoice, company);
-  }, [printInvoice, company]);
-  const canThermal = printModel != null && printModel.lines.length > 0;
-  const [thermalOpen, setThermalOpen] = useState(false);
-
+/** Sales invoice header. Purchase only changes the party-side labels. */
+export function PurchaseInvoicePageHeader(props: Props) {
   return (
-    <>
-    <ErpDocumentPageHeader
-      breadcrumbs={[
-        { href: '/inventory', label: 'المخزون' },
-        { label: 'العمليات' },
-        { label: 'فاتورة مشتريات' },
-      ]}
-      title="فاتورة مشتريات"
-      docNumber={invoiceNumber}
-      statusTone={statusTone}
-      statusLabel={statusLabel}
-      savePending={savePending}
-      postPending={postPending}
-      canPost={canPost}
-      canSave={canSave}
-      onSaveDraft={onSaveDraft}
-      onPost={onPost}
-      postLabel="ترحيل الفاتورة"
-      onBrowseList={onBrowseList}
-      browseListLabel="السابق"
+    <SalesInvoicePageHeader
+      invoiceNumber={props.invoiceNumber}
+      statusTone={props.statusTone}
+      statusLabel={props.statusLabel}
+      savePending={props.savePending}
+      postPending={props.postPending}
+      canPost={props.canPost}
+      canSave={props.canSave}
+      onSaveDraft={props.onSaveDraft}
+      onPost={props.onPost}
+      onNewInvoice={props.onNew}
+      printInvoice={props.printInvoice}
+      company={props.company}
+      onUnpost={props.onUnpost}
+      onUnapprove={props.onUnapprove}
+      isApproved={props.isApproved}
+      onDelete={props.onDelete}
+      onOpenJournal={props.onOpenJournal}
+      onCollectPayment={props.onCollectPayment}
+      onLinkAdvance={props.onLinkAdvance}
+      onPaymentHistory={props.onPaymentHistory}
+      onCreateReturn={props.onCreateReturn}
+      unpostPending={props.unpostPending}
+      deletePending={props.deletePending}
+      onBrowseList={props.onBrowseList}
+      currentId={props.currentId}
+      onNavigate={props.onNavigate}
+      onEdit={props.onEdit}
+      journalEntryId={props.journalEntryId}
+      journalNumber={props.journalNumber}
+      onPreviewJournal={props.onPreviewJournal}
       hideStandalonePost
-      navEntity="invoice"
+      title="فاتورة مشتريات"
+      breadcrumbLabel="فاتورة مشتريات"
       invoiceKind="PURCHASE"
-      currentId={currentId}
-      onNavigate={onNavigate}
-      extraActions={
-        <>
-          <InvoicePrintActions invoice={printInvoice} company={company} />
-          {currentId ? <WhatsAppShareButton kind="invoice" invoiceId={currentId} /> : null}
-        </>
-      }
-      standardActions={{
-        hasDocument: Boolean(currentId),
-        isPosted: statusTone === 'success',
-        onNew,
-        newLabel: 'جديد',
-        onEdit,
-        onPost,
-        isApproved,
-        onUnapprove,
-        onUnpost,
-        onThermalPrint: canThermal ? () => setThermalOpen(true) : undefined,
-        onVoid: onDelete,
-        postPending,
-        unpostPending,
-        voidPending: deletePending,
-        extraItems: [
-          { id: 'collect', label: 'سداد / دفع', onClick: onCollectPayment },
-          { id: 'link-advance', label: 'ربط دفعة مقدمة', onClick: onLinkAdvance ?? (() => {}) },
-          { id: 'history', label: 'مدفوعات سابقة', onClick: onPaymentHistory },
-          { id: 'journal', label: 'فتح القيد', onClick: onOpenJournal },
-          ...(onCreateReturn
-            ? [{ id: 'return', label: 'إنشاء مرتجع', onClick: onCreateReturn }]
-            : []),
-        ],
-      }}
+      collectLabel="سداد / دفع"
+      historyLabel="مدفوعات سابقة"
+      deleteLabel="حذف الفاتورة"
+      newDocumentLabel="فاتورة جديدة"
+      postLabel="ترحيل الفاتورة"
       favoriteHref="/inventory/operations/final-purchase-invoice"
       favoriteLabel="فاتورة مشتريات"
     />
-    <ThermalPrintModal
-      open={thermalOpen}
-      onClose={() => setThermalOpen(false)}
-      company={company}
-      invoice={printModel}
-    />
-    </>
   );
 }

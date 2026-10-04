@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { BodyPortal } from '@/components/ui/BodyPortal';
 import { SafeSelect } from '@/app/components/form/SafeSelect';
 
 export type InvoiceCollectPayload = {
@@ -100,8 +101,9 @@ export function InvoiceCollectModal({
   const leftover = Math.max(0, Math.round((remaining - (Number(amount) || 0)) * 100) / 100);
 
   return (
+    <BodyPortal>
     <div
-      className="fixed inset-0 z-[10050] flex items-center justify-center bg-black/40 p-4"
+      className="fixed inset-0 z-[12000] flex items-center justify-center bg-black/40 p-4"
       style={{ direction: 'rtl' }}
       role="dialog"
       aria-modal="true"
@@ -188,5 +190,6 @@ export function InvoiceCollectModal({
         </div>
       </div>
     </div>
+    </BodyPortal>
   );
 }

@@ -18,9 +18,10 @@ import { SmartBatchExpiryCell } from '@/components/invoices/SmartBatchExpiryCell
 import { LineWithholdingTaxCell } from '@/components/invoices/LineWithholdingTaxCell';
 import { ApparelVariantCell } from '@/components/invoices/ApparelVariantCells';
 import { InvoiceLineStockBalanceCell } from '@/components/invoices/InvoiceLineStockBalanceCell';
-import { itemHasApparelVariants, itemIsBatchTracked } from '@/lib/invoices/itemTracking';
+import { itemHasApparelVariants, itemIsBatchTracked, lineWithholdingAmount } from '@/lib/invoices/itemTracking';
 import { getTenantContext } from '@/lib/tenant/tenant-context-storage';
 import { calculateRowTotals } from '@/lib/invoices/calculateInvoiceRowTotals';
+import { AverageCostInspector } from '@/components/inventory/AverageCostInspector';
 import { TableNumberInput } from '@/components/grid/TableNumberInput';
 import { TableColumnHeaderDropdown } from '@/components/grid/TableColumnHeaderDropdown';
 import { WarehouseSelect } from '@/components/form/WarehouseSelect';
@@ -103,6 +104,7 @@ interface Item {
   taxExemptionReason?: string | null;
   salesPrice?: number | null;
   averageCost?: number | string | null;
+  onHandQuantity?: number | null;
   useExpirationDate?: boolean | null;
   useSerialNumber?: boolean | null;
   clothingItem?: boolean | null;
@@ -287,6 +289,14 @@ export function ProgressiveSalesInvoiceLineGrid({
       setValue(`lines.${index}.baseQuantity`, synced.baseQuantity, { shouldDirty: true });
       setValue(`lines.${index}.conversionFactor`, synced.conversionFactor, { shouldDirty: true });
       setValue(`lines.${index}.baseUnitId`, synced.baseUnitId, { shouldDirty: true });
+      if (patch.unitId && patch.unitId !== current?.unitId) {
+        const oldFactor = Number(current?.conversionFactor) || 1;
+        const newFactor = Number(synced.conversionFactor) || 1;
+        const price = Number(current?.unitPrice) || 0;
+        if (price && oldFactor > 0) {
+          setValue(`lines.${index}.unitPrice`, (price * newFactor) / oldFactor, { shouldDirty: true });
+        }
+      }
     },
     [itemsForConversion, linesW, setValue]
   );
@@ -579,7 +589,12 @@ export function ProgressiveSalesInvoiceLineGrid({
                                           taxExemptionReason:
                                             'taxExemptionReason' in picked ? picked.taxExemptionReason : undefined,
                                         });
-                                        const listPrice = resolvePriceListSalePrice(picked);
+                                        const listPrice = resolvePriceListSalePrice({
+                                          itemPrices:
+                                            'itemPrices' in picked && Array.isArray(picked.itemPrices)
+                                              ? picked.itemPrices
+                                              : undefined,
+                                        });
                                         if (listPrice > 0) {
                                           setValue(`lines.${index}.unitPrice`, listPrice, {
                                             shouldDirty: true,
@@ -607,6 +622,7 @@ export function ProgressiveSalesInvoiceLineGrid({
                                     fallbackLabel={
                                       itemsForConversion.find((it) => it.id === line?.itemId)?.arabicName
                                     }
+                                    warehouseId={line?.warehouseId || warehouseId || undefined}
                                     quickCreateModal={ItemQuickAddModal}
                                   />
                                 )}
@@ -614,30 +630,44 @@ export function ProgressiveSalesInvoiceLineGrid({
                               <FieldError message={lineErrors?.itemId?.message} show={fieldErrShow} className={fieldErrClass} />
                             </td>
                           );
-                        case 'quantity':
+                        case 'quantity': {
+                          const costItem = itemsForConversion.find((i) => i.id === line?.itemId);
+                          const averageCost =
+                            costItem?.averageCost != null && costItem.averageCost !== ''
+                              ? Number(costItem.averageCost)
+                              : undefined;
+                          const onHand =
+                            costItem?.onHandQuantity != null ? Number(costItem.onHandQuantity) : undefined;
                           return (
                             <td key={col.id} className={tdBase('quantity')}>
-                              <Controller
-                                control={control}
-                                name={`lines.${index}.quantity`}
-                                render={({ field: f }) => (
-                                  <TableNumberInput
-                                    value={f.value as number | string | undefined}
-                                    onValueCommit={(n) => {
-                                      f.onChange(n);
-                                      syncLineUnits(index, { quantity: n });
-                                    }}
-                                    className={`${lineInputCls} text-center ${lineInputErr(!!lineErrors?.quantity)}`}
-                                    {...lineGridDataAttrs(gridId, index, 'quantity')}
-                                    onKeyDown={(e) =>
-                                      handleLineGridKeyDown(e, invoiceLineKeyHandlers(index))
-                                    }
-                                  />
-                                )}
-                              />
+                              <div className="flex items-center justify-center gap-1">
+                                <Controller
+                                  control={control}
+                                  name={`lines.${index}.quantity`}
+                                  render={({ field: f }) => (
+                                    <TableNumberInput
+                                      value={f.value as number | string | undefined}
+                                      onValueCommit={(n) => {
+                                        f.onChange(n);
+                                        syncLineUnits(index, { quantity: n });
+                                      }}
+                                      className={`${lineInputCls} text-center ${lineInputErr(!!lineErrors?.quantity)}`}
+                                      {...lineGridDataAttrs(gridId, index, 'quantity')}
+                                      onKeyDown={(e) =>
+                                        handleLineGridKeyDown(e, invoiceLineKeyHandlers(index))
+                                      }
+                                    />
+                                  )}
+                                />
+                                <AverageCostInspector
+                                  averageCost={Number.isFinite(averageCost) ? averageCost : undefined}
+                                  onHandQuantity={Number.isFinite(onHand) ? onHand : undefined}
+                                />
+                              </div>
                               <FieldError message={lineErrors?.quantity?.message} show={fieldErrShow} className={fieldErrClass} />
                             </td>
                           );
+                        }
                         case 'unitPrice': {
                           const pricedItem = itemsForConversion.find((i) => i.id === line?.itemId);
                           const lineCost = Number(pricedItem?.averageCost ?? 0);
@@ -671,7 +701,7 @@ export function ProgressiveSalesInvoiceLineGrid({
                               {belowCost ? (
                                 <span
                                   className="mt-0.5 inline-flex rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800"
-                                  title={`سعر التكلفة ${lineCost.toFixed(2)}`}
+                                  title={`سعر التكلفة ${lineCost.toLocaleString()}`}
                                 >
                                   أقل من التكلفة
                                 </span>
@@ -721,7 +751,13 @@ export function ProgressiveSalesInvoiceLineGrid({
                         case 'total': {
                           const sub = computeLineSubtotalAfterDiscount(line ?? {}, pricingCalculationBasis);
                           const taxPct = Number(line?.taxRate) || 0;
-                          const lineTotal = sub + sub * (taxPct / 100);
+                          const wht = lineWithholdingAmount({
+                            lineAfterDiscount: sub,
+                            withholdingTaxRate: line?.withholdingTaxRate,
+                            withholdingTaxAmount: line?.withholdingTaxAmount,
+                            withholdingAmountManual: line?.withholdingAmountManual,
+                          });
+                          const lineTotal = sub + sub * (taxPct / 100) - wht;
                           return (
                             <td key={col.id} className={tdBase('total', 'tabular-nums whitespace-nowrap')}>
                               {lineTotal.toLocaleString('ar-EG', {
@@ -759,6 +795,12 @@ export function ProgressiveSalesInvoiceLineGrid({
                                           setValue(`lines.${index}.quantity`, 1, { shouldDirty: true });
                                         }
                                         applyPickedItemToLine(index, found);
+                                        if (found.color) {
+                                          setValue(`lines.${index}.color`, found.color, { shouldDirty: true });
+                                        }
+                                        if (found.size) {
+                                          setValue(`lines.${index}.size`, found.size, { shouldDirty: true });
+                                        }
                                         if (found.salesPrice != null) {
                                           setValue(`lines.${index}.unitPrice`, Number(found.salesPrice), {
                                             shouldDirty: true,
@@ -921,7 +963,6 @@ export function ProgressiveSalesInvoiceLineGrid({
                             <td key={col.id} className={tdBase('withholdingTax')}>
                               <LineWithholdingTaxCell
                                 rate={Number(line?.withholdingTaxRate ?? 0)}
-                                amount={Number(line?.withholdingTaxAmount ?? 0)}
                                 lineAfterDiscount={row.lineAfterDiscount}
                                 onChange={(patch) => {
                                   setValue(`lines.${index}.withholdingTaxRate`, patch.withholdingTaxRate, {
@@ -930,7 +971,33 @@ export function ProgressiveSalesInvoiceLineGrid({
                                   setValue(`lines.${index}.withholdingTaxAmount`, patch.withholdingTaxAmount, {
                                     shouldDirty: true,
                                   });
+                                  setValue(`lines.${index}.withholdingAmountManual`, false, {
+                                    shouldDirty: true,
+                                  });
                                 }}
+                              />
+                            </td>
+                          );
+                        }
+                        case 'withholdingAmount': {
+                          const row = calculateRowTotals(line ?? {}, { pricingCalculationBasis });
+                          const effectiveWht = lineWithholdingAmount({
+                            lineAfterDiscount: row.lineAfterDiscount,
+                            withholdingTaxRate: line?.withholdingTaxRate,
+                            withholdingTaxAmount: line?.withholdingTaxAmount,
+                            withholdingAmountManual: line?.withholdingAmountManual,
+                          });
+                          return (
+                            <td key={col.id} className={tdBase('withholdingAmount')}>
+                              <TableNumberInput
+                                className="h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-sm tabular-nums"
+                                value={effectiveWht}
+                                onValueCommit={(n) => {
+                                  setValue(`lines.${index}.withholdingTaxAmount`, n, { shouldDirty: true });
+                                  setValue(`lines.${index}.withholdingAmountManual`, true, { shouldDirty: true });
+                                }}
+                                {...lineGridDataAttrs(gridId, index, 'withholdingAmount')}
+                                onKeyDown={(e) => handleLineGridKeyDown(e, invoiceLineKeyHandlers(index))}
                               />
                             </td>
                           );
@@ -940,6 +1007,7 @@ export function ProgressiveSalesInvoiceLineGrid({
                           return (
                             <td key={col.id} className={tdBase('batchAndExpiry')}>
                               <SmartBatchExpiryCell
+                                mode="issue"
                                 item={item}
                                 itemId={line?.itemId}
                                 warehouseId={line?.warehouseId || warehouseId}

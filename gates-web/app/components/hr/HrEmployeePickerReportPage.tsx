@@ -1,11 +1,11 @@
 'use client';
 
-import { useMemo } from 'react';
-import { useRouter } from 'next/navigation';
+import { useMemo, useState } from 'react';
 import { useForm, type Resolver, type SubmitHandler, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useApiQuery } from '@/lib/hooks/useApi';
 import { HrReportChrome } from '@/components/hr/HrReportChrome';
+import { InlineReportResults } from '@/components/report/InlineReportResults';
 import {
   ReportFilterCombobox,
   ReportFilterDate,
@@ -39,10 +39,10 @@ export function HrEmployeePickerReportPage({
   title,
   emptyStateAr,
   emptyStateEn,
-  previewPath,
+  catalogUrlPath,
 }: HrEmployeePickerReportPageProps) {
-  const router = useRouter();
   const initialDefaults = useMemo(() => defaultFilter(), []);
+  const [previewQuery, setPreviewQuery] = useState<Record<string, string> | null>(null);
 
   const { handleSubmit, reset, control } = useForm<HrEmployeeApiReportFilterInput>({
     resolver: zodResolver(hrEmployeeApiReportFilterSchema) as Resolver<HrEmployeeApiReportFilterInput>,
@@ -74,14 +74,22 @@ export function HrEmployeePickerReportPage({
     if (values.hijriDate1) params.append('fromHijri', values.hijriDate1);
     if (values.hijriDate2) params.append('toHijri', values.hijriDate2);
     if (values.employeeId) params.append('employeeId', values.employeeId);
-    router.push(`${previewPath}?${params.toString()}`);
+    setPreviewQuery(Object.fromEntries(params));
   };
 
   return (
     <HrReportChrome
       title={title}
       onPreview={handleSubmit(onPreview)}
-      onReset={() => reset(defaultFilter())}
+      onReset={() => {
+        reset(defaultFilter());
+        setPreviewQuery(null);
+      }}
+      below={
+        previewQuery ? (
+          <InlineReportResults urlPath={catalogUrlPath} query={previewQuery} />
+        ) : null
+      }
     >
       <Controller
         name="employeeId"

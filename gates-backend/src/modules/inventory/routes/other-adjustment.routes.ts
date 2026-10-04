@@ -11,6 +11,7 @@ import { otherAdjustmentService } from '../services/other-adjustment.service';
 import { logger } from '../../../shared/logger';
 import { AuthRequest } from '../../../shared/auth/types';
 import { buildStockGlPostingContext } from '../services/stock-gl-posting-context';
+import { stockPostJson } from '../utils/stock-post-route-response';
 
 const router = Router();
 
@@ -31,7 +32,7 @@ router.post(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -89,7 +90,7 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -141,7 +142,7 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -184,11 +185,11 @@ router.post(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
-      await otherAdjustmentService.postOtherAdjustment(
+      const result = await otherAdjustmentService.postOtherAdjustment(
         companyId,
         req.params.id,
         buildStockGlPostingContext(req, companyId)
@@ -196,10 +197,7 @@ router.post(
 
       logger.info({ companyId, adjustmentId: req.params.id }, 'Other adjustment posted');
 
-      return void res.json({
-        status: 'success',
-        message: 'Other adjustment posted successfully',
-      });
+      return void res.json(stockPostJson(result, 'تم ترحيل المستند بنجاح'));
     } catch (error) {
       logger.error({ error }, 'Error posting other adjustment');
       const status =
@@ -234,7 +232,7 @@ router.post(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -284,7 +282,7 @@ router.post(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -333,7 +331,7 @@ router.post(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 

@@ -33,11 +33,35 @@ export function formatReportDateTime(value: unknown): string {
   });
 }
 
+const ARABIC_DIGITS = '٠١٢٣٤٥٦٧٨٩';
+const PERSIAN_DIGITS = '۰۱۲۳۴۵۶۷۸۹';
+
+/** Parses western, Arabic, and currency-formatted amounts used in report cells and filters. */
+export function parseReportNumber(value: unknown): number | null {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  if (value == null) return null;
+  if (typeof value === 'object' && value && 'toNumber' in value) {
+    const inner = (value as { toNumber: () => number }).toNumber();
+    if (typeof inner === 'number' && Number.isFinite(inner)) return inner;
+  }
+  let text = String(value).trim();
+  if (!text || text === '—') return null;
+  text = text.replace(/[٠-٩]/g, (digit) => String(ARABIC_DIGITS.indexOf(digit)));
+  text = text.replace(/[۰-۹]/g, (digit) => String(PERSIAN_DIGITS.indexOf(digit)));
+  text = text.replace(/٫/g, '.');
+  text = text.replace(/[\s,٬،]/g, '');
+  const match = text.match(/-?\d+(?:\.\d+)?/);
+  text = match?.[0] ?? '';
+  if (!text || text === '-' || text === '.') return null;
+  const parsed = Number(text);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 export function formatReportMoney(value: unknown, currencyCode = 'ج.م'): string {
   if (isEmptyCellValue(value)) return '—';
   const n = typeof value === 'number' ? value : Number(String(value).replace(/,/g, ''));
   if (!Number.isFinite(n)) return '—';
-  return `${n.toLocaleString('ar-EG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currencyCode}`;
+  return `${n.toLocaleString('ar-EG', { minimumFractionDigits: 4, maximumFractionDigits: 4, useGrouping: true })} ${currencyCode}`;
 }
 
 export function formatReportNumber(value: unknown): string {
@@ -59,6 +83,7 @@ export const INVOICE_TYPE_BADGES: Record<string, { label: string; className: str
   return: { label: 'مرتجع', className: 'bg-amber-100 text-amber-900' },
   SALE_RETURN: { label: 'مرتجع مبيعات', className: 'bg-amber-100 text-amber-900' },
   PURCHASE_RETURN: { label: 'مرتجع مشتريات', className: 'bg-orange-100 text-orange-900' },
+  purchaseReturn: { label: 'مرتجع مشتريات', className: 'bg-orange-100 text-orange-900' },
 };
 
 export const POS_PAYMENT_TYPE_BADGES: Record<string, { label: string; className: string }> = {
@@ -109,7 +134,7 @@ export function flattenRelationName(value: unknown): string {
   return String(value);
 }
 
-export type ReportCellFormat = 'text' | 'date' | 'datetime' | 'money' | 'number' | 'relation' | 'badge';
+export type ReportCellFormat = 'text' | 'date' | 'datetime' | 'money' | 'number' | 'percent' | 'relation' | 'badge';
 
 export function formatReportCell(
   value: unknown,
@@ -122,6 +147,12 @@ export function formatReportCell(
     return { text: formatReportMoney(value, options?.currencyCode ?? 'ج.م') };
   }
   if (format === 'number') return { text: formatReportNumber(value) };
+  if (format === 'percent') {
+    if (isEmptyCellValue(value)) return { text: '—' };
+    const n = typeof value === 'number' ? value : Number(value);
+    if (!Number.isFinite(n)) return { text: '—' };
+    return { text: `${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%` };
+  }
   if (format === 'relation') return { text: flattenRelationName(value) };
   if (format === 'badge') {
     const key = String(value ?? '');

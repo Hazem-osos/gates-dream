@@ -12,7 +12,7 @@ export function AiKpiBadges({ items }: { items: AiKpiItem[] }) {
           className="rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] px-2.5 py-1.5"
         >
           <p className="text-[10px] font-medium leading-4 text-slate-500">{item.label}</p>
-          <p className="text-sm font-bold tabular-nums leading-5 text-[#0E79AA]">{item.value}</p>
+          <p className="text-sm font-bold tabular-nums leading-5 text-[#0E78AA]">{item.value}</p>
         </div>
       ))}
     </div>

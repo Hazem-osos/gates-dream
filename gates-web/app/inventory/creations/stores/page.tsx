@@ -21,12 +21,13 @@ import { useApiMutation, useApiQuery, useInvalidateQuery } from '@/lib/hooks/use
 import { apiClient } from '@/lib/api/client';
 import { confirmAction } from '@/lib/feedback/confirm';
 import { isCodeAfter } from '@/lib/masters/nextNumericSerial';
-import { useAccountingSettingsQuery } from '@/lib/hooks/useAccountingSettings';
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
 import type { ApiError } from '@/lib/api/types';
 import { entityLabel } from '@/lib/quick-create/catalog';
 import { useQuickCreateHost } from '@/lib/quick-create/useQuickCreateTab';
+import { finishDocumentSave } from '@/lib/documents/finish-save';
+import { invalidateStockViews } from '@/lib/invoices/invalidate-stock-views';
 type WarehouseForm = {
   code: string;
   arabicName: string;
@@ -85,25 +86,23 @@ function StoresPageInner() {
     { limit: 1000, isActive: true }
   );
   const warehouses = useMemo(() => asWarehouseRows(warehousesRes?.data), [warehousesRes?.data]);
-  const { data: settingsRes } = useAccountingSettingsQuery();
-  const warehouseAuto = settingsRes?.data?.general?.warehouseAutoNumbering !== false;
   const parentForCode = formData.parentWarehouseId;
   const { data: nextCodeResponse } = useApiQuery<{ code?: string }>(
     ['warehouses', 'next-code', parentForCode || 'root'],
     '/inventory/warehouses/next-code',
     parentForCode ? { parentWarehouseId: parentForCode } : undefined,
-    { enabled: !selectedId && warehouseAuto && (formData.storeType === 'MAIN' || Boolean(parentForCode)) }
+    { enabled: !selectedId }
   );
 
   useEffect(() => {
-    if (selectedId || !warehouseAuto) return;
+    if (selectedId) return;
     const suggested = nextCodeResponse?.data?.code;
     if (!suggested) return;
     setFormData((prev) => {
       if (prev.code && isCodeAfter(prev.code, suggested)) return prev;
       return prev.code === suggested ? prev : { ...prev, code: suggested };
     });
-  }, [selectedId, warehouseAuto, nextCodeResponse?.data?.code]);
+  }, [selectedId, nextCodeResponse?.data?.code]);
 
   useEffect(() => {
     if (!quickCreate.prefillName || selectedId) return;
@@ -144,45 +143,70 @@ function StoresPageInner() {
     fillFromRow(row);
   }, [idFromUrl, warehouses, warehouseByIdRes?.data, lockToView]);
 
-  const createMutation = useApiMutation<unknown, Record<string, unknown>>(
-    '/inventory/warehouses',
-    'POST',
-    {
-      onSuccess: (res) => {
-        const created = res?.data as { id?: string; arabicName?: string; code?: string | null } | undefined;
-        if (created?.id) {
-          quickCreate.complete({
-            id: created.id,
-            label: entityLabel(created.code, created.arabicName),
-            arabicName: created.arabicName,
-            code: created.code,
-          });
-        }
-        invalidateQuery(['warehouses']);
+  const createMutation = useApiMutation<
+    { id?: string; arabicName?: string; code?: string | null },
+    Record<string, unknown>
+  >('/inventory/warehouses', 'POST', {
+    showSuccessToast: false,
+    onSuccess: (res) => {
+      const created = res?.data;
+      if (created?.id && quickCreate.isQuickCreate) {
+        quickCreate.complete({
+          id: created.id,
+          label: entityLabel(created.code, created.arabicName),
+          arabicName: created.arabicName,
+          code: created.code,
+        });
+        invalidateStockViews(invalidateQuery);
         invalidateQuery(['warehouses', 'next-code']);
-        hydratedUrlIdRef.current = idFromUrl || '__new__';
-        setSelectedId(null);
-        setFormData(emptyForm());
-        setMode('create');
-        clearDocumentQuery();
-        pinWarehouseCardSearch(null);
-        setSuccess('تم حفظ المخزن — تقدر تضيف التالي');
-      },
-      onError: (err: ApiError) => {
-        setError(err.message || 'حدث خطأ أثناء الحفظ');
-      },
-    }
-  );
+        setSuccess('تم حفظ المخزن');
+        return;
+      }
+      invalidateStockViews(invalidateQuery);
+      invalidateQuery(['warehouses', 'next-code']);
+      finishDocumentSave({
+        label: 'بطاقة مخزن',
+        number: created?.code || formData.code,
+        savedId: created?.id,
+        onOpen: (id) => {
+          pinWarehouseCardSearch(id);
+          setSelectedId(id);
+          unlockForEdit();
+        },
+        reset: () => {
+          hydratedUrlIdRef.current = idFromUrl || '__new__';
+          setSelectedId(null);
+          setFormData(emptyForm());
+          setMode('create');
+          clearDocumentQuery();
+          pinWarehouseCardSearch(null);
+        },
+      });
+    },
+    onError: (err: ApiError) => {
+      setError(err.message || 'حدث خطأ أثناء الحفظ');
+    },
+  });
 
   const updateMutation = useApiMutation<unknown, Record<string, unknown>>(
     selectedId ? `/inventory/warehouses/${selectedId}` : '/inventory/warehouses',
     'PUT',
     {
+      showSuccessToast: false,
       onSuccess: () => {
-        invalidateQuery(['warehouses']);
+        invalidateStockViews(invalidateQuery);
         if (selectedId) invalidateQuery(['warehouse', selectedId]);
-        lockToView();
-        setSuccess('تم تحديث المخزن');
+        finishDocumentSave({
+          label: 'بطاقة مخزن',
+          number: formData.code,
+          savedId: selectedId,
+          onOpen: (id) => {
+            pinWarehouseCardSearch(id);
+            setSelectedId(id);
+          },
+          cleared: false,
+          reset: () => undefined,
+        });
       },
       onError: (err: ApiError) => {
         setError(err.message || 'حدث خطأ أثناء الحفظ');
@@ -191,6 +215,7 @@ function StoresPageInner() {
   );
 
   const loading = createMutation.isPending || updateMutation.isPending;
+  const fieldsLocked = isReadOnly && Boolean(selectedId);
   const patch = (next: Partial<WarehouseForm>) => setFormData((prev) => ({ ...prev, ...next }));
 
   const applyParent = (parentId: string, warehouseKind?: WarehouseKind) => {
@@ -267,12 +292,12 @@ function StoresPageInner() {
 
   const handleSave = async () => {
     setError('');
-    if (!formData.arabicName.trim()) {
-      setError('يرجى إدخال اسم المخزن');
+    if (fieldsLocked) {
+      setError('اضغط تعديل أولاً قبل حفظ التغييرات');
       return;
     }
-    if (!warehouseAuto && !selectedId && !formData.code.trim()) {
-      setError('رقم المخزن مطلوب — الترقيم يدوي');
+    if (!formData.arabicName.trim()) {
+      setError('يرجى إدخال اسم المخزن');
       return;
     }
     if (selectedId && formData.parentWarehouseId === selectedId) {
@@ -309,13 +334,15 @@ function StoresPageInner() {
           { label: 'بطاقة المخزن' },
         ]}
         title="بطاقة المخزن"
-        docNumber={formData.code || (selectedId ? 'تعديل' : 'جديد')}
+        docNumber={formData.code || (selectedId ? '—' : 'جديد')}
         statusTone="info"
-        statusLabel={selectedId ? 'تعديل' : 'جديد'}
+        statusLabel={
+          selectedId ? (isReadOnly ? 'عرض — اضغط تعديل' : 'تعديل') : 'جديد'
+        }
         saveLabel="حفظ"
         onSaveDraft={() => void handleSave()}
         savePending={loading}
-        canSave={!isReadOnly && !loading}
+        canSave={!loading && !fieldsLocked}
         hideStandalonePost
         onEdit={() => {
           if (!selectedId) return;
@@ -324,15 +351,6 @@ function StoresPageInner() {
         editDisabled={!selectedId}
         moreMenuItems={[
           { id: 'new', label: 'جديد', onClick: resetNew },
-          {
-            id: 'edit',
-            label: 'تعديل',
-            onClick: () => {
-              if (!selectedId) return;
-              unlockForEdit();
-            },
-            disabled: !selectedId || !isReadOnly,
-          },
           {
             id: 'delete',
             label: 'حذف',
@@ -347,6 +365,12 @@ function StoresPageInner() {
         favoriteHref="/inventory/creations/stores"
       />
 
+      {selectedId && isReadOnly ? (
+        <p className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800">
+          البطاقة في وضع العرض. اضغط تعديل من القائمة أو من شريط الأدوات قبل تغيير البيانات.
+        </p>
+      ) : null}
+
       <FormSectionCard
         title="بيانات المخزن"
         subtitle="المسلسل والاسم والحسابات"
@@ -354,12 +378,10 @@ function StoresPageInner() {
         className="mb-3 p-3 sm:p-4"
       >
         <CompactFormField
-          label="رقم المخزن"
-          required={!warehouseAuto}
+          label="المسلسل"
           value={formData.code}
-          disabled={isReadOnly || (warehouseAuto && !selectedId)}
-          onChange={(e) => patch({ code: e.target.value })}
-          placeholder={warehouseAuto ? 'تلقائي — 1 ثم 11' : 'مثال: 1 أو 11'}
+          disabled
+          placeholder={selectedId ? '—' : 'يُولَّد تلقائياً…'}
         />
         <CompactFormField
           label="اسم المخزن"

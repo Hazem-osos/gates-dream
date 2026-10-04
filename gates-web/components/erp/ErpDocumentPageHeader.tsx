@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { List, MoreHorizontal, Star } from 'lucide-react';
 import { ScreenHelpButton } from '@/components/ai/ScreenHelpButton';
 import { Button } from '@/components/ui/button';
@@ -18,9 +19,7 @@ import {
   type DocumentActionMenuProps,
   type DocumentNavEntity,
 } from '@/components/common/document-shell';
-import { useRegisterScreenChrome } from '@/components/erp/AppScreenChromeContext';
-import { DocumentOccupiedOverlay } from '@/components/concurrency/DocumentOccupiedOverlay';
-import { useDocumentEditLease } from '@/lib/hooks/useDocumentEditLease';
+import { useDocumentToolbarSlot, useRegisterScreenChrome } from '@/components/erp/AppScreenChromeContext';
 import { asText } from '@/lib/text/as-text';
 
 function RegisterScreenChrome() {
@@ -151,12 +150,11 @@ export function ErpDocumentPageHeader({
   compact = false,
   lockWhenPosted = true,
 }: Props) {
-  const docTitle = asText(docNumber) || 'مسودة جديدة';
+  const docTitle = asText(docNumber) || (lockWhenPosted ? 'مسودة جديدة' : 'جديد');
   const { isFavorite, toggleFavorite } = usePageFavorites();
   const starred = favoriteHref ? isFavorite(favoriteHref) : false;
   const documentMode = useOptionalDocumentMode();
   const leaseId = asText(currentId) || null;
-  const documentLease = useDocumentEditLease(leaseId);
   const isReadOnly = documentMode?.isReadOnly === true;
   const looksPosted = lockWhenPosted && isPostedStatusLabel(statusLabel);
   const hidePost = hideStandalonePost || Boolean(standardActions);
@@ -168,18 +166,21 @@ export function ErpDocumentPageHeader({
         ? saveDisabledHint || 'لا يمكن الحفظ الآن — أكمل البيانات المطلوبة أو انتظر انتهاء العملية'
         : undefined;
   const saveDisabled = Boolean(saveHint) || Boolean(savePending);
+  const toolbarSlot = useDocumentToolbarSlot();
 
   useEffect(() => {
     publishAiScreenSession({
-      documentId: currentId ?? undefined,
-      documentStatus: inferDocumentStatus(statusTone, statusLabel),
+      documentId: asText(currentId) || undefined,
+      documentStatus: lockWhenPosted
+        ? inferDocumentStatus(statusTone, statusLabel)
+        : 'RECORD',
       pageTitle: title,
     });
-  }, [currentId, statusLabel, statusTone, title]);
+  }, [currentId, statusLabel, statusTone, title, lockWhenPosted]);
 
-  return (
+  const header = (
     <>
-    <header className={`sticky top-0 z-40 isolate -mx-3 px-3 bg-white border-b border-[#E6F0F7] shadow-sm rounded-lg overflow-visible ${compact ? 'py-1.5 mb-1' : 'py-2.5 mb-2'}`} data-tour="document-header" data-tour-legacy="erp-page-header">
+    <header className={`erp-sticky-toolbar sticky top-0 z-40 isolate bg-white border-b border-[#E6F0F7] shadow-sm overflow-visible ${toolbarSlot ? 'px-3 xl:px-5' : '-mx-3 rounded-lg px-3'} ${compact ? 'py-1.5 mb-1' : 'py-2.5 mb-2'}`} data-tour="document-header" data-tour-legacy="erp-page-header">
       {registerChrome ? <RegisterScreenChrome /> : null}
       <div className={`flex min-w-0 max-w-full flex-wrap justify-between gap-2 ${compact ? 'items-center' : 'items-start'}`}>
         <div className={`min-w-0 ${compact ? '' : 'space-y-0.5'}`}>
@@ -343,7 +344,8 @@ export function ErpDocumentPageHeader({
         </div>
       </div>
     </header>
-    <DocumentOccupiedOverlay open={documentLease.occupied} holderName={documentLease.holderName} />
     </>
   );
+  if (toolbarSlot) return createPortal(header, toolbarSlot);
+  return header;
 }

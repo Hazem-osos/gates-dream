@@ -6,7 +6,7 @@ export default function ModifiedReturnsReportPreviewRoute() {
   return (
     <ElectronicInvoiceReportPreviewPage
       reportKind="modified-returns"
-      title="معاينة — المرتجعات المعدلة ولم ترسل"
+      title="معاينة — الإشعارات المدينة"
     />
   );
 }

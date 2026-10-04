@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Printer, User } from 'lucide-react';
-import TaxInfoOverlay from '@/components/TaxInfoOverlay';
+import { EtaDetailsDialog } from '@/components/electronic-invoices/EtaDetailsDialog';
 import {
   CompactFormField,
   FormSectionCard,
@@ -31,6 +31,15 @@ import { toast } from '@/lib/feedback/toast';
 import { confirmAction } from '@/lib/feedback/confirm';
 import { PartyGroupSelectField } from '@/components/accounting/PartyGroupSelectField';
 import { useNextMasterSerial } from '@/lib/hooks/useNextMasterSerial';
+import { preferForwardSerial } from '@/lib/masters/nextNumericSerial';
+import { queryKeys } from '@/lib/query/query-keys';
+
+interface PriceListOption {
+  id: string;
+  code?: string | null;
+  arabicName: string;
+  isActive?: boolean;
+}
 
 const CounterpartyOffsetModal = dynamic(
   () =>
@@ -98,6 +107,7 @@ type CustomerRecord = {
   currencyCode?: string | null;
   priceTier?: PriceTier | null;
   linkedSupplierId?: string | null;
+  etaProfile?: Record<string, unknown> | null;
 };
 
 export default function CustomerPage() {
@@ -108,8 +118,9 @@ export default function CustomerPage() {
   const idFromUrl = searchParams.get('id');
   const categoryFromUrl = searchParams.get('categoryId');
   
-  const [showTaxInfo, setShowTaxInfo] = useState(false);
-  const [isTaxInfoChecked, setIsTaxInfoChecked] = useState(false);
+  const [etaOpen, setEtaOpen] = useState(false);
+  const [etaProfile, setEtaProfile] = useState<Record<string, unknown> | null>(null);
+  const etaEditedRef = useRef(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [partyDrawer, setPartyDrawer] = useState<PartyRow | null>(null);
@@ -191,6 +202,13 @@ export default function CustomerPage() {
   );
   const currencies = currenciesResponse?.data || [];
 
+  const { data: priceListsResponse } = useApiQuery<PriceListOption[]>(
+    queryKeys.priceLists({ picker: true }),
+    '/inventory/price-lists',
+    { limit: 500, isActive: true }
+  );
+  const priceLists = priceListsResponse?.data || [];
+
   const { data: nextSerialResponse } = useNextMasterSerial(
     ['customers', 'next-code'],
     '/accounting/customers/next-code',
@@ -200,7 +218,10 @@ export default function CustomerPage() {
 
   useEffect(() => {
     if (selectedId || !nextSerial) return;
-    setFormData((prev) => (prev.serial === nextSerial ? prev : { ...prev, serial: nextSerial }));
+    setFormData((prev) => {
+      const serial = preferForwardSerial(prev.serial, nextSerial);
+      return serial === prev.serial ? prev : { ...prev, serial };
+    });
   }, [nextSerial, selectedId]);
 
   const { data: categoriesResponse } = useApiQuery<
@@ -222,8 +243,11 @@ export default function CustomerPage() {
   }, [categoryFromUrl, selectedId]);
 
   const hydrate = (row: CustomerRecord) => {
+    const switching = Boolean(selectedId && selectedId !== row.id);
+    if (switching) etaEditedRef.current = false;
     setSelectedId(row.id);
     setSavedCustomerId(row.id);
+    if (!etaEditedRef.current) setEtaProfile(row.etaProfile ?? null);
     setFormData({
       serial: row.serial || row.code || '',
       code: row.code || row.serial || '',
@@ -261,7 +285,6 @@ export default function CustomerPage() {
       priceTier: row.priceTier ?? 'RETAIL',
       linkedSupplierId: row.linkedSupplierId ?? '',
     });
-    setIsTaxInfoChecked(Boolean(row.taxData));
     setError('');
   };
 
@@ -318,22 +341,6 @@ export default function CustomerPage() {
     }
   );
 
-  const handleTaxInfoCheckboxChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setIsTaxInfoChecked(e.target.checked);
-    setFormData(prev => ({ ...prev, taxData: e.target.checked }));
-    if (e.target.checked) {
-      setShowTaxInfo(true);
-    }
-  };
-
-  const handleCloseTaxInfo = () => {
-    setShowTaxInfo(false);
-    if (!isTaxInfoChecked) {
-      setIsTaxInfoChecked(false);
-      setFormData(prev => ({ ...prev, taxData: false }));
-    }
-  };
-
   const handleSave = async () => {
     const code = formData.code.trim();
     const arabicName = formData.arabicName.trim();
@@ -376,13 +383,14 @@ export default function CustomerPage() {
         mainAccountId: formData.mainAccountId || undefined,
         accountId: formData.accountId || undefined,
         representativeId: formData.representativeId || undefined,
-        priceListId: formData.priceListId || undefined,
+        priceListId: formData.priceListId ? formData.priceListId : null,
         sellingPrice: formData.sellingPrice.trim() || undefined,
         transactionType: formData.transactionType || undefined,
         warning: formData.warning || undefined,
         estimatedBudget: formData.estimatedBudget ? parseFloat(formData.estimatedBudget) : undefined,
         creditLimit: formData.creditLimit ? parseFloat(formData.creditLimit) : undefined,
         customerCategoryId: formData.customerCategoryId || undefined,
+        etaProfile: etaProfile ?? undefined,
         currencyCode: formData.currencyCode || undefined,
         priceTier: formData.priceTier,
         linkedSupplierId: formData.linkedSupplierId || null,
@@ -412,6 +420,8 @@ export default function CustomerPage() {
   const handleCancel = () => {
     setSelectedId(null);
     setSavedCustomerId(null);
+    etaEditedRef.current = false;
+    setEtaProfile(null);
     setFormData({
       serial: '',
       code: '',
@@ -449,7 +459,6 @@ export default function CustomerPage() {
       priceTier: 'RETAIL',
       linkedSupplierId: '',
     });
-    setIsTaxInfoChecked(false);
     setError('');
     clearDocumentQuery();
   };
@@ -517,10 +526,18 @@ export default function CustomerPage() {
               <Printer className="h-3.5 w-3.5" />
               طباعة
             </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={() => setEtaOpen(true)}
+            >
+              تفاصيل الفاتورة الإلكترونية
+            </Button>
             {formData.linkedSupplierId && (savedCustomerId || partyDrawer?.id) ? (
               <button
                 type="button"
-                className="text-[#0E79AA] hover:underline flex items-center gap-1 bg-transparent border-0 px-2 text-xs font-semibold"
+                className="text-[#0E78AA] hover:underline flex items-center gap-1 bg-transparent border-0 px-2 text-xs font-semibold"
                 onClick={() => setOffsetOpen(true)}
               >
                 مقاصة AR/AP
@@ -621,7 +638,7 @@ export default function CustomerPage() {
             </CompactFormField>
           </FormSectionCard>
 
-          <FormSectionCard title="الاتصال والعنوان" subtitle="الهاتف والعنوان والبيانات الضريبية" icon={User}>
+          <FormSectionCard title="الاتصال والعنوان" subtitle="الهاتف والعنوان" icon={User}>
               <CompactFormField label="الرصيد" readOnly placeholder="إدخل الرصيد" />
               <CompactFormField
                 label="الإسم الإنجليزي"
@@ -703,34 +720,6 @@ export default function CustomerPage() {
                 onChange={(e) => setFormData((prev) => ({ ...prev, website: e.target.value }))}
                 placeholder="إدخل الموقع"
               />
-              <CompactFormField label="البيانات الضريبية">
-                <label className="flex h-9 items-center gap-2">
-                  <input
-                    type="checkbox"
-                    className="h-4 w-4"
-                    checked={isTaxInfoChecked}
-                    onChange={handleTaxInfoCheckboxChange}
-                  />
-                  <span className="text-xs text-slate-600">تفعيل البيانات الضريبية</span>
-                </label>
-              </CompactFormField>
-              {isTaxInfoChecked ? (
-                <>
-                  <CompactFormField
-                    label="مأمورية الضرائب"
-                    required
-                    value={formData.taxAuthority}
-                    onChange={(e) => setFormData((prev) => ({ ...prev, taxAuthority: e.target.value }))}
-                    placeholder="إدخل المأمورية أو الرقم الضريبي"
-                  />
-                  <CompactFormField
-                    label="اسم المأمورية"
-                    value={formData.taxAuthorityName}
-                    onChange={(e) => setFormData((prev) => ({ ...prev, taxAuthorityName: e.target.value }))}
-                    placeholder="اسم المأمورية"
-                  />
-                </>
-              ) : null}
               <CompactFormField
                 label="حساب العميل"
                 hint="يُترك فارغاً ليُنشأ حساب خاص بهذا العميل تحت حساب العملاء"
@@ -768,15 +757,38 @@ export default function CustomerPage() {
                   ))}
                 </select>
               </CompactFormField>
-              <CompactFormField label="قائمة الأسعار">
-                <select className={compactControlClass} defaultValue="تجاري">
-                  <option value="تجاري">تجاري</option>
+              <CompactFormField
+                label="قائمة الأسعار"
+                hint="تُستخدم تلقائياً في فاتورة المبيعات ونقطة البيع عند اختيار هذا العميل"
+              >
+                <select
+                  className={compactControlClass}
+                  value={formData.priceListId}
+                  onChange={(e) =>
+                    setFormData((prev) => ({ ...prev, priceListId: e.target.value }))
+                  }
+                >
+                  <option value="">الافتراضي (قائمة الشركة)</option>
+                  {priceLists.map((priceList) => (
+                    <option key={priceList.id} value={priceList.id}>
+                      {priceList.code ? `${priceList.code} — ` : ''}
+                      {priceList.arabicName}
+                    </option>
+                  ))}
                 </select>
               </CompactFormField>
-              <CompactFormField label="سعر البيع">
-                <select className={compactControlClass} defaultValue="تجاري">
-                  <option value="تجاري">تجاري</option>
-                </select>
+              <CompactFormField
+                label="خصم إضافي %"
+                hint="يُجمع مع خصم قائمة الأسعار على سطور المبيعات ونقطة البيع"
+              >
+                <input
+                  className={compactControlClass}
+                  value={formData.sellingPrice}
+                  onChange={(e) =>
+                    setFormData((prev) => ({ ...prev, sellingPrice: e.target.value }))
+                  }
+                  placeholder="مثال: 5"
+                />
               </CompactFormField>
               <CompactFormField label="الدولة">
                 <select className={compactControlClass} defaultValue="مصر">
@@ -911,7 +923,44 @@ export default function CustomerPage() {
 
         </form>
       </ClientMountGate>
-      {showTaxInfo && <TaxInfoOverlay isOpen={showTaxInfo} onClose={handleCloseTaxInfo} />}
+      <EtaDetailsDialog
+        key={`customer-eta-${selectedId || savedCustomerId || 'new'}-${etaOpen}`}
+        kind="customer"
+        open={etaOpen}
+        initial={{
+          ...(etaProfile ?? {}),
+          taxOffice:
+            (typeof etaProfile?.taxOffice === 'string' && etaProfile.taxOffice) ||
+            formData.taxAuthorityName ||
+            '',
+        }}
+        onClose={() => setEtaOpen(false)}
+        onSave={async (profile) => {
+          const id = idFromUrl || selectedId || savedCustomerId;
+          const taxOffice = profile.taxOffice?.trim() || '';
+          etaEditedRef.current = true;
+          setEtaProfile(profile);
+          setFormData((prev) => ({
+            ...prev,
+            taxAuthorityName: taxOffice,
+          }));
+          if (!id) {
+            toast.success('هتتحفظ مع حفظ بطاقة العميل');
+            setEtaOpen(false);
+            return;
+          }
+          try {
+            await apiClient.put(`/accounting/customers/${id}`, {
+              etaProfile: profile,
+              taxAuthorityName: taxOffice,
+            });
+            toast.success('تم حفظ تفاصيل الفاتورة الإلكترونية للعميل');
+            setEtaOpen(false);
+          } catch (err: unknown) {
+            toast.error(err instanceof Error ? err.message : 'تعذر حفظ تفاصيل الفاتورة الإلكترونية');
+          }
+        }}
+      />
 
       <DocumentBrowseDrawer open={showGuide} onClose={() => setShowGuide(false)} title="العملاء السابقون">
         <PartiesListSection

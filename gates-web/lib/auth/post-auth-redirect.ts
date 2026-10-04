@@ -3,7 +3,6 @@
  * Login uses `?redirect=` or dashboard. Register should use {@link resolvePostRegisterRedirect} once only.
  */
 const DEFAULT_POST_AUTH = '/dashboard';
-const POST_REGISTER_WELCOME = '/onboarding';
 
 export function resolvePostAuthRedirect(searchParams: { get(name: string): string | null } | null): string {
   const from = searchParams?.get('from')?.trim();
@@ -18,7 +17,7 @@ export function resolvePostAuthRedirect(searchParams: { get(name: string): strin
   return DEFAULT_POST_AUTH;
 }
 
-/** One-time welcome wizard after sign-up only (not login / refresh). */
+/** Sign-up lands on the dashboard. The setup wizard is paused. */
 export function resolvePostRegisterRedirect(): string {
-  return POST_REGISTER_WELCOME;
+  return DEFAULT_POST_AUTH;
 }

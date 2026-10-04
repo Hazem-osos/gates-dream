@@ -814,7 +814,7 @@ export default function CreateUserGroupsPage() {
                               onChange={(e) =>
                                 handlePermissionsChange(`permissions.${action}`, e.target.checked)
                               }
-                              className="h-3.5 w-3.5 rounded border-[#D6EAF3] text-[#0E78AA] focus:ring-[#0E79AA]"
+                              className="h-3.5 w-3.5 rounded border-[#D6EAF3] text-[#0E78AA] focus:ring-[#0E78AA]"
                             />
                             {label}
                           </label>
@@ -871,7 +871,7 @@ export default function CreateUserGroupsPage() {
                         type="checkbox"
                         checked={advancedPermissionsData.disallowAllTransfers}
                         onChange={(e) => handleAdvancedPermissionsChange('disallowAllTransfers', e.target.checked)}
-                        className="h-3.5 w-3.5 rounded border-[#D6EAF3] text-[#0E78AA] focus:ring-[#0E79AA]"
+                        className="h-3.5 w-3.5 rounded border-[#D6EAF3] text-[#0E78AA] focus:ring-[#0E78AA]"
                       />
                       عدم السماح يرحل الكل
                     </label>
@@ -880,7 +880,7 @@ export default function CreateUserGroupsPage() {
                         type="checkbox"
                         checked={advancedPermissionsData.allowAllTransfers}
                         onChange={(e) => handleAdvancedPermissionsChange('allowAllTransfers', e.target.checked)}
-                        className="h-3.5 w-3.5 rounded border-[#D6EAF3] text-[#0E78AA] focus:ring-[#0E79AA]"
+                        className="h-3.5 w-3.5 rounded border-[#D6EAF3] text-[#0E78AA] focus:ring-[#0E78AA]"
                       />
                       السماح يرحل الكل
                     </label>
@@ -913,7 +913,7 @@ export default function CreateUserGroupsPage() {
                                   }));
                                   setDocumentRightFlags((prev) => ({ ...prev, [family.key]: e.target.checked }));
                                 }}
-                                className="h-3.5 w-3.5 rounded border-[#D6EAF3] text-[#0E78AA] focus:ring-[#0E79AA]"
+                                className="h-3.5 w-3.5 rounded border-[#D6EAF3] text-[#0E78AA] focus:ring-[#0E78AA]"
                               />
                               ترحيل
                             </label>
@@ -931,7 +931,7 @@ export default function CreateUserGroupsPage() {
                                     }));
                                     setDocumentRightFlags((prev) => ({ ...prev, [unpostKey]: e.target.checked }));
                                   }}
-                                  className="h-3.5 w-3.5 rounded border-[#D6EAF3] text-[#0E78AA] focus:ring-[#0E79AA]"
+                                  className="h-3.5 w-3.5 rounded border-[#D6EAF3] text-[#0E78AA] focus:ring-[#0E78AA]"
                                 />
                                 فك ترحيل
                               </label>
@@ -953,7 +953,7 @@ export default function CreateUserGroupsPage() {
                         <select
                           value={bankPermissionsData.company}
                           onChange={(e) => handleBankPermissionsChange('company', e.target.value)}
-                          className="h-9 w-full rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] px-3 py-2 text-[#094C6B] focus:outline-none focus:ring-2 focus:ring-[#0E79AA] focus:border-[#0E79AA] transition-colors text-base"
+                          className="h-9 w-full rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] px-3 py-2 text-[#094C6B] focus:outline-none focus:ring-2 focus:ring-[#0E78AA] focus:border-[#0E78AA] transition-colors text-base"
                         >
                           <option value="">{companyId ? 'الشركة الحالية' : 'اختر الشركة'}</option>
                         </select>
@@ -966,7 +966,7 @@ export default function CreateUserGroupsPage() {
                         <select
                           value={bankPermissionsData.username}
                           onChange={(e) => handleBankPermissionsChange('username', e.target.value)}
-                          className="h-9 w-full rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] px-3 py-2 text-[#094C6B] focus:outline-none focus:ring-2 focus:ring-[#0E79AA] focus:border-[#0E79AA] transition-colors text-base"
+                          className="h-9 w-full rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] px-3 py-2 text-[#094C6B] focus:outline-none focus:ring-2 focus:ring-[#0E78AA] focus:border-[#0E78AA] transition-colors text-base"
                         >
                           <option value="">اختر المستخدم</option>
                           {(usersRes?.data ?? []).map((u) => (
@@ -1030,7 +1030,7 @@ export default function CreateUserGroupsPage() {
                                         setBankAllowed((prev) => ({ ...prev, [row.id]: e.target.checked }));
                                       }
                                     }}
-                                    className="w-5 h-5 text-[#0E78AA] bg-[#F6FBFD] border-[#D6EAF3] rounded focus:ring-[#0E79AA] focus:ring-2"
+                                    className="w-5 h-5 text-[#0E78AA] bg-[#F6FBFD] border-[#D6EAF3] rounded focus:ring-[#0E78AA] focus:ring-2"
                                   />
                                 </div>
                               </div>
@@ -1053,7 +1053,7 @@ export default function CreateUserGroupsPage() {
                         <select
                           value={branchPermissionsData.company}
                           onChange={(e) => handleBranchPermissionsChange('company', e.target.value)}
-                          className="h-9 w-full rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] px-3 py-2 text-[#094C6B] focus:outline-none focus:ring-2 focus:ring-[#0E79AA] focus:border-[#0E79AA] transition-colors text-base"
+                          className="h-9 w-full rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] px-3 py-2 text-[#094C6B] focus:outline-none focus:ring-2 focus:ring-[#0E78AA] focus:border-[#0E78AA] transition-colors text-base"
                         >
                           <option value="">{companyId ? 'الشركة الحالية' : 'اختر الشركة'}</option>
                         </select>
@@ -1066,7 +1066,7 @@ export default function CreateUserGroupsPage() {
                         <select
                           value={branchPermissionsData.username}
                           onChange={(e) => handleBranchPermissionsChange('username', e.target.value)}
-                          className="h-9 w-full rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] px-3 py-2 text-[#094C6B] focus:outline-none focus:ring-2 focus:ring-[#0E79AA] focus:border-[#0E79AA] transition-colors text-base"
+                          className="h-9 w-full rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] px-3 py-2 text-[#094C6B] focus:outline-none focus:ring-2 focus:ring-[#0E78AA] focus:border-[#0E78AA] transition-colors text-base"
                         >
                           <option value="">اختر المستخدم</option>
                           {(usersRes?.data ?? []).map((u) => (
@@ -1101,7 +1101,7 @@ export default function CreateUserGroupsPage() {
                               onChange={(e) =>
                                 setPermittedBranchIds((prev) => ({ ...prev, [branch.id]: e.target.checked }))
                               }
-                              className="w-5 h-5 text-[#0E78AA] bg-[#F6FBFD] border-[#D6EAF3] rounded focus:ring-[#0E79AA] focus:ring-2"
+                              className="w-5 h-5 text-[#0E78AA] bg-[#F6FBFD] border-[#D6EAF3] rounded focus:ring-[#0E78AA] focus:ring-2"
                             />
                           </label>
                         ))}
@@ -1119,7 +1119,7 @@ export default function CreateUserGroupsPage() {
                     <div className="flex items-center gap-6">
                       <span className="text-[#094C6B] font-medium min-w-[80px] text-base">الشركة</span>
                       <div className="flex-1">
-                        <select className="h-9 w-full rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] px-3 py-2 text-[#094C6B] focus:outline-none focus:ring-2 focus:ring-[#0E79AA] focus:border-[#0E79AA] transition-colors text-base">
+                        <select className="h-9 w-full rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] px-3 py-2 text-[#094C6B] focus:outline-none focus:ring-2 focus:ring-[#0E78AA] focus:border-[#0E78AA] transition-colors text-base">
                           <option value="">اختر الشركة</option>
                           <option value="company1">شركة 1</option>
                           <option value="company2">شركة 2</option>
@@ -1129,7 +1129,7 @@ export default function CreateUserGroupsPage() {
                     <div className="flex items-center gap-6">
                       <span className="text-[#094C6B] font-medium min-w-[80px] text-base">إسم المستخدم</span>
                       <div className="flex-1">
-                        <select className="h-9 w-full rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] px-3 py-2 text-[#094C6B] focus:outline-none focus:ring-2 focus:ring-[#0E79AA] focus:border-[#0E79AA] transition-colors text-base">
+                        <select className="h-9 w-full rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] px-3 py-2 text-[#094C6B] focus:outline-none focus:ring-2 focus:ring-[#0E78AA] focus:border-[#0E78AA] transition-colors text-base">
                           <option value="">اختر المستخدم</option>
                           <option value="admin">Admin</option>
                           <option value="user1">مستخدم 1</option>
@@ -1256,7 +1256,7 @@ export default function CreateUserGroupsPage() {
                           <select 
                             value={trackUsersData.company}
                             onChange={(e) => handleTrackUsersChange('company', e.target.value)}
-                            className="h-9 w-full rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] px-3 py-2 text-[#094C6B] focus:outline-none focus:ring-2 focus:ring-[#0E79AA] focus:border-[#0E79AA] transition-colors text-base"
+                            className="h-9 w-full rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] px-3 py-2 text-[#094C6B] focus:outline-none focus:ring-2 focus:ring-[#0E78AA] focus:border-[#0E78AA] transition-colors text-base"
                           >
                             <option value="">اختر الشركة</option>
                             <option value="company1">شركة 1</option>
@@ -1272,7 +1272,7 @@ export default function CreateUserGroupsPage() {
                           <select 
                             value={trackUsersData.action}
                             onChange={(e) => handleTrackUsersChange('action', e.target.value)}
-                            className="h-9 w-full rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] px-3 py-2 text-[#094C6B] focus:outline-none focus:ring-2 focus:ring-[#0E79AA] focus:border-[#0E79AA] transition-colors text-base"
+                            className="h-9 w-full rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] px-3 py-2 text-[#094C6B] focus:outline-none focus:ring-2 focus:ring-[#0E78AA] focus:border-[#0E78AA] transition-colors text-base"
                           >
                             <option value="">اختر الإجراء</option>
                             <option value="create">إنشاء</option>
@@ -1293,7 +1293,7 @@ export default function CreateUserGroupsPage() {
                               type="text" 
                               value={trackUsersData.recordDateFrom}
                               onChange={(e) => handleTrackUsersChange('recordDateFrom', e.target.value)}
-                              className="h-9 w-full rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] px-3 py-2 text-[#094C6B] focus:outline-none focus:ring-2 focus:ring-[#0E79AA] focus:border-[#0E79AA] transition-colors text-base" 
+                              className="h-9 w-full rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] px-3 py-2 text-[#094C6B] focus:outline-none focus:ring-2 focus:ring-[#0E78AA] focus:border-[#0E78AA] transition-colors text-base" 
                             />
                             <div className="w-8 h-8 bg-gray-100 rounded-lg flex items-center justify-center">
                               <span className="text-gray-600 text-sm">🔍</span>
@@ -1310,7 +1310,7 @@ export default function CreateUserGroupsPage() {
                               type="text" 
                               value={trackUsersData.recordDateTo}
                               onChange={(e) => handleTrackUsersChange('recordDateTo', e.target.value)}
-                              className="h-9 w-full rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] px-3 py-2 text-[#094C6B] focus:outline-none focus:ring-2 focus:ring-[#0E79AA] focus:border-[#0E79AA] transition-colors text-base" 
+                              className="h-9 w-full rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] px-3 py-2 text-[#094C6B] focus:outline-none focus:ring-2 focus:ring-[#0E78AA] focus:border-[#0E78AA] transition-colors text-base" 
                             />
                             <div className="w-8 h-8 bg-gray-100 rounded-lg flex items-center justify-center">
                               <span className="text-gray-600 text-sm">🔍</span>
@@ -1334,7 +1334,7 @@ export default function CreateUserGroupsPage() {
                             placeholder="إدخل إسم المستخدم" 
                             value={trackUsersData.username}
                             onChange={(e) => handleTrackUsersChange('username', e.target.value)}
-                            className="h-9 w-full rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] px-3 py-2 text-[#094C6B] placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#0E79AA] focus:border-[#0E79AA] transition-colors text-base" 
+                            className="h-9 w-full rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] px-3 py-2 text-[#094C6B] placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#0E78AA] focus:border-[#0E78AA] transition-colors text-base" 
                           />
                         </div>
                       </div>
@@ -1348,7 +1348,7 @@ export default function CreateUserGroupsPage() {
                             placeholder="إدخل الشرح" 
                             value={trackUsersData.description}
                             onChange={(e) => handleTrackUsersChange('description', e.target.value)}
-                            className="h-9 w-full rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] px-3 py-2 text-[#094C6B] placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#0E79AA] focus:border-[#0E79AA] transition-colors text-base" 
+                            className="h-9 w-full rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] px-3 py-2 text-[#094C6B] placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#0E78AA] focus:border-[#0E78AA] transition-colors text-base" 
                           />
                         </div>
                       </div>
@@ -1363,7 +1363,7 @@ export default function CreateUserGroupsPage() {
                               type="text" 
                               value={trackUsersData.actionDateFrom}
                               onChange={(e) => handleTrackUsersChange('actionDateFrom', e.target.value)}
-                              className="h-9 w-full rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] px-3 py-2 text-[#094C6B] focus:outline-none focus:ring-2 focus:ring-[#0E79AA] focus:border-[#0E79AA] transition-colors text-base" 
+                              className="h-9 w-full rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] px-3 py-2 text-[#094C6B] focus:outline-none focus:ring-2 focus:ring-[#0E78AA] focus:border-[#0E78AA] transition-colors text-base" 
                             />
                             <div className="w-8 h-8 bg-gray-100 rounded-lg flex items-center justify-center">
                               <span className="text-gray-600 text-sm">🔍</span>
@@ -1380,7 +1380,7 @@ export default function CreateUserGroupsPage() {
                               type="text" 
                               value={trackUsersData.actionDateTo}
                               onChange={(e) => handleTrackUsersChange('actionDateTo', e.target.value)}
-                              className="h-9 w-full rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] px-3 py-2 text-[#094C6B] focus:outline-none focus:ring-2 focus:ring-[#0E79AA] focus:border-[#0E79AA] transition-colors text-base" 
+                              className="h-9 w-full rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] px-3 py-2 text-[#094C6B] focus:outline-none focus:ring-2 focus:ring-[#0E78AA] focus:border-[#0E78AA] transition-colors text-base" 
                             />
                             <div className="w-8 h-8 bg-gray-100 rounded-lg flex items-center justify-center">
                               <span className="text-gray-600 text-sm">🔍</span>
@@ -1508,7 +1508,7 @@ export default function CreateUserGroupsPage() {
                           id={item.id}
                           checked={formData[item.id]}
                           onChange={(e) => handleInputChange(item.id, e.target.checked)}
-                          className="h-3.5 w-3.5 rounded border-[#D6EAF3] text-[#0E78AA] focus:ring-[#0E79AA]"
+                          className="h-3.5 w-3.5 rounded border-[#D6EAF3] text-[#0E78AA] focus:ring-[#0E78AA]"
                         />
                         {item.label}
                       </label>

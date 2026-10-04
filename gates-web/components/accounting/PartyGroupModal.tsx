@@ -65,7 +65,7 @@ export function PartyGroupModal({ open, kind, initial, onClose, onSaved, onError
     <CenteredOverlay open={open} onClose={onClose} width="md" labelledBy="party-group-title">
       <div className="flex min-h-0 flex-col" dir="rtl">
         <div className="p-6 pb-2">
-          <h2 id="party-group-title" className="text-lg font-bold text-[#0E79AA]">
+          <h2 id="party-group-title" className="text-lg font-bold text-[#0E78AA]">
             {initial ? `تعديل ${copy.title}` : `إضافة ${copy.title}`}
           </h2>
           <p className="mt-1 mb-4 text-sm text-slate-500">
@@ -94,7 +94,6 @@ export function PartyGroupModal({ open, kind, initial, onClose, onSaved, onError
           onSave={() => void submit()}
           saveLoading={saving}
           cancelText="إلغاء"
-          respectPermissions={false}
           className="mt-0"
         />
       </div>

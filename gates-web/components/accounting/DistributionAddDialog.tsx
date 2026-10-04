@@ -48,7 +48,7 @@ export function DistributionAddDialog({
   return (
     <CenteredOverlay open={open} onClose={onClose} width="md" labelledBy="distribution-add-title">
       <div className="p-6" dir="rtl">
-        <h2 id="distribution-add-title" className="text-lg font-bold text-[#0E79AA]">
+        <h2 id="distribution-add-title" className="text-lg font-bold text-[#0E78AA]">
           {step === 'folder' ? 'تحت أي مجلد؟' : step === 'person' ? 'نوع الفرد' : 'إضافة في الدليل'}
         </h2>
         <p className="mt-1 text-sm text-slate-500">
@@ -63,7 +63,7 @@ export function DistributionAddDialog({
               <button
                 key={item.id}
                 type="button"
-                className="rounded-xl border border-[#D6EAF3] bg-[#F6FBFD] px-4 py-3 text-right hover:border-[#0E79AA] hover:bg-white"
+                className="rounded-xl border border-[#D6EAF3] bg-[#F6FBFD] px-4 py-3 text-right hover:border-[#0E78AA] hover:bg-white"
                 onClick={() => onPickFolder(item.id)}
               >
                 <span className="block text-sm font-bold text-[#0A3D5E]">{item.title}</span>
@@ -75,7 +75,7 @@ export function DistributionAddDialog({
           <div className="mt-5 grid gap-3">
             <button
               type="button"
-              className="rounded-xl border border-[#D6EAF3] bg-[#F6FBFD] px-4 py-3 text-right hover:border-[#0E79AA] hover:bg-white"
+              className="rounded-xl border border-[#D6EAF3] bg-[#F6FBFD] px-4 py-3 text-right hover:border-[#0E78AA] hover:bg-white"
               onClick={onPickGroup}
             >
               <span className="block text-sm font-bold text-[#0A3D5E]">مجموعة</span>
@@ -85,7 +85,7 @@ export function DistributionAddDialog({
             </button>
             <button
               type="button"
-              className="rounded-xl border border-[#D6EAF3] bg-[#F6FBFD] px-4 py-3 text-right hover:border-[#0E79AA] hover:bg-white"
+              className="rounded-xl border border-[#D6EAF3] bg-[#F6FBFD] px-4 py-3 text-right hover:border-[#0E78AA] hover:bg-white"
               onClick={() => {
                 if (knownKind) {
                   onPickPerson(knownKind);
@@ -108,7 +108,7 @@ export function DistributionAddDialog({
               <button
                 key={item.id}
                 type="button"
-                className="rounded-xl border border-[#D6EAF3] bg-[#F6FBFD] px-4 py-3 text-right hover:border-[#0E79AA] hover:bg-white"
+                className="rounded-xl border border-[#D6EAF3] bg-[#F6FBFD] px-4 py-3 text-right hover:border-[#0E78AA] hover:bg-white"
                 onClick={() => onPickPerson(item.id)}
               >
                 <span className="block text-sm font-bold text-[#0A3D5E]">{item.title}</span>
@@ -122,7 +122,7 @@ export function DistributionAddDialog({
           {step === 'person' || (step === 'node' && canPickFolder) ? (
             <button
               type="button"
-              className="text-sm text-[#0E79AA] hover:underline"
+              className="text-sm text-[#0E78AA] hover:underline"
               onClick={() => onStepChange(step === 'person' ? 'node' : 'folder')}
             >
               رجوع

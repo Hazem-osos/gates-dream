@@ -85,15 +85,15 @@ export class CompanyCopyService {
             where: { companyId: fromCompanyId },
           });
 
-          for (const cc of costCenters) {
-            await tx.costCenter.create({
-              data: {
+          if (costCenters.length) {
+            await tx.costCenter.createMany({
+              data: costCenters.map((cc) => ({
                 companyId: toCompanyId,
                 code: cc.code,
                 arabicName: cc.arabicName,
                 englishName: cc.englishName,
                 isActive: cc.isActive,
-              },
+              })),
             });
           }
 

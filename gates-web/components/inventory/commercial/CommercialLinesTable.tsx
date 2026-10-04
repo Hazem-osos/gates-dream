@@ -4,6 +4,7 @@ import { useRef, type KeyboardEvent } from 'react';
 import { Trash2 } from 'lucide-react';
 import { ItemSelect } from '@/app/components/form/ItemSelect';
 import { CostCenterSelect } from '@/app/components/form/CostCenterSelect';
+import { InvoiceLineStockBalanceCell } from '@/components/invoices/InvoiceLineStockBalanceCell';
 import { UniversalDataGrid } from '@/components/ui/data-entry-grid';
 import { TableNumberInput } from '@/components/grid/TableNumberInput';
 import { dataEntryGridInputClass } from '@/components/ui/data-entry-grid/tokens';
@@ -27,13 +28,20 @@ type Props = {
   onChange: (lines: CommercialDocumentLine[]) => void;
   disabled?: boolean;
   headerDescription?: string;
+  warehouseId?: string;
 };
 
 function formatMoney(value: number) {
   return value.toLocaleString('ar-EG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-export function CommercialLinesTable({ lines, onChange, disabled, headerDescription = '' }: Props) {
+export function CommercialLinesTable({
+  lines,
+  onChange,
+  disabled,
+  headerDescription = '',
+  warehouseId,
+}: Props) {
   const gridId = 'commercial-doc-lines';
   const wrapRef = useRef<HTMLDivElement>(null);
   const pasteFieldRef = useRef('quantity');
@@ -112,6 +120,7 @@ export function CommercialLinesTable({ lines, onChange, disabled, headerDescript
           { id: 'idx', label: '#', className: 'w-10 text-center', align: 'center' },
           { id: 'itemCode', label: 'كود الصنف', className: 'w-28' },
           { id: 'itemName', label: 'اسم الصنف', className: 'min-w-[220px]' },
+          { id: 'available', label: 'الكمية المتاحة', className: 'w-28', align: 'center' },
           { id: 'notes', label: 'البيان', className: 'min-w-[140px]' },
           { id: 'unitName', label: 'الوحدة', className: 'w-20' },
           { id: 'quantity', label: 'الكمية', className: 'w-24', align: 'left' },
@@ -169,7 +178,18 @@ export function CommercialLinesTable({ lines, onChange, disabled, headerDescript
                 onInputKeyDown={(e) => onCellKeyDown(e, index)}
                 inputProps={attrs('itemName')}
                 menuPlacement="auto"
+                warehouseId={warehouseId}
               />
+            );
+          }
+          if (columnId === 'available') {
+            return (
+              <div className="flex min-h-[2rem] items-center justify-center">
+                <InvoiceLineStockBalanceCell
+                  itemId={line.itemId}
+                  warehouseId={warehouseId}
+                />
+              </div>
             );
           }
           if (columnId === 'unitName') {

@@ -2,15 +2,9 @@
 
 import { useState } from 'react';
 import { useBackendReachability } from '@/lib/hooks/useBackendReachability';
-import { lazyDefaultModal } from '@/components/ui/lazyModal';
 import { CompactFormField, compactControlClass } from '@/components/ui';
 import { MasterCardShell, ErpFormHeaderCard, erpFormGridClass } from '@/components/erp';
 import { toast } from '@/lib/feedback/toast';
-
-const RenewGuaranteeModal = lazyDefaultModal(
-  () => import('@/components/RenewGuaranteeModal'),
-  'جاري تحميل تجديد خطاب الضمان…'
-);
 
 const radioClass =
   'inline-flex cursor-pointer items-center rounded-full border border-[#D6EAF3] bg-white px-3 py-1.5 text-xs font-semibold text-[#0A3D5E] has-[:checked]:border-[#0E78AA] has-[:checked]:bg-[#0E78AA] has-[:checked]:text-white';
@@ -48,7 +42,6 @@ const EMPTY = {
 export default function LettersOfGuaranteePage() {
   useBackendReachability();
   const [form, setForm] = useState(EMPTY);
-  const [isRenewModalOpen, setIsRenewModalOpen] = useState(false);
   const patch = (next: Partial<typeof EMPTY>) => setForm((prev) => ({ ...prev, ...next }));
   const resetNew = () => setForm(EMPTY);
 
@@ -87,7 +80,7 @@ export default function LettersOfGuaranteePage() {
           <button
             type="button"
             className="rounded-lg border border-[#D6EAF3] bg-white px-3 py-1.5 text-xs font-semibold text-[#0A3D5E] hover:bg-[#F0F9FC]"
-            onClick={() => setIsRenewModalOpen(true)}
+            onClick={() => toast.info('تجديد خطاب الضمان غير متاح حالياً')}
           >
             تجديد
           </button>
@@ -95,7 +88,7 @@ export default function LettersOfGuaranteePage() {
       }
       moreMenuItems={[
         { id: 'preview', label: 'معاينة', onClick: () => toast.message('المعاينة') },
-        { id: 'renewals', label: 'التجديدات', onClick: () => setIsRenewModalOpen(true) },
+        { id: 'renewals', label: 'التجديدات', onClick: () => toast.info('تجديد خطاب الضمان غير متاح حالياً') },
       ]}
     >
       <div className="mb-3">
@@ -289,9 +282,6 @@ export default function LettersOfGuaranteePage() {
         }
       />
 
-      {isRenewModalOpen ? (
-        <RenewGuaranteeModal isOpen onClose={() => setIsRenewModalOpen(false)} />
-      ) : null}
     </MasterCardShell>
   );
 }

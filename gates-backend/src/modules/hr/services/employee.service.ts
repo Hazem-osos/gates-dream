@@ -1,5 +1,7 @@
 import prisma from '../../../shared/database/prisma';
+import { permanentDelete } from '../../../shared/database/permanent-delete.util';
 import { logger } from '../../../shared/logger';
+import { emitDomainEvent } from '../../automation/events/automation-event-bus.service';
 
 export interface CreateEmployeeData {
   serial?: string;
@@ -141,6 +143,15 @@ export class EmployeeService {
       });
 
       logger.info({ companyId, employeeId: employee.id }, 'Employee created');
+      void emitDomainEvent({
+        companyId,
+        eventType: 'hr.employee.created',
+        data: {
+          arabicName: employee.arabicName,
+          city: employee.city ?? null,
+          basicSalary: employee.basicSalary == null ? null : Number(employee.basicSalary),
+        },
+      });
       return employee;
     } catch (error) {
       logger.error({ error, companyId, data }, 'Error creating employee');
@@ -418,7 +429,7 @@ export class EmployeeService {
   }
 
   /**
-   * Delete employee (soft delete)
+   * Delete permanently (blocked if referenced)
    */
   async deleteEmployee(companyId: string, employeeId: string) {
     try {
@@ -430,10 +441,7 @@ export class EmployeeService {
         throw new Error('Employee not found');
       }
 
-      await prisma.employee.update({
-        where: { id: employeeId },
-        data: { isActive: false },
-      });
+      await permanentDelete('السجل', () => prisma.employee.delete({ where: { id: employeeId } }));
 
       logger.info({ companyId, employeeId }, 'Employee deleted');
       return { success: true };

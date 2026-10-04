@@ -107,7 +107,7 @@ export function CalculationInspector({
             className="fixed z-[9990] rounded-xl border border-[#D6EAF3] bg-white p-3 text-right shadow-xl"
             style={{ top: pos.top, left: pos.left, width: pos.width }}
           >
-            <p className="text-[11px] font-bold text-[#0E79AA]">{title}</p>
+            <p className="text-[11px] font-bold text-[#0E78AA]">{title}</p>
             <ul className="mt-2 space-y-1.5 text-[12px] leading-5">
               {rows.map((row) => (
                 <li key={`${row.label}-${row.value}`}>
@@ -134,7 +134,7 @@ export function CalculationInspector({
         aria-controls={tooltipId}
         title={triggerLabel}
         onClick={() => setOpen((value) => !value)}
-        className="inline-flex items-center gap-0.5 rounded-md px-1 py-0.5 text-[#0E79AA] hover:bg-[#0E79AA]/10"
+        className="inline-flex items-center gap-0.5 rounded-md px-1 py-0.5 text-[#0E78AA] hover:bg-[#0E78AA]/10"
       >
         <Search className="h-3 w-3" />
         <Info className="h-3 w-3" />

@@ -59,7 +59,7 @@ export default function HelpSidebar({
         <button
           type="button"
           onClick={() => open('/help')}
-          className="w-full rounded-xl bg-[#0E79AA] py-2.5 text-sm font-bold text-white hover:bg-[#095a80] transition-colors"
+          className="w-full rounded-xl bg-[#0E78AA] py-2.5 text-sm font-bold text-white hover:bg-[#095a80] transition-colors"
         >
           فتح مركز المساعدة الكامل
         </button>

@@ -103,7 +103,7 @@ export function CreateSubcontractModal({
   return (
     <div className="fixed inset-0 z-[140] flex items-center justify-center bg-black/40 p-4" dir="rtl">
       <div className="max-h-[90vh] w-full max-w-2xl space-y-4 overflow-auto rounded-xl bg-white p-5 shadow-xl">
-        <h2 className="text-lg font-bold text-[#0E79AA]">عقد مقاول باطن جديد</h2>
+        <h2 className="text-lg font-bold text-[#0E78AA]">عقد مقاول باطن جديد</h2>
         <label className="block text-sm">
           <span className="mb-1 block font-medium">المقاول</span>
           <select
@@ -120,7 +120,7 @@ export function CreateSubcontractModal({
             ))}
           </select>
         </label>
-        <button type="button" className="text-sm text-[#0E79AA] underline" onClick={() => setShowNewVendor((v) => !v)}>
+        <button type="button" className="text-sm text-[#0E78AA] underline" onClick={() => setShowNewVendor((v) => !v)}>
           {showNewVendor ? 'إخفاء بطاقة المقاول الجديدة' : 'تسجيل مقاول جديد'}
         </button>
         {showNewVendor ? (

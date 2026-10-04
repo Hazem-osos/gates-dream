@@ -218,7 +218,7 @@ export function AccountTreeNode({
             type="button"
             title="عرض البيانات"
             aria-label="عرض البيانات"
-            className="rounded-md p-1.5 text-[#0E79AA] hover:bg-[#0E79AA]/10"
+            className="rounded-md p-1.5 text-[#0E78AA] hover:bg-[#0E78AA]/10"
             onClick={() => onView(node)}
           >
             <Eye className="h-4 w-4" />
@@ -229,7 +229,7 @@ export function AccountTreeNode({
           <button
             type="button"
             title="إضافة حساب فرعي"
-            className="text-[11px] px-2 py-1 rounded-md bg-white border border-slate-200 text-[#0E79AA] hover:bg-[#0E79AA]/10 whitespace-nowrap shadow-sm"
+            className="text-[11px] px-2 py-1 rounded-md bg-white border border-slate-200 text-[#0E78AA] hover:bg-[#0E78AA]/10 whitespace-nowrap shadow-sm"
             onClick={() => onAddChild(node)}
           >
             + فرعي

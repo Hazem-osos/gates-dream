@@ -15,7 +15,9 @@
  *  - Explicit TypeScript return types on every method.
  */
 
+import { randomUUID } from 'crypto';
 import jwt from 'jsonwebtoken';
+import { emailService } from '../../../shared/services/email.service';
 import { Prisma } from '@prisma/client';
 import prisma from '../../../shared/database/prisma';
 import { logger } from '../../../shared/logger';
@@ -177,7 +179,10 @@ async function resolveRegistrationCompanyId(): Promise<string | null> {
 
 // ── Helper: sign a dev JWT ────────────────────────────────────────────────────
 
-const ACCESS_TOKEN_TTL_SECONDS = 8 * 60 * 60; // 8 hours
+// Temporarily paused: keep the login for 30 days instead of 30 minutes.
+const ACCESS_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60;
+const RESET_TOKEN_TTL_SECONDS = 30 * 60;
+const usedResetTokenIds = new Set<string>();
 
 /**
  * Effective roles for a locally-issued token. Keycloak supplies these in
@@ -200,6 +205,7 @@ function signDevJwt(payload: JwtPayload): AuthTokenResult {
   const accessToken = jwt.sign(payload, env.JWT_DEV_SECRET, {
     algorithm: 'HS256',
     expiresIn: ACCESS_TOKEN_TTL_SECONDS,
+    jwtid: randomUUID(),
   });
 
   return {
@@ -542,6 +548,50 @@ export class AuthService {
   /**
    * Guard: throws 503 when the local-login dev mode is not active.
    */
+  async requestPasswordReset(email: string): Promise<void> {
+    this.assertDevModeActive();
+    const user = await prisma.user.findFirst({
+      where: { email, isActive: true },
+      select: { id: true, email: true },
+    });
+    if (!user || !env.JWT_DEV_SECRET) return;
+    const token = jwt.sign(
+      { sub: user.id, purpose: 'password-reset' },
+      env.JWT_DEV_SECRET,
+      { algorithm: 'HS256', expiresIn: RESET_TOKEN_TTL_SECONDS, jwtid: randomUUID() }
+    );
+    const link = `${env.FRONTEND_URL.replace(/\/$/, '')}/reset-password?token=${encodeURIComponent(token)}`;
+    await emailService.sendEmail({
+      to: user.email,
+      subject: 'استعادة كلمة المرور — GATES',
+      text: `لإعادة تعيين كلمة المرور افتح الرابط خلال ٣٠ دقيقة:\n${link}`,
+    });
+  }
+
+  async resetPassword(token: string, password: string): Promise<void> {
+    this.assertDevModeActive();
+    if (!env.JWT_DEV_SECRET) throw new AppError(503, 'الخادم غير مهيأ لاستعادة كلمة المرور');
+    let payload: jwt.JwtPayload;
+    try {
+      payload = jwt.verify(token, env.JWT_DEV_SECRET) as jwt.JwtPayload;
+    } catch {
+      throw new AppError(400, 'رابط الاستعادة غير صالح أو انتهت صلاحيته');
+    }
+    if (payload.purpose !== 'password-reset' || !payload.sub || !payload.jti) {
+      throw new AppError(400, 'رابط الاستعادة غير صالح');
+    }
+    if (usedResetTokenIds.has(payload.jti)) {
+      throw new AppError(400, 'تم استخدام رابط الاستعادة من قبل');
+    }
+    const { default: bcrypt } = await import('bcryptjs');
+    const passwordHash = await bcrypt.hash(password, 10);
+    await prisma.user.update({
+      where: { id: payload.sub },
+      data: { passwordHash },
+    });
+    usedResetTokenIds.add(payload.jti);
+  }
+
   private assertDevModeActive(): void {
     if (!env.JWT_DEV_SECRET || env.KEYCLOAK_ENABLED) {
       throw new AppError(

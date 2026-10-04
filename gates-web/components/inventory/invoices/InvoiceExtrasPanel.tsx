@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui';
 import { AccountSelect } from '@/components/form/AccountSelect';
 import { CostCenterSelect } from '@/components/form/CostCenterSelect';
@@ -9,7 +10,7 @@ import {
   type InvoiceExtraRow,
 } from '@/lib/invoices/invoice-adjustments';
 import { erpInputClass, erpLabelClass } from '@/components/erp/erpUiTokens';
-import { formatBaseAmount, rateForCurrency, toBaseAmount } from '@/lib/accounting/fx-base';
+import { formatBaseAmount, headerLocksLineCurrency, rateForCurrency, toBaseAmount } from '@/lib/accounting/fx-base';
 import { ExchangeRateInput } from '@/components/accounting/ExchangeRateInput';
 import { useCompanyBaseCurrency } from '@/lib/hooks/useCompanyBaseCurrency';
 import { seedLineDescription, useFollowHeaderDescription } from '@/lib/hooks/useFollowHeaderDescription';
@@ -18,25 +19,59 @@ type Currency = { id: string; code: string; arabicName: string; exchangeRate?: n
 
 const compactInput = `${erpInputClass} h-9 min-h-9 text-xs`;
 
-function CalcToggle({
+function ExtraAmountField({
   value,
-  onChange,
+  calcType,
   disabled,
+  onValue,
+  onCalcType,
 }: {
-  value: InvoiceAdjustmentCalc;
-  onChange: (next: InvoiceAdjustmentCalc) => void;
+  value: number | '';
+  calcType: InvoiceAdjustmentCalc;
   disabled?: boolean;
+  onValue: (next: number | '') => void;
+  onCalcType: (next: InvoiceAdjustmentCalc) => void;
 }) {
+  const isPercent = calcType === 'PERCENTAGE';
+  const [draft, setDraft] = useState<string | null>(null);
+  const shown = draft ?? (value === '' ? '' : String(value));
   return (
-    <select
-      className={`${compactInput} w-[4.5rem] shrink-0 px-1`}
-      value={value}
-      disabled={disabled}
-      onChange={(e) => onChange(e.target.value as InvoiceAdjustmentCalc)}
-    >
-      <option value="FIXED">قيمة</option>
-      <option value="PERCENTAGE">%</option>
-    </select>
+    <div className="flex h-9 min-h-9 items-stretch overflow-hidden rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] focus-within:border-[#0E78AA] focus-within:ring-2 focus-within:ring-[#0E78AA]/20">
+      <input
+        inputMode="decimal"
+        className="h-full min-w-0 flex-1 border-0 bg-transparent px-2 text-center text-xs outline-none disabled:opacity-50"
+        value={shown}
+        disabled={disabled}
+        placeholder="0"
+        onChange={(e) => {
+          const text = e.target.value.replace(/[^\d.]/g, '');
+          if (text !== '' && !/^\d*\.?\d*$/.test(text)) return;
+          setDraft(text);
+          if (text === '' || text === '.') {
+            onValue('');
+            return;
+          }
+          const amount = Number(text);
+          if (!Number.isFinite(amount)) return;
+          onValue(amount);
+        }}
+        onBlur={() => setDraft(null)}
+      />
+      <button
+        type="button"
+        disabled={disabled}
+        title={isPercent ? 'نسبة مئوية — اضغط للتبديل إلى قيمة' : 'قيمة — اضغط للتبديل إلى نسبة مئوية'}
+        aria-label={isPercent ? 'نسبة مئوية' : 'قيمة'}
+        onClick={() => onCalcType(isPercent ? 'FIXED' : 'PERCENTAGE')}
+        className={`w-9 shrink-0 whitespace-nowrap border-r border-[#D6EAF3] text-[10px] font-bold leading-none ${
+          isPercent
+            ? 'bg-[#E8F4FB] text-[#0E78AA] hover:bg-[#d5ecf8]'
+            : 'bg-[#FFF4E5] text-[#B45309] hover:bg-[#ffe8c7]'
+        } disabled:cursor-not-allowed disabled:opacity-50`}
+      >
+        {isPercent ? '%' : 'قيمة'}
+      </button>
+    </div>
   );
 }
 
@@ -68,6 +103,19 @@ export function InvoiceExtrasPanel({
   headerDescription = '',
 }: Props) {
   const { code: companyBase, label: companyBaseLabel } = useCompanyBaseCurrency();
+  const currencyLocked = headerLocksLineCurrency(defaultCurrency);
+
+  useEffect(() => {
+    if (!currencyLocked) return;
+    if (rows.every((row) => row.currency === defaultCurrency)) return;
+    onChange(
+      rows.map((row) =>
+        row.currency === defaultCurrency
+          ? row
+          : { ...row, currency: defaultCurrency, exchangeRate: defaultExchangeRate }
+      )
+    );
+  }, [currencyLocked, defaultCurrency, defaultExchangeRate, onChange, rows]);
 
   useFollowHeaderDescription({
     headerDescription,
@@ -112,12 +160,12 @@ export function InvoiceExtrasPanel({
       </Button>
       {open ? (
         <div className="mt-2 overflow-x-auto rounded-xl border border-[#D6EAF3] bg-white erp-scroll-x">
-          <table className="w-full min-w-[72rem] text-sm">
+          <table className="w-full min-w-[76rem] text-sm">
             <thead>
               <tr className="bg-[#F6FBFD] text-xs font-semibold text-[#094C6B]">
                 <th className="px-2 py-2 text-right whitespace-nowrap">الحساب</th>
-                <th className="px-2 py-2 text-right whitespace-nowrap">نسبة أو قيمة الخصم</th>
-                <th className="px-2 py-2 text-right whitespace-nowrap">نسبة أو قيمة الإضافة</th>
+                <th className="px-2 py-2 text-right whitespace-nowrap">قيمة الإضافة</th>
+                <th className="px-2 py-2 text-right whitespace-nowrap">قيمة الخصم</th>
                 <th className="px-2 py-2 text-right whitespace-nowrap">العملة</th>
                 <th className="px-2 py-2 text-right whitespace-nowrap">سعر الصرف</th>
                 <th className="px-2 py-2 text-right whitespace-nowrap">المعادل ({companyBaseLabel})</th>
@@ -139,59 +187,29 @@ export function InvoiceExtrasPanel({
                       placeholder="الحساب"
                     />
                   </td>
-                  <td className="px-2 py-2">
-                    <div className="flex items-center gap-1">
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        className={compactInput}
-                        value={row.discountValue}
-                        disabled={disabled}
-                        placeholder="0"
-                        onChange={(e) =>
-                          patch(index, {
-                            discountValue: e.target.value === '' ? '' : Number(e.target.value),
-                            additionValue: e.target.value ? '' : row.additionValue,
-                          })
-                        }
-                      />
-                      <CalcToggle
-                        value={row.discountCalcType}
-                        disabled={disabled}
-                        onChange={(discountCalcType) => patch(index, { discountCalcType })}
-                      />
-                    </div>
+                  <td className="px-2 py-2 w-36">
+                    <ExtraAmountField
+                      value={row.additionValue}
+                      calcType={row.additionCalcType}
+                      disabled={disabled}
+                      onValue={(additionValue) => patch(index, { additionValue })}
+                      onCalcType={(additionCalcType) => patch(index, { additionCalcType })}
+                    />
                   </td>
-                  <td className="px-2 py-2">
-                    <div className="flex items-center gap-1">
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        className={compactInput}
-                        value={row.additionValue}
-                        disabled={disabled}
-                        placeholder="0"
-                        onChange={(e) =>
-                          patch(index, {
-                            additionValue: e.target.value === '' ? '' : Number(e.target.value),
-                            discountValue: e.target.value ? '' : row.discountValue,
-                          })
-                        }
-                      />
-                      <CalcToggle
-                        value={row.additionCalcType}
-                        disabled={disabled}
-                        onChange={(additionCalcType) => patch(index, { additionCalcType })}
-                      />
-                    </div>
+                  <td className="px-2 py-2 w-36">
+                    <ExtraAmountField
+                      value={row.discountValue}
+                      calcType={row.discountCalcType}
+                      disabled={disabled}
+                      onValue={(discountValue) => patch(index, { discountValue })}
+                      onCalcType={(discountCalcType) => patch(index, { discountCalcType })}
+                    />
                   </td>
                   <td className="px-2 py-2 min-w-[7rem]">
                     <select
                       className={compactInput}
-                      value={row.currency}
-                      disabled={disabled}
+                      value={currencyLocked ? defaultCurrency : row.currency}
+                      disabled={disabled || currencyLocked}
                       onChange={(e) => {
                         const code = e.target.value;
                         const picked = currencies.find((c) => c.code === code);
@@ -220,10 +238,8 @@ export function InvoiceExtrasPanel({
                   </td>
                   <td className="px-2 py-2 w-28 text-end font-mono text-xs text-slate-600">
                     {formatBaseAmount(
-                      toBaseAmount(
-                        Number(row.additionValue || 0) || Number(row.discountValue || 0),
-                        row.exchangeRate
-                      )
+                      (row.additionCalcType === 'PERCENTAGE' ? 0 : toBaseAmount(row.additionValue, row.exchangeRate)) -
+                        (row.discountCalcType === 'PERCENTAGE' ? 0 : toBaseAmount(row.discountValue, row.exchangeRate))
                     )}
                   </td>
                   <td className="px-2 py-2 min-w-[9rem]">
@@ -272,7 +288,7 @@ export function InvoiceExtrasPanel({
                 + سطر
               </Button>
               <p className={`${erpLabelClass} mt-2 mb-0 font-normal text-[11px] text-slate-500`}>
-                لو الحساب المقابل فاضي، الخصم أو الإضافة تتقفل على العميل أو المورد. لو حددت حساب مقابل، القيد يروح عليه.
+                قيمة الإضافة وقيمة الخصم مستقلّين، وكل واحد ليه زر يبدّل بين نسبة وقيمة. لو الحساب المقابل فاضي، القيد يتقفل على العميل أو المورد.
               </p>
             </div>
           )}

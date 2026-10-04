@@ -1,4 +1,7 @@
+import { Prisma } from '@prisma/client';
 import prisma from '../../../shared/database/prisma';
+
+type Db = Prisma.TransactionClient | typeof prisma;
 import { AppError } from '../../../shared/middleware/error-handler';
 import { invoiceAccountResolverService } from '../../invoices/services/invoice-account-resolver.service';
 import { customerLedgerAccountService } from '../../accounting/services/customer-ledger-account.service';
@@ -19,8 +22,8 @@ export class TreasuryAccountResolverService {
     return undefined;
   }
 
-  private async loadDefs(companyId: string): Promise<AccountDefs> {
-    const settings = await prisma.companySettings.findUnique({
+  private async loadDefs(companyId: string, db: Db = prisma): Promise<AccountDefs> {
+    const settings = await db.companySettings.findUnique({
       where: { companyId },
       select: {
         accountDefinitions: true,
@@ -36,8 +39,12 @@ export class TreasuryAccountResolverService {
     });
   }
 
-  async resolveSafeGlAccountId(companyId: string, safeId: string): Promise<string> {
-    const safe = await prisma.safe.findFirst({
+  async resolveSafeGlAccountId(
+    companyId: string,
+    safeId: string,
+    db: Db = prisma
+  ): Promise<string> {
+    const safe = await db.safe.findFirst({
       where: { id: safeId, companyId },
       select: { glAccountId: true },
     });
@@ -47,7 +54,7 @@ export class TreasuryAccountResolverService {
     if (safe.glAccountId) {
       return safe.glAccountId;
     }
-    const defs = await this.loadDefs(companyId);
+    const defs = await this.loadDefs(companyId, db);
     const code = this.pick(defs, ['cashAccount', 'defaultCashAccount', 'cashBoxAccount']);
     if (!code) {
       throw new AppError(422, 'Cash GL account is not configured on safe or company settings');
@@ -57,9 +64,10 @@ export class TreasuryAccountResolverService {
 
   async resolveBankGlAccountId(
     companyId: string,
-    bankAccountId: string
+    bankAccountId: string,
+    db: Db = prisma
   ): Promise<string> {
-    const bank = await prisma.bankAccount.findFirst({
+    const bank = await db.bankAccount.findFirst({
       where: { id: bankAccountId, companyId },
       select: { glAccountId: true },
     });
@@ -69,7 +77,7 @@ export class TreasuryAccountResolverService {
     if (bank.glAccountId) {
       return bank.glAccountId;
     }
-    const defs = await this.loadDefs(companyId);
+    const defs = await this.loadDefs(companyId, db);
     const code = this.pick(defs, ['bankAccount', 'defaultBankAccount', 'bankGlAccount']);
     if (!code) {
       throw new AppError(422, 'Bank GL account is not configured on bank account or company settings');
@@ -177,6 +185,7 @@ export class TreasuryAccountResolverService {
     supplierId?: string | null;
     offsetAccountId?: string | null;
     invoiceId?: string | null;
+    db?: Db;
   }): Promise<string> {
     if (params.offsetAccountId) {
       return params.offsetAccountId;
@@ -190,6 +199,7 @@ export class TreasuryAccountResolverService {
       return customerLedgerAccountService.ensureForCustomer({
         companyId: params.companyId,
         customerId: params.customerId,
+        db: params.db,
       });
     }
     if (params.supplierId) {
@@ -197,7 +207,7 @@ export class TreasuryAccountResolverService {
         const advanceId = await this.tryResolveUnappliedAccount(params.companyId, 'supplier');
         if (advanceId) return advanceId;
       }
-      const supplier = await prisma.supplier.findFirst({
+      const supplier = await (params.db ?? prisma).supplier.findFirst({
         where: { id: params.supplierId, companyId: params.companyId },
         select: { mainAccountId: true, accountId: true },
       });

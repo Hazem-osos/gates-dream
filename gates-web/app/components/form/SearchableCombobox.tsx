@@ -49,7 +49,7 @@ type SearchableComboboxProps = {
 };
 
 const defaultInputCls = compactControlClass;
-const PORTAL_LIST_Z = 11000;
+const PORTAL_LIST_Z = 14000;
 
 function sameFixedStyle(
   prev: React.CSSProperties | null,
@@ -82,7 +82,7 @@ export function SearchableCombobox({
   emptyMessage = 'لا توجد نتائج',
   listClassName,
   renderOption,
-  portaled = false,
+  portaled = true,
   menuPlacement = 'bottom',
   valueLabel,
   clientSearchEntity,
@@ -98,6 +98,8 @@ export function SearchableCombobox({
   const listRef = useRef<HTMLUListElement>(null);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
+  /** True only while the user is typing. A chosen label is display text, not a search. */
+  const [searching, setSearching] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
   const [listFixedStyle, setListFixedStyle] = useState<React.CSSProperties | null>(null);
   const [resolvedPlacement, setResolvedPlacement] = useState<'bottom' | 'top'>('bottom');
@@ -105,10 +107,16 @@ export function SearchableCombobox({
   const searchGenRef = useRef(0);
   const prevValueRef = useRef(value);
   const onQueryChangeRef = useRef(onQueryChange);
+  const openRef = useRef(false);
+  const searchingRef = useRef(false);
   onQueryChangeRef.current = onQueryChange;
+  openRef.current = open;
+  searchingRef.current = searching;
+
+  const typedQuery = searching ? query.trim() : '';
 
   useEffect(() => {
-    const q = query.trim();
+    const q = typedQuery;
     if (!clientSearchEntity || !q || !isClientSearchAvailable()) {
       setWorkerRankedIds(null);
       return;
@@ -120,7 +128,7 @@ export function SearchableCombobox({
       });
     }, 0);
     return () => window.clearTimeout(handle);
-  }, [query, clientSearchEntity]);
+  }, [typedQuery, clientSearchEntity]);
 
   const selected = options.find((o) => o.value === value);
 
@@ -133,10 +141,14 @@ export function SearchableCombobox({
     if (valueChanged) {
       if (!value) {
         setQuery('');
-        setOpen(false);
+        if (!searchingRef.current) {
+          setSearching(false);
+          setOpen(false);
+        }
         onQueryChangeRef.current?.('');
         return;
       }
+      setSearching(false);
       if (displayLabel) setQuery(displayLabel);
       onQueryChangeRef.current?.('');
       return;
@@ -149,7 +161,7 @@ export function SearchableCombobox({
   }, [selected, value, open, valueLabel]);
 
   const filtered = useMemo(() => {
-    const q = query.trim();
+    const q = typedQuery;
     const nq = normalizeArabicForSearch(q);
     if (!nq) {
       const base = options.slice(0, maxVisible);
@@ -174,11 +186,11 @@ export function SearchableCombobox({
         return blob.includes(nq);
       })
       .slice(0, maxVisible);
-  }, [options, query, value, workerRankedIds, clientSearchEntity, maxVisible]);
+  }, [options, typedQuery, value, workerRankedIds, clientSearchEntity, maxVisible]);
 
   const showQuickCreate = Boolean(onQuickCreate && quickCreateLabel);
-  const quickCreateText = query.trim()
-    ? `${quickCreateLabel}: "${query.trim()}"`
+  const quickCreateText = typedQuery
+    ? `${quickCreateLabel}: "${typedQuery}"`
     : quickCreateLabel?.includes('"')
       ? quickCreateLabel
       : '+ إضافة جديد';
@@ -190,7 +202,10 @@ export function SearchableCombobox({
       const t = e.target as Node;
       if (rootRef.current?.contains(t)) return;
       if (listRef.current?.contains(t)) return;
+      if (!openRef.current && !searchingRef.current) return;
+      setSearching(false);
       setOpen(false);
+      onQueryChangeRef.current?.('');
     };
     document.addEventListener('mousedown', onDoc);
     return () => document.removeEventListener('mousedown', onDoc);
@@ -256,15 +271,23 @@ export function SearchableCombobox({
     };
   }, [open, repositionList, filtered.length, query]);
 
+  const revealAll = () => {
+    setSearching(false);
+    setOpen(true);
+    onQueryChangeRef.current?.('');
+  };
+
   const pick = (next: string) => {
     onChange(next);
     const opt = options.find((o) => o.value === next);
     setQuery(next && opt?.value ? opt.label : '');
+    setSearching(false);
     setOpen(false);
   };
 
   const handleQuickCreate = () => {
-    onQuickCreate?.(query.trim());
+    onQuickCreate?.(typedQuery);
+    setSearching(false);
     setOpen(false);
   };
 
@@ -288,19 +311,31 @@ export function SearchableCombobox({
           onChange={(e) => {
             const next = e.target.value;
             setQuery(next);
+            setSearching(true);
             setOpen(true);
             setActiveIndex(0);
             onQueryChange?.(next);
             if (!next.trim()) onChange('');
           }}
-          onFocus={() => setOpen(true)}
           {...(() => {
-            const { onKeyDown: inputKeyDown, ...restInputProps } = inputProps ?? {};
+            const { onKeyDown: inputKeyDown, onFocus: inputFocus, onClick: inputClick, ...restInputProps } = inputProps ?? {};
             return {
               ...restInputProps,
+              onFocus: (e: React.FocusEvent<HTMLInputElement>) => {
+                revealAll();
+                const el = e.currentTarget;
+                requestAnimationFrame(() => el.select());
+                inputFocus?.(e);
+              },
+              onClick: (e: React.MouseEvent<HTMLInputElement>) => {
+                if (!open) revealAll();
+                inputClick?.(e);
+              },
               onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => {
                 if (e.key === 'Tab') {
+                  setSearching(false);
                   setOpen(false);
+                  onQueryChangeRef.current?.('');
                   onInputKeyDown?.(e);
                   inputKeyDown?.(e);
                   return;
@@ -323,13 +358,14 @@ export function SearchableCombobox({
                   inputKeyDown?.(e);
                   if (e.defaultPrevented) return;
                   e.preventDefault();
-                  setOpen(true);
+                  revealAll();
                   return;
                 }
 
                 if (e.key === 'ArrowDown') {
                   e.preventDefault();
-                  setOpen(true);
+                  if (!open) revealAll();
+                  else setOpen(true);
                   setActiveIndex((i) => Math.min(i + 1, listCount - 1));
                   return;
                 }
@@ -339,7 +375,9 @@ export function SearchableCombobox({
                   return;
                 }
                 if (e.key === 'Escape') {
+                  setSearching(false);
                   setOpen(false);
+                  onQueryChangeRef.current?.('');
                   return;
                 }
 
@@ -386,7 +424,7 @@ export function SearchableCombobox({
               style={portaled ? listFixedStyle ?? undefined : undefined}
               onWheel={(e) => e.stopPropagation()}
               onTouchMove={(e) => e.stopPropagation()}
-              className={`${portaled ? 'fixed' : 'absolute'} z-[11000] ${listPositionClass} max-h-[min(26rem,70vh)] min-w-[min(100%,28rem)] w-max max-w-[32rem] overflow-auto overscroll-contain rounded-lg border border-[#D6EAF3] bg-white py-1 text-sm shadow-lg ${listClassName ?? ''}`}
+              className={`${portaled ? 'fixed' : 'absolute'} z-[14000] ${listPositionClass} max-h-[min(26rem,70vh)] min-w-[min(100%,28rem)] w-max max-w-[32rem] overflow-auto overscroll-contain rounded-lg border border-[#D6EAF3] bg-white py-1 text-sm shadow-lg ${listClassName ?? ''}`}
             >
               {filtered.length === 0 && !showQuickCreate ? (
                 <li className="px-3 py-2 text-gray-500">{emptyMessage}</li>

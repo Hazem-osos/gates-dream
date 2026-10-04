@@ -16,7 +16,7 @@ export class CustomerInsightsService {
       where: { id: customerId, companyId, deletedAt: null },
       select: { id: true },
     });
-    if (!customer) throw new Error('Customer not found');
+    if (!customer) throw new Error('العميل غير موجود');
 
     const lines = await prisma.invoiceLine.findMany({
       where: {

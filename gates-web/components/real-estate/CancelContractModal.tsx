@@ -57,7 +57,7 @@ export function CancelContractModal({
     <div className="fixed inset-0 z-[140] flex items-center justify-center bg-black/40 p-4" dir="rtl">
       <div className="w-full max-w-lg overflow-hidden rounded-xl bg-white shadow-xl">
         <div className="p-5 pb-0">
-          <h2 className="mb-4 text-lg font-bold text-[#0E79AA]">فسخ العقد وتسوية المصادرة</h2>
+          <h2 className="mb-4 text-lg font-bold text-[#0E78AA]">فسخ العقد وتسوية المصادرة</h2>
           <ul className="mb-4 space-y-2 text-sm">
             <li className="flex justify-between"><span>إجمالي المدفوع من العميل (+)</span><strong>{formatEgp(preview.paid)}</strong></li>
             <li className="flex justify-between"><span>نسبة المصادرة ٪ (−)</span><strong>{ratePercent}٪</strong></li>
@@ -98,7 +98,6 @@ export function CancelContractModal({
           saveText="تأكيد الفسخ"
           cancelText="إلغاء"
           saveLoading={mutation.isPending}
-          respectPermissions={false}
           className="mt-0"
         />
       </div>

@@ -197,7 +197,7 @@ export default function RealEstateInvestmentCommandCenter() {
               cell: (r) => (
                 <Link
                   href={`/real-estate/contracts/${r.contractId}`}
-                  className="border border-slate-200 px-1.5 py-0.5 text-[10px] font-semibold text-[#0E79AA]"
+                  className="border border-slate-200 px-1.5 py-0.5 text-[10px] font-semibold text-[#0E78AA]"
                 >
                   تسديد
                 </Link>
@@ -270,7 +270,7 @@ export default function RealEstateInvestmentCommandCenter() {
             ) : (
               <Link
                 href="/real-estate-investment/operations/reservation"
-                className="border border-[#0E79AA] px-2 py-1 text-center text-xs font-semibold text-[#0E79AA]"
+                className="border border-[#0E78AA] px-2 py-1 text-center text-xs font-semibold text-[#0E78AA]"
               >
                 حجز هذه الوحدة
               </Link>

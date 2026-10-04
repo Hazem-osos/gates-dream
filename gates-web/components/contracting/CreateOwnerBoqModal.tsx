@@ -56,7 +56,7 @@ export function CreateOwnerBoqModal({
     <div className="fixed inset-0 z-[140] flex items-center justify-center bg-black/40 p-4" dir="rtl">
       <div className="w-full max-w-2xl overflow-hidden rounded-xl bg-white shadow-xl">
         <div className="p-5 pb-0">
-          <h2 className="mb-4 text-lg font-bold text-[#0E79AA]">بند مقايسة مالك جديد</h2>
+          <h2 className="mb-4 text-lg font-bold text-[#0E78AA]">بند مقايسة مالك جديد</h2>
           <FormSectionCard
             title="البيانات الأساسية"
             subtitle="كود البند والوصف والوحدة وكمية العقد"
@@ -107,7 +107,6 @@ export function CreateOwnerBoqModal({
           cancelText="إلغاء"
           saveLoading={create.isPending}
           saveDisabled={!form.itemCode || !form.descriptionAr}
-          respectPermissions={false}
           className="mt-0"
         />
       </div>

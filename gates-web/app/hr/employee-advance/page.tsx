@@ -150,8 +150,8 @@ export default function EmployeeAdvancePage() {
                         onClick={() => setValue('paymentMethod', 'bank', { shouldValidate: true })}
                         className={`px-6 py-3 rounded-lg border-2 transition-all duration-300 transform hover:scale-105 ${
                           paymentMethod === 'bank'
-                            ? 'bg-[#0E79AA] text-white border-[#0E79AA] shadow-lg shadow-[#0E79AA]/30 ring-2 ring-[#0E79AA]/20'
-                            : 'bg-white text-[#094C6B] border-[#D6EAF3] hover:border-[#0E79AA] hover:bg-[#F6FBFD] hover:shadow-md'
+                            ? 'bg-[#0E78AA] text-white border-[#0E78AA] shadow-lg shadow-[#0E78AA]/30 ring-2 ring-[#0E78AA]/20'
+                            : 'bg-white text-[#094C6B] border-[#D6EAF3] hover:border-[#0E78AA] hover:bg-[#F6FBFD] hover:shadow-md'
                         }`}
                       >
                         بنك
@@ -161,8 +161,8 @@ export default function EmployeeAdvancePage() {
                         onClick={() => setValue('paymentMethod', 'fund', { shouldValidate: true })}
                         className={`px-6 py-3 rounded-lg border-2 transition-all duration-300 transform hover:scale-105 ${
                           paymentMethod === 'fund'
-                            ? 'bg-[#0E79AA] text-white border-[#0E79AA] shadow-lg shadow-[#0E79AA]/30 ring-2 ring-[#0E79AA]/20'
-                            : 'bg-white text-[#094C6B] border-[#D6EAF3] hover:border-[#0E79AA] hover:bg-[#F6FBFD] hover:shadow-md'
+                            ? 'bg-[#0E78AA] text-white border-[#0E78AA] shadow-lg shadow-[#0E78AA]/30 ring-2 ring-[#0E78AA]/20'
+                            : 'bg-white text-[#094C6B] border-[#D6EAF3] hover:border-[#0E78AA] hover:bg-[#F6FBFD] hover:shadow-md'
                         }`}
                       >
                         صندوق

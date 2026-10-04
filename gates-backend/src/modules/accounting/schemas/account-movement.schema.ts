@@ -7,8 +7,6 @@ export const transferAccountMovementSchema = z.object({
   toDate: z.coerce.date(),
   hijriDate: z.string().optional(),
   description: z.string().optional(),
-  /// C9 fix: the reclassification journal must be posted against a branch;
-  /// defaults to the company's first branch when omitted.
   branchId: z.string().uuid().optional(),
   lineIds: z.array(z.string().uuid()).optional(),
 }).refine(

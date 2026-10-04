@@ -8,7 +8,7 @@ export default function SafePage() {
       urlPath="/accounting/account-reports/credit/safe"
       icon="💰"
       subtitle="حركة الخزينة خلال الفترة."
-      fields={{ dates: 'range', currency: true, branch: true }}
+      fields={{ dates: 'range', currency: true, branch: true, reportOptions: ['showUnposted'] }}
     />
   );
 }

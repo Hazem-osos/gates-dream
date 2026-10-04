@@ -36,11 +36,6 @@ export function resolveSecuritiesPaperCase(paper: {
     return raw;
   }
   if (paper.isCancelled) return 'BOUNCED';
-  if (paper.isPosted && Array.isArray(paper.multiCollectionLines) && paper.multiCollectionLines.length > 0) {
-    return 'MULTI_COLLECTED';
-  }
-  if (paper.isPosted) return 'COLLECTED';
-  if (paper.description?.includes('تظهير')) return 'ENDORSED';
   return 'ISSUED';
 }
 

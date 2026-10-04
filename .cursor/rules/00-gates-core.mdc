@@ -1,0 +1,31 @@
+---
+description: Gates core working rules - preserve behavior, minimal changes, reuse Gates patterns, accounting and inventory correctness first
+alwaysApply: true
+---
+
+# Gates core rules
+
+Gates is a production ERP (gates-web: Next.js 15 + TanStack Query; gates-backend: Express route -> service -> Prisma on MySQL; BullMQ + Redis; Railway). Changes must keep it working.
+
+- Preserve existing business behavior, inputs, outputs, permissions and screens unless the task explicitly changes them.
+- Make the smallest change that solves the task. No broad rewrites, no drive-by refactors.
+- Read the existing implementation (route, service, Prisma model, page) before editing.
+- Reuse existing Gates patterns and helpers before creating new abstractions. Do not add repositories, microservices, another ORM, another database or another state library unless the task explicitly approves it.
+- Accounting and inventory correctness outranks code cleanliness.
+- Database correctness never depends only on frontend behavior; assume every mutation can run twice at the same time.
+- Measure before large optimizations.
+
+## Non-trivial work
+
+Before coding, briefly identify: affected pages, endpoints, services, Prisma models, source of truth, canonical pattern, transaction boundary, concurrency, tenant scoping, permissions, query growth / pagination, caches, tests. For posting, reversal, numbering, balances, stock, cost, tenancy or schema changes, write a plan first.
+
+After coding, report: files changed, intended behavior changes, schema / API changes, queries introduced, transaction and concurrency handling, tests and typecheck run, remaining risks, and how accounting / inventory / tenant correctness is preserved.
+
+Trivial text, label or styling changes need none of this.
+
+## References
+
+- Contract: @docs/architecture/ENGINEERING_CONSTITUTION.md
+- How the system works: @docs/architecture/CURRENT_ARCHITECTURE.md
+- Known failure modes: docs/architecture/ARCHITECTURE_AUDIT.md
+- Measurement plan: docs/architecture/PERFORMANCE_BASELINE_PLAN.md

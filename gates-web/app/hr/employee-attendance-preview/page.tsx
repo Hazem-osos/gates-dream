@@ -14,7 +14,7 @@ import {
 const filterDefaults: EmployeeAttendancePreviewFilterInput = {
   year: '2025',
   month: 'يناير',
-  employee: '1212378971212',
+  employee: '',
 };
 
 const filterErrCls = 'text-red-600 text-xs mt-1 block text-right';
@@ -222,7 +222,7 @@ export default function EmployeeAttendancePreviewPage() {
                 <button
                   type="button"
                   onClick={handleSubmit(onShowData)}
-                  className="px-8 py-3 bg-[#0E79AA] text-white rounded-lg hover:bg-[#094C6B] transition-colors"
+                  className="px-8 py-3 bg-[#0E78AA] text-white rounded-lg hover:bg-[#094C6B] transition-colors"
                 >
                   عرض البيانات
                 </button>
@@ -303,7 +303,7 @@ export default function EmployeeAttendancePreviewPage() {
                           <div className="space-y-1">
                             <div className="text-sm">-</div>
                             <div className="text-xs">
-                              <button className="text-[#0E79AA] hover:underline">تحسب</button>
+                              <button className="text-[#0E78AA] hover:underline">تحسب</button>
                             </div>
                           </div>
                         </td>
@@ -311,7 +311,7 @@ export default function EmployeeAttendancePreviewPage() {
                           <div className="space-y-1">
                             <div className="text-sm">-</div>
                             <div className="text-xs">
-                              <button className="text-[#0E79AA] hover:underline">تحسب</button>
+                              <button className="text-[#0E78AA] hover:underline">تحسب</button>
                             </div>
                           </div>
                         </td>
@@ -319,7 +319,7 @@ export default function EmployeeAttendancePreviewPage() {
                           <div className="space-y-1">
                             <div className="text-sm">-</div>
                             <div className="text-xs">
-                              <button className="text-[#0E79AA] hover:underline">تحسب</button>
+                              <button className="text-[#0E78AA] hover:underline">تحسب</button>
                             </div>
                           </div>
                         </td>
@@ -327,7 +327,7 @@ export default function EmployeeAttendancePreviewPage() {
                           <div className="space-y-1">
                             <div className="text-sm">-</div>
                             <div className="text-xs">
-                              <button className="text-[#0E79AA] hover:underline">تحسب</button>
+                              <button className="text-[#0E78AA] hover:underline">تحسب</button>
                             </div>
                           </div>
                         </td>
@@ -335,7 +335,7 @@ export default function EmployeeAttendancePreviewPage() {
                           <div className="space-y-1">
                             <div className="text-sm">-</div>
                             <div className="text-xs">
-                              <button className="text-[#0E79AA] hover:underline">تحسب</button>
+                              <button className="text-[#0E78AA] hover:underline">تحسب</button>
                             </div>
                           </div>
                         </td>
@@ -343,7 +343,7 @@ export default function EmployeeAttendancePreviewPage() {
                           <div className="space-y-1">
                             <div className="text-sm">-</div>
                             <div className="text-xs">
-                              <button className="text-[#0E79AA] hover:underline">تحسب</button>
+                              <button className="text-[#0E78AA] hover:underline">تحسب</button>
                             </div>
                           </div>
                         </td>
@@ -351,7 +351,7 @@ export default function EmployeeAttendancePreviewPage() {
                           <div className="space-y-1">
                             <div className="text-sm">-</div>
                             <div className="text-xs">
-                              <button className="text-[#0E79AA] hover:underline">تحسب</button>
+                              <button className="text-[#0E78AA] hover:underline">تحسب</button>
                             </div>
                           </div>
                         </td>
@@ -359,7 +359,7 @@ export default function EmployeeAttendancePreviewPage() {
                           <div className="space-y-1">
                             <div className="text-sm">-</div>
                             <div className="text-xs">
-                              <button className="text-[#0E79AA] hover:underline">تحسب</button>
+                              <button className="text-[#0E78AA] hover:underline">تحسب</button>
                             </div>
                           </div>
                         </td>
@@ -367,7 +367,7 @@ export default function EmployeeAttendancePreviewPage() {
                           <div className="space-y-1">
                             <div className="text-sm">-</div>
                             <div className="text-xs">
-                              <button className="text-[#0E79AA] hover:underline">تحسب</button>
+                              <button className="text-[#0E78AA] hover:underline">تحسب</button>
                             </div>
                           </div>
                         </td>
@@ -375,7 +375,7 @@ export default function EmployeeAttendancePreviewPage() {
                           <div className="space-y-1">
                             <div className="text-sm">-</div>
                             <div className="text-xs">
-                              <button className="text-[#0E79AA] hover:underline">تحسب</button>
+                              <button className="text-[#0E78AA] hover:underline">تحسب</button>
                             </div>
                           </div>
                         </td>

@@ -1,4 +1,5 @@
 import prisma from '../../../shared/database/prisma';
+import { permanentDelete } from '../../../shared/database/permanent-delete.util';
 import { logger } from '../../../shared/logger';
 
 export interface CreateJobCadreData {
@@ -150,10 +151,7 @@ export class JobCadreService {
         throw new Error('Job cadre not found');
       }
 
-      await prisma.jobCadre.update({
-        where: { id: jobCadreId },
-        data: { isActive: false },
-      });
+      await permanentDelete('السجل', () => prisma.jobCadre.delete({ where: { id: jobCadreId } }));
 
       logger.info({ companyId, jobCadreId }, 'Job cadre deleted');
       return { success: true };

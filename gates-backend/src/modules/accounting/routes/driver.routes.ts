@@ -29,7 +29,7 @@ router.get(
   async (req: AuthRequest, res: Response) => {
     const companyId = req.companyId || req.tenantId;
     if (!companyId) {
-      return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+      return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     }
     const result = await driverService.listDrivers(companyId, {
       page: req.query.page as number | undefined,
@@ -47,7 +47,7 @@ router.get(
   async (req: AuthRequest, res: Response) => {
     const companyId = req.companyId || req.tenantId;
     if (!companyId) {
-      return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+      return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     }
     try {
       const data = await driverService.getDriverById(companyId, req.params.id);
@@ -65,7 +65,7 @@ router.post(
   async (req: AuthRequest, res: Response) => {
     const companyId = req.companyId || req.tenantId;
     if (!companyId) {
-      return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+      return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     }
     const data = await driverService.createDriver(companyId, req.body);
     return void res.status(201).json({ status: 'success', data });
@@ -79,7 +79,7 @@ router.put(
   async (req: AuthRequest, res: Response) => {
     const companyId = req.companyId || req.tenantId;
     if (!companyId) {
-      return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+      return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     }
     try {
       const data = await driverService.updateDriver(companyId, req.params.id, req.body);
@@ -96,7 +96,7 @@ router.delete(
   async (req: AuthRequest, res: Response) => {
     const companyId = req.companyId || req.tenantId;
     if (!companyId) {
-      return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+      return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     }
     try {
       await driverService.deleteDriver(companyId, req.params.id);

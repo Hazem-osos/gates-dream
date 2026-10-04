@@ -9,6 +9,7 @@ import { getAccessTokenFromAuthSuccessResponse } from '@/lib/auth/extract-access
 import { resetAuthSessionStorage } from '@/lib/auth/reset-auth-session';
 import { queryKeys } from '@/lib/query/query-keys';
 import { LocaleProvider, useMarketingLocale } from '@/lib/marketing/locale';
+import { GatesDataNetwork } from '@/components/visual/GatesDataNetwork';
 
 const LOGIN_PATH = process.env.NEXT_PUBLIC_AUTH_LOGIN_PATH || '/auth/login';
 const POST_AUTH_REDIRECT = process.env.NEXT_PUBLIC_POST_AUTH_REDIRECT || '/dashboard';
@@ -81,7 +82,7 @@ function LoginForm() {
           autoComplete="username"
           value={username}
           onChange={(e) => setUsername(e.target.value)}
-          className="h-9 w-full rounded-lg border border-[#CFE7F2] bg-[#F6FBFD] px-3 text-sm text-[#0A3D5E] outline-none focus:border-[#0E79AA] focus:ring-2 focus:ring-[#0E79AA]/25"
+          className="h-9 w-full rounded-lg border border-[#CFE7F2] bg-[#F6FBFD] px-3 text-sm text-[#0A3D5E] outline-none focus:border-[#0E78AA] focus:ring-2 focus:ring-[#0E78AA]/25"
           placeholder="admin"
         />
       </div>
@@ -97,7 +98,7 @@ function LoginForm() {
           autoComplete="current-password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          className="h-9 w-full rounded-lg border border-[#CFE7F2] bg-[#F6FBFD] px-3 text-sm text-[#0A3D5E] outline-none focus:border-[#0E79AA] focus:ring-2 focus:ring-[#0E79AA]/25"
+          className="h-9 w-full rounded-lg border border-[#CFE7F2] bg-[#F6FBFD] px-3 text-sm text-[#0A3D5E] outline-none focus:border-[#0E78AA] focus:ring-2 focus:ring-[#0E78AA]/25"
           placeholder="••••••••"
         />
       </div>
@@ -108,11 +109,11 @@ function LoginForm() {
             type="checkbox"
             checked={remember}
             onChange={(e) => setRemember(e.target.checked)}
-            className="h-4 w-4 rounded border-[#CFE7F2] text-[#0E79AA] focus:ring-[#0E79AA]"
+            className="h-4 w-4 rounded border-[#CFE7F2] text-[#0E78AA] focus:ring-[#0E78AA]"
           />
           {copy.login.remember}
         </label>
-        <Link href="/forgot-password" className="text-[#0E79AA] hover:underline">
+        <Link href="/forgot-password" className="text-brand">
           {copy.login.forgot}
         </Link>
       </div>
@@ -129,7 +130,7 @@ function LoginForm() {
       <button
         type="submit"
         disabled={pending}
-        className="h-12 w-full rounded-xl bg-gradient-to-l from-[#0E79AA] to-[#1787B8] font-bold text-white shadow-lg transition-transform duration-200 hover:scale-[1.01] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
+        className="h-12 w-full rounded-xl bg-gradient-to-l from-[#0E78AA] to-[#1787B8] font-bold text-white shadow-lg transition-transform duration-200 hover:scale-[1.01] active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
       >
         {pending ? copy.login.pending : copy.login.submit}
       </button>
@@ -143,8 +144,9 @@ function LoginView() {
   return (
     <div
       dir={dir}
-      className="relative flex min-h-screen items-center justify-center overflow-hidden bg-gradient-to-br from-[#062A42] via-[#0E79AA] to-[#0A3D5E] px-4 py-12"
+      className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#071018] px-4 py-12"
     >
+      <GatesDataNetwork className="absolute inset-0 h-full w-full" opacity={0.4} />
       <div className="absolute inset-x-0 top-0 z-10 flex items-center justify-between px-6 py-5 text-white">
         <Link href="/" className="text-sm tracking-[0.18em] text-white/80 hover:text-white">
           {copy.login.back}
@@ -177,7 +179,7 @@ function LoginView() {
         </div>
 
         <div className="rounded-3xl border border-white/40 bg-white/95 p-8 shadow-2xl backdrop-blur">
-          <h1 className="mb-6 text-xl font-bold text-[#0E79AA]">{copy.login.title}</h1>
+          <h1 className="mb-6 text-xl font-bold text-[#0E78AA]">{copy.login.title}</h1>
           <Suspense fallback={<div className="h-64" />}>
             <LoginForm />
           </Suspense>

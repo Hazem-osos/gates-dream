@@ -10,6 +10,16 @@ export function listedSaleAmount(row: {
   return Number.isFinite(price) && price > 0 ? price : 0;
 }
 
+export function listedPurchaseAmount(row: {
+  price?: unknown;
+  purchasePrice?: unknown;
+}): number {
+  const purchase = Number(row.purchasePrice ?? 0);
+  if (Number.isFinite(purchase) && purchase > 0) return purchase;
+  const price = Number(row.price ?? 0);
+  return Number.isFinite(price) && price > 0 ? price : 0;
+}
+
 /** value = listed amount; cost/last = listed number is a percent of the base. */
 export function applyPriceListMode(
   listed: number,

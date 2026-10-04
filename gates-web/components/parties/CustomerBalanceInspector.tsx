@@ -31,7 +31,7 @@ export function CustomerBalanceInspector({
   return (
     <div className="mt-1.5 space-y-1 text-[11px] text-slate-600">
       <p>
-        الرصيد الحالي:{' '}
+        الرصيد المحاسبي (كشف الحساب):{' '}
         <span className="font-semibold tabular-nums text-[#0A3D5E]">
           {isLoading ? '…' : summary ? formatBalance(summary.balance) : '—'}
         </span>
@@ -39,7 +39,7 @@ export function CustomerBalanceInspector({
       <button
         type="button"
         onClick={inspect}
-        className="inline-flex items-center gap-1 font-semibold text-[#0E79AA] hover:underline"
+        className="inline-flex items-center gap-1 font-semibold text-[#0E78AA] hover:underline"
       >
         <Sparkles className="h-3 w-3" />
         كشف تفاصيل الرصيد بالذكاء الاصطناعي

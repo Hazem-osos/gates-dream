@@ -11,6 +11,7 @@ import { adjustmentService } from '../services/adjustment.service';
 import { logger } from '../../../shared/logger';
 import { AuthRequest } from '../../../shared/auth/types';
 import { buildStockGlPostingContext } from '../services/stock-gl-posting-context';
+import { stockPostJson } from '../utils/stock-post-route-response';
 
 const router = Router();
 
@@ -31,7 +32,7 @@ router.post(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -88,7 +89,7 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -139,7 +140,7 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -169,6 +170,45 @@ router.get(
   }
 );
 
+router.put(
+  '/:id',
+  authorize({ resource: 'invoice', action: 'edit' }),
+  validate({ body: createAdjustmentSchema }),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const companyId = req.companyId || req.tenantId;
+      if (!companyId) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
+      const adjustment = await adjustmentService.updateAdjustment(companyId, req.params.id, {
+        companyId,
+        branchId: req.body.branchId || req.branchId || undefined,
+        description: req.body.description,
+        serial: req.body.serial,
+        date: req.body.date,
+        warehouseId: req.body.warehouseId,
+        lines: req.body.lines,
+      });
+      return void res.json({ status: 'success', message: 'تم حفظ التسوية', data: adjustment });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'تعذر تعديل التسوية';
+      const status = message.includes('not found') || message.includes('لا يمكن') || message.includes('غير') ? 400 : 500;
+      return void res.status(status).json({ status: 'error', message });
+    }
+  }
+);
+
+router.delete('/:id', authorize({ resource: 'invoice', action: 'edit' }), async (req: AuthRequest, res: Response) => {
+  try {
+    const companyId = req.companyId || req.tenantId;
+    if (!companyId) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
+    await adjustmentService.deleteAdjustment(companyId, req.params.id);
+    return void res.json({ status: 'success', message: 'تم حذف التسوية' });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'تعذر حذف التسوية';
+    const status = message.includes('not found') || message.includes('لا يمكن') ? 400 : 500;
+    return void res.status(status).json({ status: 'error', message });
+  }
+});
+
 /**
  * POST /api/v1/inventory/adjustments/:id/post
  * Post adjustment (apply quantity adjustments)
@@ -182,18 +222,19 @@ router.post(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
-      await adjustmentService.postAdjustment(companyId, req.params.id, buildStockGlPostingContext(req, companyId));
+      const result = await adjustmentService.postAdjustment(
+        companyId,
+        req.params.id,
+        buildStockGlPostingContext(req, companyId)
+      );
 
       logger.info({ companyId, adjustmentId: req.params.id }, 'Adjustment posted');
 
-      return void res.json({
-        status: 'success',
-        message: 'Adjustment posted successfully',
-      });
+      return void res.json(stockPostJson(result, 'تم ترحيل التسوية بنجاح'));
     } catch (error) {
       logger.error({ error }, 'Error posting adjustment');
       const status =
@@ -227,7 +268,7 @@ router.post(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -273,7 +314,7 @@ router.post(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -322,7 +363,7 @@ router.post(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 

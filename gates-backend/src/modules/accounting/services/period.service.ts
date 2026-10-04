@@ -438,6 +438,9 @@ export class PeriodService {
 
   async updatePeriod(companyId: string, periodId: string, data: UpdatePeriodData) {
     const existing = await this.getPeriodById(companyId, periodId);
+    if (existing.isClosed) {
+      throw new AppError(422, 'السنة المالية مغلقة. افتحها أولاً قبل التعديل.');
+    }
     await this.assertNoMovements(companyId, existing.startDate, existing.endDate, 'تعديل');
 
     const otherCount = await this.countOtherPeriods(companyId, periodId);
@@ -487,6 +490,16 @@ export class PeriodService {
     return period;
   }
 
+  async previewClose(companyId: string, periodId: string) {
+    const period = await this.getPeriodById(companyId, periodId);
+    if (period.isClosed) {
+      throw new AppError(400, 'الفترة مغلقة بالفعل');
+    }
+    const year = await this.resolveFiscalYearForPeriod(companyId, period);
+    await yearEndClosingService.validateBeforeClose(companyId, year.id);
+    return { ok: true as const, fiscalYearId: year.id };
+  }
+
   async closePeriod(companyId: string, periodId: string, ctx: JournalPostingContext) {
     const period = await this.getPeriodById(companyId, periodId);
     if (period.isClosed) {
@@ -494,8 +507,8 @@ export class PeriodService {
     }
 
     const year = await this.resolveFiscalYearForPeriod(companyId, period);
-    const result = await yearEndClosingService.closeFiscalYear(
-      { ...ctx, fiscalYearId: year.id },
+    const closed = await yearEndClosingService.closeFiscalYear(
+      { ...ctx, companyId, fiscalYearId: year.id },
       year.id
     );
 
@@ -504,8 +517,13 @@ export class PeriodService {
       data: { isClosed: true },
     });
 
-    logger.info({ companyId, periodId, closingJournalEntryId: result.closingJournalEntryId }, 'Period closed');
-    return { ...updated, closingJournalEntryId: result.closingJournalEntryId };
+    logger.info({ companyId, periodId, closingJournalEntryId: closed.closingJournalEntryId }, 'Period closed');
+    return {
+      ...updated,
+      closingJournalEntryId: closed.closingJournalEntryId,
+      netProfit: closed.netProfit,
+      retainedEarningsTransfer: closed.retainedEarningsTransfer,
+    };
   }
 
   async reopenPeriod(companyId: string, periodId: string, ctx: JournalPostingContext) {
@@ -528,6 +546,9 @@ export class PeriodService {
 
   async deletePeriod(companyId: string, periodId: string) {
     const period = await this.getPeriodById(companyId, periodId);
+    if (period.isClosed) {
+      throw new AppError(422, 'السنة المالية مغلقة. افتحها أولاً قبل الحذف.');
+    }
     await this.assertNoMovements(companyId, period.startDate, period.endDate, 'حذف');
 
     await prisma.period.delete({ where: { id: periodId } });

@@ -2,807 +2,948 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Minus, Pause, Plus, Search, ShoppingCart, Trash2 } from 'lucide-react';
-import { ActionButtons } from '@/components/ui/ActionButtons';
-import { StatusBadge, compactControlClass } from '@/components/ui';
-import { useApiQuery, useApiMutation, useInvalidateQuery } from '@/lib/hooks/useApi';
-import { useCurrentUserProfile } from '@/lib/hooks/useCurrentUserProfile';
-import ErrorToast from '@/components/ErrorToast';
-import SuccessToast from '@/components/SuccessToast';
-import { EmptyState } from '@/components/ui/EmptyState';
-import {
-  computePosCartTotals,
-  createEmptyPosCartLine,
-  type PosCartLine,
-} from '@/lib/pos/computePosCartTotals';
-import { submitPosWave2Order, usePosSession } from '@/lib/hooks/usePosSession';
-import { findItemByBarcode, type BarcodeItemHit } from '@/lib/inventory/findItemByBarcode';
-import { resolvePriceListSalePrice } from '@/lib/inventory/pricing-engine';
+import { apiClient } from '@/lib/api/client';
+import { useApiQuery } from '@/lib/hooks/useApi';
+import { localizeUnknownError } from '@/lib/api/localize-api-error-message';
+import { PosTerminalPicker, usePosSession } from '@/lib/hooks/usePosSession';
+import { useResourcePermissions } from '@/lib/hooks/useResourcePermissions';
 import { formatMoneyAr } from '@/lib/formatMoney';
-import type { ApiError } from '@/lib/api/types';
-import { PosTenderModal, type PosTenderMethod } from '@/components/pos/PosTenderModal';
-import { WarehouseSelect } from '@/app/components/form/WarehouseSelect';
+import { printThermalViaBrowser } from '@/lib/printer/rawbt-fallback';
+import { renderReceiptToCanvas } from '@/lib/printer/receipt-canvas';
+import { canvasToEscPos } from '@/lib/printer/escpos-encoder';
+import { bluetoothThermalPrinter, isWebBluetoothAvailable } from '@/lib/printer/web-bluetooth';
+import type { ThermalInvoiceData } from '@/lib/printer/types';
+import { canQueueOfflineSale, nextOfflineState } from '@/lib/pos/offline-checkout';
+import { enqueuePosSale, listPosOutbox, removePosOutbox, updatePosOutbox } from '@/lib/pos/offline-outbox';
+import QRCode from 'qrcode';
 
-type PosLookupRow = BarcodeItemHit & {
-  defaultUnitId?: string;
-  itemGroupId?: string | null;
-  itemGroup?: { id: string; arabicName?: string } | null;
-  onHandQuantity?: number | null;
-};
-
-type ItemGroupRow = { id: string; arabicName: string };
-
-type PosDailyRow = {
-  id?: string;
-  invoiceNumber?: string;
-  netAmount?: number | string;
-  paidAmount?: number | string;
-};
-
-type HeldTicket = {
+type CatalogItem = {
   id: string;
-  customerName: string;
-  lines: PosCartLine[];
-  heldAt: string;
+  arabicName: string;
+  barcode?: string | null;
+  unitId: string | null;
+  unitName: string;
+  price: number;
+  taxPercent: number;
+  onHand: number | null;
+  categoryId?: string | null;
+  scannedQuantity?: number | null;
 };
 
-function itemPrice(item: PosLookupRow): number {
-  const listPrice = resolvePriceListSalePrice(item);
-  if (listPrice > 0) return listPrice;
-  if (typeof item.salesPrice === 'number' && Number.isFinite(item.salesPrice) && item.salesPrice > 0) {
-    return item.salesPrice;
-  }
-  return 0;
+type CartLine = {
+  key: string;
+  itemId: string;
+  unitId: string;
+  name: string;
+  quantity: number;
+  notes?: string;
+  discountPercent?: string;
+  priceOverride?: string;
+};
+
+type Quote = {
+  netAmount: number;
+  taxAmount: number;
+  discountAmount: number;
+  totalAmount: number;
+  lines: Array<{ itemId: string; price: number; taxAmount: number; lineTotal: number; quantity: number; isGift?: boolean }>;
+};
+
+type HeldOrder = {
+  id: string;
+  orderNumber: string;
+  notes?: string | null;
+  netAmount?: number | string;
+  customer?: { id?: string; arabicName?: string } | null;
+  lines: Array<{ itemId: string; unitId: string; quantity: number | string; notes?: string | null; item?: { arabicName?: string } }>;
+};
+
+type PaymentLine = {
+  key: string;
+  method: string;
+  settlementType: string;
+  amount: string;
+  tendered: string;
+  reference: string;
+  currencyCode?: string;
+};
+
+type ReceiptPayload = {
+  title?: string;
+  orderType?: string;
+  companyName: string;
+  branchName?: string;
+  originalOrderNumber?: string | null;
+  orderNumber: string;
+  postedAt?: string;
+  cashier?: string | null;
+  customerName?: string | null;
+  notes?: string | null;
+  subtotal: number;
+  discount: number;
+  tax: number;
+  net: number;
+  lines: Array<{ name: string; quantity: number; price: number; total: number }>;
+  payments: Array<{ method: string; label?: string; amount: number; tenderedAmount?: number | null; changeAmount?: number | null }>;
+  tendered: number;
+  change: number;
+  qrPayload?: string | null;
+  etaUuid?: string | null;
+  etaReceiptNumber?: string | null;
+  etaStatusLabel?: string | null;
+  fiscal?: { cashier?: string; labelAr?: string; status?: string } | null;
+};
+
+type PosMethod = {
+  code: string;
+  displayName: string;
+  settlementType: 'CASH' | 'BANK' | 'CREDIT' | 'GIFT_CARD' | 'STORE_CREDIT' | 'POINTS' | 'DEPOSIT';
+  captureMode?: string;
+};
+
+function publishDisplay(payload: Record<string, unknown>) {
+  if (typeof BroadcastChannel === 'undefined') return;
+  const channel = new BroadcastChannel('gates-pos-display');
+  channel.postMessage(payload);
+  channel.close();
 }
 
-function itemCodeOf(item: PosLookupRow): string {
-  return (item.code || item.serial || '').trim();
+function money(value: number) {
+  return Math.round(value * 100) / 100;
 }
 
-function unitLabelOf(item: PosLookupRow): string {
-  const base = item.units?.find((u) => u.isBaseUnit) ?? item.units?.[0];
-  return base?.unit?.arabicName || base?.unit?.code || '';
+/** Send only finite decimals to POS quote/save (avoids validation errors while typing). */
+function parseOptionalDecimal(
+  raw: string | undefined,
+  options?: { min?: number; max?: number }
+): number | undefined {
+  if (raw == null || raw.trim() === '') return undefined;
+  const n = Number(raw.trim().replace(/,/g, ''));
+  if (!Number.isFinite(n)) return undefined;
+  const min = options?.min ?? 0;
+  if (n < min) return undefined;
+  if (options?.max != null && n > options.max) return undefined;
+  return n;
+}
+
+function buildPosLinePayload(
+  cart: CartLine[],
+  options: { canDiscount: boolean; canOverride: boolean }
+) {
+  return cart.map((line, index) => ({
+    itemId: line.itemId,
+    unitId: line.unitId,
+    quantity: line.quantity,
+    lineOrder: index + 1,
+    notes: line.notes,
+    discountPercent:
+      options.canDiscount && line.discountPercent
+        ? parseOptionalDecimal(line.discountPercent, { min: 0, max: 100 })
+        : undefined,
+    price:
+      options.canOverride && line.priceOverride
+        ? parseOptionalDecimal(line.priceOverride, { min: 0 })
+        : undefined,
+  }));
 }
 
 export default function PointOfSalePage() {
-  const invalidateQuery = useInvalidateQuery();
-  const { displayName } = useCurrentUserProfile();
-  const barcodeRef = useRef<HTMLInputElement>(null);
+  const barcodeBuffer = useRef('');
+  const barcodeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [search, setSearch] = useState('');
+  const [categoryId, setCategoryId] = useState('');
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [items, setItems] = useState<CatalogItem[]>([]);
+  const [cart, setCart] = useState<CartLine[]>([]);
+  const [quote, setQuote] = useState<Quote | null>(null);
+  const [customerId, setCustomerId] = useState('');
+  const [customerQuery, setCustomerQuery] = useState('');
+  const [notes, setNotes] = useState('');
+  const [draftId, setDraftId] = useState<string | null>(null);
+  const [held, setHeld] = useState<HeldOrder[]>([]);
+  const [payOpen, setPayOpen] = useState(false);
+  const [payments, setPayments] = useState<PaymentLine[]>([]);
+  const [openingCash, setOpeningCash] = useState('');
+  const [headerDiscount, setHeaderDiscount] = useState('');
+  const [couponCode, setCouponCode] = useState('');
+  const [postedOrderId, setPostedOrderId] = useState<string | null>(null);
+  const [receiptLink, setReceiptLink] = useState('');
+  const [receiptQr, setReceiptQr] = useState('');
+  const posPermissions = useResourcePermissions({ resource: 'pos', module: 'pos' });
+  const invoicePermissions = useResourcePermissions({ resource: 'invoice' });
+  const canDiscount = posPermissions.can('discount') || invoicePermissions.can('discount');
+  const canOverride =
+    posPermissions.can('override_tier_price') || invoicePermissions.can('override_tier_price');
+  const canReprint = posPermissions.can('reprint');
+  const [message, setMessage] = useState('');
   const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
-  const [barcodeScan, setBarcodeScan] = useState('');
-  const [activeGroupId, setActiveGroupId] = useState('all');
-  const [catalogSearch, setCatalogSearch] = useState('');
-  const [showTender, setShowTender] = useState(false);
-  const [tenderMethod, setTenderMethod] = useState<PosTenderMethod>('نقدى');
-  const [tenderPaid, setTenderPaid] = useState('');
-  const [heldTickets, setHeldTickets] = useState<HeldTicket[]>([]);
-  const [selectedCustomerId, setSelectedCustomerId] = useState('');
-
-  const [formData, setFormData] = useState({
-    startDate: '',
-    startTime: '10:30',
-    customerName: '',
-    description: '',
-    allowDeletion: '',
-    sellerName: '',
-    pointOfSale: '',
-    pilotName: '',
-    returnsInvoice: false,
-    total: '0.00',
-    net: '0.00',
-    taxable: '0.00',
-    paid: '0.00',
-    paymentMethod: 'كاش',
-    remaining: '0.00',
-  });
-
-  const [warehouseId, setWarehouseId] = useState('');
-  const [cartLines, setCartLines] = useState<PosCartLine[]>(
-    Array.from({ length: 7 }, (_, i) => createEmptyPosCartLine(i + 1))
-  );
-
-  const [showWarehouseModal, setShowWarehouseModal] = useState(false);
-  const [showWaitingListModal, setShowWaitingListModal] = useState(false);
-  const [showDailyModal, setShowDailyModal] = useState(false);
-  const [showSettingsModal, setShowSettingsModal] = useState(false);
-
-  const { data: warehousesResponse } = useApiQuery<PosLookupRow[]>(
-    ['warehouses'],
-    '/inventory/warehouses',
-    { limit: 1000, isActive: true, leafOnly: true }
-  );
-  const warehouses = useMemo(() => warehousesResponse?.data ?? [], [warehousesResponse?.data]);
-
-  const { data: customersResponse } = useApiQuery<PosLookupRow[]>(
-    ['customers'],
-    '/accounting/customers',
-    { limit: 1000, isActive: true }
-  );
-  const customers = customersResponse?.data ?? [];
-
-  const { data: itemsResponse } = useApiQuery<PosLookupRow[]>(
-    ['items'],
-    '/inventory/items',
-    { limit: 1000, isActive: true }
-  );
-  const items = useMemo(() => itemsResponse?.data ?? [], [itemsResponse?.data]);
-
-  const { data: groupsResponse } = useApiQuery<ItemGroupRow[]>(
-    ['item-groups-pos'],
-    '/inventory/item-groups',
-    { limit: 200, isActive: true }
-  );
-  const itemGroups = groupsResponse?.data ?? [];
+  const [busy, setBusy] = useState(false);
+  const [receipt, setReceipt] = useState<ThermalInvoiceData | null>(null);
+  const [clientRequestId, setClientRequestId] = useState<string | null>(null);
+  const [syncLabel, setSyncLabel] = useState('');
+  const settingsQuery = useApiQuery<{ offlineEnabled: boolean }>(['pos-settings-offline'], '/pos/admin/settings');
 
   const {
     shiftId,
-    shiftStats,
+    terminal,
     hasTerminal,
     ensureOpenShift,
-    refetchOpenShift,
-  } = usePosSession(warehouseId);
+    warehouseId,
+    terminals,
+    terminalId,
+    selectTerminal,
+    terminalsLoading,
+    terminalsError,
+  } = usePosSession();
 
-  const { data: dailyReportResponse } = useApiQuery<PosDailyRow[]>(
-    ['pos-daily-report-pos', formData.startDate, warehouseId],
-    '/pos/daily-report',
-    { date: formData.startDate || undefined, warehouseId: warehouseId || undefined },
-    { enabled: !!warehouseId && !!formData.startDate && showDailyModal }
+  const { data: methodsResponse } = useApiQuery<PosMethod[]>(
+    ['pos-payment-methods', terminalId],
+    '/pos/payment-methods',
+    { terminalId: terminalId || undefined, activeOnly: true },
+    { enabled: Boolean(terminalId) }
   );
-  const dailySummary = (dailyReportResponse?.summary ?? {}) as {
-    totalAmount?: number;
-    totalPaid?: number;
-  };
+  const methods = methodsResponse?.data ?? [];
 
-  const posSaleMutation = useApiMutation<unknown, Record<string, unknown>>('/pos/sales', 'POST', {
-    onSuccess: () => {
-      setSuccess('تم حفظ عملية البيع بنجاح');
-      invalidateQuery(['pos-sales']);
-    },
-    onError: (err: ApiError) => {
-      setError(err.message || 'حدث خطأ أثناء الحفظ');
-    },
-  });
+  const { data: categoriesResponse } = useApiQuery<Array<{ id: string; arabicName: string }>>(
+    ['pos-categories'],
+    '/pos/catalog/categories',
+    {}
+  );
+  const categories = categoriesResponse?.data ?? [];
+
+  const { data: customersResponse } = useApiQuery<
+    Array<{ id: string; arabicName: string; code?: string | null; creditLimit?: number | string | null; priceListId?: string | null }>
+  >(['pos-customers', customerQuery], '/pos/catalog/customers', { q: customerQuery }, { enabled: customerQuery.trim().length > 0 });
+  const customers = customersResponse?.data ?? [];
 
   useEffect(() => {
-    const today = new Date().toISOString().split('T')[0];
-    setFormData((prev) => ({ ...prev, startDate: today }));
-  }, []);
+    if (terminal?.defaultCustomerId && !customerId) setCustomerId(terminal.defaultCustomerId);
+  }, [terminal?.defaultCustomerId, customerId]);
 
-  useEffect(() => {
-    if (warehouses.length > 0 && !warehouseId) {
-      setWarehouseId(warehouses[0].id);
-      setFormData((prev) => ({
-        ...prev,
-        pointOfSale: warehouses[0].arabicName ?? prev.pointOfSale,
-      }));
-    }
-  }, [warehouses, warehouseId]);
-
-  const cartTotals = useMemo(
-    () => computePosCartTotals(cartLines.filter((l) => l.quantity > 0)),
-    [cartLines]
-  );
-  const activeLines = useMemo(
-    () => cartLines.filter((l) => l.quantity > 0 && l.itemCode),
-    [cartLines]
-  );
-
-  useEffect(() => {
-    setFormData((prev) => ({
-      ...prev,
-      total: cartTotals.formatted.total,
-      net: cartTotals.formatted.net,
-      taxable: cartTotals.formatted.taxable,
-      paid: cartTotals.formatted.paid,
-      remaining: cartTotals.formatted.remaining,
-    }));
-  }, [cartTotals]);
-
-  const handleInputChange = (field: keyof typeof formData, value: string | boolean) => {
-    setFormData((prev) => ({ ...prev, [field]: value }));
-  };
-
-  const upsertItem = useCallback((item: PosLookupRow) => {
-    const code = itemCodeOf(item);
-    if (!code) return;
-    const linePatch: PosCartLine = {
-      id: `line-${Date.now()}`,
-      barcode: item.barcode || item.serial || code,
-      itemCode: code,
-      itemName: item.arabicName || '',
-      unitLabel: unitLabelOf(item),
-      price: itemPrice(item),
-      quantity: 1,
-      discountPercent: 0,
-      discountAmount: 0,
-      taxPercent: Number(item.defaultTaxPercent ?? 0) || 0,
-    };
-    setCartLines((lines) => {
-      const existing = lines.find((l) => l.itemCode === code);
-      if (existing) {
-        return lines.map((l) => (l.id === existing.id ? { ...l, quantity: l.quantity + 1 } : l));
+  const loadCatalog = useCallback(
+    async (reset: boolean) => {
+      if (!warehouseId) return;
+      try {
+        const data = await apiClient.get<{ items: CatalogItem[]; nextCursor: string | null }>(
+          '/pos/catalog',
+          {
+            warehouseId,
+            customerId: customerId || undefined,
+            q: search.trim() || undefined,
+            categoryId: categoryId || undefined,
+            cursor: reset ? undefined : cursor || undefined,
+            take: 24,
+          },
+          { skipErrorNotify: true }
+        );
+        const page = data.data?.items ?? [];
+        setItems((prev) => (reset ? page : [...prev, ...page]));
+        setCursor(data.data?.nextCursor ?? null);
+      } catch (err) {
+        setError(err instanceof Error ? localizeUnknownError(err) : 'تعذر تحميل قائمة الأصناف');
       }
-      const empty = lines.find((l) => !l.itemCode);
-      if (empty) return lines.map((l) => (l.id === empty.id ? { ...linePatch, id: empty.id } : l));
-      return [...lines, linePatch];
-    });
+    },
+    [warehouseId, customerId, search, categoryId, cursor]
+  );
+
+  useEffect(() => {
+    const handle = setTimeout(() => {
+      setCursor(null);
+      void loadCatalog(true);
+    }, 250);
+    return () => clearTimeout(handle);
+    // cursor is reset here; including it would loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [warehouseId, customerId, search, categoryId]);
+
+  const refreshHeld = useCallback(async (openShiftId: string) => {
+    const data = await apiClient.get<HeldOrder[]>('/pos/orders/held', { shiftId: openShiftId });
+    setHeld(data.data ?? []);
   }, []);
 
-  const handleBarcodeEnter = async () => {
-    const scan = barcodeScan.trim();
-    if (!scan) return;
-    const found = (await findItemByBarcode(scan, items)) as PosLookupRow | null;
-    if (!found) {
-      setError(`الصنف ${scan} غير موجود`);
+  useEffect(() => {
+    if (shiftId) void refreshHeld(shiftId);
+  }, [shiftId, refreshHeld]);
+
+  useEffect(() => {
+    if (!cart.length) {
+      setQuote(null);
+      setError((prev) => (prev.startsWith('تعذر حساب الصافي') ? '' : prev));
+      publishDisplay({ phase: 'idle', lines: [], net: 0, tax: 0, discount: 0 });
       return;
     }
-    upsertItem(found);
-    setBarcodeScan('');
-    barcodeRef.current?.focus();
-  };
+    const handle = setTimeout(() => {
+      void apiClient
+        .post<Quote>(
+          '/pos/orders/quote',
+          {
+            customerId: customerId || undefined,
+            headerDiscountPercent:
+              canDiscount && headerDiscount
+                ? parseOptionalDecimal(headerDiscount, { min: 0, max: 100 })
+                : undefined,
+            couponCode: couponCode.trim() || undefined,
+            lines: buildPosLinePayload(cart, { canDiscount, canOverride }),
+          },
+          { skipErrorNotify: true }
+        )
+        .then((res) => {
+          setQuote(res.data ?? null);
+          setError((prev) => (prev.startsWith('تعذر حساب الصافي') ? '' : prev));
+          if (res.data) {
+            publishDisplay({
+              phase: 'cart',
+              lines: res.data.lines.map((line) => ({
+                name: cart.find((row) => row.itemId === line.itemId)?.name ?? '',
+                quantity: line.quantity,
+                total: line.lineTotal,
+                isGift: Boolean(line.isGift),
+              })),
+              net: res.data.netAmount,
+              tax: res.data.taxAmount,
+              discount: res.data.discountAmount,
+            });
+          }
+        })
+        .catch((err) => {
+          setQuote(null);
+          setError(`تعذر حساب الصافي: ${localizeUnknownError(err)}`);
+        });
+    }, 200);
+    return () => clearTimeout(handle);
+  }, [cart, customerId, canDiscount, canOverride, headerDiscount, couponCode]);
 
-  const patchLine = (id: string, patch: Partial<PosCartLine>) => {
-    setCartLines((lines) => lines.map((l) => (l.id === id ? { ...l, ...patch } : l)));
-  };
-
-  const clearCart = () => {
-    setCartLines(Array.from({ length: 7 }, (_, i) => createEmptyPosCartLine(i + 1)));
-  };
-
-  const holdTicket = () => {
-    if (activeLines.length === 0) {
-      setError('لا توجد أصناف لتعليقها');
+  const addItem = useCallback((item: CatalogItem) => {
+    if (!item.unitId) {
+      setError('الصنف بلا وحدة');
       return;
     }
-    setHeldTickets((prev) => [
-      {
-        id: `hold-${Date.now()}`,
-        customerName: formData.customerName,
-        lines: cartLines,
-        heldAt: new Date().toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }),
-      },
-      ...prev,
-    ]);
-    clearCart();
-    setSuccess('تم تعليق الفاتورة');
-  };
-
-  const restoreTicket = (ticket: HeldTicket) => {
-    setCartLines(ticket.lines);
-    setFormData((prev) => ({ ...prev, customerName: ticket.customerName }));
-    setHeldTickets((prev) => prev.filter((t) => t.id !== ticket.id));
-    setShowWaitingListModal(false);
-  };
-
-  const handleSave = async () => {
     setError('');
-    setSuccess('');
-
-    const linesToSave = cartLines.filter((l) => l.quantity > 0 && l.itemCode);
-    if (linesToSave.length === 0) {
-      setError('يرجى إضافة أصناف للسلة');
-      return;
-    }
-    if (!warehouseId) {
-      setError('يرجى اختيار نقطة البيع / المخزن');
-      return;
-    }
-
-    const paymentMethodMap: Record<string, 'cash' | 'card' | 'multiple' | 'credit'> = {
-      كاش: 'cash',
-      نقدى: 'cash',
-      فيزا: 'card',
-      آجل: 'credit',
-      card: 'card',
-      cash: 'cash',
-      credit: 'credit',
-    };
-
-    for (const line of linesToSave) {
-      const item = items.find((it) => it.code === line.itemCode || it.serial === line.itemCode);
-      if (!item?.id) {
-        setError(`الصنف ${line.itemCode || '—'} غير موجود في الدليل`);
-        return;
+    setCart((prev) => {
+      const existing = prev.find((line) => line.itemId === item.id && line.unitId === item.unitId);
+      if (existing) {
+        return prev.map((line) =>
+          line.key === existing.key ? { ...line, quantity: money(line.quantity + 1) } : line
+        );
       }
-    }
-
-    const mappedLines = linesToSave.map((line, idx) => {
-      const item = items.find((it) => it.code === line.itemCode || it.serial === line.itemCode)!;
-      const unitId = item.defaultUnitId ?? item.units?.find((u) => u.isBaseUnit)?.unitId ?? item.id;
-      return {
-        itemId: item.id,
-        unitId,
-        quantity: line.quantity,
-        price: line.price,
-        discountAmount: line.discountAmount || undefined,
-        taxPercent: line.taxPercent || undefined,
-        lineOrder: idx + 1,
-      };
+      return [
+        ...prev,
+        { key: `${item.id}-${Date.now()}`, itemId: item.id, unitId: item.unitId!, name: item.arabicName, quantity: item.scannedQuantity && item.scannedQuantity > 0 ? item.scannedQuantity : 1 },
+      ];
     });
+  }, []);
 
-    const net = cartTotals.net;
-    const tenderToForm: Record<PosTenderMethod, string> = { نقدى: 'كاش', فيزا: 'فيزا', آجل: 'آجل' };
-    const selectedPay = showTender ? tenderToForm[tenderMethod] : formData.paymentMethod;
-    const legacyMethod = paymentMethodMap[selectedPay] ?? 'cash';
-    const customerId = selectedCustomerId || customers[0]?.id;
-
-    try {
-      if (hasTerminal) {
-        const openShiftId = shiftId ?? (await ensureOpenShift());
-        if (!openShiftId) {
-          setError('تعذر فتح وردية نقطة البيع — تحقق من إعداد الطرفية');
+  const scan = useCallback(
+    async (code: string) => {
+      try {
+        const res = await apiClient.get<CatalogItem>('/pos/catalog/barcode', {
+          code,
+          warehouseId: warehouseId || undefined,
+          customerId: customerId || undefined,
+        });
+        if (!res.data) {
+          setError(`باركود غير معروف: ${code}`);
           return;
         }
-
-        const wavePayment =
-          legacyMethod === 'card'
-            ? 'CARD'
-            : legacyMethod === 'credit'
-              ? 'CREDIT'
-              : legacyMethod === 'multiple'
-                ? 'SPLIT'
-                : 'CASH';
-        const cashAmount = wavePayment === 'CASH' ? net : wavePayment === 'SPLIT' ? net / 2 : 0;
-        const cardAmount = wavePayment === 'CARD' ? net : wavePayment === 'SPLIT' ? net - cashAmount : 0;
-        const creditAmount = wavePayment === 'CREDIT' ? net : 0;
-
-        const orderNumber = `POS-${Date.now()}`;
-        await submitPosWave2Order({
-          shiftId: openShiftId,
-          orderNumber,
-          paymentMethod: wavePayment,
-          cashAmount,
-          cardAmount,
-          creditAmount,
-          customerId,
-          lines: mappedLines,
-        });
-        setSuccess('تم حفظ عملية البيع وترحيلها على الوردية');
-        invalidateQuery(['pos-open-shift']);
-        invalidateQuery(['pos-sales-recent']);
-        await refetchOpenShift();
-        clearCart();
-        setShowTender(false);
-        return;
+        addItem(res.data);
+        setMessage(res.data.arabicName);
+      } catch {
+        setError(`باركود غير معروف: ${code}`);
       }
-
-      posSaleMutation.mutate({
-        date: formData.startDate,
-        currencyCode: 'EGP',
-        warehouseId,
-        customerId,
-        paymentMethod: legacyMethod === 'credit' ? 'cash' : legacyMethod,
-        description: formData.description || 'POS Sale',
-        lines: linesToSave.map((line, idx) => {
-          const item = items.find((it) => it.code === line.itemCode || it.serial === line.itemCode)!;
-          const unitId = item.defaultUnitId ?? item.units?.find((u) => u.isBaseUnit)?.unitId ?? item.id;
-          return {
-            itemId: item.id,
-            unitId,
-            quantity: line.quantity,
-            baseQuantity: line.quantity,
-            price: line.price,
-            discountPercent: line.discountPercent || undefined,
-            discountAmount: line.discountAmount || undefined,
-            taxPercent: line.taxPercent || undefined,
-            lineOrder: idx + 1,
-          };
-        }),
-      });
-      clearCart();
-      setShowTender(false);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'حدث خطأ أثناء الحفظ');
-    }
-  };
-
-  const openTender = () => {
-    if (activeLines.length === 0) {
-      setError('يرجى إضافة أصناف للسلة');
-      return;
-    }
-    setTenderPaid(String(cartTotals.net || ''));
-    setShowTender(true);
-  };
-
-  const confirmTender = () => {
-    const mapped: Record<PosTenderMethod, string> = { نقدى: 'كاش', فيزا: 'فيزا', آجل: 'آجل' };
-    setFormData((prev) => ({ ...prev, paymentMethod: mapped[tenderMethod] }));
-    void handleSave();
-  };
+    },
+    [addItem, warehouseId, customerId]
+  );
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement && e.key !== 'F2' && e.key !== 'F4' && e.key !== 'F9') {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Enter') {
+        const code = barcodeBuffer.current.trim();
+        barcodeBuffer.current = '';
+        if (code.length >= 4) {
+          event.preventDefault();
+          void scan(code);
+        }
         return;
       }
-      if (e.key === 'F2') {
-        e.preventDefault();
-        barcodeRef.current?.focus();
-      }
-      if (e.key === 'F4') {
-        e.preventDefault();
-        holdTicket();
-      }
-      if (e.key === 'F9') {
-        e.preventDefault();
-        openTender();
-      }
+      if (event.key.length !== 1 || event.ctrlKey || event.metaKey || event.altKey) return;
+      if (barcodeBuffer.current.length > 0) event.preventDefault();
+      barcodeBuffer.current += event.key;
+      if (barcodeTimer.current) clearTimeout(barcodeTimer.current);
+      barcodeTimer.current = setTimeout(() => {
+        barcodeBuffer.current = '';
+      }, 50);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeLines.length, cartLines, formData.customerName]);
+  }, [scan]);
 
-  const filteredCatalog = useMemo(() => {
-    const q = catalogSearch.trim();
-    return items.filter((item) => {
-      if (activeGroupId !== 'all' && item.itemGroupId !== activeGroupId && item.itemGroup?.id !== activeGroupId) {
-        return false;
-      }
-      if (!q) return true;
-      const hay = `${item.arabicName ?? ''} ${item.code ?? ''} ${item.barcode ?? ''} ${item.serial ?? ''}`;
-      return hay.includes(q);
+  const due = quote?.netAmount ?? 0;
+  const preview = useMemo(() => {
+    if (!quote) return 0;
+    return quote.netAmount;
+  }, [quote]);
+
+  async function requireShift() {
+    if (shiftId) return shiftId;
+    const amount = Number(openingCash);
+    if (!Number.isFinite(amount) || amount < 0) {
+      setError('أدخل نقدية أول المدة قبل فتح الوردية');
+      return null;
+    }
+    return ensureOpenShift(amount);
+  }
+
+  function linePayload() {
+    return buildPosLinePayload(cart, { canDiscount, canOverride });
+  }
+
+  async function persistDraft(openShiftId: string, hold: boolean, requestId?: string | null) {
+    const body = {
+      shiftId: openShiftId,
+      orderNumber: `POS-${Date.now()}`,
+      customerId: customerId || undefined,
+      notes: notes || undefined,
+      headerDiscountPercent:
+        canDiscount && headerDiscount
+          ? parseOptionalDecimal(headerDiscount, { min: 0, max: 100 })
+          : undefined,
+      couponCode: couponCode.trim() || undefined,
+      hold,
+      clientRequestId: (requestId ?? clientRequestId) || undefined,
+      lines: linePayload(),
+    };
+    if (draftId) {
+      const updated = await apiClient.put<{ id: string; netAmount: number | string }>(`/pos/orders/${draftId}`, body);
+      return updated.data;
+    }
+    const created = await apiClient.post<{ id: string; netAmount: number | string; orderNumber: string }>('/pos/orders', body);
+    if (!hold) setDraftId(created.data?.id ?? null);
+    return created.data;
+  }
+
+  async function holdCart() {
+    const openShiftId = await requireShift();
+    if (!openShiftId || !cart.length) return;
+    setBusy(true);
+    setError('');
+    try {
+      await persistDraft(openShiftId, true);
+      setCart([]);
+      setDraftId(null);
+      setNotes('');
+      setQuote(null);
+      await refreshHeld(openShiftId);
+      setMessage('تم تعليق الطلب');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'تعذر التعليق');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function resume(order: HeldOrder) {
+    const data = await apiClient.post<HeldOrder & { lines: HeldOrder['lines'] }>(`/pos/orders/${order.id}/resume`, {});
+    const row = data.data;
+    if (!row) return;
+    setDraftId(row.id);
+    if (row.customer?.id) setCustomerId(row.customer.id);
+    setNotes(row.notes ?? '');
+    setCart(
+      (row.lines ?? []).map((line, index) => ({
+        key: `${line.itemId}-${index}`,
+        itemId: line.itemId,
+        unitId: line.unitId,
+        name: line.item?.arabicName || 'صنف',
+        quantity: Number(line.quantity),
+        notes: line.notes ?? undefined,
+      }))
+    );
+    setHeld((prev) => prev.filter((item) => item.id !== order.id));
+  }
+
+  function openPay() {
+    if (!quote || due <= 0) {
+      setError('أضف أصنافاً أولاً');
+      return;
+    }
+    setPayments([
+      { key: 'cash', method: 'CASH', settlementType: 'CASH', amount: String(due), tendered: String(due), reference: '' },
+    ]);
+    setPayOpen(true);
+  }
+
+  const paymentSum = payments.reduce((sum, row) => sum + (Number(row.amount) || 0), 0);
+  const cashChange = payments
+    .filter((row) => row.settlementType === 'CASH')
+    .reduce((sum, row) => sum + Math.max(0, (Number(row.tendered) || 0) - (Number(row.amount) || 0)), 0);
+
+  function paymentBody() {
+    return payments.map((row) => ({
+      method: row.method,
+      amount: Number(row.amount),
+      tenderedAmount: row.settlementType === 'CASH' ? Number(row.tendered) : undefined,
+      referenceNumber: row.reference || undefined,
+      currencyCode: row.currencyCode && row.currencyCode !== 'EGP' ? row.currencyCode : undefined,
+      safeId: row.settlementType === 'CASH' ? terminal?.safeId : undefined,
+      bankAccountId: row.settlementType === 'BANK' ? terminal?.bankAccountId ?? undefined : undefined,
+    }));
+  }
+
+  function finishSale(orderNumber: string, printed?: ReceiptPayload, orderId?: string) {
+    if (printed) setReceipt(toThermal(printed));
+    publishDisplay({
+      phase: 'paid',
+      lines: [],
+      net: printed?.net ?? 0,
+      tax: printed?.tax ?? 0,
+      discount: printed?.discount ?? 0,
+      tendered: printed?.tendered,
+      change: printed?.change,
     });
-  }, [items, activeGroupId, catalogSearch]);
+    setPostedOrderId(orderId ?? null);
+    setReceiptLink('');
+    setReceiptQr('');
+    setCouponCode('');
+    setCart([]);
+    setDraftId(null);
+    setNotes('');
+    setQuote(null);
+    setPayOpen(false);
+    setClientRequestId(null);
+    setSyncLabel('synced');
+    setMessage(`تم البيع ${orderNumber}`);
+    window.setTimeout(() => publishDisplay({ phase: 'idle', lines: [], net: 0, tax: 0, discount: 0 }), 4000);
+  }
 
-  const cashier = formData.sellerName || displayName || 'كاشير';
+  async function flushOutbox() {
+    const jobs = await listPosOutbox();
+    for (const job of jobs) {
+      if (job.status === 'conflict' || job.status === 'failed') continue;
+      await updatePosOutbox(job.clientRequestId, { status: 'syncing' });
+      setSyncLabel('syncing');
+      try {
+        const posted = await apiClient.post<{ receipt?: ReceiptPayload; orderNumber?: string; status?: string }>(
+          '/pos/orders/sync',
+          job.body
+        );
+        await removePosOutbox(job.clientRequestId);
+        if (job.clientRequestId === clientRequestId) {
+          finishSale(posted.data?.receipt?.orderNumber ?? posted.data?.orderNumber ?? '', posted.data?.receipt);
+        }
+      } catch (err) {
+        const status = nextOfflineState(err);
+        await updatePosOutbox(job.clientRequestId, {
+          status,
+          attempts: job.attempts + 1,
+          lastError: err instanceof Error ? err.message : 'sync failed',
+        });
+        setSyncLabel(status);
+        if (status === 'pending') break;
+      }
+    }
+  }
+
+  useEffect(() => {
+    const onOnline = () => {
+      void flushOutbox();
+    };
+    window.addEventListener('online', onOnline);
+    void listPosOutbox().then((rows) => {
+      if (rows.some((row) => row.status === 'pending')) setSyncLabel('pending');
+    });
+    return () => window.removeEventListener('online', onOnline);
+    // Flush uses the latest cart key when the listener fires.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clientRequestId]);
+
+  async function checkout() {
+    const openShiftId = await requireShift();
+    if (!openShiftId) return;
+    const requestId = clientRequestId ?? crypto.randomUUID();
+    setClientRequestId(requestId);
+    setBusy(true);
+    setError('');
+    const queued = (await listPosOutbox()).find((row) => row.clientRequestId === requestId);
+    if (queued && (queued.status === 'pending' || queued.status === 'syncing')) {
+      await flushOutbox();
+      setBusy(false);
+      return;
+    }
+    const captureModes = payments.map((row) => methods.find((method) => method.code === row.method)?.captureMode ?? 'MANUAL');
+    try {
+      const saved = await persistDraft(openShiftId, false, requestId);
+      const serverNet = Number(saved?.netAmount);
+      const foreignTender = payments.some((row) => row.currencyCode && row.currencyCode !== 'EGP');
+      if (!saved?.id || (!foreignTender && Math.abs(paymentSum - serverNet) > 0.01)) {
+        setError('مجموع الدفع لا يساوي الصافي على الخادم');
+        setQuote((prev) => (prev ? { ...prev, netAmount: serverNet } : prev));
+        return;
+      }
+      const posted = await apiClient.post<{ id?: string; receipt?: ReceiptPayload; orderNumber?: string }>(`/pos/orders/${saved.id}/post`, {
+        payments: paymentBody(),
+      });
+      const printed = posted.data?.receipt;
+      finishSale(printed?.orderNumber ?? '', printed, posted.data?.id);
+    } catch (err) {
+      const eligible = canQueueOfflineSale({
+        companyOffline: Boolean(settingsQuery.data?.data?.offlineEnabled),
+        terminalOffline: Boolean(terminal?.offlineEnabled),
+        error: err,
+        captureModes,
+      });
+      if (!eligible) {
+        setError(err instanceof Error ? err.message : 'تعذر إتمام البيع');
+        setSyncLabel('');
+        return;
+      }
+      await enqueuePosSale({
+        clientRequestId: requestId,
+        shiftId: openShiftId,
+        createdAt: new Date().toISOString(),
+        attempts: 1,
+        status: 'pending',
+        lastError: err instanceof Error ? err.message : undefined,
+        body: {
+          shiftId: openShiftId,
+          orderNumber: `POS-${requestId.slice(0, 8)}`,
+          customerId: customerId || undefined,
+          notes: notes || undefined,
+          clientRequestId: requestId,
+          lines: linePayload(),
+          payments: paymentBody(),
+        },
+      });
+      setSyncLabel('pending');
+      setMessage('');
+      setError('لم يقبل الخادم البيع. الطلب في انتظار المزامنة.');
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return (
-    <div className="flex h-[calc(100vh-7rem)] flex-col overflow-hidden bg-white" dir="rtl">
-      {error ? <ErrorToast message={error} onClose={() => setError('')} /> : null}
-      {success ? <SuccessToast message={success} onClose={() => setSuccess('')} /> : null}
-
-      <header className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-slate-200/80 bg-white px-4 py-2.5">
-        <div className="flex flex-wrap items-center gap-2">
-          <h1 className="text-base font-bold text-slate-900">نقطة البيع السريعة</h1>
-          <StatusBadge
-            label={shiftId ? 'وردية مفتوحة' : 'لا توجد وردية'}
-            tone={shiftId ? 'success' : 'warning'}
-            compact
-          />
-          <span className="text-xs text-slate-600">{cashier}</span>
-          <div className="w-52">
-            <WarehouseSelect
-              value={warehouseId}
-              onChange={(id) => {
-                const next = warehouses.find((w) => w.id === id);
-                setWarehouseId(id);
-                handleInputChange('pointOfSale', next?.arabicName ?? '');
-              }}
-              allowEmpty={false}
-              emptyLabel="اختر المخزن"
-              className={`${compactControlClass} h-8`}
+    <div className="flex h-[calc(100vh-4rem)] min-h-0 flex-col bg-slate-100" dir="rtl">
+      <header className="flex flex-wrap items-center gap-2 border-b border-slate-200 bg-white px-3 py-2">
+        <PosTerminalPicker
+          terminals={terminals}
+          terminalId={terminalId}
+          onSelect={selectTerminal}
+          loading={terminalsLoading}
+          error={terminalsError}
+        />
+        {syncLabel === 'pending' ? <span className="rounded-full bg-amber-100 px-2 py-1 text-xs font-semibold text-amber-900">بانتظار المزامنة</span> : null}
+        {syncLabel === 'syncing' ? <span className="rounded-full bg-sky-100 px-2 py-1 text-xs font-semibold text-sky-900">جار المزامنة</span> : null}
+        {syncLabel === 'conflict' || syncLabel === 'failed' ? <span className="rounded-full bg-rose-100 px-2 py-1 text-xs font-semibold text-rose-900">تعذر المزامنة</span> : null}
+        <a href="/pos/returns" className="rounded-lg px-2 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-100">مرتجع</a>
+        <a href="/pos/session" className="rounded-lg px-2 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-100">الدرج والإقفال</a>
+        <input
+          value={customerQuery}
+          onChange={(event) => setCustomerQuery(event.target.value)}
+          placeholder="بحث عميل"
+          className="h-10 w-40 rounded-lg border border-slate-200 px-3 text-sm"
+        />
+        {customers.slice(0, 4).map((customer) => (
+          <button
+            key={customer.id}
+            type="button"
+            onClick={() => {
+              setCustomerId(customer.id);
+              setCustomerQuery(customer.arabicName);
+            }}
+            className={`rounded-full px-3 py-1 text-xs font-semibold ${customerId === customer.id ? 'bg-sky-700 text-white' : 'bg-slate-100 text-slate-700'}`}
+          >
+            {customer.arabicName}
+          </button>
+        ))}
+        <input
+          value={notes}
+          onChange={(event) => setNotes(event.target.value)}
+          placeholder="ملاحظة"
+          className="h-10 min-w-32 flex-1 rounded-lg border border-slate-200 px-3 text-sm"
+        />
+        {canReprint ? (
+          <form
+            className="flex items-center gap-1"
+            onSubmit={(event) => {
+              event.preventDefault();
+              const form = event.currentTarget;
+              const number = new FormData(form).get('reprint')?.toString().trim();
+              if (!number) return;
+              void apiClient.get<{ id: string }>('/pos/orders/lookup', { number }).then(async (sale) => {
+                if (!sale.data?.id) return;
+                const printed = await apiClient.get<ReceiptPayload>(`/pos/orders/${sale.data.id}/receipt`);
+                if (printed.data) setReceipt(toThermal(printed.data));
+              }).catch((err) => setError(err instanceof Error ? err.message : 'تعذر إعادة الطباعة'));
+            }}
+          >
+            <input name="reprint" placeholder="إعادة طباعة" className="h-10 w-28 rounded-lg border px-2 text-xs" />
+          </form>
+        ) : null}
+        {!shiftId ? (
+          <label className="flex items-center gap-2 text-xs font-semibold text-slate-600">
+            نقدية أول المدة
+            <input
+              value={openingCash}
+              onChange={(event) => setOpeningCash(event.target.value)}
+              inputMode="decimal"
+              className="h-10 w-28 rounded-lg border border-slate-200 px-2 text-sm"
             />
-          </div>
-        </div>
-        <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold text-slate-500">
-          <span className="rounded-md bg-[#0E79AA0D] px-2 py-1 text-[#0E79AA]">F2: بحث</span>
-          <span className="rounded-md bg-[#0E79AA0D] px-2 py-1 text-[#0E79AA]">F4: تعليق</span>
-          <span className="rounded-md bg-[#0E79AA0D] px-2 py-1 text-[#0E79AA]">F9: دفع</span>
-          {shiftStats ? (
-            <span className="tabular-nums">مبيعات الوردية {formatMoneyAr(shiftStats.totalMerchandise)}</span>
-          ) : null}
-        </div>
+          </label>
+        ) : (
+          <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">وردية مفتوحة</span>
+        )}
       </header>
 
+      {error ? <p className="bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p> : null}
+      {message ? <p className="bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{message}</p> : null}
+
       <div className="flex min-h-0 flex-1">
-        <section className="flex w-[45%] min-w-[320px] flex-col border-l border-slate-200 bg-white">
-          <div className="p-3">
-            <div className="relative">
-              <Search className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <input
-                ref={barcodeRef}
-                autoFocus
-                value={barcodeScan}
-                onChange={(e) => setBarcodeScan(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    void handleBarcodeEnter();
-                  }
-                }}
-                placeholder="امسح الباركود أو اكتب الكود ثم Enter"
-                className={`${compactControlClass} h-10 pr-9`}
-              />
-            </div>
-            <div className="mt-2 grid grid-cols-2 gap-2">
-              <select
-                className={compactControlClass}
-                value={selectedCustomerId}
-                onChange={(e) => {
-                  setSelectedCustomerId(e.target.value);
-                  const c = customers.find((x) => x.id === e.target.value);
-                  handleInputChange('customerName', c?.arabicName ?? '');
-                }}
-              >
-                <option value="">عميل نقدي</option>
-                {customers.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.arabicName}
-                  </option>
-                ))}
-              </select>
-              <input
-                className={compactControlClass}
-                placeholder="اسم البائع"
-                value={formData.sellerName}
-                onChange={(e) => handleInputChange('sellerName', e.target.value)}
-              />
-            </div>
-          </div>
-
-          <div className="min-h-0 flex-1 overflow-y-auto px-3">
-            {activeLines.length === 0 ? (
-              <EmptyState title="السلة فارغة — امسح باركود أو اختر صنفاً." />
-            ) : (
-              <ul className="space-y-2 pb-3">
-                {activeLines.map((line) => (
-                  <li
-                    key={line.id}
-                    className="rounded-lg border border-slate-200/80 p-2.5 hover:bg-slate-50/80"
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-semibold text-slate-900">{line.itemName || line.itemCode}</p>
-                        <p className="text-[11px] text-slate-500">
-                          {line.itemCode} · {formatMoneyAr(line.price)}
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => patchLine(line.id, { quantity: 0, itemCode: '', itemName: '' })}
-                        className="text-slate-400 hover:text-rose-600"
-                        aria-label="حذف السطر"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </div>
-                    <div className="mt-2 flex items-center gap-2">
-                      <button
-                        type="button"
-                        className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-200"
-                        onClick={() => patchLine(line.id, { quantity: Math.max(0, line.quantity - 1) })}
-                      >
-                        <Minus className="h-3.5 w-3.5" />
-                      </button>
-                      <input
-                        type="number"
-                        className="h-8 w-14 rounded-md border border-slate-200 text-center text-sm tabular-nums"
-                        value={line.quantity}
-                        onChange={(e) => patchLine(line.id, { quantity: Number(e.target.value) || 0 })}
-                      />
-                      <button
-                        type="button"
-                        className="flex h-8 w-8 items-center justify-center rounded-md border border-slate-200"
-                        onClick={() => patchLine(line.id, { quantity: line.quantity + 1 })}
-                      >
-                        <Plus className="h-3.5 w-3.5" />
-                      </button>
-                      <input
-                        type="number"
-                        className="h-8 w-20 rounded-md border border-slate-200 px-2 text-xs tabular-nums"
-                        placeholder="خصم"
-                        value={line.discountAmount || ''}
-                        onChange={(e) =>
-                          patchLine(line.id, { discountAmount: Number(e.target.value) || 0 })
-                        }
-                      />
-                      <span className="ms-auto text-sm font-bold tabular-nums text-slate-900">
-                        {formatMoneyAr(line.price * line.quantity - (line.discountAmount || 0))}
-                      </span>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-
-          <div className="shrink-0 border-t border-slate-200 bg-white p-3">
-            <div className="space-y-1.5 text-sm">
-              <div className="flex justify-between text-slate-600">
-                <span>الإجمالي</span>
-                <span className="tabular-nums">{formatMoneyAr(cartTotals.subtotal)}</span>
-              </div>
-              <div className="flex justify-between text-slate-600">
-                <span>الخصم / الضريبة</span>
-                <span className="tabular-nums">{formatMoneyAr(cartTotals.net - cartTotals.taxable)}</span>
-              </div>
-              <div className="flex justify-between text-slate-600">
-                <span>الخاضع للضريبة</span>
-                <span className="tabular-nums">{formatMoneyAr(cartTotals.taxable)}</span>
-              </div>
-              <div className="mt-2 flex items-end justify-between rounded-xl bg-[#0E79AA0D] px-3 py-2">
-                <span className="text-xs font-semibold text-[#0E79AA]">الصافي</span>
-                <span className="text-2xl font-bold tabular-nums text-[#0E79AA]">{formatMoneyAr(cartTotals.net)}</span>
-              </div>
-            </div>
-            <div className="mt-3 flex gap-2">
-              <button
-                type="button"
-                onClick={openTender}
-                className="flex h-10 flex-1 items-center justify-center gap-2 rounded-lg bg-[#0E79AA] text-sm font-semibold text-white hover:bg-[#0B6188]"
-              >
-                <ShoppingCart className="h-4 w-4" />
-                دفع (F9)
-              </button>
-              <button
-                type="button"
-                onClick={holdTicket}
-                className="flex h-10 items-center gap-1 rounded-lg border border-slate-200 px-3 text-xs font-semibold text-slate-700"
-              >
-                <Pause className="h-4 w-4" />
-                تعليق
-              </button>
-            </div>
-            <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
-              <button type="button" className="text-[#0E79AA]" onClick={() => setShowWaitingListModal(true)}>
-                قائمة الانتظار ({heldTickets.length})
-              </button>
-              <button type="button" className="text-[#0E79AA]" onClick={() => setShowDailyModal(true)}>
-                اليومية
-              </button>
-              <button type="button" className="text-[#0E79AA]" onClick={() => setShowWarehouseModal(true)}>
-                كميات المخزن
-              </button>
-              <button type="button" className="text-[#0E79AA]" onClick={() => setShowSettingsModal(true)}>
-                إعدادات
-              </button>
-            </div>
-          </div>
-        </section>
-
-        <section className="flex w-[55%] min-w-0 flex-col bg-slate-50/50 p-3">
-          <div className="mb-2 flex flex-wrap gap-1.5">
-            <button
-              type="button"
-              onClick={() => setActiveGroupId('all')}
-              className={`h-8 rounded-full px-3 text-xs font-semibold ${
-                activeGroupId === 'all'
-                  ? 'bg-[#0E79AA] text-white'
-                  : 'border border-slate-200 bg-white text-slate-600'
-              }`}
-            >
-              الكل
+        <section className="flex w-[42%] min-w-0 flex-col border-l border-slate-200 bg-white">
+          <div className="flex items-center justify-between px-3 py-2">
+            <h1 className="flex items-center gap-2 text-base font-bold text-slate-900">
+              <ShoppingCart className="h-4 w-4" /> السلة
+            </h1>
+            <button type="button" onClick={() => void holdCart()} disabled={busy || !cart.length} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold">
+              <Pause className="h-3.5 w-3.5" /> تعليق
             </button>
-            {itemGroups.map((g) => (
-              <button
-                key={g.id}
-                type="button"
-                onClick={() => setActiveGroupId(g.id)}
-                className={`h-8 rounded-full px-3 text-xs font-semibold ${
-                  activeGroupId === g.id
-                    ? 'bg-[#0E79AA] text-white'
-                    : 'border border-slate-200 bg-white text-slate-600'
-                }`}
-              >
-                {g.arabicName}
+          </div>
+          <div className="flex gap-2 overflow-x-auto px-3 pb-2">
+            {held.map((order) => (
+              <button key={order.id} type="button" onClick={() => void resume(order)} className="shrink-0 rounded-lg bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-900">
+                {order.customer?.arabicName || order.orderNumber}
               </button>
             ))}
           </div>
-          <input
-            className={`${compactControlClass} mb-3 h-9`}
-            placeholder="بحث في الأصناف"
-            value={catalogSearch}
-            onChange={(e) => setCatalogSearch(e.target.value)}
-          />
-          <div className="min-h-0 flex-1 overflow-y-auto">
-            <div className="grid grid-cols-2 gap-2 lg:grid-cols-3 xl:grid-cols-4">
-              {filteredCatalog.slice(0, 80).map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => upsertItem(item)}
-                  className="rounded-xl border border-slate-200/80 bg-white p-3 text-right transition-colors hover:border-[#0E79AA] hover:bg-[#0E79AA0D]"
-                >
-                  <p className="truncate text-sm font-semibold text-slate-900">{item.arabicName}</p>
-                  <p className="text-[11px] text-slate-500">{item.code || item.serial}</p>
-                  <div className="mt-2 flex items-center justify-between">
-                    <span className="text-sm font-bold tabular-nums text-[#0E79AA]">
-                      {formatMoneyAr(itemPrice(item))}
-                    </span>
-                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">
-                      مخزون {item.onHandQuantity ?? '—'}
-                    </span>
-                  </div>
-                </button>
-              ))}
-            </div>
+          <div className="min-h-0 flex-1 overflow-auto px-3">
+            {cart.map((line) => (
+              <div key={line.key} className="mb-2 flex items-center gap-2 rounded-xl border border-slate-200 p-2">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold">{line.name}</p>
+                  <p className="text-xs text-slate-500">
+                    {formatMoneyAr(quote?.lines.find((row) => row.itemId === line.itemId)?.price ?? 0)}
+                  </p>
+                  {canDiscount ? (
+                    <input
+                      value={line.discountPercent ?? ''}
+                      onChange={(event) => setCart((prev) => prev.map((row) => row.key === line.key ? { ...row, discountPercent: event.target.value } : row))}
+                      placeholder="خصم %"
+                      inputMode="decimal"
+                      className="mt-1 h-8 w-20 rounded border px-2 text-xs"
+                    />
+                  ) : null}
+                  {canOverride ? (
+                    <input
+                      value={line.priceOverride ?? ''}
+                      onChange={(event) => setCart((prev) => prev.map((row) => row.key === line.key ? { ...row, priceOverride: event.target.value } : row))}
+                      placeholder="سعر"
+                      inputMode="decimal"
+                      className="mt-1 h-8 w-24 rounded border px-2 text-xs"
+                    />
+                  ) : null}
+                </div>
+                <button type="button" onClick={() => setCart((prev) => prev.map((row) => row.key === line.key ? { ...row, quantity: Math.max(1, row.quantity - 1) } : row))} className="rounded-lg border p-1"><Minus className="h-4 w-4" /></button>
+                <input
+                  value={String(line.quantity)}
+                  onChange={(event) => {
+                    const quantity = Number(event.target.value);
+                    if (quantity > 0) setCart((prev) => prev.map((row) => row.key === line.key ? { ...row, quantity } : row));
+                  }}
+                  className="h-9 w-14 rounded-lg border text-center text-sm"
+                />
+                <button type="button" onClick={() => setCart((prev) => prev.map((row) => row.key === line.key ? { ...row, quantity: row.quantity + 1 } : row))} className="rounded-lg border p-1"><Plus className="h-4 w-4" /></button>
+                <button type="button" onClick={() => setCart((prev) => prev.filter((row) => row.key !== line.key))} className="rounded-lg p-1 text-rose-600"><Trash2 className="h-4 w-4" /></button>
+              </div>
+            ))}
           </div>
+          <footer className="border-t border-slate-200 p-3">
+            {canDiscount ? (
+              <label className="mb-2 flex items-center gap-2 text-xs text-slate-600">
+                خصم الفاتورة %
+                <input value={headerDiscount} onChange={(event) => setHeaderDiscount(event.target.value)} inputMode="decimal" className="h-9 w-20 rounded border px-2" />
+              </label>
+            ) : null}
+            <label className="mb-2 flex items-center gap-2 text-xs text-slate-600">
+              كوبون
+              <input value={couponCode} onChange={(event) => setCouponCode(event.target.value)} className="h-9 flex-1 rounded border px-2" placeholder="كود الخصم" />
+            </label>
+            <div className="mb-2 flex items-end justify-between">
+              <span className="text-sm text-slate-500">الصافي من الخادم</span>
+              <span className="text-2xl font-bold">{formatMoneyAr(preview)}</span>
+            </div>
+            <button type="button" onClick={openPay} disabled={!hasTerminal || busy} className="h-12 w-full rounded-xl bg-sky-700 text-sm font-bold text-white disabled:opacity-50">
+              دفع
+            </button>
+          </footer>
+        </section>
+
+        <section className="flex min-w-0 flex-1 flex-col p-3">
+          <div className="mb-2 flex items-center gap-2">
+            <Search className="h-4 w-4 text-slate-400" />
+            <input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="بحث عن صنف"
+              className="h-11 flex-1 rounded-xl border border-slate-200 bg-white px-3 text-sm"
+            />
+          </div>
+          <div className="mb-2 flex gap-2 overflow-x-auto">
+            <button type="button" onClick={() => setCategoryId('')} className={`shrink-0 rounded-full px-3 py-1 text-xs font-semibold ${categoryId === '' ? 'bg-slate-900 text-white' : 'bg-white text-slate-700'}`}>الكل</button>
+            {categories.map((category) => (
+              <button key={category.id} type="button" onClick={() => setCategoryId(category.id)} className={`shrink-0 rounded-full px-3 py-1 text-xs font-semibold ${categoryId === category.id ? 'bg-slate-900 text-white' : 'bg-white text-slate-700'}`}>
+                {category.arabicName}
+              </button>
+            ))}
+          </div>
+          <div className="grid min-h-0 flex-1 grid-cols-2 content-start gap-2 overflow-auto md:grid-cols-3 xl:grid-cols-4">
+            {items.map((item) => (
+              <button key={item.id} type="button" onClick={() => addItem(item)} className="rounded-2xl border border-slate-200 bg-white p-3 text-right hover:border-sky-400">
+                <p className="line-clamp-2 text-sm font-semibold text-slate-900">{item.arabicName}</p>
+                <p className="mt-2 text-sm font-bold text-sky-800">{formatMoneyAr(item.price)}</p>
+                <p className="text-[11px] text-slate-500">{item.onHand == null ? '' : `المتاح ${item.onHand}`}</p>
+              </button>
+            ))}
+          </div>
+          {cursor ? (
+            <button type="button" onClick={() => void loadCatalog(false)} className="mt-2 h-10 rounded-xl bg-white text-sm font-semibold text-slate-700">
+              المزيد
+            </button>
+          ) : null}
         </section>
       </div>
 
-      <PosTenderModal
-        open={showTender}
-        net={cartTotals.net}
-        method={tenderMethod}
-        paid={tenderPaid}
-        onMethodChange={setTenderMethod}
-        onPaidChange={setTenderPaid}
-        onClose={() => setShowTender(false)}
-        onConfirm={confirmTender}
-        busy={posSaleMutation.isPending}
-      />
-
-      {showWaitingListModal ? (
-        <SimpleModal title="قائمة الانتظار (فواتير معلّقة)" onClose={() => setShowWaitingListModal(false)}>
-          {heldTickets.length === 0 ? (
-            <p className="text-sm text-slate-500">لا توجد فواتير معلّقة</p>
-          ) : (
-            <ul className="space-y-2">
-              {heldTickets.map((t) => (
-                <li key={t.id} className="flex items-center justify-between rounded-lg border border-slate-200 p-2">
-                  <span className="text-sm">
-                    {t.customerName || 'عميل نقدي'} · {t.heldAt}
-                  </span>
-                  <button type="button" className="text-xs font-semibold text-[#0E79AA]" onClick={() => restoreTicket(t)}>
-                    استعادة
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-        </SimpleModal>
-      ) : null}
-
-      {showDailyModal ? (
-        <SimpleModal title="يومية نقطة البيع" onClose={() => setShowDailyModal(false)}>
-          <p className="text-sm text-slate-600">
-            إجمالي {formatMoneyAr(dailySummary.totalAmount)} · محصّل {formatMoneyAr(dailySummary.totalPaid)}
-          </p>
-        </SimpleModal>
-      ) : null}
-
-      {showWarehouseModal ? (
-        <SimpleModal title="كميات أصناف المخازن" onClose={() => setShowWarehouseModal(false)}>
-          <p className="text-sm text-slate-500">اختر صنفاً من الكتالوج لعرض الرصيد على البلاطة.</p>
-        </SimpleModal>
-      ) : null}
-
-      {showSettingsModal ? (
-        <SimpleModal title="إعدادات نقطة البيع" onClose={() => setShowSettingsModal(false)}>
-          <label className="mb-1 block text-xs font-semibold text-slate-600">الشرح</label>
-          <input
-            className={compactControlClass}
-            value={formData.description}
-            onChange={(e) => handleInputChange('description', e.target.value)}
-          />
-          <div className="mt-3">
-            <ActionButtons
-              onSave={() => setShowSettingsModal(false)}
-              onCancel={() => {
-                clearCart();
-                setShowSettingsModal(false);
-              }}
-              saveText="تم"
-            />
+      {payOpen ? (
+        <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/40 p-4 sm:items-center">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-4">
+            <h2 className="mb-2 text-lg font-bold">السداد — {formatMoneyAr(due)}</h2>
+            {payments.map((row) => (
+              <div key={row.key} className="mb-2 grid grid-cols-4 gap-2">
+                <select
+                  value={row.method}
+                  onChange={(event) => {
+                    const method = methods.find((item) => item.code === event.target.value);
+                    const systemSettlement: Record<string, string> = { GIFT_CARD: 'GIFT_CARD', STORE_CREDIT: 'STORE_CREDIT', POINTS: 'POINTS', DEPOSIT: 'DEPOSIT' };
+                    setPayments((prev) => prev.map((item) => item.key === row.key ? { ...item, method: event.target.value, settlementType: method?.settlementType ?? systemSettlement[event.target.value] ?? 'BANK' } : item));
+                  }}
+                  className="h-10 rounded-lg border px-2 text-sm"
+                >
+                  {(methods.length ? methods : [{ code: 'CASH', displayName: 'نقدي', settlementType: 'CASH' as const }, { code: 'CARD', displayName: 'بطاقة', settlementType: 'BANK' as const }, { code: 'CREDIT', displayName: 'آجل', settlementType: 'CREDIT' as const }]).concat([
+                    { code: 'GIFT_CARD', displayName: 'بطاقة هدية', settlementType: 'GIFT_CARD' },
+                    { code: 'STORE_CREDIT', displayName: 'رصيد متجر', settlementType: 'STORE_CREDIT' },
+                    { code: 'POINTS', displayName: 'نقاط', settlementType: 'POINTS' },
+                    { code: 'DEPOSIT', displayName: 'عربون', settlementType: 'DEPOSIT' },
+                  ]).map((method) => (
+                    <option key={method.code} value={method.code}>{method.displayName}</option>
+                  ))}
+                </select>
+                <input value={row.amount} onChange={(event) => setPayments((prev) => prev.map((item) => item.key === row.key ? { ...item, amount: event.target.value } : item))} className="h-10 rounded-lg border px-2 text-sm" placeholder="المبلغ" />
+                {row.settlementType === 'CASH' || row.settlementType === 'BANK' ? (
+                  <input value={row.currencyCode ?? 'EGP'} onChange={(event) => setPayments((prev) => prev.map((item) => item.key === row.key ? { ...item, currencyCode: event.target.value.toUpperCase() } : item))} className="h-10 rounded-lg border px-2 text-sm" placeholder="EGP" aria-label="العملة" />
+                ) : null}
+                {row.settlementType === 'CASH' ? (
+                  <input value={row.tendered} onChange={(event) => setPayments((prev) => prev.map((item) => item.key === row.key ? { ...item, tendered: event.target.value } : item))} className="h-10 rounded-lg border px-2 text-sm" placeholder="المستلم" />
+                ) : (
+                  <input value={row.reference} onChange={(event) => setPayments((prev) => prev.map((item) => item.key === row.key ? { ...item, reference: event.target.value } : item))} className="h-10 rounded-lg border px-2 text-sm" placeholder="مرجع" />
+                )}
+                <button type="button" onClick={() => setPayments((prev) => prev.filter((item) => item.key !== row.key))} className="text-xs text-rose-600">حذف</button>
+              </div>
+            ))}
+            <button
+              type="button"
+              onClick={() => setPayments((prev) => [...prev, { key: String(Date.now()), method: 'CARD', settlementType: 'BANK', amount: '', tendered: '', reference: '' }])}
+              className="mb-3 text-sm font-semibold text-sky-800"
+            >
+              إضافة طريقة دفع
+            </button>
+            <p className="mb-3 text-sm text-slate-600">
+              المدفوع {formatMoneyAr(paymentSum)} — المتبقي {formatMoneyAr(money(due - paymentSum))} — الباقي للعميل {formatMoneyAr(cashChange)}
+            </p>
+            <div className="flex gap-2">
+              <button type="button" disabled={busy} onClick={() => void checkout()} className="h-11 flex-1 rounded-xl bg-sky-700 font-bold text-white">تأكيد</button>
+              <button type="button" onClick={() => setPayOpen(false)} className="h-11 rounded-xl border px-4">إلغاء</button>
+            </div>
           </div>
-        </SimpleModal>
+        </div>
+      ) : null}
+
+      {receipt ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-sm rounded-2xl bg-white p-4">
+            <h2 className="mb-2 font-bold">إيصال {receipt.invoiceNumber}</h2>
+            {receipt.fiscalLines?.[0] ? <p className="text-sm font-semibold text-sky-900">{receipt.fiscalLines[0]}</p> : null}
+            <p className="text-2xl font-bold">{formatMoneyAr(receipt.net)}</p>
+            {receiptQr ? <img src={receiptQr} alt="رمز الإيصال الرقمي" className="mx-auto mt-3 h-36 w-36" /> : null}
+            {receiptLink ? <a href={receiptLink} className="mt-2 block break-all text-xs text-sky-800">{receiptLink}</a> : null}
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button type="button" onClick={() => printThermalViaBrowser(receipt, 80)} className="h-10 flex-1 rounded-lg bg-slate-900 text-sm font-semibold text-white">طباعة</button>
+              {postedOrderId ? (
+                <button
+                  type="button"
+                  className="h-10 rounded-lg border px-3 text-sm"
+                  onClick={() => {
+                    void apiClient.get<{ url: string }>(`/pos/commercial/orders/${postedOrderId}/receipt-link`).then(async (res) => {
+                      const url = res.data?.url ? `${window.location.origin}${res.data.url}` : '';
+                      setReceiptLink(url);
+                      setReceiptQr(url ? await QRCode.toDataURL(url) : '');
+                    }).catch((err) => setError(err instanceof Error ? err.message : 'تعذر إنشاء رابط الإيصال'));
+                  }}
+                >
+                  إيصال رقمي
+                </button>
+              ) : null}
+              {isWebBluetoothAvailable() ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    void renderReceiptToCanvas(receipt, { widthMm: 80 }).then(async (canvas) => {
+                      const bytes = canvasToEscPos(canvas);
+                      await bluetoothThermalPrinter.connectAndWrite(bytes);
+                    });
+                  }}
+                  className="h-10 flex-1 rounded-lg border text-sm font-semibold"
+                >
+                  بلوتوث
+                </button>
+              ) : null}
+              <button type="button" onClick={() => setReceipt(null)} className="h-10 rounded-lg border px-3 text-sm">إغلاق</button>
+            </div>
+          </div>
+        </div>
       ) : null}
     </div>
   );
 }
 
-function SimpleModal({
-  title,
-  onClose,
-  children,
-}: {
-  title: string;
-  onClose: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4" dir="rtl">
-      <div className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-5">
-        <div className="mb-3 flex items-center justify-between">
-          <h3 className="font-bold text-slate-900">{title}</h3>
-          <button type="button" onClick={onClose} className="text-sm text-slate-500">
-            إغلاق
-          </button>
-        </div>
-        {children}
-      </div>
-    </div>
-  );
+function toThermal(receipt: ReceiptPayload): ThermalInvoiceData {
+  return {
+    companyName: receipt.companyName,
+    branch: receipt.branchName,
+    title: receipt.title || (receipt.orderType === 'RETURN' ? 'إيصال مرتجع' : 'إيصال نقطة البيع'),
+    invoiceNumber: receipt.orderNumber,
+    dateTime: receipt.postedAt ? new Date(receipt.postedAt).toLocaleString('ar-EG') : '',
+    customerName: receipt.customerName,
+    cashier: receipt.cashier,
+    items: receipt.lines.map((line) => ({
+      name: line.name,
+      quantity: line.quantity,
+      unitPrice: line.price,
+      total: line.total,
+    })),
+    subtotal: receipt.subtotal,
+    discount: receipt.discount,
+    vatAmount: receipt.tax,
+    net: receipt.net,
+    notes: [receipt.originalOrderNumber ? `أصل الإيصال ${receipt.originalOrderNumber}` : null, receipt.notes].filter(Boolean).join(' — ') || null,
+    payments: receipt.payments.map((row) => ({
+      label: row.label || row.method,
+      amount: row.amount,
+    })),
+    tendered: receipt.tendered,
+    change: receipt.change,
+    qrPayload: receipt.qrPayload ?? null,
+    fiscalLines: [
+      receipt.etaStatusLabel ? `الإيصال الإلكتروني: ${receipt.etaStatusLabel}` : null,
+      receipt.etaReceiptNumber ? `رقم الإيصال الضريبي ${receipt.etaReceiptNumber}` : null,
+      receipt.etaUuid ?? null,
+    ].filter((line): line is string => Boolean(line)),
+  };
 }

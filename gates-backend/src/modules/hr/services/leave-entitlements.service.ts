@@ -50,34 +50,34 @@ export class LeaveEntitlementsService {
       const currentBalance = Number(contract.leaveBalance || 0);
       const newBalance = currentBalance + data.entitlementDays;
 
-      // Update contract leave balance
-      const updatedContract = await prisma.employeeContract.update({
-        where: { id: contract.id },
-        data: {
-          leaveBalance: new Decimal(newBalance),
-        },
-        include: {
-          employee: {
-            select: {
-              id: true,
-              serial: true,
-              employeeId: true,
-              arabicName: true,
-              englishName: true,
+      const updatedContract = await prisma.$transaction(async (tx) => {
+        const contractRow = await tx.employeeContract.update({
+          where: { id: contract.id },
+          data: {
+            leaveBalance: new Decimal(newBalance),
+          },
+          include: {
+            employee: {
+              select: {
+                id: true,
+                serial: true,
+                employeeId: true,
+                arabicName: true,
+                englishName: true,
+              },
             },
           },
-        },
-      });
-
-      // Create employee procedure record
-      await prisma.employeeProcedure.create({
-        data: {
-          employeeId: data.employeeId,
-          procedureType: 'leave_entitlement',
-          date: data.date,
-          description: `Annual leave entitlement disbursement for year ${data.year}: ${data.entitlementDays} days${data.notes ? `. Notes: ${data.notes}` : ''}`,
-          createdBy: userId,
-        },
+        });
+        await tx.employeeProcedure.create({
+          data: {
+            employeeId: data.employeeId,
+            procedureType: 'leave_entitlement',
+            date: data.date,
+            description: `صرف مستحقات إجازة سنة ${data.year}: ${data.entitlementDays} يوم${data.notes ? `. ${data.notes}` : ''}`,
+            createdBy: userId,
+          },
+        });
+        return contractRow;
       });
 
       logger.info(

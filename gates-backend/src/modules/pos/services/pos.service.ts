@@ -1,10 +1,7 @@
 // @ts-nocheck — strict cleanup pending; tracked for incremental typing.
 import prisma from '../../../shared/database/prisma';
 import { logger } from '../../../shared/logger';
-import { Decimal } from '@prisma/client/runtime/library';
-import { scopedItemQuantityWhere } from '../../inventory/utils/item-quantity-tenant';
-import { invoiceService } from '../../inventory/services/invoice.service';
-import { adjustStockInTx } from '../../inventory/services/adjust-stock-in-tx';
+import { AppError } from '../../../shared/middleware/error-handler';
 
 export interface POSLineData {
   itemId: string;
@@ -43,79 +40,31 @@ export interface POSDailyReportFilters {
   sellerId?: string;
 }
 
+export const POS_HISTORICAL_INVOICE_LIMITATION =
+  'Posted PosOrder rows are the current POS report. Historical /pos/sales invoices are ordinary sales invoices with no POS marker, so they are not included and are not guessed.';
+
 export class POSService {
   /**
-   * Create a POS sale (sales invoice with immediate posting)
+   * Retired. POS financial writes go through PosOrder posting only.
+   * Shared invoice and stock services stay available to the rest of Gates.
    */
   async createPOSSale(companyId: string, userId: string, data: CreatePOSSaleData) {
-    try {
-      // Create sales invoice
-      const invoice = await invoiceService.createInvoice(companyId, {
-        invoiceNumber: data.invoiceNumber,
-        invoiceType: 'sales',
-        date: data.date,
-        hijriDate: data.hijriDate,
-        description: data.description || 'POS Sale',
-        currencyCode: data.currencyCode,
-        customerId: data.customerId,
-        warehouseId: data.warehouseId,
-        sellerId: data.sellerId,
-        paymentMethod: data.paymentMethod,
-        lines: data.lines,
-      });
-
-      // Immediately post the invoice (POS sales are posted immediately)
-      await invoiceService.postInvoice(companyId, invoice.id);
-
-      // Process payments if provided
-      if (data.payments && data.payments.length > 0) {
-        const totalPaid = data.payments.reduce((sum, p) => sum + p.amount, 0);
-        await invoiceService.collectPayment(companyId, invoice.id, totalPaid);
-      } else {
-        // If no payments specified, mark as fully paid
-        const netAmount = Number(invoice.netAmount);
-        await invoiceService.collectPayment(companyId, invoice.id, netAmount);
-      }
-
-      // Fetch updated invoice
-      const updatedInvoice = await invoiceService.getInvoiceById(companyId, invoice.id);
-
-      logger.info(
-        { companyId, invoiceId: invoice.id, userId },
-        'POS sale created and posted'
-      );
-
-      return updatedInvoice;
-    } catch (error) {
-      logger.error({ error, companyId, data }, 'Error creating POS sale');
-      throw error;
-    }
+    throw new AppError(410, 'مسار نقطة البيع القديم متوقف. الترحيل يتم من أمر نقطة البيع فقط.');
   }
 
   /**
    * Get POS sale by ID
    */
   async getPOSSaleById(companyId: string, saleId: string) {
-    try {
-      const invoice = await invoiceService.getInvoiceById(companyId, saleId);
-
-      if (invoice.invoiceType !== 'sales') {
-        throw new Error('Invoice is not a sales invoice');
-      }
-
-      return invoice;
-    } catch (error) {
-      logger.error({ error, companyId, saleId }, 'Error getting POS sale');
-      throw error;
-    }
+    throw new AppError(410, 'مسار نقطة البيع القديم متوقف. الترحيل يتم من أمر نقطة البيع فقط.');
   }
 
   /**
    * List POS sales with filters
    */
   async listPOSSales(
-    companyId: string,
-    options: {
+    _companyId: string,
+    _options: {
       page?: number;
       limit?: number;
       fromDate?: Date;
@@ -125,28 +74,13 @@ export class POSService {
       customerId?: string;
     }
   ) {
-    try {
-      const result = await invoiceService.listInvoices(companyId, {
-        page: options.page,
-        limit: options.limit,
-        invoiceType: 'sales',
-        fromDate: options.fromDate,
-        toDate: options.toDate,
-        warehouseId: options.warehouseId,
-        sellerId: options.sellerId,
-        customerId: options.customerId,
-        isPosted: true, // POS sales are always posted
-      });
-
-      return result;
-    } catch (error) {
-      logger.error({ error, companyId, options }, 'Error listing POS sales');
-      throw error;
-    }
+    throw new AppError(410, 'مسار نقطة البيع القديم متوقف. الترحيل يتم من أمر نقطة البيع فقط.');
   }
 
   /**
-   * Get daily POS report
+   * Daily POS activity from posted PosOrder rows only.
+   * `sellerId` filters `postedBy` (the cashier on the post), not invoice seller.
+   * Sales invoices are not unioned: legacy /pos/sales rows have no POS marker.
    */
   async getDailyPOSReport(filters: POSDailyReportFilters) {
     try {
@@ -158,87 +92,127 @@ export class POSService {
       const endOfDay = new Date(date);
       endOfDay.setHours(23, 59, 59, 999);
 
-      const where: any = {
-        companyId,
-        invoiceType: 'sales',
-        date: {
-          gte: startOfDay,
-          lte: endOfDay,
+      const orders = await prisma.posOrder.findMany({
+        where: {
+          companyId,
+          status: 'POSTED',
+          postedAt: { gte: startOfDay, lte: endOfDay },
+          ...(sellerId ? { postedBy: sellerId } : {}),
+          ...(warehouseId ? { shift: { terminal: { warehouseId } } } : {}),
         },
-        isPosted: true,
-        isCancelled: false,
-      };
-
-      if (warehouseId) {
-        where.warehouseId = warehouseId;
-      }
-
-      if (sellerId) {
-        where.sellerId = sellerId;
-      }
-
-      const invoices = await prisma.invoice.findMany({
-        where,
         include: {
-          customer: {
-            select: {
-              id: true,
-              code: true,
-              arabicName: true,
-            },
-          },
-          warehouse: {
-            select: {
-              id: true,
-              code: true,
-              arabicName: true,
-            },
-          },
+          customer: { select: { id: true, code: true, arabicName: true } },
           lines: {
+            include: { item: { select: { id: true, arabicName: true } } },
+          },
+          shift: {
             include: {
-              item: {
-                select: {
-                  id: true,
-                  code: true,
-                  arabicName: true,
-                },
+              terminal: {
+                include: { warehouse: { select: { id: true, code: true, arabicName: true } } },
               },
             },
           },
         },
-        orderBy: [{ date: 'asc' }],
+        orderBy: [{ postedAt: 'asc' }],
+      });
+
+      const sales = orders.map((order) => {
+        const cash = Number(order.cashAmount);
+        const card = Number(order.cardAmount);
+        const credit = Number(order.creditAmount);
+        const cogs = order.lines.reduce(
+          (sum, line) => sum + Number(line.quantity) * Number(line.unitCost),
+          0
+        );
+        return {
+          id: order.id,
+          invoiceNumber: order.orderNumber,
+          orderNumber: order.orderNumber,
+          date: order.postedAt,
+          warehouse: order.shift.terminal.warehouse,
+          customer: order.customer,
+          paymentMethod: order.paymentMethod,
+          paymentType: order.paymentMethod,
+          description: order.orderType === 'RETURN' ? 'مرتجع نقطة بيع' : 'مبيعات نقطة بيع',
+          currencyCode: order.currencyCode,
+          totalAmount: Number(order.totalAmount),
+          discountAmount: Number(order.discountAmount),
+          taxAmount: Number(order.taxAmount),
+          netAmount: Number(order.netAmount),
+          paidAmount: cash + card,
+          remainingAmount: credit,
+          journalEntryId: order.journalEntryId,
+          cogs,
+          status: order.status,
+          lines: order.lines,
+        };
       });
 
       const summary = {
-        totalSales: invoices.length,
-        totalAmount: invoices.reduce(
-          (sum, inv) => sum + Number(inv.netAmount),
+        totalSales: sales.length,
+        totalAmount: sales.reduce((sum, row) => sum + row.netAmount, 0),
+        totalPaid: sales.reduce((sum, row) => sum + row.paidAmount, 0),
+        totalRemaining: sales.reduce((sum, row) => sum + row.remainingAmount, 0),
+        totalItems: sales.reduce(
+          (sum, row) => sum + row.lines.reduce((lineSum, line) => lineSum + Number(line.quantity), 0),
           0
         ),
-        totalPaid: invoices.reduce(
-          (sum, inv) => sum + Number(inv.paidAmount),
-          0
-        ),
-        totalRemaining: invoices.reduce(
-          (sum, inv) => sum + Number(inv.remainingAmount),
-          0
-        ),
-        totalItems: invoices.reduce(
-          (sum, inv) =>
-            sum + inv.lines.reduce((lineSum, line) => lineSum + Number(line.quantity), 0),
-          0
-        ),
+        totalCogs: sales.reduce((sum, row) => sum + row.cogs, 0),
+        source: 'POS_ORDER',
       };
 
       return {
         date,
-        sales: invoices,
+        sales,
         summary,
+        historicalLimitation: POS_HISTORICAL_INVOICE_LIMITATION,
       };
     } catch (error) {
       logger.error({ error, filters }, 'Error generating daily POS report');
       throw error;
     }
+  }
+
+  /** Hub metrics: recently posted PosOrder rows for this company. Not sales invoices. */
+  async listPostedPosOrders(companyId: string, limit = 50) {
+    const take = Math.min(Math.max(limit, 1), 50);
+    const orders = await prisma.posOrder.findMany({
+      where: { companyId, status: 'POSTED' },
+      orderBy: { postedAt: 'desc' },
+      take,
+      select: {
+        id: true,
+        orderNumber: true,
+        netAmount: true,
+        cashAmount: true,
+        cardAmount: true,
+        creditAmount: true,
+        postedAt: true,
+        journalEntryId: true,
+        status: true,
+      },
+    });
+    const rows = orders.map((order) => ({
+      id: order.id,
+      orderNumber: order.orderNumber,
+      netAmount: Number(order.netAmount),
+      paidAmount: Number(order.cashAmount) + Number(order.cardAmount),
+      remainingAmount: Number(order.creditAmount),
+      postedAt: order.postedAt,
+      journalEntryId: order.journalEntryId,
+      status: order.status,
+    }));
+    return {
+      rows,
+      summary: {
+        count: rows.length,
+        net: rows.reduce((sum, row) => sum + row.netAmount, 0),
+        paid: rows.reduce((sum, row) => sum + row.paidAmount, 0),
+        remaining: rows.reduce((sum, row) => sum + row.remainingAmount, 0),
+        source: 'POS_ORDER' as const,
+      },
+      historicalLimitation: POS_HISTORICAL_INVOICE_LIMITATION,
+    };
   }
 
   /**
@@ -249,154 +223,21 @@ export class POSService {
     saleId: string,
     reason?: string
   ) {
-    try {
-      const originalSale = await invoiceService.getInvoiceById(companyId, saleId);
-
-      if (originalSale.invoiceType !== 'sales') {
-        throw new Error('Invoice is not a sales invoice');
-      }
-
-      if (!originalSale.isPosted) {
-        // If not posted, just cancel it
-        return await invoiceService.cancelInvoice(companyId, saleId);
-      }
-
-      // If posted, create a return invoice
-      const returnInvoice = await invoiceService.createInvoice(companyId, {
-        invoiceType: 'return',
-        date: new Date(),
-        description: reason || `Return for invoice ${originalSale.invoiceNumber}`,
-        currencyCode: originalSale.currencyCode,
-        customerId: originalSale.customerId || undefined,
-        warehouseId: originalSale.warehouseId,
-        sellerId: originalSale.sellerId || undefined,
-        lines: originalSale.lines.map((line) => ({
-          itemId: line.itemId,
-          unitId: line.unitId,
-          quantity: Number(line.quantity),
-          baseQuantity: Number(line.baseQuantity),
-          price: Number(line.price),
-          discountPercent: line.discountPercent
-            ? Number(line.discountPercent)
-            : undefined,
-          discountAmount: line.discountAmount
-            ? Number(line.discountAmount)
-            : undefined,
-          taxPercent: line.taxPercent ? Number(line.taxPercent) : undefined,
-          taxAmount: line.taxAmount ? Number(line.taxAmount) : undefined,
-          lineOrder: line.lineOrder,
-        })),
-      });
-
-      // Post the return invoice
-      await invoiceService.postInvoice(companyId, returnInvoice.id);
-
-      logger.info(
-        { companyId, originalSaleId: saleId, returnInvoiceId: returnInvoice.id },
-        'POS sale cancelled via return invoice'
-      );
-
-      return returnInvoice;
-    } catch (error) {
-      logger.error({ error, companyId, saleId }, 'Error cancelling POS sale');
-      throw error;
-    }
+    throw new AppError(410, 'مسار نقطة البيع القديم متوقف. الترحيل يتم من أمر نقطة البيع فقط.');
   }
 
   /**
    * Print receipt for POS sale
    */
   async printReceipt(companyId: string, saleId: string) {
-    try {
-      const invoice = await invoiceService.getInvoiceById(companyId, saleId);
-
-      if (invoice.invoiceType !== 'sales') {
-        throw new Error('Invoice is not a sales invoice');
-      }
-
-      // Generate receipt data (in real implementation, this would format for printer)
-      const receiptData = {
-        invoiceNumber: invoice.invoiceNumber,
-        date: invoice.date,
-        customer: invoice.customer,
-        lines: invoice.lines,
-        totalAmount: invoice.totalAmount,
-        netAmount: invoice.netAmount,
-        taxAmount: invoice.taxAmount,
-        discountAmount: invoice.discountAmount,
-      };
-
-      logger.info({ companyId, saleId }, 'Receipt generated for POS sale');
-
-      // In a real implementation, this would:
-      // 1. Format receipt for thermal printer
-      // 2. Send to printer queue
-      // 3. Return receipt data for display/printing
-
-      return {
-        receiptData,
-        printJobId: `print-${saleId}`, // Placeholder
-      };
-    } catch (error) {
-      logger.error({ error, companyId, saleId }, 'Error printing receipt');
-      throw error;
-    }
+    throw new AppError(410, 'مسار نقطة البيع القديم متوقف. الترحيل يتم من أمر نقطة البيع فقط.');
   }
 
   /**
    * Update inventory in real-time for POS operations
    */
   async updateInventoryRealTime(companyId: string, warehouseId: string, itemId: string, quantityChange: number) {
-    try {
-      return await prisma.$transaction(async (tx) => {
-        const itemQuantity = await tx.itemQuantity.findFirst({
-          where: scopedItemQuantityWhere(companyId, {
-            warehouseId,
-            itemId,
-          }),
-        });
-
-        if (!itemQuantity) {
-          throw new Error('Item quantity not found');
-        }
-
-        const currentQuantity = Number(itemQuantity.quantity || 0);
-        const newQuantity = currentQuantity + quantityChange;
-
-        if (newQuantity < 0) {
-          throw new Error('Insufficient inventory');
-        }
-
-        await tx.itemQuantity.update({
-          where: { id: itemQuantity.id },
-          data: { quantity: new Decimal(newQuantity) },
-        });
-
-        const warehouseBal = await adjustStockInTx(tx, {
-          companyId,
-          itemId,
-          warehouseId,
-          deltaQty: quantityChange,
-        });
-
-        logger.info(
-          { companyId, warehouseId, itemId, quantityChange, newQuantity },
-          'Inventory updated in real-time'
-        );
-
-        return {
-          itemId,
-          warehouseId,
-          previousQuantity: currentQuantity,
-          newQuantity: warehouseBal.quantityOnHand,
-          quantityChange,
-          reservedQuantity: warehouseBal.reservedQuantity,
-        };
-      });
-    } catch (error) {
-      logger.error({ error, companyId, warehouseId, itemId }, 'Error updating inventory in real-time');
-      throw error;
-    }
+    throw new AppError(410, 'مسار نقطة البيع القديم متوقف. الترحيل يتم من أمر نقطة البيع فقط.');
   }
 }
 

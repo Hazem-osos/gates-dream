@@ -188,7 +188,7 @@ export class RealEstateReportsService {
 
   /**
    * Get Unit Customer Matching Report
-   * Shows which units/properties are matched with which customers
+   * Shows which units are matched with which customers via unit contracts.
    */
   async getUnitCustomerMatchingReport(
     filters: RealEstateReportFilters,
@@ -198,61 +198,75 @@ export class RealEstateReportsService {
       const { companyId, propertyId, customerId } = filters;
       const { page = 1, limit = 100 } = options;
 
-      // This would require Property and Reservation models
-      // For now, we'll use invoices as a proxy for property-customer relationships
-      const invoiceWhere: any = {
-        companyId,
-        invoiceType: 'sales',
-      };
+      const where: Record<string, unknown> = { companyId };
+      if (customerId) where.customerId = customerId;
+      if (propertyId) where.unitId = propertyId;
 
-      if (customerId) {
-        invoiceWhere.customerId = customerId;
-      }
-
-      const invoices = await prisma.invoice.findMany({
-        where: invoiceWhere,
-        include: {
-          customer: {
-            select: {
-              id: true,
-              code: true,
-              arabicName: true,
+      const [contracts, total] = await Promise.all([
+        prisma.unitContract.findMany({
+          where,
+          include: {
+            customer: { select: { id: true, code: true, arabicName: true } },
+            unit: {
+              select: {
+                id: true,
+                unitCode: true,
+                grossArea: true,
+                netArea: true,
+                status: true,
+                building: {
+                  select: {
+                    name: true,
+                    buildingCode: true,
+                    project: { select: { projectCode: true, projectName: true } },
+                  },
+                },
+              },
             },
           },
-        },
-        orderBy: { date: 'desc' },
-      });
+          orderBy: { contractDate: 'desc' },
+          skip: (page - 1) * limit,
+          take: limit,
+        }),
+        prisma.unitContract.count({ where }),
+      ]);
 
-      // Group by customer and property (using warehouseId as property proxy)
-      const matchingData = invoices.map((invoice) => {
+      const matchingData = contracts.map((contract) => {
+        const grossArea = Number(contract.unit?.grossArea ?? 0);
+        const netArea = Number(contract.unit?.netArea ?? 0);
         return {
-          invoiceId: invoice.id,
-          invoiceNumber: invoice.invoiceNumber,
-          date: invoice.date,
-          customerId: invoice.customerId,
-          customerName: invoice.customer?.arabicName,
-          propertyId: invoice.warehouseId, // Using warehouseId as property proxy
-          propertyName: invoice.warehouseId, // Would be property name if Property model existed
-          amount: Number(invoice.netAmount || 0),
-          status: invoice.isPosted ? 'confirmed' : 'pending',
+          contractId: contract.id,
+          contractNumber: contract.contractNumber,
+          date: contract.contractDate,
+          customerId: contract.customerId,
+          customerName: contract.customer?.arabicName,
+          customerCode: contract.customer?.code,
+          unitId: contract.unitId,
+          unitCode: contract.unit?.unitCode,
+          propertyId: contract.unitId,
+          propertyName: contract.unit
+            ? `${contract.unit.building?.project?.projectName ?? ''} — ${contract.unit.building?.name ?? ''} — ${contract.unit.unitCode}`
+            : null,
+          grossArea,
+          netArea,
+          area: grossArea || netArea,
+          amount: Number(contract.totalContractAmount || 0),
+          status: contract.status,
         };
       });
 
-      const skip = (page - 1) * limit;
-      const paginatedData = matchingData.slice(skip, skip + limit);
-
       return {
-        data: paginatedData,
+        data: matchingData,
         summary: {
-          totalMatches: invoices.length,
-          uniqueCustomers: new Set(invoices.map((i) => i.customerId)).size,
-          uniqueProperties: new Set(invoices.map((i) => i.warehouseId).filter(Boolean)).size,
+          totalMatches: total,
+          uniqueCustomers: new Set(matchingData.map((i) => i.customerId)).size,
+          uniqueUnits: new Set(matchingData.map((i) => i.unitId)).size,
         },
         pagination: {
           page,
           limit,
-          total: matchingData.length,
-          totalPages: Math.ceil(matchingData.length / limit),
+          total,
+          totalPages: Math.ceil(total / limit),
         },
       };
     } catch (error) {
@@ -263,7 +277,7 @@ export class RealEstateReportsService {
 
   /**
    * Get Unit Preview Report
-   * Shows available and reserved units/properties
+   * Shows real estate units with area and status from RealEstateUnit.
    */
   async getUnitPreviewReport(
     filters: RealEstateReportFilters,
@@ -273,65 +287,68 @@ export class RealEstateReportsService {
       const { companyId, propertyId, status } = filters;
       const { page = 1, limit = 100 } = options;
 
-      // This would require Property model
-      // For now, using warehouses as property proxy
-      const warehousesWhere: any = { companyId, isActive: true };
-      if (propertyId) {
-        warehousesWhere.id = propertyId;
-      }
+      const where: Record<string, unknown> = {
+        building: { project: { companyId } },
+      };
+      if (propertyId) where.id = propertyId;
+      if (status) where.status = status;
 
-      const warehouses = await prisma.warehouse.findMany({
-        where: warehousesWhere,
-        include: {
-          invoices: {
-            where: {
-              invoiceType: 'sales',
-              isPosted: true,
-            },
-            include: {
-              customer: {
-                select: {
-                  id: true,
-                  arabicName: true,
-                },
+      const [units, total] = await Promise.all([
+        prisma.realEstateUnit.findMany({
+          where,
+          include: {
+            building: {
+              select: {
+                id: true,
+                name: true,
+                buildingCode: true,
+                project: { select: { id: true, projectCode: true, projectName: true } },
               },
             },
           },
-        },
-      });
+          orderBy: [{ building: { buildingCode: 'asc' } }, { unitCode: 'asc' }],
+          skip: (page - 1) * limit,
+          take: limit,
+        }),
+        prisma.realEstateUnit.count({ where }),
+      ]);
 
-      const unitData = warehouses.map((warehouse) => {
-        const reservations = warehouse.invoices.length;
-        const isReserved = reservations > 0;
-        const reservedBy = warehouse.invoices[0]?.customer?.arabicName;
-
+      const unitData = units.map((unit) => {
+        const grossArea = Number(unit.grossArea ?? 0);
+        const netArea = Number(unit.netArea ?? 0);
         return {
-          propertyId: warehouse.id,
-          propertyCode: warehouse.code,
-          propertyName: warehouse.arabicName,
-          address: warehouse.address,
-          status: isReserved ? 'reserved' : 'available',
-          reservedBy,
-          reservationCount: reservations,
-          lastReservation: warehouse.invoices[0]?.date,
+          unitId: unit.id,
+          propertyId: unit.id,
+          propertyCode: unit.unitCode,
+          unitCode: unit.unitCode,
+          propertyName: `${unit.building.project.projectName} — ${unit.building.name} — ${unit.unitCode}`,
+          projectName: unit.building.project.projectName,
+          buildingName: unit.building.name,
+          floor: unit.floor,
+          unitType: unit.unitType,
+          status: unit.status,
+          grossArea,
+          netArea,
+          area: grossArea || netArea,
+          builtUpArea: grossArea,
+          meterPrice: Number(unit.meterPrice ?? 0),
+          totalPrice: Number(unit.totalPrice ?? 0),
         };
       });
 
-      const skip = (page - 1) * limit;
-      const paginatedData = unitData.slice(skip, skip + limit);
-
       return {
-        data: paginatedData,
+        data: unitData,
         summary: {
-          totalUnits: warehouses.length,
-          available: unitData.filter((u) => u.status === 'available').length,
-          reserved: unitData.filter((u) => u.status === 'reserved').length,
+          totalUnits: total,
+          available: unitData.filter((u) => u.status === 'AVAILABLE').length,
+          reserved: unitData.filter((u) => u.status === 'RESERVED').length,
+          sold: unitData.filter((u) => u.status === 'SOLD' || u.status === 'DELIVERED').length,
         },
         pagination: {
           page,
           limit,
-          total: unitData.length,
-          totalPages: Math.ceil(unitData.length / limit),
+          total,
+          totalPages: Math.ceil(total / limit),
         },
       };
     } catch (error) {
@@ -342,7 +359,7 @@ export class RealEstateReportsService {
 
   /**
    * Get Customer Area Matching Report
-   * Matches customers with properties based on area requirements
+   * Matches customers with contracted units using real unit area fields.
    */
   async getCustomerAreaMatchingReport(
     filters: RealEstateReportFilters,
@@ -352,53 +369,56 @@ export class RealEstateReportsService {
       const { companyId, customerId, minArea, maxArea } = filters;
       const { page = 1, limit = 100 } = options;
 
-      // Get customers
-      const customersWhere: any = { companyId, isActive: true };
-      if (customerId) {
-        customersWhere.id = customerId;
-      }
+      const where: Record<string, unknown> = { companyId };
+      if (customerId) where.customerId = customerId;
 
-      const customers = await prisma.customer.findMany({
-        where: customersWhere,
+      const contracts = await prisma.unitContract.findMany({
+        where,
         include: {
-          invoices: {
-            where: {
-              invoiceType: 'sales',
-              isPosted: true,
-            },
-            include: {
-              warehouse: {
+          customer: { select: { id: true, code: true, arabicName: true } },
+          unit: {
+            select: {
+              id: true,
+              unitCode: true,
+              grossArea: true,
+              netArea: true,
+              building: {
                 select: {
-                  id: true,
-                  arabicName: true,
-                  address: true,
+                  name: true,
+                  project: { select: { projectName: true } },
                 },
               },
             },
           },
         },
+        orderBy: { contractDate: 'desc' },
       });
 
-      // Match customers with properties based on area
-      const matchingData = customers.flatMap((customer) => {
-        return customer.invoices.map((invoice) => {
-          // Area would come from Property model, using placeholder
-          const propertyArea = 0; // Would be from Property.area if model existed
-
-          return {
-            customerId: customer.id,
-            customerName: customer.arabicName,
-            propertyId: invoice.warehouseId,
-            propertyName: invoice.warehouse?.arabicName,
-            propertyArea,
-            matchesArea: !minArea || !maxArea || (propertyArea >= minArea && propertyArea <= maxArea),
-            invoiceAmount: Number(invoice.netAmount || 0),
-            date: invoice.date,
-          };
-        });
+      const matchingData = contracts.map((contract) => {
+        const grossArea = Number(contract.unit?.grossArea ?? 0);
+        const netArea = Number(contract.unit?.netArea ?? 0);
+        const propertyArea = grossArea || netArea;
+        return {
+          customerId: contract.customerId,
+          customerName: contract.customer?.arabicName,
+          customerCode: contract.customer?.code,
+          unitId: contract.unitId,
+          unitCode: contract.unit?.unitCode,
+          propertyId: contract.unitId,
+          propertyName: contract.unit
+            ? `${contract.unit.building?.project?.projectName ?? ''} — ${contract.unit.building?.name ?? ''} — ${contract.unit.unitCode}`
+            : null,
+          propertyArea,
+          grossArea,
+          netArea,
+          area: propertyArea,
+          matchesArea:
+            (!minArea || propertyArea >= minArea) && (!maxArea || propertyArea <= maxArea),
+          contractAmount: Number(contract.totalContractAmount || 0),
+          date: contract.contractDate,
+        };
       });
 
-      // Filter by area if specified
       const filteredData = matchingData.filter((m) => {
         if (minArea && m.propertyArea < minArea) return false;
         if (maxArea && m.propertyArea > maxArea) return false;

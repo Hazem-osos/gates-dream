@@ -15,11 +15,17 @@ import { formatInvoiceMoney } from '@/lib/invoices/computeInvoiceFinancialSummar
 import { CalculationInspector } from '@/components/ai/CalculationInspector';
 import { currencyDisplayLabel } from '@/lib/accounting/fx-base';
 import { InvoiceSettlementsHistory } from '@/components/invoices/InvoiceSettlementsHistory';
+import {
+  InvoiceCashPaidControls,
+  InvoicePaymentStatusLine,
+  type InvoicePaymentMethod,
+} from '@/components/invoices/InvoiceCashPaidControls';
 import { useApiQuery } from '@/lib/hooks/useApi';
 import type {
   InvoiceCashSettlement,
   InvoiceChequeSettlement,
   InvoiceInstallmentSource,
+  InvoiceInstallmentView,
 } from '@/lib/invoices/invoice-settlements';
 
 
@@ -27,6 +33,8 @@ type Props = {
   summary: SummaryModel;
   applyTax: boolean;
   lines: (InvoiceSummaryLine & { itemId?: string })[];
+  /** Last successfully saved lines. The stock tab never reads the unsaved form. */
+  savedLines?: (InvoiceSummaryLine & { itemId?: string })[];
   warehouseId?: string;
   journalEntryId?: string | null;
   selectedInvoiceId: string | null;
@@ -42,12 +50,31 @@ type Props = {
   onActiveTabChange?: (tabId: string) => void;
   pricingCalculationBasis?: string;
   currencyCode?: string | null;
+  onCollectInstallment?: (row: InvoiceInstallmentView) => void;
+  /** Sales and purchase returns leave stock. Purchases and sales returns enter stock. */
+  stockSign?: 1 | -1;
+  settlementDirection?: 'RECEIPT' | 'PAYMENT';
+  showEta?: boolean;
+  cashPayment?: {
+    paidAmount: number;
+    method: InvoicePaymentMethod;
+    disabled?: boolean;
+    onPaidChange?: (amount: number | null) => void;
+    onOpenSplit?: () => void;
+    splitLocked?: boolean;
+    onOpenInstallments?: () => void;
+    installmentCount?: number;
+    onLinkAdvance?: () => void;
+    linkHint?: string;
+    splitSummary?: string;
+  };
 };
 
 export function SalesInvoiceBottomSplit({
   summary,
   applyTax,
   lines,
+  savedLines = [],
   warehouseId,
   journalEntryId,
   selectedInvoiceId,
@@ -63,6 +90,11 @@ export function SalesInvoiceBottomSplit({
   onActiveTabChange,
   pricingCalculationBasis,
   currencyCode,
+  onCollectInstallment,
+  stockSign = -1,
+  settlementDirection = 'RECEIPT',
+  showEta = true,
+  cashPayment,
 }: Props) {
   const { data: savedInstallmentsResponse } = useApiQuery<InvoiceInstallmentSource[]>(
     ['invoice-installments', selectedInvoiceId],
@@ -75,11 +107,13 @@ export function SalesInvoiceBottomSplit({
     : installments) ?? [];
   const currencyLabel = currencyDisplayLabel(currencyCode);
   const { gross, commercialDiscount } = computeInvoiceGrossDiscount(lines, pricingCalculationBasis);
-  const stockRows = lines.filter(
-    (l) => ((Number(l.baseQuantity) || Number(l.quantity) || 0) > 0) && l.itemId
-  );
+  const stockRows = selectedInvoiceId
+    ? savedLines.filter((l) => ((Number(l.baseQuantity) || Number(l.quantity) || 0) > 0) && l.itemId)
+    : [];
 
-  const stockContent = !warehouseId ? (
+  const stockContent = !selectedInvoiceId ? (
+    <p className="text-slate-500 p-2">الأثر المخزني يُسجَّل بعد حفظ المستند.</p>
+  ) : !warehouseId ? (
     <p className="text-slate-500 p-2">اختر المخزن لعرض الأثر المخزني.</p>
   ) : stockRows.length === 0 ? (
     <p className="text-slate-500 p-2">لا توجد أسطر مخزنية.</p>
@@ -100,7 +134,9 @@ export function SalesInvoiceBottomSplit({
             <tr key={`${line.itemId}-${i}`} className="border-b border-slate-100">
               <td className="py-2 font-mono text-xs text-slate-600">{line.itemId?.slice(0, 8)}…</td>
               <td className="py-2 text-center">{qty}</td>
-              <td className="py-2 text-center text-red-700 font-medium">-{qty}</td>
+              <td className={`py-2 text-center font-medium ${stockSign < 0 ? 'text-red-700' : 'text-emerald-700'}`}>
+                {stockSign < 0 ? `-${qty}` : `+${qty}`}
+              </td>
               <td className="py-2 text-center tabular-nums">
                 {formatInvoiceMoney(computeLineSubtotalAfterDiscount(line, pricingCalculationBasis))}
               </td>
@@ -111,7 +147,7 @@ export function SalesInvoiceBottomSplit({
     </table>
   );
 
-  const settlementsContent = (
+  const stanceContent = (
     <InvoiceSettlementsHistory
       settlements={settlements}
       cheques={cheques}
@@ -119,7 +155,20 @@ export function SalesInvoiceBottomSplit({
       paidAmount={paidAmount}
       remainingAmount={remainingAmount}
       netAmount={summary.netAmount}
-      direction="RECEIPT"
+      direction={settlementDirection}
+      variant="stance"
+      onCollectInstallment={onCollectInstallment}
+    />
+  );
+  const collectionsContent = (
+    <InvoiceSettlementsHistory
+      settlements={settlements}
+      cheques={cheques}
+      paidAmount={paidAmount}
+      remainingAmount={remainingAmount}
+      netAmount={summary.netAmount}
+      direction={settlementDirection}
+      variant="collections"
     />
   );
 
@@ -172,19 +221,30 @@ export function SalesInvoiceBottomSplit({
       netLabel="الصافي المستحق"
       currencyCode={currencyCode}
       showTafqeet
+      highlightHeader={
+        cashPayment ? (
+          <InvoicePaymentStatusLine
+            method={cashPayment.method}
+            paidAmount={cashPayment.paidAmount}
+            netAmount={summary.netAmount}
+          />
+        ) : null
+      }
+      besideNet={cashPayment ? <InvoiceCashPaidControls {...cashPayment} netAmount={summary.netAmount} /> : null}
       financialFooter={termsAction}
       journalEntryId={journalEntryId}
       activeTabId={activeTabId}
       onActiveTabChange={onActiveTabChange}
       tabs={[
         { id: 'stock', label: 'الأثر المخزني', content: stockContent },
-        { id: 'settlements', label: 'موقف الدفعات', content: settlementsContent },
+        { id: 'installments', label: 'موقف الدفعات', content: stanceContent },
+        { id: 'settlements', label: 'التحصيلات', content: collectionsContent },
         {
           id: 'audit',
           label: 'سجل النشاط',
           content: (
             <AuditActivityTab entityType="INVOICE" entityId={selectedInvoiceId}>
-              <EtaReadinessPanel invoiceId={selectedInvoiceId} isPosted={isPosted} />
+              {showEta ? <EtaReadinessPanel invoiceId={selectedInvoiceId} isPosted={isPosted} /> : null}
               {auditExtra}
             </AuditActivityTab>
           ),

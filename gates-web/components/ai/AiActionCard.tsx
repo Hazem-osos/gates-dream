@@ -242,7 +242,7 @@ export function AiActionCard({
     actionType === 'DRAFT_PURCHASE_INVOICE' ? 'اعتماد فاتورة مشتريات مسودة' : 'اعتماد كمسودة';
 
   return (
-    <div className="mt-2 overflow-hidden rounded-xl border-2 border-amber-400/80 bg-white text-right shadow-sm ring-1 ring-[#0E79AA]/25">
+    <div className="mt-2 overflow-hidden rounded-xl border-2 border-amber-400/80 bg-white text-right shadow-sm ring-1 ring-[#0E78AA]/25">
       <div className="flex items-center justify-between gap-2 bg-gradient-to-l from-amber-50 to-[#F6FBFD] px-3 py-2">
         <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-900">
           {title}
@@ -367,7 +367,7 @@ export function AiActionCard({
             {savedUrl || local?.openUrl ? (
               <a
                 href={savedUrl || local?.openUrl || '#'}
-                className="inline-flex items-center gap-1 text-[#0E79AA] hover:underline"
+                className="inline-flex items-center gap-1 text-[#0E78AA] hover:underline"
               >
                 فتح المستند
                 <ExternalLink className="h-3 w-3" />
@@ -389,7 +389,7 @@ export function AiActionCard({
               variant="secondary"
               disabled={busy != null}
               onClick={openForEdit}
-              className="border-[#0E79AA]/30 text-[#0E79AA]"
+              className="border-[#0E78AA]/30 text-[#0E78AA]"
             >
               {busy === 'edit' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <PencilLine className="h-3.5 w-3.5" />}
               فتح للتعديل في الشاشة
@@ -399,7 +399,7 @@ export function AiActionCard({
               size="sm"
               disabled={busy != null || !canApprove}
               onClick={() => void approveDraft()}
-              className="bg-[#0E79AA] hover:bg-[#0A5F86]"
+              className="bg-[#0E78AA] hover:bg-[#0A5F86]"
               title={
                 !canApprove && isOcrPurchase
                   ? unmatchedCount

@@ -1,4 +1,8 @@
-import type { AutomationActionRunRecord } from './automation-action-run.types';
+import {
+  sanitizeErrorMessage,
+  sanitizeResultMetadata,
+  type AutomationActionRunRecord,
+} from './automation-action-run.types';
 
 export type AutomationActionRunView = {
   id: string;
@@ -41,9 +45,13 @@ export function toAutomationActionRunView(
     completedAt: run.completedAt,
     resultEntityType: run.resultEntityType,
     resultEntityId: run.resultEntityId,
-    resultMetadata: run.resultMetadata,
+    resultMetadata: sanitizeResultMetadata(
+      run.resultMetadata && typeof run.resultMetadata === 'object' && !Array.isArray(run.resultMetadata)
+        ? (run.resultMetadata as Record<string, unknown>)
+        : null
+    ),
     lastErrorCode: run.lastErrorCode,
-    errorMessage: run.errorMessage ?? null,
+    errorMessage: sanitizeErrorMessage(run.errorMessage ?? null),
     createdAt: run.createdAt,
     updatedAt: run.updatedAt,
   };

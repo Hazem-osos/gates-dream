@@ -5,9 +5,12 @@ import { useBackendReachability } from '@/lib/hooks/useBackendReachability';
 import { ClipboardList, Printer } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ExtractsPageChrome } from '@/components/extracts/ExtractsPageChrome';
-import { AppTable, CompactFormField, FormSectionCard } from '@/components/ui';
-import { useApiQuery } from '@/lib/hooks/useApi';
+import { AppTable, CompactFormField, FormSectionCard, compactControlClass } from '@/components/ui';
+import { useApiQuery, useApiMutation, useInvalidateQuery } from '@/lib/hooks/useApi';
 import { printPageContent } from '@/lib/print/printHtml';
+import ErrorToast from '@/components/ErrorToast';
+import SuccessToast from '@/components/SuccessToast';
+import type { ApiError } from '@/lib/api/types';
 
 type MeasurementRow = {
   id: string;
@@ -18,11 +21,29 @@ type MeasurementRow = {
   project?: { arabicName?: string; code?: string };
 };
 
+type ProjectOption = { id: string; arabicName?: string; serial?: string };
+
 export default function ProjectMeasurementDefinitionPage() {
   useBackendReachability();
-
+  const invalidateQuery = useInvalidateQuery();
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
   const [page, setPage] = useState(1);
   const [pageSize] = useState(10);
+  const [form, setForm] = useState({
+    projectId: '',
+    arabicName: '',
+    englishName: '',
+    unit: '',
+    notes: '',
+  });
+
+  const { data: projectsRes } = useApiQuery<ProjectOption[]>(
+    ['extracts-projects', 'measurement-create'],
+    '/extracts/projects',
+    { limit: 500, isActive: true }
+  );
+  const projects = projectsRes?.data ?? [];
 
   const { data: defsResponse, isLoading } = useApiQuery<MeasurementRow[]>(
     ['measurement-definitions', page],
@@ -32,6 +53,39 @@ export default function ProjectMeasurementDefinitionPage() {
   const tableData = defsResponse?.data ?? [];
   const tableDataTotal = defsResponse?.pagination?.total ?? defsResponse?.meta?.total ?? tableData.length;
 
+  const createMutation = useApiMutation<unknown, Record<string, unknown>>(
+    '/extracts/measurement-definitions',
+    'POST',
+    {
+      onSuccess: () => {
+        setSuccess('تم إنشاء تعريف المقايسة');
+        invalidateQuery(['measurement-definitions']);
+        setForm((prev) => ({ ...prev, arabicName: '', englishName: '', unit: '', notes: '' }));
+      },
+      onError: (err: ApiError) => setError(err.message || 'تعذر إنشاء التعريف'),
+    }
+  );
+
+  const handleSave = () => {
+    setError('');
+    setSuccess('');
+    if (!form.projectId) {
+      setError('يرجى اختيار المشروع');
+      return;
+    }
+    if (!form.arabicName.trim()) {
+      setError('الاسم العربي مطلوب');
+      return;
+    }
+    createMutation.mutate({
+      projectId: form.projectId,
+      arabicName: form.arabicName.trim(),
+      englishName: form.englishName.trim() || undefined,
+      unit: form.unit.trim() || undefined,
+      notes: form.notes.trim() || undefined,
+    });
+  };
+
   return (
     <ExtractsPageChrome
       title="تعريف مقايسة المشروع"
@@ -40,9 +94,9 @@ export default function ProjectMeasurementDefinitionPage() {
         { label: 'العمليات' },
         { label: 'تعريف مقايسة المشروع' },
       ]}
-      onSave={() => undefined}
-      canSave={false}
-      statusLabel="عرض"
+      onSave={handleSave}
+      savePending={createMutation.isPending}
+      statusLabel="جديد"
       favoriteHref="/extracts/operations/project-measurement-definition"
       browseList={{
         title: 'تعريفات المقايسة',
@@ -67,10 +121,46 @@ export default function ProjectMeasurementDefinitionPage() {
         </Button>
       }
     >
-      <FormSectionCard title="البيانات الأساسية" subtitle="كود البند والكمية والقيمة" icon={ClipboardList}>
-        <CompactFormField label="الكود" defaultValue="000000000001" readOnly />
-        <CompactFormField label="الكمية" defaultValue="1" />
-        <CompactFormField label="القيمة" placeholder="إدخل القيمة" />
+      {error ? <ErrorToast message={error} onClose={() => setError('')} /> : null}
+      {success ? <SuccessToast message={success} onClose={() => setSuccess('')} /> : null}
+
+      <FormSectionCard title="تعريف جديد" subtitle="POST /extracts/measurement-definitions" icon={ClipboardList}>
+        <CompactFormField label="المشروع" required>
+          <select
+            value={form.projectId}
+            onChange={(e) => setForm((p) => ({ ...p, projectId: e.target.value }))}
+            className={compactControlClass}
+          >
+            <option value="">— اختر مشروعاً —</option>
+            {projects.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.arabicName || p.serial || p.id}
+              </option>
+            ))}
+          </select>
+        </CompactFormField>
+        <CompactFormField
+          label="الإسم العربي"
+          required
+          value={form.arabicName}
+          onChange={(e) => setForm((p) => ({ ...p, arabicName: e.target.value }))}
+        />
+        <CompactFormField
+          label="الإسم الإنجليزي"
+          value={form.englishName}
+          onChange={(e) => setForm((p) => ({ ...p, englishName: e.target.value }))}
+        />
+        <CompactFormField
+          label="الوحدة"
+          value={form.unit}
+          onChange={(e) => setForm((p) => ({ ...p, unit: e.target.value }))}
+        />
+        <CompactFormField
+          label="البيان"
+          className="sm:col-span-2"
+          value={form.notes}
+          onChange={(e) => setForm((p) => ({ ...p, notes: e.target.value }))}
+        />
       </FormSectionCard>
 
       <AppTable

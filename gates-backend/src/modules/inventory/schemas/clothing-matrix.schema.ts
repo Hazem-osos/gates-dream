@@ -17,12 +17,14 @@ export const clothingSizeSchema = z.object({
 });
 
 export const clothingComboRowSchema = z.object({
+  itemId: z.string().uuid().optional().nullable(),
   colorId: z.string().uuid(),
   sizeId: z.string().uuid(),
   barcode: z.string().optional().nullable(),
 });
 
 export const replaceClothingCombosSchema = z.object({
+  itemId: z.string().uuid().optional().nullable(),
   combos: z.array(clothingComboRowSchema),
 });
 

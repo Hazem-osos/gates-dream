@@ -65,7 +65,7 @@ function ThinkingBadge() {
         <span className="absolute inset-0 animate-pulse bg-gradient-to-l from-transparent via-white/70 to-transparent" />
         <span className="relative">جاري مراجعة البيانات وتجهيز الرد…</span>
       </div>
-      <span className="mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#0E79AA]/10 text-[#0E79AA]">
+      <span className="mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#0E78AA]/10 text-[#0E78AA]">
         <Sparkles className="h-3.5 w-3.5" />
       </span>
     </div>
@@ -149,7 +149,7 @@ export function AiMessageList({
                 <AiSupportHandoff currentPath={currentPath} />
               ) : null}
             </div>
-            <span className="mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#0E79AA]/10 text-[#0E79AA]">
+            <span className="mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#0E78AA]/10 text-[#0E78AA]">
               <Sparkles className="h-3.5 w-3.5" />
             </span>
           </div>
@@ -166,7 +166,7 @@ export function AiMessageList({
             <span
               key={`${tool.name}-${index}`}
               className={`rounded-full px-2 py-0.5 text-[10px] ${
-                tool.ok ? 'bg-[#0E79AA]/10 text-[#0E79AA]' : 'bg-rose-50 text-rose-700'
+                tool.ok ? 'bg-[#0E78AA]/10 text-[#0E78AA]' : 'bg-rose-50 text-rose-700'
               }`}
             >
               {tool.ok ? `أداة: ${tool.name}` : `تعذّر ${tool.name}`}

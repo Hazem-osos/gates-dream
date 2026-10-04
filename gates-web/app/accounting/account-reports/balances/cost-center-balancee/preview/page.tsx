@@ -1,3 +1,5 @@
-'use client';
+import { redirect } from 'next/navigation';
 
-export { default } from '@/components/report/CatalogReportPreviewPage';
+export default function CostCenterBalanceePreviewRedirect() {
+  redirect('/accounting/account-reports/balances/cost-center-balance/preview');
+}

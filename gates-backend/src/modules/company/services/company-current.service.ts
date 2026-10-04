@@ -11,6 +11,7 @@ import { companyOnboardingService } from './company-onboarding.service';
 import { ensureDefaultPieceUnit } from '../../inventory/services/ensure-default-unit';
 import { ensureDefaultUngroupedCategory } from '../../inventory/services/ensure-default-item-category';
 import { ensureDefaultWarehouseTree } from '../../inventory/services/ensure-default-warehouse';
+import { composeEtaAddress } from '../../electronic-invoices/utils/eta-profile';
 
 function maskSecret(secret: string | null | undefined): string | null {
   if (!secret) return null;
@@ -60,6 +61,8 @@ export class CompanyCurrentService {
             tokenPin: eInv.tokenPin ? maskSecret(eInv.tokenPin) : null,
             environment: eInv.environment,
             issuerTaxId: eInv.issuerTaxId,
+            issuerName: eInv.issuerName,
+            issuerAddress: eInv.issuerAddress ?? null,
           }
         : null,
     };
@@ -131,6 +134,8 @@ export class CompanyCurrentService {
             tokenPin: input.eInvoiceSettings.tokenPin ?? undefined,
             environment: input.eInvoiceSettings.environment ?? 'PRE_PRODUCTION',
             issuerTaxId: input.eInvoiceSettings.issuerTaxId ?? undefined,
+            issuerName: input.eInvoiceSettings.issuerName ?? undefined,
+            issuerAddress: input.eInvoiceSettings.issuerAddress ?? undefined,
           },
           update: {
             clientId: input.eInvoiceSettings.clientId ?? undefined,
@@ -140,6 +145,8 @@ export class CompanyCurrentService {
             tokenPin: input.eInvoiceSettings.tokenPin ?? undefined,
             environment: input.eInvoiceSettings.environment ?? undefined,
             issuerTaxId: input.eInvoiceSettings.issuerTaxId ?? undefined,
+            issuerName: input.eInvoiceSettings.issuerName ?? undefined,
+            issuerAddress: input.eInvoiceSettings.issuerAddress ?? undefined,
           },
         });
       }
@@ -165,6 +172,15 @@ export class CompanyCurrentService {
       branchNumber: b.branchNumber,
       serial: b.serial,
       address: b.address,
+      activityCode: b.activityCode,
+      registrationNumber: b.registrationNumber,
+      country: b.country,
+      governorate: b.governorate,
+      city: b.city,
+      district: b.district,
+      streetName: b.streetName,
+      buildingNumber: b.buildingNumber,
+      postalCode: b.postalCode,
       defaultWarehouseId: b.defaultWarehouseId,
       defaultSafeId: b.defaultSafeId,
       defaultWarehouse: b.defaultWarehouse,
@@ -253,18 +269,43 @@ export class CompanyCurrentService {
             orderBy: { createdAt: 'asc' },
           });
 
+      const composedAddress =
+        input.branch.address?.trim() ||
+        composeEtaAddress({
+          buildingNumber: input.branch.buildingNumber,
+          street: input.branch.streetName,
+          district: input.branch.district,
+          city: input.branch.city,
+          governorate: input.branch.governorate,
+          country: input.branch.country,
+          postalCode: input.branch.postalCode,
+        });
+      const branchEta = {
+        arabicName: input.branch.arabicName.trim(),
+        branchNumber: input.branch.branchNumber?.trim() || '01',
+        activityCode: input.branch.activityCode?.trim() || null,
+        registrationNumber: input.branch.registrationNumber?.trim() || null,
+        country: input.branch.country?.trim() || 'EG',
+        governorate: input.branch.governorate?.trim() || null,
+        city: input.branch.city?.trim() || null,
+        district: input.branch.district?.trim() || null,
+        streetName: input.branch.streetName?.trim() || null,
+        buildingNumber: input.branch.buildingNumber?.trim() || null,
+        postalCode: input.branch.postalCode?.trim() || null,
+        address: composedAddress || null,
+      };
+
       if (!branch) {
         branch = await tx.branch.create({
           data: {
             companyId,
-            arabicName: input.branch.arabicName.trim(),
-            branchNumber: '01',
+            ...branchEta,
           },
         });
       } else {
         branch = await tx.branch.update({
           where: { id: branch.id },
-          data: { arabicName: input.branch.arabicName.trim() },
+          data: branchEta,
         });
       }
 
@@ -347,6 +388,44 @@ export class CompanyCurrentService {
       const fiscalYear = await upsertCompanyFiscalYear(companyId, input.fiscalYear, tx);
       const unit = await ensureDefaultPieceUnit(companyId, tx);
       await ensureDefaultUngroupedCategory(companyId, tx);
+
+      const existingEta = await tx.eInvoiceSetting.findUnique({
+        where: { companyId },
+        select: { issuerAddress: true, issuerTaxId: true, issuerName: true, activityCode: true },
+      });
+      const previousAddress =
+        existingEta?.issuerAddress && typeof existingEta.issuerAddress === 'object'
+          ? (existingEta.issuerAddress as Record<string, unknown>)
+          : {};
+      const issuerAddress = {
+        ...previousAddress,
+        taxId: branchEta.registrationNumber || existingEta?.issuerTaxId || '',
+        name: existingEta?.issuerName || input.nameAr,
+        activityCode: branchEta.activityCode || existingEta?.activityCode || '',
+        branchID: branchEta.branchNumber,
+        country: branchEta.country || 'EG',
+        governate: branchEta.governorate || '',
+        regionCity: branchEta.city || '',
+        street: branchEta.streetName || '',
+        buildingNumber: branchEta.buildingNumber || '',
+        postalCode: branchEta.postalCode || '',
+        additionalInformation: branchEta.district || '',
+      };
+      await tx.eInvoiceSetting.upsert({
+        where: { companyId },
+        create: {
+          companyId,
+          activityCode: branchEta.activityCode,
+          issuerTaxId: branchEta.registrationNumber,
+          issuerName: input.nameAr,
+          issuerAddress,
+        },
+        update: {
+          activityCode: branchEta.activityCode ?? undefined,
+          issuerTaxId: branchEta.registrationNumber ?? undefined,
+          issuerAddress,
+        },
+      });
 
       return {
         branchId: branch.id,

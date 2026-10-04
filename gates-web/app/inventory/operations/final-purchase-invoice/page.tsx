@@ -9,22 +9,39 @@ import { Button } from '@/components/ui';
 import { DynamicModalSkeleton, LineGridSkeleton } from '@/components/ui/DynamicChunkSkeleton';
 import { useApiQuery, useApiMutation, useInvalidateQuery } from '@/lib/hooks/useApi';
 import { shouldLockLoadedSource, type TransactionSettings } from '@/lib/transaction-settings/types';
-import { pickDefaultSafeId } from '@/lib/hooks/useMasterDataQueries';
+import { pickDefaultSafeId, useSuppliersQuery } from '@/lib/hooks/useMasterDataQueries';
+import {
+  combinedPriceListDiscountPercent,
+  resolvePriceListPurchasePrice,
+  resolvePriceListRow,
+} from '@/lib/inventory/pricing-engine';
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
 import { toast, toastInvoiceSaveError, toastVersionConflict } from '@/lib/feedback/toast';
+import { finishDocumentSave } from '@/lib/documents/finish-save';
+import { unpostedDocumentStatusLabel } from '@/lib/documents/document-status-labels';
+import { invalidateStockViews } from '@/lib/invoices/invalidate-stock-views';
 import { isOptimisticLockApiError } from '@/lib/concurrency/version-conflict';
 import {
   postInvoiceAfterSave,
   useRepostAfterUnpost,
 } from '@/lib/accounting/ensure-posted-after-save';
+import { resolvePostedFlag } from '@/lib/documents/posting-trust';
 import type { ApiError } from '@/lib/api/types';
+import { apiClient } from '@/lib/api/client';
+import { LandedCostPanel } from '@/components/inventory/purchase/LandedCostPanel';
 import { confirmAction } from '@/lib/feedback/confirm';
 import { inventorySupplierInvoiceFormSchema } from '@/lib/validation/inventory.schema';
 import { mapSalesFormToM5CreateBody, mapSalesFormToM5UpdateBody } from '@/lib/invoices/mapFormToM5Invoice';
-import { computeInvoiceFinancialSummary } from '@/lib/invoices/computeInvoiceFinancialSummary';
+import {
+  computeInvoiceFinancialSummary,
+  computeLineSubtotalAfterDiscount,
+} from '@/lib/invoices/computeInvoiceFinancialSummary';
+import { whtSettingsToLinePercent } from '@/lib/invoices/itemTracking';
+import { useAccountingSettingsQuery } from '@/lib/hooks/useAccountingSettings';
 import type { PurchaseInvoiceLine } from '@/components/inventory/ProgressivePurchaseInvoiceLineGrid';
 import {
+  ensureWithholdingColumns,
   mergeVisibleColumnIds,
 } from '@/lib/invoices/invoiceLineColumns';
 import { useVisibleColumnIds } from '@/lib/invoices/useVisibleColumnIds';
@@ -46,8 +63,11 @@ import type { InternalNoteEntry, PaymentSplitLine } from '@/lib/invoices/payment
 import {
   resolveInvoicePaymentUi,
   splitsMatchTotal,
+  summarizePaymentSplits,
+  sumPaymentSplits,
   withOnAccountRemainder,
 } from '@/lib/invoices/payment-split.types';
+import type { AdvanceLinkAllocation } from '@/components/invoices/LinkAdvancePaymentModal';
 import { postInvoiceSettlementSplits } from '@/lib/invoices/post-invoice-settlement-splits';
 import {
   bankDraftFromSplits,
@@ -68,6 +88,7 @@ import {
 } from '@/lib/invoices/payment-installments';
 import { toHijriMedium } from '@/lib/dates/hijri';
 import {
+  invoiceCashPaidDisplayAmount,
   unwrapInvoiceCheques,
   type InvoiceCashSettlement,
   type InvoiceChequesPayload,
@@ -158,6 +179,17 @@ interface Item {
   }[];
 }
 
+function normalizeLoadedLineWarehouseId(
+  lineWarehouseId: string | null | undefined,
+  headerWarehouseId: string | null | undefined
+): string {
+  const line = String(lineWarehouseId ?? '').trim();
+  const header = String(headerWarehouseId ?? '').trim();
+  if (!line) return '';
+  if (header && line === header) return '';
+  return line;
+}
+
 type PurchaseInvoiceDraft = {
   invoiceNumber: string;
   supplierRef: string;
@@ -182,6 +214,7 @@ type PurchaseInvoiceDraft = {
   paymentInstallments: PaymentInstallmentRow[];
   internalNotes: InternalNoteEntry[];
   isSalesTaxInvoice: boolean;
+  applyWithholding?: boolean;
   cashTenderKind?: CashTenderKind;
   cashBankAccountId?: string;
   cashBankReference?: string;
@@ -223,12 +256,19 @@ function FinalPurchaseInvoicePageInner() {
     ['transaction-settings', 'PURCHASE_INVOICE'],
     '/transaction-settings/PURCHASE_INVOICE'
   );
+  const { data: accountingSettingsRes, isLoading: accountingSettingsLoading } =
+    useAccountingSettingsQuery();
+  const configuredWhtRate = whtSettingsToLinePercent(accountingSettingsRes?.data?.tax?.whtRate ?? 0.01);
+  const [applyWithholding, setApplyWithholding] = useState(false);
+  const defaultWhtRate = applyWithholding ? (configuredWhtRate > 0 ? configuredWhtRate : 1) : 0;
   
   const [isPosted, setIsPosted] = useState(false);
   const [isSalesTaxInvoice, setIsSalesTaxInvoice] = useState(true);
   const [showInvoiceList, setShowInvoiceList] = useState(false);
   const [bottomSplitTab, setBottomSplitTab] = useState('gl');
   const [linkAdvanceOpen, setLinkAdvanceOpen] = useState(false);
+  const pendingAdvancesRef = useRef<AdvanceLinkAllocation[]>([]);
+  const [pendingAdvanceTotal, setPendingAdvanceTotal] = useState(0);
   const [submitAttempt, setSubmitAttempt] = useState(0);
   
   const [invoiceNumber, setInvoiceNumber] = useState('');
@@ -237,11 +277,21 @@ function FinalPurchaseInvoicePageInner() {
   const [date, setDate] = useState('');
   const [hijriDate, setHijriDate] = useState('');
   const [supplierId, setSupplierId] = useState('');
+  const { data: suppliersResponse } = useSuppliersQuery(500);
+  const suppliers = useMemo(() => suppliersResponse?.data ?? [], [suppliersResponse?.data]);
+  const selectedSupplier = useMemo(
+    () => suppliers.find((row) => row.id === supplierId),
+    [suppliers, supplierId]
+  );
+  const selectedSupplierPriceListId = selectedSupplier?.priceListId ?? null;
+  const selectedSupplierPartyDiscount =
+    (selectedSupplier as { discountType?: string | null })?.discountType ?? null;
   const [warehouseId, setWarehouseId] = useState('');
   const [costCenterId, setCostCenterId] = useState('');
   const [delegateId, setDelegateId] = useState('');
   const [currencyId, setCurrencyId] = useState('');
-  const [paymentType, setPaymentType] = useState<'cash' | 'credit' | 'split'>('cash');
+  const [exchangeRate, setExchangeRate] = useState(1);
+  const [paymentType, setPaymentType] = useState<'cash' | 'credit' | 'split'>('credit');
   const [treasuryId, setTreasuryId] = useState('');
   const [advancePaidAmount, setAdvancePaidAmount] = useState(0);
   const [advanceSafeId, setAdvanceSafeId] = useState('');
@@ -257,6 +307,9 @@ function FinalPurchaseInvoicePageInner() {
   const persistIntentRef = useRef<'save' | 'post'>('save');
   const [splitModalOpen, setSplitModalOpen] = useState(false);
   const [collectModalOpen, setCollectModalOpen] = useState(false);
+  const [collectInstallment, setCollectInstallment] = useState<{ id: string; remaining: number } | null>(
+    null
+  );
   const [paymentInstallments, setPaymentInstallments] = useState<PaymentInstallmentRow[]>([]);
   const [installmentsModalOpen, setInstallmentsModalOpen] = useState(false);
   const [internalNotes, setInternalNotes] = useState<InternalNoteEntry[]>([]);
@@ -265,11 +318,12 @@ function FinalPurchaseInvoicePageInner() {
   const [sourceId, setSourceId] = useState('');
   const [sourceNumber, setSourceNumber] = useState('');
   const lockLoadedSource = shouldLockLoadedSource(txSettingsRes?.data, sourceId);
-  const prevPurchaseWarehouseRef = useRef(warehouseId);
-  const [visibleColumnIds, setVisibleColumnIds] = useVisibleColumnIds(
+  const [storedColumnIds, setStoredColumnIds] = useVisibleColumnIds(
     'gates:columns:purchase-invoice',
     companyId
   );
+  const visibleColumnIds =
+    defaultWhtRate > 0 ? ensureWithholdingColumns(storedColumnIds) : storedColumnIds;
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<string | null>(
@@ -314,21 +368,6 @@ function FinalPurchaseInvoicePageInner() {
     router.replace(qs ? `${ownPathname}?${qs}` : ownPathname, { scroll: false });
   }, [ownPathname, router, searchParams]);
 
-  useEffect(() => {
-    const prev = prevPurchaseWarehouseRef.current;
-    prevPurchaseWarehouseRef.current = warehouseId;
-    if (!warehouseId || prev === warehouseId) return;
-    setInvoiceLines((lines) =>
-      lines.map((line) => {
-        const current = line.warehouseId?.trim() ?? '';
-        if (!current || current === prev) {
-          return { ...line, warehouseId };
-        }
-        return line;
-      })
-    );
-  }, [warehouseId]);
-
   const draftSnapshot = useMemo(
     (): PurchaseInvoiceDraft => ({
       invoiceNumber,
@@ -354,6 +393,7 @@ function FinalPurchaseInvoicePageInner() {
       paymentInstallments,
       internalNotes,
       isSalesTaxInvoice,
+      applyWithholding,
       cashTenderKind,
       cashBankAccountId,
       cashBankReference,
@@ -384,6 +424,7 @@ function FinalPurchaseInvoicePageInner() {
       paymentInstallments,
       internalNotes,
       isSalesTaxInvoice,
+      applyWithholding,
       cashTenderKind,
       cashBankAccountId,
       cashBankReference,
@@ -424,9 +465,17 @@ function FinalPurchaseInvoicePageInner() {
     setPaymentInstallments(Array.isArray(payload.paymentInstallments) ? payload.paymentInstallments : []);
     setInternalNotes(Array.isArray(payload.internalNotes) ? payload.internalNotes : []);
     setIsSalesTaxInvoice(payload.isSalesTaxInvoice !== false);
+    setApplyWithholding(
+      typeof payload.applyWithholding === 'boolean'
+        ? payload.applyWithholding
+        : (payload.invoiceLines ?? []).some(
+            (line) => Number(line.withholdingTaxRate) > 0 || Number(line.withholdingTaxAmount) > 0
+          )
+    );
   }, []);
 
   const skipServerHydrateRef = useRef(false);
+  const hydratedPurchaseKeyRef = useRef('');
   const draftEnabled = !isPosted;
   const {
     lastSavedAt,
@@ -476,6 +525,9 @@ function FinalPurchaseInvoicePageInner() {
           discountValue: line.discountValue ?? line.discount,
           discountType: line.discountType,
           taxRate: line.tax,
+          withholdingTaxRate: line.withholdingTaxRate,
+          withholdingTaxAmount: line.withholdingTaxAmount,
+          withholdingAmountManual: line.withholdingAmountManual,
         })),
         {
           applyTax: isSalesTaxInvoice,
@@ -509,7 +561,14 @@ function FinalPurchaseInvoicePageInner() {
       skipServerHydrateRef.current = false;
       return;
     }
-    if (!selectedInvoice) return;
+    if (!selectedInvoice) {
+      hydratedPurchaseKeyRef.current = '';
+      return;
+    }
+    const savedPaidForHydrate = Number((selectedInvoice as { paidAmount?: number }).paidAmount ?? 0);
+    const hydrateKey = `${String(selectedInvoice.id ?? '')}:${String(selectedInvoice.version ?? 0)}:${savedPaidForHydrate}`;
+    if (hydratedPurchaseKeyRef.current === hydrateKey) return;
+    hydratedPurchaseKeyRef.current = hydrateKey;
     setInvoiceNumber(String(selectedInvoice.invoiceNumber ?? ''));
     setDescription(String(selectedInvoice.description ?? ''));
     setDate(
@@ -526,6 +585,8 @@ function FinalPurchaseInvoicePageInner() {
     setCostCenterId(String(selectedInvoice.costCenterId ?? ''));
     setDelegateId(String(selectedInvoice.delegateId ?? ''));
     setCurrencyId(String(selectedInvoice.currencyId ?? ''));
+    const loadedRate = Number((selectedInvoice as { exchangeRate?: number }).exchangeRate);
+    if (loadedRate > 0) setExchangeRate(loadedRate);
     const rawSplits = (selectedInvoice as { paymentSplits?: PaymentSplitLine[] }).paymentSplits;
     const invoiceNet = Number(
       (selectedInvoice as { netAmount?: number }).netAmount ??
@@ -538,9 +599,11 @@ function FinalPurchaseInvoicePageInner() {
       Array.isArray(rawSplits) ? rawSplits : [],
       invoiceNet
     );
-    setPaymentType(!selectedInvoice.isPosted && loaded.method === 'split' ? 'credit' : loaded.method);
+    setPaymentType(loaded.method);
     setPaymentSplits(loaded.splits);
-    const cashSplit = loaded.splits.find((row) => row.type === 'CASH' && row.safeId);
+    const cashSplit = loaded.splits.find(
+      (row): row is Extract<PaymentSplitLine, { type: 'CASH' }> => row.type === 'CASH'
+    );
     const bankDraft = bankDraftFromSplits(loaded.splits);
     if (loaded.method === 'cash') {
       setCashTenderKind(inferCashTenderKind(loaded.splits));
@@ -557,7 +620,9 @@ function FinalPurchaseInvoicePageInner() {
       setAdvanceSafeId('');
     } else if (loaded.method === 'credit') {
       setCashTenderKind(inferCashTenderKind(loaded.splits));
-      setAdvancePaidAmount(tenderPaidFromSplits(loaded.splits));
+      setAdvancePaidAmount(
+        resolvePostedFlag(selectedInvoice) ? savedPaidForHydrate : tenderPaidFromSplits(loaded.splits)
+      );
       setAdvanceSafeId(cashSplit?.safeId ?? '');
       setTreasuryId(cashSplit?.safeId ?? '');
       setCashBankAccountId(bankDraft.bankAccountId);
@@ -578,17 +643,38 @@ function FinalPurchaseInvoicePageInner() {
       apiInstallments.length ? apiInstallments : extractPaymentInstallments(notesList)
     );
     setInternalNotes(stripPaymentInstallmentsNote(notesList));
-    setIsPosted(Boolean(selectedInvoice.isPosted));
+    setIsPosted(resolvePostedFlag(selectedInvoice));
     setIsSalesTaxInvoice(selectedInvoice.isSalesTaxInvoice !== false);
-    setPricingCalculationBasis(
-      parsePricingCalculationBasis(
-        (selectedInvoice as { pricingCalculationBasis?: string }).pricingCalculationBasis
-      )
+    const loadedLines = selectedInvoice.lines as Record<string, unknown>[] | undefined;
+    setApplyWithholding(
+      Number(selectedInvoice.withholdingTaxAmount ?? 0) > 0 ||
+        (loadedLines ?? []).some(
+          (line) => Number(line.withholdingTaxRate ?? 0) > 0 || Number(line.withholdingTaxAmount ?? 0) > 0
+        )
     );
+    const loadedBasis = parsePricingCalculationBasis(
+      (selectedInvoice as { pricingCalculationBasis?: string }).pricingCalculationBasis
+    );
+    setPricingCalculationBasis(loadedBasis);
     const lines = selectedInvoice.lines as Record<string, unknown>[] | undefined;
     if (lines) {
       setInvoiceLines(
-        lines.map((line) => ({
+        lines.map((line) => {
+          const withholdingTaxRate = Number(line.withholdingTaxRate ?? 0) || 0;
+          const withholdingTaxAmount = Number(line.withholdingTaxAmount ?? 0) || 0;
+          const lineAfterDiscount = computeLineSubtotalAfterDiscount(
+            {
+              quantity: Number(line.quantity),
+              baseQuantity: Number(line.baseQuantity ?? line.quantity),
+              unitPrice: Number(line.price ?? line.unitPrice),
+              discount: inferDiscountValueFromApi(line),
+              discountValue: inferDiscountValueFromApi(line),
+              discountType: inferDiscountTypeFromApi(line),
+            },
+            loadedBasis
+          );
+          const fromRate = withholdingTaxRate > 0 ? (lineAfterDiscount * withholdingTaxRate) / 100 : 0;
+          return {
           itemId: String(line.itemId ?? ''),
           unitId: line.unitId ? String(line.unitId) : '',
           quantity: Number(line.quantity),
@@ -601,8 +687,9 @@ function FinalPurchaseInvoicePageInner() {
           discountType: inferDiscountTypeFromApi(line),
           tax: Number(line.taxPercent ?? line.tax ?? 0),
           costCenterId: line.costCenterId ? String(line.costCenterId) : undefined,
-          withholdingTaxRate: Number(line.withholdingTaxRate ?? 0) || 0,
-          withholdingTaxAmount: Number(line.withholdingTaxAmount ?? 0) || 0,
+          withholdingTaxRate,
+          withholdingTaxAmount,
+          withholdingAmountManual: withholdingTaxAmount > 0 && Math.abs(fromRate - withholdingTaxAmount) > 0.05,
           batchNumber: line.batchNumber ? String(line.batchNumber) : undefined,
           expiryDate: line.expiryDate ? String(line.expiryDate).slice(0, 10) : undefined,
           productionDate: line.productionDate ? String(line.productionDate).slice(0, 10) : undefined,
@@ -621,11 +708,28 @@ function FinalPurchaseInvoicePageInner() {
               }))
             : undefined,
           lineNotes: line.notes ? String(line.notes) : line.lineNotes ? String(line.lineNotes) : undefined,
-          warehouseId: String(line.warehouseId ?? selectedInvoice.warehouseId ?? ''),
-        }))
+          warehouseId: normalizeLoadedLineWarehouseId(
+            line.warehouseId != null ? String(line.warehouseId) : undefined,
+            selectedInvoice.warehouseId != null ? String(selectedInvoice.warehouseId) : undefined
+          ),
+          };
+        })
       );
     }
   }, [selectedInvoice]);
+
+  const whtSeededRef = useRef(false);
+  useEffect(() => {
+    if (whtSeededRef.current || !(defaultWhtRate > 0) || selectedInvoiceId) return;
+    whtSeededRef.current = true;
+    setInvoiceLines((lines) =>
+      lines.map((line) => {
+        if (!line.itemId || line.withholdingAmountManual) return line;
+        if (Number(line.withholdingTaxRate) > 0 || Number(line.withholdingTaxAmount) > 0) return line;
+        return { ...line, withholdingTaxRate: defaultWhtRate };
+      })
+    );
+  }, [defaultWhtRate, selectedInvoiceId]);
 
   const { data: currenciesResponse, isLoading: currenciesLoading } = useApiQuery<Currency[]>(
     ['currencies'],
@@ -664,6 +768,85 @@ function FinalPurchaseInvoicePageInner() {
     [items]
   );
 
+  const applyPickedItemToLine = useCallback(
+    (index: number, picked: { id: string; units?: { unitId?: string; isBaseUnit?: boolean; unit?: { id: string } }[]; itemPrices?: unknown[]; lastPurchasePrice?: number | string | null; averageCost?: number | string | null; defaultTaxPercent?: number | string | null; barcode?: string; serial?: string; code?: string } | undefined) => {
+      if (!picked) return;
+      const unitId = defaultUnitIdForItem(picked);
+      const priced = picked as {
+        itemPrices?: import('@/lib/inventory/pricing-engine').PriceListPriceRow[];
+        averageCost?: number | string | null;
+        lastPurchasePrice?: number | string | null;
+      };
+      const listRow = resolvePriceListRow(priced, selectedSupplierPriceListId, unitId);
+      let unitPrice = resolvePriceListPurchasePrice(priced, selectedSupplierPriceListId, unitId);
+      if (unitPrice <= 0) {
+        unitPrice =
+          Number(priced.lastPurchasePrice ?? 0) > 0
+            ? Number(priced.lastPurchasePrice)
+            : Number(priced.averageCost ?? 0);
+      }
+      const discountPercent = combinedPriceListDiscountPercent(listRow, selectedSupplierPartyDiscount);
+      setInvoiceLines((prev) => {
+        const existing = prev[index];
+        if (!existing) return prev;
+        const next = [...prev];
+        next[index] = {
+          ...existing,
+          itemId: picked.id,
+          unitId,
+          unitPrice: unitPrice > 0 ? unitPrice : existing.unitPrice,
+          ...(discountPercent > 0
+            ? {
+                discountType: 'PERCENTAGE' as const,
+                discountValue: discountPercent,
+                discount: discountPercent,
+              }
+            : {}),
+          ...(picked.defaultTaxPercent != null
+            ? { tax: Number(picked.defaultTaxPercent) }
+            : {}),
+        };
+        return next;
+      });
+      void apiClient
+        .get<{ unitPrice: number; discountPercent?: number }>(
+          `/inventory/items/${picked.id}/pricing-policy`,
+          {
+            supplierId: supplierId || undefined,
+            priceListId: selectedSupplierPriceListId || undefined,
+            unitId,
+            kind: 'purchase',
+            policy: txSettingsRes?.data?.pricingPolicy,
+          }
+        )
+        .then((res) => {
+          const price = Number(res.data?.unitPrice ?? 0);
+          const disc = Number(res.data?.discountPercent ?? 0);
+          if (price <= 0 && disc <= 0) return;
+          setInvoiceLines((prev) => {
+            const existing = prev[index];
+            if (!existing) return prev;
+            const next = [...prev];
+            next[index] = {
+              ...existing,
+              ...(price > 0 ? { unitPrice: price } : {}),
+              ...(disc > 0
+                ? { discountType: 'PERCENTAGE' as const, discountValue: disc, discount: disc }
+                : {}),
+            };
+            return next;
+          });
+        })
+        .catch(() => undefined);
+    },
+    [
+      selectedSupplierPriceListId,
+      selectedSupplierPartyDiscount,
+      supplierId,
+      txSettingsRes?.data?.pricingPolicy,
+    ]
+  );
+
   const handlePurchaseClipboardLines = useCallback(
     (lines: Array<{ itemId: string; quantity: number; unitPrice: number; discount: number }>) => {
       setInvoiceLines((prev) => [
@@ -677,12 +860,12 @@ function FinalPurchaseInvoicePageInner() {
           discountValue: line.discount,
           discountType: 'PERCENTAGE',
           tax: isSalesTaxInvoice ? 14 : 0,
-          warehouseId,
+          warehouseId: '',
         })),
       ]);
       setSuccess(`تم لصق ${lines.length} سطر`);
     },
-    [items, isSalesTaxInvoice, warehouseId]
+    [items, isSalesTaxInvoice]
   );
 
   const handleSourceHydrate = useCallback((payload: SourceHydratePayload) => {
@@ -696,10 +879,13 @@ function FinalPurchaseInvoicePageInner() {
     setSourceNumber(payload.sourceNumber);
     setDescription((prev) => mergeSourceNote(prev, payload.notes));
     setInvoiceLines(
-      payload.lines.map((line) => sourceLineToPurchaseRow(line, payload.warehouseId || warehouseId))
+      payload.lines.map((line) => {
+        const row = sourceLineToPurchaseRow(line, payload.warehouseId || warehouseId);
+        return isSalesTaxInvoice && !(Number(row.tax) > 0) ? { ...row, tax: 14 } : row;
+      })
     );
     setSuccess(`تم تعبئة الفاتورة من ${payload.sourceNumber}`);
-  }, [warehouseId]);
+  }, [isSalesTaxInvoice, warehouseId]);
 
   const handleNew = useCallback(() => {
     openInvoice(null);
@@ -720,7 +906,9 @@ function FinalPurchaseInvoicePageInner() {
     resetKeepPosted();
     const today = new Date().toISOString().split('T')[0];
     setDate(today);
-    setPaymentType('cash');
+    setPaymentType('credit');
+    pendingAdvancesRef.current = [];
+    setPendingAdvanceTotal(0);
     setTreasuryId('');
     setCashTenderKind('treasury');
     setCashBankAccountId('');
@@ -733,12 +921,16 @@ function FinalPurchaseInvoicePageInner() {
     setPaymentSplits([]);
     setPaymentInstallments([]);
     setInternalNotes([]);
-    setIsSalesTaxInvoice(true);
+    setIsSalesTaxInvoice(txSettingsRes?.data?.autoApplyVat !== false);
+    setApplyWithholding(
+      txSettingsRes?.data?.autoApplyWht === true ||
+        accountingSettingsRes?.data?.tax?.applyWithholding === true
+    );
     setPricingCalculationBasis(
       parsePricingCalculationBasis(companySettingsRes?.data?.pricingCalculationBasis)
     );
     clearDraft();
-  }, [clearDraft, companySettingsRes?.data?.pricingCalculationBasis, openInvoice, resetKeepPosted]);
+  }, [clearDraft, companySettingsRes?.data?.pricingCalculationBasis, openInvoice, resetKeepPosted, txSettingsRes?.data?.autoApplyVat]);
 
   const handleRestoreDraft = () => {
     const payload = acceptRestore() as PurchaseInvoiceDraft | null;
@@ -747,26 +939,48 @@ function FinalPurchaseInvoicePageInner() {
     setSuccess('تم استعادة مسودة فاتورة المشتريات');
   };
 
-  const invoiceMutation = useApiMutation<unknown, Record<string, unknown>>('/invoices', 'POST', {
-    onSuccess: () => {
-      persistIntentRef.current = 'save';
-      clearDraft();
-      invalidateQuery(['invoices']);
-      handleNew();
-      setSuccess('تم حفظ فاتورة المشتريات بنجاح');
-    },
-    onError: (err) => {
-      setError(err.message || 'حدث خطأ أثناء الحفظ');
-      toastInvoiceSaveError(err.message || 'حدث خطأ أثناء الحفظ');
-    },
-  });
+  const invoiceMutation = useApiMutation<{ id?: string; invoiceNumber?: string }, Record<string, unknown>>(
+    '/invoices',
+    'POST',
+    {
+      showSuccessToast: false,
+      onSuccess: (res) => {
+        persistIntentRef.current = 'save';
+        clearDraft();
+        invalidateStockViews(invalidateQuery);
+        const savedId = res.data?.id;
+        const posted = Boolean((res.data as { isPosted?: boolean } | undefined)?.isPosted);
+        if (res.message && !posted) setError(res.message);
+        const held = pendingAdvancesRef.current;
+        pendingAdvancesRef.current = [];
+        setPendingAdvanceTotal(0);
+        if (savedId && held.length) {
+          void apiClient.post(`/invoices/${savedId}/link-advances`, { allocations: held }).catch((error: unknown) => {
+            setError(error instanceof Error ? error.message : 'تعذر ربط الدفعة المقدمة بعد الحفظ');
+          });
+        }
+        finishDocumentSave({
+          label: 'فاتورة مشتريات',
+          number: res.data?.invoiceNumber || invoiceNumber,
+          savedId: res.data?.id,
+          onOpen: (saved) => openInvoice(saved),
+          reset: handleNew,
+        });
+      },
+      onError: (err) => {
+        setError(err.message || 'حدث خطأ أثناء الحفظ');
+        toastInvoiceSaveError(err.message || 'حدث خطأ أثناء الحفظ');
+      },
+    }
+  );
 
   const invoiceUpdateMutation = useApiMutation<unknown, Record<string, unknown>>(
     selectedInvoiceId ? `/invoices/${selectedInvoiceId}` : '/invoices',
     'PUT',
     {
+      showSuccessToast: false,
       onSuccess: () => {
-        invalidateQuery(['invoices']);
+        invalidateStockViews(invalidateQuery);
         const id = selectedInvoiceId;
         const shouldPostNow = persistIntentRef.current === 'post';
         persistIntentRef.current = 'save';
@@ -779,8 +993,15 @@ function FinalPurchaseInvoicePageInner() {
         if (consumeShouldRepost() && id) {
           void postInvoiceAfterSave(id)
             .then(() => {
-              handleNew();
-              setSuccess('تم حفظ التعديلات وترحيل فاتورة المشتريات');
+              finishDocumentSave({
+                label: 'فاتورة مشتريات',
+                number: invoiceNumber,
+                posted: true,
+                savedId: id,
+                clearDraft,
+                onOpen: (saved) => openInvoice(saved),
+                reset: handleNew,
+              });
             })
             .catch((err: ApiError) => {
               handleNew();
@@ -788,8 +1009,14 @@ function FinalPurchaseInvoicePageInner() {
             });
           return;
         }
-        handleNew();
-        setSuccess('تم تحديث فاتورة المشتريات بنجاح');
+        finishDocumentSave({
+          label: 'فاتورة مشتريات',
+          number: invoiceNumber,
+          savedId: id,
+          clearDraft,
+          onOpen: (saved) => openInvoice(saved),
+          reset: handleNew,
+        });
       },
       onError: (err) => {
         persistIntentRef.current = 'save';
@@ -807,9 +1034,10 @@ function FinalPurchaseInvoicePageInner() {
     selectedInvoiceId ? `/invoices/${selectedInvoiceId}` : '/invoices',
     'DELETE',
     {
+      showSuccessToast: false,
       onSuccess: () => {
         setSuccess('تم حذف فاتورة المشتريات بنجاح');
-        invalidateQuery(['invoices']);
+        invalidateStockViews(invalidateQuery);
         handleNew();
       },
       onError: (err) => setError(err.message || 'حدث خطأ أثناء الحذف'),
@@ -823,8 +1051,7 @@ function FinalPurchaseInvoicePageInner() {
       onSuccess: () => {
         setSuccess('تم ترحيل فاتورة المشتريات بنجاح');
         setIsPosted(true);
-        invalidateQuery(['invoices']);
-        invalidateQuery(['invoice', selectedInvoiceId]);
+        invalidateStockViews(invalidateQuery);
       },
       onError: (err) => {
         setIsPosted(false);
@@ -841,8 +1068,7 @@ function FinalPurchaseInvoicePageInner() {
         setSuccess('تم فك ترحيل فاتورة المشتريات بنجاح');
         setIsPosted(false);
         markUnpostedForEdit();
-        invalidateQuery(['invoices']);
-        invalidateQuery(['invoice', selectedInvoiceId]);
+        invalidateStockViews(invalidateQuery);
       },
       onError: (err) => setError(err.message || 'حدث خطأ'),
     }
@@ -881,6 +1107,7 @@ function FinalPurchaseInvoicePageInner() {
   const settlements = settlementsResponse?.data || [];
   const { cheques: settlementCheques } = unwrapInvoiceCheques(chequesResponse?.data);
 
+  const purchaseVatDefaultApplied = useRef(false);
   useEffect(() => {
     if (selectedInvoiceId) return;
     const settings = txSettingsRes?.data;
@@ -891,6 +1118,56 @@ function FinalPurchaseInvoicePageInner() {
       setCostCenterId(settings.defaultCostCenterId);
     }
   }, [selectedInvoiceId, txSettingsRes?.data, warehouseId, costCenterId]);
+
+  useEffect(() => {
+    if (purchaseVatDefaultApplied.current || selectedInvoiceId) return;
+    const settings = txSettingsRes?.data;
+    if (!settings) return;
+    purchaseVatDefaultApplied.current = true;
+    const enabled = settings.autoApplyVat !== false;
+    setIsSalesTaxInvoice(enabled);
+    setInvoiceLines((lines) =>
+      lines.map((line) => (line.itemId ? line : { ...line, tax: enabled ? 14 : 0 }))
+    );
+  }, [selectedInvoiceId, txSettingsRes?.data]);
+
+  const purchaseWhtDefaultApplied = useRef(false);
+  useEffect(() => {
+    if (purchaseWhtDefaultApplied.current || selectedInvoiceId) return;
+    if (!txSettingsRes?.data || accountingSettingsLoading) return;
+    purchaseWhtDefaultApplied.current = true;
+    setApplyWithholding(
+      txSettingsRes.data.autoApplyWht === true ||
+        accountingSettingsRes?.data?.tax?.applyWithholding === true
+    );
+  }, [accountingSettingsLoading, accountingSettingsRes?.data, selectedInvoiceId, txSettingsRes?.data]);
+
+  const handlePurchaseTaxChange = useCallback((enabled: boolean) => {
+    setIsSalesTaxInvoice(enabled);
+    setInvoiceLines((lines) => lines.map((line) => ({ ...line, tax: enabled ? 14 : 0 })));
+  }, []);
+
+  const handlePurchaseWithholdingChange = useCallback(
+    (enabled: boolean) => {
+      setApplyWithholding(enabled);
+      const rate = enabled ? (configuredWhtRate > 0 ? configuredWhtRate : 1) : 0;
+      setInvoiceLines((lines) =>
+        lines.map((line) => {
+          if (!enabled) {
+            return {
+              ...line,
+              withholdingTaxRate: 0,
+              withholdingTaxAmount: 0,
+              withholdingAmountManual: false,
+            };
+          }
+          if (line.withholdingAmountManual || Number(line.withholdingTaxRate) > 0) return line;
+          return { ...line, withholdingTaxRate: rate };
+        })
+      );
+    },
+    [configuredWhtRate]
+  );
 
   useEffect(() => {
     if (paymentType !== 'cash') return;
@@ -914,6 +1191,7 @@ function FinalPurchaseInvoicePageInner() {
       onSuccess: () => {
         setSuccess('تم تسجيل الدفع بنجاح');
         setCollectModalOpen(false);
+        setCollectInstallment(null);
         invalidateQuery(['invoice', selectedInvoiceId]);
         invalidateQuery(['invoice-settlements', selectedInvoiceId]);
         invalidateQuery(['invoice-settlements-cheques', selectedInvoiceId]);
@@ -1062,6 +1340,7 @@ function FinalPurchaseInvoicePageInner() {
       costCenterId: costCenterId || undefined,
       delegateId: delegateId || undefined,
       currencyId: currencyId || undefined,
+      exchangeRate: exchangeRate > 0 ? exchangeRate : 1,
       sourceType: sourceType && sourceType !== 'NONE' ? sourceType : 'NONE',
       sourceId: sourceId || undefined,
       sourceNumber: sourceNumber || undefined,
@@ -1093,6 +1372,19 @@ function FinalPurchaseInvoicePageInner() {
         discountType: line.discountType,
         taxRate: line.tax ?? 0,
         warehouseId: line.warehouseId || d.warehouseId,
+        costCenterId: line.costCenterId,
+        withholdingTaxRate: line.withholdingTaxRate,
+        withholdingTaxAmount: line.withholdingTaxAmount,
+        withholdingAmountManual: line.withholdingAmountManual,
+        batchNumber: line.batchNumber,
+        expiryDate: line.expiryDate,
+        productionDate: line.productionDate,
+        serialNumbers: line.serialNumbers,
+        lineNotes: line.lineNotes,
+        batchAllocations: line.batchAllocations,
+        color: line.color,
+        size: line.size,
+        customRevenueAccountId: line.customRevenueAccountId,
       })),
     };
     const mapOpts = {
@@ -1165,7 +1457,7 @@ function FinalPurchaseInvoicePageInner() {
         if (!cashChequeRows.some((row) => row.chequeNumber.trim())) {
           map.cashCheques = 'أضف شيكاً واحداً على الأقل برقم ومبلغ';
         } else if (chequeSum + 0.009 < Number(financialSummary.netAmount || 0)) {
-          map.cashCheques = `مجموع الشيكات (${chequeSum.toFixed(2)}) أقل من قيمة الفاتورة`;
+          map.cashCheques = `مجموع الشيكات (${chequeSum.toLocaleString()}) أقل من قيمة الفاتورة`;
         }
       }
     }
@@ -1199,7 +1491,7 @@ function FinalPurchaseInvoicePageInner() {
   ]);
 
   const statusTone = isPosted ? 'success' : 'warning';
-  const statusLabel = isPosted ? 'مرحّل' : 'مسودة';
+  const statusLabel = isPosted ? 'مرحّل' : unpostedDocumentStatusLabel(Boolean(selectedInvoiceId));
 
   return (
     <ErpDocumentLayout className={ERP_INVOICE_DOCUMENT_LAYOUT_CLASS}>
@@ -1216,7 +1508,7 @@ function FinalPurchaseInvoicePageInner() {
 
       {draftEnabled && lastSavedAt ? (
         <p className="mb-2 text-xs text-slate-500 text-left" dir="ltr">
-          تم حفظ المسودة محلياً · {lastSavedAt.toLocaleTimeString('ar-EG')}
+          نسخة احتياطية على هذا الجهاز · {lastSavedAt.toLocaleTimeString('ar-EG')}
         </p>
       ) : null}
 
@@ -1252,6 +1544,12 @@ function FinalPurchaseInvoicePageInner() {
             router.push(destinationAppTabHref(`/accounting/operations/journal-entry?ref=invoice&id=${selectedInvoiceId}`));
           }
         }}
+        onPreviewJournal={() => setBottomSplitTab('gl')}
+        journalEntryId={(selectedInvoice as { journalEntryId?: string | null } | undefined)?.journalEntryId}
+        journalNumber={
+          (selectedInvoice as { journalEntry?: { voucherNumber?: string | null } } | undefined)
+            ?.journalEntry?.voucherNumber
+        }
         onCollectPayment={() => {
           if (!selectedInvoiceId) {
             setError('يرجى اختيار فاتورة أولاً');
@@ -1270,13 +1568,10 @@ function FinalPurchaseInvoicePageInner() {
             setError('لا توجد خزينة معرّفة — أضف خزينة قبل السداد');
             return;
           }
+          setCollectInstallment(null);
           setCollectModalOpen(true);
         }}
         onLinkAdvance={() => {
-          if (!selectedInvoiceId) {
-            setError('احفظ الفاتورة أولاً');
-            return;
-          }
           if (!supplierId.trim()) {
             setError('اختر المورد أولاً');
             return;
@@ -1336,6 +1631,8 @@ function FinalPurchaseInvoicePageInner() {
 
       <DocumentReadOnlyBanner />
 
+      <LandedCostPanel invoiceId={selectedInvoiceId} posted={isPosted} />
+
       <DocumentApprovalBar
         entityType="INVOICE"
         entityId={selectedInvoiceId}
@@ -1346,7 +1643,6 @@ function FinalPurchaseInvoicePageInner() {
         onPost={handlePostInvoice}
       />
 
-      <DocumentFormLock>
       <PurchaseInvoiceFormHeader
         supplierId={supplierId}
         onSupplierId={setSupplierId}
@@ -1370,6 +1666,27 @@ function FinalPurchaseInvoicePageInner() {
         onAdvancePaidAmount={setAdvancePaidAmount}
         advanceSafeId={advanceSafeId}
         onAdvanceSafeId={setAdvanceSafeId}
+        onCollectPayment={() => {
+          if (!selectedInvoiceId) {
+            setError('يرجى اختيار فاتورة أولاً');
+            return;
+          }
+          if (!isPosted) {
+            setError('يجب ترحيل الفاتورة قبل تسجيل السداد');
+            return;
+          }
+          const remaining = invoiceRemainingForCollect(selectedInvoice);
+          if (remaining === null) {
+            setError('لا يوجد مبلغ متبقٍ للسداد');
+            return;
+          }
+          if (!safesResponse?.data?.length) {
+            setError('لا توجد خزينة معرّفة — أضف خزينة قبل السداد');
+            return;
+          }
+          setCollectInstallment(null);
+          setCollectModalOpen(true);
+        }}
         onConfigureSplit={() => {
           if (isPosted) {
             const remaining = invoiceRemainingForCollect(selectedInvoice);
@@ -1381,10 +1698,6 @@ function FinalPurchaseInvoicePageInner() {
           setSplitModalOpen(true);
         }}
         onLinkAdvance={() => {
-          if (!selectedInvoiceId) {
-            setError('احفظ الفاتورة أولاً');
-            return;
-          }
           if (!supplierId.trim()) {
             setError('اختر المورد أولاً');
             return;
@@ -1394,8 +1707,8 @@ function FinalPurchaseInvoicePageInner() {
         onConfigureInstallments={() => setInstallmentsModalOpen(true)}
         installmentCount={paymentInstallments.length}
         paymentSplits={paymentSplits}
-        splitLocked={!isPosted}
-        splitCollectMode={isPosted}
+        splitLocked={false}
+        splitCollectMode={Boolean(selectedInvoiceId)}
         warehouseId={warehouseId}
         onWarehouseId={setWarehouseId}
         date={date}
@@ -1411,9 +1724,18 @@ function FinalPurchaseInvoicePageInner() {
         hijriDate={hijriDate}
         onHijriDate={setHijriDate}
         currencyId={currencyId}
-        onCurrencyId={setCurrencyId}
+        onCurrencyId={(id) => {
+          setCurrencyId(id);
+          const picked = currencies.find((c) => c.id === id);
+          const rate = Number((picked as { exchangeRate?: number } | undefined)?.exchangeRate);
+          if (rate > 0) setExchangeRate(rate);
+        }}
+        exchangeRate={exchangeRate}
+        onExchangeRate={setExchangeRate}
         isPurchaseTaxInvoice={isSalesTaxInvoice}
-        onPurchaseTaxChange={setIsSalesTaxInvoice}
+        onPurchaseTaxChange={handlePurchaseTaxChange}
+        applyWithholding={applyWithholding}
+        onApplyWithholdingChange={handlePurchaseWithholdingChange}
         supplierRef={supplierRef}
         onSupplierRef={setSupplierRef}
         currencies={currencies}
@@ -1446,6 +1768,7 @@ function FinalPurchaseInvoicePageInner() {
         />
       </div>
 
+      <DocumentFormLock>
       <div className="mt-2">
         <ProgressivePurchaseInvoiceLineGrid
           storageKey="gates:columns:purchase-invoice"
@@ -1454,7 +1777,7 @@ function FinalPurchaseInvoicePageInner() {
           warehouseId={warehouseId}
           visibleColumnIds={visibleColumnIds}
           onVisibleColumnIdsChange={(ids) =>
-            setVisibleColumnIds(mergeVisibleColumnIds('gates:columns:purchase-invoice', ids))
+            setStoredColumnIds(mergeVisibleColumnIds('gates:columns:purchase-invoice', ids))
           }
           modernUi
           clipboardItems={clipboardItems}
@@ -1462,6 +1785,9 @@ function FinalPurchaseInvoicePageInner() {
           pricingCalculationBasis={pricingCalculationBasis}
           readOnly={isReadOnly || lockLoadedSource}
           headerDescription={description}
+          defaultTaxPercent={isSalesTaxInvoice ? 14 : 0}
+          defaultWithholdingRate={defaultWhtRate}
+          applyPickedItemToLine={applyPickedItemToLine}
         />
             </div>
       </DocumentFormLock>
@@ -1470,12 +1796,34 @@ function FinalPurchaseInvoicePageInner() {
         <InvoiceCollectModal
           open
           mode="pay"
-          remaining={invoiceRemainingForCollect(selectedInvoice) ?? 0}
+          remaining={collectInstallment?.remaining ?? invoiceRemainingForCollect(selectedInvoice) ?? 0}
           safes={safesResponse?.data ?? []}
           defaultSafeId={defaultSafeId}
           pending={collectPaymentMutation.isPending}
-          onClose={() => setCollectModalOpen(false)}
-          onConfirm={(payload) => collectPaymentMutation.mutate(payload)}
+          onClose={() => {
+            setCollectModalOpen(false);
+            setCollectInstallment(null);
+          }}
+          onConfirm={(payload) => {
+            if (collectInstallment && selectedInvoiceId) {
+              void apiClient
+                .post(`/invoices/${selectedInvoiceId}/installments/${collectInstallment.id}/collect`, payload)
+                .then(() => {
+                  setSuccess('تم تسجيل سداد القسط');
+                  setCollectModalOpen(false);
+                  setCollectInstallment(null);
+                  invalidateQuery(['invoice', selectedInvoiceId]);
+                  invalidateQuery(['invoice-settlements', selectedInvoiceId]);
+                  invalidateQuery(['invoice-settlements-cheques', selectedInvoiceId]);
+                  invalidateQuery(['invoice-installments', selectedInvoiceId]);
+                })
+                .catch((error: unknown) => {
+                  setError(error instanceof Error ? error.message : 'تعذر سداد القسط');
+                });
+              return;
+            }
+            collectPaymentMutation.mutate(payload);
+          }}
         />
       ) : null}
 
@@ -1483,9 +1831,15 @@ function FinalPurchaseInvoicePageInner() {
         <LinkAdvancePaymentModal
           open
           invoiceId={selectedInvoiceId}
-          remaining={invoiceRemainingForCollect(selectedInvoice) ?? 0}
+          supplierId={supplierId}
+          remaining={invoiceRemainingForCollect(selectedInvoice) ?? financialSummary.netAmount}
           kind="PAYMENT"
           onClose={() => setLinkAdvanceOpen(false)}
+          onHold={(allocations) => {
+            pendingAdvancesRef.current = allocations;
+            setPendingAdvanceTotal(allocations.reduce((sum, row) => sum + row.amount, 0));
+            setSuccess('هيتم ربط الدفعة مع حفظ الفاتورة');
+          }}
         />
       ) : null}
 
@@ -1500,13 +1854,32 @@ function FinalPurchaseInvoicePageInner() {
           }
           direction="PAYMENT"
           initial={isPosted ? [] : paymentSplits}
+          onOpenInstallments={() => setInstallmentsModalOpen(true)}
+          installmentCount={paymentInstallments.length}
+          onLinkAdvance={() => {
+            if (!supplierId.trim()) {
+              setError('اختر المورد أولاً');
+              return;
+            }
+            setLinkAdvanceOpen(true);
+          }}
           onConfirm={(splits) => {
             if (!isPosted) {
-              setPaymentSplits(splits);
+              const paid = sumPaymentSplits(splits.filter((line) => line.type !== 'ON_ACCOUNT'));
+              if (paid <= 0.009) {
+                setPaymentType('credit');
+                setAdvancePaidAmount(0);
+                setPaymentSplits([]);
+              } else {
+                setPaymentType('split');
+                setAdvancePaidAmount(paid);
+                setPaymentSplits(splits);
+              }
+              setSplitModalOpen(false);
               return;
             }
             if (!selectedInvoiceId) {
-              setError('احفظ الفاتورة ورحّلها أولاً');
+              setSplitModalOpen(false);
               return;
             }
             void postInvoiceSettlementSplits(selectedInvoiceId, splits)
@@ -1535,8 +1908,26 @@ function FinalPurchaseInvoicePageInner() {
           }
           startDate={date}
           initial={paymentInstallments}
-          onConfirm={setPaymentInstallments}
-          disabled={isPosted}
+          onConfirm={(rows) => {
+            setPaymentInstallments(rows);
+            if (!selectedInvoiceId) return;
+            void apiClient
+              .put(`/invoices/${selectedInvoiceId}/installments`, {
+                installments: rows.map((row) => ({
+                  installmentNumber: row.number,
+                  dueDate: row.dueDate,
+                  amount: row.amount,
+                })),
+              })
+              .then(() => {
+                setSuccess('تم حفظ توزيع الدفعات');
+                invalidateQuery(['invoice-installments', selectedInvoiceId]);
+                invalidateQuery(['invoice', selectedInvoiceId]);
+              })
+              .catch((error: unknown) => {
+                setError(error instanceof Error ? error.message : 'تعذر حفظ توزيع الدفعات');
+              });
+          }}
         />
       ) : null}
 
@@ -1553,6 +1944,16 @@ function FinalPurchaseInvoicePageInner() {
           discountType: l.discountType,
           taxRate: l.tax,
         }))}
+        savedLines={((selectedInvoice?.lines ?? []) as Record<string, unknown>[]).map((line) => ({
+          itemId: String(line.itemId ?? ''),
+          quantity: Number(line.quantity) || 0,
+          baseQuantity: Number(line.baseQuantity ?? line.quantity) || 0,
+          unitPrice: Number(line.price ?? line.unitPrice) || 0,
+          discount: inferDiscountValueFromApi(line),
+          discountValue: inferDiscountValueFromApi(line),
+          discountType: inferDiscountTypeFromApi(line),
+          taxRate: Number(line.taxPercent ?? line.tax ?? line.taxRate ?? 0) || 0,
+        }))}
         pricingCalculationBasis={pricingCalculationBasis}
         warehouseId={warehouseId}
         journalEntryId={(selectedInvoice as { journalEntryId?: string | null })?.journalEntryId}
@@ -1563,8 +1964,34 @@ function FinalPurchaseInvoicePageInner() {
         installments={paymentInstallments}
         paidAmount={Number((selectedInvoice as { paidAmount?: number } | undefined)?.paidAmount) || 0}
         remainingAmount={invoiceRemainingForCollect(selectedInvoice) ?? 0}
+        onCollectInstallment={(row) => {
+          if (!row.id) return;
+          if (!isPosted) {
+            setError('يجب ترحيل الفاتورة قبل تسجيل السداد');
+            return;
+          }
+          setCollectInstallment({ id: row.id, remaining: row.remainingAmount });
+          setCollectModalOpen(true);
+        }}
         activeTabId={bottomSplitTab}
         onActiveTabChange={setBottomSplitTab}
+        cashPayment={{
+          paidAmount: invoiceCashPaidDisplayAmount({
+            isPosted,
+            savedPaidAmount:
+              Number((selectedInvoice as { paidAmount?: number } | undefined)?.paidAmount) || 0,
+            paymentMethod: paymentType,
+            advancePaidAmount,
+            splitTenderPaid: sumPaymentSplits(paymentSplits.filter((line) => line.type !== 'ON_ACCOUNT')),
+            netAmount: financialSummary.netAmount,
+            pendingAdvanceTotal,
+          }),
+          method: paymentType,
+          disabled: isReadOnly || lockLoadedSource,
+          onPaidChange: () => {},
+          onOpenSplit: () => setSplitModalOpen(true),
+          splitSummary: summarizePaymentSplits(paymentSplits) || undefined,
+        }}
       />
     </ErpDocumentLayout>
   );

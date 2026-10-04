@@ -7,8 +7,8 @@ export default function FinancialPositionStatementPage() {
     <AccountReportFilterPage
       urlPath="/accounting/account-reports/credit/financial-position-statement"
       icon="📊"
-      subtitle="المركز المالي في تاريخ محدد."
-      fields={{ dates: 'to', branch: true }}
+      subtitle="الميزانية في تاريخ محدد."
+      fields={{ dates: 'to', costCenter: true, branch: true, compareYear: true }}
     />
   );
 }

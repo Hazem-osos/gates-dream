@@ -47,3 +47,13 @@ export function endOfDayUtc(value: unknown, field: string): Date {
     Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 23, 59, 59, 999)
   );
 }
+
+/** Calendar day `YYYY-MM-DD` in the business timezone (default Egypt). */
+export function businessCalendarDayKey(date: Date = new Date(), timeZone = 'Africa/Cairo'): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(date);
+}

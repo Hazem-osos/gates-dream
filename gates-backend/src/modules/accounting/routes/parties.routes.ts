@@ -24,7 +24,7 @@ router.get(
     try {
       const companyId = req.companyId || req.tenantId;
       if (!companyId) {
-        return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+        return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
       }
       const partyType = req.query.partyType as 'CUSTOMER' | 'SUPPLIER' | undefined;
       const data = await partyQuickSummaryService.getSummary(companyId, req.params.id, partyType);

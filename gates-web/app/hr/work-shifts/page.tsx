@@ -1,6 +1,8 @@
 'use client';
 
 import { useBackendReachability } from '@/lib/hooks/useBackendReachability';
+import { apiClient } from '@/lib/api/client';
+import { toast } from '@/lib/feedback/toast';
 import { useForm, type Resolver, type SubmitHandler } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { HrPageChrome } from '@/components/hr/HrPageChrome';
@@ -11,7 +13,7 @@ const defaults: WorkShiftFormInput = {
   serialNumber: '',
   englishName: '',
   arabicName: '',
-  employee: '1212378971212',
+  employee: '',
   fromTime: '0.00',
   toTime: '0.00',
 };
@@ -35,7 +37,16 @@ export default function WorkShiftsPage() {
   });
 
   const onSave: SubmitHandler<WorkShiftFormInput> = (values) => {
-    console.info('[work-shifts]', values);
+    void apiClient
+      .post('/hr/attendance', {
+        kind: 'shift',
+        title: values.arabicName,
+        fromTime: values.fromTime,
+        toTime: values.toTime,
+        payload: values,
+      })
+      .then(() => toast.success('تم حفظ الوردية'))
+      .catch((err: unknown) => toast.error(err instanceof Error ? err.message : 'تعذر الحفظ'));
   };
 
   return (
@@ -66,18 +77,18 @@ export default function WorkShiftsPage() {
                     <div className="flex flex-col gap-1">
                       <div className="flex items-center gap-2">
                         <select
-                          className="w-50 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg"
+                          className="w-50 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg"
                           {...register('employee')}
                         >
                           <option value="">اختر...</option>
-                          <option value="1212378971212">1212378971212</option>
+                          <option value=""></option>
                           <option value="employee1">موظف 1</option>
                           <option value="employee2">موظف 2</option>
                           <option value="employee3">موظف 3</option>
                         </select>
                         <input
                           type="text"
-                          className="w-50 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg"
+                          className="w-50 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg"
                           placeholder="إدخل اسم الموظف"
                         />
                       </div>
@@ -91,14 +102,14 @@ export default function WorkShiftsPage() {
                       <div className="flex items-center gap-2">
                         <input
                           type="text"
-                          className="w-24 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg text-center"
+                          className="w-24 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg text-center"
                           placeholder="0.00"
                           {...register('fromTime')}
                         />
                         <span className="text-sm text-[#094C6B]">إلى</span>
                         <input
                           type="text"
-                          className="w-24 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg text-center"
+                          className="w-24 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg text-center"
                           placeholder="0.00"
                           {...register('toTime')}
                         />

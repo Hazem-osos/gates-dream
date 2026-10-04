@@ -8,6 +8,14 @@ import { stockMovementGlService, type StockGlPostingContext } from './stock-move
 import { assertStoreDocumentRight } from './store-document-rights';
 import { fiscalYearService } from '../../platform/services/fiscal-year.service';
 import { assertWarehouseActive } from '../utils/inventory-system';
+import { clampPageSize } from '../../../shared/pagination';
+import { claimDocumentPost, claimDocumentUnpost } from '../utils/claim-document-post';
+import { resolveStoreDocumentSerialInTx } from './store-document-numbering.service';
+import {
+  ensurePerpetualInventoryGlReady,
+  runCompanyStockGlPosting,
+} from '../utils/stock-gl-posting-guard';
+import { getWarehouseBalance } from './adjust-stock-in-tx';
 
 export interface StocktakingLine {
   itemId: string;
@@ -87,7 +95,7 @@ export class StocktakingService {
       });
 
       if (items.length !== itemIds.length) {
-        throw new Error('One or more items not found or do not belong to company');
+        throw new Error('أحد الأصناف غير موجود أو لا يتبع الشركة');
       }
 
       const warehouseBalances = await prisma.itemWarehouseBalance.findMany({
@@ -127,13 +135,21 @@ export class StocktakingService {
           };
         });
 
+        const serial = await resolveStoreDocumentSerialInTx(tx, {
+          companyId,
+          branchId: data.branchId ?? null,
+          fiscalYearId: null,
+          kind: 'stocktaking',
+          clientSerial: data.serial,
+        });
+
         // Create stocktaking record
         const record = await tx.stocktaking.create({
           data: {
             companyId,
             branchId: data.branchId || null,
             description: data.description || null,
-            serial: data.serial || null,
+            serial,
             date: new Date(data.date),
             warehouseId: data.warehouseId,
             totalShortage: totalShortage,
@@ -189,6 +205,74 @@ export class StocktakingService {
     }
   }
 
+  async updateStocktaking(companyId: string, stocktakingId: string, data: CreateStocktakingData) {
+    const existing = await prisma.stocktaking.findFirst({
+      where: { id: stocktakingId, companyId },
+    });
+    if (!existing) throw new Error('الجرد غير موجود');
+    if (existing.isPosted) throw new Error('لا يمكن تعديل جرد مرحّل');
+    if (existing.isCancelled) throw new Error('لا يمكن تعديل جرد ملغى');
+
+    await assertWarehouseActive(companyId, data.warehouseId);
+    const itemIds = data.lines.map((line) => line.itemId);
+    const items = await prisma.item.findMany({
+      where: { id: { in: itemIds }, companyId },
+    });
+    if (items.length !== itemIds.length) {
+      throw new Error('أحد الأصناف غير موجود أو لا يتبع الشركة');
+    }
+
+    return prisma.$transaction(async (tx) => {
+      let totalShortage = 0;
+      let totalIncrease = 0;
+      const processedLines = data.lines.map((line) => {
+        const differences = this.calculateDifferences(
+          line.bookQuantity || 0,
+          line.actualQuantity,
+          line.unitPrice
+        );
+        totalShortage += differences.shortageTotal;
+        totalIncrease += differences.increaseTotal;
+        return { ...line, bookQuantity: line.bookQuantity || 0, ...differences };
+      });
+
+      await tx.stocktakingLine.deleteMany({ where: { stocktakingId } });
+      await tx.stocktaking.update({
+        where: { id: stocktakingId },
+        data: {
+          description: data.description || null,
+          serial: data.serial || existing.serial,
+          date: new Date(data.date),
+          warehouseId: data.warehouseId,
+          totalShortage,
+          totalIncrease,
+        },
+      });
+      for (const lineData of processedLines) {
+        await tx.stocktakingLine.create({
+          data: {
+            stocktakingId,
+            itemId: lineData.itemId,
+            warehouseId: lineData.warehouseId,
+            locationId: lineData.locationId || null,
+            unitId: lineData.unitId || null,
+            bookQuantity: lineData.bookQuantity,
+            actualQuantity: lineData.actualQuantity,
+            unitPrice: lineData.unitPrice,
+            shortageQuantity: lineData.shortageQuantity,
+            increaseQuantity: lineData.increaseQuantity,
+            shortageTotal: lineData.shortageTotal,
+            increaseTotal: lineData.increaseTotal,
+          },
+        });
+      }
+      return tx.stocktaking.findFirst({
+        where: { id: stocktakingId },
+        include: { lines: true },
+      });
+    });
+  }
+
   /**
    * Get stocktaking by ID
    */
@@ -241,7 +325,7 @@ export class StocktakingService {
       });
 
       if (!stocktaking) {
-        throw new Error('Stocktaking not found');
+        throw new Error('الجرد غير موجود');
       }
 
       return stocktaking;
@@ -330,7 +414,7 @@ export class StocktakingService {
           },
           orderBy: { createdAt: 'desc' },
           skip: options?.skip || 0,
-          take: options?.take || 50,
+          take: clampPageSize(options?.take),
         }),
         prisma.stocktaking.count({ where }),
       ]);
@@ -339,7 +423,7 @@ export class StocktakingService {
         data: stocktaking,
         total,
         skip: options?.skip || 0,
-        take: options?.take || 50,
+        take: clampPageSize(options?.take),
       };
     } catch (error) {
       logger.error({ error, companyId, options }, 'Error listing stocktaking');
@@ -376,7 +460,7 @@ export class StocktakingService {
       });
 
       if (!stocktaking) {
-        throw new Error('Stocktaking not found');
+        throw new Error('الجرد غير موجود');
       }
 
       if (stocktaking.isCancelled) {
@@ -397,7 +481,15 @@ export class StocktakingService {
       const sourceNumber = stocktaking.serial ?? stocktaking.id.slice(0, 8);
       const sourceYearId = String(new Date(stocktaking.date).getFullYear());
 
+      const inventorySystem = await ensurePerpetualInventoryGlReady(
+        companyId,
+        glCtx,
+        stocktaking.warehouseId
+      );
+
+      let glSkipped = false;
       await prisma.$transaction(async (tx) => {
+        await claimDocumentPost((args) => tx.stocktaking.updateMany(args), stocktakingId, companyId);
         for (const line of stocktaking.lines) {
           const quantityDifference = line.actualQuantity - Number(line.bookQuantity);
           if (quantityDifference === 0) continue;
@@ -417,16 +509,21 @@ export class StocktakingService {
 
           if (quantityDifference > 0) {
             const specified = line.unitPrice != null ? Number(line.unitPrice) : 0;
-            const item = specified
-              ? null
-              : await tx.item.findFirst({
-                  where: { id: line.itemId, companyId },
-                  select: { lastPurchasePrice: true, averageCost: true },
-                });
-            const inboundCost =
-              specified ||
-              Number(item?.lastPurchasePrice ?? 0) ||
-              Number(item?.averageCost ?? 0);
+            const whBalance = await getWarehouseBalance(
+              tx,
+              companyId,
+              line.itemId,
+              line.warehouseId
+            );
+            let inboundCost = specified || whBalance.averageCost;
+            if (!inboundCost) {
+              const item = await tx.item.findFirst({
+                where: { id: line.itemId, companyId },
+                select: { lastPurchasePrice: true, averageCost: true },
+              });
+              inboundCost =
+                Number(item?.lastPurchasePrice ?? 0) || Number(item?.averageCost ?? 0);
+            }
             await inventoryCostingService.applyInboundMovement(tx, {
               ...costingBase,
               quantity: quantityDifference,
@@ -444,21 +541,16 @@ export class StocktakingService {
         }
 
         if (glCtx) {
-          await stockMovementGlService.postStocktakingVarianceGlInTx(tx, glCtx, stocktaking);
+          glSkipped = await runCompanyStockGlPosting(inventorySystem, () =>
+            stockMovementGlService.postStocktakingVarianceGlInTx(tx, glCtx, stocktaking)
+          );
         }
 
-        await tx.stocktaking.update({
-          where: { id: stocktakingId },
-          data: {
-            isPosted: true,
-            postedAt: new Date(),
-          },
-        });
       });
 
-      logger.info({ companyId, stocktakingId }, 'Stocktaking posted');
+      logger.info({ companyId, stocktakingId, glSkipped }, 'Stocktaking posted');
 
-      return { success: true };
+      return { success: true, glSkipped };
     } catch (error) {
       logger.error({ error, companyId, stocktakingId }, 'Error posting stocktaking');
       throw error;
@@ -487,7 +579,7 @@ export class StocktakingService {
       });
 
       if (!stocktaking) {
-        throw new Error('Stocktaking not found');
+        throw new Error('الجرد غير موجود');
       }
 
       if (!stocktaking.isPosted) {
@@ -501,23 +593,52 @@ export class StocktakingService {
       const sourceYearId = String(new Date(stocktaking.date).getFullYear());
 
       await prisma.$transaction(async (tx) => {
+        await claimDocumentUnpost((args) => tx.stocktaking.updateMany(args), stocktakingId, companyId);
         for (const line of stocktaking.lines) {
           const quantityDifference = line.actualQuantity - Number(line.bookQuantity);
           if (quantityDifference === 0) continue;
 
-          await stockMovementService.postMovementInTx(tx, {
+          const costingBase = {
             companyId,
             branchId: stocktaking.branchId ?? undefined,
             warehouseId: line.warehouseId,
             itemId: line.itemId,
             locationId: line.locationId,
-            quantityDelta: -quantityDifference,
-            movementType: `${sourceType}-UNPOST`,
             sourceType: `${sourceType}-UNPOST`,
             sourceNumber,
             sourceYearId,
-            documentDate: stocktaking.date,
-          });
+            sourceDocumentId: stocktaking.id,
+            transactionDate: stocktaking.date,
+            updateLastPurchasePrice: false as const,
+          };
+          if (quantityDifference > 0) {
+            const specified = line.unitPrice != null ? Number(line.unitPrice) : 0;
+            const postedCost =
+              specified > 0
+                ? specified
+                : await inventoryCostingService.postedUnitCost(tx, {
+                    companyId,
+                    itemId: line.itemId,
+                    warehouseId: line.warehouseId,
+                    sourceType,
+                    sourceNumber,
+                    sourceDocumentId: stocktaking.id,
+                  });
+            await inventoryCostingService.reverseInboundInTx(tx, {
+              ...costingBase,
+              quantity: quantityDifference,
+              originalUnitCost: postedCost ?? specified,
+              movementType: COSTING_MOVEMENT.ADJUSTMENT_NEGATIVE,
+            });
+          } else {
+            await inventoryCostingService.applyInboundMovement(tx, {
+              ...costingBase,
+              quantity: Math.abs(quantityDifference),
+              unitCost: Number(line.unitPrice ?? 0),
+              inheritCurrentCost: line.unitPrice == null,
+              movementType: COSTING_MOVEMENT.ADJUSTMENT_POSITIVE,
+            });
+          }
         }
 
         if (glCtx) {
@@ -531,13 +652,6 @@ export class StocktakingService {
           );
         }
 
-        await tx.stocktaking.update({
-          where: { id: stocktakingId },
-          data: {
-            isPosted: false,
-            postedAt: null,
-          },
-        });
       });
 
       logger.info({ companyId, stocktakingId }, 'Stocktaking unposted');
@@ -562,7 +676,7 @@ export class StocktakingService {
       });
 
       if (!stocktaking) {
-        throw new Error('Stocktaking not found');
+        throw new Error('الجرد غير موجود');
       }
 
       if (stocktaking.isCancelled) {
@@ -603,7 +717,7 @@ export class StocktakingService {
       });
 
       if (!stocktaking) {
-        throw new Error('Stocktaking not found');
+        throw new Error('الجرد غير موجود');
       }
 
       if (!stocktaking.isCancelled) {

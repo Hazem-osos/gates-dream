@@ -24,17 +24,22 @@ export const EMPTY_SAFE_CARD: SafeCardValues = {
   parentAccountId: '',
 };
 
-/** Default GL parent for a new treasury: «النقدية وما في حكمها» (parent of 1111). */
+/** Default GL parent for a new treasury: «الخزن» (1110), beside الخزينة الرئيسية. */
 export function useTreasuryParentAccountId(enabled = true) {
   const { data: settingsRes } = useAccountingSettingsQuery();
   const cashId = settingsRes?.data?.accounts?.cashAccountId ?? '';
   const { data: headersRes } = useAccountsQuery('', 500, { headerOnly: true, enabled });
   const headers = headersRes?.data ?? [];
 
+  const safesFolder =
+    headers.find((row) => row.code === '1110')?.id ??
+    headers.find((row) => row.arabicName?.trim() === 'الخزن')?.id ??
+    '';
   const cashParentFromTree = headers.find((row) => row.code === '111')?.id ?? '';
   const cashDetail = settingsRes?.data?.accountDetails?.cashAccountId;
+  if (safesFolder) return safesFolder;
   if (cashParentFromTree) return cashParentFromTree;
-  if (cashDetail?.code === '111') return cashDetail.id;
+  if (cashDetail?.code === '1110' || cashDetail?.code === '111') return cashDetail.id;
   if (cashId) {
     const asHeader = headers.find((row) => row.id === cashId);
     if (asHeader) return asHeader.id;

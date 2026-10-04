@@ -13,6 +13,35 @@ import type { PostStockMovementInput } from './stock-movement.service';
 import { bulkCreateMany } from '../../../shared/database/bulk-write';
 import { assertUpdateCount } from '../../../shared/concurrency/optimistic-lock';
 import { assertWarehouseActive } from '../utils/inventory-system';
+import { claimDocumentPost, claimDocumentUnpost } from '../utils/claim-document-post';
+import { AppError } from '../../../shared/middleware/error-handler';
+import { resolveStoreDocumentSerialInTx } from './store-document-numbering.service';
+import {
+  ensurePerpetualInventoryGlReady,
+  runCompanyStockGlPosting,
+} from '../utils/stock-gl-posting-guard';
+
+function transferSourceNumber(transfer: { id: string; serial: string | null }): string {
+  return (transfer.serial?.trim() || transfer.id.slice(0, 8)).slice(0, 30);
+}
+
+async function companyDefaultBranchId(companyId: string): Promise<string | null> {
+  const row = await prisma.branch.findFirst({
+    where: { companyId, deletedAt: null },
+    orderBy: { createdAt: 'asc' },
+    select: { id: true },
+  });
+  return row?.id ?? null;
+}
+
+async function warehouseBranchId(companyId: string, warehouseId: string): Promise<string | null> {
+  const row = await prisma.warehouse.findFirst({
+    where: { id: warehouseId, companyId },
+    select: { branchId: true },
+  });
+  const id = row?.branchId?.trim();
+  return id || null;
+}
 
 /**
  * Wave 4 fix: a transfer locks *two* warehouse legs per item (source then
@@ -59,10 +88,29 @@ export interface CreateTransferData {
   toWarehouseId: string;
   fromCostCenterId?: string;
   toCostCenterId?: string;
+  hijriDate?: string;
   lines: TransferLine[];
 }
 
 export class TransferService {
+  private async assertSameBranchOrAllowed(companyId: string, fromWarehouseId: string, toWarehouseId: string) {
+    const [fromWh, toWh] = await Promise.all([
+      prisma.warehouse.findFirst({
+        where: { id: fromWarehouseId, companyId },
+        select: { branchId: true },
+      }),
+      prisma.warehouse.findFirst({
+        where: { id: toWarehouseId, companyId },
+        select: { branchId: true },
+      }),
+    ]);
+    const fromBranch = fromWh?.branchId ?? null;
+    const toBranch = toWh?.branchId ?? null;
+    if (fromBranch && toBranch && fromBranch !== toBranch) {
+      throw new Error('النقل بين فرعين غير مسموح. اختر مخزنين من نفس الفرع');
+    }
+  }
+
   /**
    * Create transfer entry
    */
@@ -75,6 +123,7 @@ export class TransferService {
       if (data.fromWarehouseId === data.toWarehouseId) {
         throw new Error('المخزن المصدر والهدف يجب أن يكونا مختلفين');
       }
+      await this.assertSameBranchOrAllowed(companyId, data.fromWarehouseId, data.toWarehouseId);
 
       // Validate cost centers if provided
       if (data.fromCostCenterId) {
@@ -108,6 +157,13 @@ export class TransferService {
         throw new Error('صنف أو أكثر غير موجود أو لا يتبع الشركة');
       }
 
+      const resolvedBranchId =
+        data.branchId?.trim() ||
+        (await warehouseBranchId(companyId, data.fromWarehouseId)) ||
+        (await warehouseBranchId(companyId, data.toWarehouseId)) ||
+        (await companyDefaultBranchId(companyId)) ||
+        undefined;
+
       // Drafts save without stock. Posting enforces quantity.
       const transfer = await prisma.$transaction(async (tx) => {
         // Calculate total amount
@@ -116,14 +172,23 @@ export class TransferService {
           0
         );
 
+        const serial = await resolveStoreDocumentSerialInTx(tx, {
+          companyId,
+          branchId: resolvedBranchId ?? null,
+          fiscalYearId: null,
+          kind: 'transfer',
+          clientSerial: data.serial,
+        });
+
         // Create transfer record
         const record = await tx.transfer.create({
           data: {
             companyId,
-            branchId: data.branchId || null,
+            branchId: resolvedBranchId || null,
             description: data.description || null,
-            serial: data.serial || null,
+            serial,
             date: new Date(data.date),
+            hijriDate: data.hijriDate || null,
             fromWarehouseId: data.fromWarehouseId,
             toWarehouseId: data.toWarehouseId,
             fromCostCenterId: data.fromCostCenterId || null,
@@ -282,6 +347,7 @@ export class TransferService {
     if (data.fromWarehouseId === data.toWarehouseId) {
       throw new Error('المخزن المصدر والهدف يجب أن يكونا مختلفين');
     }
+    await this.assertSameBranchOrAllowed(companyId, data.fromWarehouseId, data.toWarehouseId);
 
     const itemIds = [...new Set(data.lines.map((line) => line.itemId).filter(Boolean))];
     const items = await prisma.item.findMany({
@@ -296,15 +362,24 @@ export class TransferService {
       0
     );
 
+    const resolvedBranchId =
+      data.branchId?.trim() ||
+      existing.branchId?.trim() ||
+      (await warehouseBranchId(companyId, data.fromWarehouseId)) ||
+      (await warehouseBranchId(companyId, data.toWarehouseId)) ||
+      (await companyDefaultBranchId(companyId)) ||
+      undefined;
+
     await prisma.$transaction(async (tx) => {
       await tx.transferLine.deleteMany({ where: { transferId } });
       await tx.transfer.update({
         where: { id: transferId },
         data: {
-          branchId: data.branchId || existing.branchId,
+          branchId: resolvedBranchId || null,
           description: data.description || null,
           serial: data.serial || existing.serial,
           date: new Date(data.date),
+          hijriDate: data.hijriDate || existing.hijriDate,
           fromWarehouseId: data.fromWarehouseId,
           toWarehouseId: data.toWarehouseId,
           fromCostCenterId: data.fromCostCenterId || null,
@@ -455,17 +530,60 @@ export class TransferService {
   }
 
   /**
+   * Cost history and the journal both require a real branch. A missing branch
+   * used to fall through as an empty string and fail the foreign key on post.
+   */
+  private async resolvePostingBranch(
+    companyId: string,
+    transfer: { branchId: string | null; fromWarehouseId: string; toWarehouseId: string },
+    glCtx?: StockGlPostingContext
+  ): Promise<string> {
+    const stored = transfer.branchId?.trim();
+    if (stored) {
+      const branch = await prisma.branch.findFirst({
+        where: { id: stored, companyId, deletedAt: null },
+        select: { id: true },
+      });
+      if (branch) return branch.id;
+    }
+
+    const fromBranch = await warehouseBranchId(companyId, transfer.fromWarehouseId);
+    if (fromBranch) return fromBranch;
+
+    const toBranch = await warehouseBranchId(companyId, transfer.toWarehouseId);
+    if (toBranch) return toBranch;
+
+    const ctxBranch = glCtx?.branchId?.trim();
+    if (ctxBranch && ctxBranch !== companyId) return ctxBranch;
+
+    const defaultBranch = await companyDefaultBranchId(companyId);
+    if (defaultBranch) return defaultBranch;
+
+    throw new AppError(
+      422,
+      'لا يوجد فرع مُعرَّف للشركة. من إعدادات الشركة احفظ بيانات الفرع الرئيسي ثم أعد المحاولة.'
+    );
+  }
+
+  private postingContext(
+    glCtx: StockGlPostingContext | undefined,
+    branchId: string
+  ): StockGlPostingContext | undefined {
+    if (!glCtx) return undefined;
+    if (glCtx.branchId && glCtx.branchId !== glCtx.companyId) return glCtx;
+    return { ...glCtx, branchId };
+  }
+
+  /**
    * Post transfer (move quantities from source to destination warehouse).
    *
    * H1 fix: quantity mutations on both sides now go through
    * `stockMovementService` (row lock, `InventoryMovement` audit row,
    * negative-stock guard) instead of an unlocked read-modify-write.
    *
-   * C3 note: a transfer between warehouses of the same legal entity is GL
-   * *value*-neutral (both sides share one company inventory control
-   * account) — no journal entry is posted — but the cost ledger still needs
-   * to see the movement, so both legs carry the item's current average
-   * cost on the `InventoryMovement` row for audit/reconciliation.
+   * Posts stock legs at average cost, then a journal entry for the transfer
+   * value (inventory credit at source / debit at destination) when GL context
+   * is supplied from the API.
    */
   async postTransfer(companyId: string, transferId: string, glCtx?: StockGlPostingContext) {
     await assertStoreDocumentRight(glCtx, 'transfer', 'post');
@@ -492,19 +610,38 @@ export class TransferService {
         throw new Error('Transfer is already posted');
       }
 
-      await fiscalYearService.assertOpenForDate(companyId, transfer.date);
+      const fiscalYearId = await fiscalYearService.assertOpenForDate(companyId, transfer.date);
       await assertWarehouseActive(companyId, transfer.fromWarehouseId, { label: 'مخزن الصرف' });
       await assertWarehouseActive(companyId, transfer.toWarehouseId, { label: 'مخزن الإضافة' });
 
+      const branchId = await this.resolvePostingBranch(companyId, transfer, glCtx);
+      const glForPost = glCtx
+        ? { ...this.postingContext(glCtx, branchId)!, fiscalYearId }
+        : undefined;
       const sourceType = 'TRF';
-      const sourceNumber = transfer.serial ?? transfer.id.slice(0, 8);
+      const sourceNumber = transferSourceNumber(transfer);
       const sourceYearId = String(new Date(transfer.date).getFullYear());
 
       const orderedTransferLines = sortForStockLocking(transfer.lines, (l) => ({
         warehouseId: transfer.fromWarehouseId,
         itemId: l.itemId,
       }));
+
+      const inventorySystem = await ensurePerpetualInventoryGlReady(
+        companyId,
+        glForPost ?? glCtx,
+        transfer.fromWarehouseId
+      );
+
+      let glSkipped = false;
       await prisma.$transaction(async (tx) => {
+        await claimDocumentPost((args) => tx.transfer.updateMany(args), transferId, companyId);
+        if (transfer.branchId !== branchId) {
+          await tx.transfer.updateMany({
+            where: { id: transferId, companyId },
+            data: { branchId },
+          });
+        }
         for (const line of orderedTransferLines) {
           const qty = Number(line.quantity);
           if (qty <= 0) continue;
@@ -526,7 +663,7 @@ export class TransferService {
 
           const outbound = await inventoryCostingService.applyOutboundMovement(tx, {
             companyId,
-            branchId: transfer.branchId ?? undefined,
+            branchId,
             warehouseId: transfer.fromWarehouseId,
             itemId: line.itemId,
             locationId: line.fromLocationId,
@@ -541,7 +678,7 @@ export class TransferService {
 
           await inventoryCostingService.applyInboundMovement(tx, {
             companyId,
-            branchId: transfer.branchId ?? undefined,
+            branchId,
             warehouseId: transfer.toWarehouseId,
             itemId: line.itemId,
             locationId: line.toLocationId,
@@ -561,27 +698,25 @@ export class TransferService {
         // with fields that don't exist on the model — it threw at runtime on
         // every transfer between two differing cost centers. Post a real,
         // reversible GL entry moving value between the cost centers instead.
-        if (glCtx) {
-          try {
-            await stockMovementGlService.postTransferValueGlInTx(tx, glCtx, transfer);
-          } catch (error) {
-            logger.warn({ error, companyId, transferId }, 'Transfer stock posted; GL skipped');
-          }
+        if (glForPost) {
+          glSkipped = await runCompanyStockGlPosting(inventorySystem, async () => {
+            const journal = await stockMovementGlService.postTransferValueGlInTx(tx, glForPost, {
+              ...transfer,
+              branchId,
+            });
+            if (!journal) {
+              throw new AppError(
+                422,
+                'Inventory GL account is not configured in company settings'
+              );
+            }
+          });
         }
-
-        // Mark transfer as posted
-        await tx.transfer.update({
-          where: { id: transferId },
-          data: {
-            isPosted: true,
-            postedAt: new Date(),
-          },
-        });
       });
 
-      logger.info({ companyId, transferId }, 'Transfer posted');
+      logger.info({ companyId, transferId, glSkipped }, 'Transfer posted');
 
-      return { success: true };
+      return { success: true, glSkipped };
     } catch (error) {
       logger.error({ error, companyId, transferId }, 'Error posting transfer');
       throw error;
@@ -612,10 +747,14 @@ export class TransferService {
         throw new Error('Transfer is not posted');
       }
 
-      await fiscalYearService.assertOpenForDate(companyId, transfer.date);
+      const fiscalYearId = await fiscalYearService.assertOpenForDate(companyId, transfer.date);
 
+      const branchId = await this.resolvePostingBranch(companyId, transfer, glCtx);
+      const glForPost = glCtx
+        ? { ...this.postingContext(glCtx, branchId)!, fiscalYearId }
+        : undefined;
       const sourceType = 'TRF';
-      const sourceNumber = transfer.serial ?? transfer.id.slice(0, 8);
+      const sourceNumber = transferSourceNumber(transfer);
       const sourceYearId = String(new Date(transfer.date).getFullYear());
 
       // Use transaction to reverse movements atomically
@@ -624,61 +763,84 @@ export class TransferService {
         itemId: l.itemId,
       }));
       await prisma.$transaction(async (tx) => {
+        await claimDocumentUnpost((args) => tx.transfer.updateMany(args), transferId, companyId);
+        if (transfer.branchId !== branchId) {
+          await tx.transfer.updateMany({
+            where: { id: transferId, companyId },
+            data: { branchId },
+          });
+        }
         for (const line of orderedUnpostLines) {
           const qty = Number(line.quantity);
           if (qty <= 0) continue;
 
-          await postTransferLegsInOrder(tx, [
-            {
+          const originalIn = await tx.inventoryMovement.findFirst({
+            where: {
               companyId,
-              branchId: transfer.branchId ?? undefined,
-              warehouseId: transfer.fromWarehouseId,
+              sourceDocumentId: transfer.id,
               itemId: line.itemId,
-              locationId: line.fromLocationId,
-              quantityDelta: qty,
-              movementType: `${sourceType}-UNPOST`,
-              sourceType: `${sourceType}-UNPOST`,
-              sourceNumber,
-              sourceYearId,
-              documentDate: transfer.date,
-            },
-            {
-              companyId,
-              branchId: transfer.branchId ?? undefined,
               warehouseId: transfer.toWarehouseId,
-              itemId: line.itemId,
-              locationId: line.toLocationId,
-              quantityDelta: -qty,
-              movementType: `${sourceType}-UNPOST`,
-              sourceType: `${sourceType}-UNPOST`,
-              sourceNumber,
-              sourceYearId,
-              documentDate: transfer.date,
+              quantityDelta: { gt: 0 },
             },
-          ]);
+            orderBy: { createdAt: 'desc' },
+            select: { unitCost: true },
+          });
+          const transferCost = Number(originalIn?.unitCost ?? line.unitPrice ?? 0);
+          const legs = [
+            { warehouseId: transfer.toWarehouseId, locationId: line.toLocationId, reverse: true },
+            { warehouseId: transfer.fromWarehouseId, locationId: line.fromLocationId, reverse: false },
+          ].sort((a, b) => (a.warehouseId < b.warehouseId ? -1 : a.warehouseId > b.warehouseId ? 1 : 0));
+          for (const leg of legs) {
+            if (leg.reverse) {
+              await inventoryCostingService.reverseInboundInTx(tx, {
+                companyId,
+                branchId,
+                warehouseId: leg.warehouseId,
+                itemId: line.itemId,
+                locationId: leg.locationId,
+                quantity: qty,
+                originalUnitCost: transferCost,
+                movementType: COSTING_MOVEMENT.TRANSFER_OUT,
+                sourceType: `${sourceType}-UNPOST`,
+                sourceNumber,
+                sourceYearId,
+                sourceDocumentId: transfer.id,
+                transactionDate: transfer.date,
+                updateLastPurchasePrice: false,
+              });
+            } else {
+              await inventoryCostingService.applyInboundMovement(tx, {
+                companyId,
+                branchId,
+                warehouseId: leg.warehouseId,
+                itemId: line.itemId,
+                locationId: leg.locationId,
+                quantity: qty,
+                unitCost: transferCost,
+                movementType: COSTING_MOVEMENT.TRANSFER_IN,
+                sourceType: `${sourceType}-UNPOST`,
+                sourceNumber,
+                sourceYearId,
+                sourceDocumentId: transfer.id,
+                transactionDate: transfer.date,
+                updateLastPurchasePrice: false,
+              });
+            }
+          }
         }
 
         // Wave 3 fix: reverse the cost-center value-movement JE (this used
         // to be a no-op comment — the forward post never actually reversed).
-        if (glCtx) {
+        if (glForPost) {
           await stockMovementGlService.reverseBySourceInTx(
             tx,
-            glCtx,
+            glForPost,
             'TRF',
             sourceNumber,
             sourceYearId,
             `Transfer ${sourceNumber} unposted`
           );
         }
-
-        // Mark transfer as unposted
-        await tx.transfer.update({
-          where: { id: transferId },
-          data: {
-            isPosted: false,
-            postedAt: null,
-          },
-        });
       });
 
       logger.info({ companyId, transferId }, 'Transfer unposted');
@@ -721,7 +883,7 @@ export class TransferService {
           [transfer.journalEntryId],
           'cancel',
           undefined,
-          { sourceId: transfer.id, sourceType: 'STK', sourceNumber: transfer.serial ?? transfer.id.slice(0, 8) }
+          { sourceId: transfer.id, sourceType: 'TRF', sourceNumber: transferSourceNumber(transfer) }
         );
         const updateResult = await tx.transfer.updateMany({
           where: { id: transferId, companyId, version: transfer.version },

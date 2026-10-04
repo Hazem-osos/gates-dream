@@ -31,7 +31,7 @@ export class ReservationService {
     const customer = await prisma.customer.findFirst({
       where: { id: data.customerId, companyId },
     });
-    if (!customer) throw new AppError(404, 'Customer not found');
+    if (!customer) throw new AppError(404, 'العميل غير موجود');
 
     return prisma.$transaction(async (tx) => {
       await tx.realEstateUnit.update({

@@ -6,7 +6,7 @@ import { AuthRequest } from '../../../shared/auth/types';
 import { logger } from '../../../shared/logger';
 import { AppError } from '../../../shared/middleware/error-handler';
 import { hazemDemoSeedService } from '../hazem-demo-seed.service';
-import { HAZEM_EMAIL } from '../data/hazem-demo.constants';
+import { isAdminRequest } from '../../../shared/auth/roles.util';
 
 const router = Router();
 
@@ -42,9 +42,11 @@ router.post(
   authorize({ resource: 'account', action: 'edit' }),
   async (req: AuthRequest, res: Response) => {
     try {
-      const email = req.user?.email?.toLowerCase();
-      if (email && email !== HAZEM_EMAIL) {
-        logger.warn({ email }, 'Non-hazem user triggered hazem demo seed');
+      if (!isAdminRequest(req)) {
+        return void res.status(403).json({
+          status: 'error',
+          message: 'تهيئة البيانات التجريبية متاحة للمسؤول فقط',
+        });
       }
 
       const forceTransactions = req.body?.forceTransactions === true;

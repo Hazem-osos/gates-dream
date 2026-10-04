@@ -63,7 +63,7 @@ function LabelSheet({
           <div className="text-[8px] truncate">{item.arabicName}</div>
           <BarcodeSvg value={code} />
           {price != null ? (
-            <div className="text-[9px] font-semibold">{price.toFixed(2)} EGP</div>
+            <div className="text-[9px] font-semibold">{price.toLocaleString()} EGP</div>
           ) : null}
         </div>
       ))}

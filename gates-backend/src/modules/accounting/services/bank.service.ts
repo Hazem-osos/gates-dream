@@ -1,4 +1,5 @@
 import prisma from '../../../shared/database/prisma';
+import { permanentDelete } from '../../../shared/database/permanent-delete.util';
 import { logger } from '../../../shared/logger';
 
 export interface CreateBankData {
@@ -113,7 +114,7 @@ export class BankService {
   }
 
   /**
-   * Delete a bank (soft delete by setting isActive to false)
+   * Delete a bank (permanent delete by setting isActive to false)
    */
   async deleteBank(companyId: string, bankId: string) {
     const bank = await this.getBankById(companyId, bankId);
@@ -130,10 +131,7 @@ export class BankService {
       throw new Error('Cannot delete bank with active accounts');
     }
 
-    return prisma.bank.update({
-      where: { id: bankId },
-      data: { isActive: false },
-    });
+    return permanentDelete('البنك', () => prisma.bank.delete({ where: { id: bankId } }));
   }
 }
 

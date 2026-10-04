@@ -62,14 +62,14 @@ export default function DocumentaryCreditDefinitionPage() {
         { id: 'print', label: 'طباعة', onClick: () => void printPageContent('اعتماد مستندي') },
       ]}
     >
-      <section className="mb-3 flex flex-wrap items-center justify-between gap-4 rounded-xl border border-[#0E79AA]/20 bg-gradient-to-l from-[#0E79AA0D] to-white p-3">
+      <section className="mb-3 flex flex-wrap items-center justify-between gap-4 rounded-xl border border-[#0E78AA]/20 bg-gradient-to-l from-[#0E78AA0D] to-white p-3">
         <div className="flex items-center gap-3">
-          <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#0E79AA] text-white">
+          <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#0E78AA] text-white">
             <Banknote className="h-5 w-5" aria-hidden />
           </span>
           <div>
             <p className="text-xs font-semibold text-slate-500">ملخص التزام LC</p>
-            <p className="text-lg font-bold tabular-nums text-[#0E79AA]">
+            <p className="text-lg font-bold tabular-nums text-[#0E78AA]">
               {form.creditValue.trim() ? formatNum(commitmentValue) : '—'}{' '}
               <span className="text-sm font-medium text-slate-600">{form.currency}</span>
             </p>

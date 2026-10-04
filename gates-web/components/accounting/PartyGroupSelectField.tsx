@@ -41,7 +41,7 @@ export function PartyGroupSelectField({ kind, label, value, options, onChange, o
             aria-label="إضافة مجموعة"
             title="إضافة مجموعة"
             onClick={() => setOpen(true)}
-            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[#D6EAF3] bg-white text-[#0E79AA] hover:border-[#0E79AA] hover:bg-[#F0F7FB]"
+            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[#D6EAF3] bg-white text-[#0E78AA] hover:border-[#0E78AA] hover:bg-[#F0F7FB]"
           >
             <Plus className="h-4 w-4" strokeWidth={2.4} />
           </button>

@@ -9,25 +9,21 @@ type Props = {
   journalEntryId?: string | null;
   journalNumber?: string | null;
   pendingLabel?: string;
+  onPreview?: () => void;
 };
 
 export function GeneratedJournalTab({
   journalEntryId,
   journalNumber,
   pendingLabel = 'يتولد القيد آلياً فور الحفظ',
+  onPreview,
 }: Props) {
   const router = useRouter();
   const tabs = useAppTabs();
 
-  if (!journalEntryId) {
-    return (
-      <span className="inline-flex items-center rounded-t-lg border border-dashed border-slate-300 bg-slate-50 px-3 py-1.5 text-[11px] italic text-slate-500">
-        {pendingLabel}
-      </span>
-    );
-  }
-
   const openJournal = () => {
+    onPreview?.();
+    if (!journalEntryId) return;
     const href = `/accounting/operations/journal-entry?id=${encodeURIComponent(journalEntryId)}`;
     if (tabs) {
       tabs.openAppTab(href);
@@ -35,6 +31,20 @@ export function GeneratedJournalTab({
     }
     router.push(destinationAppTabHref(href));
   };
+
+  if (!journalEntryId) {
+    return (
+      <button
+        type="button"
+        onClick={openJournal}
+        title="معاينة القيد المحاسبي"
+        className="inline-flex items-center gap-1.5 rounded-lg border border-[#0E78AA]/40 bg-white px-3 py-1.5 text-xs font-semibold text-[#0E78AA] shadow-sm hover:bg-[#E8F4FA]"
+      >
+        <FileText className="h-3.5 w-3.5" />
+        <span>{pendingLabel || 'معاينة القيد المحاسبي'}</span>
+      </button>
+    );
+  }
 
   return (
     <button

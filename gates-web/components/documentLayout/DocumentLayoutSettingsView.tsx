@@ -189,8 +189,8 @@ export function DocumentLayoutSettingsView() {
                 onClick={() => applyRow(row)}
                 className={`flex w-full items-center justify-between rounded-xl border px-3 py-2.5 text-right ${
                   row.id && row.id === config.id
-                    ? 'border-[#0E79AA] bg-[#0E79AA]/5'
-                    : 'border-[#D6EAF3] bg-white hover:border-[#0E79AA]'
+                    ? 'border-[#0E78AA] bg-[#0E78AA]/5'
+                    : 'border-[#D6EAF3] bg-white hover:border-[#0E78AA]'
                 }`}
               >
                 <span>
@@ -198,7 +198,7 @@ export function DocumentLayoutSettingsView() {
                   <span className="block text-[11px] text-slate-500">{DOCUMENT_TYPE_LABELS[row.documentType]}</span>
                 </span>
                 {row.isDefault ? (
-                  <span className="rounded-full bg-[#0E79AA]/10 px-2 py-0.5 text-[10px] font-semibold text-[#0E79AA]">
+                  <span className="rounded-full bg-[#0E78AA]/10 px-2 py-0.5 text-[10px] font-semibold text-[#0E78AA]">
                     افتراضي
                   </span>
                 ) : null}

@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { Truck, UserRound } from 'lucide-react';
-import UserPermissionsBar from '@/components/UserPermissionsBar';
 import {
   CompactFormField,
   FormSectionCard,
@@ -17,6 +16,7 @@ import ErrorToast from '@/components/ErrorToast';
 import { toast } from '@/lib/feedback/toast';
 import type { ApiError } from '@/lib/api/types';
 import { useNextMasterSerial } from '@/lib/hooks/useNextMasterSerial';
+import { preferForwardSerial } from '@/lib/masters/nextNumericSerial';
 import { DistributionGroupSelectField } from '@/components/accounting/DistributionGroupSelectField';
 import { groupRoleForFolder } from '@/components/accounting/DistributionGroupModal';
 
@@ -162,7 +162,10 @@ function DelegateKindCardInner({ kind }: { kind: DelegateKind }) {
 
   useEffect(() => {
     if (selectedId || !nextSerial) return;
-    setFormData((prev) => (prev.serial === nextSerial ? prev : { ...prev, serial: nextSerial }));
+    setFormData((prev) => {
+      const serial = preferForwardSerial(prev.serial, nextSerial);
+      return serial === prev.serial ? prev : { ...prev, serial };
+    });
   }, [nextSerial, selectedId]);
 
   useEffect(() => {
@@ -330,7 +333,6 @@ function DelegateKindCardInner({ kind }: { kind: DelegateKind }) {
       favoriteHref={kind === 'DISTRIBUTOR' ? '/accounting/cards/distributor' : '/accounting/cards/driver'}
     >
       <div className="mb-4">
-        <UserPermissionsBar />
       </div>
       <form
         className="w-full text-base"

@@ -53,6 +53,7 @@ const customerFields = {
   employeeId: z.string().uuid().optional().nullable(),
   followUpDate: z.coerce.date().optional().nullable(),
   followUpDateHijri: z.string().optional(),
+  etaProfile: z.record(z.string(), z.unknown()).optional().nullable(),
 };
 
 function refineCustomerMinimum(
@@ -72,7 +73,6 @@ export const createCustomerSchema = z.object(customerFields).superRefine(refineC
 
 export const updateCustomerSchema = z.object(customerFields).partial().extend({
   isActive: z.boolean().optional(),
-  balance: z.number().optional(),
 });
 
 export const customerQuerySchema = z.object({

@@ -61,7 +61,7 @@ export function AddPenaltyModal({
   return (
     <div className="fixed inset-0 z-[140] flex items-center justify-center bg-black/40 p-4" dir="rtl">
       <div className="w-full max-w-lg space-y-4 rounded-xl bg-white p-5 shadow-xl">
-        <h2 className="text-lg font-bold text-[#0E79AA]">إضافة غرامة موقع</h2>
+        <h2 className="text-lg font-bold text-[#0E78AA]">إضافة غرامة موقع</h2>
         <label className="block text-sm">
           <span className="mb-1 block font-medium">نوع الغرامة</span>
           <select

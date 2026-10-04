@@ -18,7 +18,7 @@ const TONE_CLASS: Record<DashboardTone, string> = {
 const TONE_DOT: Record<DashboardTone, string> = {
   red: 'bg-red-500',
   amber: 'bg-amber-500',
-  blue: 'bg-[#0E79AA]',
+  blue: 'bg-[#0E78AA]',
 };
 
 const STATUS_AR: Record<string, string> = {
@@ -144,18 +144,18 @@ export function ModuleCommandCenter({
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <section className="rounded-2xl border border-[#D6EAF3] bg-white p-5 shadow-sm">
-          <h2 className="mb-3 text-base font-bold text-[#0E79AA]">{leftTitle}</h2>
+          <h2 className="mb-3 text-base font-bold text-[#0E78AA]">{leftTitle}</h2>
           <div className="h-72">{loading ? <TableSkeleton rows={4} columns={2} /> : leftChart}</div>
         </section>
         <section className="rounded-2xl border border-[#D6EAF3] bg-white p-5 shadow-sm">
-          <h2 className="mb-3 text-base font-bold text-[#0E79AA]">{rightTitle}</h2>
+          <h2 className="mb-3 text-base font-bold text-[#0E78AA]">{rightTitle}</h2>
           <div className="h-72">{loading ? <TableSkeleton rows={4} columns={2} /> : rightChart}</div>
         </section>
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <section className="rounded-2xl border border-[#D6EAF3] bg-white p-5 shadow-sm">
-          <h2 className="mb-3 text-base font-bold text-[#0E79AA]">صندوق العمليات الحرجة</h2>
+          <h2 className="mb-3 text-base font-bold text-[#0E78AA]">صندوق العمليات الحرجة</h2>
           {loading ? (
             <TableSkeleton rows={4} columns={2} />
           ) : inbox.length === 0 ? (
@@ -190,7 +190,7 @@ export function ModuleCommandCenter({
         </section>
 
         <section className="rounded-2xl border border-[#D6EAF3] bg-white p-5 shadow-sm">
-          <h2 className="mb-3 text-base font-bold text-[#0E79AA]">سجل العمليات والنشاطات الأخيرة</h2>
+          <h2 className="mb-3 text-base font-bold text-[#0E78AA]">سجل العمليات والنشاطات الأخيرة</h2>
           {loading ? (
             <TableSkeleton rows={5} columns={2} />
           ) : activity.length === 0 ? (
@@ -200,7 +200,7 @@ export function ModuleCommandCenter({
               {activity.map((item) => (
                 <li key={item.id} className="py-3">
                   <Link href={item.href} className="flex items-center gap-3">
-                    <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[#0E79AA] text-xs font-bold text-white">
+                    <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[#0E78AA] text-xs font-bold text-white">
                       {item.title.slice(0, 1)}
                     </span>
                     <div className="min-w-0 flex-1">
@@ -208,7 +208,7 @@ export function ModuleCommandCenter({
                       <p className="truncate text-xs text-slate-500">{item.detail}</p>
                     </div>
                     <div className="text-left">
-                      <span className="rounded-full bg-[#F0F7FB] px-2 py-0.5 text-[10px] font-semibold text-[#0E79AA]">
+                      <span className="rounded-full bg-[#F0F7FB] px-2 py-0.5 text-[10px] font-semibold text-[#0E78AA]">
                         {statusLabel(item.status)}
                       </span>
                       <p className="mt-1 text-[11px] text-slate-400">{formatDateAr(item.at)}</p>

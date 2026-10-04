@@ -126,7 +126,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
         {settingsHref ? (
           <button
             type="button"
-            className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-slate-400 hover:bg-[#E6F0F7] hover:text-[#0E79AA]"
+            className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-slate-400 hover:bg-[#E6F0F7] hover:text-[#0E78AA]"
             onPointerDown={(e) => {
               e.preventDefault();
               e.stopPropagation();

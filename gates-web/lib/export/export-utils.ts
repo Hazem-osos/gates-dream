@@ -3,7 +3,7 @@
 import type { AppTableColumn } from '@/app/components/ui/AppTable';
 import { printDom, printHtml, wrapPrintHtml } from '@/lib/print/printHtml';
 
-export type ExportColumnDef<T extends Record<string, unknown> = Record<string, unknown>> = {
+export type ExportColumnDef<T extends object = Record<string, unknown>> = {
   header: string;
   id: string;
   accessor?: keyof T;
@@ -11,16 +11,17 @@ export type ExportColumnDef<T extends Record<string, unknown> = Record<string, u
   getValue?: (row: T) => unknown;
 };
 
-export function rowsToExportMatrix<T extends Record<string, unknown>>(
+export function rowsToExportMatrix<T extends object>(
   columns: ExportColumnDef<T>[],
   data: T[]
 ): { headers: string[]; rows: (string | number)[][] } {
   const headers = columns.map((c) => c.header);
   const rows = data.map((row) =>
     columns.map((col) => {
+      const record = row as Record<string, unknown>;
       let raw: unknown;
       if (col.getValue) raw = col.getValue(row);
-      else if (col.accessor) raw = row[col.accessor];
+      else if (col.accessor) raw = record[String(col.accessor)];
       else raw = '';
       if (raw == null || raw === '') return '';
       if (col.numeric && typeof raw === 'number') {
@@ -33,7 +34,7 @@ export function rowsToExportMatrix<T extends Record<string, unknown>>(
   return { headers, rows };
 }
 
-export function appTableColumnsToExport<T extends Record<string, unknown>>(
+export function appTableColumnsToExport<T extends object>(
   columns: AppTableColumn<T>[]
 ): ExportColumnDef<T>[] {
   return columns
@@ -50,7 +51,8 @@ export async function exportRowsToExcel(
   fileName: string,
   headers: string[],
   rows: (string | number)[][],
-  sheetName = 'Sheet1'
+  sheetName = 'Sheet1',
+  numericColumnIndexes?: number[]
 ): Promise<void> {
   const { utils, writeFile } = await import(/* webpackChunkName: "xlsx" */ 'xlsx');
   const aoa = [headers, ...rows];
@@ -64,19 +66,41 @@ export async function exportRowsToExcel(
     return { wch: Math.min(48, max + 2) };
   });
   ws['!cols'] = colWidths;
+  if (numericColumnIndexes?.length) {
+    for (let ri = 1; ri < aoa.length; ri += 1) {
+      for (const ci of numericColumnIndexes) {
+        const addr = utils.encode_cell({ r: ri, c: ci });
+        const cell = ws[addr];
+        if (!cell || cell.v === '' || cell.v == null) continue;
+        if (typeof cell.v === 'number') {
+          cell.t = 'n';
+          cell.z = '#,##0.00';
+        }
+      }
+    }
+  }
   const wb = utils.book_new();
-  utils.book_append_sheet(wb, ws, sheetName);
+  utils.book_append_sheet(wb, ws, sheetName.slice(0, 31));
   writeFile(wb, fileName.endsWith('.xlsx') ? fileName : `${fileName}.xlsx`);
 }
 
-export async function exportTableToExcel<T extends Record<string, unknown>>(
+export async function exportTableToExcel<T extends object>(
   fileName: string,
   columns: ExportColumnDef<T>[],
   data: T[],
   sheetName?: string
 ): Promise<void> {
   const { headers, rows } = rowsToExportMatrix(columns, data);
-  await exportRowsToExcel(fileName, headers, rows, sheetName);
+  const numericColumnIndexes = columns
+    .map((col, index) => (col.numeric ? index : -1))
+    .filter((index) => index >= 0);
+  await exportRowsToExcel(
+    fileName,
+    headers,
+    rows,
+    sheetName,
+    numericColumnIndexes.length ? numericColumnIndexes : undefined
+  );
 }
 
 export function openPrintWindow(html: string, title = 'طباعة'): void {

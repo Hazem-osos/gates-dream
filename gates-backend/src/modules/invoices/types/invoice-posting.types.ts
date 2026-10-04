@@ -4,7 +4,8 @@ export type InvoiceKind =
   | 'PURCHASE'
   | 'SALE'
   | 'PURCHASE_RETURN'
-  | 'SALE_RETURN';
+  | 'SALE_RETURN'
+  | 'SALES_ORDER';
 
 export interface InvoicePostingContext extends JournalPostingContext {
   fiscalYearId: string;

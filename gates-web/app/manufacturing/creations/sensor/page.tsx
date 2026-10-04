@@ -1,14 +1,13 @@
 'use client';
 
-import { useState } from 'react';
-import { CompactFormField, FormSectionCard, compactControlClass, StatusBadge } from '@/components/ui';
-import { useApiQuery, useApiMutation, useInvalidateQuery } from '@/lib/hooks/useApi';
-import ErrorToast from '@/components/ErrorToast';
-import SuccessToast from '@/components/SuccessToast';
-import type { ApiError } from '@/lib/api/types';
+import { useMemo, useState } from 'react';
+import { CompactFormField, compactControlClass } from '@/components/ui';
+import { useBackendReachability } from '@/lib/hooks/useBackendReachability';
+import { useApiQuery } from '@/lib/hooks/useApi';
 import {
   ManufacturingPageChrome,
-  MfgMetric,
+  MfgEmptyRow,
+  MfgFilterCard,
   MfgTableCard,
   mfgTableClass,
   mfgTdClass,
@@ -17,141 +16,111 @@ import {
   mfgTrClass,
 } from '@/components/manufacturing/ManufacturingPageChrome';
 
-type SensorStatus = {
-  connected?: boolean;
+type SensorReadingRow = {
+  id: string;
+  machineId: string;
+  sensorType: string;
+  value: number;
+  unit: string | null;
+  timestamp: string;
 };
 
-const SENSOR_TYPES = [
-  { value: 'temperature', label: 'درجة الحرارة' },
-  { value: 'pressure', label: 'الضغط' },
-  { value: 'humidity', label: 'الرطوبة' },
-  { value: 'vibration', label: 'الاهتزاز' },
-  { value: 'speed', label: 'السرعة' },
-];
+const SENSOR_TYPE_LABELS: Record<string, string> = {
+  temperature: 'درجة الحرارة',
+  pressure: 'الضغط',
+  humidity: 'الرطوبة',
+  vibration: 'الاهتزاز',
+  speed: 'السرعة',
+};
 
-export default function SensorPage() {
-  const invalidateQuery = useInvalidateQuery();
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
-  const [formData, setFormData] = useState({
-    machineId: '',
-    sensorType: '',
-  });
+export default function SensorReadingsPage() {
+  useBackendReachability();
+  const [machineId, setMachineId] = useState('');
+  const [sensorType, setSensorType] = useState('');
 
-  const { data: sensorStatusResponse, isFetching } = useApiQuery<SensorStatus>(
-    ['sensor-status'],
-    '/manufacturing/sensors/status',
-    {},
-    { refetchInterval: 5000 }
+  const query = useMemo(() => {
+    const q: Record<string, string | number> = { limit: 100 };
+    if (machineId.trim()) q.machineId = machineId.trim();
+    if (sensorType.trim()) q.sensorType = sensorType.trim();
+    return q;
+  }, [machineId, sensorType]);
+
+  const { data, isLoading } = useApiQuery<SensorReadingRow[]>(
+    ['sensor-readings', query.machineId ?? '', query.sensorType ?? ''],
+    '/manufacturing/sensors/readings',
+    query,
+    { refetchInterval: 15_000 }
   );
-
-  const sensorSubscriptionMutation = useApiMutation<unknown, Record<string, unknown>>(
-    '/manufacturing/sensors/subscribe',
-    'POST',
-    {
-      onSuccess: () => {
-        setSuccess('تم الاشتراك في بيانات المستشعر بنجاح');
-        invalidateQuery(['sensor-status']);
-      },
-      onError: (err: ApiError) => {
-        setError(err.message || 'حدث خطأ أثناء الاشتراك');
-      },
-    }
-  );
-
-  const handleSave = () => {
-    setError('');
-    setSuccess('');
-    if (!formData.machineId) {
-      setError('يرجى إدخال معرف الآلة');
-      return;
-    }
-    if (!formData.sensorType) {
-      setError('يرجى إدخال نوع المستشعر');
-      return;
-    }
-    sensorSubscriptionMutation.mutate({
-      machineId: formData.machineId,
-      sensorType: formData.sensorType,
-    });
-  };
-
-  const connected = Boolean(sensorStatusResponse?.data?.connected);
-  const sensorLabel = SENSOR_TYPES.find((s) => s.value === formData.sensorType)?.label ?? '—';
+  const rows = data?.data ?? [];
 
   return (
     <ManufacturingPageChrome
-      title="إدارة المستشعرات"
-      statusLabel={connected ? 'متصل' : 'غير متصل'}
-      statusTone={connected ? 'success' : 'danger'}
+      title="قراءات المستشعرات"
+      statusLabel="قائمة"
       favoriteHref="/manufacturing/creations/sensor"
-      onSave={handleSave}
-      savePending={sensorSubscriptionMutation.isPending || isFetching}
-      saveLabel="اشتراك"
+      hideSave
     >
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <MfgMetric label="حالة الاتصال" value={connected ? 'متصل' : 'غير متصل'} tone={connected ? 'ok' : 'bad'} />
-        <MfgMetric label="معرف الآلة" value={formData.machineId || '—'} />
-        <MfgMetric label="نوع المستشعر" value={sensorLabel} />
-      </div>
-
-      <FormSectionCard
-        title="اشتراك المستشعر"
-        subtitle="اربط آلة ونوع قراءة لمراقبة الخط"
-        bodyClassName="grid-cols-1 sm:grid-cols-2"
-      >
+      <MfgFilterCard>
         <CompactFormField
           label="معرف الآلة"
-          placeholder="إدخل معرف الآلة"
-          value={formData.machineId}
-          onChange={(e) => setFormData((prev) => ({ ...prev, machineId: e.target.value }))}
+          placeholder="تصفية اختيارية"
+          value={machineId}
+          onChange={(e) => setMachineId(e.target.value)}
         />
         <CompactFormField label="نوع المستشعر">
           <select
-            value={formData.sensorType}
-            onChange={(e) => setFormData((prev) => ({ ...prev, sensorType: e.target.value }))}
+            value={sensorType}
+            onChange={(e) => setSensorType(e.target.value)}
             className={compactControlClass}
           >
-            <option value="">اختر نوع المستشعر</option>
-            {SENSOR_TYPES.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
+            <option value="">الكل</option>
+            {Object.entries(SENSOR_TYPE_LABELS).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
               </option>
             ))}
           </select>
         </CompactFormField>
-      </FormSectionCard>
+      </MfgFilterCard>
 
-      <MfgTableCard
-        title="حالة الخط"
-        toolbar={<StatusBadge compact label={connected ? 'متصل' : 'غير متصل'} tone={connected ? 'success' : 'danger'} />}
-      >
+      <MfgTableCard title={`القراءات (${rows.length})`}>
         <table className={mfgTableClass}>
           <thead className={mfgTheadClass}>
             <tr>
-              <th className={mfgThClass}>الحقل</th>
-              <th className={mfgThClass}>القيمة</th>
+              <th className={mfgThClass}>الوقت</th>
+              <th className={mfgThClass}>الآلة</th>
+              <th className={mfgThClass}>النوع</th>
+              <th className={`${mfgThClass} text-left`}>القيمة</th>
+              <th className={mfgThClass}>الوحدة</th>
             </tr>
           </thead>
           <tbody>
-            <tr className={mfgTrClass}>
-              <td className={mfgTdClass}>الاتصال</td>
-              <td className={mfgTdClass}>{connected ? 'متصل' : 'غير متصل'}</td>
-            </tr>
-            <tr className={mfgTrClass}>
-              <td className={mfgTdClass}>الآلة</td>
-              <td className={mfgTdClass}>{formData.machineId || '—'}</td>
-            </tr>
-            <tr className={mfgTrClass}>
-              <td className={mfgTdClass}>المستشعر</td>
-              <td className={mfgTdClass}>{sensorLabel}</td>
-            </tr>
+            {isLoading ? (
+              <MfgEmptyRow colSpan={5}>جاري التحميل…</MfgEmptyRow>
+            ) : rows.length === 0 ? (
+              <MfgEmptyRow colSpan={5}>لا توجد قراءات مسجّلة</MfgEmptyRow>
+            ) : (
+              rows.map((row) => (
+                <tr key={row.id} className={mfgTrClass}>
+                  <td className={mfgTdClass}>
+                    {row.timestamp
+                      ? new Date(row.timestamp).toLocaleString('ar-EG')
+                      : '—'}
+                  </td>
+                  <td className={`${mfgTdClass} font-mono`}>{row.machineId}</td>
+                  <td className={mfgTdClass}>
+                    {SENSOR_TYPE_LABELS[row.sensorType] ?? row.sensorType}
+                  </td>
+                  <td className={`${mfgTdClass} text-left tabular-nums font-semibold`}>
+                    {Number(row.value).toLocaleString('en-US', { maximumFractionDigits: 4 })}
+                  </td>
+                  <td className={mfgTdClass}>{row.unit || '—'}</td>
+                </tr>
+              ))
+            )}
           </tbody>
         </table>
       </MfgTableCard>
-
-      {error ? <ErrorToast message={error} onClose={() => setError('')} /> : null}
-      {success ? <SuccessToast message={success} onClose={() => setSuccess('')} /> : null}
     </ManufacturingPageChrome>
   );
 }

@@ -25,7 +25,7 @@ export type ProfitAndLossPort = {
     grossProfit?: number;
     operatingExpenses?: number;
     netProfit?: number;
-    summary?: Record<string, number>;
+    summary?: Record<string, number | string>;
   }>;
 };
 

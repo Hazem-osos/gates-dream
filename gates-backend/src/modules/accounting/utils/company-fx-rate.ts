@@ -81,3 +81,71 @@ export async function resolveCompanyFxRate(
 export function toBaseAmount(amount: number, exchangeRate: number): number {
   return Number(amount || 0) * asFxRate(exchangeRate, 1);
 }
+
+/**
+ * Foreign currency must not be stored at rate 1 unless the currency card itself is 1.
+ * A missing or 1 client rate falls back to the catalog rate (pounds per one unit).
+ */
+export async function rateForSave(
+  companyId: string,
+  currencyCode?: string | null,
+  clientRate?: unknown
+): Promise<number> {
+  const resolved = await resolveCompanyFxRate(companyId, currencyCode);
+  if (resolved.exchangeRate === 1 && isUnitRateCurrency(resolved.currencyCode)) return 1;
+  const client = clientRate == null || clientRate === '' ? null : asFxRate(clientRate, 0);
+  if (client && client !== 1) return client;
+  return resolved.exchangeRate;
+}
+
+export async function loadCurrencyCatalog(companyId: string) {
+  const settings = await prisma.companySettings.findUnique({
+    where: { companyId },
+    select: { defaultCurrency: true },
+  });
+  const companyBase = (settings?.defaultCurrency || POUND_CURRENCY).toUpperCase();
+  const rows = await prisma.currency.findMany({
+    where: { companyId, isActive: true },
+    select: { code: true, exchangeRate: true, arabicName: true },
+  });
+  const rates = new Map<string, number>();
+  for (const row of rows) {
+    const code = row.code.trim().toUpperCase();
+    rates.set(code, persistFxRate(code, row.exchangeRate, companyBase));
+  }
+  rates.set(companyBase, 1);
+  rates.set(POUND_CURRENCY, 1);
+  return { companyBase, rates };
+}
+
+/** Face amount expressed in the report currency. Repairs a foreign amount that was stored as if it were pounds. */
+export function moneyInReportCurrency(params: {
+  face: number;
+  base?: number | null;
+  currencyCode?: string | null;
+  exchangeRate?: number | null;
+  reportCurrency: string;
+  companyBase: string;
+  catalog: Map<string, number>;
+}): number {
+  const face = Number(params.face) || 0;
+  const code = String(params.currencyCode || params.companyBase).trim().toUpperCase() || params.companyBase;
+  const catalogRate = params.catalog.get(code) ?? 1;
+  const storedRate = asFxRate(params.exchangeRate, catalogRate);
+  const effectiveRate = isUnitRateCurrency(code, params.companyBase)
+    ? 1
+    : storedRate !== 1
+      ? storedRate
+      : catalogRate;
+  const storedBase = params.base == null ? null : Number(params.base);
+  const base =
+    storedBase != null &&
+    !( !isUnitRateCurrency(code, params.companyBase) && effectiveRate > 1 && Math.abs(storedBase - face) < 0.02 )
+      ? storedBase
+      : face * effectiveRate;
+  const reportCode = params.reportCurrency.trim().toUpperCase();
+  const reportRate = isUnitRateCurrency(reportCode, params.companyBase)
+    ? 1
+    : params.catalog.get(reportCode) || 1;
+  return base / reportRate;
+}

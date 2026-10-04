@@ -12,6 +12,7 @@ const VOUCHER_TITLE: Record<VoucherPrintKind, string> = {
 
 export function VoucherPrintActions({
   kind,
+  title,
   company,
   voucherNumber,
   date,
@@ -22,6 +23,7 @@ export function VoucherPrintActions({
   totalAmount,
 }: {
   kind: VoucherPrintKind;
+  title?: string;
   company?: CompanyPrintProfile;
   voucherNumber: string;
   date: string;
@@ -52,7 +54,7 @@ export function VoucherPrintActions({
       disabled={!canPrint}
       onPrintLayout={() =>
         printOperationalDocument({
-          title: VOUCHER_TITLE[kind] || 'سند',
+          title: title || VOUCHER_TITLE[kind] || 'سند',
           documentNo: voucherNumber || 'مسودة',
           documentDate: date || new Date().toISOString().slice(0, 10),
           sellerName: company?.nameAr,

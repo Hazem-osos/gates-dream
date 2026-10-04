@@ -3,6 +3,7 @@ import prisma from '../../../shared/database/prisma';
 import { scopedItemQuantityWhere } from '../utils/item-quantity-tenant';
 import { logger } from '../../../shared/logger';
 import { stockMovementService } from './stock-movement.service';
+import { inventoryCostingService } from './inventory-costing.service';
 import { itemCostService } from './item-cost.service';
 import { journalPostingService } from '../../accounting/services/journal-posting.service';
 import {
@@ -13,6 +14,14 @@ import {
 } from './stock-movement-gl.service';
 import { roundTo4 } from '../../../shared/utils/decimal-round';
 import { assertWarehouseActive } from '../utils/inventory-system';
+import {
+  ensurePerpetualInventoryGlReady,
+  runCompanyStockGlPosting,
+} from '../utils/stock-gl-posting-guard';
+import { AppError } from '../../../shared/middleware/error-handler';
+import { fiscalYearService } from '../../platform/services/fiscal-year.service';
+import { claimDocumentPost, claimDocumentUnpost } from '../utils/claim-document-post';
+import { resolveStoreDocumentSerialInTx } from './store-document-numbering.service';
 
 export interface DisassemblyComponentLine {
   componentItemId: string; // Component item ID (output)
@@ -115,7 +124,7 @@ export class DisassemblyService {
       });
 
       if (items.length !== allItemIds.size) {
-        throw new Error('One or more items not found or do not belong to company');
+        throw new AppError(422, 'صنف أو أكثر غير موجود أو لا يخص الشركة');
       }
 
       const disassembly = await prisma.$transaction(async (tx) => {
@@ -127,12 +136,20 @@ export class DisassemblyService {
           totalAmount += disassembledTotal;
         });
 
+        const serial = await resolveStoreDocumentSerialInTx(tx, {
+          companyId,
+          branchId: data.branchId ?? null,
+          fiscalYearId: null,
+          kind: 'disassembly',
+          clientSerial: data.serial,
+        });
+
         const record = await tx.disassembly.create({
           data: {
             companyId,
             branchId: data.branchId || null,
             description: data.description || null,
-            serial: data.serial || null,
+            serial,
             date: new Date(data.date),
             hijriDate: data.hijriDate || null,
             warehouseId: data.warehouseId,
@@ -402,19 +419,20 @@ export class DisassemblyService {
       });
 
       if (!disassembly) {
-        throw new Error('Disassembly not found');
+        throw new AppError(404, 'أمر التفكيك غير موجود');
       }
 
       if (disassembly.isCancelled) {
-        throw new Error('Cannot post cancelled disassembly');
+        throw new AppError(422, 'لا يمكن ترحيل أمر تفكيك ملغي');
       }
 
       if (disassembly.isPosted) {
-        throw new Error('Disassembly is already posted');
+        throw new AppError(422, 'أمر التفكيك مرحّل بالفعل');
       }
 
       const extras = parseDisassemblyExtras(disassembly.record);
       const destWarehouseId = extras.toWarehouseId || disassembly.warehouseId;
+      await fiscalYearService.assertOpenForDate(companyId, disassembly.date);
       await assertWarehouseActive(companyId, disassembly.warehouseId);
       if (destWarehouseId !== disassembly.warehouseId) {
         await assertWarehouseActive(companyId, destWarehouseId, { label: 'مخزن الإضافة' });
@@ -423,11 +441,33 @@ export class DisassemblyService {
       const sourceNumber = disassembly.serial ?? disassembly.id.slice(0, 8);
       const sourceYearId = String(new Date(disassembly.date).getFullYear());
 
+      const inventorySystem = await ensurePerpetualInventoryGlReady(
+        companyId,
+        glCtx,
+        disassembly.warehouseId
+      );
+
       const disassembledItemIds = [...new Set(disassembly.lines.map((l) => l.disassembledItemId))];
       const componentItemIds = [
         ...new Set(disassembly.lines.flatMap((l) => l.components.map((c) => c.componentItemId))),
       ];
       const allItemIds = [...new Set([...disassembledItemIds, ...componentItemIds])];
+
+      const resolveGlAccountsPair = async () => {
+        if (!glCtx) return null;
+        if (inventorySystem === 'PERPETUAL') {
+          const [source, dest] = await Promise.all([
+            resolveStockGlAccounts(companyId, disassembly.warehouseId),
+            resolveStockGlAccounts(companyId, destWarehouseId),
+          ]);
+          return { source, dest };
+        }
+        const [source, dest] = await Promise.all([
+          resolveStockGlAccounts(companyId, disassembly.warehouseId).catch(() => null),
+          resolveStockGlAccounts(companyId, destWarehouseId).catch(() => null),
+        ]);
+        return source && dest ? { source, dest } : null;
+      };
 
       const [unitCosts, items, glAccounts] = await Promise.all([
         itemCostService.getCostsAsOf(companyId, disassembledItemIds, disassembly.date),
@@ -435,14 +475,7 @@ export class DisassemblyService {
           where: { id: { in: allItemIds }, companyId },
           select: { id: true, mainAccountId: true },
         }),
-        glCtx
-          ? Promise.all([
-              resolveStockGlAccounts(companyId, disassembly.warehouseId),
-              resolveStockGlAccounts(companyId, destWarehouseId),
-            ])
-              .then(([source, dest]) => ({ source, dest }))
-              .catch(() => null)
-          : Promise.resolve(null),
+        resolveGlAccountsPair(),
       ]);
       const itemAccountById = new Map(items.map((i) => [i.id, i.mainAccountId]));
       const defaultInventoryAccountId = glAccounts?.source.inventoryAccountId;
@@ -451,6 +484,7 @@ export class DisassemblyService {
       const creditLines: { accountId: string; amount: number; description: string }[] = [];
 
       await prisma.$transaction(async (tx) => {
+        await claimDocumentPost((args) => tx.disassembly.updateMany(args), disassemblyId, companyId);
         for (const line of disassembly.lines) {
           const disassembledUnitCost = unitCosts.get(line.disassembledItemId) ?? 0;
           const totalValue = roundTo4(disassembledUnitCost * Number(line.disassembledQuantity));
@@ -493,6 +527,9 @@ export class DisassemblyService {
           let allocated = 0;
           for (let i = 0; i < line.components.length; i++) {
             const component = line.components[i];
+            if (component.componentItemId === line.disassembledItemId) {
+              throw new AppError(422, 'لا يمكن أن يكون مكوّن التفكيك هو نفس الصنف المُفكَّك');
+            }
             const componentQty = Number(component.quantity);
             const isLast = i === line.components.length - 1;
             const share = isLast
@@ -505,31 +542,20 @@ export class DisassemblyService {
             allocated = roundTo4(allocated + share);
             const componentUnitCost = componentQty > 0 ? roundTo4(share / componentQty) : 0;
 
-            await stockMovementService.postMovementInTx(tx, {
+            await inventoryCostingService.applyInboundMovement(tx, {
               companyId,
               branchId: disassembly.branchId ?? undefined,
               warehouseId: destWarehouseId,
               itemId: component.componentItemId,
-              quantityDelta: componentQty,
+              quantity: componentQty,
               unitCost: componentUnitCost,
               movementType: sourceType,
               sourceType,
               sourceNumber,
               sourceYearId,
-              documentDate: disassembly.date,
-            });
-
-            await itemCostService.applyMovingAverageInTx(tx, {
-              companyId,
-              branchId: disassembly.branchId ?? '',
-              itemId: component.componentItemId,
-              invoiceDate: disassembly.date,
-              itemCount: componentQty,
-              itemPrice: componentUnitCost,
-              sourceNum: sourceNumber,
-              sourceYearId,
-              sourceType,
-              change: 1,
+              sourceDocumentId: disassembly.id,
+              transactionDate: disassembly.date,
+              updateLastPurchasePrice: false,
             });
 
             if (glAccounts) {
@@ -551,16 +577,18 @@ export class DisassemblyService {
 
         let journalEntryId: string | undefined;
         if (glCtx && glAccounts) {
-          const je = await stockMovementGlService.postInventoryTransformationGlInTx(
-            tx,
-            glCtx,
-            disassembly,
-            'DISASSEMBLY',
-            debitLines,
-            creditLines,
-            'disassembly'
-          );
-          journalEntryId = je?.id;
+          await runCompanyStockGlPosting(inventorySystem, async () => {
+            const je = await stockMovementGlService.postInventoryTransformationGlInTx(
+              tx,
+              glCtx,
+              disassembly,
+              'DISASSEMBLY',
+              debitLines,
+              creditLines,
+              'disassembly'
+            );
+            journalEntryId = je?.id;
+          });
         }
 
         await tx.disassembly.update({
@@ -582,7 +610,12 @@ export class DisassemblyService {
       return { success: true };
     } catch (error) {
       logger.error({ error, companyId, disassemblyId }, 'Error posting disassembly');
-      throw error;
+      if (error instanceof AppError) throw error;
+      const msg = error instanceof Error ? error.message : '';
+      if (/insufficient|not enough|negative/i.test(msg)) {
+        throw new AppError(422, 'الكمية غير كافية في المخزن لترحيل التفكيك');
+      }
+      throw new AppError(422, msg || 'تعذر ترحيل أمر التفكيك');
     }
   }
 
@@ -611,47 +644,61 @@ export class DisassemblyService {
       });
 
       if (!disassembly) {
-        throw new Error('Disassembly not found');
+        throw new AppError(404, 'أمر التفكيك غير موجود');
       }
 
       if (!disassembly.isPosted) {
-        throw new Error('Disassembly is not posted');
+        throw new AppError(422, 'أمر التفكيك غير مرحّل');
       }
 
       const extras = parseDisassemblyExtras(disassembly.record);
       const destWarehouseId = extras.toWarehouseId || disassembly.warehouseId;
+      await fiscalYearService.assertOpenForDate(companyId, disassembly.date);
       const sourceType = 'DSM';
       const sourceNumber = disassembly.serial ?? disassembly.id.slice(0, 8);
       const sourceYearId = String(new Date(disassembly.date).getFullYear());
 
       await prisma.$transaction(async (tx) => {
+        await claimDocumentUnpost((args) => tx.disassembly.updateMany(args), disassemblyId, companyId);
         for (const line of disassembly.lines) {
-          await stockMovementService.postMovementInTx(tx, {
+          await inventoryCostingService.applyInboundMovement(tx, {
             companyId,
             branchId: disassembly.branchId ?? undefined,
             warehouseId: disassembly.warehouseId,
             itemId: line.disassembledItemId,
-            quantityDelta: Number(line.disassembledQuantity),
+            quantity: Number(line.disassembledQuantity),
+            inheritCurrentCost: true,
+            updateLastPurchasePrice: false,
             movementType: `${sourceType}-UNPOST`,
             sourceType: `${sourceType}-UNPOST`,
             sourceNumber,
             sourceYearId,
-            documentDate: disassembly.date,
+            transactionDate: new Date(disassembly.date),
           });
 
           for (const component of line.components) {
             const componentQty = Number(component.quantity);
-            await stockMovementService.postMovementInTx(tx, {
+            const postedCost = await inventoryCostingService.postedUnitCost(tx, {
+              companyId,
+              itemId: component.componentItemId,
+              warehouseId: destWarehouseId,
+              sourceType,
+              sourceNumber,
+              sourceDocumentId: disassembly.id,
+            });
+            await inventoryCostingService.reverseInboundInTx(tx, {
               companyId,
               branchId: disassembly.branchId ?? undefined,
               warehouseId: destWarehouseId,
               itemId: component.componentItemId,
-              quantityDelta: -componentQty,
+              quantity: componentQty,
+              originalUnitCost: postedCost ?? Number(component.unitPrice ?? 0),
               movementType: `${sourceType}-UNPOST`,
               sourceType: `${sourceType}-UNPOST`,
               sourceNumber,
               sourceYearId,
-              documentDate: disassembly.date,
+              transactionDate: new Date(disassembly.date),
+              updateLastPurchasePrice: false,
             });
 
             await itemCostService.removeCostHistoryBySourceInTx(tx, {
@@ -693,7 +740,12 @@ export class DisassemblyService {
       return { success: true };
     } catch (error) {
       logger.error({ error, companyId, disassemblyId }, 'Error unposting disassembly');
-      throw error;
+      if (error instanceof AppError) throw error;
+      const msg = error instanceof Error ? error.message : '';
+      if (/insufficient|not enough|negative/i.test(msg)) {
+        throw new AppError(422, 'تعذر فك الترحيل لأن المكونات الناتجة لم تعد متاحة في المخزن');
+      }
+      throw new AppError(422, msg || 'تعذر فك ترحيل أمر التفكيك');
     }
   }
 
@@ -809,7 +861,7 @@ export class DisassemblyService {
         line.disassembledQuantity * (line.disassembledUnitPrice || 0);
     });
 
-    return prisma.$transaction(async (tx) => {
+    await prisma.$transaction(async (tx) => {
       await tx.disassemblyComponent.deleteMany({
         where: { disassemblyLine: { disassemblyId } },
       });
@@ -858,8 +910,8 @@ export class DisassemblyService {
         }
       }
 
-      return this.getDisassemblyById(companyId, disassemblyId);
     });
+    return this.getDisassemblyById(companyId, disassemblyId);
   }
 }
 

@@ -1,4 +1,5 @@
 import prisma from '../../../shared/database/prisma';
+import { permanentDelete } from '../../../shared/database/permanent-delete.util';
 import { logger } from '../../../shared/logger';
 import { Decimal } from '@prisma/client/runtime/library';
 import { CreateHousingAllowanceDisbursementInput, UpdateHousingAllowanceDisbursementInput } from '../schemas/housing-allowance-disbursement.schema';
@@ -244,7 +245,7 @@ export class HousingAllowanceDisbursementService {
   }
 
   /**
-   * Delete housing allowance entitlements disbursement (soft delete)
+   * Delete permanently (blocked if referenced)
    */
   async deleteHousingAllowanceDisbursement(companyId: string, disbursementId: string) {
     try {
@@ -260,10 +261,7 @@ export class HousingAllowanceDisbursementService {
         throw new Error('Housing allowance entitlements disbursement not found');
       }
 
-      await prisma.housingAllowanceEntitlementsDisbursement.update({
-        where: { id: disbursementId },
-        data: { isActive: false },
-      });
+      await permanentDelete('السجل', () => prisma.housingAllowanceEntitlementsDisbursement.delete({ where: { id: disbursementId } }));
 
       logger.info({ companyId, disbursementId }, 'Housing allowance entitlements disbursement deleted');
       return { success: true };

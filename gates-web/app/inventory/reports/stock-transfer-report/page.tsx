@@ -7,10 +7,12 @@ export default function StockTransferReportPage() {
     <InventoryReportFilterPage
       urlPath="/inventory/reports/stock-transfer-report"
       icon="🔁"
-      subtitle="حركات النقل بين المخازن خلال الفترة."
+      subtitle="كل نقل لوحده، والمسلسل يفتح شاشة النقل. الفترة على تاريخ النقل."
       fields={{
         dates: 'range',
-        warehouse: true,
+        fromToWarehouse: true,
+        item: true,
+        itemGroup: true,
         branch: true,
         showUnposted: true,
       }}

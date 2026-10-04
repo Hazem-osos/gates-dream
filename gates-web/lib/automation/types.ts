@@ -38,6 +38,10 @@ export type AutomationRule = {
   actions: AutomationAction[];
   createdAt: string;
   updatedAt: string;
+  attention?: {
+    needsAttention: boolean;
+    messages: string[];
+  };
 };
 
 export type AutomationRuleListParams = {

@@ -1,17 +1,18 @@
 'use client';
 
+import { reportDefaultDateRange } from '@/lib/reports/reportDefaultDates';
+
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { InlineReportResults } from '@/components/report/InlineReportResults';
 import { ExtractsReportChrome } from '@/components/extracts/ExtractsReportChrome';
 import { ReportFilterDate } from '@/components/report/reportFilterFields';
 
 const defaultFilters = () => ({
-  fromDate: new Date().toISOString().split('T')[0],
-  toDate: new Date().toISOString().split('T')[0],
+  ...reportDefaultDateRange(),
 });
 
 export default function InventoryPage() {
-  const router = useRouter();
+  const [previewQuery, setPreviewQuery] = useState<Record<string, string> | null>(null);
   const [error, setError] = useState('');
   const [filters, setFilters] = useState(defaultFilters);
 
@@ -26,16 +27,17 @@ export default function InventoryPage() {
     const params = new URLSearchParams();
     params.append('fromDate', filters.fromDate);
     params.append('toDate', filters.toDate);
-    router.push(`/extracts/reports/inventory/preview?${params.toString()}`);
+    setPreviewQuery(Object.fromEntries(params));
   };
 
   return (
     <ExtractsReportChrome
       title="تقرير مخزون المستخلصات"
       onPreview={handlePreview}
-      onReset={() => setFilters(defaultFilters())}
+      onReset={() => { setFilters(defaultFilters()); setPreviewQuery(null); }}
       error={error}
       onClearError={() => setError('')}
+      below={previewQuery ? <InlineReportResults urlPath="/extracts/reports/inventory" query={previewQuery} /> : null}
     >
       <ReportFilterDate
         label="من تاريخ"

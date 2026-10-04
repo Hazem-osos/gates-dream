@@ -2,15 +2,28 @@ import { Prisma } from '@prisma/client';
 import prisma from '../../../shared/database/prisma';
 import { AppError } from '../../../shared/middleware/error-handler';
 import { roundTo4 } from '../../../shared/utils/decimal-round';
+import { endOfDayUtc, startOfDayUtc } from '../../../shared/utils/report-date';
 import {
   journalPostingService,
   type JournalPostingContext,
 } from '../../accounting/services/journal-posting.service';
 import { financialReportService } from '../../accounting/services/financial-report.service';
-import { classifyAccount } from '../../accounting/services/financial-report.util';
 import { journalLines } from '../../trade/utils/journal-lines.util';
 import { fiscalYearService } from '../../platform/services/fiscal-year.service';
 import { advancedRightsService } from '../../platform/services/advanced-rights.service';
+import {
+  buildYearCloseLines,
+  isIncomeStatementCloseAccount,
+} from './year-close-lines';
+
+export { buildYearCloseLines, isIncomeStatementCloseAccount } from './year-close-lines';
+export type { YearCloseSourceRow } from './year-close-lines';
+
+function exclusiveDayAfter(value: Date): Date {
+  const day = new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate()));
+  day.setUTCDate(day.getUTCDate() + 1);
+  return day;
+}
 
 export class YearEndClosingService {
   private async resolveRetainedEarningsAccountId(companyId: string): Promise<string> {
@@ -64,11 +77,14 @@ export class YearEndClosingService {
       throw new AppError(422, blockers.join(' — '));
     }
 
+    const rangeStart = startOfDayUtc(year.startDate, 'yearStart');
+    const rangeEnd = endOfDayUtc(year.endDate, 'yearEnd');
+
     const tb = await financialReportService.getTrialBalance({
       companyId,
       fiscalYearId,
-      startDate: year.startDate,
-      endDate: year.endDate,
+      startDate: rangeStart,
+      endDate: rangeEnd,
     });
     if (!tb.verification.balanced) {
       throw new AppError(
@@ -90,7 +106,10 @@ export class YearEndClosingService {
     startDate: Date,
     endDate: Date
   ): Promise<string[]> {
-    const dateRange = { gte: startDate, lte: endDate };
+    const dateRange = { gte: startDate, lt: exclusiveDayAfter(endDate) };
+    const inThisYear = {
+      OR: [{ fiscalYearId }, { date: dateRange }],
+    };
     const blockers: string[] = [];
 
     const negativeBalances = await prisma.itemWarehouseBalance.findMany({
@@ -111,7 +130,7 @@ export class YearEndClosingService {
         })
         .join('، ');
       blockers.push(
-        `يوجد مخزن برصيد سالب (${samples}). سوِّ الجرد أو أصلح حركات المخزون حتى لا يبقى رصيد سالب ثم أعد الإغلاق.`
+        `يوجد رصيد سالب في المخزن (${samples}). سوِّ الجرد حتى لا يبقى رصيد سالب ثم أعد الإغلاق.`
       );
     }
 
@@ -119,20 +138,20 @@ export class YearEndClosingService {
       prisma.journalEntry.count({
         where: {
           companyId,
-          fiscalYearId,
           isCancelled: false,
           deletedAt: null,
           isPosted: false,
           workflowStatus: 'DRAFT',
+          ...inThisYear,
         },
       }),
       prisma.invoice.count({
         where: {
           companyId,
-          fiscalYearId,
           isCancelled: false,
           isPosted: false,
           workflowStatus: 'DRAFT',
+          ...inThisYear,
         },
       }),
     ]);
@@ -150,29 +169,30 @@ export class YearEndClosingService {
       prisma.journalEntry.count({
         where: {
           companyId,
-          fiscalYearId,
           isCancelled: false,
           deletedAt: null,
           workflowStatus: { not: 'DRAFT' },
-          OR: [{ isPosted: false }, { postingStatus: 'UnPost' }],
+          AND: [
+            inThisYear,
+            { OR: [{ isPosted: false }, { postingStatus: 'UnPost' }] },
+          ],
         },
       }),
       prisma.invoice.count({
         where: {
           companyId,
-          fiscalYearId,
           isCancelled: false,
           isPosted: false,
           workflowStatus: { not: 'DRAFT' },
+          ...inThisYear,
         },
       }),
       prisma.cashTransaction.count({
         where: {
           companyId,
-          fiscalYearId,
           isCancelled: false,
           isPosted: false,
-          date: dateRange,
+          ...inThisYear,
         },
       }),
     ]);
@@ -183,7 +203,7 @@ export class YearEndClosingService {
         unpostedCash > 0 ? `${unpostedCash} حركة خزينة` : null,
       ].filter(Boolean);
       blockers.push(
-        `يوجد ${parts.join(' و')} غير مرحلة. رحّلها من شاشاتها أو احذفها إن كانت غير لازمة ثم أعد الإغلاق.`
+        `يوجد ${parts.join(' و')} غير مرحلة، ولا يمكن إغلاق السنة. رحّلها أو احذفها ثم أعد الإغلاق.`
       );
     }
 
@@ -201,10 +221,14 @@ export class YearEndClosingService {
     );
     const year = await this.validateBeforeClose(ctx.companyId, fiscalYearId);
 
+    const rangeStart = startOfDayUtc(year.startDate, 'yearStart');
+    const rangeEnd = endOfDayUtc(year.endDate, 'yearEnd');
+
     type Row = {
       accountId: string;
       code: string;
       accountType: string | null;
+      statementType: string | null;
       debitSum: unknown;
       creditSum: unknown;
     };
@@ -214,6 +238,7 @@ export class YearEndClosingService {
         a.id AS accountId,
         a.code,
         a.accountType,
+        a.statementType,
         COALESCE(SUM(jel.debitBase), 0) AS debitSum,
         COALESCE(SUM(jel.creditBase), 0) AS creditSum
       FROM accounts a
@@ -221,44 +246,41 @@ export class YearEndClosingService {
       INNER JOIN journal_entries je ON je.id = jel.journalEntryId
       WHERE a.companyId = ${ctx.companyId}
         AND a.deletedAt IS NULL
-        AND je.fiscalYearId = ${fiscalYearId}
+        AND a.accountKind = 'POSTING'
         AND je.isPosted = true
         AND je.isCancelled = false
         AND je.deletedAt IS NULL
-      GROUP BY a.id, a.code, a.accountType
+        AND je.date >= ${rangeStart}
+        AND je.date <= ${rangeEnd}
+      GROUP BY a.id, a.code, a.accountType, a.statementType
     `);
 
-    const closeLines: Array<{ accountId: string; debit: number; credit: number }> = [];
-    let netToRetained = 0;
+    const sourceRows = rows.map((row) => ({
+      accountId: row.accountId,
+      code: row.code,
+      accountType: row.accountType,
+      statementType: row.statementType,
+      debitSum: roundTo4(Number(row.debitSum)),
+      creditSum: roundTo4(Number(row.creditSum)),
+    }));
+    const hasIncomeStatementBalance = sourceRows.some(
+      (row) =>
+        isIncomeStatementCloseAccount(row) && roundTo4(row.debitSum - row.creditSum) !== 0
+    );
 
-    for (const row of rows) {
-      const cls = classifyAccount(row.code, row.accountType);
-      if (!['REVENUE', 'COGS', 'EXPENSE'].includes(cls)) continue;
-
-      const debit = roundTo4(Number(row.debitSum));
-      const credit = roundTo4(Number(row.creditSum));
-      const balance = roundTo4(debit - credit);
-
-      if (cls === 'REVENUE') {
-        const revBalance = roundTo4(credit - debit);
-        if (revBalance === 0) continue;
-        closeLines.push({
-          accountId: row.accountId,
-          debit: revBalance > 0 ? revBalance : 0,
-          credit: revBalance < 0 ? -revBalance : 0,
-        });
-        netToRetained = roundTo4(netToRetained + revBalance);
-      } else if (balance !== 0) {
-        closeLines.push({
-          accountId: row.accountId,
-          debit: balance < 0 ? -balance : 0,
-          credit: balance > 0 ? balance : 0,
-        });
-        netToRetained = roundTo4(netToRetained - balance);
+    if (!hasIncomeStatementBalance) {
+      const plProbe = await financialReportService.getIncomeStatement({
+        companyId: ctx.companyId,
+        fiscalYearId,
+        startDate: rangeStart,
+        endDate: rangeEnd,
+      });
+      if (Math.abs(plProbe.netProfit) > 0.0001) {
+        throw new AppError(
+          422,
+          'تعذّر إنشاء قيد إقفال السنة: قائمة الدخل تُظهر ربحاً أو خسارةً لكن لم تُجمع أرصدة حسابات الإقفال. تأكد أن حسابات الإيراد والمصروف من نوع «ترحيل» وأن القيود مرحّلة ضمن تواريخ السنة، ثم أعد المحاولة.'
+        );
       }
-    }
-
-    if (closeLines.length === 0) {
       const closed = await prisma.fiscalYear.update({
         where: { id: fiscalYearId },
         data: {
@@ -278,33 +300,29 @@ export class YearEndClosingService {
     }
 
     const retainedEarningsAccountId = await this.resolveRetainedEarningsAccountId(ctx.companyId);
-
-    if (netToRetained > 0) {
-      closeLines.push({
-        accountId: retainedEarningsAccountId,
-        debit: 0,
-        credit: netToRetained,
-      });
-    } else if (netToRetained < 0) {
-      closeLines.push({
-        accountId: retainedEarningsAccountId,
-        debit: roundTo4(-netToRetained),
-        credit: 0,
-      });
+    const { lines: closeLines, netToRetained } = buildYearCloseLines(
+      sourceRows,
+      retainedEarningsAccountId
+    );
+    if (closeLines.length === 0) {
+      throw new AppError(
+        422,
+        'تعذّر بناء قيد إقفال السنة. راجع حساب الأرباح والخسائر (الأرباح المرحلة) وحسابات قائمة الدخل ثم أعد الإغلاق.'
+      );
     }
 
     const pl = await financialReportService.getIncomeStatement({
       companyId: ctx.companyId,
       fiscalYearId,
-      startDate: year.startDate,
-      endDate: year.endDate,
+      startDate: rangeStart,
+      endDate: rangeEnd,
     });
 
     return prisma.$transaction(async (tx) => {
       const je = await journalPostingService.createAndPostInTx(tx, ctx, {
         fiscalYearId,
-        date: year.endDate,
-        description: `قيد إقفال الفترة — ${year.arabicName || year.legacyYearId}`,
+        date: rangeEnd,
+        description: `قيد إقفال السنة — ${year.arabicName || year.legacyYearId}`,
         currencyCode: 'EGP',
         exchangeRate: 1,
         entryType: 'YearClose',

@@ -68,10 +68,12 @@ export const documentTypeParamsSchema = z.object({
 
 export const itemPricingPolicyQuerySchema = z.object({
   customerId: z.string().uuid().optional(),
+  supplierId: z.string().uuid().optional(),
   priceListId: z.string().uuid().optional(),
   unitId: z.string().uuid().optional(),
   policy: pricingPolicySchema.optional(),
   warehouseId: z.string().uuid().optional(),
+  kind: z.enum(['sale', 'purchase']).optional(),
 });
 
 export type TransactionDocumentType = z.infer<typeof transactionDocumentTypeSchema>;

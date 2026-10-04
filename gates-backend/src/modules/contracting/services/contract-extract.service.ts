@@ -11,6 +11,7 @@ import {
   type BoqLineInput,
 } from './extract-boq-calculation.util';
 import { projectBoqService } from './project-boq.service';
+import { requireLegacyWave3Stack } from './contracting-canonical-stack.service';
 
 export interface SaveExtractInput {
   projectId: string;
@@ -131,6 +132,7 @@ export class ContractExtractService {
   }
 
   private async saveExtract(companyId: string, extractId: string | null, input: SaveExtractInput) {
+    await requireLegacyWave3Stack(companyId, input.projectId);
     const ctx = await this.getProjectContext(
       companyId,
       input.projectId,
@@ -255,6 +257,7 @@ export class ContractExtractService {
 
   async approve(companyId: string, extractId: string) {
     const row = await this.getById(companyId, extractId);
+    await requireLegacyWave3Stack(companyId, row.projectId);
     if (row.status !== 'DRAFT') throw new AppError(400, 'Only DRAFT extracts can be approved');
     return prisma.contractExtract.update({
       where: { id: extractId },
@@ -263,10 +266,22 @@ export class ContractExtractService {
   }
 
   async post(ctx: JournalPostingContext, extractId: string) {
+    const row = await prisma.contractExtract.findFirst({
+      where: { id: extractId, companyId: ctx.companyId },
+      select: { projectId: true },
+    });
+    if (!row) throw new AppError(404, 'Contract extract not found');
+    await requireLegacyWave3Stack(ctx.companyId, row.projectId);
     return contractingPostingService.postContractExtract(ctx, extractId);
   }
 
   async unpost(ctx: JournalPostingContext, extractId: string) {
+    const row = await prisma.contractExtract.findFirst({
+      where: { id: extractId, companyId: ctx.companyId },
+      select: { projectId: true },
+    });
+    if (!row) throw new AppError(404, 'Contract extract not found');
+    await requireLegacyWave3Stack(ctx.companyId, row.projectId);
     return contractingPostingService.unpostContractExtract(ctx, extractId);
   }
 }

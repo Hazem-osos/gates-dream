@@ -4,7 +4,7 @@ import { Plus, Trash2 } from 'lucide-react';
 import { AccountSelect } from '@/app/components/form/AccountSelect';
 import { CostCenterSelect } from '@/app/components/form/CostCenterSelect';
 import { Button, IconButton, compactControlClass } from '@/components/ui';
-import { isFxRateLocked, rateForCurrency } from '@/lib/accounting/fx-base';
+import { headerLocksLineCurrency, isFxRateLocked, rateForCurrency } from '@/lib/accounting/fx-base';
 import { ExchangeRateInput } from '@/components/accounting/ExchangeRateInput';
 import { TableNumberInput } from '@/components/grid/TableNumberInput';
 import { useCompanyBaseCurrency } from '@/lib/hooks/useCompanyBaseCurrency';
@@ -171,8 +171,12 @@ export function EditableJournalLinesTable({
                   <td className="w-32 border-x border-[#D6EAF3] px-1.5 py-1.5">
                     <select
                       className={compactControlClass}
-                      value={line.currencyId || defaultCurrencyId || ''}
-                      disabled={disabled || currencies.length === 0}
+                      value={
+                        headerLocksLineCurrency(headerCurrency?.code)
+                          ? defaultCurrencyId || ''
+                          : line.currencyId || defaultCurrencyId || ''
+                      }
+                      disabled={disabled || currencies.length === 0 || headerLocksLineCurrency(headerCurrency?.code)}
                       onChange={(e) => {
                         const next = currencies.find((c) => c.id === e.target.value);
                         updateLine(index, {

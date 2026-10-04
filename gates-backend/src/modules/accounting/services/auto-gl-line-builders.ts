@@ -89,12 +89,14 @@ export function buildPurchaseInvoiceLines(
     line(accounts.inventoryAccountId, draft.merchandise, 0, 1, 'Inventory — purchase'),
   ];
   if (draft.tax > 0) {
-    if (!accounts.vatInputAccountId) throw new Error('Input VAT account is not configured');
-    lines.push(line(accounts.vatInputAccountId, draft.tax, 0, 2, 'Input VAT'));
+    const vatAccountId = accounts.vatInputAccountId ?? accounts.vatOutputAccountId;
+    if (!vatAccountId) throw new Error('VAT account is not configured');
+    lines.push(line(vatAccountId, draft.tax, 0, 2, 'VAT'));
   }
   const developmentFee = draft.developmentFee ?? 0;
   if (developmentFee > 0) {
-    const feeAccount = accounts.vatInputAccountId ?? accounts.inventoryAccountId;
+    const feeAccount =
+      accounts.vatInputAccountId ?? accounts.vatOutputAccountId ?? accounts.inventoryAccountId;
     lines.push(line(feeAccount, developmentFee, 0, 5, 'رسم التنمية'));
   }
   lines.push(

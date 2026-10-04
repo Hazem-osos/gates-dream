@@ -353,8 +353,7 @@ export default function PaymentsDistributionModal({
               saveText="حفظ"
               cancelText="تراجع"
               saveDisabled={reconcileMutation.isPending}
-              respectPermissions={false}
-            />
+                />
           </div>
         </div>
       </div>

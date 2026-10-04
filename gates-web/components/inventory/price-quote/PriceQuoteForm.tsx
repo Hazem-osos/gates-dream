@@ -25,6 +25,8 @@ import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
 import { useApiMutation, useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
 import { useDocumentConvertMutation } from '@/lib/hooks/useDocumentConvert';
+import { finishDocumentSave } from '@/lib/documents/finish-save';
+import { invalidateStockViews } from '@/lib/invoices/invalidate-stock-views';
 import { toHijriDate } from '@/lib/hijri-date';
 import type { ApiError } from '@/lib/api/types';
 import { CommercialLinesTable } from '@/components/inventory/commercial/CommercialLinesTable';
@@ -264,13 +266,55 @@ export function PriceQuoteForm() {
 
   const saveMutation = useApiMutation<QuoteRecord, Record<string, unknown>>('/inventory/price-quotes', 'POST', {
     showSuccessToast: false,
-    onSuccess: () => {
-      invalidateQuery(['price-quotes']);
-      resetNew();
-      setSuccess('تم حفظ عرض السعر');
+    onSuccess: (res) => {
+      invalidateStockViews(invalidateQuery);
+      const id = res.data?.id;
+      finishDocumentSave({
+        label: 'عرض سعر',
+        number: res.data?.quoteNumber || quoteNumber,
+        savedId: id,
+        clearDraft,
+        onOpen: (saved) => {
+          setSelectedId(saved);
+          const params = new URLSearchParams(searchParams.toString());
+          params.set('quoteId', saved);
+          params.delete('id');
+          const qs = params.toString();
+          router.replace(qs ? `?${qs}` : window.location.pathname, { scroll: false });
+        },
+        reset: () => resetNew(),
+      });
     },
     onError: (err: ApiError) => setError(err.message || 'تعذر حفظ عرض السعر'),
   });
+
+  const updateMutation = useApiMutation<QuoteRecord, Record<string, unknown>>(
+    selectedId ? `/inventory/price-quotes/${selectedId}` : '/inventory/price-quotes',
+    'PUT',
+    {
+      showSuccessToast: false,
+      onSuccess: () => {
+        invalidateStockViews(invalidateQuery);
+        const id = selectedId;
+        finishDocumentSave({
+          label: 'عرض سعر',
+          number: quoteNumber,
+          savedId: id,
+          clearDraft,
+          onOpen: (saved) => {
+            setSelectedId(saved);
+            const params = new URLSearchParams(searchParams.toString());
+            params.set('quoteId', saved);
+            params.delete('id');
+            const qs = params.toString();
+            router.replace(qs ? `?${qs}` : window.location.pathname, { scroll: false });
+          },
+          reset: () => resetNew(),
+        });
+      },
+      onError: (err: ApiError) => setError(err.message || 'تعذر تحديث عرض السعر'),
+    }
+  );
 
   const handleSave = () => {
     setError('');
@@ -287,7 +331,7 @@ export function PriceQuoteForm() {
       setError('اختر الصنف من الدليل حتى تُحدد الوحدة تلقائياً');
       return;
     }
-    saveMutation.mutate({
+    const payload = {
       quoteNumber: quoteNumber || undefined,
       description: description || undefined,
       date: new Date(`${date}T12:00:00`).toISOString(),
@@ -317,7 +361,9 @@ export function PriceQuoteForm() {
           netTotal: parts.net,
         };
       }),
-    });
+    };
+    if (selectedId) updateMutation.mutate(payload);
+    else saveMutation.mutate(payload);
   };
 
   const handleConvert = async (kind: 'invoice' | 'order') => {
@@ -398,7 +444,7 @@ export function PriceQuoteForm() {
           statusLabel={status.label}
           onSaveDraft={handleSave}
           saveLabel="حفظ عرض السعر"
-          savePending={saveMutation.isPending}
+          savePending={saveMutation.isPending || updateMutation.isPending}
           canSave
           hideStandalonePost
           onBrowseList={() => setBrowseOpen(true)}
@@ -528,6 +574,7 @@ export function PriceQuoteForm() {
             lines={lines}
             onChange={setLines}
             headerDescription={description}
+            warehouseId={warehouseId}
           />
         </div>
 

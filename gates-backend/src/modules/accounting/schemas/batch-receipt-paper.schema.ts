@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { paperDueBeforeIssue } from '../utils/paper-due-date';
 
 const dateLike = z.union([z.string().min(1), z.date()]);
 
@@ -10,6 +11,7 @@ export const batchReceiptPaperItemSchema = z.object({
   bankName: z.string().optional(),
   branchName: z.string().optional(),
   description: z.string().optional(),
+  accountId: z.string().uuid('اختر حساب الورقة').optional(),
 });
 
 export const createBatchReceiptPapersSchema = z.object({
@@ -20,8 +22,28 @@ export const createBatchReceiptPapersSchema = z.object({
   entityId: z.string().uuid().optional().nullable(),
   partyName: z.string().optional().nullable(),
   currencyCode: z.string().optional(),
-  partyType: z.enum(['customer', 'supplier']).optional(),
+  partyType: z.enum(['customer', 'supplier', 'account']).optional(),
+  opening: z.boolean().optional(),
   papers: z.array(batchReceiptPaperItemSchema).min(1, 'أضف ورقة واحدة على الأقل'),
+}).superRefine((data, ctx) => {
+  if (data.opening) {
+    data.papers.forEach((paper, index) => {
+      if (paper.accountId) return;
+      ctx.addIssue({
+        code: 'custom',
+        message: `اختر الحساب للورقة ${paper.paperNumber}`,
+        path: ['papers', index, 'accountId'],
+      });
+    });
+  }
+  data.papers.forEach((paper, index) => {
+    if (!paperDueBeforeIssue(data.issueDate, paper.dueDate)) return;
+    ctx.addIssue({
+      code: 'custom',
+      message: `تاريخ استحقاق الورقة ${paper.paperNumber} لا يمكن أن يكون قبل تاريخ التحرير`,
+      path: ['papers', index, 'dueDate'],
+    });
+  });
 });
 
 export type CreateBatchReceiptPapersInput = z.infer<typeof createBatchReceiptPapersSchema>;

@@ -54,16 +54,16 @@ export function VoucherStickyFooter({
               credit={creditTotal}
               currencyCode={currencyCode}
               debitLabel={
-                breakdownKind === 'receipt' || breakdownKind === 'bank-credit'
-                  ? 'أطراف مدينة'
-                  : breakdownKind === 'bank-debit'
-                    ? 'المدفوعات'
+                breakdownKind === 'bank-credit' || breakdownKind === 'bank-debit'
+                  ? 'مدين'
+                  : breakdownKind === 'receipt'
+                    ? 'أطراف مدينة'
                     : 'المدفوعات'
               }
               creditLabel={
-                breakdownKind === 'receipt'
-                  ? 'المقبوضات'
-                  : breakdownKind === 'bank-credit'
+                breakdownKind === 'bank-credit' || breakdownKind === 'bank-debit'
+                  ? 'دائن'
+                  : breakdownKind === 'receipt'
                     ? 'المقبوضات'
                     : 'أطراف دائنة'
               }

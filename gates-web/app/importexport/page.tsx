@@ -76,7 +76,7 @@ export default function ImportExportCommand() {
           <p className="mb-2 text-xs font-semibold">مسار الشحنة</p>
           <SegmentedBar
             segments={[
-              { label: 'اعتمادات', value: lcs.length, color: '#0E79AA' },
+              { label: 'اعتمادات', value: lcs.length, color: '#0E78AA' },
               { label: 'ضمانات', value: lgs.length, color: '#0284C7' },
               { label: 'مفتوحة', value: open.length, color: '#D97706' },
             ]}

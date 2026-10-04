@@ -2,6 +2,8 @@ import prisma from '../../../shared/database/prisma';
 import { Prisma } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
 import { nextNumericCode } from '../../../shared/utils/next-numeric-code';
+import { AppError } from '../../../shared/middleware/error-handler';
+import { permanentDelete } from '../../../shared/database/permanent-delete.util';
 
 async function assertAccount(companyId: string, accountId: string | null | undefined) {
   if (!accountId) return;
@@ -95,10 +97,7 @@ export class PersonService {
 
   async delete(companyId: string, id: string) {
     await this.getById(companyId, id);
-    await prisma.person.update({
-      where: { id },
-      data: { deletedAt: new Date(), isActive: false },
-    });
+    await permanentDelete('الشخص', () => prisma.person.delete({ where: { id } }));
   }
 }
 
@@ -241,12 +240,15 @@ export class CustomerCategoryService {
   }
 
   async delete(companyId: string, id: string) {
-    const row = await prisma.customerCategory.findFirst({ where: { id, companyId } });
-    if (!row) throw new Error('مجموعة العميل غير موجودة');
-    await prisma.customerCategory.update({
-      where: { id },
-      data: { isActive: false, legacyCode: `${row.legacyCode}__del__${id.slice(0, 8)}` },
+    const row = await prisma.customerCategory.findFirst({
+      where: { id, companyId },
+      include: { _count: { select: { customers: true } } },
     });
+    if (!row) throw new Error('مجموعة العميل غير موجودة');
+    if (row._count.customers > 0) {
+      throw new AppError(409, 'لا يمكن حذف مجموعة تحتوي على عملاء. انقل العملاء أولاً.');
+    }
+    await permanentDelete('مجموعة العميل', () => prisma.customerCategory.delete({ where: { id } }));
   }
 }
 
@@ -291,12 +293,15 @@ export class SupplierCategoryService {
   }
 
   async delete(companyId: string, id: string) {
-    const row = await prisma.supplierCategory.findFirst({ where: { id, companyId } });
-    if (!row) throw new Error('مجموعة المورد غير موجودة');
-    await prisma.supplierCategory.update({
-      where: { id },
-      data: { isActive: false, legacyCode: `${row.legacyCode}__del__${id.slice(0, 8)}` },
+    const row = await prisma.supplierCategory.findFirst({
+      where: { id, companyId },
+      include: { _count: { select: { suppliers: true } } },
     });
+    if (!row) throw new Error('مجموعة المورد غير موجودة');
+    if (row._count.suppliers > 0) {
+      throw new AppError(409, 'لا يمكن حذف مجموعة تحتوي على موردين. انقل الموردين أولاً.');
+    }
+    await permanentDelete('مجموعة المورد', () => prisma.supplierCategory.delete({ where: { id } }));
   }
 }
 

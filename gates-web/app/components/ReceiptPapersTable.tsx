@@ -1,14 +1,8 @@
 'use client';
 
-import React, { useMemo, useState } from 'react';
-import { AppTable, Button } from '@/components/ui';
+import React, { useMemo } from 'react';
+import { AppTable } from '@/components/ui';
 import { useApiQuery } from '@/lib/hooks/useApi';
-import { lazyDefaultModal } from '@/components/ui/lazyModal';
-
-const DistributionAmountsModal = lazyDefaultModal(
-  () => import('./DistributionAmountsModal'),
-  'جاري تحميل توزيع المبالغ…'
-);
 
 type SecuritiesReceiptRow = {
   id: string;
@@ -21,8 +15,6 @@ type SecuritiesReceiptRow = {
 };
 
 export default function ReceiptPapersTable() {
-  const [showAmountsModal, setShowAmountsModal] = useState(false);
-
   const { data, isLoading } = useApiQuery<SecuritiesReceiptRow[]>(
     ['securities-receipts', 'list'],
     '/accounting/securities-receipts',
@@ -49,7 +41,7 @@ export default function ReceiptPapersTable() {
         data={rows}
         getRowKey={(r) => r.id}
         emptyTitle="لا توجد أوراق قبض"
-        emptyDescription="ستظهر الشيكات وأوراق القبض بعد تسجيلها أو تشغيل بيانات العرض."
+        emptyDescription="ستظهر أوراق القبض بعد تسجيلها."
         stickyHeader
         columns={[
           { id: 'idx', header: 'م', align: 'center', accessor: 'idx' },
@@ -59,14 +51,6 @@ export default function ReceiptPapersTable() {
           { id: 'due', header: 'تاريخ الإستحقاق', accessor: 'due', align: 'center' },
         ]}
       />
-      <div className="mt-4 flex justify-end">
-        <Button variant="secondary" onClick={() => setShowAmountsModal(true)}>
-          توزيع مبالغ
-        </Button>
-      </div>
-      {showAmountsModal ? (
-        <DistributionAmountsModal isOpen onClose={() => setShowAmountsModal(false)} />
-      ) : null}
     </div>
   );
 }

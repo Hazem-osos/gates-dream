@@ -1,4 +1,8 @@
-import { resolveReportApiPath, ensureReportPreviewDates } from './resolveReportEndpoint';
+import {
+  resolveReportApiPath,
+  ensureReportPreviewDates,
+  reportPreviewNeedsDateRange,
+} from './resolveReportEndpoint';
 
 function assert(cond: unknown, message: string) {
   if (!cond) throw new Error(message);
@@ -14,4 +18,31 @@ assert(
   'pos daily keeps date'
 );
 
+assert(
+  resolveReportApiPath('inventory/reports/item-movement-reports') ===
+    '/inventory/reports/item-movement',
+  'item movement api path'
+);
+assert(
+  resolveReportApiPath('inventory/reports/expiry-date-report') === '/inventory/reports/expiry-date',
+  'expiry api path'
+);
+assert(
+  !reportPreviewNeedsDateRange('inventory/reports/inventory-reports'),
+  'stock take skips dates'
+);
+assert(
+  !reportPreviewNeedsDateRange('inventory/reports/price-list'),
+  'price list skips dates'
+);
+assert(
+  reportPreviewNeedsDateRange('inventory/reports/items-exceeding-order-limit'),
+  'order limit report uses dates'
+);
+assert(
+  ensureReportPreviewDates({}, 'inventory/reports/sales-reports').fromDate?.endsWith('-01-01'),
+  'sales default from year start'
+);
+
 console.log('resolveReportEndpoint.test.ts ok');
+test('report endpoint assertions', () => {});

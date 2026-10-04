@@ -400,6 +400,12 @@ export class AccountingSettingsService {
         for (const [key, aliases] of Object.entries(TAX_ACCOUNT_SLOT_ALIASES)) {
           applyAccountSlot(defs, aliases, input.tax[key as keyof typeof input.tax] as string | null | undefined);
         }
+        const unifiedVat =
+          input.tax.salesTaxAccountId?.trim() || input.tax.vatInputAccountId?.trim() || '';
+        if (unifiedVat) {
+          applyAccountSlot(defs, TAX_ACCOUNT_SLOT_ALIASES.salesTaxAccountId, unifiedVat);
+          applyAccountSlot(defs, TAX_ACCOUNT_SLOT_ALIASES.vatInputAccountId, unifiedVat);
+        }
         advanced.accountingTax = {
           ...(advanced.accountingTax ?? {}),
           ...(input.tax.defaultVatRate !== undefined

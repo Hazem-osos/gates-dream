@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto';
+import type { EtaEndpoints } from '../utils/eta-endpoints';
 
 export interface EtaTokenResponse {
   access_token: string;
@@ -11,18 +12,32 @@ export interface EtaSubmissionResponse {
   longId: string;
   publicUrl: string;
   dateTimeReceived: string;
-  status: 'VALID' | 'INVALID';
+  status: 'VALID' | 'INVALID' | 'SUBMITTED';
   validationErrors?: Array<{ property: string; message: string }>;
 }
 
 export interface EtaClient {
-  authenticate(clientId: string, clientSecret: string): Promise<EtaTokenResponse>;
+  authenticate(
+    clientId: string,
+    clientSecret: string,
+    endpoints?: EtaEndpoints
+  ): Promise<EtaTokenResponse>;
   submitDocument(
     token: string,
-    payload: Record<string, unknown>
+    payload: Record<string, unknown>,
+    endpoints?: EtaEndpoints
   ): Promise<EtaSubmissionResponse>;
-  cancelDocument(token: string, documentUuid: string, reason: string): Promise<{ accepted: boolean }>;
-  getDocumentStatus(token: string, documentUuid: string): Promise<EtaSubmissionResponse>;
+  cancelDocument(
+    token: string,
+    documentUuid: string,
+    reason: string,
+    endpoints?: EtaEndpoints
+  ): Promise<{ accepted: boolean }>;
+  getDocumentStatus(
+    token: string,
+    documentUuid: string,
+    endpoints?: EtaEndpoints
+  ): Promise<EtaSubmissionResponse>;
 }
 
 /** In-memory mock for integration tests and PRE_PRODUCTION without network. */

@@ -1,6 +1,7 @@
 // @ts-nocheck — strict cleanup pending; tracked for incremental typing.
 import prisma from '../../../shared/database/prisma';
 import { logger } from '../../../shared/logger';
+import { emitDomainEvent } from '../../automation/events/automation-event-bus.service';
 import { Decimal } from '@prisma/client/runtime/library';
 
 export interface CreateProjectData {
@@ -73,6 +74,15 @@ export class ProjectService {
       });
 
       logger.info({ companyId, projectId: project.id }, 'Project created');
+      void emitDomainEvent({
+        companyId,
+        eventType: 'project.created',
+        data: {
+          arabicName: project.arabicName,
+          englishName: project.englishName ?? null,
+          totalValue: project.totalValue == null ? null : Number(project.totalValue),
+        },
+      });
       return project;
     } catch (error) {
       logger.error({ error, companyId }, 'Error creating project');

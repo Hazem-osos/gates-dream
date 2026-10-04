@@ -43,7 +43,13 @@ export const ACCOUNT_SLOT_ALIASES = {
 
 export const TAX_ACCOUNT_SLOT_ALIASES = {
   salesTaxAccountId: ['salesTaxAccount', 'vatOutputAccount', 'defaultVatAccountId'],
-  vatInputAccountId: ['vatInputAccount', 'purchaseTaxAccount'],
+  vatInputAccountId: [
+    'vatInputAccount',
+    'purchaseTaxAccount',
+    'vatOutputAccount',
+    'salesTaxAccount',
+    'defaultVatAccountId',
+  ],
   whtPayableAccountId: ['whtPayableAccount', 'withholdingTaxAccount', 'daribaManbaAccount'],
   whtReceivableAccountId: [
     'whtReceivableAccount',

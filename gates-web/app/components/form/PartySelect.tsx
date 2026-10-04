@@ -34,6 +34,7 @@ function PartySelectInner({
   enableQuickCreate = true,
   seedParty,
   includeAllAccounts = false,
+  accountsLeafOnly = true,
 }: {
   kind: 'CUSTOMER' | 'SUPPLIER';
   value: string;
@@ -45,6 +46,8 @@ function PartySelectInner({
   enableQuickCreate?: boolean;
   /** When true, search the full chart of accounts in addition to party cards. */
   includeAllAccounts?: boolean;
+  /** Movement accounts only. Main and main-branch accounts stay out of the list. */
+  accountsLeafOnly?: boolean;
   /** When the party is not in the cached list yet (e.g. after loading an invoice). */
   seedParty?: PartyOption | null;
   /** Kept for callers; plus now opens a tab instead of a modal. */
@@ -53,8 +56,8 @@ function PartySelectInner({
   const [search, setSearch] = useState('');
   const customerQ = useCustomersQuery(PICKER_PAGE_SIZE, search, kind === 'CUSTOMER');
   const supplierQ = useSuppliersQuery(PICKER_PAGE_SIZE, search, kind === 'SUPPLIER');
-  const accountsQ = useAccountsQuery(search, PICKER_PAGE_SIZE, {
-    leafOnly: true,
+  const accountsQ = useAccountsQuery(search, includeAllAccounts ? 80 : PICKER_PAGE_SIZE, {
+    leafOnly: accountsLeafOnly,
     enabled: includeAllAccounts,
   });
   const q = kind === 'CUSTOMER' ? customerQ : supplierQ;
@@ -137,8 +140,13 @@ function PartySelectInner({
             return;
           }
           const accountId = id.slice(5);
+          const partyPath = kind === 'SUPPLIER' ? '/accounting/suppliers' : '/accounting/customers';
+          const missing =
+            kind === 'SUPPLIER'
+              ? 'لا يوجد مورد مربوط بهذا الحساب. اربط الحساب من كارت المورد أولاً.'
+              : 'لا يوجد عميل مربوط بهذا الحساب. اربط الحساب من كارت العميل أولاً.';
           void apiClient
-            .get<PartyOption[]>('/accounting/customers', { accountId, limit: 1, isActive: true })
+            .get<PartyOption[]>(partyPath, { accountId, limit: 1, isActive: true })
             .then((res) => {
               const hit = res.data?.[0];
               if (hit?.id) {
@@ -146,25 +154,27 @@ function PartySelectInner({
                 onChange(hit.id);
                 return;
               }
-              toast.error('لا يوجد عميل مربوط بهذا الحساب. اربط الحساب من كارت العميل أولاً.');
+              toast.error(missing);
             })
             .catch(() => {
-              toast.error('تعذر البحث عن عميل مربوط بالحساب المحدد.');
+              toast.error(kind === 'SUPPLIER' ? 'تعذر البحث عن مورد مربوط بالحساب المحدد.' : 'تعذر البحث عن عميل مربوط بالحساب المحدد.');
             });
         }}
         options={options}
         disabled={disabled}
         className={className ?? selectCls}
         placeholder={emptyLabel ?? defaultEmpty}
-        loading={q.isLoading}
+        loading={q.isLoading || (includeAllAccounts && accountsQ.isLoading)}
         error={q.isError}
         emptyMessage={q.isError ? 'تعذر تحميل البيانات' : 'لا توجد نتائج'}
         quickCreateLabel={enableQuickCreate ? quickLabel : undefined}
         onQuickCreate={enableQuickCreate ? (query) => openQuickCreate(query) : undefined}
         valueLabel={displayValueLabel}
         onQueryChange={handleQueryChange}
-        maxVisible={PICKER_PAGE_SIZE}
-        clientSearchEntity={kind === 'CUSTOMER' ? 'customers' : 'suppliers'}
+        maxVisible={includeAllAccounts ? 120 : PICKER_PAGE_SIZE}
+        clientSearchEntity={
+          includeAllAccounts ? undefined : kind === 'CUSTOMER' ? 'customers' : 'suppliers'
+        }
       />
       {value && enableQuickCreate ? (
         <div className="mt-1.5 text-[11px] text-slate-600">

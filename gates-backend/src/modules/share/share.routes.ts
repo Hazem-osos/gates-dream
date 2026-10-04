@@ -1,6 +1,7 @@
 import { Router, Response } from 'express';
 import { z } from 'zod';
 import { authenticate } from '../../shared/middleware/auth.middleware';
+import { authorize } from '../../shared/middleware/authorize.middleware';
 import { setTenantContext } from '../../shared/middleware/tenant.middleware';
 import { validate } from '../../shared/middleware/validate';
 import { asyncHandler } from '../../shared/middleware/async-handler';
@@ -21,6 +22,7 @@ authenticatedShareRouter.use(setTenantContext);
 
 authenticatedShareRouter.post(
   '/invoice/:id',
+  authorize({ resource: 'invoice', action: 'view' }),
   validate({ params: invoiceParam }),
   asyncHandler(async (req: AuthRequest, res: Response) => {
     const companyId = req.companyId || req.tenantId;
@@ -36,6 +38,7 @@ authenticatedShareRouter.post(
 
 authenticatedShareRouter.post(
   '/statement',
+  authorize({ resource: 'invoice', action: 'view' }),
   validate({ body: statementBody }),
   asyncHandler(async (req: AuthRequest, res: Response) => {
     const companyId = req.companyId || req.tenantId;

@@ -28,6 +28,7 @@ export const createSupplierSchema = z.object({
   registrationNumber: z.string().optional(),
   financier: z.string().optional(),
   discountType: z.string().optional(),
+  priceListId: z.string().uuid().optional().nullable(),
   mainAccountId: z.string().uuid().optional().nullable(),
   accountId: z.string().uuid().optional().nullable(),
   linkedCustomerId: z.string().uuid().optional().nullable(),
@@ -42,7 +43,6 @@ export const createSupplierSchema = z.object({
 
 export const updateSupplierSchema = createSupplierSchema.partial().extend({
   isActive: z.boolean().optional(),
-  balance: z.number().optional(),
 });
 
 export const supplierQuerySchema = z.object({
@@ -55,6 +55,7 @@ export const supplierQuerySchema = z.object({
     .optional()
     .transform((val) => (val === undefined ? undefined : val === 'true')),
   supplierCategoryId: z.string().uuid().optional(),
+  accountId: z.string().uuid().optional(),
 });
 
 export type CreateSupplierInput = z.infer<typeof createSupplierSchema>;

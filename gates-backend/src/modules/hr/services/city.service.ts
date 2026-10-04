@@ -1,4 +1,5 @@
 import prisma from '../../../shared/database/prisma';
+import { permanentDelete } from '../../../shared/database/permanent-delete.util';
 import { logger } from '../../../shared/logger';
 
 export interface CreateCityData {
@@ -146,10 +147,7 @@ export class CityService {
         throw new Error('City not found');
       }
 
-      await prisma.city.update({
-        where: { id: cityId },
-        data: { isActive: false },
-      });
+      await permanentDelete('السجل', () => prisma.city.delete({ where: { id: cityId } }));
 
       logger.info({ companyId, cityId }, 'City deleted');
       return { success: true };

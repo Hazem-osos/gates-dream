@@ -19,6 +19,8 @@ export type CatalogReportFilterShellProps = {
   urlPath: string;
   children: ReactNode;
   onPreview: () => void;
+  onSecondaryPreview?: () => void;
+  secondaryPreviewLabel?: string;
   onReset?: () => void;
   settingsOpen?: boolean;
   onSettingsOpenChange?: (open: boolean) => void;
@@ -30,6 +32,8 @@ export type CatalogReportFilterShellProps = {
   titleOverride?: string;
   /** Extra sections in إعدادات التقرير drawer */
   settingsSections?: ReportSettingsSection[];
+  /** Results rendered under the filters, on the same page. */
+  below?: ReactNode;
 };
 
 /**
@@ -39,6 +43,8 @@ export function CatalogReportFilterShell({
   urlPath,
   children,
   onPreview,
+  onSecondaryPreview,
+  secondaryPreviewLabel,
   onReset,
   settingsOpen,
   onSettingsOpenChange,
@@ -49,6 +55,7 @@ export function CatalogReportFilterShell({
   previewDisabled,
   titleOverride,
   settingsSections,
+  below,
 }: CatalogReportFilterShellProps) {
   const entry = getReportByUrlPath(urlPath);
   const title = titleOverride ?? entry?.titleAr ?? 'تقرير';
@@ -95,12 +102,14 @@ export function CatalogReportFilterShell({
         subtitle={subtitle}
         showTitle={false}
         onPreview={onPreview}
+        onSecondaryPreview={onSecondaryPreview}
+        secondaryPreviewLabel={secondaryPreviewLabel}
         onReset={onReset}
-        onDesign={onSettingsOpenChange ? () => onSettingsOpenChange(true) : undefined}
         previewDisabled={previewDisabled}
       >
         {body}
       </UnifiedReportFilterCard>
+      {below}
     </ReportFilterPageShell>
   );
 }

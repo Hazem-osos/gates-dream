@@ -1,4 +1,5 @@
 import prisma from '../../../shared/database/prisma';
+import { permanentDelete } from '../../../shared/database/permanent-delete.util';
 import { logger } from '../../../shared/logger';
 import bcrypt from 'bcryptjs';
 
@@ -311,7 +312,7 @@ export class UserService {
   }
 
   /**
-   * Delete user (soft delete by setting isActive to false)
+   * Delete user (permanent delete — blocked if referenced).
    */
   async deleteUser(companyId: string, userId: string) {
     try {
@@ -323,14 +324,10 @@ export class UserService {
         throw new Error('User not found');
       }
 
-      // Soft delete by setting isActive to false
-      const deleted = await prisma.user.update({
-        where: { id: userId },
-        data: { isActive: false },
-      });
+      await permanentDelete('المستخدم', () => prisma.user.delete({ where: { id: userId } }));
 
-      logger.info({ companyId, userId }, 'User deleted (soft delete)');
-      return { id: deleted.id, isActive: deleted.isActive };
+      logger.info({ companyId, userId }, 'User deleted');
+      return { id: userId, deleted: true };
     } catch (error) {
       logger.error({ error, companyId, userId }, 'Error deleting user');
       throw error;

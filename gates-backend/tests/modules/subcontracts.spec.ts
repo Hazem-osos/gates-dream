@@ -302,6 +302,27 @@ describe('Module A — Subcontracts & Mostakhlassat', () => {
       expect(byAccount['acc-ap'].credit).toBe(76_500);
     });
 
+    it('keeps double-entry balance when all deductions are zero', () => {
+      const invoice = makePostedInvoice({
+        advancePaymentDeduction: money(0),
+        retentionDeduction: money(0),
+        taxWithholdingDeduction: money(0),
+        socialInsuranceDeduction: money(0),
+        materialOveruseDeduction: money(0),
+        sitePenaltiesDeduction: money(0),
+        directExecutionDeduction: money(0),
+        earlyPaymentDiscountDeduction: money(0),
+        netPayableAmount: money(100_000),
+      });
+      const lines = accounting.buildInvoiceLines(invoice, SUBCONTRACT_GL_ACCOUNTS);
+      const debit = lines.reduce((sum, line) => sum + line.debit, 0);
+      const credit = lines.reduce((sum, line) => sum + line.credit, 0);
+      expect(debit).toBeCloseTo(credit, 4);
+      expect(debit).toBeCloseTo(100_000, 4);
+      const ap = lines.find((line) => line.accountId === 'acc-ap');
+      expect(ap?.credit).toBeCloseTo(100_000, 4);
+    });
+
     it('throws UnbalancedJournalEntryError when credits do not equal gross', () => {
       const invoice = makePostedInvoice({ netPayableAmount: money(1) });
       expect(() => accounting.buildInvoiceLines(invoice, SUBCONTRACT_GL_ACCOUNTS)).toThrow(UnbalancedJournalEntryError);

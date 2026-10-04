@@ -85,7 +85,7 @@ function ProbeCard({ probe }: { probe: DiagnosticProbeResult }) {
       {probe.actions[0] ? (
         <Link
           href={probe.actions[0].href}
-          className="mt-3 inline-flex items-center gap-1 text-[11px] font-semibold text-[#0E79AA]"
+          className="mt-3 inline-flex items-center gap-1 text-[11px] font-semibold text-[#0E78AA]"
         >
           {probe.actions[0].label}
           <ArrowUpLeft className="h-3 w-3" />
@@ -146,7 +146,7 @@ export default function CorporateDiagnosticPage() {
           </span>
         </div>
         <div>
-          <div className="mb-2 flex items-center gap-2 text-[#0E79AA]">
+          <div className="mb-2 flex items-center gap-2 text-[#0E78AA]">
             <Activity className="h-4 w-4" />
             <p className="text-sm font-bold text-slate-900">الصحة المؤسسية</p>
           </div>
@@ -183,14 +183,14 @@ export default function CorporateDiagnosticPage() {
               <li key={`${decision.rank}-${decision.href}`} className="flex items-start justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
                 <div>
                   <p className="text-[13px] font-semibold text-slate-900">
-                    <span className="ml-1 font-mono text-[10px] text-[#0E79AA]">{decision.rank}</span>
+                    <span className="ml-1 font-mono text-[10px] text-[#0E78AA]">{decision.rank}</span>
                     {decision.title}
                   </p>
                   <p className="mt-0.5 text-[11px] text-slate-500">{decision.detail}</p>
                 </div>
                 <Link
                   href={decision.href}
-                  className="shrink-0 rounded-lg bg-[#0E79AA] px-2.5 py-1.5 text-[11px] font-semibold text-white"
+                  className="shrink-0 rounded-lg bg-[#0E78AA] px-2.5 py-1.5 text-[11px] font-semibold text-white"
                 >
                   {decision.actionLabel}
                 </Link>

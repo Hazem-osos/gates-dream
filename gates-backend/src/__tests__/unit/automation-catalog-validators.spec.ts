@@ -9,6 +9,8 @@ jest.mock('../../shared/database/prisma', () => ({
     warehouse: { findMany: jest.fn() },
     customerCategory: { findMany: jest.fn() },
     user: { findMany: jest.fn() },
+    invoice: { findMany: jest.fn() },
+    purchaseOrder: { findMany: jest.fn() },
   },
 }));
 
@@ -21,6 +23,7 @@ const CUSTOMER_ID = '11111111-1111-1111-1111-111111111111';
 const customerFindMany = prisma.customer.findMany as jest.Mock;
 const userFindMany = prisma.user.findMany as jest.Mock;
 const supplierFindMany = prisma.supplier.findMany as jest.Mock;
+const invoiceFindMany = prisma.invoice.findMany as jest.Mock;
 const SUPPLIER_ID = '22222222-2222-2222-2222-222222222222';
 
 beforeEach(() => {
@@ -42,10 +45,10 @@ describe('validateAutomationConditions', () => {
     ).rejects.toMatchObject({ statusCode: 400 });
   });
 
-  it('rejects a plannedNotEmitting event (not yet wired)', async () => {
+  it('accepts an empty condition list on a posted sales invoice', async () => {
     await expect(
       validateAutomationConditions(COMPANY_A, 'sales.invoice.posted', [])
-    ).rejects.toMatchObject({ statusCode: 400 });
+    ).resolves.toBeUndefined();
   });
 
   it('rejects a field that does not exist on the event', async () => {
@@ -108,6 +111,61 @@ describe('validateAutomationConditions', () => {
         { field: 'customerId', operator: 'in', value: [CUSTOMER_ID] },
       ])
     ).resolves.toBeUndefined();
+  });
+
+  it('rejects invoiceId compared to a bare number', async () => {
+    await expect(
+      validateAutomationConditions(COMPANY_A, 'sales.invoice.created', [
+        { field: 'invoiceId', operator: 'eq', value: 10000 },
+      ])
+    ).rejects.toMatchObject({ statusCode: 400 });
+  });
+
+  it('rejects invoiceId compared with a non-uuid string', async () => {
+    await expect(
+      validateAutomationConditions(COMPANY_A, 'sales.invoice.created', [
+        { field: 'invoiceId', operator: 'eq', value: '10000' },
+      ])
+    ).rejects.toMatchObject({ statusCode: 400 });
+  });
+
+  it('rejects a comparison operator on an invoice id', async () => {
+    await expect(
+      validateAutomationConditions(COMPANY_A, 'sales.invoice.created', [
+        { field: 'invoiceId', operator: 'gt', value: 10000 },
+      ])
+    ).rejects.toMatchObject({ statusCode: 400 });
+  });
+
+  it('accepts a partial invoice number match', async () => {
+    await expect(
+      validateAutomationConditions(COMPANY_A, 'sales.invoice.created', [
+        { field: 'invoiceNumber', operator: 'contains', value: 'INV' },
+      ])
+    ).resolves.toBeUndefined();
+  });
+
+  it('accepts a money comparison', async () => {
+    await expect(
+      validateAutomationConditions(COMPANY_A, 'sales.invoice.created', [
+        { field: 'totalAmount', operator: 'lte', value: 5000 },
+      ])
+    ).resolves.toBeUndefined();
+  });
+
+  it('accepts a sales invoice id that belongs to the company', async () => {
+    const invoiceId = '44444444-4444-4444-4444-444444444444';
+    invoiceFindMany.mockResolvedValueOnce([{ id: invoiceId }]);
+    await expect(
+      validateAutomationConditions(COMPANY_A, 'sales.invoice.created', [
+        { field: 'invoiceId', operator: 'eq', value: invoiceId },
+      ])
+    ).resolves.toBeUndefined();
+    expect(invoiceFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ companyId: COMPANY_A, invoiceKind: 'SALE' }),
+      })
+    );
   });
 
   it('rejects "in" with a non-array value', async () => {
@@ -180,6 +238,21 @@ describe('validateAutomationActions', () => {
     ).rejects.toMatchObject({ statusCode: 400 });
   });
 
+  it('rejects binding a string event field onto a numeric action field', async () => {
+    supplierFindMany.mockResolvedValueOnce([{ id: SUPPLIER_ID }]);
+    await expect(
+      validateAutomationActions(COMPANY_A, 'sales.invoice.created', [
+        {
+          type: 'gates.createPurchaseRequest',
+          config: {
+            supplierId: SUPPLIER_ID,
+            quantity: { source: 'event', field: 'invoiceNumber' },
+          },
+        },
+      ])
+    ).rejects.toMatchObject({ statusCode: 400 });
+  });
+
   it('rejects a binding on a field the catalog marks as non-bindable', async () => {
     await expect(
       validateAutomationActions(COMPANY_A, 'inventory.stock.belowMinimum', [
@@ -191,6 +264,22 @@ describe('validateAutomationActions', () => {
         },
       ])
     ).rejects.toMatchObject({ statusCode: 400 });
+  });
+
+  it('rejects a private/loopback webhook url', async () => {
+    await expect(
+      validateAutomationActions(COMPANY_A, 'sales.invoice.created', [
+        { type: 'webhook', config: { url: 'http://127.0.0.1/hook' } },
+      ])
+    ).rejects.toMatchObject({ statusCode: 400 });
+  });
+
+  it('accepts a public https webhook url', async () => {
+    await expect(
+      validateAutomationActions(COMPANY_A, 'sales.invoice.created', [
+        { type: 'webhook', config: { url: 'https://hooks.example.com/gates', method: 'POST' } },
+      ])
+    ).resolves.toBeUndefined();
   });
 
   it('checks entity-config-field ownership against the current tenant', async () => {

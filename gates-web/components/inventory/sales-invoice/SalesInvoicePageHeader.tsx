@@ -11,6 +11,7 @@ import type { StatusTone } from '@/components/ui/StatusBadge';
 import type { ReactNode } from 'react';
 import { WhatsAppShareButton } from '@/components/share/WhatsAppShareButton';
 import type { WhatsAppInvoicePayload } from '@/lib/whatsapp-share';
+import { JournalEntryBadge } from '@/components/inventory/commercial/JournalEntryBadge';
 
 const PrintHubModal = dynamic(
   () => import('@/components/print/PrintHubModal').then((m) => ({ default: m.PrintHubModal })),
@@ -71,6 +72,19 @@ type Props = {
   hideStandalonePost?: boolean;
   isCancelled?: boolean;
   whatsAppShare?: WhatsAppInvoicePayload | null;
+  journalEntryId?: string | null;
+  journalNumber?: string | null;
+  onPreviewJournal?: () => void;
+  title?: string;
+  breadcrumbLabel?: string;
+  invoiceKind?: string;
+  collectLabel?: string;
+  historyLabel?: string;
+  linkAdvanceLabel?: string;
+  deleteLabel?: string;
+  newDocumentLabel?: string;
+  postLabel?: string;
+  extraMenuItems?: Array<{ id: string; label: string; onClick: () => void; disabled?: boolean }>;
 };
 
 export function SalesInvoicePageHeader(props: Props) {
@@ -113,6 +127,16 @@ export function SalesInvoicePageHeader(props: Props) {
     onEdit,
     hideStandalonePost,
     isCancelled,
+    title = 'فاتورة مبيعات',
+    breadcrumbLabel = 'فاتورة مبيعات',
+    invoiceKind = 'SALE',
+    collectLabel = 'تحصيل / قبض',
+    historyLabel = 'تحصيلات سابقة',
+    linkAdvanceLabel = 'ربط دفعة مقدمة',
+    deleteLabel = 'حذف الفاتورة',
+    newDocumentLabel = 'فاتورة جديدة',
+    postLabel = 'ترحيل الفاتورة',
+    extraMenuItems = [],
   } = props;
 
   const printModel = useMemo(() => {
@@ -178,16 +202,16 @@ export function SalesInvoicePageHeader(props: Props) {
   ];
 
   const moreItems = [
-    { id: 'new', label: 'فاتورة جديدة', onClick: onNewInvoice },
+    { id: 'new', label: newDocumentLabel, onClick: onNewInvoice },
     {
       id: 'duplicate',
       label: duplicatePending ? 'جاري التكرار…' : 'تكرار المستند',
       onClick: onDuplicate ?? (() => {}),
       disabled: !onDuplicate || duplicatePending,
     },
-    { id: 'collect', label: 'تحصيل / قبض', onClick: onCollectPayment },
-    { id: 'link-advance', label: 'ربط دفعة مقدمة', onClick: onLinkAdvance ?? (() => {}) },
-    { id: 'history', label: 'تحصيلات سابقة', onClick: onPaymentHistory },
+    { id: 'collect', label: collectLabel, onClick: onCollectPayment },
+    { id: 'link-advance', label: linkAdvanceLabel, onClick: onLinkAdvance ?? (() => {}) },
+    { id: 'history', label: historyLabel, onClick: onPaymentHistory },
     { id: 'journal', label: 'فتح القيد المحاسبي', onClick: onOpenJournal },
     {
       id: 'unpost',
@@ -203,11 +227,12 @@ export function SalesInvoicePageHeader(props: Props) {
     },
     {
       id: 'delete',
-      label: deletePending ? 'جاري الحذف…' : 'حذف الفاتورة',
+      label: deletePending ? 'جاري الحذف…' : deleteLabel,
       onClick: onDelete,
       destructive: true,
       disabled: deletePending,
     },
+    ...extraMenuItems,
   ];
 
   return (
@@ -217,9 +242,9 @@ export function SalesInvoicePageHeader(props: Props) {
       breadcrumbs={[
         { href: '/inventory', label: 'المخزون' },
         { label: 'العمليات' },
-        { label: 'فاتورة مبيعات' },
+        { label: breadcrumbLabel },
       ]}
-      title="فاتورة مبيعات"
+      title={title}
       docNumber={invoiceNumber}
       statusTone={statusTone}
       statusLabel={statusLabel}
@@ -232,7 +257,7 @@ export function SalesInvoicePageHeader(props: Props) {
       onCancel={onCancel}
       saveLabel={saveLabel}
       cancelLabel={cancelLabel}
-      postLabel="ترحيل الفاتورة"
+      postLabel={postLabel}
       printMenuItems={printItems}
       printTrigger={
         <Button variant="secondary" size="sm" className="gap-1.5">
@@ -242,7 +267,7 @@ export function SalesInvoicePageHeader(props: Props) {
       }
       hideStandalonePost={hideStandalonePost}
       navEntity="invoice"
-      invoiceKind="SALE"
+      invoiceKind={invoiceKind}
       currentId={currentId}
       onNavigate={onNavigate}
       standardActions={{
@@ -272,7 +297,17 @@ export function SalesInvoicePageHeader(props: Props) {
         whatsAppShare: props.whatsAppShare,
         extraItems: moreItems.filter((item) => !['new', 'unpost', 'delete', 'duplicate'].includes(item.id)),
       }}
-      extraActions={currentId ? <WhatsAppShareButton kind="invoice" invoiceId={currentId} /> : undefined}
+      extraActions={
+        <>
+          <JournalEntryBadge
+            journalEntryId={props.journalEntryId}
+            journalNumber={props.journalNumber}
+            pendingLabel="معاينة القيد المحاسبي"
+            onPreview={props.onPreviewJournal}
+          />
+          {currentId ? <WhatsAppShareButton kind="invoice" invoiceId={currentId} /> : null}
+        </>
+      }
       moreTrigger={
         <Button variant="ghost" size="sm" aria-label="المزيد">
           <MoreHorizontal className="h-5 w-5" />

@@ -8,7 +8,7 @@ export const HISTORICAL_INVOICE_STATUSES = [
   'PAID',
 ] as const;
 
-export const IMMUTABLE_INVOICE_STATUSES = ['FINANCE_POSTED', 'PAID'] as const;
+export const IMMUTABLE_INVOICE_STATUSES = ['FINANCE_POSTED', 'PAID', 'REVERSED'] as const;
 
 export interface DraftInvoiceLineInput {
   subcontractBOQItemId: string;
@@ -22,6 +22,8 @@ export interface CalculateDraftInvoiceParams {
   applyEarlyPaymentDiscount?: boolean;
   /** When recalculating an existing draft, exclude it from the historical baseline. */
   excludeInvoiceId?: string;
+  /** When simulating conversion from a preliminary certificate, exclude it from qty baseline. */
+  excludePreliminaryCertificateId?: string;
 }
 
 export interface CalculatedInvoiceLine {
@@ -73,6 +75,7 @@ export interface CreateOrUpdateDraftInvoiceDto {
   type?: SubcontractInvoiceType;
   items: DraftInvoiceLineInput[];
   applyEarlyPaymentDiscount?: boolean;
+  excludePreliminaryCertificateId?: string;
   notes?: string | null;
   attachments?: unknown;
 }

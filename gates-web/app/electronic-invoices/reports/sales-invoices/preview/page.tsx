@@ -6,7 +6,7 @@ export default function SalesInvoicesReportPreviewRoute() {
   return (
     <ElectronicInvoiceReportPreviewPage
       reportKind="sales-invoices"
-      title="معاينة — فواتير المبيعات الإلكترونية"
+      title="معاينة — تقرير الفواتير الإلكترونية"
     />
   );
 }

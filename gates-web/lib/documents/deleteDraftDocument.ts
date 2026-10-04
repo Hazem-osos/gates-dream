@@ -23,8 +23,10 @@ export function isDraftDocumentRow(row: {
   isPosted?: unknown;
   isCancelled?: unknown;
   executionStatus?: unknown;
+  isOpening?: unknown;
 }): boolean {
   if (row.isCancelled === true) return false;
+  if (row.isOpening === true) return false;
   const execution = String(row.executionStatus ?? '');
   if (execution === 'COMPLETED' || execution === 'CANCELLED') return false;
   return row.isPosted !== true;

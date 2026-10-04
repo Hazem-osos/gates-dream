@@ -8,7 +8,7 @@ export default function CashFlowPage() {
       urlPath="/accounting/account-reports/moves/cash-flow"
       icon="💰"
       subtitle="تدفق الأموال في الخزينة والبنك."
-      fields={{ dates: 'range', branch: true }}
+      fields={{ dates: 'range', branch: true, reportOptions: ['showUnposted'] }}
     />
   );
 }

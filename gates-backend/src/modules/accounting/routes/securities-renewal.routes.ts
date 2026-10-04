@@ -16,7 +16,7 @@ const router = Router();
 router.get('/', authorize({ resource: 'securities-renewal', action: 'view' }), validate({ query: securitiesRenewalQuerySchema }), async (req: AuthRequest, res: Response) => {
   try {
     const companyId = req.companyId || req.tenantId;
-    if (!companyId) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+    if (!companyId) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     const result = await securitiesRenewalService.getSecuritiesRenewals(companyId, {
       startDate: req.query.startDate as Date | undefined,
       endDate: req.query.endDate as Date | undefined,
@@ -34,7 +34,7 @@ router.get('/', authorize({ resource: 'securities-renewal', action: 'view' }), v
 router.get('/:id', authorize({ resource: 'securities-renewal', action: 'view' }), async (req: AuthRequest, res: Response) => {
   try {
     const companyId = req.companyId || req.tenantId;
-    if (!companyId) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+    if (!companyId) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     const renewal = await securitiesRenewalService.getSecuritiesRenewalById(companyId, req.params.id);
     return void res.json({ status: 'success', data: renewal });
   } catch (error) {
@@ -47,7 +47,7 @@ router.get('/:id', authorize({ resource: 'securities-renewal', action: 'view' })
 router.post('/', authorize({ resource: 'securities-renewal', action: 'edit' }), validate({ body: createSecuritiesRenewalSchema }), async (req: AuthRequest, res: Response) => {
   try {
     const companyId = req.companyId || req.tenantId;
-    if (!companyId) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+    if (!companyId) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     const renewal = await securitiesRenewalService.createSecuritiesRenewal(companyId, req.body);
     return void res.status(201).json({ status: 'success', message: 'Securities renewal created successfully', data: renewal });
   } catch (error) {
@@ -60,7 +60,7 @@ router.post('/', authorize({ resource: 'securities-renewal', action: 'edit' }), 
 router.put('/:id', authorize({ resource: 'securities-renewal', action: 'edit' }), validate({ body: updateSecuritiesRenewalSchema }), async (req: AuthRequest, res: Response) => {
   try {
     const companyId = req.companyId || req.tenantId;
-    if (!companyId) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+    if (!companyId) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     const renewal = await securitiesRenewalService.updateSecuritiesRenewal(companyId, req.params.id, req.body);
     return void res.json({ status: 'success', message: 'Securities renewal updated successfully', data: renewal });
   } catch (error) {
@@ -73,7 +73,7 @@ router.put('/:id', authorize({ resource: 'securities-renewal', action: 'edit' })
 router.post('/:id/post', authorize({ resource: 'securities-renewal', action: 'post' }), async (req: AuthRequest, res: Response) => {
   try {
     const companyId = req.companyId || req.tenantId;
-    if (!companyId) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+    if (!companyId) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     const userId = req.user?.sub || '';
     const renewal = await securitiesRenewalService.postSecuritiesRenewal(companyId, req.params.id, {
       branchId: req.branchId,
@@ -90,7 +90,7 @@ router.post('/:id/post', authorize({ resource: 'securities-renewal', action: 'po
 router.post('/:id/unpost', authorize({ resource: 'securities-renewal', action: 'post' }), async (req: AuthRequest, res: Response) => {
   try {
     const companyId = req.companyId || req.tenantId;
-    if (!companyId) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+    if (!companyId) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     const userId = req.user?.sub || '';
     const renewal = await securitiesRenewalService.unpostSecuritiesRenewal(companyId, req.params.id, {
       branchId: req.branchId,
@@ -107,7 +107,7 @@ router.post('/:id/unpost', authorize({ resource: 'securities-renewal', action: '
 router.post('/:id/cancel', authorize({ resource: 'securities-renewal', action: 'edit' }), async (req: AuthRequest, res: Response) => {
   try {
     const companyId = req.companyId || req.tenantId;
-    if (!companyId) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+    if (!companyId) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     const renewal = await securitiesRenewalService.cancelSecuritiesRenewal(companyId, req.params.id);
     return void res.json({ status: 'success', message: 'Securities renewal cancelled successfully', data: renewal });
   } catch (error) {
@@ -120,7 +120,7 @@ router.post('/:id/cancel', authorize({ resource: 'securities-renewal', action: '
 router.post('/:id/restore', authorize({ resource: 'securities-renewal', action: 'edit' }), async (req: AuthRequest, res: Response) => {
   try {
     const companyId = req.companyId || req.tenantId;
-    if (!companyId) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+    if (!companyId) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     const renewal = await securitiesRenewalService.restoreSecuritiesRenewal(companyId, req.params.id);
     return void res.json({ status: 'success', message: 'Securities renewal restored successfully', data: renewal });
   } catch (error) {

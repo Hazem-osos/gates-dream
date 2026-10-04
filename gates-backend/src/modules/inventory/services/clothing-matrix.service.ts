@@ -95,12 +95,24 @@ export class ClothingMatrixService {
       if (sizes !== sizeIds.length) throw new Error('Size not found');
     }
 
+    const itemIds = [
+      ...new Set(
+        [data.itemId, ...data.combos.map((row) => row.itemId)].filter((id): id is string => Boolean(id))
+      ),
+    ];
+    if (itemIds.length) {
+      const items = await prisma.item.count({ where: { companyId, id: { in: itemIds } } });
+      if (items !== itemIds.length) throw new Error('Item not found');
+    }
     await prisma.$transaction(async (tx) => {
-      await tx.clothingCombo.deleteMany({ where: { companyId } });
+      await tx.clothingCombo.deleteMany({
+        where: data.itemId ? { companyId, itemId: data.itemId } : { companyId, itemId: null },
+      });
       if (data.combos.length) {
         await tx.clothingCombo.createMany({
           data: data.combos.map((row) => ({
             companyId,
+            itemId: row.itemId || data.itemId || null,
             colorId: row.colorId,
             sizeId: row.sizeId,
             barcode: row.barcode || null,

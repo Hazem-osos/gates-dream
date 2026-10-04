@@ -1,13 +1,16 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { User } from 'lucide-react';
 import { MasterCardShell } from '@/components/erp';
 import { FormSectionCard, CompactFormField, compactControlClass } from '@/components/ui';
 import { DatePickerWithHijri } from '@/components/ui/DatePickerWithHijri';
-import { useApiMutation, useInvalidateQuery } from '@/lib/hooks/useApi';
+import { useInvalidateQuery } from '@/lib/hooks/useApi';
+import { apiClient } from '@/lib/api/client';
 import { toast } from '@/lib/feedback/toast';
-import type { ApiError } from '@/lib/api/types';
+
+const PATH = '/real-estate-investment/create/customers';
 
 const emptyForm = () => ({
   code: '',
@@ -37,60 +40,85 @@ const crumbs = [
 ];
 
 export default function CustomersPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const invalidateQuery = useInvalidateQuery();
+  const idFromUrl = searchParams.get('id')?.trim() || null;
+  const [selectedId, setSelectedId] = useState<string | null>(idFromUrl);
   const [formData, setFormData] = useState(emptyForm);
-
-  const saveMutation = useApiMutation<unknown, Record<string, unknown>>(
-    '/real-estate/customer-followup',
-    'POST',
-    {
-      onSuccess: () => {
-        toast.success('تم حفظ بيانات العميل بنجاح');
-        invalidateQuery(['customer-followup']);
-        handleNew();
-      },
-      onError: (error: ApiError) => {
-        toast.error(error.message || 'حدث خطأ أثناء الحفظ');
-      },
-    }
-  );
+  const [pending, setPending] = useState(false);
 
   useEffect(() => {
     const today = new Date().toISOString().split('T')[0];
-    setFormData((prev) => ({ ...prev, contactDate: today, followUpDate: today }));
+    setFormData((prev) => ({
+      ...prev,
+      contactDate: prev.contactDate || today,
+      followUpDate: prev.followUpDate || today,
+    }));
   }, []);
+
+  useEffect(() => {
+    if (idFromUrl) setSelectedId(idFromUrl);
+  }, [idFromUrl]);
 
   const patch = (field: string, value: string) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!formData.arabicName) {
       toast.error('يرجى إدخال الاسم العربي');
       return;
     }
-    saveMutation.mutate({
-      code: formData.code || undefined,
-      arabicName: formData.arabicName,
-      englishName: formData.englishName || undefined,
-      address: formData.address || undefined,
-      followupDate: formData.followUpDate ? new Date(formData.followUpDate).toISOString() : undefined,
-      notes: formData.address || undefined,
-    });
+    setPending(true);
+    try {
+      const created = await apiClient.post<{ id: string }>('/accounting/customers', {
+        code: formData.code || undefined,
+        arabicName: formData.arabicName,
+        englishName: formData.englishName || undefined,
+        phone1: formData.phone1 || undefined,
+        phone2: formData.phone2 || undefined,
+        email: formData.email || undefined,
+        street: formData.address || undefined,
+      });
+      const customerId = created.data?.id;
+      if (customerId && formData.followUpDate) {
+        await apiClient.post('/real-estate/customer-followup', {
+          customerId,
+          followupDate: new Date(formData.followUpDate).toISOString(),
+          notes: formData.address || undefined,
+        });
+      }
+      toast.success('تم حفظ بيانات العميل بنجاح');
+      invalidateQuery(['customer-followup']);
+      invalidateQuery(['customers']);
+      if (customerId) {
+        setSelectedId(customerId);
+        router.replace(`${PATH}?id=${encodeURIComponent(customerId)}`, { scroll: false });
+      }
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : 'حدث خطأ أثناء الحفظ';
+      toast.error(message);
+    } finally {
+      setPending(false);
+    }
   };
 
   const handleNew = () => {
     const today = new Date().toISOString().split('T')[0];
+    setSelectedId(null);
     setFormData({ ...emptyForm(), contactDate: today, followUpDate: today });
+    router.replace(PATH, { scroll: false });
   };
 
   return (
     <MasterCardShell
       title="تعريف العملاء"
       breadcrumbs={crumbs}
-      favoriteHref="/real-estate-investment/create/customers"
+      favoriteHref={PATH}
+      currentId={selectedId}
       onSave={handleSave}
-      savePending={saveMutation.isPending}
+      savePending={pending}
       onNew={handleNew}
     >
       <FormSectionCard title="البيانات الأساسية" subtitle="بيانات العميل والمتابعة" icon={User}>

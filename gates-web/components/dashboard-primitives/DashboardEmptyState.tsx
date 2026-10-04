@@ -27,7 +27,7 @@ export function DashboardEmptyState({
       {actionHref && actionLabel ? (
         <Link
           href={actionHref}
-          className="mt-4 inline-flex h-9 items-center rounded-lg bg-[#0E79AA] px-3 text-xs font-semibold text-white shadow-[0_1px_2px_rgba(14,121,170,0.25)] hover:bg-[#0B6188]"
+          className="mt-4 inline-flex h-9 items-center rounded-lg bg-[#0E78AA] px-3 text-xs font-semibold text-white shadow-[0_1px_2px_rgba(14,121,170,0.25)] hover:bg-[#0B6188]"
         >
           {actionLabel}
         </Link>

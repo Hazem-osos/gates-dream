@@ -58,9 +58,10 @@ async function allocateGlNum(
 
 export async function resolveStockGlAccounts(
   companyId: string,
-  warehouseId?: string | null
+  warehouseId?: string | null,
+  db: Prisma.TransactionClient | typeof prisma = prisma
 ) {
-  const settings = await prisma.companySettings.findUnique({
+  const settings = await db.companySettings.findUnique({
     where: { companyId },
     select: {
       accountDefinitions: true,
@@ -105,11 +106,11 @@ export async function resolveStockGlAccounts(
   }
 
   const [inventoryAccountId, expenseAccountId, adjustmentAccountId, giftAccountId] = await Promise.all([
-    invoiceAccountResolverService.resolveAccountId(companyId, inventoryRaw),
-    invoiceAccountResolverService.resolveAccountId(companyId, expenseRaw),
-    invoiceAccountResolverService.resolveAccountId(companyId, adjustmentRaw),
+    invoiceAccountResolverService.resolveAccountId(companyId, inventoryRaw, db),
+    invoiceAccountResolverService.resolveAccountId(companyId, expenseRaw, db),
+    invoiceAccountResolverService.resolveAccountId(companyId, adjustmentRaw, db),
     giftRaw
-      ? invoiceAccountResolverService.resolveAccountId(companyId, giftRaw)
+      ? invoiceAccountResolverService.resolveAccountId(companyId, giftRaw, db)
       : Promise.resolve(undefined),
   ]);
 
@@ -117,7 +118,7 @@ export async function resolveStockGlAccounts(
   let warehouseCostId: string | null = null;
   let warehouseGiftId: string | null = null;
   if (system === 'PERPETUAL' && warehouseId) {
-    const warehouse = await prisma.warehouse.findFirst({
+    const warehouse = await db.warehouse.findFirst({
       where: { id: warehouseId, companyId },
       select: {
         inventoryAccountId: true,
@@ -143,6 +144,9 @@ export async function resolveStockGlAccounts(
     warehouseGiftAccountId: warehouseGiftId,
     giftAccountId: pickInventoryAccount(system, giftAccountId, warehouseGiftId) ?? giftAccountId,
     adjustmentAccountId,
+    assemblyExtraCostAccountId: pick(defs, ['assemblyExtraCostAccount'])
+      ? await invoiceAccountResolverService.resolveAccountId(companyId, pick(defs, ['assemblyExtraCostAccount'])!, db)
+      : adjustmentAccountId,
   };
 }
 
@@ -314,6 +318,7 @@ export class StockMovementGlService {
       sourceType: 'GI',
       sourceNumber: serial,
       sourceYearId,
+      sourceId: issue.id,
       entryType: 'GOODS_ISSUE',
       lines,
     });
@@ -390,6 +395,7 @@ export class StockMovementGlService {
       sourceType: 'GR',
       sourceNumber: serial,
       sourceYearId,
+      sourceId: receipt.id,
       entryType: 'GOODS_RECEIPT',
       lines,
     });
@@ -865,16 +871,10 @@ export class StockMovementGlService {
     ]);
     const itemAccountById = new Map(items.map((i) => [i.id, i.mainAccountId]));
     const [fromAccounts, toAccounts] = await Promise.all([
-      resolveStockGlAccounts(ctx.companyId, transfer.fromWarehouseId),
-      resolveStockGlAccounts(ctx.companyId, transfer.toWarehouseId),
+      resolveStockGlAccounts(ctx.companyId, transfer.fromWarehouseId, tx),
+      resolveStockGlAccounts(ctx.companyId, transfer.toWarehouseId, tx),
     ]);
-    const ccMove =
-      Boolean(transfer.fromCostCenterId) &&
-      Boolean(transfer.toCostCenterId) &&
-      transfer.fromCostCenterId !== transfer.toCostCenterId;
-
     let total = 0;
-    let accountMove = false;
     const debitLines: { accountId: string; amount: number; description: string }[] = [];
     const creditLines: { accountId: string; amount: number; description: string }[] = [];
     for (const line of transfer.lines) {
@@ -887,7 +887,6 @@ export class StockMovementGlService {
       const fromAccountId = pickLineInventoryAccount(fromAccounts, itemAccountById.get(line.itemId));
       const toAccountId = pickLineInventoryAccount(toAccounts, itemAccountById.get(line.itemId));
       if (!fromAccountId || !toAccountId) return null;
-      if (fromAccountId !== toAccountId) accountMove = true;
       total += value;
       debitLines.push({
         accountId: toAccountId,
@@ -901,7 +900,6 @@ export class StockMovementGlService {
       });
     }
     if (total <= 0) return null;
-    if (!ccMove && !accountMove) return null;
 
     const legacyGlNum = await allocateGlNum(tx, ctx);
     const serial = transfer.serial ?? transfer.id.slice(0, 8);
@@ -933,7 +931,7 @@ export class StockMovementGlService {
     const je = await journalPostingService.createAndPostInTx(tx, ctx, {
       date: transfer.date,
       hijriDate: transfer.hijriDate ?? undefined,
-      description: transfer.description ?? `Transfer ${serial} — cost center value movement`,
+      description: transfer.description ?? `نقل مخزني ${serial}`,
       currencyCode: 'EGP',
       fiscalYearId: ctx.fiscalYearId,
       legacyGlNum,
@@ -967,23 +965,37 @@ export class StockMovementGlService {
     return je;
   }
 
-  /** Look up the currently-active JE for a stock voucher and reverse it by contra entry (C11-consistent unpost). */
+  /** Unpost the active journal for a stock voucher on the same row. */
   async reverseBySourceInTx(
     tx: Prisma.TransactionClient,
     ctx: StockGlPostingContext,
     sourceType: string,
     sourceNumber: string,
     sourceYearId: string,
-    reason: string
+    reason: string,
+    sourceDocumentId?: string | null
   ) {
-    const key = journalPostingService.buildActiveSourceKey(
-      ctx.companyId,
-      sourceType,
-      sourceNumber,
-      sourceYearId
-    );
-    if (!key) return null;
-    const je = await tx.journalEntry.findUnique({ where: { activeSourceKey: key } });
+    const keys = [
+      journalPostingService.buildActiveSourceKey(
+        ctx.companyId,
+        sourceType,
+        sourceNumber,
+        sourceYearId,
+        sourceDocumentId
+      ),
+      journalPostingService.buildActiveSourceKey(
+        ctx.companyId,
+        sourceType,
+        sourceNumber,
+        sourceYearId
+      ),
+    ].filter((key): key is string => Boolean(key));
+    if (keys.length === 0) return null;
+    let je = null;
+    for (const key of keys) {
+      je = await tx.journalEntry.findUnique({ where: { activeSourceKey: key } });
+      if (je) break;
+    }
     if (!je) return null;
     const reversed = await journalPostingService.reverseJournalEntryInTx(tx, ctx, je.id, { reason });
     await journalPostingService.cascadeSourceJournalInTx(

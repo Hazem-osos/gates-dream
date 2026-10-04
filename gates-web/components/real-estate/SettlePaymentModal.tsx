@@ -68,7 +68,7 @@ export function SettlePaymentModal({
     <div className="fixed inset-0 z-[140] flex items-center justify-center bg-black/40 p-4" dir="rtl">
       <div className="w-full max-w-lg overflow-hidden rounded-xl bg-white shadow-xl">
         <div className="p-5 pb-0">
-          <h2 className="mb-2 text-lg font-bold text-[#0E79AA]">تسوية سداد القسط #{installment.installmentNumber}</h2>
+          <h2 className="mb-2 text-lg font-bold text-[#0E78AA]">تسوية سداد القسط #{installment.installmentNumber}</h2>
           <p className="mb-4 text-sm text-slate-600">
             الرصيد {formatEgp(installment.balance)} + غرامة {formatEgp(installment.accumulatedLateFee)} = حد أقصى {formatEgp(max)}
           </p>
@@ -139,7 +139,6 @@ export function SettlePaymentModal({
           saveText="تأكيد التسوية"
           cancelText="إلغاء"
           saveLoading={mutation.isPending}
-          respectPermissions={false}
           className="mt-0"
         />
       </div>

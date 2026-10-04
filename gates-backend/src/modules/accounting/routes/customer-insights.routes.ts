@@ -18,13 +18,13 @@ router.get(
     try {
       const companyId = req.companyId || req.tenantId;
       if (!companyId) {
-        return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+        return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
       }
       const data = await customerInsightsService.getFrequentItems(companyId, req.params.id);
       return void res.json({ status: 'success', data });
     } catch (error) {
       logger.error({ error }, 'GET /customers/:id/frequent-items failed');
-      const status = error instanceof Error && error.message === 'Customer not found' ? 404 : 500;
+      const status = error instanceof Error && error.message === 'العميل غير موجود' ? 404 : 500;
       return void res.status(status).json({
         status: 'error',
         message: error instanceof Error ? error.message : 'Failed to load frequent items',

@@ -19,7 +19,7 @@ export type TriageItem = {
   actions?: TriageAction[];
 };
 
-const RAIL = { bad: 'bg-rose-500', warn: 'bg-amber-500', info: 'bg-[#0E79AA]' };
+const RAIL = { bad: 'bg-rose-500', warn: 'bg-amber-500', info: 'bg-[#0E78AA]' };
 
 export function TriageQueue({
   title,
@@ -61,7 +61,7 @@ export function TriageQueue({
                 <span className={cn('absolute inset-y-0 right-0 w-[3px]', RAIL[item.tone ?? 'info'])} aria-hidden />
                 <div className="min-w-0 flex-1 pr-1">
                   {item.href ? (
-                    <Link href={item.href} className="block truncate text-sm font-semibold text-slate-800 hover:text-[#0E79AA]">
+                    <Link href={item.href} className="block truncate text-sm font-semibold text-slate-800 hover:text-[#0E78AA]">
                       {item.title}
                     </Link>
                   ) : (
@@ -101,7 +101,7 @@ export function TriageQueue({
                     )}
                   </div>
                 ) : item.href ? (
-                  <span className="mt-0.5 inline-flex translate-x-1 items-center gap-0.5 text-[11px] font-semibold text-[#0E79AA] opacity-0 transition-all group-hover:translate-x-0 group-hover:opacity-100">
+                  <span className="mt-0.5 inline-flex translate-x-1 items-center gap-0.5 text-[11px] font-semibold text-[#0E78AA] opacity-0 transition-all group-hover:translate-x-0 group-hover:opacity-100">
                     عرض المستند
                     <ChevronLeft className="h-3.5 w-3.5" aria-hidden />
                   </span>

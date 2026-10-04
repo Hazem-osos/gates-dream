@@ -25,7 +25,7 @@ function company(req: AuthRequest) {
 router.get('/colors', guard('view'), async (req: AuthRequest, res: Response) => {
   try {
     const companyId = company(req);
-    if (!companyId) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+    if (!companyId) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     const data = await clothingMatrixService.listColors(companyId);
     return void res.json({ status: 'success', data });
   } catch (error) {
@@ -37,7 +37,7 @@ router.get('/colors', guard('view'), async (req: AuthRequest, res: Response) => 
 router.post('/colors', guard('edit'), validate({ body: clothingColorSchema }), async (req: AuthRequest, res: Response) => {
   try {
     const companyId = company(req);
-    if (!companyId) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+    if (!companyId) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     const data = await clothingMatrixService.upsertColor(companyId, undefined, req.body);
     return void res.status(201).json({ status: 'success', data });
   } catch (error) {
@@ -49,7 +49,7 @@ router.post('/colors', guard('edit'), validate({ body: clothingColorSchema }), a
 router.put('/colors/:id', guard('edit'), validate({ body: clothingColorSchema }), async (req: AuthRequest, res: Response) => {
   try {
     const companyId = company(req);
-    if (!companyId) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+    if (!companyId) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     const data = await clothingMatrixService.upsertColor(companyId, req.params.id, req.body);
     return void res.json({ status: 'success', data });
   } catch (error) {
@@ -61,7 +61,7 @@ router.put('/colors/:id', guard('edit'), validate({ body: clothingColorSchema })
 router.delete('/colors/:id', guard('delete'), async (req: AuthRequest, res: Response) => {
   try {
     const companyId = company(req);
-    if (!companyId) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+    if (!companyId) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     await clothingMatrixService.removeColor(companyId, req.params.id);
     return void res.status(204).send();
   } catch (error) {
@@ -73,7 +73,7 @@ router.delete('/colors/:id', guard('delete'), async (req: AuthRequest, res: Resp
 router.get('/sizes', guard('view'), async (req: AuthRequest, res: Response) => {
   try {
     const companyId = company(req);
-    if (!companyId) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+    if (!companyId) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     const data = await clothingMatrixService.listSizes(companyId);
     return void res.json({ status: 'success', data });
   } catch (error) {
@@ -85,7 +85,7 @@ router.get('/sizes', guard('view'), async (req: AuthRequest, res: Response) => {
 router.post('/sizes', guard('edit'), validate({ body: clothingSizeSchema }), async (req: AuthRequest, res: Response) => {
   try {
     const companyId = company(req);
-    if (!companyId) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+    if (!companyId) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     const data = await clothingMatrixService.upsertSize(companyId, undefined, req.body);
     return void res.status(201).json({ status: 'success', data });
   } catch (error) {
@@ -96,7 +96,7 @@ router.post('/sizes', guard('edit'), validate({ body: clothingSizeSchema }), asy
 router.put('/sizes/:id', guard('edit'), validate({ body: clothingSizeSchema }), async (req: AuthRequest, res: Response) => {
   try {
     const companyId = company(req);
-    if (!companyId) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+    if (!companyId) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     const data = await clothingMatrixService.upsertSize(companyId, req.params.id, req.body);
     return void res.json({ status: 'success', data });
   } catch (error) {
@@ -108,7 +108,7 @@ router.put('/sizes/:id', guard('edit'), validate({ body: clothingSizeSchema }), 
 router.delete('/sizes/:id', guard('delete'), async (req: AuthRequest, res: Response) => {
   try {
     const companyId = company(req);
-    if (!companyId) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+    if (!companyId) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     await clothingMatrixService.removeSize(companyId, req.params.id);
     return void res.status(204).send();
   } catch (error) {
@@ -120,7 +120,7 @@ router.delete('/sizes/:id', guard('delete'), async (req: AuthRequest, res: Respo
 router.get('/combos', guard('view'), async (req: AuthRequest, res: Response) => {
   try {
     const companyId = company(req);
-    if (!companyId) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+    if (!companyId) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     const data = await clothingMatrixService.listCombos(companyId);
     return void res.json({ status: 'success', data });
   } catch (error) {
@@ -132,7 +132,7 @@ router.get('/combos', guard('view'), async (req: AuthRequest, res: Response) => 
 router.put('/combos', guard('edit'), validate({ body: replaceClothingCombosSchema }), async (req: AuthRequest, res: Response) => {
   try {
     const companyId = company(req);
-    if (!companyId) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+    if (!companyId) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     const data = await clothingMatrixService.replaceCombos(companyId, req.body);
     return void res.json({ status: 'success', data });
   } catch (error) {

@@ -158,7 +158,7 @@ export const TRANSACTION_SETTINGS_CONTEXT: Record<
     module: 'inventory',
     moduleLabel: 'المخازن',
     sourceHref: '/inventory/operations/issue',
-    sourceLabel: 'سند صرف مخزنية',
+    sourceLabel: 'إذن صرف مخزني',
   },
   STOCK_RECEIPT: {
     slug: 'stock-receipt',
@@ -167,7 +167,7 @@ export const TRANSACTION_SETTINGS_CONTEXT: Record<
     module: 'inventory',
     moduleLabel: 'المخازن',
     sourceHref: '/inventory/operations/receipt',
-    sourceLabel: 'سند إضافة مخزنية',
+    sourceLabel: 'إذن إضافة مخزني',
   },
   PAYMENT_VOUCHER: {
     slug: 'payment-voucher',
@@ -229,7 +229,7 @@ export const TRANSACTION_SETTINGS_CONTEXT: Record<
     title: DOCUMENT_TYPE_TITLE.SECURITIES_RECEIPT,
     module: 'accounting',
     moduleLabel: 'الحسابات العامة',
-    sourceHref: '/accounting/operations/securities/reciept',
+    sourceHref: '/accounting/operations/securities/receipt',
     sourceLabel: 'ورقة مقبوضات',
   },
   SECURITIES_PAYMENT: {
@@ -304,7 +304,7 @@ export function settingsHrefForNav(href?: string): string | null {
   if (href.includes('/bank-addition')) return settingsPageHref('BANK_CREDIT_ADVICE');
   if (href.includes('/journal-entry')) return settingsPageHref('JOURNAL_ENTRY');
   if (href.includes('/opening-balance')) return settingsPageHref('OPENING_BALANCE');
-  if (href.includes('/securities/reciept')) return settingsPageHref('SECURITIES_RECEIPT');
+  if (href.includes('/securities/receipt')) return settingsPageHref('SECURITIES_RECEIPT');
   if (href.includes('/securities/payment')) return settingsPageHref('SECURITIES_PAYMENT');
   if (href.includes('/payment-order')) return settingsPageHref('PAYMENT_VOUCHER');
   if (href.includes('/receipt-order')) return settingsPageHref('RECEIPT_VOUCHER');

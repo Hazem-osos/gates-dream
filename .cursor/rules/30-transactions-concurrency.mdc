@@ -1,0 +1,39 @@
+---
+description: Gates transactions and concurrency - one transaction per business operation, atomic post claims, row locks, document sequences, idempotency, double submission, timeouts that do not cancel work. Use for any backend mutation, posting, unposting, numbering or balance change.
+globs: gates-backend/src/modules/**/services/**/*posting*.ts,gates-backend/src/modules/inventory/**/*.ts,gates-backend/src/modules/invoices/**/*.ts,gates-backend/src/modules/treasury/**/*.ts,gates-backend/src/modules/pos/**/*.ts,gates-backend/src/modules/platform/services/document-sequence.service.ts,gates-backend/src/shared/concurrency/**
+alwaysApply: false
+---
+
+# Transactions and concurrency
+
+## One unit, one transaction
+- A business operation that must succeed or fail together (posting, unposting, reversal, posted edits, stock posting, the cache and balance updates of a posting) runs in one `prisma.$transaction(async (tx) => ...)`, passing `tx` to the `...InTx` helpers.
+- Never split dependent state across transactions. Known bad example: posted cash voucher edit saves the voucher, then rewrites the journal in a second transaction (audit H-03).
+- Allocate document numbers inside the creating transaction (`documentSequenceService.nextNumberForFamilyInTx`, `nextGlNumberInTx`).
+- No external HTTP calls inside a transaction. Keep read-only preparation outside; keep race-sensitive checks inside.
+- A single Prisma write is already atomic; do not wrap every write in a transaction by reflex.
+
+## Never "check, then act"
+A check before the transaction, or an unconditional write at the end, does not stop a second request (audit H-01: `postTransfer`). Claim first, inside the transaction:
+
+```ts
+await prisma.$transaction(async (tx) => {
+  await claimDocumentPost((args) => tx.transfer.updateMany(args), id, companyId); // throws unless exactly 1 row flips
+  // ... stock, costing, GL, caches ...
+});
+```
+
+Canonical mechanisms (reuse, do not invent new locks):
+- `claimDocumentPost` / `claimDocumentUnpost`: `src/modules/inventory/utils/claim-document-post.ts`
+- Invoice claim: `updateMany({ where: { id, companyId, isPosted: false, isCancelled: false } })` in `invoice-posting-orchestrator.ts`
+- Manual journal claim: conditional `updateMany` in `journalPostingService.postJournalEntry`
+- One active journal per source: unique `activeSourceKey` via `createAndPostInTx` (source number must be unique per document)
+- Sequences: `documentSequenceService` (row `FOR UPDATE`)
+- Stock rows: `lockStockRowsInTx`, `postMovementInTx`, `adjustStockInTx`, order with `sortForStockLocking`
+- Balances: atomic `increment` / `decrement` or `ON DUPLICATE KEY UPDATE`, never read-compute-write
+- Draft edits: `assertExpectedVersion` / `assertUpdateCount` (`src/shared/concurrency/optimistic-lock.ts`)
+
+## Duplicates and timeouts
+- Posting and other high-impact actions must survive double clicks, retries and two users. A disabled button is not protection.
+- The request timeout returns 408 but the work keeps running and may commit; clients may retry. Create-and-post endpoints need a claim, a unique business key or an idempotency key.
+- Deadlocks (P2034) must roll back and surface as a retryable conflict. Only retry a whole mutation when it is provably idempotent.

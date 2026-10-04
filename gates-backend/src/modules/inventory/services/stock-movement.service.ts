@@ -5,7 +5,8 @@ import { AppError } from '../../../shared/middleware/error-handler';
 import { companySettingService } from '../../platform/services/company-setting.service';
 import { scopedItemQuantityWhere } from '../utils/item-quantity-tenant';
 import { stockQueryService } from './stock-query.service';
-import { adjustStockInTx, getWarehouseBalance } from './adjust-stock-in-tx';
+import { adjustStockInTx, getWarehouseBalance, lockWarehouseBalanceInTx } from './adjust-stock-in-tx';
+import { reconcileWarehouseQuantityTripleInTx } from './warehouse-quantity-sync';
 import { emitDomainEvent } from '../../automation/events/automation-event-bus.service';
 import {
   clampKeysetLimit,
@@ -15,7 +16,7 @@ import {
 
 export interface PostStockMovementInput {
   companyId: string;
-  branchId?: string;
+  branchId?: string | null;
   warehouseId: string;
   itemId: string;
   locationId?: string | null;
@@ -31,6 +32,11 @@ export interface PostStockMovementInput {
   sourceDocumentId?: string;
   /** `true` skips the company negative-stock guard for this movement. */
   allowNegativeStock?: boolean;
+  /**
+   * When true, reject outbound that would go negative even if the company
+   * opted into allowNegativeBalance (document-level transaction settings).
+   */
+  forceStrictNegativeCheck?: boolean;
 }
 
 export class StockMovementService {
@@ -97,22 +103,22 @@ export class StockMovementService {
     // this deliberately stays default-`false` (not `getFlagOrLegacyDefault`)
     // to avoid silently flipping every unconfigured company to "allow
     // negative stock", only enforcing it once a company opts in explicitly.
-    const legacyAllowNegativeStore = await companySettingService.getFlag(
-      companyId,
-      'AllowNegativeStore',
-      false
-    );
-    const legacyAllowMinusQty = await companySettingService.getFlag(
-      companyId,
-      'AllowMinusQty',
-      false
-    );
+    const readFlag = async (name: string) => {
+      if (!tx) return companySettingService.getFlag(companyId, name, false);
+      const row = await tx.companySettingEntry.findFirst({
+        where: { companyId, branchId: null, name },
+        select: { value: true },
+      });
+      if (!row?.value) return false;
+      const v = row.value.trim().toLowerCase();
+      return v === 't' || v === 'true' || v === '1' || v === 'yes';
+    };
+    const legacyAllowNegativeStore = await readFlag('AllowNegativeStore');
+    const legacyAllowMinusQty = await readFlag('AllowMinusQty');
 
-    const allowNegative =
-      settings?.preventNegativeStock === false ||
-      settings?.allowNegativeBalance === true ||
-      legacyAllowNegativeStore ||
-      legacyAllowMinusQty;
+    const allowNegative = settings
+      ? settings.allowNegativeBalance === true || settings.preventNegativeStock === false
+      : legacyAllowNegativeStore || legacyAllowMinusQty;
 
     if (allowNegative && !force) return;
 
@@ -186,6 +192,10 @@ export class StockMovementService {
       );
     }
 
+    // Lock the warehouse balance before the location row. MySQL's unique index does not
+    // collide on NULL locationId, so two first-time posts can each insert a location row
+    // unless they queue on the warehouse-balance key first.
+    await lockWarehouseBalanceInTx(tx, input.companyId, input.itemId, input.warehouseId);
     await this.lockItemQuantityInTx(
       tx,
       input.companyId,
@@ -201,7 +211,8 @@ export class StockMovementService {
         input.itemId,
         input.locationId,
         input.quantityDelta,
-        tx
+        tx,
+        input.forceStrictNegativeCheck === true
       );
     }
 
@@ -261,6 +272,14 @@ export class StockMovementService {
         warehouseId: input.warehouseId,
         deltaQty: input.quantityDelta,
       });
+
+      await reconcileWarehouseQuantityTripleInTx(
+        tx,
+        input.companyId,
+        input.itemId,
+        input.warehouseId,
+        input.locationId ?? null
+      );
 
       // Fire-and-forget (Task 3): stock can only newly cross below its
       // minimum on a decrease, so skip the extra lookup entirely on

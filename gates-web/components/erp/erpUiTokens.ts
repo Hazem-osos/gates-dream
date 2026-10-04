@@ -6,25 +6,25 @@ import type { InvoiceLineColumnId } from '@/lib/invoices/invoiceLineColumns';
 export const erpFormGridClass =
   'flex min-w-0 max-w-full flex-wrap items-start justify-start gap-x-[var(--erp-form-gap-x,1.25rem)] gap-y-[var(--erp-form-gap-y,1rem)] [&>*]:min-w-[min(100%,12rem)] [&>*]:flex-1 [&>*]:basis-[min(16rem,100%)] [&>*]:max-w-[min(100%,var(--erp-field-max))]';
 
-export const erpLabelClass = 'text-xs font-semibold text-slate-600 mb-1 block';
+export const erpLabelClass = 'text-xs font-semibold text-foreground-muted mb-1 block';
 
 export const erpInputClass =
-  'w-full h-8 min-w-0 max-w-[var(--erp-field-max,32rem)] px-2 text-sm text-gray-700 rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] transition-colors duration-200 placeholder:text-slate-400 focus:border-[#0E78AA] focus:ring-2 focus:ring-[#0E78AA]/20 focus:outline-none focus:bg-white';
+  'w-full h-8 min-w-0 max-w-[var(--erp-field-max,32rem)] px-2 text-sm text-foreground rounded-lg border border-border bg-surface-2 transition-colors duration-200 placeholder:text-foreground-muted/70 focus:border-primary focus:ring-2 focus:ring-primary/20 focus:outline-none focus:bg-surface-1';
 
 export const erpDescriptionInputClass =
-  'w-full h-8 min-w-0 max-w-[var(--erp-field-desc-max,44rem)] px-2 text-sm text-gray-700 rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] transition-colors duration-200 placeholder:text-slate-400 focus:border-[#0E78AA] focus:ring-2 focus:ring-[#0E78AA]/20 focus:outline-none focus:bg-white';
+  'w-full h-8 min-w-0 max-w-[var(--erp-field-desc-max,44rem)] px-2 text-sm text-foreground rounded-lg border border-border bg-surface-2 transition-colors duration-200 placeholder:text-foreground-muted/70 focus:border-primary focus:ring-2 focus:ring-primary/20 focus:outline-none focus:bg-surface-1';
 
 export const erpInputErrorClass =
-  'border-red-500 focus:border-red-500 focus:ring-red-500/30';
+  'border-danger focus:border-danger focus:ring-danger/30';
 
-export const erpFieldErrorClass = 'text-red-600 text-xs mt-1 block text-right';
+export const erpFieldErrorClass = 'text-danger text-xs mt-1 block text-start';
 
 export const erpTableHeadRowClass =
-  'bg-[#0E78AA] text-white text-xs font-semibold uppercase tracking-wide';
+  'bg-primary text-primary-foreground text-xs font-semibold uppercase tracking-wide';
 
 export const erpTableHeadCellClass = 'py-3 px-3 whitespace-nowrap border-e border-white/20 last:border-e-0';
 
-export const erpTableBodyCellClass = 'py-3 px-3 align-top border-b border-[#E8F1F6] border-e border-[#E8F1F6] last:border-e-0';
+export const erpTableBodyCellClass = 'py-3 px-3 align-top border-b border-border border-e border-border last:border-e-0';
 
 export const erpLineGridInputClass = `${erpInputClass} !max-w-none h-8 min-h-8`;
 
@@ -46,9 +46,10 @@ export const ERP_SALES_COLUMN_WIDTH: Partial<Record<InvoiceLineColumnId, string>
   costCenter: 'w-36 min-w-[140px]',
   lineAccount: 'min-w-[180px]',
   withholdingTax: 'w-44 min-w-[180px]',
+  withholdingAmount: 'w-32 min-w-[7.5rem]',
   color: 'w-28 min-w-[6.5rem]',
   size: 'w-24 min-w-[5.5rem]',
-  batchAndExpiry: 'min-w-[180px]',
+  batchAndExpiry: 'min-w-[240px]',
   batchNumber: 'w-32 min-w-[120px]',
   expiryDate: 'w-36 min-w-[140px]',
   notes: 'min-w-[160px]',
@@ -69,6 +70,7 @@ export const SALES_INVOICE_DEFAULT_COLUMN_IDS: InvoiceLineColumnId[] = [
   'rowIndex',
   'item',
   'warehouse',
+  'stockBalance',
   'unit',
   'baseUnit',
   'quantity',
@@ -93,6 +95,7 @@ export const PURCHASE_INVOICE_DEFAULT_COLUMN_IDS: InvoiceLineColumnId[] = [
   'rowIndex',
   'item',
   'warehouse',
+  'stockBalance',
   'unit',
   'baseUnit',
   'quantity',

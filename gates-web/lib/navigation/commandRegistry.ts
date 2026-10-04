@@ -1,5 +1,6 @@
 import { accountingModules } from '@/app/components/Sidebar';
 import { inventoryModules } from '@/app/components/InventorySidebar';
+import { isRouteUnavailable } from '@/lib/navigation/route-visibility';
 
 export type CommandEntry = {
   id: string;
@@ -21,7 +22,7 @@ function flattenNav(nodes: NavNode[], prefix = ''): CommandEntry[] {
   const out: CommandEntry[] = [];
   for (const node of nodes) {
     const pathLabel = prefix ? `${prefix} › ${node.label}` : node.label;
-    if (node.href) {
+    if (node.href && !isRouteUnavailable(node.href)) {
       out.push({
         id: `page:${node.key}@${node.href}`,
         label: node.label,
@@ -46,9 +47,17 @@ export const staticPageCommands: CommandEntry[] = [
 export const quickActionCommands: CommandEntry[] = [
   {
     id: 'action:gates-ai',
-    label: 'Gates Intelligence — الذكاء المالي',
+    label: 'الذكاء المالي',
     keywords: 'ai intelligence ذكاء اصطناعي شات مساعد cfo محادثة',
     action: 'open-gates-ai',
+    group: 'actions',
+  },
+  {
+    id: 'action:settings',
+    label: 'الإعدادات',
+    keywords: 'settings إعدادات شركة حسابات نسخ احتياطي',
+    href: '/settings',
+    action: 'navigate',
     group: 'actions',
   },
   {

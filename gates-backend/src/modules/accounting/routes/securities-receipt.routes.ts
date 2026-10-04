@@ -6,6 +6,7 @@ import {
   updateSecuritiesReceiptSchema,
   bounceSecuritiesReceiptSchema,
   collectSecuritiesSchema,
+  depositSecuritiesReceiptSchema,
   endorseSecuritiesReceiptSchema,
   securitiesReceiptQuerySchema,
 } from '../schemas/securities-receipt.schema';
@@ -27,7 +28,7 @@ router.post(
   async (req: AuthRequest, res: Response) => {
     try {
       const companyId = req.companyId || req.tenantId;
-      if (!companyId) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+      if (!companyId) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
       const result = await commercialPaperService.createBatchReceiptPapersInTx(
         companyId,
         req.body,
@@ -51,10 +52,51 @@ router.post(
   }
 );
 
+router.get(
+  '/opening-total',
+  authorize({ resource: 'journal-entry', action: 'view' }),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const companyId = req.companyId || req.tenantId;
+      if (!companyId) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
+      const totals = await commercialPaperService.getOpeningPapersTotal(companyId);
+      let notesAccountId: string | null = null;
+      try {
+        notesAccountId = await commercialPaperPostingService.resolveDefaultNotesAccount(companyId, 'RECEIPT');
+      } catch {
+        notesAccountId = null;
+      }
+      return void res.json({
+        status: 'success',
+        data: { ...totals, notesAccountId },
+      });
+    } catch (error) {
+      logger.error({ error }, 'Error totaling opening securities');
+      return void res.status(500).json({
+        status: 'error',
+        message: error instanceof Error ? error.message : 'تعذر احتساب الأوراق المالية السابقة',
+      });
+    }
+  }
+);
+
+router.get('/next-number', authorize({ resource: 'securities-receipt', action: 'view' }), async (req: AuthRequest, res: Response) => {
+  try {
+    const companyId = req.companyId || req.tenantId;
+    if (!companyId) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
+    const data = await commercialPaperService.peekNextPaperSerial(companyId, 'RECEIPT', req.branchId);
+    return void res.json({ status: 'success', data });
+  } catch (error) {
+    if (error instanceof AppError) return void res.status(error.statusCode).json({ status: 'error', message: error.message });
+    logger.error({ error }, 'Failed to preview securities receipt number');
+    return void res.status(500).json({ status: 'error', message: 'فشل معاينة مسلسل ورقة القبض' });
+  }
+});
+
 router.get('/defaults', authorize({ resource: 'securities-receipt', action: 'view' }), async (req: AuthRequest, res: Response) => {
   try {
     const companyId = req.companyId || req.tenantId;
-    if (!companyId) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+    if (!companyId) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     const notesAccountId = await commercialPaperPostingService.resolveDefaultNotesAccount(companyId, 'RECEIPT');
     return void res.json({ status: 'success', data: { notesAccountId } });
   } catch (error) {
@@ -69,7 +111,7 @@ router.get('/defaults', authorize({ resource: 'securities-receipt', action: 'vie
 router.get('/', authorize({ resource: 'securities-receipt', action: 'view' }), validate({ query: securitiesReceiptQuerySchema }), async (req: AuthRequest, res: Response) => {
   try {
     const companyId = req.companyId || req.tenantId;
-    if (!companyId) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+    if (!companyId) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     const result = await securitiesReceiptService.getSecuritiesReceipts(companyId, {
       startDate: req.query.startDate as Date | undefined,
       endDate: req.query.endDate as Date | undefined,
@@ -91,7 +133,7 @@ router.get('/', authorize({ resource: 'securities-receipt', action: 'view' }), v
 router.get('/:id', authorize({ resource: 'securities-receipt', action: 'view' }), async (req: AuthRequest, res: Response) => {
   try {
     const companyId = req.companyId || req.tenantId;
-    if (!companyId) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+    if (!companyId) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     const receipt = await securitiesReceiptService.getSecuritiesReceiptById(companyId, req.params.id, {
       branchId: req.branchId,
       userId: req.user?.sub || '',
@@ -110,7 +152,7 @@ router.get('/:id', authorize({ resource: 'securities-receipt', action: 'view' })
 router.post('/', authorize({ resource: 'securities-receipt', action: 'edit' }), validate({ body: createSecuritiesReceiptSchema }), async (req: AuthRequest, res: Response) => {
   try {
     const companyId = req.companyId || req.tenantId;
-    if (!companyId) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+    if (!companyId) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     const receipt = await securitiesReceiptService.createSecuritiesReceipt(companyId, req.body, {
       branchId: req.branchId,
       userId: req.user?.sub || '',
@@ -135,7 +177,7 @@ router.post('/', authorize({ resource: 'securities-receipt', action: 'edit' }), 
 router.put('/:id', authorize({ resource: 'securities-receipt', action: 'edit' }), validate({ body: updateSecuritiesReceiptSchema }), async (req: AuthRequest, res: Response) => {
   try {
     const companyId = req.companyId || req.tenantId;
-    if (!companyId) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+    if (!companyId) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     const receipt = await securitiesReceiptService.updateSecuritiesReceipt(companyId, req.params.id, req.body, {
       branchId: req.branchId,
       userId: req.user?.sub || '',
@@ -159,10 +201,31 @@ router.put('/:id', authorize({ resource: 'securities-receipt', action: 'edit' })
   }
 });
 
+router.post('/:id/deposit', authorize({ resource: 'securities-receipt', action: 'edit' }), validate({ body: depositSecuritiesReceiptSchema }), async (req: AuthRequest, res: Response) => {
+  try {
+    const companyId = req.companyId || req.tenantId;
+    if (!companyId) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
+    const userId = req.user?.sub || '';
+    const data = await securitiesReceiptService.depositSecuritiesReceipt(
+      companyId,
+      req.params.id,
+      { branchId: req.branchId, userId },
+      { accountId: req.body.accountId, date: req.body.date }
+    );
+    return void res.json({ status: 'success', message: 'تم تحديث الإيداع', data });
+  } catch (error) {
+    const status = error instanceof AppError ? error.statusCode : 500;
+    return void res.status(status).json({
+      status: 'error',
+      message: error instanceof Error ? error.message : 'تعذر حفظ الإيداع',
+    });
+  }
+});
+
 router.post('/:id/post', authorize({ resource: 'securities-receipt', action: 'post' }), async (req: AuthRequest, res: Response) => {
   try {
     const companyId = req.companyId || req.tenantId;
-    if (!companyId) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+    if (!companyId) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     const userId = req.user?.sub || '';
     const receipt = await securitiesReceiptService.postSecuritiesReceipt(companyId, req.params.id, {
       branchId: req.branchId,
@@ -179,7 +242,7 @@ router.post('/:id/post', authorize({ resource: 'securities-receipt', action: 'po
 router.post('/:id/unpost', authorize({ resource: 'securities-receipt', action: 'post' }), async (req: AuthRequest, res: Response) => {
   try {
     const companyId = req.companyId || req.tenantId;
-    if (!companyId) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+    if (!companyId) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     const userId = req.user?.sub || '';
     const receipt = await securitiesReceiptService.unpostSecuritiesReceipt(companyId, req.params.id, {
       branchId: req.branchId,
@@ -196,7 +259,7 @@ router.post('/:id/unpost', authorize({ resource: 'securities-receipt', action: '
 router.post('/:id/multi-collect', authorize({ resource: 'securities-receipt', action: 'post' }), validate({ body: executeMultiCollectionSchema }), async (req: AuthRequest, res: Response) => {
   try {
     const companyId = req.companyId || req.tenantId;
-    if (!companyId) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+    if (!companyId) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     const data = await commercialPaperPostingService.executeMultiCollection(
       { companyId, branchId: req.branchId, userId: req.user?.sub || '' },
       'RECEIPT',
@@ -211,10 +274,26 @@ router.post('/:id/multi-collect', authorize({ resource: 'securities-receipt', ac
   }
 });
 
+router.post('/:id/uncollect', authorize({ resource: 'securities-receipt', action: 'post' }), async (req: AuthRequest, res: Response) => {
+  try {
+    const companyId = req.companyId || req.tenantId;
+    if (!companyId) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
+    const receipt = await securitiesReceiptService.uncollectSecuritiesReceipt(companyId, req.params.id, {
+      branchId: req.branchId,
+      userId: req.user?.sub || '',
+    });
+    return void res.json({ status: 'success', message: 'تم فك تحصيل ورقة المقبوضات', data: receipt });
+  } catch (error) {
+    logger.error({ error }, 'Error uncollecting securities receipt');
+    const status = error instanceof AppError ? error.statusCode : 500;
+    return void res.status(status).json({ status: 'error', message: error instanceof Error ? error.message : 'Failed to uncollect securities receipt' });
+  }
+});
+
 router.post('/:id/collect', authorize({ resource: 'securities-receipt', action: 'post' }), validate({ body: collectSecuritiesSchema }), async (req: AuthRequest, res: Response) => {
   try {
     const companyId = req.companyId || req.tenantId;
-    if (!companyId) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+    if (!companyId) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     const userId = req.user?.sub || '';
     const receipt = await securitiesReceiptService.collectSecuritiesReceipt(
       companyId,
@@ -233,7 +312,7 @@ router.post('/:id/collect', authorize({ resource: 'securities-receipt', action: 
 router.post('/:id/bounce', authorize({ resource: 'securities-receipt', action: 'edit' }), validate({ body: bounceSecuritiesReceiptSchema }), async (req: AuthRequest, res: Response) => {
   try {
     const companyId = req.companyId || req.tenantId;
-    if (!companyId) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+    if (!companyId) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     const userId = req.user?.sub || '';
     const receipt = await securitiesReceiptService.bounceSecuritiesReceipt(companyId, req.params.id, {
       branchId: req.branchId,
@@ -250,7 +329,7 @@ router.post('/:id/bounce', authorize({ resource: 'securities-receipt', action: '
 router.post('/:id/endorse', authorize({ resource: 'securities-receipt', action: 'edit' }), validate({ body: endorseSecuritiesReceiptSchema }), async (req: AuthRequest, res: Response) => {
   try {
     const companyId = req.companyId || req.tenantId;
-    if (!companyId) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+    if (!companyId) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     const receipt = await securitiesReceiptService.endorseSecuritiesReceipt(
       companyId,
       req.params.id,
@@ -268,7 +347,7 @@ router.post('/:id/endorse', authorize({ resource: 'securities-receipt', action: 
 router.post('/:id/unendorse', authorize({ resource: 'securities-receipt', action: 'edit' }), async (req: AuthRequest, res: Response) => {
   try {
     const companyId = req.companyId || req.tenantId;
-    if (!companyId) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+    if (!companyId) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     const receipt = await securitiesReceiptService.unendorseSecuritiesReceipt(companyId, req.params.id, {
       branchId: req.branchId,
       userId: req.user?.sub || '',
@@ -284,7 +363,7 @@ router.post('/:id/unendorse', authorize({ resource: 'securities-receipt', action
 router.post('/:id/cancel', authorize({ resource: 'securities-receipt', action: 'edit' }), async (req: AuthRequest, res: Response) => {
   try {
     const companyId = req.companyId || req.tenantId;
-    if (!companyId) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+    if (!companyId) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     const receipt = await securitiesReceiptService.cancelSecuritiesReceipt(companyId, req.params.id);
     return void res.json({ status: 'success', message: 'Securities receipt cancelled successfully', data: receipt });
   } catch (error) {
@@ -297,7 +376,7 @@ router.post('/:id/cancel', authorize({ resource: 'securities-receipt', action: '
 router.post('/:id/restore', authorize({ resource: 'securities-receipt', action: 'edit' }), async (req: AuthRequest, res: Response) => {
   try {
     const companyId = req.companyId || req.tenantId;
-    if (!companyId) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+    if (!companyId) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     const receipt = await securitiesReceiptService.restoreSecuritiesReceipt(companyId, req.params.id, {
       branchId: req.branchId,
       userId: req.user?.sub || '',

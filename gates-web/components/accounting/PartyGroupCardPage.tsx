@@ -8,7 +8,6 @@ import {
   AppTable,
 } from '@/components/ui';
 import { DocumentBrowseDrawer, MasterCardShell } from '@/components/erp';
-import UserPermissionsBar from '@/components/UserPermissionsBar';
 import { useApiQuery, useApiMutation, useInvalidateQuery } from '@/lib/hooks/useApi';
 import { apiClient } from '@/lib/api/client';
 import ErrorToast from '@/components/ErrorToast';
@@ -199,7 +198,6 @@ export function PartyGroupCardPage({ kind }: { kind: Kind }) {
       {error ? <ErrorToast message={error} onClose={() => setError('')} /> : null}
 
       <div className="mb-4">
-        <UserPermissionsBar resource={config.resource} module="accounting" />
       </div>
 
       <FormSectionCard
@@ -210,10 +208,10 @@ export function PartyGroupCardPage({ kind }: { kind: Kind }) {
         <CompactFormField
           label="كود المجموعة"
           value={formData.code}
-          disabled={!selectedId}
-          readOnly={!selectedId}
+          disabled={Boolean(selectedId)}
+          readOnly={Boolean(selectedId)}
           onChange={(e) => setFormData((prev) => ({ ...prev, code: e.target.value }))}
-          placeholder="تلقائي"
+          placeholder={selectedId ? '—' : 'تلقائي أو يدوي'}
         />
         <CompactFormField
           label="اسم المجموعة"

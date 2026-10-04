@@ -1,6 +1,11 @@
 import prisma from '../../../shared/database/prisma';
+import { permanentDelete } from '../../../shared/database/permanent-delete.util';
 import { logger } from '../../../shared/logger';
 import { Decimal } from '@prisma/client/runtime/library';
+import { AppError } from '../../../shared/middleware/error-handler';
+import { journalPostingService } from '../../accounting/services/journal-posting.service';
+import { hrGlAccountResolverService } from './hr-gl-account-resolver.service';
+import { journalLines } from '../../trade/utils/journal-lines.util';
 
 export interface CreateEmployeeAdvanceData {
   employeeId: string;
@@ -44,14 +49,8 @@ export class EmployeeAdvanceService {
         throw new Error('Advance value must be greater than 0');
       }
 
-      // If advance account is set, update it
-      if (employee.advanceAccountId) {
-        // This could create a journal entry or account movement
-        // For now, we'll just track it in the advance record
-      }
-
-      // Create employee advance
-      const advance = await prisma.employeeAdvance.create({
+      const advance = await prisma.$transaction(async (tx) => {
+        const created = await tx.employeeAdvance.create({
         data: {
           employeeId: data.employeeId,
           serial: data.serial,
@@ -79,6 +78,33 @@ export class EmployeeAdvanceService {
             },
           },
         },
+      });
+        const accounts = await hrGlAccountResolverService.resolveAccounts(companyId);
+        const debitAccountId = employee.advanceAccountId || accounts.employeeAdvancesAccountId;
+        const creditAccountId = accounts.accruedPayrollAccountId;
+        if (debitAccountId && creditAccountId) {
+          const fiscalYear = await tx.fiscalYear.findFirst({
+            where: { companyId, status: 'Open', isActive: true },
+            orderBy: { startDate: 'desc' },
+          });
+          if (!fiscalYear) {
+            throw new AppError(400, 'لا توجد سنة مالية مفتوحة لترحيل السلفة');
+          }
+          await journalPostingService.createAndPostInTx(tx, { companyId, userId }, {
+            fiscalYearId: fiscalYear.id,
+            date: data.date,
+            description: `صرف سلفة ${employee.arabicName}`,
+            currencyCode: 'EGP',
+            exchangeRate: 1,
+            entryType: 'EmployeeAdvance',
+            sourceType: 'HR',
+            lines: journalLines([
+              { accountId: debitAccountId, debit: data.value, credit: 0, description: `سلفة ${employee.arabicName}` },
+              { accountId: creditAccountId, debit: 0, credit: data.value, description: `صرف سلفة ${employee.arabicName}` },
+            ]),
+          });
+        }
+        return created;
       });
 
       logger.info(
@@ -304,10 +330,7 @@ export class EmployeeAdvanceService {
         throw new Error('Employee advance not found');
       }
 
-      await prisma.employeeAdvance.update({
-        where: { id: advanceId },
-        data: { isActive: false },
-      });
+      await permanentDelete('السجل', () => prisma.employeeAdvance.delete({ where: { id: advanceId } }));
 
       logger.info({ companyId, advanceId }, 'Employee advance deleted');
       return { success: true };

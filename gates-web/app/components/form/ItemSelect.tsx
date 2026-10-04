@@ -13,6 +13,7 @@ import { useBarcodeScanner } from '@/lib/keyboard/useBarcodeScanner';
 import { compactControlClass } from '@/components/ui/forms/formTokens';
 import { toast } from '@/lib/feedback/toast';
 import { findItemByBarcode } from '@/lib/inventory/findItemByBarcode';
+import { availableFromItemOption } from '@/lib/inventory/fetch-warehouse-stock-balance';
 import { useOpenQuickCreateTab } from '@/lib/quick-create/useQuickCreateTab';
 import { apiClient } from '@/lib/api/client';
 
@@ -33,6 +34,7 @@ function ItemSelectInner({
   disabled,
   className,
   emptyLabel = 'اختر الصنف',
+  allowEmpty = false,
   enableQuickCreate = true,
   onItemResolved,
   onAfterBarcodePick,
@@ -42,6 +44,8 @@ function ItemSelectInner({
   portaled = true,
   excludeIds,
   excludeAssembly = false,
+  assemblyOnly = false,
+  warehouseId,
   fallbackLabel,
   onQuickCreateClick,
 }: {
@@ -54,6 +58,10 @@ function ItemSelectInner({
   enableQuickCreate?: boolean;
   excludeIds?: string[];
   excludeAssembly?: boolean;
+  /** Assembly / disassembly parent picker — only items marked تجميعي in the item card. */
+  assemblyOnly?: boolean;
+  /** Limit stock figures in the picker to one warehouse when set. */
+  warehouseId?: string;
   fallbackLabel?: string;
   /** If set, plus/quick-create uses this instead of opening a new item-card tab. */
   onQuickCreateClick?: (query: string) => void;
@@ -68,11 +76,16 @@ function ItemSelectInner({
   quickCreateModal?: unknown;
 }) {
   const [search, setSearch] = useState('');
-  const { data, isLoading, isError } = useItemsQuery(
-    PICKER_PAGE_SIZE,
-    search,
-    excludeAssembly ? { isAssembly: false } : undefined
-  );
+  const itemFilter = useMemo(() => {
+    const base = assemblyOnly
+      ? { isAssembly: true }
+      : excludeAssembly
+        ? { isAssembly: false }
+        : undefined;
+    if (!warehouseId) return base;
+    return { ...(base ?? {}), warehouseId };
+  }, [assemblyOnly, excludeAssembly, warehouseId]);
+  const { data, isLoading, isError } = useItemsQuery(PICKER_PAGE_SIZE, search, itemFilter);
   const items = data?.data ?? [];
   const [pinnedItem, setPinnedItem] = useState<ItemOption | QuickCreatedItem | null>(null);
 
@@ -104,30 +117,39 @@ function ItemSelectInner({
     () =>
       mergedItems.filter((item) => {
         if (blocked.has(item.id)) return false;
+        if (assemblyOnly && !item.isAssembly) return false;
         if (excludeAssembly && item.isAssembly) return false;
         return true;
       }),
-    [blocked, excludeAssembly, mergedItems]
+    [assemblyOnly, blocked, excludeAssembly, mergedItems]
   );
 
-  const options = useMemo(
-    () =>
-      visibleItems.map((item: ItemOption) => {
-        const code = item.code || item.serial || '';
-        return {
-          value: item.id,
-          label: formatItemLabel(item),
-          searchText: `${code} ${item.arabicName} ${item.englishName ?? ''}`,
-          meta: item,
-        };
-      }),
-    [visibleItems]
-  );
+  const options = useMemo(() => {
+    const rows = visibleItems.map((item: ItemOption) => {
+      const code = item.code || item.serial || '';
+      return {
+        value: item.id,
+        label: formatItemLabel(item),
+        searchText: `${code} ${item.arabicName} ${item.englishName ?? ''}`,
+        meta: item,
+      };
+    });
+    if (!allowEmpty) return rows;
+    return [{ value: '', label: emptyLabel, searchText: emptyLabel }, ...rows];
+  }, [allowEmpty, emptyLabel, visibleItems]);
 
   const resolveBarcode = (code: string) => {
     void findItemByBarcode(code, mergedItems).then((found) => {
       if (!found) {
         toast.error('الباركود غير مسجل');
+        return;
+      }
+      if (assemblyOnly && !found.isAssembly) {
+        toast.error('هذا الصنف ليس تجميعياً');
+        return;
+      }
+      if (excludeAssembly && found.isAssembly) {
+        toast.error('لا يمكن اختيار صنف تجميعي هنا');
         return;
       }
       setPinnedItem(found);
@@ -193,7 +215,9 @@ function ItemSelectInner({
           if (!item) return opt.label;
           const code = item.code || item.serial || '—';
           const price = itemSalePrice(item);
-          const stock = item.onHandQuantity;
+          const available = availableFromItemOption(item);
+          const onHand = item.quantityOnHand;
+          const reserved = item.reservedQuantity;
           return (
             <div className="py-2 px-1 text-right space-y-1">
               <div className="flex flex-wrap items-center gap-2 justify-end">
@@ -203,13 +227,20 @@ function ItemSelectInner({
                 </span>
               </div>
               <div className="flex flex-wrap gap-2 justify-end text-xs text-slate-600">
-                {stock != null ? (
+                {available != null ? (
                   <span className="px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-800">
-                    المتاح: {Number(stock).toLocaleString('ar-EG')} قطعة
+                    المتاح: {Number(available).toLocaleString('ar-EG')}
+                    {reserved != null && Number(reserved) > 0 && onHand != null ? (
+                      <span className="text-emerald-900/70">
+                        {' '}
+                        (موجود {Number(onHand).toLocaleString('ar-EG')} · محجوز{' '}
+                        {Number(reserved).toLocaleString('ar-EG')})
+                      </span>
+                    ) : null}
                   </span>
                 ) : null}
                 {price != null && price > 0 ? (
-                  <span className="font-medium text-[#0E79AA]">{price.toFixed(2)} ج.م</span>
+                  <span className="font-medium text-[#0E78AA]">{price.toLocaleString()} ج.م</span>
                 ) : null}
               </div>
             </div>
@@ -219,8 +250,10 @@ function ItemSelectInner({
         loading={isLoading}
         error={isError}
         emptyMessage={isError ? 'تعذر تحميل الأصناف' : 'لا يوجد صنف مطابق'}
-        quickCreateLabel={enableQuickCreate ? '+ إضافة سريع' : undefined}
-        onQuickCreate={enableQuickCreate ? (q) => openQuickCreate(q) : undefined}
+        quickCreateLabel={enableQuickCreate && !assemblyOnly ? '+ إضافة سريع' : undefined}
+        onQuickCreate={
+          enableQuickCreate && !assemblyOnly ? (q) => openQuickCreate(q) : undefined
+        }
         inputProps={{
           ...inputProps,
           onKeyDown: (e) => {

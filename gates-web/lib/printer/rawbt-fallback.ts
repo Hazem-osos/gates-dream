@@ -73,6 +73,23 @@ export function buildThermalReceiptHtml(
           : ''
       }
       <div class="gates-thermal-total gates-thermal-net"><span>الصافي النهائي</span><span>${escapeHtml(formatThermalMoney(data.net))}</span></div>
+      ${(data.payments ?? [])
+        .map(
+          (payment) =>
+            `<div class="gates-thermal-total"><span>${escapeHtml(payment.label)}</span><span>${escapeHtml(formatThermalMoney(payment.amount))}</span></div>`
+        )
+        .join('')}
+      ${
+        data.tendered != null && data.tendered > 0
+          ? `<div class="gates-thermal-total"><span>المبلغ المستلم</span><span>${escapeHtml(formatThermalMoney(data.tendered))}</span></div>`
+          : ''
+      }
+      ${
+        data.change != null && data.change > 0
+          ? `<div class="gates-thermal-total"><span>الباقي</span><span>${escapeHtml(formatThermalMoney(data.change))}</span></div>`
+          : ''
+      }
+      ${data.cashier ? `<div class="gates-thermal-total"><span>الكاشير</span><span>${escapeHtml(data.cashier)}</span></div>` : ''}
       ${data.notes ? `<p class="gates-thermal-notes">${escapeHtml(data.notes)}</p>` : ''}
       <p class="gates-thermal-footer">${escapeHtml(data.footer || 'شكراً لتعاملكم معنا - Gates ERP')}</p>
     </article>

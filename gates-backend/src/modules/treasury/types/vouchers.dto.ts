@@ -58,7 +58,8 @@ export function lineBaseAmount(line: {
   exchangeRate?: number | null;
 }): number {
   const rate = Number(line.exchangeRate ?? 1);
-  return Number(line.amount) * (Number.isFinite(rate) && rate > 0 ? rate : 1);
+  const fx = Number.isFinite(rate) && rate > 0 ? rate : 1;
+  return Math.round(Number(line.amount) * fx * 10_000) / 10_000;
 }
 
 export function splitVoucherLineTotals(

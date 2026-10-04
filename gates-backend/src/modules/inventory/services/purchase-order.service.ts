@@ -1,9 +1,11 @@
 import prisma from '../../../shared/database/prisma';
+import { AppError } from '../../../shared/middleware/error-handler';
 import { logger } from '../../../shared/logger';
 import { fiscalYearService } from '../../platform/services/fiscal-year.service';
 import { documentSequenceService } from '../../platform/services/document-sequence.service';
 import { invoiceM5Service } from '../../invoices/services/invoice-m5.service';
 import type { CreateM5InvoiceInput } from '../../invoices/schemas/invoice-m5.schema';
+import { conversionStatus, remainingSourceBaseQty } from '../../invoices/services/invoice-line-source.service';
 import { bulkCreateMany } from '../../../shared/database/bulk-write';
 import { emitDomainEvent } from '../../automation/events/automation-event-bus.service';
 
@@ -37,6 +39,7 @@ export interface CreatePurchaseOrderData {
   exchangeRate?: number;
   conditions?: string[]; // Order conditions (الشروط)
   expectedDeliveryDate?: string;
+  costCenterId?: string | null;
   lines: PurchaseOrderLine[];
 }
 
@@ -82,7 +85,7 @@ export class PurchaseOrderService {
       });
 
       if (!supplier) {
-        throw new Error('Supplier not found or does not belong to company');
+        throw new Error('المورد غير موجود أو لا يتبع الشركة');
       }
 
       // Validate warehouse if provided
@@ -92,7 +95,7 @@ export class PurchaseOrderService {
         });
 
         if (!warehouse) {
-          throw new Error('Warehouse not found or does not belong to company');
+          throw new Error('المخزن غير موجود أو لا يتبع الشركة');
         }
       }
 
@@ -103,7 +106,7 @@ export class PurchaseOrderService {
         });
 
         if (!currency) {
-          throw new Error('Currency not found or does not belong to company');
+          throw new Error('العملة غير موجودة أو لا تتبع الشركة');
         }
       }
 
@@ -117,7 +120,7 @@ export class PurchaseOrderService {
       });
 
       if (items.length !== itemIds.length) {
-        throw new Error('One or more items not found or do not belong to company');
+        throw new Error('أحد الأصناف غير موجود أو لا يتبع الشركة');
       }
 
       // Use transaction to ensure atomicity
@@ -187,6 +190,7 @@ export class PurchaseOrderService {
             expectedDeliveryDate: data.expectedDeliveryDate
               ? new Date(data.expectedDeliveryDate)
               : null,
+            costCenterId: data.costCenterId || null,
             totalAmount,
             totalDiscount,
             totalTax,
@@ -273,6 +277,114 @@ export class PurchaseOrderService {
       logger.error({ error, companyId, data }, 'Error creating purchase order');
       throw error;
     }
+  }
+
+  async updatePurchaseOrder(
+    companyId: string,
+    purchaseOrderId: string,
+    data: CreatePurchaseOrderData
+  ) {
+    const existing = await prisma.purchaseOrder.findFirst({
+      where: { id: purchaseOrderId, companyId },
+      select: { id: true, isPosted: true },
+    });
+    if (!existing) throw new AppError(404, 'أمر الشراء غير موجود');
+    if (existing.isPosted) throw new AppError(422, 'لا يمكن تعديل أمر شراء مرحّل');
+
+    const supplier = await prisma.supplier.findFirst({
+      where: { id: data.supplierId, companyId },
+      select: { id: true },
+    });
+    if (!supplier) throw new AppError(400, 'المورد غير موجود');
+
+    const itemIds = data.lines.map((line) => line.itemId);
+    const items = await prisma.item.findMany({
+      where: { id: { in: itemIds }, companyId },
+      select: { id: true },
+    });
+    if (items.length !== new Set(itemIds).size) {
+      throw new AppError(400, 'أحد الأصناف غير موجود');
+    }
+
+    return prisma.$transaction(async (tx) => {
+      let totalAmount = 0;
+      let totalDiscount = 0;
+      let totalTax = 0;
+      let netAmount = 0;
+      for (const lineData of data.lines) {
+        const unitPrice = lineData.unitPrice || 0;
+        const totals = this.calculateLineTotal(
+          lineData.quantity,
+          unitPrice,
+          lineData.discountPercentage,
+          lineData.taxPercentage
+        );
+        totalAmount += totals.total;
+        totalDiscount += totals.discountValue;
+        totalTax += totals.taxValue;
+        netAmount += totals.netTotal;
+      }
+
+      await tx.purchaseOrderLine.deleteMany({ where: { purchaseOrderId } });
+      await tx.purchaseOrderCondition.deleteMany({ where: { purchaseOrderId } });
+      await tx.purchaseOrder.update({
+        where: { id: purchaseOrderId },
+        data: {
+          description: data.description || null,
+          orderNumber: data.orderNumber?.trim() || undefined,
+          date: new Date(data.date),
+          supplierId: data.supplierId,
+          warehouseId: data.warehouseId || null,
+          currencyId: data.currencyId || null,
+          exchangeRate: data.exchangeRate || null,
+          expectedDeliveryDate: data.expectedDeliveryDate
+            ? new Date(data.expectedDeliveryDate)
+            : null,
+          costCenterId: data.costCenterId || null,
+          totalAmount,
+          totalDiscount,
+          totalTax,
+          netAmount,
+        },
+      });
+
+      if (data.conditions && data.conditions.length > 0) {
+        await bulkCreateMany(
+          (args) => tx.purchaseOrderCondition.createMany(args),
+          data.conditions.map((condition) => ({ purchaseOrderId, condition }))
+        );
+      }
+
+      const lineRows = data.lines.map((lineData) => {
+        const unitPrice = lineData.unitPrice || 0;
+        const { total, discountValue, taxValue, netTotal } = this.calculateLineTotal(
+          lineData.quantity,
+          unitPrice,
+          lineData.discountPercentage,
+          lineData.taxPercentage
+        );
+        return {
+          purchaseOrderId,
+          itemId: lineData.itemId,
+          unitId: lineData.unitId || null,
+          baseUnitId: lineData.baseUnitId || null,
+          quantity: lineData.quantity,
+          baseQuantity: lineData.baseQuantity || lineData.quantity,
+          unitPrice,
+          total,
+          discountPercentage: lineData.discountPercentage || null,
+          discountValue,
+          taxPercentage: lineData.taxPercentage || null,
+          taxValue,
+          netTotal,
+        };
+      });
+      await bulkCreateMany((args) => tx.purchaseOrderLine.createMany(args), lineRows);
+      return tx.purchaseOrder.findFirstOrThrow({
+        where: { id: purchaseOrderId, companyId },
+        include: { lines: true },
+      });
+    });
   }
 
   /**
@@ -735,37 +847,62 @@ export class PurchaseOrderService {
           lines: true,
           supplier: true,
           warehouse: true,
+          currency: { select: { code: true } },
         },
       });
 
       if (!purchaseOrder) {
-        throw new Error('Purchase order not found');
+        throw new AppError(404, 'أمر الشراء غير موجود');
       }
 
       if (purchaseOrder.isCancelled) {
-        throw new Error('Cannot convert cancelled purchase order');
+        throw new AppError(422, 'لا يمكن تحويل أمر شراء ملغي');
       }
 
       if (!purchaseOrder.isApproved) {
-        throw new Error('Purchase order must be approved before converting to invoice');
+        throw new AppError(422, 'اعتمد أمر الشراء قبل تحويله إلى فاتورة');
       }
 
-      if (purchaseOrder.invoiceId) {
-        throw new Error('Purchase order was already converted to an invoice');
+      const lines = [];
+      let orderedTotal = 0;
+      let usedTotal = 0;
+      for (const orderLine of purchaseOrder.lines) {
+        const ordered = Number(orderLine.baseQuantity ?? orderLine.quantity);
+        const remaining = await remainingSourceBaseQty(
+          prisma,
+          companyId,
+          'PURCHASE_ORDER',
+          orderLine.id,
+          ordered
+        );
+        orderedTotal += ordered;
+        usedTotal += ordered - remaining;
+        if (remaining <= 0) continue;
+        const displayQty = Number(orderLine.quantity);
+        const ratio = ordered > 0 ? displayQty / ordered : 1;
+        const share = ordered > 0 ? remaining / ordered : 1;
+        lines.push({
+          itemId: orderLine.itemId,
+          unitId: orderLine.unitId ?? undefined,
+          quantity: remaining * ratio,
+          baseQuantity: remaining,
+          price: Number(orderLine.unitPrice ?? 0),
+          discountPercent: orderLine.discountPercentage != null ? Number(orderLine.discountPercentage) : undefined,
+          discountAmount:
+            orderLine.discountValue != null ? Number(orderLine.discountValue) * share : undefined,
+          taxPercent: orderLine.taxPercentage != null ? Number(orderLine.taxPercentage) : undefined,
+          taxAmount: orderLine.taxValue != null ? Number(orderLine.taxValue) * share : undefined,
+          lineOrder: lines.length + 1,
+          sourceKind: 'PURCHASE_ORDER' as const,
+          sourceLineId: orderLine.id,
+        });
       }
-
-      const lines = purchaseOrder.lines.map((orderLine, i) => ({
-        itemId: orderLine.itemId,
-        unitId: orderLine.unitId ?? undefined,
-        quantity: Number(orderLine.quantity),
-        baseQuantity: Number(orderLine.baseQuantity ?? orderLine.quantity),
-        price: Number(orderLine.unitPrice ?? 0),
-        discountPercent: orderLine.discountPercentage != null ? Number(orderLine.discountPercentage) : undefined,
-        discountAmount: orderLine.discountValue != null ? Number(orderLine.discountValue) : undefined,
-        taxPercent: orderLine.taxPercentage != null ? Number(orderLine.taxPercentage) : undefined,
-        taxAmount: orderLine.taxValue != null ? Number(orderLine.taxValue) : undefined,
-        lineOrder: i + 1,
-      }));
+      if (!lines.length) {
+        throw new AppError(422, 'أمر الشراء مكتمل ولا توجد كمية متبقية للتحويل');
+      }
+      if (!purchaseOrder.warehouseId) {
+        throw new AppError(422, 'حدد مخزن أمر الشراء قبل التحويل');
+      }
 
       const invoice = await invoiceM5Service.create(
         companyId,
@@ -774,8 +911,9 @@ export class PurchaseOrderService {
         {
           invoiceKind: 'PURCHASE',
           date: new Date(),
+          currencyCode: purchaseOrder.currency?.code ?? 'EGP',
           supplierId: purchaseOrder.supplierId,
-          warehouseId: purchaseOrder.warehouseId ?? undefined,
+          warehouseId: purchaseOrder.warehouseId,
           exchangeRate: purchaseOrder.exchangeRate != null ? Number(purchaseOrder.exchangeRate) : undefined,
           description: `فاتورة مشتريات من أمر شراء ${purchaseOrder.orderNumber ?? purchaseOrder.id}`,
           lines,
@@ -792,7 +930,11 @@ export class PurchaseOrderService {
         'Purchase order converted to invoice'
       );
 
-      return invoice;
+      const convertedNow = lines.reduce((sum, line) => sum + line.baseQuantity, 0);
+      return {
+        ...invoice,
+        conversionStatus: conversionStatus(orderedTotal, usedTotal + convertedNow),
+      };
     } catch (error) {
       logger.error({ error, companyId, purchaseOrderId }, 'Error converting purchase order to invoice');
       throw error;

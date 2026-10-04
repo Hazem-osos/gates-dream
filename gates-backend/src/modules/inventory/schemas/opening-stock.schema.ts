@@ -5,11 +5,19 @@ const emptyToUndefined = (value: unknown) =>
 
 export const openingStockLineSchema = z.object({
   itemId: z.string().min(1, 'اختر الصنف من الدليل'),
-  warehouseId: z.preprocess(emptyToUndefined, z.string().min(1, 'اختر المخزن التشغيلي على السطر').optional()),
+  warehouseId: z.preprocess(emptyToUndefined, z.string().min(1, 'اختر المخزن التشغيلي على السطر')),
   locationId: z.preprocess(emptyToUndefined, z.string().optional().nullable()),
   quantity: z.coerce.number().positive('كمية أول المدة لازم تكون أكبر من صفر'),
   unitPrice: z.coerce.number().nonnegative('تكلفة الوحدة لا تقل عن صفر'),
   total: z.coerce.number().nonnegative('إجمالي القيمة غير صالح'),
+  batchNumber: z.preprocess(
+    (value) => (typeof value === 'string' ? value.trim() || undefined : value),
+    z.string().max(191).optional().nullable()
+  ),
+  expiryDate: z.preprocess(
+    (value) => (value === '' || value === null || value === undefined ? null : value),
+    z.coerce.date().nullable().optional()
+  ),
 });
 
 export const createOpeningStockSchema = z.object({

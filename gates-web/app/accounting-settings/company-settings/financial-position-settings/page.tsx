@@ -12,6 +12,7 @@ import { useFirstCompany } from '@/lib/hooks/useFirstCompany';
 import { apiClient } from '@/lib/api/client';
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
+import { AccountSelect } from '@/app/components/form/AccountSelect';
 
 type NetRow = { left: string; right: string };
 
@@ -111,17 +112,13 @@ export default function FinancialPositionSettingsPage() {
   }) => (
     <div className="flex items-center gap-4">
       <span className="text-[#0A3D5E] font-semibold min-w-[180px] text-[15px] tracking-wide">{label}</span>
-      <div className="flex items-center h-10 rounded-xl border border-[#CFE7F2] bg-[#F6FBFD] overflow-hidden shadow-sm flex-1 max-w-md">
-        <button type="button" className="w-9 h-10 flex items-center justify-center border-l border-[#CFE7F2] text-[#0E78AA]">
-          <img src="/magnifying-glass-1.svg" alt="بحث" className="w-4 h-4" />
-        </button>
-        <input
+      <div className="max-w-md flex-1">
+        <AccountSelect
           value={data.top[field]}
-          onChange={(e) =>
-            setData((prev) => ({ ...prev, top: { ...prev.top, [field]: e.target.value } }))
+          onChange={(accountId) =>
+            setData((prev) => ({ ...prev, top: { ...prev.top, [field]: accountId } }))
           }
-          className="h-full flex-1 bg-transparent outline-none text-[#0A3D5E] px-2"
-          placeholder={placeholder}
+          placeholder={placeholder || label}
         />
       </div>
     </div>

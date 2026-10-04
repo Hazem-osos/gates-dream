@@ -44,7 +44,7 @@ export default function SubcontractsCommand() {
       onRefresh={() => void refetch()}
       shortcuts={[
         { key: 'F2', label: 'عقد باطن', href: '/subcontracts/contracts' },
-        { key: 'F4', label: 'مستخلصات', href: '/contracting/extracts' },
+        { key: 'F4', label: 'مستخلص باطن', href: '/subcontracts/contracts' },
       ]}
     >
       <MetricBar
@@ -54,7 +54,7 @@ export default function SubcontractsCommand() {
           { id: 'ret', label: 'تأمين محتجز', value: <SensitiveValue>{formatEgp(k?.retentionHeld)}</SensitiveValue>, hint: `${k?.activeSubcontracts ?? 0} عقد` },
           { id: 'pen', label: 'هالك غير مطبّق', value: <SensitiveValue>{formatEgp(k?.unappliedPenalties)}</SensitiveValue>, tone: (k?.unappliedPenalties ?? 0) > 0 ? 'bad' : 'ok' },
           { id: 'f41', label: `منبع 41 ر${k?.form41Quarter ?? '—'}`, value: <SensitiveValue>{formatEgp(k?.form41Withheld)}</SensitiveValue> },
-          { id: 'exec', label: 'نسبة التنفيذ', value: `${((k?.executionRatio ?? 0) * 100).toFixed(1)}٪` },
+          { id: 'exec', label: 'نسبة التنفيذ', value: `${((k?.executionRatio ?? 0) * 100).toLocaleString()}٪` },
           { id: 'draft', label: 'مسودات غير مرحلة', value: k?.unpostedDrafts ?? 0, tone: (k?.unpostedDrafts ?? 0) > 0 ? 'warn' : 'ok' },
         ]}
       />
@@ -68,7 +68,7 @@ export default function SubcontractsCommand() {
               segments={(s?.charts.approvalFunnel ?? []).map((f, i) => ({
                 label: FUNNEL_AR[f.status] ?? f.status,
                 value: f.count,
-                color: ['#94A3B8', '#D97706', '#0E79AA', '#7C3AED', '#059669'][i] ?? '#64748B',
+                color: ['#94A3B8', '#D97706', '#0E78AA', '#7C3AED', '#059669'][i] ?? '#64748B',
               }))}
             />
           </div>

@@ -35,6 +35,7 @@ export class SubcontractAccountingService {
   ) {
     const invoice = await db.subcontractInvoice.findFirst({
       where: { id: invoiceId, companyId },
+      include: { subcontract: { select: { subcontractorId: true } } },
     });
     if (!invoice) throw new SubcontractInvoiceNotFoundError(companyId, invoiceId);
     if (invoice.journalEntryId) throw new InvoiceAlreadyPostedError(invoice.id);
@@ -69,7 +70,7 @@ export class SubcontractAccountingService {
   }
 
   private buildInvoiceLines(
-    invoice: SubcontractInvoice,
+    invoice: SubcontractInvoice & { subcontract: { subcontractorId: string } },
     accounts: Awaited<ReturnType<typeof subcontractAccountResolverService.resolveAccounts>>
   ) {
     const gross = money(invoice.grossCurrentAmount);
@@ -104,6 +105,12 @@ export class SubcontractAccountingService {
           debit: 0,
           credit: toLineAmount(row.amount),
           description: row.description,
+          ...(row.accountId === accounts.apAccountId
+            ? {
+                partnerId: invoice.subcontract.subcontractorId,
+                partnerType: 'SUBCONTRACTOR' as const,
+              }
+            : {}),
         })),
     ];
   }

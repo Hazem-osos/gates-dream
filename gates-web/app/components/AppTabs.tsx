@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState, type MouseEvent } from "react";
+import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { IoClose } from "react-icons/io5";
 import { normalizeAppPath } from '@/lib/navigation/app-module-root';
@@ -26,7 +26,7 @@ export default function AppTabs() {
 
   useEffect(() => {
     if (!menuOpen) return;
-    const onPointer = (event: MouseEvent) => {
+    const onPointer = (event: globalThis.MouseEvent) => {
       const target = event.target;
       if (!(target instanceof Node)) return;
       if (menuRef.current?.contains(target)) return;
@@ -42,7 +42,7 @@ export default function AppTabs() {
     router.push(dest);
   };
 
-  const closeTab = (path: string, e?: MouseEvent) => {
+  const closeTab = (path: string, e?: ReactMouseEvent) => {
     e?.stopPropagation();
     e?.preventDefault();
     const remaining = tabs.filter((tab) => tab.path !== path);
@@ -72,9 +72,9 @@ export default function AppTabs() {
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
         <div className="absolute -left-8 -top-6 w-40 h-40 rounded-full blur-2xl" style={{ background: 'radial-gradient(circle, rgba(14,121,170,0.15) 0%, rgba(14,121,170,0) 60%)' }} />
         <div className="absolute right-8 -bottom-10 w-48 h-48 rounded-full blur-3xl" style={{ background: 'radial-gradient(circle, rgba(23,135,184,0.15) 0%, rgba(23,135,184,0) 60%)' }} />
-        <div className="absolute left-0 right-0 bottom-0 h-px bg-gradient-to-r from-transparent via-[#0E79AA]/30 to-transparent" />
+        <div className="absolute left-0 right-0 bottom-0 h-px bg-gradient-to-r from-transparent via-[#0E78AA]/30 to-transparent" />
       </div>
-      <div className="flex min-w-0 items-center gap-2 bg-gradient-to-r from-[#0E79AA]/10 to-[#1787B8]/10 px-3 py-2 backdrop-blur-sm border-b border-[#0E79AA]/20 shadow-sm">
+      <div className="flex min-w-0 items-center gap-2 bg-gradient-to-r from-[#0E78AA]/10 to-[#1787B8]/10 px-3 py-2 backdrop-blur-sm border-b border-[#0E78AA]/20 shadow-sm">
         <div
           ref={scrollerRef}
           data-app-tabs-scroller
@@ -99,9 +99,9 @@ export default function AppTabs() {
                 }}
                 className={`relative flex shrink-0 items-center gap-2 px-3 py-2 rounded-2xl text-sm transition-all backdrop-blur-sm
                   ${isActive
-                    ? 'bg-gradient-to-r from-[#0E79AA] to-[#1787B8] text-white shadow-md hover:shadow-lg'
+                    ? 'bg-gradient-to-r from-[#0E78AA] to-[#1787B8] text-white shadow-md hover:shadow-lg'
                     : justOpened
-                      ? 'bg-white text-[#0E79AA] ring-2 ring-[#0E79AA] shadow-md'
+                      ? 'bg-white text-[#0E78AA] ring-2 ring-[#0E78AA] shadow-md'
                       : 'bg-white/70 text-[#094C6B] ring-1 ring-[#D6EAF3] hover:bg-white shadow-sm hover:shadow-md'}
                 `}
               >
@@ -183,7 +183,7 @@ export default function AppTabs() {
                 </ul>
                 <button
                   type="button"
-                  className="w-full border-t border-slate-100 px-3 py-2 text-xs font-semibold text-[#0E79AA] hover:bg-[#F6FBFD]"
+                  className="w-full border-t border-slate-100 px-3 py-2 text-xs font-semibold text-[#0E78AA] hover:bg-[#F6FBFD]"
                   onClick={closeOthers}
                 >
                   إغلاق الباقي والإبقاء على الحالي

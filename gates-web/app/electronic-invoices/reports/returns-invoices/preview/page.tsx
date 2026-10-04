@@ -6,7 +6,7 @@ export default function ReturnsInvoicesReportPreviewRoute() {
   return (
     <ElectronicInvoiceReportPreviewPage
       reportKind="returns-invoices"
-      title="معاينة — فواتير المرتجعات الإلكترونية"
+      title="معاينة — الإشعارات الدائنة"
     />
   );
 }

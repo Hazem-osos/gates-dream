@@ -41,8 +41,8 @@ export function WorkflowStepper({
               <span
                 className={cn(
                   'flex h-8 w-8 shrink-0 items-center justify-center rounded-full border text-xs font-bold',
-                  done && 'border-[#0E79AA] bg-[#0E79AA] text-white',
-                  current && 'border-[#0E79AA] bg-[#0E79AA0D] text-[#0E79AA]',
+                  done && 'border-[#0E78AA] bg-[#0E78AA] text-white',
+                  current && 'border-[#0E78AA] bg-[#0E78AA0D] text-[#0E78AA]',
                   !done && !current && 'border-slate-200 bg-white text-slate-400'
                 )}
               >
@@ -61,7 +61,7 @@ export function WorkflowStepper({
               <span
                 className={cn(
                   'mx-2 h-px min-w-6 flex-1',
-                  index < currentIndex ? 'bg-[#0E79AA]' : 'bg-slate-200'
+                  index < currentIndex ? 'bg-[#0E78AA]' : 'bg-slate-200'
                 )}
               />
             ) : null}

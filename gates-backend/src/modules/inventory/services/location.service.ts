@@ -233,6 +233,20 @@ export class LocationService {
         throw new Error('Location not found');
       }
 
+      const [movement, balance] = await Promise.all([
+        prisma.inventoryMovement.findFirst({
+          where: { locationId, companyId },
+          select: { id: true },
+        }),
+        prisma.itemQuantity.findFirst({
+          where: { locationId, quantity: { not: 0 } },
+          select: { id: true },
+        }),
+      ]);
+      if (movement || balance) {
+        throw new Error('لا يمكن حذف الموقع لأن عليه رصيد أو حركات مخزنية.');
+      }
+
       await prisma.location.delete({
         where: { id: locationId },
       });

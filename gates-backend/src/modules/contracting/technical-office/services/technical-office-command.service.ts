@@ -11,6 +11,8 @@ import type { CreateMeasurementSheetDto } from '../types/measurement-sheet.types
 import type { SetMarkupDto, UpsertRateAnalysisDto } from '../types/rate-analysis.types';
 import { executiveMeasurementSheetService } from './executive-measurement-sheet.service';
 import { rateAnalysisCalculationService } from './rate-analysis-calculation.service';
+import { isOwnerBoqItemCertifiableInTx } from '../../variation/contract-variation-effective.service';
+import { OwnerBoqItemNotCertifiableError } from '../../variation/variation-domain.errors';
 
 const ELEMENT_LABEL_AR: Record<BOQCostElementType, string> = {
   MATERIAL: 'خامات',
@@ -199,6 +201,10 @@ export class TechnicalOfficeCommandService {
 
   async createMeasurementSheet(companyId: string, dto: CreateMeasurementSheetDto) {
     const boq = await this.requireBoq(prisma, companyId, dto.projectBOQItemId);
+    const certifiable = await isOwnerBoqItemCertifiableInTx(prisma, companyId, boq.id);
+    if (!certifiable) {
+      throw new OwnerBoqItemNotCertifiableError(boq.id, boq.itemCode);
+    }
     const qty = executiveMeasurementSheetService.calculateSheetNetQuantity(dto);
 
     return prisma.executiveMeasurementSheet.create({

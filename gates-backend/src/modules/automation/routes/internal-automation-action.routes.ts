@@ -50,6 +50,7 @@ router.post(
       if (error instanceof AutomationActionDispatchError) {
         return void res.status(error.statusCode).json({
           status: 'error',
+          code: error.code,
           message: error.message,
         });
       }

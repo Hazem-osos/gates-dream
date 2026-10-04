@@ -28,6 +28,8 @@ import SuccessToast from '@/components/SuccessToast';
 import { useApiMutation, useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
 import { useDocumentConvertMutation } from '@/lib/hooks/useDocumentConvert';
 import { mapSalesFormToM5CreateBody, mapSalesFormToM5UpdateBody } from '@/lib/invoices/mapFormToM5Invoice';
+import { finishDocumentSave } from '@/lib/documents/finish-save';
+import { invalidateStockViews } from '@/lib/invoices/invalidate-stock-views';
 import { toHijriDate } from '@/lib/hijri-date';
 import type { ApiError } from '@/lib/api/types';
 import { CommercialLinesTable } from '@/components/inventory/commercial/CommercialLinesTable';
@@ -37,8 +39,6 @@ import {
   isEnteredCommercialLine,
   type CommercialDocumentLine,
 } from '@/components/inventory/commercial/commercial-line-types';
-
-const ORDER_PREFIX = '[أمر بيع]';
 
 type OrderRecord = {
   id: string;
@@ -188,12 +188,10 @@ export function SalesOrderForm() {
   const { data: browseResponse } = useApiQuery<OrderRecord[]>(
     ['invoices', 'sales-orders-browse'],
     '/invoices',
-    { invoiceKind: 'SALE', isPosted: false, limit: 200 },
+    { invoiceKind: 'SALES_ORDER', limit: 200 },
     { enabled: browseOpen }
   );
-  const previousOrders = (browseResponse?.data ?? []).filter((row) =>
-    String(row.description || '').includes(ORDER_PREFIX)
-  );
+  const previousOrders = browseResponse?.data ?? [];
 
   const { data: currenciesResponse } = useApiQuery<{ id: string; code: string; arabicName: string }[]>(
     ['currencies'],
@@ -285,10 +283,23 @@ export function SalesOrderForm() {
 
   const saveMutation = useApiMutation<OrderRecord, Record<string, unknown>>('/invoices', 'POST', {
     showSuccessToast: false,
-    onSuccess: () => {
-      invalidateQuery(['invoices']);
-      resetNew();
-      setSuccess('تم حفظ أمر البيع');
+    onSuccess: (res) => {
+      invalidateStockViews(invalidateQuery);
+      const id = res.data?.id;
+      finishDocumentSave({
+        label: 'أمر بيع',
+        number: res.data?.invoiceNumber || orderNumber,
+        savedId: id,
+        clearDraft,
+        onOpen: (saved) => {
+          setSelectedId(saved);
+          const params = new URLSearchParams(searchParams.toString());
+          params.set('orderId', saved);
+          const qs = params.toString();
+          router.replace(qs ? `?${qs}` : window.location.pathname, { scroll: false });
+        },
+        reset: () => resetNew(),
+      });
     },
     onError: (err: ApiError) => setError(err.message || 'تعذر حفظ أمر البيع'),
   });
@@ -299,9 +310,22 @@ export function SalesOrderForm() {
     {
       showSuccessToast: false,
       onSuccess: () => {
-        invalidateQuery(['invoices']);
-        resetNew();
-        setSuccess('تم تحديث أمر البيع');
+        invalidateStockViews(invalidateQuery);
+        const id = selectedId;
+        finishDocumentSave({
+          label: 'أمر بيع',
+          number: orderNumber,
+          savedId: id,
+          clearDraft,
+          onOpen: (saved) => {
+            setSelectedId(saved);
+            const params = new URLSearchParams(searchParams.toString());
+            params.set('orderId', saved);
+            const qs = params.toString();
+            router.replace(qs ? `?${qs}` : window.location.pathname, { scroll: false });
+          },
+          reset: () => resetNew(),
+        });
       },
       onError: (err: ApiError) => setError(err.message || 'تعذر تحديث أمر البيع'),
     }
@@ -323,7 +347,7 @@ export function SalesOrderForm() {
 
   const buildOrderBody = () => {
     const notes = [shippingTerms, paymentTerms].filter(Boolean).join(' — ');
-    const desc = `${ORDER_PREFIX} ${description || ''}`.trim();
+    const desc = (description || '').trim();
     return {
       invoiceNumber: orderNumber || undefined,
       description: notes ? `${desc} — ${notes}` : desc,
@@ -367,7 +391,7 @@ export function SalesOrderForm() {
     if (selectedId) {
       updateMutation.mutate(
         mapSalesFormToM5UpdateBody(form, {
-          invoiceKind: 'SALE',
+          invoiceKind: 'SALES_ORDER',
           currencies,
           items,
           expectedVersion: loaded?.version,
@@ -375,7 +399,7 @@ export function SalesOrderForm() {
       );
       return;
     }
-    saveMutation.mutate(mapSalesFormToM5CreateBody(form, { invoiceKind: 'SALE', currencies, items }));
+    saveMutation.mutate(mapSalesFormToM5CreateBody(form, { invoiceKind: 'SALES_ORDER', currencies, items }));
   };
 
   const handleGenerateInvoice = async () => {
@@ -583,6 +607,7 @@ export function SalesOrderForm() {
             lines={lines}
             onChange={setLines}
             headerDescription={description}
+            warehouseId={warehouseId}
           />
         </div>
 

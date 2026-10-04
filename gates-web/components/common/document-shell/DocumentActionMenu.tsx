@@ -338,7 +338,7 @@ export function DocumentActionMenu({
                   setConfirm(null);
                 }}
                 className={`rounded-lg px-4 py-2 text-sm font-semibold text-white ${
-                  confirm === 'void' ? 'bg-red-600 hover:bg-red-700' : 'bg-[#0E79AA] hover:bg-[#0c6a96]'
+                  confirm === 'void' ? 'bg-red-600 hover:bg-red-700' : 'bg-[#0E78AA] hover:bg-[#0c6a96]'
                 }`}
               >
                 تأكيد

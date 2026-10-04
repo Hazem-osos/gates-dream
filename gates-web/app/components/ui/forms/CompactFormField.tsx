@@ -7,6 +7,7 @@ import { HijriCaption } from '@/components/ui/DatePickerWithHijri';
 import {
   compactControlClass,
   compactControlShellClass,
+  dateControlClass,
   compactFieldErrorClass,
   compactLabelClass,
 } from './formTokens';
@@ -59,7 +60,6 @@ export const CompactFormField = React.forwardRef<HTMLInputElement, CompactFormFi
     return (
       <div
         className={cn('min-w-0 w-full', className)}
-        dir="rtl"
         data-hijri-unified={isDateField ? '1' : undefined}
         data-erp-field={/شرح|البيان|بيان/.test(label) ? 'description' : undefined}
       >
@@ -107,9 +107,14 @@ export const CompactFormField = React.forwardRef<HTMLInputElement, CompactFormFi
           <Input
             ref={ref}
             id={fieldId}
+            dir={isDateField ? 'ltr' : undefined}
             aria-invalid={Boolean(error) || undefined}
             aria-describedby={describedBy}
-            className={cn(compactControlClass, error && 'border-red-500 focus:border-red-500 focus:ring-red-500/30')}
+            className={cn(
+              compactControlClass,
+              isDateField && dateControlClass,
+              error && 'border-red-500 focus:border-red-500 focus:ring-red-500/30'
+            )}
             {...inputProps}
             onChange={handleChange}
           />

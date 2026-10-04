@@ -1,5 +1,29 @@
 import { z } from 'zod';
 
+const flexibleDate = (message: string) =>
+  z.string().min(1).transform((value, ctx) => {
+    const parsed = new Date(value.length <= 10 ? `${value}T00:00:00.000Z` : value);
+    if (Number.isNaN(parsed.getTime())) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message });
+      return z.NEVER;
+    }
+    return parsed.toISOString();
+  });
+
+const optionalFlexibleDate = (message: string) =>
+  z
+    .string()
+    .optional()
+    .transform((value, ctx) => {
+      if (!value) return undefined;
+      const parsed = new Date(value.length <= 10 ? `${value}T00:00:00.000Z` : value);
+      if (Number.isNaN(parsed.getTime())) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, message });
+        return z.NEVER;
+      }
+      return parsed.toISOString();
+    });
+
 export const purchaseOrderLineSchema = z.object({
   itemId: z.string().uuid('Item ID must be a valid UUID'),
   unitId: z.string().uuid('Unit ID must be a valid UUID').optional().nullable(),
@@ -20,14 +44,14 @@ export const createPurchaseOrderSchema = z.object({
   description: z.string().optional(),
   serial: z.string().optional(),
   orderNumber: z.string().optional(),
-  date: z.string().datetime('Date must be a valid ISO datetime'),
+  date: flexibleDate('التاريخ غير صالح'),
   hijriDate: z.string().optional(),
   supplierId: z.string().uuid('Supplier ID must be a valid UUID'),
   warehouseId: z.string().uuid('Warehouse ID must be a valid UUID').optional().nullable(),
   currencyId: z.string().uuid('Currency ID must be a valid UUID').optional().nullable(),
   exchangeRate: z.number().positive('Exchange rate must be positive').optional(),
   conditions: z.array(z.string()).optional(),
-  expectedDeliveryDate: z.string().datetime('Expected delivery date must be a valid ISO datetime').optional(),
+  expectedDeliveryDate: optionalFlexibleDate('تاريخ التوريد غير صالح'),
   expectedDeliveryDateHijri: z.string().optional(),
   costCenterId: z.string().uuid().optional().nullable(),
   lines: z.array(purchaseOrderLineSchema).min(1, 'At least one line is required'),
@@ -40,8 +64,8 @@ export const purchaseOrderQuerySchema = z.object({
   isPosted: z.string().transform((val) => val === 'true').optional(),
   isApproved: z.string().transform((val) => val === 'true').optional(),
   isCancelled: z.string().transform((val) => val === 'true').optional(),
-  fromDate: z.string().datetime().optional(),
-  toDate: z.string().datetime().optional(),
+  fromDate: optionalFlexibleDate('تاريخ البداية غير صالح'),
+  toDate: optionalFlexibleDate('تاريخ النهاية غير صالح'),
   skip: z.string().transform((val) => parseInt(val, 10)).optional(),
   take: z.string().transform((val) => parseInt(val, 10)).optional(),
 });

@@ -119,7 +119,24 @@ monitorPrisma(basePrisma);
 // tenant-scoping hook still runs on every query, including inside
 // `$transaction` — it only restores the pre-extension type signature so
 // existing call sites keep compiling unchanged.
-export const prisma = basePrisma.$extends(tenantScopingExtensionConfig) as unknown as PrismaClient;
+// Item has `serial`, not `code`. Screens and `@ts-nocheck` queries still select
+// `code`. This computed field keeps that response shape (code === serial).
+const itemCodeExtension = {
+  result: {
+    item: {
+      code: {
+        needs: { serial: true },
+        compute(item: { serial: string | null }) {
+          return item.serial;
+        },
+      },
+    },
+  },
+};
+
+export const prisma = basePrisma
+  .$extends(tenantScopingExtensionConfig)
+  .$extends(itemCodeExtension) as unknown as PrismaClient;
 
 // Connection pool configuration
 // Prisma handles connection pooling automatically, configured via DATABASE_URL

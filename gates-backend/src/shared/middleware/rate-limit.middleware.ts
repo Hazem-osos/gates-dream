@@ -1,8 +1,7 @@
 import rateLimit from 'express-rate-limit';
 import { Request, Response } from 'express';
 import { logger } from '../logger';
-import { recordViolation } from './ip-blocking.middleware';
-
+import { clientIpKey, resolveClientIp } from '../http/client-ip';
 /**
  * Rate Limiting Middleware
  * Prevents abuse by limiting requests per IP address
@@ -35,16 +34,16 @@ export const apiRateLimiter = rateLimit({
   windowMs: API_RATE_WINDOW_MS,
   max: API_RATE_MAX,
   skip: isAuthRateLimitBypassPath,
+  keyGenerator: clientIpKey,
+  validate: { xForwardedForHeader: false },
   message: {
     status: 'error',
     message: 'Too many requests from this IP, please try again later.',
   },
   standardHeaders: true,
   legacyHeaders: false,
-  handler: async (req: Request, res: Response) => {
-    const ip = req.ip || req.socket.remoteAddress || 'unknown';
-
-    await recordViolation(ip);
+  handler: (req: Request, res: Response) => {
+    const { ip } = resolveClientIp(req);
 
     logger.warn(
       {
@@ -68,6 +67,8 @@ export const apiRateLimiter = rateLimit({
 export const authRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: AUTH_RATE_MAX,
+  keyGenerator: clientIpKey,
+  validate: { xForwardedForHeader: false },
   message: {
     status: 'error',
     message: 'Too many authentication attempts, please try again later.',
@@ -75,10 +76,8 @@ export const authRateLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   skipSuccessfulRequests: true,
-  handler: async (req: Request, res: Response) => {
-    const ip = req.ip || req.socket.remoteAddress || 'unknown';
-
-    await recordViolation(ip);
+  handler: (req: Request, res: Response) => {
+    const { ip } = resolveClientIp(req);
 
     logger.warn(
       {

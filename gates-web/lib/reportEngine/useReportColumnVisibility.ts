@@ -37,6 +37,101 @@ export function useReportColumnVisibility(
     const allIds = pickable.map((c) => c.id);
     if (stored?.length) {
       const valid = stored.filter((id) => pickable.some((c) => c.id === id));
+      const journalColumns = [
+        'sourceNumber',
+        'mainAccount',
+        'ledgerAccount',
+        'entryCurrency',
+        'entryExchangeRate',
+        'approvalStatus',
+        'postingPosition',
+        'costCenter',
+      ];
+      if (pickable.some((c) => c.id === 'approvalStatus' || c.id === 'sourceNumber')) {
+        for (const id of journalColumns) {
+          if (pickable.some((c) => c.id === id) && !valid.includes(id)) valid.push(id);
+        }
+      }
+      if (pickable.some((c) => c.id === 'paperNumber') && !stored.includes('paperNumber')) {
+        setVisibleIds(allIds);
+        setHydrated(true);
+        return;
+      }
+      if (pickable.some((c) => c.id === 'amountBeforeTax') && !stored.includes('amountBeforeTax')) {
+        setVisibleIds(allIds);
+        setHydrated(true);
+        return;
+      }
+      if (pickable.some((c) => c.id === 'sourceLabel') && !stored.includes('sourceLabel')) {
+        setVisibleIds(allIds);
+        setHydrated(true);
+        return;
+      }
+      if (pickable.some((c) => c.id === 'sourceName') && !stored.includes('sourceName')) {
+        setVisibleIds(allIds);
+        setHydrated(true);
+        return;
+      }
+      if (pickable.some((c) => c.id === 'lineInclusiveValue') && !stored.includes('lineInclusiveValue')) {
+        setVisibleIds(allIds);
+        setHydrated(true);
+        return;
+      }
+      if (pickable.some((c) => c.id === 'paymentAmount') && !stored.includes('paidAmount')) {
+        setVisibleIds(allIds);
+        setHydrated(true);
+        return;
+      }
+      if (pickable.some((c) => c.id === 'paymentMethod') && !stored.includes('paymentMethod')) {
+        setVisibleIds(allIds);
+        setHydrated(true);
+        return;
+      }
+      if (pickable.some((c) => c.id === 'previousBalance') && !stored.includes('previousBalance')) {
+        setVisibleIds(allIds);
+        setHydrated(true);
+        return;
+      }
+      if (pickable.some((c) => c.id === 'baseDebit') && !stored.includes('baseDebit')) {
+        setVisibleIds(allIds);
+        setHydrated(true);
+        return;
+      }
+      if (pickable.some((c) => /^debit_/.test(c.id) && !stored.includes(c.id))) {
+        setVisibleIds(allIds);
+        setHydrated(true);
+        return;
+      }
+      if (pickable.some((c) => c.id === 'pay30') && !stored.includes('pay30')) {
+        setVisibleIds(allIds);
+        setHydrated(true);
+        return;
+      }
+      if (pickable.some((c) => c.id === 'salePrice') && !stored.includes('salePrice')) {
+        setVisibleIds(allIds);
+        setHydrated(true);
+        return;
+      }
+      if (pickable.some((c) => c.id === 'additionsAmount') && !stored.includes('additionsAmount')) {
+        setVisibleIds(allIds);
+        setHydrated(true);
+        return;
+      }
+      if (pickable.some((c) => c.id === 'notYetDue') && !stored.includes('notYetDue')) {
+        setVisibleIds(allIds);
+        setHydrated(true);
+        return;
+      }
+      if (pickable.some((c) => c.id === 'profitPercentOnSales') && !stored.includes('profitPercentOnSales')) {
+        setVisibleIds(allIds);
+        setHydrated(true);
+        return;
+      }
+      if (pickable.some((c) => c.id === 'profitPercent') && !stored.includes('profitPercent')) {
+        setVisibleIds(allIds);
+        setHydrated(true);
+        return;
+      }
       setVisibleIds(valid.length ? valid : allIds);
     } else {
       setVisibleIds(allIds);

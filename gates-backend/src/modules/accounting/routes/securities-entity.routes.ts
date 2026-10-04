@@ -21,7 +21,7 @@ function allowEntityAccess(action: 'view' | 'edit') {
     try {
       if (!req.user) throw new AppError(401, 'Authentication required');
       const companyId = req.companyId || req.tenantId || req.user.company_id;
-      if (!companyId) throw new AppError(400, 'Company ID is required');
+      if (!companyId) throw new AppError(400, 'معرّف الشركة مطلوب');
       const roles = req.user.realm_access?.roles || req.user.resource_access?.['gates-backend']?.roles || [];
       if (roles.includes('admin') || roles.includes('accountant')) return next();
       const cached = await getCachedUserPermissions(req.user.sub, companyId);
@@ -41,7 +41,7 @@ function allowEntityAccess(action: 'view' | 'edit') {
 router.get('/', allowEntityAccess('view'), async (req: AuthRequest, res: Response) => {
   try {
     const companyId = req.companyId || req.tenantId;
-    if (!companyId) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+    if (!companyId) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     const data = await securitiesEntityService.list(companyId, req.query.search as string | undefined);
     return void res.json({ status: 'success', data });
   } catch (error) {
@@ -57,7 +57,7 @@ router.post(
   async (req: AuthRequest, res: Response) => {
     try {
       const companyId = req.companyId || req.tenantId;
-      if (!companyId) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+      if (!companyId) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
       const data = await securitiesEntityService.create(companyId, req.body.arabicName);
       return void res.status(201).json({ status: 'success', data });
     } catch (error) {

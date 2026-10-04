@@ -8,6 +8,7 @@ import { listEnabledRulesForEvent } from './automation-rule.mapper';
 import type { AutomationRuleDb } from './automation-rule.types';
 import { validateAutomationConditions } from '../catalog/condition-validator';
 import { validateAutomationActions } from '../catalog/action-validator';
+import { collectRuleIssues, ruleAttention } from '../catalog/rule-attention';
 
 /**
  * Validates a rule's (eventType, conditions, actions) against the
@@ -19,9 +20,12 @@ async function assertRuleAgainstCatalog(
   companyId: string,
   eventType: string,
   conditions: Array<{ field: string; operator: string; value?: unknown }>,
-  actions: Array<{ type: string; config?: Record<string, unknown> }>
+  actions: Array<{ type: string; config?: Record<string, unknown> }>,
+  options?: { requireCreatable?: boolean }
 ): Promise<void> {
-  await validateAutomationConditions(companyId, eventType, conditions);
+  await validateAutomationConditions(companyId, eventType, conditions, {
+    requireCreatable: options?.requireCreatable ?? true,
+  });
   await validateAutomationActions(companyId, eventType, actions);
 }
 
@@ -61,7 +65,7 @@ export class AutomationRuleService {
       ];
     }
 
-    const [rules, total] = await Promise.all([
+    const [rows, total] = await Promise.all([
       this.db.automationRule.findMany({
         where,
         orderBy: { createdAt: 'desc' },
@@ -70,6 +74,7 @@ export class AutomationRuleService {
       }),
       this.db.automationRule.count({ where }),
     ]);
+    const rules = await Promise.all(rows.map((rule) => this.withAttention(companyId, rule)));
 
     return {
       rules,
@@ -89,7 +94,7 @@ export class AutomationRuleService {
     if (!rule) {
       throw new AppError(404, 'Automation rule not found');
     }
-    return rule;
+    return this.withAttention(companyId, rule);
   }
 
   async createRule(companyId: string, data: CreateAutomationRuleInput) {
@@ -107,7 +112,7 @@ export class AutomationRuleService {
       },
     });
     logger.info({ companyId, ruleId: rule.id, eventType: rule.eventType }, 'Automation rule created');
-    return rule;
+    return this.withAttention(companyId, rule);
   }
 
   async updateRule(companyId: string, ruleId: string, data: UpdateAutomationRuleInput) {
@@ -122,7 +127,22 @@ export class AutomationRuleService {
       (existing.conditions as Array<{ field: string; operator: string; value?: unknown }>);
     const nextActions =
       data.actions ?? (existing.actions as Array<{ type: string; config?: Record<string, unknown> }>);
-    await assertRuleAgainstCatalog(companyId, nextEventType, nextConditions, nextActions);
+    const changingEventType =
+      data.eventType !== undefined && data.eventType !== existing.eventType;
+    const catalogTouched =
+      data.conditions !== undefined ||
+      data.actions !== undefined ||
+      changingEventType ||
+      (data.enabled === true && existing.enabled !== true);
+    // Name/description edits and disabling an old rule must still succeed.
+    // Turning a structurally invalid rule back on is rejected until it is fixed.
+    if (catalogTouched) {
+      await assertRuleAgainstCatalog(companyId, nextEventType, nextConditions, nextActions, {
+        // Grandfather existing plannedNotEmitting rules so enable/disable/edit
+        // still works. Creating or switching TO a non-creatable type is rejected.
+        requireCreatable: changingEventType,
+      });
+    }
 
     const rule = await this.db.automationRule.update({
       where: { id: ruleId },
@@ -136,7 +156,7 @@ export class AutomationRuleService {
       },
     });
     logger.info({ companyId, ruleId: rule.id }, 'Automation rule updated');
-    return rule;
+    return this.withAttention(companyId, rule);
   }
 
   async setEnabled(companyId: string, ruleId: string, enabled: boolean) {
@@ -161,7 +181,7 @@ export class AutomationRuleService {
       { companyId, sourceRuleId: ruleId, ruleId: rule.id },
       'Automation rule duplicated'
     );
-    return rule;
+    return this.withAttention(companyId, rule);
   }
 
   async deleteRule(companyId: string, ruleId: string) {
@@ -171,6 +191,29 @@ export class AutomationRuleService {
   }
 
   async listEnabledForEvent(companyId: string, eventType: string) {
-    return listEnabledRulesForEvent(companyId, eventType, this.db);
+    const rules = await listEnabledRulesForEvent(companyId, eventType, this.db);
+    const executable = [];
+    for (const rule of rules) {
+      const issues = await collectRuleIssues(companyId, rule.eventType, rule.conditions, rule.actions);
+      if (issues.length > 0) {
+        logger.warn(
+          { companyId, ruleId: rule.id, eventType: rule.eventType, issues },
+          'Skipping structurally invalid automation rule'
+        );
+        continue;
+      }
+      executable.push(rule);
+    }
+    return executable;
+  }
+
+  private async withAttention<T extends { eventType: string; conditions: unknown; actions: unknown }>(
+    companyId: string,
+    rule: T
+  ) {
+    return {
+      ...rule,
+      attention: await ruleAttention(companyId, rule.eventType, rule.conditions, rule.actions),
+    };
   }
 }

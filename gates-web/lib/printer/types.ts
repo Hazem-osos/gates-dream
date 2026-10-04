@@ -27,8 +27,13 @@ export type ThermalInvoiceData = {
   net: number;
   notes?: string | null;
   footer?: string | null;
-  /** ETA TLV (base64) or a plain invoice-summary string drawn as QR. */
+  payments?: Array<{ label: string; amount: number }>;
+  tendered?: number | null;
+  change?: number | null;
+  cashier?: string | null;
+  /** Official ETA receipt URL. Empty means no fiscal QR is drawn. */
   qrPayload?: string | null;
+  fiscalLines?: string[] | null;
 };
 
 export type ReceiptCanvasOptions = {

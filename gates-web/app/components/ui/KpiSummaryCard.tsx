@@ -46,7 +46,7 @@ export function KpiSummaryCard({
           {hint ? <p className="mt-0.5 text-[11px] text-slate-500">{hint}</p> : null}
         </div>
         {Icon ? (
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#0E79AA0D] text-[#0E79AA]">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[#0E78AA0D] text-[#0E78AA]">
             <Icon className="h-5 w-5" aria-hidden />
           </span>
         ) : null}

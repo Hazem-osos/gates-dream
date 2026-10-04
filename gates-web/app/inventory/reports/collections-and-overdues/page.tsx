@@ -7,8 +7,8 @@ export default function CollectionsAndOverduesPage() {
     <InventoryReportFilterPage
       urlPath="/inventory/reports/collections-and-overdues"
       icon="💰"
-      subtitle="تحصيلات العملاء والمتأخرات حتى تاريخ محدد."
-      fields={{ dates: 'to', customer: true }}
+      subtitle="حتى تاريخ محدد: المستحق لسه ما جاش وقته، والمتأخر جه وقته ولسه ما اتحصّلش، والتحصيلات أي تحصيل تم."
+      fields={{ dates: 'to', customer: true, branch: true, allAccounts: true }}
     />
   );
 }

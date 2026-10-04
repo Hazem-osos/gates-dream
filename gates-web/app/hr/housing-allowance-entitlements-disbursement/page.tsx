@@ -1,5 +1,8 @@
 "use client";
 import { useBackendReachability } from '@/lib/hooks/useBackendReachability';
+import { apiClient } from '@/lib/api/client';
+import { toast } from '@/lib/feedback/toast';
+import { useApiQuery } from '@/lib/hooks/useApi';
 
 import { useForm, type Resolver, type SubmitHandler } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -13,7 +16,7 @@ import {
 const defaults: HousingAllowanceEntitlementsDisbursementFormInput = {
   paymentMethod: 'صندوق',
   serialNumber: '',
-  employee: '1212378971212',
+  employee: '',
   date: '26-11-2025',
   hijriDate: '26-11-2025',
   housingRef: '',
@@ -42,12 +45,31 @@ export default function HousingAllowanceEntitlementsDisbursementPage() {
 
   const paymentMethod = watch('paymentMethod');
 
+  const { data: employeesResponse } = useApiQuery<Array<{ id: string; arabicName?: string }>>(
+    ['employees'],
+    '/hr/employees',
+    { limit: 500, isActive: true }
+  );
+  const employees = employeesResponse?.data ?? [];
   const onSave: SubmitHandler<HousingAllowanceEntitlementsDisbursementFormInput> = (values) => {
-    console.info('[housing-allowance-entitlements-disbursement]', values);
+    const iso = values.date.match(/^(\d{2})-(\d{2})-(\d{4})$/);
+    void apiClient
+      .post('/hr/housing-allowance-disbursements', {
+        employeeId: values.employee,
+        serial: values.serialNumber || undefined,
+        date: iso ? `${iso[3]}-${iso[2]}-${iso[1]}` : values.date,
+        hijriDate: values.hijriDate || undefined,
+        paymentMethod: values.paymentMethod === 'بنك' ? 'bank' : 'fund',
+        amount: Number(values.amount) || 0,
+        notes: values.notes || undefined,
+        record: values.record || undefined,
+      })
+      .then(() => toast.success('تم الحفظ'))
+      .catch((err: unknown) => toast.error(err instanceof Error ? err.message : 'تعذر الحفظ'));
   };
 
   const input = 'h-9 w-full rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] px-3 text-xs font-medium text-[#094C6B] placeholder:text-slate-400 transition-colors focus:border-[#0E78AA] focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#0E78AA]/15 disabled:cursor-not-allowed disabled:opacity-50 sm:text-sm';
-  const flexInput = 'flex-1 px-3 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg text-[#094C6B]';
+  const flexInput = 'flex-1 px-3 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg text-[#094C6B]';
 
   return (
     <HrPageChrome title="صرف مستحقات بدل السكن"
@@ -70,8 +92,8 @@ export default function HousingAllowanceEntitlementsDisbursementPage() {
                         onClick={() => setValue('paymentMethod', 'بنك', { shouldValidate: true })}
                         className={`px-6 py-3 rounded-lg border-2 transition-all duration-300 transform hover:scale-105 ${
                           paymentMethod === 'بنك'
-                            ? 'bg-[#0E79AA] text-white border-[#0E79AA] shadow-lg shadow-[#0E79AA]/30 ring-2 ring-[#0E79AA]/20'
-                            : 'bg-white text-[#094C6B] border-[#D6EAF3] hover:border-[#0E79AA] hover:bg-[#F6FBFD] hover:shadow-md'
+                            ? 'bg-[#0E78AA] text-white border-[#0E78AA] shadow-lg shadow-[#0E78AA]/30 ring-2 ring-[#0E78AA]/20'
+                            : 'bg-white text-[#094C6B] border-[#D6EAF3] hover:border-[#0E78AA] hover:bg-[#F6FBFD] hover:shadow-md'
                         }`}
                       >
                         بنك
@@ -81,8 +103,8 @@ export default function HousingAllowanceEntitlementsDisbursementPage() {
                         onClick={() => setValue('paymentMethod', 'صندوق', { shouldValidate: true })}
                         className={`px-6 py-3 rounded-lg border-2 transition-all duration-300 transform hover:scale-105 ${
                           paymentMethod === 'صندوق'
-                            ? 'bg-[#0E79AA] text-white border-[#0E79AA] shadow-lg shadow-[#0E79AA]/30 ring-2 ring-[#0E79AA]/20'
-                            : 'bg-white text-[#094C6B] border-[#D6EAF3] hover:border-[#0E79AA] hover:bg-[#F6FBFD] hover:shadow-md'
+                            ? 'bg-[#0E78AA] text-white border-[#0E78AA] shadow-lg shadow-[#0E78AA]/30 ring-2 ring-[#0E78AA]/20'
+                            : 'bg-white text-[#094C6B] border-[#D6EAF3] hover:border-[#0E78AA] hover:bg-[#F6FBFD] hover:shadow-md'
                         }`}
                       >
                         صندوق
@@ -113,7 +135,7 @@ export default function HousingAllowanceEntitlementsDisbursementPage() {
 
                   <div>
                     <label className="block text-sm text-[#094C6B] mb-2">القيد</label>
-                    <button type="button" className="px-4 py-2 bg-[#0E79AA] text-white rounded-lg hover:bg-[#094C6B] transition-colors">
+                    <button type="button" className="px-4 py-2 bg-[#0E78AA] text-white rounded-lg hover:bg-[#094C6B] transition-colors">
                       القيد
                     </button>
                   </div>
@@ -133,16 +155,14 @@ export default function HousingAllowanceEntitlementsDisbursementPage() {
                         value={watch('employee')}
                         onChange={(e) => setValue('employee', e.target.value, { shouldValidate: true })}
                       >
-                        <option value="">اختر</option>
-                        <option value="1212378971212">1212378971212</option>
+                        <option value="">اختر الموظف</option>
+                        {employees.map((row) => (
+                          <option key={row.id} value={row.id}>
+                            {row.arabicName}
+                          </option>
+                        ))}
                       </select>
-                      <input
-                        type="text"
-                        className={`${flexInput} ${errors.employee ? 'border-red-400' : ''}`}
-                        placeholder="رقم/اسم الموظف"
-                        {...register('employee')}
-                      />
-                      <svg className="w-5 h-5 text-[#0E79AA] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg className="w-5 h-5 text-[#0E78AA] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                       </svg>
                     </div>
@@ -158,7 +178,7 @@ export default function HousingAllowanceEntitlementsDisbursementPage() {
                         placeholder="التاريخ"
                         {...register('date')}
                       />
-                      <svg className="w-5 h-5 text-[#0E79AA]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg className="w-5 h-5 text-[#0E78AA]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                       </svg>
                     </div>

@@ -18,6 +18,22 @@ export const INVOICE_DRAFT_SETTLEMENT_LOCK_MESSAGE =
 export const INVOICE_DELETE_SETTLEMENT_LOCK_MESSAGE =
   'Invoice has settlements — cancel it instead of deleting';
 
+export const INVOICE_CANCEL_COLLECTIONS_FIRST_MESSAGE =
+  'فيه تحصيلات مربوطة بهذه الفاتورة. ألغِ التحصيلات أولاً ثم ألغِ الفاتورة.';
+
+const COLLECTION_COMPARE_EPSILON = 0.01;
+
+/** Save is allowed when the invoice value is not below the linked collections. */
+export function invoiceNetCoversCollections(netAmount: number, collectedAmount: number) {
+  return collectedAmount - netAmount <= COLLECTION_COMPARE_EPSILON;
+}
+
+export function invoiceValueBelowCollectionsMessage(netAmount: number, collectedAmount: number) {
+  const money = (value: number) =>
+    value.toLocaleString('ar-EG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return `قيمة الفاتورة بعد التعديل (${money(netAmount)}) أقل من التحصيلات المربوطة (${money(collectedAmount)}). لا يمكن الحفظ إلا إذا كانت قيمة الفاتورة لا تقل عن التحصيلات.`;
+}
+
 export function isChequeStatusBlockingInvoiceUnpost(status: string): boolean {
   const normalized = status.trim().toUpperCase();
   if (normalized === 'CLEARED') return true;

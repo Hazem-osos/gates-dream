@@ -94,20 +94,28 @@ export default function EmployeeProceduresPage() {
   );
 
   // Master procedures list
-  useApiQuery<Procedure[]>(['procedures'], '/hr/procedures', { limit: 1000, isActive: true });
+  const { data: catalogResponse } = useApiQuery<Procedure[]>(['procedures'], '/hr/procedures');
+  const { data: departmentsResponse } = useApiQuery<Array<Procedure & { managementId?: string | null }>>(
+    ['departments', 'roots'],
+    '/hr/departments',
+    { limit: 500, isActive: true }
+  );
+  const catalog = catalogResponse?.data ?? [];
+  const departments = (departmentsResponse?.data ?? []).filter((row) => !row.managementId);
+  const [procedureType, setProcedureType] = useState('');
 
   // Fetch employee procedures
   const { data: employeeProceduresResponse, refetch: refetchProcedures } = useApiQuery<
     EmployeeProcedure[]
   >(
-    ['employee-procedures', year, month],
+    ['employee-procedures', year, month, procedureType, department],
     '/hr/employee-procedures',
     {
-      limit: 1000,
-      startDate:
-        year && month ? new Date(`${year}-${month}-01`) : undefined,
-      endDate:
-        year && month ? new Date(`${year}-${month}-31`) : undefined,
+      limit: 200,
+      procedureType: procedureType || undefined,
+      employeeId: undefined,
+      startDate: year && month ? `${year}-${month}-01` : undefined,
+      endDate: year && month ? `${year}-${month}-28` : undefined,
     }
   );
 
@@ -213,18 +221,18 @@ export default function EmployeeProceduresPage() {
                     <label className="block text-sm text-[#094C6B] mb-2">الشهر</label>
                     <select className={inputCls} {...register('month')}>
                       <option value="">اختر الشهر</option>
-                      <option value="يناير">يناير</option>
-                      <option value="فبراير">فبراير</option>
-                      <option value="مارس">مارس</option>
-                      <option value="أبريل">أبريل</option>
-                      <option value="مايو">مايو</option>
-                      <option value="يونيو">يونيو</option>
-                      <option value="يوليو">يوليو</option>
-                      <option value="أغسطس">أغسطس</option>
-                      <option value="سبتمبر">سبتمبر</option>
-                      <option value="أكتوبر">أكتوبر</option>
-                      <option value="نوفمبر">نوفمبر</option>
-                      <option value="ديسمبر">ديسمبر</option>
+                      <option value="01">يناير</option>
+                      <option value="02">فبراير</option>
+                      <option value="03">مارس</option>
+                      <option value="04">أبريل</option>
+                      <option value="05">مايو</option>
+                      <option value="06">يونيو</option>
+                      <option value="07">يوليو</option>
+                      <option value="08">أغسطس</option>
+                      <option value="09">سبتمبر</option>
+                      <option value="10">أكتوبر</option>
+                      <option value="11">نوفمبر</option>
+                      <option value="12">ديسمبر</option>
                     </select>
                     {errors.month?.message ? (
                       <span className={errCls}>{String(errors.month.message)}</span>
@@ -237,14 +245,14 @@ export default function EmployeeProceduresPage() {
                     <div className="flex items-center gap-2">
                       <input
                         type="text"
-                        className="flex-1 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg"
+                        className="flex-1 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg"
                         placeholder="إدخل الجامعة"
                         {...register('costCenter')}
                       />
                       <input
                         type="text"
-                        className="flex-1 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg"
-                        placeholder="1212378971212"
+                        className="flex-1 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg"
+                        placeholder=""
                       />
                     </div>
                     {errors.costCenter?.message ? (
@@ -261,17 +269,22 @@ export default function EmployeeProceduresPage() {
                       <div>
                         <label className="block text-sm text-[#094C6B] mb-2">الإدارة</label>
                         <div className="flex items-center gap-2">
-                          <input
-                            type="text"
-                            className="flex-1 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg"
-                            placeholder="إدخل الجامعة"
-                            {...register('department')}
-                          />
-                          <input
-                            type="text"
-                            className="flex-1 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg"
-                            placeholder="1212378971212"
-                          />
+                          <select className={inputCls} {...register('department')}>
+                            <option value="">كل الإدارات</option>
+                            {departments.map((row) => (
+                              <option key={row.id} value={row.id}>
+                                {row.arabicName}
+                              </option>
+                            ))}
+                          </select>
+                          <select className={inputCls} value={procedureType} onChange={(e) => setProcedureType(e.target.value)}>
+                            <option value="">كل الإجراءات</option>
+                            {catalog.map((row) => (
+                              <option key={row.id} value={row.code}>
+                                {row.arabicName}
+                              </option>
+                            ))}
+                          </select>
                         </div>
                         {errors.department?.message ? (
                           <span className={errCls}>{String(errors.department.message)}</span>
@@ -284,14 +297,14 @@ export default function EmployeeProceduresPage() {
                         <div className="flex items-center gap-2">
                           <input
                             type="text"
-                            className="flex-1 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg"
+                            className="flex-1 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg"
                             placeholder="إدخل الجامعة"
                             {...register('section')}
                           />
                           <input
                             type="text"
-                            className="flex-1 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg"
-                            placeholder="1212378971212"
+                            className="flex-1 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg"
+                            placeholder=""
                           />
                         </div>
                         {errors.section?.message ? (
@@ -305,14 +318,14 @@ export default function EmployeeProceduresPage() {
                         <div className="flex items-center gap-2">
                           <input
                             type="text"
-                            className="flex-1 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg"
+                            className="flex-1 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg"
                             placeholder="إدخل الجامعة"
                             {...register('jobCadre')}
                           />
                           <input
                             type="text"
-                            className="flex-1 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg"
-                            placeholder="1212378971212"
+                            className="flex-1 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg"
+                            placeholder=""
                           />
                         </div>
                         {errors.jobCadre?.message ? (
@@ -326,14 +339,14 @@ export default function EmployeeProceduresPage() {
                         <div className="flex items-center gap-2">
                           <input
                             type="text"
-                            className="flex-1 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg"
+                            className="flex-1 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg"
                             placeholder="إدخل الجامعة"
                             {...register('jobTitle')}
                           />
                           <input
                             type="text"
-                            className="flex-1 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg"
-                            placeholder="1212378971212"
+                            className="flex-1 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg"
+                            placeholder=""
                           />
                         </div>
                         {errors.jobTitle?.message ? (
@@ -347,14 +360,14 @@ export default function EmployeeProceduresPage() {
                         <div className="flex items-center gap-2">
                           <input
                             type="text"
-                            className="flex-1 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg"
+                            className="flex-1 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg"
                             placeholder="إدخل الجامعة"
                             {...register('city')}
                           />
                           <input
                             type="text"
-                            className="flex-1 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg"
-                            placeholder="1212378971212"
+                            className="flex-1 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg"
+                            placeholder=""
                           />
                         </div>
                         {errors.city?.message ? (
@@ -368,14 +381,14 @@ export default function EmployeeProceduresPage() {
                         <div className="flex items-center gap-2">
                           <input
                             type="text"
-                            className="flex-1 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg"
+                            className="flex-1 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg"
                             placeholder="إدخل الجامعة"
                             {...register('wagePolicy')}
                           />
                           <input
                             type="text"
-                            className="flex-1 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg"
-                            placeholder="1212378971212"
+                            className="flex-1 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg"
+                            placeholder=""
                           />
                         </div>
                         {errors.wagePolicy?.message ? (
@@ -389,14 +402,14 @@ export default function EmployeeProceduresPage() {
                         <div className="flex items-center gap-2">
                           <input
                             type="text"
-                            className="flex-1 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg"
+                            className="flex-1 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg"
                             placeholder="إدخل الجامعة"
                             {...register('salaryBranch')}
                           />
                           <input
                             type="text"
-                            className="flex-1 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg"
-                            placeholder="1212378971212"
+                            className="flex-1 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg"
+                            placeholder=""
                           />
                         </div>
                         {errors.salaryBranch?.message ? (
@@ -408,7 +421,7 @@ export default function EmployeeProceduresPage() {
                       <div className="text-center pt-4">
                         <button
                           type="button"
-                          className="px-8 py-3 bg-[#0E79AA] text-white rounded-lg hover:bg-[#094C6B] transition-colors"
+                          className="px-8 py-3 bg-[#0E78AA] text-white rounded-lg hover:bg-[#094C6B] transition-colors"
                         >
                           تحميل كل الموظفين
                         </button>

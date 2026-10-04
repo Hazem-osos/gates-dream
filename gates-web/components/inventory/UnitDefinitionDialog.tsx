@@ -154,7 +154,7 @@ export function UnitDefinitionDialog({
       <div className="p-5" dir="rtl">
         <div className="mb-4 flex items-start justify-between gap-3">
           <div>
-            <h2 id="unit-definition-title" className="flex items-center gap-2 text-lg font-bold text-[#0E79AA]">
+            <h2 id="unit-definition-title" className="flex items-center gap-2 text-lg font-bold text-[#0E78AA]">
               <Ruler className="h-5 w-5" />
               تعريف الوحدات
             </h2>
@@ -244,7 +244,7 @@ export function UnitDefinitionDialog({
                     }}
                     className={`w-full rounded-lg px-2.5 py-2 text-right text-sm ${
                       selectedId === row.id
-                        ? 'bg-[#0E79AA] text-white'
+                        ? 'bg-[#0E78AA] text-white'
                         : 'bg-white text-[#0A3D5E] hover:bg-white/80'
                     }`}
                   >

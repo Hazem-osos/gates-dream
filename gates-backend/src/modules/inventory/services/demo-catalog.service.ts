@@ -1,10 +1,10 @@
 import prisma from '../../../shared/database/prisma';
-import { scopedItemQuantityWhere } from '../utils/item-quantity-tenant';
 import { SYSTEM_GL_CODES } from '../../accounting/data/system-account-map';
 import type { Prisma } from '@prisma/client';
-import { Decimal } from '@prisma/client/runtime/library';
 import { ensureDefaultPieceUnit } from './ensure-default-unit';
 import { ensureDefaultWarehouseTree } from './ensure-default-warehouse';
+import { stockMovementService } from './stock-movement.service';
+import { acquireUniqueKey, UNIQUE_KINDS } from '../../../shared/database/company-unique-key';
 
 export const DEMO_ITEM_SERIAL = 'ITEM-01';
 export const DEMO_ITEM_AR = 'صنف تجريبي';
@@ -133,6 +133,7 @@ export class DemoCatalogService {
     });
     let created = false;
     if (!item) {
+      await acquireUniqueKey(client, companyId, UNIQUE_KINDS.itemName, def.arabicName);
       item = await client.item.create({
         data: {
           companyId,
@@ -189,27 +190,29 @@ export class DemoCatalogService {
       }
     }
 
-    const qtyRow = await client.itemQuantity.findFirst({
-      where: {
-        itemId: item.id,
-        warehouseId,
-        locationId: null,
-      },
-    });
-    if (!qtyRow) {
-      await client.itemQuantity.create({
-        data: {
-          itemId: item.id,
-          warehouseId,
-          locationId: null,
-          quantity: new Decimal(def.stockQty),
+    const targetQty = Number(def.stockQty) || 0;
+    if (targetQty > 0) {
+      const balance = await client.itemWarehouseBalance.findUnique({
+        where: {
+          companyId_itemId_warehouseId: { companyId, itemId: item.id, warehouseId },
         },
+        select: { quantityOnHand: true },
       });
-    } else if (Number(qtyRow.quantity) < 1) {
-      await client.itemQuantity.update({
-        where: { id: qtyRow.id },
-        data: { quantity: new Decimal(def.stockQty) },
-      });
+      const onHand = Number(balance?.quantityOnHand ?? 0);
+      if (onHand < 1) {
+        await stockMovementService.postMovementInTx(client, {
+          companyId,
+          warehouseId,
+          itemId: item.id,
+          quantityDelta: targetQty - onHand,
+          movementType: 'OPENING',
+          sourceType: 'DEMO',
+          sourceNumber: def.serial || 'DEMO',
+          sourceYearId: String(new Date().getFullYear()),
+          documentDate: new Date(),
+          allowNegativeStock: true,
+        });
+      }
     }
 
     return created;

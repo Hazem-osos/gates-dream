@@ -7,7 +7,7 @@ export default function CustomerAccountsCurrencyReportsPage() {
     <InventoryReportFilterPage
       urlPath="/inventory/reports/customer-accounts-currency-reports"
       icon="💱"
-      subtitle="حسابات العملاء حسب العملة."
+      subtitle="كشف حساب لكل عميل: الكود والاسم أولاً، وبعدين التاريخ والرقم والشرح، ومدين ودائن ورصيد لكل عملة معرّفة في الشركة. العملة اختيارية لو عايز عملة واحدة بس."
       fields={{
         dates: 'range',
         customer: true,

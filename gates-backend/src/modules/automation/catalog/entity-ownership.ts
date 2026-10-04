@@ -25,6 +25,24 @@ function delegateFor(entityKind: EntityKind): EntityDelegate {
       return prisma.customerCategory as unknown as EntityDelegate;
     case 'user':
       return prisma.user as unknown as EntityDelegate;
+    case 'salesInvoice':
+      return {
+        findMany: (args) =>
+          (prisma.invoice as unknown as EntityDelegate).findMany({
+            ...args,
+            where: { ...(args.where as object), invoiceKind: 'SALE' },
+          }),
+      };
+    case 'purchaseInvoice':
+      return {
+        findMany: (args) =>
+          (prisma.invoice as unknown as EntityDelegate).findMany({
+            ...args,
+            where: { ...(args.where as object), invoiceKind: 'PURCHASE' },
+          }),
+      };
+    case 'purchaseOrder':
+      return prisma.purchaseOrder as unknown as EntityDelegate;
     default: {
       const exhaustive: never = entityKind;
       throw new Error(`Unknown entity kind: ${exhaustive as string}`);

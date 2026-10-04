@@ -30,7 +30,7 @@ router.post(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -84,6 +84,58 @@ router.post(
 );
 
 /**
+ * PUT /api/v1/inventory/price-quotes/:id
+ * Update an unposted price quote
+ */
+router.put(
+  '/:id',
+  authorize({ resource: 'invoice', action: 'edit' }),
+  validate({ body: createPriceQuoteSchema }),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const companyId = req.companyId || req.tenantId;
+      if (!companyId) {
+        return void res.status(400).json({
+          status: 'error',
+          message: 'معرّف الشركة مطلوب',
+        });
+      }
+
+      const priceQuote = await priceQuoteService.updatePriceQuote(companyId, req.params.id, {
+        companyId,
+        branchId: req.body.branchId || req.branchId || undefined,
+        description: req.body.description,
+        serial: req.body.serial,
+        quoteNumber: req.body.quoteNumber,
+        date: req.body.date,
+        customerId: req.body.customerId,
+        warehouseId: req.body.warehouseId || undefined,
+        currencyId: req.body.currencyId || undefined,
+        exchangeRate: req.body.exchangeRate,
+        paymentMethod: req.body.paymentMethod,
+        isSalesTaxInvoice: req.body.isSalesTaxInvoice,
+        delegateId: req.body.delegateId || undefined,
+        costCenterId: req.body.costCenterId || undefined,
+        conditions: req.body.conditions,
+        validUntil: req.body.validUntil,
+        lines: req.body.lines,
+      });
+
+      return void res.json({
+        status: 'success',
+        message: 'تم تحديث عرض السعر',
+        data: priceQuote,
+      });
+    } catch (error) {
+      logger.error({ error }, 'Error updating price quote');
+      const message = error instanceof Error ? error.message : 'تعذر تحديث عرض السعر';
+      const status = message.includes('غير موجود') ? 404 : message.includes('لا يمكن') ? 422 : 500;
+      return void res.status(status).json({ status: 'error', message });
+    }
+  }
+);
+
+/**
  * GET /api/v1/inventory/price-quotes
  * List price quotes
  */
@@ -97,7 +149,7 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -150,7 +202,7 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -193,7 +245,7 @@ router.post(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -242,7 +294,7 @@ router.post(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -290,7 +342,7 @@ router.post(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -339,7 +391,7 @@ router.post(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -387,7 +439,7 @@ router.post(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -436,7 +488,7 @@ router.post(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -484,7 +536,7 @@ router.post(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -492,6 +544,10 @@ router.post(
         companyId,
         req.params.id
       );
+
+      if (!invoice?.id) {
+        return void res.status(422).json({ status: 'error', message: 'تعذر تحويل عرض السعر' });
+      }
 
       logger.info(
         { companyId, priceQuoteId: req.params.id, invoiceId: invoice.id },

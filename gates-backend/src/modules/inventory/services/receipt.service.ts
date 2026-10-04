@@ -8,6 +8,17 @@ import { COSTING_MOVEMENT } from './inventory-costing-math';
 import { scopedItemQuantityWhere } from '../utils/item-quantity-tenant';
 import { assertWarehouseActive } from '../utils/inventory-system';
 import { assertUpdateCount } from '../../../shared/concurrency/optimistic-lock';
+import { fiscalYearService } from '../../platform/services/fiscal-year.service';
+import { claimDocumentPost, claimDocumentUnpost } from '../utils/claim-document-post';
+import { resolveStoreDocumentSerialInTx } from './store-document-numbering.service';
+import {
+  ensurePerpetualInventoryGlReady,
+  runCompanyStockGlPosting,
+} from '../utils/stock-gl-posting-guard';
+import {
+  attachDocumentFiscalYear,
+  resolveStockMovementBranchId,
+} from './stock-gl-posting-context';
 
 export interface ReceiptLine {
   itemId: string;
@@ -26,6 +37,7 @@ export interface CreateReceiptData {
   hijriDate?: string;
   record?: string;
   warehouseId: string;
+  supplierId?: string | null;
   lines: ReceiptLine[];
 }
 
@@ -37,6 +49,13 @@ export class ReceiptService {
     try {
       // Validate warehouse belongs to company
       await assertWarehouseActive(companyId, data.warehouseId);
+      if (data.supplierId) {
+        const supplier = await prisma.supplier.findFirst({
+          where: { id: data.supplierId, companyId },
+          select: { id: true },
+        });
+        if (!supplier) throw new Error('المورد غير موجود أو لا يتبع الشركة');
+      }
 
       // Validate all items belong to company
       const itemIds = data.lines.map((line) => line.itemId);
@@ -48,7 +67,7 @@ export class ReceiptService {
       });
 
       if (items.length !== itemIds.length) {
-        throw new Error('One or more items not found or do not belong to company');
+        throw new Error('أحد الأصناف غير موجود أو لا يتبع الشركة');
       }
 
       // Validate locations if provided
@@ -77,17 +96,26 @@ export class ReceiptService {
           0
         );
 
+        const serial = await resolveStoreDocumentSerialInTx(tx, {
+          companyId,
+          branchId: data.branchId ?? null,
+          fiscalYearId: null,
+          kind: 'receipt',
+          clientSerial: data.serial,
+        });
+
         // Create receipt record
         const record = await tx.receipt.create({
           data: {
             companyId,
             branchId: data.branchId || null,
             description: data.description || null,
-            serial: data.serial || null,
+            serial,
             date: new Date(data.date),
             hijriDate: data.hijriDate || null,
             record: data.record || null,
             warehouseId: data.warehouseId,
+            supplierId: data.supplierId || null,
             totalAmount,
             isPosted: false,
             isApproved: false,
@@ -137,6 +165,68 @@ export class ReceiptService {
     }
   }
 
+  async updateReceipt(companyId: string, receiptId: string, data: CreateReceiptData) {
+    const existing = await prisma.receipt.findFirst({ where: { id: receiptId, companyId } });
+    if (!existing) throw new Error('Receipt not found');
+    if (existing.isPosted) throw new Error('لا يمكن تعديل سند مرحّل. ألغِ الترحيل أولاً');
+    if (existing.isCancelled) throw new Error('لا يمكن تعديل سند ملغى');
+
+    await assertWarehouseActive(companyId, data.warehouseId);
+    if (data.supplierId) {
+      const supplier = await prisma.supplier.findFirst({
+        where: { id: data.supplierId, companyId },
+        select: { id: true },
+      });
+      if (!supplier) throw new Error('المورد غير موجود أو لا يتبع الشركة');
+    }
+    const itemIds = [...new Set(data.lines.map((line) => line.itemId).filter(Boolean))];
+    const items = await prisma.item.findMany({ where: { id: { in: itemIds }, companyId } });
+    if (items.length !== itemIds.length) throw new Error('أحد الأصناف غير موجود أو لا يتبع الشركة');
+
+    const totalAmount = data.lines.reduce(
+      (sum, line) => sum + (line.total || line.quantity * (line.unitPrice || 0)),
+      0
+    );
+
+    await prisma.$transaction(async (tx) => {
+      await tx.receiptLine.deleteMany({ where: { receiptId } });
+      await tx.receipt.update({
+        where: { id: receiptId },
+        data: {
+          branchId: data.branchId || existing.branchId,
+          description: data.description || null,
+          serial: data.serial || existing.serial,
+          date: new Date(data.date),
+          hijriDate: data.hijriDate || existing.hijriDate,
+          record: data.record || existing.record,
+          warehouseId: data.warehouseId,
+          supplierId: data.supplierId || null,
+          totalAmount,
+        },
+      });
+      await tx.receiptLine.createMany({
+        data: data.lines.map((line) => ({
+          receiptId,
+          itemId: line.itemId,
+          locationId: line.locationId || null,
+          quantity: line.quantity,
+          unitPrice: line.unitPrice || 0,
+          total: line.total || line.quantity * (line.unitPrice || 0),
+        })),
+      });
+    });
+
+    return this.getReceiptById(companyId, receiptId);
+  }
+
+  async deleteReceipt(companyId: string, receiptId: string) {
+    const existing = await prisma.receipt.findFirst({ where: { id: receiptId, companyId } });
+    if (!existing) throw new Error('Receipt not found');
+    if (existing.isPosted) throw new Error('لا يمكن حذف سند مرحّل. ألغِ الترحيل أولاً');
+    await prisma.receipt.delete({ where: { id: receiptId } });
+    return { success: true };
+  }
+
   /**
    * Get receipt by ID
    */
@@ -181,7 +271,7 @@ export class ReceiptService {
       });
 
       if (!receipt) {
-        throw new Error('Receipt not found');
+        throw new Error('إذن الإضافة غير موجود');
       }
 
       return receipt;
@@ -303,26 +393,42 @@ export class ReceiptService {
       });
 
       if (!receipt) {
-        throw new Error('Receipt not found');
+        throw new Error('إذن الإضافة غير موجود');
       }
 
       if (receipt.isCancelled) {
-        throw new Error('Cannot post cancelled receipt');
+        throw new Error('لا يمكن ترحيل إذن إضافة ملغي');
       }
 
       if (receipt.isPosted) {
-        throw new Error('Receipt is already posted');
+        throw new Error('إذن الإضافة مرحّل بالفعل');
       }
 
+      const fiscalYearId = await fiscalYearService.assertOpenForDate(companyId, receipt.date);
       await assertWarehouseActive(companyId, receipt.warehouseId);
+      const postingCtx = attachDocumentFiscalYear(glCtx, fiscalYearId, receipt.branchId);
+      const inventorySystem = await ensurePerpetualInventoryGlReady(
+        companyId,
+        postingCtx,
+        receipt.warehouseId
+      );
 
       // Route quantity + MAC through inventoryCostingService (stock ledger,
       // warehouse average, and item valuation stay on one path).
       const sourceType = 'GR';
       const sourceNumber = receipt.serial ?? receipt.id.slice(0, 8);
       const sourceYearId = String(new Date(receipt.date).getFullYear());
+      const movementBranchId = resolveStockMovementBranchId(postingCtx, receipt.branchId);
 
+      let glSkipped = false;
       await prisma.$transaction(async (tx) => {
+        await claimDocumentPost((args) => tx.receipt.updateMany(args), receiptId, companyId);
+        if (!receipt.branchId) {
+          await tx.receipt.update({
+            where: { id: receiptId },
+            data: { branchId: movementBranchId },
+          });
+        }
         for (const line of receipt.lines) {
           const specified = line.unitPrice != null ? Number(line.unitPrice) : 0;
           const item = specified
@@ -334,7 +440,7 @@ export class ReceiptService {
           const inboundCost = specified || Number(item?.averageCost ?? 0);
           await inventoryCostingService.applyInboundMovement(tx, {
             companyId,
-            branchId: receipt.branchId ?? undefined,
+            branchId: movementBranchId,
             warehouseId: receipt.warehouseId,
             itemId: line.itemId,
             locationId: line.locationId ?? null,
@@ -351,25 +457,31 @@ export class ReceiptService {
           });
         }
 
-        if (glCtx) {
-          await stockMovementGlService.postGoodsReceiptGlInTx(tx, glCtx, receipt);
+        if (postingCtx) {
+          glSkipped = await runCompanyStockGlPosting(inventorySystem, () =>
+            stockMovementGlService.postGoodsReceiptGlInTx(tx, postingCtx, receipt)
+          );
         }
 
-        // Mark receipt as posted
-        await tx.receipt.update({
-          where: { id: receiptId },
-          data: {
-            isPosted: true,
-            postedAt: new Date(),
-          },
-        });
       });
 
-      logger.info({ companyId, receiptId }, 'Receipt posted');
+      logger.info({ companyId, receiptId, glSkipped }, 'Receipt posted');
 
-      return { success: true };
+      return { success: true, glSkipped };
     } catch (error) {
-      logger.error({ error, companyId, receiptId }, 'Error posting receipt');
+      logger.error(
+        {
+          companyId,
+          receiptId,
+          errMessage: error instanceof Error ? error.message : String(error),
+          errName: error instanceof Error ? error.name : typeof error,
+          prismaCode:
+            error && typeof error === 'object' && 'code' in error
+              ? String((error as { code: unknown }).code)
+              : undefined,
+        },
+        'Error posting receipt'
+      );
       throw error;
     }
   }
@@ -390,12 +502,15 @@ export class ReceiptService {
       });
 
       if (!receipt) {
-        throw new Error('Receipt not found');
+        throw new Error('إذن الإضافة غير موجود');
       }
 
       if (!receipt.isPosted) {
-        throw new Error('Receipt is not posted');
+        throw new Error('إذن الإضافة غير مرحّل');
       }
+
+      const fiscalYearId = await fiscalYearService.assertOpenForDate(companyId, receipt.date);
+      const postingCtx = attachDocumentFiscalYear(glCtx, fiscalYearId, receipt.branchId);
 
       const sourceType = 'GR';
       const sourceNumber = receipt.serial ?? receipt.id.slice(0, 8);
@@ -403,42 +518,63 @@ export class ReceiptService {
 
       // Use transaction to reverse movements atomically
       await prisma.$transaction(async (tx) => {
+        await claimDocumentUnpost((args) => tx.receipt.updateMany(args), receiptId, companyId);
         for (const line of receipt.lines) {
-          await inventoryCostingService.applyOutboundMovement(tx, {
+          const specified = line.unitPrice != null ? Number(line.unitPrice) : 0;
+          const postedCost =
+            specified > 0
+              ? specified
+              : await inventoryCostingService.postedUnitCost(tx, {
+                  companyId,
+                  itemId: line.itemId,
+                  warehouseId: receipt.warehouseId,
+                  sourceType,
+                  sourceNumber,
+                  sourceDocumentId: receipt.id,
+                });
+          await inventoryCostingService.reverseInboundInTx(tx, {
             companyId,
             branchId: receipt.branchId ?? undefined,
             warehouseId: receipt.warehouseId,
             itemId: line.itemId,
             locationId: line.locationId ?? null,
             quantity: Number(line.quantity),
+            originalUnitCost: postedCost ?? specified,
             movementType: COSTING_MOVEMENT.RETURN_PURCHASE,
             sourceType: `${sourceType}-UNPOST`,
             sourceNumber,
             sourceYearId,
             sourceDocumentId: receipt.id,
             transactionDate: receipt.date,
+            updateLastPurchasePrice: false,
           });
         }
 
-        if (glCtx) {
-          await stockMovementGlService.reverseBySourceInTx(
-            tx,
-            glCtx,
-            sourceType,
-            sourceNumber,
-            sourceYearId,
-            `Receipt ${sourceNumber} unposted`
-          );
+        if (postingCtx) {
+          if (receipt.journalEntryId) {
+            await journalPostingService.reverseJournalEntryInTx(tx, postingCtx, receipt.journalEntryId, {
+              reason: `Receipt ${sourceNumber} unposted`,
+            });
+            await journalPostingService.cascadeSourceJournalInTx(
+              tx,
+              companyId,
+              [receipt.journalEntryId],
+              'unpost',
+              postingCtx.userId
+            );
+          } else {
+            await stockMovementGlService.reverseBySourceInTx(
+              tx,
+              postingCtx,
+              sourceType,
+              sourceNumber,
+              sourceYearId,
+              `Receipt ${sourceNumber} unposted`,
+              receipt.id
+            );
+          }
         }
 
-        // Mark receipt as unposted
-        await tx.receipt.update({
-          where: { id: receiptId },
-          data: {
-            isPosted: false,
-            postedAt: null,
-          },
-        });
       });
 
       logger.info({ companyId, receiptId }, 'Receipt unposted');
@@ -463,7 +599,7 @@ export class ReceiptService {
       });
 
       if (!receipt) {
-        throw new Error('Receipt not found');
+        throw new Error('إذن الإضافة غير موجود');
       }
 
       if (receipt.isCancelled) {
@@ -516,7 +652,7 @@ export class ReceiptService {
       });
 
       if (!receipt) {
-        throw new Error('Receipt not found');
+        throw new Error('إذن الإضافة غير موجود');
       }
 
       if (!receipt.isCancelled) {

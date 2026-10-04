@@ -112,7 +112,7 @@ export function MeasurementSheetsDialog({
       <div className="max-h-[92vh] w-full max-w-5xl space-y-4 overflow-auto rounded-xl bg-white p-5 shadow-xl">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <h2 className="text-lg font-bold text-[#0E79AA]">دفتر الحصر — {item.itemCode}</h2>
+            <h2 className="text-lg font-bold text-[#0E78AA]">دفتر الحصر — {item.itemCode}</h2>
             <p className="text-sm text-slate-500">{item.descriptionAr}</p>
           </div>
           <Button variant="secondary" size="sm" onClick={onClose}>
@@ -213,7 +213,7 @@ export function MeasurementSheetsDialog({
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-[#F6FBFD] px-4 py-3 text-sm">
           <p>
             العدد × الأبعاد = إجمالي {formatQty(live.gross)} − الخصومات = صافي{' '}
-            <span className="font-bold text-[#0E79AA]">{formatQty(live.net)}</span>
+            <span className="font-bold text-[#0E78AA]">{formatQty(live.net)}</span>
           </p>
         </div>
 
@@ -271,7 +271,6 @@ export function MeasurementSheetsDialog({
           cancelText="إغلاق"
           saveLoading={create.isPending}
           saveDisabled={!form.sheetNumber}
-          respectPermissions={false}
           className="mt-0"
         />
       </div>

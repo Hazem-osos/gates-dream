@@ -114,7 +114,7 @@ export default function RealEstateContractsPage() {
                 {filtered.map((row) => (
                   <tr key={row.id} className={denseTrClass}>
                     <td className={denseTdClass}>
-                      <Link href={`/real-estate/contracts/${row.id}`} className="font-semibold text-[#0E79AA] underline">
+                      <Link href={`/real-estate/contracts/${row.id}`} className="font-semibold text-[#0E78AA] underline">
                         {row.contractNumber}
                       </Link>
                       <div className="text-xs text-slate-500">{formatDateAr(row.contractDate)}</div>

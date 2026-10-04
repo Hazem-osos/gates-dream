@@ -1,8 +1,99 @@
+import { Prisma } from '@prisma/client';
 import prisma from '../../../shared/database/prisma';
 import { AppError } from '../../../shared/middleware/error-handler';
 import { toHijriDate } from '../../../shared/utils/hijri-date';
 
 export const OPENING_BALANCE_ENTRY_TYPE = 'OPENING_BALANCE';
+
+/** Inventory opening documents. They are not the company opening journal. */
+const INVENTORY_OPENING_SOURCES = ['OB', 'OPEN'] as const;
+
+export const OPENING_JOURNAL_EXISTS_MESSAGE =
+  'يوجد قيد افتتاحي بالفعل. عدّل نفس القيد بدل إنشاء قيد جديد.';
+export const OPENING_JOURNAL_CANCELLED_MESSAGE =
+  'يوجد قيد افتتاحي ملغي. استرجعه أو عدّل نفس القيد بدل إنشاء قيد جديد.';
+
+export function isCompanyOpeningEntry(row: {
+  entryType?: string | null;
+  sourceType?: string | null;
+}): boolean {
+  if (String(row.entryType ?? '').trim().toUpperCase() !== OPENING_BALANCE_ENTRY_TYPE) return false;
+  const source = String(row.sourceType ?? '').trim().toUpperCase();
+  return !INVENTORY_OPENING_SOURCES.includes(source as (typeof INVENTORY_OPENING_SOURCES)[number]);
+}
+
+/** Unbalanced save is allowed only for an opening-balance draft. */
+export function isOpeningBalanceDraft(row: {
+  saveAsDraft?: boolean | null;
+  entryType?: string | null;
+}): boolean {
+  return row.saveAsDraft === true && String(row.entryType ?? '').trim().toUpperCase() === OPENING_BALANCE_ENTRY_TYPE;
+}
+
+/** Opening stock and the company opening journal are dated the day before the year. */
+export function allowsOpeningDocumentDate(row: {
+  entryType?: string | null;
+  sourceType?: string | null;
+}): boolean {
+  const entryType = String(row.entryType ?? '').trim().toUpperCase();
+  if (entryType === OPENING_BALANCE_ENTRY_TYPE || entryType === 'OPENING_STOCK') return true;
+  const source = String(row.sourceType ?? '').trim().toUpperCase();
+  return INVENTORY_OPENING_SOURCES.includes(source as (typeof INVENTORY_OPENING_SOURCES)[number]);
+}
+
+export function openingJournalSlotKey(companyId: string): string {
+  return `${companyId}|OPENING_BALANCE`;
+}
+
+export const OPENING_JOURNAL_UNPOST_FIRST_MESSAGE =
+  'فك ترحيل قيد الرصيد الافتتاحي أولاً ثم عدّل الشيك.';
+
+/** Opening cheques live inside the company opening journal, not their own issue entry. */
+export async function companyOpeningJournalIsPosted(companyId: string): Promise<boolean> {
+  const row = await prisma.journalEntry.findFirst({
+    where: {
+      ...companyOpeningJournalWhere(companyId),
+      isCancelled: false,
+      deletedAt: null,
+    },
+    orderBy: { createdAt: 'desc' },
+    select: { isPosted: true, postingStatus: true },
+  });
+  return Boolean(row && (row.isPosted || row.postingStatus === 'Post'));
+}
+
+export function companyOpeningJournalWhere(
+  companyId: string,
+  exceptId?: string
+): Prisma.JournalEntryWhereInput {
+  return {
+    companyId,
+    entryType: OPENING_BALANCE_ENTRY_TYPE,
+    OR: [{ sourceType: null }, { sourceType: { notIn: [...INVENTORY_OPENING_SOURCES] } }],
+    ...(exceptId ? { id: { not: exceptId } } : {}),
+  };
+}
+
+/**
+ * One company opening journal. The company row lock closes the gap between
+ * the check and the insert when two saves run together.
+ */
+export async function assertSingleOpeningJournal(
+  tx: Prisma.TransactionClient,
+  companyId: string,
+  exceptId?: string
+) {
+  await tx.$queryRaw`SELECT id FROM companies WHERE id = ${companyId} FOR UPDATE`;
+  const other = await tx.journalEntry.findFirst({
+    where: companyOpeningJournalWhere(companyId, exceptId),
+    select: { id: true, isCancelled: true },
+  });
+  if (!other) return;
+  throw new AppError(
+    409,
+    other.isCancelled ? OPENING_JOURNAL_CANCELLED_MESSAGE : OPENING_JOURNAL_EXISTS_MESSAGE
+  );
+}
 
 export type OpeningBalanceMeta = {
   openingDate: Date;
@@ -88,14 +179,18 @@ export class OpeningBalanceService {
         orderBy: { lineOrder: 'asc' as const },
       },
     };
+    const activeWhere = {
+      ...companyOpeningJournalWhere(companyId),
+      isCancelled: false,
+    };
     const existing =
       (await prisma.journalEntry.findFirst({
-        where: { companyId, entryType: OPENING_BALANCE_ENTRY_TYPE, isCancelled: false },
+        where: activeWhere,
         include,
         orderBy: { createdAt: 'desc' },
       })) ??
       (await prisma.journalEntry.findFirst({
-        where: { companyId, entryType: OPENING_BALANCE_ENTRY_TYPE },
+        where: companyOpeningJournalWhere(companyId),
         include,
         orderBy: { createdAt: 'desc' },
       }));
@@ -107,6 +202,7 @@ export class OpeningBalanceService {
       fiscalYearId: meta.fiscalYearId,
       fiscalYearStartDate: meta.fiscalYearStartDateIso,
       journalEntryId: existing?.id ?? null,
+      isPosted: Boolean(existing && !existing.isCancelled && (existing.isPosted || existing.postingStatus === 'Post')),
       isCancelled: existing?.isCancelled ?? false,
       lines: existing?.lines ?? [],
     };

@@ -211,6 +211,14 @@ export default function ProjectsPage() {
   const [headerForm, setHeaderForm] = useState<ProjectHeaderForm>(emptyHeader);
   const [financialForm, setFinancialForm] = useState<FinancialForm>(emptyFinancial);
   const [isNewProject, setIsNewProject] = useState(false);
+  const [showBuildingForm, setShowBuildingForm] = useState(false);
+  const [editingBuildingId, setEditingBuildingId] = useState<string | null>(null);
+  const [buildingForm, setBuildingForm] = useState({
+    arabicName: '',
+    groupNumber: '',
+    modelNumber: '',
+    unitNumber: '',
+  });
   const router = useRouter();
 
   const { data: projectsResponse } = useApiQuery<ExtractProjectListItem[]>(
@@ -281,6 +289,60 @@ export default function ProjectsPage() {
     { enabled: Boolean(selectedProjectId) }
   );
   const workItems = workItemsRes?.data || [];
+
+  const saveBuildingMutation = useMutation({
+    mutationFn: async () => {
+      if (!selectedProjectId) throw new Error('اختر مشروعاً أولاً');
+      const payload = {
+        projectId: selectedProjectId,
+        arabicName: buildingForm.arabicName.trim() || undefined,
+        groupNumber: buildingForm.groupNumber.trim() || undefined,
+        modelNumber: buildingForm.modelNumber.trim() || undefined,
+        unitNumber: buildingForm.unitNumber.trim() || undefined,
+      };
+      if (editingBuildingId) {
+        return apiClient.put(`/extracts/buildings/${editingBuildingId}`, payload);
+      }
+      return apiClient.post('/extracts/buildings', payload);
+    },
+    onSuccess: () => {
+      setSuccess(editingBuildingId ? 'تم تحديث المبنى' : 'تم إنشاء المبنى');
+      setError('');
+      setShowBuildingForm(false);
+      setEditingBuildingId(null);
+      setBuildingForm({ arabicName: '', groupNumber: '', modelNumber: '', unitNumber: '' });
+      invalidateQuery(['extracts-buildings', selectedProjectId]);
+    },
+    onError: (err: ApiError) => setError(err.message || 'تعذر حفظ المبنى'),
+  });
+
+  const deleteBuildingMutation = useMutation({
+    mutationFn: async (buildingId: string) => {
+      await apiClient.delete(`/extracts/buildings/${buildingId}`);
+    },
+    onSuccess: () => {
+      setSuccess('تم حذف المبنى');
+      invalidateQuery(['extracts-buildings', selectedProjectId]);
+    },
+    onError: (err: ApiError) => setError(err.message || 'تعذر حذف المبنى'),
+  });
+
+  const openNewBuilding = () => {
+    setEditingBuildingId(null);
+    setBuildingForm({ arabicName: '', groupNumber: '', modelNumber: '', unitNumber: '' });
+    setShowBuildingForm(true);
+  };
+
+  const openEditBuilding = (b: ExtractBuildingRow) => {
+    setEditingBuildingId(b.id);
+    setBuildingForm({
+      arabicName: b.arabicName ?? '',
+      groupNumber: b.groupNumber ?? '',
+      modelNumber: b.modelNumber ?? '',
+      unitNumber: b.unitNumber ?? '',
+    });
+    setShowBuildingForm(true);
+  };
 
   const handleSave = () => {
     setError('');
@@ -383,15 +445,53 @@ export default function ProjectsPage() {
       <div>
             {activeTab === 0 && (
               <>
-                {/* 5 Action Buttons */}
                 <div className="mb-4 flex flex-wrap gap-2">
                   {[
-                    { label: "بنود الأعمال والحصر" },
-                    { label: "إنشاء عقد مالك" },
-                    { label: "تعريف شكل البناء" },
-                    { label: "مقايسة المشروع", onClick: () => router.push("/extracts/operations/projects/maqaysa") },
-                    { label: "عرض بنود الأعمال", onClick: () => router.push("/extracts/operations/projects/agenda-items") },
-                    { label: "البنود العامة للمستخلصات", onClick: () => router.push("/extracts/operations/general-extract-items") },
+                    {
+                      label: 'بنود الأعمال والحصر',
+                      onClick: () =>
+                        router.push(
+                          selectedProjectId
+                            ? `/extracts/operations/projects/agenda-items?projectId=${selectedProjectId}`
+                            : '/extracts/operations/projects/agenda-items'
+                        ),
+                    },
+                    {
+                      label: 'تعريف شكل البناء',
+                      onClick: () => {
+                        if (!selectedProjectId) {
+                          setError('اختر مشروعاً أولاً');
+                          return;
+                        }
+                        openNewBuilding();
+                      },
+                    },
+                    {
+                      label: 'مقايسة المشروع',
+                      onClick: () =>
+                        router.push(
+                          selectedProjectId
+                            ? `/extracts/operations/projects/maqaysa?projectId=${selectedProjectId}`
+                            : '/extracts/operations/projects/maqaysa'
+                        ),
+                    },
+                    {
+                      label: 'عرض بنود الأعمال',
+                      onClick: () =>
+                        router.push(
+                          selectedProjectId
+                            ? `/extracts/operations/projects/agenda-items?projectId=${selectedProjectId}`
+                            : '/extracts/operations/projects/agenda-items'
+                        ),
+                    },
+                    {
+                      label: 'البنود العامة للمستخلصات',
+                      onClick: () => router.push('/extracts/operations/general-extract-items'),
+                    },
+                    {
+                      label: 'مستخلصات المقاولات',
+                      onClick: () => router.push('/contracting/extracts'),
+                    },
                   ].map((btn) => (
                     <Button
                       key={btn.label}
@@ -404,6 +504,62 @@ export default function ProjectsPage() {
                     </Button>
                   ))}
                 </div>
+                {showBuildingForm ? (
+                  <FormSectionCard
+                    title={editingBuildingId ? 'تعديل المبنى' : 'تعريف شكل البناء'}
+                    className="mb-4"
+                  >
+                    <CompactFormField
+                      label="الاسم"
+                      value={buildingForm.arabicName}
+                      onChange={(e) =>
+                        setBuildingForm((p) => ({ ...p, arabicName: e.target.value }))
+                      }
+                    />
+                    <CompactFormField
+                      label="المجموعة"
+                      value={buildingForm.groupNumber}
+                      onChange={(e) =>
+                        setBuildingForm((p) => ({ ...p, groupNumber: e.target.value }))
+                      }
+                    />
+                    <CompactFormField
+                      label="النموذج"
+                      value={buildingForm.modelNumber}
+                      onChange={(e) =>
+                        setBuildingForm((p) => ({ ...p, modelNumber: e.target.value }))
+                      }
+                    />
+                    <CompactFormField
+                      label="الوحدة"
+                      value={buildingForm.unitNumber}
+                      onChange={(e) =>
+                        setBuildingForm((p) => ({ ...p, unitNumber: e.target.value }))
+                      }
+                    />
+                    <div className="sm:col-span-2 flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        disabled={saveBuildingMutation.isPending}
+                        onClick={() => saveBuildingMutation.mutate()}
+                      >
+                        حفظ المبنى
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => {
+                          setShowBuildingForm(false);
+                          setEditingBuildingId(null);
+                        }}
+                      >
+                        إلغاء
+                      </Button>
+                    </div>
+                  </FormSectionCard>
+                ) : null}
                 {/* Main Content: Grid + Summary Panel */}
                 <div className="flex gap-6">
                   {/* Right Summary Panel */}
@@ -435,18 +591,29 @@ export default function ProjectsPage() {
                           className="relative group bg-[#F6FBFD] rounded-2xl p-4 shadow border border-[#E6F0F7] transition-all duration-200 hover:shadow-lg hover:scale-105"
                         >
                           <div className="absolute top-2 left-1/2 -translate-x-1/2 flex gap-2 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition">
-                            <button type="button" className="w-8 h-8 flex items-center justify-center bg-white border border-[#D6EAF3] rounded-lg shadow">
+                            <button
+                              type="button"
+                              title="تعديل"
+                              className="w-8 h-8 flex items-center justify-center bg-white border border-[#D6EAF3] rounded-lg shadow"
+                              onClick={() => openEditBuilding(b)}
+                            >
                               <Image src="/lucide_edit.svg" alt="تعديل" width={20} height={20} className="w-5 h-5" />
                             </button>
-                            <button type="button" className="w-8 h-8 flex items-center justify-center bg-white border border-[#D6EAF3] rounded-lg shadow">
+                            <button
+                              type="button"
+                              title="حذف"
+                              className="w-8 h-8 flex items-center justify-center bg-white border border-[#D6EAF3] rounded-lg shadow"
+                              onClick={() => {
+                                if (window.confirm('حذف هذا المبنى؟')) {
+                                  deleteBuildingMutation.mutate(b.id);
+                                }
+                              }}
+                            >
                               <Image src="/hugeicons_delete-02.svg" alt="حذف" width={20} height={20} className="w-5 h-5" />
-                            </button>
-                            <button type="button" className="w-8 h-8 flex items-center justify-center bg-white border border-[#D6EAF3] rounded-lg shadow">
-                              <Image src="/grommet-icons_view.svg" alt="عرض" width={20} height={20} className="w-5 h-5" />
                             </button>
                           </div>
                           <Image src="/3omara.png" alt="" width={128} height={128} className="w-32 h-32 object-cover rounded-xl mb-2" />
-                          <div className="text-[#0E79AA] font-bold mb-2">{b.arabicName || 'مبنى'}</div>
+                          <div className="text-[#0E78AA] font-bold mb-2">{b.arabicName || 'مبنى'}</div>
                           <div className="grid grid-cols-3 gap-2">
                             <CompactFormField label="المجموعة" readOnly value={b.groupNumber ?? ''} />
                             <CompactFormField label="النموذج" readOnly value={b.modelNumber ?? ''} />
@@ -462,17 +629,27 @@ export default function ProjectsPage() {
             {activeTab === 1 && (
               <>
                 <FormSectionCard title="إسناد بنود الأعمال">
-                  <CompactFormField label="كود المقاول" placeholder="كود المقاول" />
-                  <CompactFormField label="المقاول" placeholder="إسم المقاول" />
-                  <CompactFormField label="تاريخ الإسناد" type="date" />
-                  <CompactFormField label="ت. المقاول" placeholder="بحث..." />
+                  <p className="sm:col-span-2 text-sm text-slate-600">
+                    استخدم تعريف المقاول ثم أنشئ عقد باطن من شاشة مقاولي الباطن.
+                  </p>
                 </FormSectionCard>
                 <div className="mb-4 flex flex-wrap gap-2">
-                  {['تجميع حسب الوحدات', 'تجميع حسب المجموعات', 'تجميع حسب بنود الأعمال', 'إنشاء عقد مقاول باطن', 'معاينة العقد'].map((label) => (
-                    <Button key={label} type="button" variant="secondary" size="sm">
-                      {label}
-                    </Button>
-                  ))}
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => router.push('/extracts/operations/contractor')}
+                  >
+                    تعريف المقاول
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => router.push('/subcontracts/contracts')}
+                  >
+                    إنشاء عقد مقاول باطن
+                  </Button>
                 </div>
                 <AppTable
                   columns={WORK_ITEM_COLUMNS}
@@ -482,24 +659,35 @@ export default function ProjectsPage() {
                   emptyTitle="لا توجد بنود مسجّلة لهذا المشروع"
                   exportFileName="project-assignment-items"
                 />
-                <FormSectionCard title="ملخص الإسناد" className="mt-4">
-                  <CompactFormField label="نسبة الدفعة المقدمة %" defaultValue="" />
-                  <CompactFormField label="قيمة الدفعة المقدمة" defaultValue="" />
-                  <CompactFormField label="نسبة تأمين الأعمال %" defaultValue="" />
-                  <CompactFormField label="نسبة الضرائب المستقطعة %" defaultValue="" />
-                  <CompactFormField label="عدد مقاولي الباطن" defaultValue="" />
-                  <CompactFormField label="بنود غير مسندة" defaultValue="" />
-                </FormSectionCard>
               </>
             )}
             {activeTab === 2 && (
               <>
                 <div className="mb-4 flex flex-wrap gap-2">
-                  <Button type="button" variant="secondary" size="sm" onClick={() => router.push('/extracts/operations/projects/make-extract')}>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => router.push('/contracting/extracts')}
+                  >
                     إنشاء مستخلص جديد
                   </Button>
-                  <Button type="button" variant="secondary" size="sm">معاينة المستخلصات السابقة</Button>
-                  <Button type="button" variant="secondary" size="sm">نقل بنود الأعمال لمقاول آخر</Button>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => router.push('/contracting/extracts')}
+                  >
+                    معاينة المستخلصات السابقة
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => router.push('/subcontracts')}
+                  >
+                    لوحة مقاولي الباطن
+                  </Button>
                 </div>
                 <AppTable
                   columns={WORK_ITEM_COLUMNS}
@@ -509,46 +697,24 @@ export default function ProjectsPage() {
                   emptyTitle="لا توجد بنود مسجّلة لهذا المشروع"
                   exportFileName="project-subcontractor-extracts"
                 />
-                <FormSectionCard title="ملخص المستخلصات" className="mt-4">
-                  <CompactFormField label="عدد مقاولي الباطن" readOnly value="—" />
-                  <CompactFormField label="رصيد متبقي" readOnly value="—" />
-                  <CompactFormField label="من إجمالي تكلفة" readOnly value="—" />
-                  <CompactFormField label="عدد المستخلصات المصدرة" readOnly value="—" />
-                  <CompactFormField label="بقيمة إجمالية" readOnly value="—" />
-                </FormSectionCard>
               </>
             )}
             {activeTab === 3 && (
               <>
                 <FormSectionCard title="مستخلصات المالك">
-                  <CompactFormField label="الكود" defaultValue="000000000001" readOnly />
-                  <CompactFormField label="تاريخ المستخلص" type="date" />
-                  <CompactFormField label="نوع البيان">
-                    <div className="flex flex-wrap gap-2">
-                      {[
-                        { value: 'partial', label: 'جزئي' },
-                        { value: 'final', label: 'ختامي' },
-                      ].map((opt) => (
-                        <label
-                          key={opt.value}
-                          className="inline-flex cursor-pointer items-center rounded-full border border-[#D6EAF3] bg-white px-3 py-1.5 text-xs font-semibold text-[#0A3D5E] has-[:checked]:border-[#0E78AA] has-[:checked]:bg-[#0E78AA] has-[:checked]:text-white"
-                        >
-                          <input type="radio" name="statementType" value={opt.value} defaultChecked={opt.value === 'partial'} className="sr-only" />
-                          {opt.label}
-                        </label>
-                      ))}
-                    </div>
-                  </CompactFormField>
-                  <CompactFormField label="البيان" className="sm:col-span-2">
-                    <textarea
-                      placeholder="أدخل البيان هنا..."
-                      className={`${compactControlClass} h-20 max-w-none resize-none py-2`}
-                    />
-                  </CompactFormField>
+                  <p className="sm:col-span-2 text-sm text-slate-600">
+                    مستخلصات المالك ذات الترحيل المحاسبي تُنشأ من شاشة المقاولات.
+                  </p>
                 </FormSectionCard>
                 <div className="mb-4 flex flex-wrap gap-2">
-                  <Button type="button" variant="secondary" size="sm">مستخلصات المقاولين</Button>
-                  <Button type="button" variant="secondary" size="sm">تنفيذ ذاتي</Button>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => router.push('/contracting/extracts')}
+                  >
+                    مستخلصات المقاولات
+                  </Button>
                 </div>
                 <AppTable
                   columns={WORK_ITEM_COLUMNS}
@@ -558,12 +724,6 @@ export default function ProjectsPage() {
                   emptyTitle="لا توجد بنود مسجّلة لهذا المشروع"
                   exportFileName="project-owner-extracts"
                 />
-                <FormSectionCard title="ملخص المالك" className="mt-4">
-                  <CompactFormField label="قيمة الدفعة المقدمة" readOnly value="—" />
-                  <CompactFormField label="صافي أعمال الفترة" readOnly value="—" />
-                  <CompactFormField label="إجمالي الأعمال السابقة" readOnly value="—" />
-                  <CompactFormField label="عدد المستخلصات" readOnly value="—" />
-                </FormSectionCard>
               </>
             )}
         </div>

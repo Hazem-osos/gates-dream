@@ -13,14 +13,47 @@ import { advancedRightsService } from '../../platform/services/advanced-rights.s
 import { bankBoxRightsService } from './bank-box-rights.service';
 import { treasuryAccountResolverService } from './treasury-account-resolver.service';
 import {
+  cashTransactionService,
   ensureCashTransactionFromPayment,
   ensureCashTransactionFromReceipt,
+  type UpdateCashTransactionInput,
 } from './cash-transaction.service';
 import type { TreasuryPostingContext } from '../types/treasury.types';
 import { cashDisbursementWorkflowService } from './cash-disbursement-workflow.service';
 import { splitVoucherLineTotals } from '../types/vouchers.dto';
 import { asFxRate } from '../../accounting/utils/company-fx-rate';
+import { contractingCertificateBalanceService } from '../../contracting/settlement/contracting-certificate-balance.service';
 import { cashOffsetInHeaderCurrency, postedCashFundAmount } from './cash-fund-amount';
+import { assertCashOverdraftAllowed } from './treasury-overdraft';
+import { roundTo4 } from '../../../shared/utils/decimal-round';
+import { syncJournalPartnerAndTreasuryCardsInTx } from '../../accounting/services/party-ledger-balance.service';
+
+const TREASURY_SKIP_ACCOUNT_CARD_COLUMNS = true;
+const treasuryJournalBalanceOpts = { skipCardColumns: TREASURY_SKIP_ACCOUNT_CARD_COLUMNS };
+
+type JournalPartner = { partnerId?: string; partnerType?: 'CUSTOMER' | 'SUPPLIER' | 'SUBCONTRACTOR' };
+
+function resolveReceiptJournalPartner(tx: {
+  customerId?: string | null;
+  supplierId?: string | null;
+  subcontractorId?: string | null;
+}): JournalPartner {
+  if (tx.customerId) return { partnerId: tx.customerId, partnerType: 'CUSTOMER' };
+  if (tx.supplierId) return { partnerId: tx.supplierId, partnerType: 'SUPPLIER' };
+  if (tx.subcontractorId) return { partnerId: tx.subcontractorId, partnerType: 'SUBCONTRACTOR' };
+  return {};
+}
+
+function resolvePaymentJournalPartner(tx: {
+  customerId?: string | null;
+  supplierId?: string | null;
+  subcontractorId?: string | null;
+}): JournalPartner {
+  if (tx.supplierId) return { partnerId: tx.supplierId, partnerType: 'SUPPLIER' };
+  if (tx.subcontractorId) return { partnerId: tx.subcontractorId, partnerType: 'SUBCONTRACTOR' };
+  if (tx.customerId) return { partnerId: tx.customerId, partnerType: 'CUSTOMER' };
+  return {};
+}
 
 type CashTx = Prisma.CashTransactionGetPayload<{
   include: {
@@ -62,17 +95,18 @@ export class TreasuryPostingService {
       include: { treasuryReceipt: true, treasuryPayment: true, lines: true },
     });
     if (!row) {
-      throw new AppError(404, 'Cash transaction not found');
+      throw new AppError(404, 'السند غير موجود');
     }
     return row;
   }
 
   private async resolveSourceYearId(
+    db: Prisma.TransactionClient,
     ctx: TreasuryPostingContext,
     explicit?: string | null
   ): Promise<string> {
     if (explicit) return explicit;
-    const fy = await prisma.fiscalYear.findFirst({
+    const fy = await db.fiscalYear.findFirst({
       where: { id: ctx.fiscalYearId, companyId: ctx.companyId },
       select: { legacyYearId: true },
     });
@@ -80,6 +114,7 @@ export class TreasuryPostingService {
   }
 
   private async buildReceiptLines(
+    db: Prisma.TransactionClient,
     companyId: string,
     tx: CashTx
   ): Promise<{ lines: JournalEntryLineData[]; amount: number }> {
@@ -89,10 +124,11 @@ export class TreasuryPostingService {
     }
 
     const destAccountId = tx.safeId
-      ? await treasuryAccountResolverService.resolveSafeGlAccountId(companyId, tx.safeId)
+      ? await treasuryAccountResolverService.resolveSafeGlAccountId(companyId, tx.safeId, db)
       : await treasuryAccountResolverService.resolveBankGlAccountId(
           companyId,
-          tx.bankAccountId!
+          tx.bankAccountId!,
+          db
         );
 
     const voucherLines = tx.lines ?? [];
@@ -108,6 +144,7 @@ export class TreasuryPostingService {
         const lineAmount = Number(line.amount);
         const side =
           (line as { entrySide?: string }).entrySide === 'DEBIT' && hasCreditLeg ? 'DEBIT' : 'CREDIT';
+        const { partnerId, partnerType } = resolveReceiptJournalPartner(tx);
         const row: JournalEntryLineData = {
           accountId: line.accountId,
           debit: side === 'DEBIT' ? lineAmount : 0,
@@ -115,23 +152,22 @@ export class TreasuryPostingService {
           lineOrder: order,
           costCenterId: line.costCenterId ?? undefined,
           description: line.description ?? undefined,
+          currencyCode: line.currencyCode || tx.currencyCode,
           exchangeRate: rate,
-          partnerId: tx.customerId ?? tx.supplierId ?? undefined,
-          partnerType: tx.customerId ? 'CUSTOMER' : tx.supplierId ? 'SUPPLIER' : undefined,
+          partnerId,
+          partnerType,
         };
         order += 1;
         if (side === 'DEBIT') debitLegs.push(row);
         else creditLegs.push(row);
       }
-      const debitTotal = debitLegs.reduce(
-        (sum, line) => sum + line.debit * asFxRate(line.exchangeRate, 1),
-        0
+      const debitTotal = roundTo4(
+        debitLegs.reduce((sum, line) => sum + roundTo4(line.debit * asFxRate(line.exchangeRate, 1)), 0)
       );
-      const creditTotal = creditLegs.reduce(
-        (sum, line) => sum + line.credit * asFxRate(line.exchangeRate, 1),
-        0
+      const creditTotal = roundTo4(
+        creditLegs.reduce((sum, line) => sum + roundTo4(line.credit * asFxRate(line.exchangeRate, 1)), 0)
       );
-      const netCashBase = creditTotal - debitTotal;
+      const netCashBase = roundTo4(creditTotal - debitTotal);
       const headerRate = asFxRate(tx.exchangeRate, 1);
       const cashAmount = cashOffsetInHeaderCurrency(netCashBase, headerRate);
       if (netCashBase <= 0 || cashAmount <= 0) {
@@ -151,6 +187,7 @@ export class TreasuryPostingService {
             debit: cashAmount,
             credit: 0,
             lineOrder: lineOrder++,
+            currencyCode: tx.currencyCode,
             exchangeRate: headerRate,
           },
           ...debitLegs.map((line) => ({ ...line, lineOrder: lineOrder++ })),
@@ -165,10 +202,10 @@ export class TreasuryPostingService {
       supplierId: tx.supplierId,
       offsetAccountId: tx.offsetAccountId,
       invoiceId: tx.invoiceId,
+      db,
     });
 
-    const partyId = tx.customerId ?? tx.supplierId ?? undefined;
-    const partnerType = tx.customerId ? 'CUSTOMER' : tx.supplierId ? 'SUPPLIER' : undefined;
+    const { partnerId: partyId, partnerType } = resolveReceiptJournalPartner(tx);
     const rate = asFxRate(tx.exchangeRate, 1);
     return {
       amount: amount * rate,
@@ -194,6 +231,7 @@ export class TreasuryPostingService {
   }
 
   private async buildPaymentLines(
+    db: Prisma.TransactionClient,
     companyId: string,
     tx: CashTx
   ): Promise<{ lines: JournalEntryLineData[]; amount: number }> {
@@ -203,10 +241,11 @@ export class TreasuryPostingService {
     }
 
     const sourceAccountId = tx.safeId
-      ? await treasuryAccountResolverService.resolveSafeGlAccountId(companyId, tx.safeId)
+      ? await treasuryAccountResolverService.resolveSafeGlAccountId(companyId, tx.safeId, db)
       : await treasuryAccountResolverService.resolveBankGlAccountId(
           companyId,
-          tx.bankAccountId!
+          tx.bankAccountId!,
+          db
         );
 
     const voucherLines = tx.lines ?? [];
@@ -218,6 +257,7 @@ export class TreasuryPostingService {
         const rate = asFxRate(line.exchangeRate ?? tx.exchangeRate, 1);
         const lineAmount = Number(line.amount);
         const side = (line as { entrySide?: string }).entrySide === 'CREDIT' ? 'CREDIT' : 'DEBIT';
+        const { partnerId, partnerType } = resolvePaymentJournalPartner(tx);
         const row: JournalEntryLineData = {
           accountId: line.accountId,
           debit: side === 'DEBIT' ? lineAmount : 0,
@@ -225,23 +265,22 @@ export class TreasuryPostingService {
           lineOrder: order,
           costCenterId: line.costCenterId ?? undefined,
           description: line.description ?? undefined,
+          currencyCode: line.currencyCode || tx.currencyCode,
           exchangeRate: rate,
-          partnerId: tx.supplierId ?? tx.customerId ?? undefined,
-          partnerType: tx.supplierId ? 'SUPPLIER' : tx.customerId ? 'CUSTOMER' : undefined,
+          partnerId,
+          partnerType,
         };
         order += 1;
         if (side === 'CREDIT') creditLegs.push(row);
         else debitLegs.push(row);
       }
-      const debitTotal = debitLegs.reduce(
-        (sum, line) => sum + line.debit * asFxRate(line.exchangeRate, 1),
-        0
+      const debitTotal = roundTo4(
+        debitLegs.reduce((sum, line) => sum + roundTo4(line.debit * asFxRate(line.exchangeRate, 1)), 0)
       );
-      const creditTotal = creditLegs.reduce(
-        (sum, line) => sum + line.credit * asFxRate(line.exchangeRate, 1),
-        0
+      const creditTotal = roundTo4(
+        creditLegs.reduce((sum, line) => sum + roundTo4(line.credit * asFxRate(line.exchangeRate, 1)), 0)
       );
-      const netCashBase = debitTotal - creditTotal;
+      const netCashBase = roundTo4(debitTotal - creditTotal);
       const headerRate = asFxRate(tx.exchangeRate, 1);
       const cashAmount = cashOffsetInHeaderCurrency(netCashBase, headerRate);
       if (netCashBase <= 0 || cashAmount <= 0) {
@@ -262,6 +301,7 @@ export class TreasuryPostingService {
             debit: 0,
             credit: cashAmount,
             lineOrder: order,
+            currencyCode: tx.currencyCode,
             exchangeRate: headerRate,
           },
         ],
@@ -274,10 +314,10 @@ export class TreasuryPostingService {
       supplierId: tx.supplierId,
       offsetAccountId: tx.offsetAccountId,
       invoiceId: tx.invoiceId,
+      db,
     });
 
-    const partyId = tx.customerId ?? tx.supplierId ?? undefined;
-    const partnerType = tx.customerId ? 'CUSTOMER' : tx.supplierId ? 'SUPPLIER' : undefined;
+    const { partnerId: partyId, partnerType } = resolvePaymentJournalPartner(tx);
     const rate = asFxRate(tx.exchangeRate, 1);
     return {
       amount: amount * rate,
@@ -316,34 +356,7 @@ export class TreasuryPostingService {
     return creditTotal > 0 ? creditTotal : fallback;
   }
 
-  private async applyReceiptBalances(tx: Prisma.TransactionClient, row: CashTx, amount: number) {
-    const partyAmount = this.receiptPartySettlement(row, amount);
-    if (row.safeId) {
-      await tx.safe.update({
-        where: { id: row.safeId },
-        data: { balance: { increment: new Decimal(amount) } },
-      });
-    }
-    if (row.bankAccountId) {
-      await tx.bankAccount.update({
-        where: { id: row.bankAccountId },
-        data: { balance: { increment: new Decimal(amount) } },
-      });
-    }
-    if (row.customerId) {
-      await tx.customer.update({
-        where: { id: row.customerId },
-        data: { balance: { decrement: new Decimal(partyAmount) } },
-      });
-    }
-    if (row.supplierId) {
-      await tx.supplier.update({
-        where: { id: row.supplierId },
-        data: { balance: { increment: new Decimal(partyAmount) } },
-      });
-    }
-  }
-
+  /** Posted vouchers with no journal. A journalled voucher is reversed through the journal. */
   private async reverseReceiptBalances(tx: Prisma.TransactionClient, row: CashTx, amount: number) {
     const partyAmount = this.receiptPartySettlement(row, amount);
     if (row.safeId) {
@@ -368,33 +381,6 @@ export class TreasuryPostingService {
       await tx.supplier.update({
         where: { id: row.supplierId },
         data: { balance: { decrement: new Decimal(partyAmount) } },
-      });
-    }
-  }
-
-  private async applyPaymentBalances(tx: Prisma.TransactionClient, row: CashTx, amount: number) {
-    if (row.safeId) {
-      await tx.safe.update({
-        where: { id: row.safeId },
-        data: { balance: { decrement: new Decimal(amount) } },
-      });
-    }
-    if (row.bankAccountId) {
-      await tx.bankAccount.update({
-        where: { id: row.bankAccountId },
-        data: { balance: { decrement: new Decimal(amount) } },
-      });
-    }
-    if (row.customerId) {
-      await tx.customer.update({
-        where: { id: row.customerId },
-        data: { balance: { increment: new Decimal(amount) } },
-      });
-    }
-    if (row.supplierId) {
-      await tx.supplier.update({
-        where: { id: row.supplierId },
-        data: { balance: { decrement: new Decimal(amount) } },
       });
     }
   }
@@ -436,7 +422,7 @@ export class TreasuryPostingService {
       include: { treasuryReceipt: true, treasuryPayment: true, lines: true },
     });
     if (!row) {
-      throw new AppError(404, 'Cash transaction not found');
+      throw new AppError(404, 'السند غير موجود');
     }
     if (row.isCancelled) {
       throw new AppError(400, 'Cannot post a cancelled cash transaction');
@@ -445,42 +431,94 @@ export class TreasuryPostingService {
       return row;
     }
 
-    const sourceYearId = await this.resolveSourceYearId(ctx, null);
-    const legacyGlNum = await this.allocateGlNumInTx(tx, ctx);
+    const sourceYearId = await this.resolveSourceYearId(tx, ctx, null);
     const voucherRef = row.voucherNumber ?? row.id.slice(0, 8);
 
     const isReceipt = row.transactionKind === 'RECEIPT';
     const cashRow: CashTx = row;
     const { lines, amount } = isReceipt
-      ? await this.buildReceiptLines(ctx.companyId, cashRow)
-      : await this.buildPaymentLines(ctx.companyId, cashRow);
+      ? await this.buildReceiptLines(tx, ctx.companyId, cashRow)
+      : await this.buildPaymentLines(tx, ctx.companyId, cashRow);
 
-    const je = await autoGlPostingService.commitInTx(tx, ctx, {
-      fiscalYearId: ctx.fiscalYearId!,
-      legacyGlNum,
-      date: row.date,
-      description: row.description ?? `Cash ${row.transactionKind} ${voucherRef}`,
-      currencyCode: row.currencyCode,
-      // Wave 2 fix: previously always defaulted to 1 even for genuinely
-      // foreign-currency transactions, so debitBase/creditBase never
-      // reflected an actual conversion.
-      exchangeRate: row.exchangeRate != null ? Number(row.exchangeRate) : undefined,
-      entryType: 'CashTrx',
-      sourceType: isReceipt ? 'CR' : 'CP',
-      sourceId: row.id,
-      sourceNumber: voucherRef,
-      sourceYearId,
-      lines,
-    });
+    if (!isReceipt) {
+      await assertCashOverdraftAllowed({
+        companyId: ctx.companyId,
+        amount,
+        safeId: row.safeId,
+        bankAccountId: row.bankAccountId,
+      });
+    }
+
+    const existingJournal =
+      (row.journalEntryId
+        ? await tx.journalEntry.findFirst({
+            where: {
+              id: row.journalEntryId,
+              companyId: ctx.companyId,
+              deletedAt: null,
+              isCancelled: false,
+            },
+            select: { id: true },
+          })
+        : null) ??
+      (await tx.journalEntry.findFirst({
+        where: {
+          companyId: ctx.companyId,
+          sourceId: row.id,
+          deletedAt: null,
+          isCancelled: false,
+          reversalOfJournalEntryId: null,
+        },
+        select: { id: true },
+        orderBy: { createdAt: 'asc' },
+      }));
+
+    let je: { id: string } | null = existingJournal;
+    if (existingJournal) {
+      je = await journalPostingService.reuseSourceJournalInTx(
+        tx,
+        ctx,
+        existingJournal.id,
+        {
+          date: row.date,
+          hijriDate: row.hijriDate,
+          description: row.description ?? `Cash ${row.transactionKind} ${voucherRef}`,
+          currencyCode: row.currencyCode,
+          exchangeRate: row.exchangeRate != null ? Number(row.exchangeRate) : undefined,
+          sourceNumber: voucherRef,
+          lines,
+          activeSourceKey: journalPostingService.buildActiveSourceKey(
+            ctx.companyId,
+            isReceipt ? 'CR' : 'CP',
+            voucherRef,
+            sourceYearId
+          ),
+        },
+        treasuryJournalBalanceOpts
+      );
+    } else {
+      const legacyGlNum = await this.allocateGlNumInTx(tx, ctx);
+      je = await autoGlPostingService.commitInTx(tx, ctx, {
+        fiscalYearId: ctx.fiscalYearId!,
+        legacyGlNum,
+        date: row.date,
+        description: row.description ?? `Cash ${row.transactionKind} ${voucherRef}`,
+        currencyCode: row.currencyCode,
+        exchangeRate: row.exchangeRate != null ? Number(row.exchangeRate) : undefined,
+        entryType: 'CashTrx',
+        sourceType: isReceipt ? 'CR' : 'CP',
+        sourceId: row.id,
+        sourceNumber: voucherRef,
+        sourceYearId,
+        lines,
+        skipCardColumns: TREASURY_SKIP_ACCOUNT_CARD_COLUMNS,
+      });
+    }
     if (!je) {
       throw new AppError(422, 'Treasury GL posting was skipped');
     }
 
-    if (isReceipt) {
-      await this.applyReceiptBalances(tx, cashRow, amount);
-    } else {
-      await this.applyPaymentBalances(tx, cashRow, amount);
-    }
+    await syncJournalPartnerAndTreasuryCardsInTx(tx, ctx.companyId, je.id);
 
     await tx.cashTransaction.update({
       where: { id: cashTransactionId },
@@ -520,6 +558,11 @@ export class TreasuryPostingService {
       });
     }
 
+    const { projectCostSyncService } = await import(
+      '../../contracting/project-cost/project-cost-sync.service'
+    );
+    await projectCostSyncService.syncPostedCashTransactionInTx(tx, ctx.companyId, cashTransactionId);
+
     // Pre-existing bug fix: this used to `return row`, the pre-update
     // snapshot fetched at the top of the function (isPosted: false,
     // journalEntryId: null) — every caller of postCashTransaction was
@@ -530,12 +573,35 @@ export class TreasuryPostingService {
     });
   }
 
-  async rewritePostedCashJournal(
+  /** Edit a posted voucher: the voucher update and the journal rewrite commit or roll back together. */
+  async updatePostedCashTransaction(
+    ctx: TreasuryPostingContext,
+    cashTransactionId: string,
+    input: UpdateCashTransactionInput,
+    previous: CashTx,
+    userId?: string
+  ) {
+    return prisma.$transaction(async (tx) => {
+      await cashTransactionService.updateInTx(tx, ctx.companyId, cashTransactionId, input, userId, {
+        allowPosted: true,
+      });
+      return this.rewritePostedCashJournalInTx(tx, ctx, cashTransactionId, previous);
+    });
+  }
+
+  async rewritePostedCashJournalInTx(
+    tx: Prisma.TransactionClient,
     ctx: TreasuryPostingContext,
     cashTransactionId: string,
     previous: CashTx
   ) {
-    const next = await this.loadCashTransaction(ctx.companyId, cashTransactionId);
+    const next = await tx.cashTransaction.findFirst({
+      where: { id: cashTransactionId, companyId: ctx.companyId },
+      include: { treasuryReceipt: true, treasuryPayment: true, lines: true },
+    });
+    if (!next) {
+      throw new AppError(404, 'السند غير موجود');
+    }
     if (!next.journalEntryId) {
       throw new AppError(422, 'السند ليس له قيد محاسبي لتعديله');
     }
@@ -543,22 +609,34 @@ export class TreasuryPostingService {
       throw new AppError(400, 'Cannot rewrite a cancelled cash transaction');
     }
 
-    return prisma.$transaction(async (tx) => {
-      const isReceipt = previous.transactionKind === 'RECEIPT';
-      const previousAmount = postedCashFundAmount(previous);
-      if (isReceipt) {
-        await this.reverseReceiptBalances(tx, previous, previousAmount);
-      } else {
-        await this.reversePaymentBalances(tx, previous, previousAmount);
+    const isReceipt = previous.transactionKind === 'RECEIPT';
+    const previousAmount = postedCashFundAmount(previous);
+
+    const cashRow: CashTx = next;
+    const { lines, amount } = isReceipt
+      ? await this.buildReceiptLines(tx, ctx.companyId, cashRow)
+      : await this.buildPaymentLines(tx, ctx.companyId, cashRow);
+    if (!isReceipt) {
+      const extra = roundTo4(amount - previousAmount);
+      if (extra > 0) {
+        await assertCashOverdraftAllowed({
+          companyId: ctx.companyId,
+          amount: extra,
+          safeId: next.safeId,
+          bankAccountId: next.bankAccountId,
+        });
       }
+    }
+    const voucherRef = next.voucherNumber ?? next.id.slice(0, 8);
 
-      const cashRow: CashTx = next;
-      const { lines, amount } = isReceipt
-        ? await this.buildReceiptLines(ctx.companyId, cashRow)
-        : await this.buildPaymentLines(ctx.companyId, cashRow);
-      const voucherRef = next.voucherNumber ?? next.id.slice(0, 8);
-
-      await journalPostingService.replacePostedJournalInTx(tx, ctx, next.journalEntryId!, {
+    await syncJournalPartnerAndTreasuryCardsInTx(tx, ctx.companyId, next.journalEntryId!, {
+      invert: true,
+    });
+    await journalPostingService.reuseSourceJournalInTx(
+      tx,
+      ctx,
+      next.journalEntryId!,
+      {
         date: next.date,
         hijriDate: next.hijriDate,
         description: next.description ?? `Cash ${next.transactionKind} ${voucherRef}`,
@@ -566,23 +644,24 @@ export class TreasuryPostingService {
         exchangeRate: next.exchangeRate != null ? Number(next.exchangeRate) : undefined,
         sourceNumber: voucherRef,
         lines,
-      });
+      },
+      treasuryJournalBalanceOpts
+    );
+    await syncJournalPartnerAndTreasuryCardsInTx(tx, ctx.companyId, next.journalEntryId!);
 
-      if (isReceipt) {
-        await this.applyReceiptBalances(tx, cashRow, amount);
-      } else {
-        await this.applyPaymentBalances(tx, cashRow, amount);
-      }
+    const { projectCostSyncService } = await import(
+      '../../contracting/project-cost/project-cost-sync.service'
+    );
+    await projectCostSyncService.syncPostedCashTransactionInTx(tx, ctx.companyId, cashTransactionId);
 
-      await tx.cashTransaction.update({
-        where: { id: cashTransactionId },
-        data: { version: { increment: 1 } },
-      });
+    await tx.cashTransaction.update({
+      where: { id: cashTransactionId },
+      data: { version: { increment: 1 } },
+    });
 
-      return tx.cashTransaction.findFirstOrThrow({
-        where: { id: cashTransactionId, companyId: ctx.companyId },
-        include: { treasuryReceipt: true, treasuryPayment: true, lines: true },
-      });
+    return tx.cashTransaction.findFirstOrThrow({
+      where: { id: cashTransactionId, companyId: ctx.companyId },
+      include: { treasuryReceipt: true, treasuryPayment: true, lines: true },
     });
   }
 
@@ -638,7 +717,7 @@ export class TreasuryPostingService {
       include: { treasuryReceipt: true, treasuryPayment: true, lines: true },
     });
     if (!row) {
-      throw new AppError(404, 'Cash transaction not found');
+      throw new AppError(404, 'السند غير موجود');
     }
     if (row.isCancelled && !row.isPosted) {
       return row;
@@ -649,18 +728,23 @@ export class TreasuryPostingService {
 
     if (row.isPosted) {
       if (row.journalEntryId) {
-        if (isReceipt) {
-          await this.reverseReceiptBalances(tx, row, amount);
-        } else {
-          await this.reversePaymentBalances(tx, row, amount);
-        }
+        const journalEntryId = row.journalEntryId;
         await journalPostingService.cascadeSourceJournalInTx(
           tx,
           ctx.companyId,
-          [row.journalEntryId],
+          [journalEntryId],
           options?.cancel ? 'cancel' : 'unpost',
-          ctx.userId
+          ctx.userId,
+          undefined,
+          treasuryJournalBalanceOpts
         );
+        await syncJournalPartnerAndTreasuryCardsInTx(tx, ctx.companyId, journalEntryId, {
+          invert: true,
+        });
+      } else if (isReceipt) {
+        await this.reverseReceiptBalances(tx, row, amount);
+      } else {
+        await this.reversePaymentBalances(tx, row, amount);
       }
 
       await tx.cashTransaction.update({
@@ -720,6 +804,17 @@ export class TreasuryPostingService {
         });
       }
     }
+
+    await contractingCertificateBalanceService.refreshByCashTransactionInTx(
+      tx,
+      ctx.companyId,
+      cashTransactionId
+    );
+
+    const { projectCostSyncService } = await import(
+      '../../contracting/project-cost/project-cost-sync.service'
+    );
+    await projectCostSyncService.syncPostedCashTransactionInTx(tx, ctx.companyId, cashTransactionId);
 
     return tx.cashTransaction.findUnique({ where: { id: cashTransactionId } });
   }

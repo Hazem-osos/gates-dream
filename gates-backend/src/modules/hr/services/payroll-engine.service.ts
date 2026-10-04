@@ -39,11 +39,34 @@ export class PayrollEngineService {
     ]);
     if (!employee) throw new AppError(404, 'Employee not found');
 
+    const [allowanceMasters, deductionMasters, procedures] = await Promise.all([
+      prisma.allowance.findMany({
+        where: { companyId, isActive: true },
+        select: { defaultAmount: true },
+      }),
+      prisma.deduction.findMany({
+        where: { companyId, isActive: true },
+        select: { defaultAmount: true },
+      }),
+      prisma.employeeProcedure.findMany({
+        where: { employeeId, procedureType: { in: ['reward', 'penalty'] } },
+        select: { procedureType: true, amount: true },
+      }),
+    ]);
+    const sumAmount = (rows: Array<{ defaultAmount?: { toString(): string } | null }>) =>
+      rows.reduce((sum, row) => sum + Number(row.defaultAmount ?? 0), 0);
+    const rewardTotal = procedures
+      .filter((row) => row.procedureType === 'reward')
+      .reduce((sum, row) => sum + Number(row.amount ?? 0), 0);
+    const penaltyTotal = procedures
+      .filter((row) => row.procedureType === 'penalty')
+      .reduce((sum, row) => sum + Number(row.amount ?? 0), 0);
+
     const basic = Number(employee.basicSalary ?? 0);
-    const allowances = Number(employee.fixedAllowances ?? 0);
+    const allowances = Number(employee.fixedAllowances ?? 0) + sumAmount(allowanceMasters) + rewardTotal;
     const overtime = input.overtime ?? 0;
     const absenceDeduction = input.absenceDeduction ?? 0;
-    const otherDeductions = input.otherDeductions ?? 0;
+    const otherDeductions = (input.otherDeductions ?? 0) + sumAmount(deductionMasters) + penaltyTotal;
 
     const grossSalary = roundTo4(
       basic + allowances + overtime - absenceDeduction - otherDeductions
@@ -125,10 +148,6 @@ export class PayrollEngineService {
     if (existing && existing.status !== 'DRAFT') {
       throw new AppError(409, 'Payroll run already posted for this period');
     }
-    if (existing) {
-      await prisma.payrollRunItem.deleteMany({ where: { payrollRunId: existing.id } });
-      await prisma.payrollRun.delete({ where: { id: existing.id } });
-    }
 
     const employees = await prisma.employee.findMany({
       where: {
@@ -166,7 +185,12 @@ export class PayrollEngineService {
       }
     );
 
-    return prisma.payrollRun.create({
+    return prisma.$transaction(async (tx) => {
+      if (existing) {
+        await tx.payrollRunItem.deleteMany({ where: { payrollRunId: existing.id } });
+        await tx.payrollRun.delete({ where: { id: existing.id } });
+      }
+      return tx.payrollRun.create({
       data: {
         companyId,
         branchId: params.branchId,
@@ -198,6 +222,7 @@ export class PayrollEngineService {
         },
       },
       include: { items: true },
+      });
     });
   }
 

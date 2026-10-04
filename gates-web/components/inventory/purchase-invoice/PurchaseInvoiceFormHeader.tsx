@@ -18,12 +18,11 @@ import {
   type PricingCalculationBasis,
 } from '@/lib/invoices/unit-conversion';
 import { InvoiceSourceDocumentControl } from '@/components/invoices/InvoiceSourceDocumentControl';
-import { InvoiceCashTenderPanel } from '@/components/invoices/InvoiceCashTenderPanel';
 import type { SelectableSourceType, SourceHydratePayload } from '@/lib/invoices/sourceDocument';
 import { DatePickerWithHijri } from '@/components/ui/DatePickerWithHijri';
 import { toHijriDate } from '@/lib/hijri-date';
 import type { CashTenderKind, InvoiceChequeDraft } from '@/lib/invoices/cash-tender';
-import { summarizePaymentSplits, type PaymentSplitLine } from '@/lib/invoices/payment-split.types';
+import type { PaymentSplitLine } from '@/lib/invoices/payment-split.types';
 
 type Currency = { id: string; code: string; arabicName: string };
 type Delegate = { id: string; code: string; arabicName: string };
@@ -33,6 +32,7 @@ type Props = {
   onSupplierId: (v: string) => void;
   onPaymentType: (v: 'cash' | 'credit' | 'split') => void;
   onConfigureSplit?: () => void;
+  onCollectPayment?: () => void;
   onConfigureInstallments?: () => void;
   onLinkAdvance?: () => void;
   installmentCount?: number;
@@ -54,8 +54,12 @@ type Props = {
   onHijriDate: (v: string) => void;
   currencyId: string;
   onCurrencyId: (v: string) => void;
+  exchangeRate?: number;
+  onExchangeRate?: (v: number) => void;
   isPurchaseTaxInvoice: boolean;
   onPurchaseTaxChange: (v: boolean) => void;
+  applyWithholding: boolean;
+  onApplyWithholdingChange: (v: boolean) => void;
   supplierRef?: string;
   onSupplierRef?: (v: string) => void;
   currencies: Currency[];
@@ -108,13 +112,6 @@ export function PurchaseInvoiceFormHeader(props: Props) {
   const {
     supplierId,
     onSupplierId,
-    paymentType,
-    onPaymentType,
-    onConfigureSplit,
-    onConfigureInstallments,
-    onLinkAdvance,
-    installmentCount = 0,
-    paymentSplits,
     warehouseId,
     onWarehouseId,
     date,
@@ -131,8 +128,12 @@ export function PurchaseInvoiceFormHeader(props: Props) {
     onHijriDate,
     currencyId,
     onCurrencyId,
+    exchangeRate = 1,
+    onExchangeRate,
     isPurchaseTaxInvoice,
     onPurchaseTaxChange,
+    applyWithholding,
+    onApplyWithholdingChange,
     supplierRef,
     onSupplierRef,
     currencies,
@@ -141,24 +142,6 @@ export function PurchaseInvoiceFormHeader(props: Props) {
     delegatesLoading,
     pricingCalculationBasis = 'SELECTED_UNIT_QTY',
     onPricingCalculationBasis,
-    treasuryId = '',
-    onTreasuryId,
-    advancePaidAmount = 0,
-    onAdvancePaidAmount,
-    advanceSafeId = '',
-    onAdvanceSafeId,
-    cashTenderKind = 'treasury',
-    onCashTenderKind,
-    cashBankAccountId = '',
-    onCashBankAccountId,
-    cashBankReference = '',
-    onCashBankReference,
-    cashChequeRows = [],
-    onCashChequeRows,
-    cashIssuingBankAccountId = '',
-    onCashIssuingBankAccountId,
-    cashNetAmount = 0,
-    cashChequeError,
     errors,
     showValidationErrors = false,
     sourceType = '',
@@ -169,16 +152,12 @@ export function PurchaseInvoiceFormHeader(props: Props) {
     hasExistingLines = false,
     sourceDisabled = false,
     fieldsDisabled = false,
-    splitLocked = false,
-    splitCollectMode = false,
   } = props;
 
   const mounted = useClientMounted();
   const delegatesBusy = mounted && Boolean(delegatesLoading);
   const currenciesBusy = mounted && Boolean(currenciesLoading);
   const err = (has?: boolean) => (showValidationErrors && has ? erpInputErrorClass : '');
-  const creditNeedsSafe = paymentType === 'credit' && (Number(advancePaidAmount) || 0) > 0;
-  const splitSummary = summarizePaymentSplits(paymentSplits);
 
   const row1 = (
     <>
@@ -224,190 +203,6 @@ export function PurchaseInvoiceFormHeader(props: Props) {
           className={`${erpInputClass} ${err(!!errors?.warehouseId)}`}
         />
         <ErpFieldError message={errors?.warehouseId} show={showValidationErrors} />
-      </div>
-      <div className="min-w-[18rem]">
-        <label className={erpLabelClass}>طريقة الدفع</label>
-        <div className="flex min-h-10 flex-wrap rounded-lg border border-slate-200 overflow-hidden bg-slate-50 p-0.5 gap-0.5">
-          <button
-            type="button"
-            onClick={() => onPaymentType('cash')}
-            className={`flex-1 min-w-[4.5rem] flex items-center justify-center text-sm font-medium rounded-md transition-colors ${
-              paymentType === 'cash' ? 'bg-[#0E78AA] text-white shadow-sm' : 'text-slate-600 hover:bg-white'
-            }`}
-          >
-            نقدي
-          </button>
-          <button
-            type="button"
-            onClick={() => onPaymentType('credit')}
-            className={`flex-1 min-w-[6.5rem] flex items-center justify-center text-sm font-medium rounded-md transition-colors ${
-              paymentType === 'credit' ? 'bg-[#0E78AA] text-white shadow-sm' : 'text-slate-600 hover:bg-white'
-            }`}
-          >
-            آجل
-          </button>
-          <div
-            role="button"
-            tabIndex={splitLocked ? -1 : 0}
-            aria-disabled={splitLocked}
-            title={
-              splitLocked
-                ? 'الدفع المتعدد يتاح بعد حفظ وترحيل الفاتورة'
-                : splitCollectMode
-                  ? 'تحصيل أو تعديل الدفع على الفاتورة المرحلة'
-                  : undefined
-            }
-            onClick={() => {
-              if (splitLocked) return;
-              onPaymentType('split');
-            }}
-            onKeyDown={(event) => {
-              if (splitLocked) return;
-              if (event.key === 'Enter' || event.key === ' ') {
-                event.preventDefault();
-                onPaymentType('split');
-              }
-            }}
-            className={`flex-1 min-w-[5.5rem] flex items-center justify-center text-sm font-medium rounded-md transition-colors ${
-              splitLocked
-                ? 'cursor-not-allowed text-slate-400 opacity-50'
-                : splitCollectMode
-                  ? 'pointer-events-auto cursor-pointer text-[#0E78AA] hover:bg-white'
-                  : paymentType === 'split'
-                    ? 'cursor-pointer bg-[#0E78AA] text-white shadow-sm'
-                    : 'cursor-pointer text-slate-600 hover:bg-white'
-            }`}
-          >
-            دفع متعدد
-          </div>
-        </div>
-        {splitLocked ? (
-          <p className="mt-1.5 text-[11px] text-slate-500">نقدي أو آجل فقط أثناء الإضافة. الدفع المتعدد بعد الترحيل.</p>
-        ) : null}
-        {onLinkAdvance ? (
-          <div className="mt-2 pointer-events-auto">
-            <div
-              role="button"
-              tabIndex={0}
-              className="pointer-events-auto inline-flex cursor-pointer rounded-lg border border-[#0E78AA]/30 bg-white px-3 py-1.5 text-sm font-semibold text-[#0E78AA] hover:bg-[#E8F4FA]"
-              onClick={onLinkAdvance}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' || event.key === ' ') {
-                  event.preventDefault();
-                  onLinkAdvance();
-                }
-              }}
-            >
-              ربط دفعة مقدمة
-            </div>
-            <p className="mt-1 text-[11px] text-slate-500">
-              يفتح سندات المورد غير المرتبطة بفاتورة لربطها كسداد — نقدي أو آجل.
-            </p>
-          </div>
-        ) : null}
-        {paymentType === 'split' && !splitLocked ? (
-          <div className="mt-2 flex flex-wrap items-center gap-2 pointer-events-auto">
-            <div
-              role="button"
-              tabIndex={0}
-              className="pointer-events-auto inline-flex cursor-pointer items-center rounded-lg bg-[#0E78AA] px-3 py-1.5 text-sm font-semibold text-white hover:bg-[#094C6B]"
-              onClick={onConfigureSplit}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' || event.key === ' ') {
-                  event.preventDefault();
-                  onConfigureSplit?.();
-                }
-              }}
-            >
-              تحصيل
-            </div>
-            <button
-              type="button"
-              className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-              onClick={onConfigureInstallments}
-            >
-              توزيع الدفعات
-              {installmentCount > 0 ? (
-                <span className="mr-1 inline-flex min-w-[1.15rem] items-center justify-center rounded-full bg-[#0E78AA]/15 px-1 text-[10px] text-[#094C6B]">
-                  {installmentCount}
-                </span>
-              ) : null}
-            </button>
-            {splitSummary ? <p className="w-full text-[11px] text-slate-500">{splitSummary}</p> : null}
-          </div>
-        ) : null}
-        {paymentType === 'credit' ? (
-          <div>
-            <InvoiceCashTenderPanel
-              kind={cashTenderKind}
-              onKindChange={(kind) => onCashTenderKind?.(kind)}
-              treasuryId={advanceSafeId || treasuryId}
-              onTreasuryId={(id) => {
-                onAdvanceSafeId?.(id);
-                if (!treasuryId) onTreasuryId?.(id);
-              }}
-              bankAccountId={cashBankAccountId}
-              onBankAccountId={(id) => onCashBankAccountId?.(id)}
-              bankReference={cashBankReference}
-              onBankReference={(value) => onCashBankReference?.(value)}
-              chequeRows={cashChequeRows}
-              onChequeRows={(rows) => onCashChequeRows?.(rows)}
-              issuingBankAccountId={cashIssuingBankAccountId}
-              onIssuingBankAccountId={onCashIssuingBankAccountId}
-              netAmount={cashNetAmount}
-              direction="PAYMENT"
-              variant="advance"
-              paidAmount={advancePaidAmount}
-              onPaidAmount={onAdvancePaidAmount}
-              disabled={fieldsDisabled}
-              treasuryError={errors?.advanceSafeId}
-              bankError={errors?.cashBankAccountId}
-              chequeError={cashChequeError ?? errors?.cashCheques}
-              showErrors={showValidationErrors}
-            />
-            {onConfigureInstallments ? (
-              <div className="mt-2">
-                <button
-                  type="button"
-                  className="text-xs font-semibold text-[#0E78AA] hover:underline"
-                  onClick={onConfigureInstallments}
-                >
-                  توزيع الدفعات
-                  {installmentCount > 0 ? (
-                    <span className="mr-1 inline-flex min-w-[1.15rem] items-center justify-center rounded-full bg-[#0E78AA]/15 px-1 text-[10px] text-[#094C6B]">
-                      {installmentCount}
-                    </span>
-                  ) : null}
-                </button>
-              </div>
-            ) : null}
-          </div>
-        ) : null}
-        {paymentType === 'cash' ? (
-          <InvoiceCashTenderPanel
-            kind={cashTenderKind}
-            onKindChange={(kind) => onCashTenderKind?.(kind)}
-            treasuryId={treasuryId}
-            onTreasuryId={(id) => onTreasuryId?.(id)}
-            bankAccountId={cashBankAccountId}
-            onBankAccountId={(id) => onCashBankAccountId?.(id)}
-            bankReference={cashBankReference}
-            onBankReference={(value) => onCashBankReference?.(value)}
-            chequeRows={cashChequeRows}
-            onChequeRows={(rows) => onCashChequeRows?.(rows)}
-            issuingBankAccountId={cashIssuingBankAccountId}
-            onIssuingBankAccountId={onCashIssuingBankAccountId}
-            netAmount={cashNetAmount}
-            direction="PAYMENT"
-            paidAmount={Number(advancePaidAmount) > 0 ? Number(advancePaidAmount) : cashNetAmount}
-            onPaidAmount={onAdvancePaidAmount}
-            disabled={fieldsDisabled}
-            treasuryError={errors?.treasuryId}
-            bankError={errors?.cashBankAccountId}
-            chequeError={cashChequeError ?? errors?.cashCheques}
-            showErrors={showValidationErrors}
-          />
-        ) : null}
       </div>
     </>
   );
@@ -473,6 +268,17 @@ export function PurchaseInvoiceFormHeader(props: Props) {
           ))}
         </select>
       </div>
+      <div>
+        <label className={erpLabelClass}>سعر الصرف</label>
+        <input
+          type="number"
+          min={0}
+          step="any"
+          className={erpInputClass}
+          value={exchangeRate}
+          onChange={(e) => onExchangeRate?.(Number(e.target.value) || 1)}
+        />
+      </div>
       <label className="flex items-end gap-2 pb-2 text-sm cursor-pointer">
         <input
           type="checkbox"
@@ -480,6 +286,14 @@ export function PurchaseInvoiceFormHeader(props: Props) {
           onChange={(e) => onPurchaseTaxChange(e.target.checked)}
         />
         فاتورة خاضعة لضريبة القيمة المضافة (ض.ق.م)
+      </label>
+      <label className="flex items-end gap-2 pb-2 text-sm cursor-pointer">
+        <input
+          type="checkbox"
+          checked={applyWithholding}
+          onChange={(e) => onApplyWithholdingChange(e.target.checked)}
+        />
+        ضريبة خصم المنبع
       </label>
       <div className="sm:col-span-2 lg:col-span-3 xl:col-span-4 rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] p-3 space-y-2">
         <label className={erpLabelClass}>أساس احتساب سعر البند</label>

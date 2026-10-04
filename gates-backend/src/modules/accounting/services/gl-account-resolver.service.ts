@@ -73,8 +73,14 @@ export class GlAccountResolver {
       resolve(['inventoryAccount', 'stockAccount', 'storeAccount']),
       resolve(['salesRevenueAccount', 'salesAccount', 'revenueAccount']),
       resolve(['cogsAccount', 'costOfSalesAccount', 'salesCostAccount']),
-      resolve(['vatOutputAccount', 'salesTaxAccount']),
-      resolve(['vatInputAccount', 'purchaseTaxAccount']),
+      resolve(['vatOutputAccount', 'salesTaxAccount', 'defaultVatAccountId']),
+      resolve([
+        'vatInputAccount',
+        'purchaseTaxAccount',
+        'vatOutputAccount',
+        'salesTaxAccount',
+        'defaultVatAccountId',
+      ]),
       resolve(['withholdingTaxAccount', 'whtPayableAccount', 'daribaManbaAccount']),
       resolve(['purchaseAccount', 'purchasesAccount']),
       resolve(['salesReturnAccount', 'defaultSalesReturnAccountId']),
@@ -247,10 +253,7 @@ export class GlAccountResolver {
       }
 
       if (!needsCostCenter) {
-        return {
-          ...line,
-          costCenterId: line.costCenterId ?? fallbackCostCenterId ?? undefined,
-        };
+        return { ...line, costCenterId: line.costCenterId ?? undefined };
       }
       const costCenterId = line.costCenterId ?? fallbackCostCenterId ?? undefined;
       if (!costCenterId) {

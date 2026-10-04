@@ -9,8 +9,11 @@ type Props = {
   creditTotal: number;
   currencyCode?: string;
   sourceType?: JournalSourceType;
+  sourceTypeRaw?: string | null;
   sourceId?: string | null;
   sourceNumber?: string | null;
+  entryType?: string | null;
+  voucherFund?: 'bank' | 'cash' | null;
   onSaveDraft: () => void;
   onPost: () => void;
   onCancel: () => void;
@@ -26,8 +29,11 @@ export function JournalEntryStickyFooter({
   creditTotal,
   currencyCode = 'EGP',
   sourceType = 'MANUAL',
+  sourceTypeRaw,
   sourceId,
   sourceNumber,
+  entryType,
+  voucherFund,
   onSaveDraft,
   onPost,
   onCancel,
@@ -43,10 +49,12 @@ export function JournalEntryStickyFooter({
         <div className="flex flex-wrap items-center gap-2" dir="rtl">
           <span className="text-xs font-medium text-muted-foreground">المصدر</span>
           <JournalSourceBadge
-            sourceType={sourceType}
+            sourceType={sourceTypeRaw ?? sourceType}
             sourceKind={sourceType}
             sourceId={sourceId}
             sourceNumber={sourceNumber}
+            entryType={entryType}
+            voucherFund={voucherFund}
           />
         </div>
 

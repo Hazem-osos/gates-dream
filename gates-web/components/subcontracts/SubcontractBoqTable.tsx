@@ -23,7 +23,7 @@ export function SubcontractBoqTable({
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-lg font-bold text-[#0E79AA]">جدول الكميات وتنفيذ البنود</h2>
+        <h2 className="text-lg font-bold text-[#0E78AA]">جدول الكميات وتنفيذ البنود</h2>
         {onImport ? (
           <Button size="sm" onClick={onImport}>
             إضافة / استيراد بنود BOQ
@@ -93,7 +93,7 @@ export function SubcontractBoqTable({
                     <td className="px-3 py-3">
                       <div className="mx-auto h-2 w-28 overflow-hidden rounded-full bg-slate-100">
                         <div
-                          className={warn ? 'h-full bg-red-500' : 'h-full bg-[#0E79AA]'}
+                          className={warn ? 'h-full bg-red-500' : 'h-full bg-[#0E78AA]'}
                           style={{ width: `${Math.min(pct, 100)}%` }}
                         />
                       </div>

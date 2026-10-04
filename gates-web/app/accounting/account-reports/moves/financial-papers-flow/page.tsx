@@ -11,7 +11,7 @@ export default function FinancialPapersFlowPage() {
       fields={{
         dates: 'range',
         account: true,
-        costCenter: true,
+        currency: true,
         branch: true,
         entity: true,
       }}

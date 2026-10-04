@@ -116,7 +116,7 @@ export function EtaSubmissionHub() {
                         <input type="checkbox" checked={selected.has(row.id)} onChange={() => toggle(row.id)} />
                       </td>
                       <td className="p-2">{label}</td>
-                      <td className="p-2 tabular-nums">{Number(row.netAmount ?? 0).toFixed(2)}</td>
+                      <td className="p-2 tabular-nums">{Number(row.netAmount ?? 0).toLocaleString()}</td>
                       <td className="p-2">
                         <StatusBadge variant="warning" label="غير مرسلة" compact />
                       </td>

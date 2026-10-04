@@ -11,7 +11,8 @@ import {
 } from 'react';
 import { marketingCopy, type MarketingCopy, type MarketingLocale } from './copy';
 
-const STORAGE_KEY = 'gates-marketing-locale';
+const STORAGE_KEY = 'gates:locale';
+const LEGACY_STORAGE_KEY = 'gates-marketing-locale';
 
 type LocaleContextValue = {
   locale: MarketingLocale;
@@ -25,7 +26,7 @@ const LocaleContext = createContext<LocaleContextValue | null>(null);
 
 export function readStoredLocale(): MarketingLocale {
   if (typeof window === 'undefined') return 'ar';
-  const stored = window.localStorage.getItem(STORAGE_KEY);
+  const stored = window.localStorage.getItem(STORAGE_KEY) || window.localStorage.getItem(LEGACY_STORAGE_KEY);
   return stored === 'en' || stored === 'ar' ? stored : 'ar';
 }
 
@@ -39,6 +40,11 @@ export function LocaleProvider({ children }: { children: ReactNode }) {
   const setLocale = useCallback((next: MarketingLocale) => {
     setLocaleState(next);
     window.localStorage.setItem(STORAGE_KEY, next);
+    window.localStorage.setItem(LEGACY_STORAGE_KEY, next);
+    if (typeof document !== 'undefined') {
+      document.documentElement.lang = next;
+      document.documentElement.dir = next === 'ar' ? 'rtl' : 'ltr';
+    }
   }, []);
 
   const toggleLocale = useCallback(() => {

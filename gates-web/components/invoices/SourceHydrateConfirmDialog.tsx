@@ -38,7 +38,7 @@ export function SourceHydrateConfirmDialog({
           <button
             type="button"
             onClick={onConfirm}
-            className="rounded-lg bg-[#0E79AA] px-4 py-2 text-sm font-semibold text-white hover:bg-[#0c6a96]"
+            className="rounded-lg bg-[#0E78AA] px-4 py-2 text-sm font-semibold text-white hover:bg-[#0c6a96]"
           >
             استبدال
           </button>

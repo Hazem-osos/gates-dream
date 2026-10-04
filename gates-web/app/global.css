@@ -2,6 +2,56 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --background: #f3f7fa;
+  --surface-1: #ffffff;
+  --surface-2: #f6fbfd;
+  --surface-hover: #eef6fb;
+  --foreground: #0b1620;
+  --foreground-muted: #4d6472;
+  --border-subtle: #d6eaf3;
+  --brand-rgb: 14 120 170;
+  --brand: rgb(var(--brand-rgb));
+  --primary: var(--brand);
+  --primary-hover: #094c6b;
+  --primary-foreground: #ffffff;
+  --success: #1f7a4d;
+  --success-soft: #ecf8f1;
+  --warning: #b45309;
+  --warning-soft: #fff7ed;
+  --danger: #b42318;
+  --danger-soft: #fef3f2;
+  --info: #0e78aa;
+  --info-soft: #e8f4fa;
+  --radius-control: 0.5rem;
+  --radius-card: 0.75rem;
+  --shadow-subtle: 0 1px 2px rgba(9, 76, 107, 0.06);
+  color-scheme: light;
+}
+
+html.dark {
+  --background: #071018;
+  --surface-1: #0c1822;
+  --surface-2: #10202c;
+  --surface-hover: #163042;
+  --foreground: #f4fafd;
+  --foreground-muted: #8aa3b3;
+  --border-subtle: #1d3a4c;
+  --primary: #1499d6;
+  --primary-hover: #3db4e6;
+  --primary-foreground: #061826;
+  --success: #3dba7a;
+  --success-soft: rgba(61, 186, 122, 0.12);
+  --warning: #f0b429;
+  --warning-soft: rgba(240, 180, 41, 0.12);
+  --danger: #f97066;
+  --danger-soft: rgba(249, 112, 102, 0.12);
+  --info: #1499d6;
+  --info-soft: rgba(20, 153, 214, 0.12);
+  --shadow-subtle: 0 1px 2px rgba(0, 0, 0, 0.35);
+  color-scheme: dark;
+}
+
 /* Custom Scrollbar Styles */
 .scrollbar-thin {
   scrollbar-width: thin;
@@ -71,7 +121,9 @@ html.gates-privacy-mode .gates-sensitive {
   width: 100%;
   max-width: 100%;
   min-width: 0;
-  container-type: inline-size;
+  /* container-type stays on the pane scroller only (main.erp-contain).
+     An intermediate container traps position:sticky, so document toolbars
+     would scroll away on every screen that wraps itself in .erp-contain. */
   --erp-field-max: clamp(12rem, 30cqi, 32rem);
   --erp-field-desc-max: clamp(16rem, 46cqi, 44rem);
   --erp-form-gap-x: clamp(0.75rem, 2cqi, 1.75rem);
@@ -85,11 +137,25 @@ html.gates-privacy-mode .gates-sensitive {
   min-width: 0;
   min-height: 100%;
   padding: clamp(0.75rem, 1.4vw, 1.5rem);
-  border: 1px solid #d6eaf3;
-  border-radius: 0.85rem;
-  background: #fff;
-  box-shadow: 0 1px 3px rgba(9, 76, 107, 0.06);
-  overflow-x: hidden;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  background: var(--surface-1);
+  color: var(--foreground);
+  box-shadow: var(--shadow-subtle);
+  /* clip, not hidden: hidden + overflow-y:visible is promoted to overflow-y:auto,
+     which makes this card a scrollport that never scrolls and breaks sticky
+     toolbars inside every page. clip does not create a scroll container. */
+  overflow-x: clip;
+}
+
+.gates-erp-root main.erp-contain {
+  container-type: inline-size;
+}
+
+.erp-sticky-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 40;
 }
 
 .erp-scroll-x {
@@ -274,14 +340,21 @@ html {
   color-scheme: light;
   max-width: 100%;
 }
+html.dark {
+  color-scheme: dark;
+}
 body, h1, h2, h3, h4, h5, h6, p, figure, blockquote, dl, dd { margin: 0; }
 body {
   min-height: 100vh;
   max-width: 100%;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
-  background-color: #fff;
-  color: #222;
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-ibm-arabic), var(--font-geist), ui-sans-serif, system-ui, sans-serif;
+}
+html[lang='en'] body {
+  font-family: var(--font-geist), ui-sans-serif, system-ui, sans-serif;
 }
 ul[class], ol[class] { list-style: none; padding: 0; }
 a { text-decoration: none; color: inherit; }
@@ -506,7 +579,34 @@ input, button, textarea, select { font: inherit; }
 .gates-shimmer {
   position: relative;
   overflow: hidden;
-  background-color: #e2e8f0;
+  background-color: var(--surface-hover);
+}
+
+.gates-flow-pulse {
+  position: relative;
+}
+.gates-flow-pulse::after {
+  content: '';
+  position: absolute;
+  inset-inline-start: 50%;
+  top: 0;
+  width: 5px;
+  height: 5px;
+  margin-inline-start: -2.5px;
+  border-radius: 999px;
+  background: var(--primary);
+  animation: gates-flow-pulse 1.8s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .gates-flow-pulse::after {
+    animation: none;
+    opacity: 0.6;
+  }
+}
+@keyframes gates-flow-pulse {
+  0% { transform: translateY(0); opacity: 0; }
+  25% { opacity: 1; }
+  100% { transform: translateY(18px); opacity: 0; }
 }
 .gates-shimmer::after {
   content: '';
@@ -540,8 +640,8 @@ input, button, textarea, select { font: inherit; }
     border-collapse: collapse;
   }
   main table:not([data-plain-table]) thead th {
-    background-color: #0e78aa !important;
-    color: #fff !important;
+    background-color: var(--primary) !important;
+    color: var(--primary-foreground) !important;
     font-weight: 600;
     border-inline-end: 1px solid rgba(255, 255, 255, 0.2);
   }
@@ -549,16 +649,17 @@ input, button, textarea, select { font: inherit; }
     border-inline-end: none;
   }
   main table:not([data-plain-table]) tbody td {
-    border-inline-end: 1px solid #e8f1f6;
+    border-inline-end: 1px solid var(--border-subtle);
+    color: var(--foreground);
   }
   main table:not([data-plain-table]) tbody td:last-child {
     border-inline-end: none;
   }
   main table:not([data-plain-table]) tbody tr:nth-child(even) td {
-    box-shadow: inset 0 0 0 999px rgba(14, 120, 170, 0.045);
+    box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--primary) 5%, transparent);
   }
   main table:not([data-plain-table]) tbody tr:hover td {
-    box-shadow: inset 0 0 0 999px rgba(14, 120, 170, 0.08);
+    box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--primary) 10%, transparent);
   }
 }
 
@@ -572,8 +673,18 @@ input, button, textarea, select { font: inherit; }
     @apply focus:!border-[#0E78AA] focus:!ring-2 focus:!ring-[#0E78AA]/20 focus:!outline-none focus:!bg-white;
   }
 
-  .report-filter-unified-fields label {
+  .report-filter-unified-fields label:not(.report-filter-option) {
     @apply !text-xs !font-semibold !text-slate-600 !mb-1.5 !block !text-right;
+  }
+
+  .eta-send-filters > * {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .eta-send-filters input:not([type='checkbox']):not([type='radio']):not([type='hidden']),
+  .eta-send-filters select {
+    @apply !h-10 !max-w-none !text-sm;
   }
 }
 

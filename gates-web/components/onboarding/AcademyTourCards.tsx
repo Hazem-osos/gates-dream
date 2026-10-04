@@ -87,7 +87,7 @@ export function AcademyTourCards({ modules, onStartProgram }: Props) {
                   <button
                     type="button"
                     onClick={() => onStartProgram(mod.programId)}
-                    className="text-xs font-semibold text-[#0E79AA] hover:underline text-center"
+                    className="text-xs font-semibold text-[#0E78AA] hover:underline text-center"
                   >
                     إعادة التشغيل
                   </button>
@@ -96,7 +96,7 @@ export function AcademyTourCards({ modules, onStartProgram }: Props) {
                 <button
                   type="button"
                   onClick={() => onStartProgram(mod.programId)}
-                  className="w-full rounded-xl bg-[#0E79AA] py-2.5 text-sm font-bold text-white shadow-sm hover:bg-[#095a80] transition-colors"
+                  className="w-full rounded-xl bg-[#0E78AA] py-2.5 text-sm font-bold text-white shadow-sm hover:bg-[#095a80] transition-colors"
                 >
                   🚀 ابدأ الجولة التفاعلية
                 </button>

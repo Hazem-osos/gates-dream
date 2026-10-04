@@ -1,4 +1,5 @@
 import prisma from '../../../shared/database/prisma';
+import { permanentDelete } from '../../../shared/database/permanent-delete.util';
 import { logger } from '../../../shared/logger';
 import { SYSTEM_GL_CODES } from '../data/system-account-map';
 import {
@@ -182,15 +183,12 @@ export class SafeService {
   }
 
   /**
-   * Delete a safe (soft delete by setting isActive to false)
+   * Delete a safe (permanent delete by setting isActive to false)
    */
   async deleteSafe(companyId: string, safeId: string) {
     await this.getSafeById(companyId, safeId);
 
-    return prisma.safe.update({
-      where: { id: safeId },
-      data: { isActive: false },
-    });
+    return permanentDelete('الخزينة', () => prisma.safe.delete({ where: { id: safeId } }));
   }
 }
 

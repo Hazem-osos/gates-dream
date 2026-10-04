@@ -5,8 +5,9 @@ import { authorize } from '../../../shared/middleware/authorize.middleware';
 import { tenantAndFiscalContextMiddleware } from '../../../shared/middleware/tenant-fiscal-context.middleware';
 import { AppError } from '../../../shared/middleware/error-handler';
 import { AuthRequest } from '../../../shared/auth/types';
-import { analyticalInvoiceMovementQuerySchema } from '../schemas/invoice-source.schema';
+import { analyticalInvoiceMovementQuerySchema, invoiceAnalyticalQuerySchema } from '../schemas/invoice-source.schema';
 import { invoiceSourceService } from '../services/invoice-source.service';
+import { getInvoiceAnalyticalReport } from '../services/invoice-analytical-report';
 
 const router = Router();
 
@@ -21,7 +22,7 @@ function requireCompany(req: AuthRequest): string {
 
 router.get(
   '/analytical-invoice-movement',
-  authorize({ resource: 'invoice', action: 'view' }),
+  authorize({ resource: 'report', action: 'view' }),
   validate({ query: analyticalInvoiceMovementQuerySchema }),
   async (req: AuthRequest, res: Response) => {
     try {
@@ -29,6 +30,7 @@ router.get(
         fromDate: req.query.fromDate as string | undefined,
         toDate: req.query.toDate as string | undefined,
         sourceType: req.query.sourceType as never,
+        profileId: req.query.profileId as string | undefined,
         partyId: req.query.partyId as string | undefined,
         status: req.query.status as never,
         search: req.query.search as string | undefined,
@@ -46,6 +48,32 @@ router.get(
       return void res.status(status).json({
         status: 'error',
         message: e instanceof Error ? e.message : 'Failed to load analytical invoice movement',
+      });
+    }
+  }
+);
+
+router.get(
+  '/invoice-analytical',
+  authorize({ resource: 'report', action: 'view' }),
+  validate({ query: invoiceAnalyticalQuerySchema }),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const showUnposted = req.query.showUnposted === 'true' || req.query.showUnposted === '1';
+      const result = await getInvoiceAnalyticalReport(requireCompany(req), {
+        fromDate: String(req.query.fromDate),
+        toDate: String(req.query.toDate),
+        partyId: req.query.partyId as string | undefined,
+        warehouseId: req.query.warehouseId as string | undefined,
+        kind: req.query.kind as 'SALE' | 'PURCHASE' | 'SALE_RETURN' | 'PURCHASE_RETURN' | undefined,
+        showUnposted,
+      });
+      return void res.json({ status: 'success', data: result.invoices, summary: result.summary });
+    } catch (e: unknown) {
+      const status = e instanceof AppError ? e.statusCode : 500;
+      return void res.status(status).json({
+        status: 'error',
+        message: e instanceof Error ? e.message : 'Failed to load the invoice analytical report',
       });
     }
   }

@@ -95,7 +95,7 @@ export default function TreasuryCommand() {
           <p className="mb-2 text-xs font-semibold">مصفوفة الخزن / البنك</p>
           <SegmentedBar
             segments={[
-              { label: 'خزن', value: o?.liquidity.safes ?? 0, color: '#0E79AA' },
+              { label: 'خزن', value: o?.liquidity.safes ?? 0, color: '#0E78AA' },
               { label: 'بنوك', value: o?.liquidity.banks ?? 0, color: '#059669' },
             ]}
           />
@@ -112,9 +112,9 @@ export default function TreasuryCommand() {
               title: 'أوراق قبض تستحق هذا الأسبوع',
               meta: `${o?.chequesPipeline.inwardDueThisWeek.count ?? 0} ورقة`,
               amount: formatMoney(o?.chequesPipeline.inwardDueThisWeek.amount ?? 0),
-              href: '/accounting/operations/securities/reciept',
+              href: '/accounting/operations/securities/receipt',
               tone: 'info',
-              actions: [{ label: 'إيداع', href: '/accounting/operations/securities/reciept' }],
+              actions: [{ label: 'إيداع', href: '/accounting/operations/securities/receipt' }],
             },
             {
               id: 'outw',

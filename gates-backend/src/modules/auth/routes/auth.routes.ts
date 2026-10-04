@@ -24,6 +24,8 @@ import {
   registerSchema,
   tokenRefreshSchema,
   logoutSchema,
+  forgotPasswordSchema,
+  resetPasswordSchema,
 } from '../schemas/auth.schema';
 import {
   registerHandler,
@@ -32,6 +34,8 @@ import {
   logoutHandler,
   meHandler,
   verifyHandler,
+  forgotPasswordHandler,
+  resetPasswordHandler,
 } from '../controllers/auth.controller';
 
 const router = Router();
@@ -41,6 +45,20 @@ router.post('/register', authRateLimiter, validate({ body: registerSchema }), re
 
 // ── POST /api/v1/auth/login ───────────────────────────────────────────────────
 router.post('/login', authRateLimiter, validate({ body: loginSchema }), loginHandler);
+
+router.post(
+  '/forgot-password',
+  authRateLimiter,
+  validate({ body: forgotPasswordSchema }),
+  forgotPasswordHandler
+);
+
+router.post(
+  '/reset-password',
+  authRateLimiter,
+  validate({ body: resetPasswordSchema }),
+  resetPasswordHandler
+);
 
 // ── POST /api/v1/auth/refresh ─────────────────────────────────────────────────
 router.post(

@@ -31,7 +31,7 @@ router.get(
     try {
       const companyId = req.companyId || req.tenantId;
       if (!companyId) {
-        return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+        return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
       }
 
       const result = await itemCategoryService.listItemCategories(companyId, {
@@ -66,7 +66,7 @@ router.get(
     try {
       const companyId = req.companyId || req.tenantId;
       if (!companyId) {
-        return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+        return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
       }
 
       const category = await itemCategoryService.getItemCategoryById(companyId, req.params.id);
@@ -93,7 +93,7 @@ router.post(
     try {
       const companyId = req.companyId || req.tenantId;
       if (!companyId) {
-        return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+        return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
       }
 
       const category = await itemCategoryService.createItemCategory(companyId, req.body);
@@ -125,7 +125,7 @@ router.put(
     try {
       const companyId = req.companyId || req.tenantId;
       if (!companyId) {
-        return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+        return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
       }
 
       const category = await itemCategoryService.updateItemCategory(
@@ -161,7 +161,7 @@ router.delete(
     try {
       const companyId = req.companyId || req.tenantId;
       if (!companyId) {
-        return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+        return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
       }
 
       await itemCategoryService.deleteItemCategory(companyId, req.params.id);

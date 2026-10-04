@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
+import { useQueryClient } from '@tanstack/react-query';
 import { useOwnTabSearchParams } from '@/lib/navigation/tab-route-lock';
 import { ImagePlus, Package, Plus, Trash2, X } from 'lucide-react';
 import {
@@ -22,6 +23,7 @@ import { useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
 import { apiClient } from '@/lib/api/client';
 import { useItemCostAsOf } from '@/lib/hooks/useItemCostAsOf';
 import { ItemSelect } from '@/components/form/ItemSelect';
+import { AccountSelect } from '@/app/components/form/AccountSelect';
 import { WarehouseSelect } from '@/components/form/WarehouseSelect';
 import { ItemGroupSelect } from '@/components/form/ItemGroupSelect';
 import { QuickCreateItemModal, type QuickCreatedItem } from '@/app/components/form/QuickCreateItemModal';
@@ -35,29 +37,35 @@ import { EmptyState } from '@/components/ui/EmptyState';
 import { formatMoneyAr } from '@/lib/formatMoney';
 import { useItemCardTourPrepare } from '@/lib/onboarding/useItemCardTourPrepare';
 import { queryKeys } from '@/lib/query/query-keys';
+import { rememberCreatedItemCategory } from '@/lib/inventory/remember-item-category';
 import { BarcodePrintModal } from '@/app/components/print/BarcodePrintModal';
+import { EtaDetailsDialog } from '@/components/electronic-invoices/EtaDetailsDialog';
 import { UnitDefinitionDialog } from '@/components/inventory/UnitDefinitionDialog';
 import { DocumentBrowseDrawer } from '@/components/erp/DocumentBrowseDrawer';
 import { ItemsCatalogListSection } from '@/components/inventory/ItemsCatalogListSection';
 import { DocumentModeProvider, useDocumentMode } from '@/components/common/document-shell';
 import { GuideEntityModal } from '@/components/accounting/guide/GuideEntityModal';
 import { useAccountingSettingsQuery } from '@/lib/hooks/useAccountingSettings';
-import { bumpTrailingCode, isCodeAfter, nextNumericSerial } from '@/lib/masters/nextNumericSerial';
+import { isCodeAfter, nextNumericSerial } from '@/lib/masters/nextNumericSerial';
 import { entityLabel } from '@/lib/quick-create/catalog';
 import { useQuickCreateHost } from '@/lib/quick-create/useQuickCreateTab';
+import { finishDocumentSave } from '@/lib/documents/finish-save';
+import { invalidateStockViews } from '@/lib/invoices/invalidate-stock-views';
 import { readImageFileAsDataUrl } from '@/lib/images/read-image-file';
 import { findDefaultPieceUnitId } from '@/lib/inventory/item-units';
 import { confirmAction } from '@/lib/feedback/confirm';
 import {
   applyItemToForm,
+  assertItemPersisted,
+  asText,
   assemblyRowsTotal,
+  buildItemPersistBody,
   assemblyUnitFromItem,
-  compactAssemblyRows,
-  compactSupplierRows,
   EMPTY_ASSEMBLY_ROW,
   EMPTY_ITEM_FORM,
   EMPTY_SUPPLIER_ROW,
   moneyToInput,
+  mergeItemCardForm,
   optionalMoney,
   parseAssemblyRows,
   parseSupplierRows,
@@ -98,17 +106,26 @@ type LocalUnitRow = {
   salePrice: string;
 };
 
-function toLocalUnitRows(rows: ItemUnitRow[]): LocalUnitRow[] {
-  return rows.map((row, idx) => ({
-    key: row.id ?? `unit-${idx}`,
-    unitId: row.unitId ?? row.unit?.id ?? '',
-    conversionFactor: String(row.conversionFactor ?? 1),
-    isFactorFixed: row.isFactorFixed !== false,
-    isBaseUnit: Boolean(row.isBaseUnit),
-    purchasePrice: '',
-    salePrice: '',
-    id: row.id,
-  }));
+function toLocalUnitRows(rows: ItemUnitRow[], prices?: ItemDetail['prices']): LocalUnitRow[] {
+  return rows.map((row, idx) => {
+    const unitId = row.unitId ?? row.unit?.id ?? '';
+    const price = prices?.find((entry) => entry.unitId === unitId);
+    return {
+      key: row.id ?? `unit-${idx}`,
+      unitId,
+      conversionFactor: String(row.conversionFactor ?? 1),
+      isFactorFixed: row.isFactorFixed !== false,
+      isBaseUnit: Boolean(row.isBaseUnit),
+      purchasePrice: price?.purchasePrice != null ? String(price.purchasePrice) : '',
+      salePrice:
+        price?.retailPrice != null
+          ? String(price.retailPrice)
+          : price?.price != null
+            ? String(price.price)
+            : '',
+      id: row.id,
+    };
+  });
 }
 
 function emptyBaseUnitRow(unitId = ''): LocalUnitRow {
@@ -291,6 +308,7 @@ function TabPanel({ title, hint, children }: { title: string; hint: string; chil
 }
 
 function ItemCardPageInner() {
+  const queryClient = useQueryClient();
   const invalidateQuery = useInvalidateQuery();
   const router = useRouter();
   const { isReadOnly, unlockForEdit, lockToView, setMode } = useDocumentMode();
@@ -325,6 +343,9 @@ function ItemCardPageInner() {
   );
 
   const [error, setError] = useState('');
+  const [etaOpen, setEtaOpen] = useState(false);
+  const [etaProfile, setEtaProfile] = useState<Record<string, unknown> | null>(null);
+  const etaEditedRef = useRef(false);
   const [success, setSuccess] = useState('');
   const [savedItemId, setSavedItemId] = useState<string | null>(null);
   const searchParams = useOwnTabSearchParams();
@@ -423,7 +444,7 @@ function ItemCardPageInner() {
   );
 
   const applyItemCardDraft = useCallback((payload: ItemCardDraft) => {
-    setFormData(payload.formData);
+    setFormData(mergeItemCardForm(payload.formData));
     setAssemblyRows(payload.assemblyRows?.length ? payload.assemblyRows : parseAssemblyRows(undefined));
     setSupplierRows(payload.supplierRows?.length ? payload.supplierRows : parseSupplierRows(undefined));
     setLocalUnits(payload.localUnits?.length ? payload.localUnits : [emptyBaseUnitRow()]);
@@ -450,7 +471,7 @@ function ItemCardPageInner() {
   useEffect(() => {
     if (!activeItemId || !itemDetail?.id || itemDetail.id !== activeItemId) return;
     if (unitsHydratedFor === itemDetail.id) return;
-    const mapped = toLocalUnitRows(itemDetail.units ?? []);
+    const mapped = toLocalUnitRows(itemDetail.units ?? [], itemDetail.prices);
     setLocalUnits(mapped.length ? mapped : [emptyBaseUnitRow(formData.baseUnitId)]);
     setUnitsHydratedFor(itemDetail.id);
   }, [activeItemId, formData.baseUnitId, itemDetail, unitsHydratedFor]);
@@ -459,31 +480,65 @@ function ItemCardPageInner() {
     if (activeItemId) invalidateQuery(['item', activeItemId]);
   };
 
+  const persistUnitPrices = async (itemId: string, rows: LocalUnitRow[]) => {
+    const extras = rows.filter(
+      (row) => !row.isBaseUnit && row.unitId && (row.purchasePrice.trim() || row.salePrice.trim())
+    );
+    if (!extras.length) return;
+    const lists = await apiClient.get<{ id: string }[]>('/inventory/price-lists', { limit: 1 });
+    const priceListId = lists.data?.[0]?.id;
+    if (!priceListId) return;
+    for (const row of extras) {
+      const sale = Number(row.salePrice) || 0;
+      const purchase = row.purchasePrice.trim() === '' ? undefined : Number(row.purchasePrice);
+      await apiClient.post(
+        '/inventory/item-prices/upsert',
+        {
+          itemId,
+          priceListId,
+          unitId: row.unitId,
+          price: sale,
+          retailPrice: sale,
+          ...(purchase != null && Number.isFinite(purchase) ? { purchasePrice: purchase } : {}),
+        },
+        { skipSuccessNotify: true }
+      );
+    }
+  };
+
   const persistExtraUnits = async (itemId: string, rows: LocalUnitRow[]) => {
     for (const row of rows) {
       if (row.isBaseUnit || !row.unitId || row.id) continue;
-      await apiClient.post('/inventory/item-units', {
-        itemId,
-        unitId: row.unitId,
-        conversionFactor: Number(row.conversionFactor) || 1,
-        isFactorFixed: row.isFactorFixed,
-        isBaseUnit: false,
-      });
+      await apiClient.post(
+        '/inventory/item-units',
+        {
+          itemId,
+          unitId: row.unitId,
+          conversionFactor: Number(row.conversionFactor) || 1,
+          isFactorFixed: row.isFactorFixed,
+          isBaseUnit: false,
+        },
+        { skipSuccessNotify: true }
+      );
     }
   };
 
   const persistBaseUnitLink = async (itemId: string, unitId: string, existingId?: string) => {
     if (existingId) {
-      await apiClient.put(`/inventory/item-units/${existingId}`, { unitId });
+      await apiClient.put(`/inventory/item-units/${existingId}`, { unitId }, { skipSuccessNotify: true });
       return;
     }
-    await apiClient.post('/inventory/item-units', {
-      itemId,
-      unitId,
-      conversionFactor: 1,
-      isFactorFixed: true,
-      isBaseUnit: true,
-    });
+    await apiClient.post(
+      '/inventory/item-units',
+      {
+        itemId,
+        unitId,
+        conversionFactor: 1,
+        isFactorFixed: true,
+        isBaseUnit: true,
+      },
+      { skipSuccessNotify: true }
+    );
   };
 
   const setLocalUnit = (key: string, next: Partial<LocalUnitRow>) => {
@@ -583,6 +638,7 @@ function ItemCardPageInner() {
   };
 
   const hydrateFromItem = (item: ItemDetail) => {
+    if (!etaEditedRef.current) setEtaProfile(item.etaProfile ?? null);
     setFormData(applyItemToForm(item));
     setAssemblyRows(parseAssemblyRows(item.assemblyComponents));
     setSupplierRows(parseSupplierRows(item.preferredSuppliers));
@@ -597,7 +653,10 @@ function ItemCardPageInner() {
       const listed = (item.prices ?? []).find((p) => p.unitId === row.unitId);
       return {
         ...row,
-        salePrice: listed ? moneyToInput(listed.price) : '',
+        purchasePrice: listed?.purchasePrice != null ? moneyToInput(listed.purchasePrice) : '',
+        salePrice: listed
+          ? moneyToInput(listed.retailPrice ?? listed.price)
+          : '',
       };
     });
     setLocalUnits(mapped.length ? mapped : [emptyBaseUnitRow()]);
@@ -608,6 +667,9 @@ function ItemCardPageInner() {
   useEffect(() => {
     if (!activeItemId || !itemDetail?.id || itemDetail.id !== activeItemId) return;
     if (hydratedIdRef.current === itemDetail.id) return;
+    if (hydratedIdRef.current && hydratedIdRef.current !== itemDetail.id) {
+      etaEditedRef.current = false;
+    }
     hydratedIdRef.current = itemDetail.id;
     setSavedItemId(itemDetail.id);
     hydrateFromItem(itemDetail);
@@ -631,80 +693,127 @@ function ItemCardPageInner() {
       ? Number((costAsOfResponse.data as { unitCost?: number }).unitCost)
       : null;
 
+  const pinSavedItem = async (itemId: string, expected: ItemDetail) => {
+    await queryClient.cancelQueries({ queryKey: ['item', itemId] });
+    let latest = expected;
+    try {
+      const fresh = await apiClient.get<ItemDetail>(`/inventory/items/${itemId}`, undefined, {
+        bypassConditionalGet: true,
+        skipSuccessNotify: true,
+      });
+      const body = fresh.data;
+      latest =
+        body?.id && body.arabicName === expected.arabicName
+          ? body
+          : { ...body, ...expected, id: expected.id, arabicName: expected.arabicName };
+      queryClient.setQueriesData({ queryKey: ['item', itemId] }, { ...fresh, data: latest });
+    } catch {
+      queryClient.setQueriesData({ queryKey: ['item', itemId] }, { status: 'success', data: expected });
+    }
+    hydratedIdRef.current = itemId;
+    return latest;
+  };
+
   const persistItem = async (requestBody: Record<string, unknown>) => {
     if (activeItemId) {
-      await apiClient.put<ItemDetail>(`/inventory/items/${activeItemId}`, requestBody);
+      const putRes = await apiClient.put<ItemDetail>(`/inventory/items/${activeItemId}`, requestBody, {
+        skipSuccessNotify: true,
+      });
+      const written = assertItemPersisted(requestBody, putRes.data);
       const serverBase = (itemDetail?.units ?? []).find((row) => row.isBaseUnit);
       const serverBaseUnitId = serverBase?.unitId || serverBase?.unit?.id || '';
       if (formData.baseUnitId && formData.baseUnitId !== serverBaseUnitId) {
         const localBase = localUnits.find((row) => row.isBaseUnit);
         await persistBaseUnitLink(activeItemId, formData.baseUnitId, localBase?.id || serverBase?.id);
       }
-      invalidateQuery(['item', activeItemId]);
+      await persistExtraUnits(activeItemId, localUnits);
+      await persistUnitPrices(activeItemId, localUnits);
+      invalidateStockViews(invalidateQuery);
       invalidateQuery(['items']);
+      invalidateQuery(['items', 'guide']);
+      invalidateQuery(queryKeys.itemCategories({ limit: 200 }));
+      const saved = await pinSavedItem(activeItemId, written);
+      hydrateFromItem(saved);
       setSavedItemId(activeItemId);
       clearDraft();
-      lockToView();
-      setSuccess('تم تحديث الصنف');
+      unlockForEdit();
+      finishDocumentSave({
+        label: 'بطاقة صنف',
+        number: saved.serial || formData.serial || itemDetail?.serial,
+        savedId: activeItemId,
+        onOpen: (id) => router.replace(`/inventory/creations/item-card?id=${id}`),
+        cleared: false,
+        reset: () => undefined,
+      });
       return;
     }
-    const res = await apiClient.post<ItemDetail>('/inventory/items', requestBody);
-    const saved = res.data;
-    const id = saved?.id;
+    const res = await apiClient.post<ItemDetail>('/inventory/items', requestBody, {
+      skipSuccessNotify: true,
+    });
+    const saved = assertItemPersisted(requestBody, res.data);
+    const id = saved.id;
     if (id) {
       await persistExtraUnits(id, localUnits);
-      invalidateQuery(['item', id]);
+      await persistUnitPrices(id, localUnits);
+      await pinSavedItem(id, saved);
+    }
+    invalidateStockViews(invalidateQuery);
+    invalidateQuery(['items']);
+    invalidateQuery(['items', 'serials']);
+    invalidateQuery(['items', 'guide']);
+    invalidateQuery(queryKeys.itemCategories({ limit: 200 }));
+    if (id) {
+      dismissedItemIdRef.current = null;
+      setSavedItemId(id);
+      hydratedIdRef.current = id;
+      hydrateFromItem(saved);
     }
     if (quickCreate.isQuickCreate) {
       clearDraft();
-      if (saved) hydrateFromItem(saved);
       if (id) {
-        setSavedItemId(id);
-        hydratedIdRef.current = id;
         quickCreate.complete({
           id,
-          label: entityLabel(saved?.code ?? formData.serial, saved?.arabicName ?? formData.arabicName),
+          label: entityLabel(saved?.serial ?? formData.serial, saved?.arabicName ?? formData.arabicName),
           arabicName: saved?.arabicName ?? formData.arabicName,
-          code: saved?.code ?? formData.serial,
+          code: saved?.serial ?? formData.serial,
         });
       }
-    } else {
-      const keepCategory = formData.categoryId;
-      const keepUnit = formData.baseUnitId;
-      clearDraft();
-      hydratedIdRef.current = null;
-      setSavedItemId(null);
-      setFormData({
-        ...EMPTY_ITEM_FORM,
-        categoryId: keepCategory,
-        baseUnitId: keepUnit,
-        serial: bumpTrailingCode(formData.serial || saved?.serial || ''),
-      });
-      setMode('create');
-      setAssemblyRows(parseAssemblyRows(undefined));
-      setSupplierRows(parseSupplierRows(undefined));
-      setLocalUnits([emptyBaseUnitRow(keepUnit)]);
-      setUnitsHydratedFor(null);
+      setSuccess('تم حفظ الصنف');
+      return;
     }
-    setSuccess(quickCreate.isQuickCreate ? 'تم حفظ الصنف' : 'تم حفظ الصنف — تقدر تضيف التالي');
-    invalidateQuery(['items']);
-    invalidateQuery(['items', 'serials']);
-    invalidateQuery(queryKeys.itemCategories({ limit: 200 }));
-    if (id) invalidateQuery(['item', id]);
+    clearDraft();
+    setMode('edit');
+    if (id) {
+      router.replace(`/inventory/creations/item-card?id=${id}`);
+    }
+    finishDocumentSave({
+      label: 'بطاقة صنف',
+      number: saved?.serial ?? formData.serial,
+      savedId: id,
+      cleared: false,
+      onOpen: (savedId) => router.replace(`/inventory/creations/item-card?id=${savedId}`),
+      reset: () => undefined,
+    });
+    setSuccess('تم حفظ الصنف');
   };
 
   const [saving, setSaving] = useState(false);
   const loading = saving;
+  const fieldsLocked = isReadOnly && Boolean(activeItemId);
   const patch = (next: Partial<ItemCardForm>) => setFormData((prev) => ({ ...prev, ...next }));
 
   const handleSave = async () => {
     setError('');
     setSuccess('');
+    if (fieldsLocked) {
+      setError('اضغط تعديل أولاً قبل حفظ التغييرات');
+      return;
+    }
 
     const parsed = itemCardFormSchema.safeParse({
       serial: formData.serial,
-      arabicName: formData.arabicName,
-      englishName: formData.englishName,
+      arabicName: asText(formData.arabicName),
+      englishName: asText(formData.englishName),
       isService: formData.isService,
       isAssembly: formData.isAssembly,
       isTaxExempt: formData.isTaxExempt,
@@ -725,70 +834,17 @@ function ItemCardPageInner() {
       findDefaultPieceUnitId(units) ||
       '';
 
-    const retailTier = optionalMoney(formData.retailPrice) ?? optionalMoney(formData.priceRetail);
-
-    const requestBody = {
-      serial: formData.serial || undefined,
-      arabicName: formData.arabicName,
-      englishName: formData.englishName || undefined,
-      categoryId: formData.categoryId || null,
-      baseUnitId: baseUnitId || undefined,
-      barcode: formData.barcode || null,
-      defaultTaxPercent: formData.isTaxExempt ? 0 : optionalMoney(formData.defaultTaxPercent) ?? null,
-      mainAccountId: formData.mainAccountId || undefined,
-      specifications: formData.specifications || undefined,
-      itemType: (itemType || 'normal') as 'normal' | 'pack-sheet' | 'pack-kilo' | 'roll',
-      priceSource: companyPriceSource,
-      weight: formData.weight ? parseFloat(formData.weight) : undefined,
-      manufacturerId: formData.manufacturerId || undefined,
-      colorId: formData.colorId || undefined,
-      countryOfOrigin: formData.countryOfOrigin || undefined,
-      quality: formData.quality || undefined,
-      size: formData.size || undefined,
-      property1: formData.property1 || undefined,
-      property2: formData.property2 || undefined,
-      property3: formData.property3 || undefined,
-      property4: formData.property4 || undefined,
-      property5: formData.property5 || undefined,
-      useExpirationDate: formData.useExpirationDate,
-      inactiveItem: formData.inactiveItem,
-      notSubjectToTerms: formData.notSubjectToTerms,
-      cannotBeReturned: formData.cannotBeReturned,
-      noSellBelowCost: formData.noSellBelowCost,
-      useSerialNumber: formData.useSerialNumber,
-      clothingItem: formData.clothingItem,
-      upperLimit: formData.upperLimit ? parseFloat(formData.upperLimit) : undefined,
-      orderLimit: formData.orderLimit ? parseFloat(formData.orderLimit) : undefined,
-      orderLimitPercentage: formData.orderLimitPercentage
-        ? parseFloat(formData.orderLimitPercentage)
-        : undefined,
-      lowerLimit: formData.lowerLimit ? parseFloat(formData.lowerLimit) : undefined,
-      beginningBalance: formData.beginningBalance ? parseFloat(formData.beginningBalance) : undefined,
-      beginningCostPrice: optionalMoney(formData.beginningCostPrice),
-      lastPurchasePrice:
-        companyPriceSource === 'item_card' ? optionalMoney(formData.purchasePrice) ?? 0 : undefined,
-      priceRetail: optionalMoney(formData.priceRetail) ?? retailTier,
-      priceSemiWholesale: formData.priceSemiWholesale
-        ? parseFloat(formData.priceSemiWholesale)
-        : undefined,
-      priceWholesale: formData.priceWholesale ? parseFloat(formData.priceWholesale) : undefined,
-      priceProjects: formData.priceProjects ? parseFloat(formData.priceProjects) : undefined,
-      isService: formData.isService,
-      isAssembly: formData.isAssembly,
-      isTaxExempt: formData.isTaxExempt,
-      consumerPrice: optionalMoney(formData.consumerPrice) ?? 0,
-      retailPrice: retailTier ?? 0,
-      representativePrice: optionalMoney(formData.representativePrice) ?? 0,
-      exportPrice: optionalMoney(formData.exportPrice) ?? 0,
-      priceMode: formData.priceMode,
-      priceCurrency: formData.priceCurrency || null,
-      extraAssemblyCost: null,
-      extraAssemblyCostPct: optionalMoney(formData.extraAssemblyCostPct) ?? null,
-      assemblyComponents: compactAssemblyRows(assemblyRows),
-      preferredSuppliers: compactSupplierRows(supplierRows),
-      imageUrl: formData.imageUrl || null,
-      defaultWarehouseId: formData.defaultWarehouseId || null,
-    };
+    const requestBody = buildItemPersistBody({
+      form: formData,
+      itemType,
+      itemAuto,
+      companyPriceSource,
+      baseUnitId,
+      assemblyRows,
+      supplierRows,
+      etaProfile,
+      includeAssemblyKind: !activeItemId,
+    });
 
     setSaving(true);
     try {
@@ -834,6 +890,8 @@ function ItemCardPageInner() {
     setItemType('normal');
     setActiveTab(null);
     setMode('create');
+    etaEditedRef.current = false;
+    setEtaProfile(null);
     router.replace('/inventory/creations/item-card');
   };
 
@@ -866,32 +924,28 @@ function ItemCardPageInner() {
           { label: 'التعريفات' },
           { label: 'بطاقة الصنف' },
         ]}
-        docNumber={formData.serial || (activeItemId ? 'تعديل' : 'جديد')}
+        docNumber={formData.serial || (activeItemId ? '—' : 'جديد')}
         statusLabel={
           formData.inactiveItem
-            ? 'مؤرشف'
+            ? 'غير نشط'
             : activeItemId
               ? isReadOnly
-                ? 'عرض'
+                ? 'عرض — اضغط تعديل'
                 : 'تعديل'
               : 'جديد'
         }
         onSave={() => void handleSave()}
         savePending={loading}
-        canSave={!isReadOnly && !loading}
+        canSave={!fieldsLocked && !loading}
         onNew={startNewItem}
         currentId={activeItemId}
+        onEdit={() => {
+          if (!activeItemId) return;
+          unlockForEdit();
+        }}
+        editDisabled={!activeItemId || !isReadOnly}
         onBrowseList={() => setShowFinder(true)}
         moreMenuItems={[
-          {
-            id: 'edit',
-            label: 'تعديل',
-            onClick: () => {
-              if (!activeItemId) return;
-              unlockForEdit();
-            },
-            disabled: !activeItemId || !isReadOnly,
-          },
           {
             id: 'delete',
             label: 'حذف',
@@ -903,9 +957,25 @@ function ItemCardPageInner() {
           { id: 'guide', label: 'دليل الأصناف', onClick: () => router.push('/inventory/guide/items') },
         ]}
         favoriteHref="/inventory/creations/item-card"
+        extraActions={
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            onClick={() => setEtaOpen(true)}
+          >
+            تفاصيل الفاتورة الإلكترونية
+          </Button>
+        }
       />
 
-      <fieldset disabled={isReadOnly} className="min-w-0 border-0 p-0">
+      {activeItemId && isReadOnly ? (
+        <p className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800">
+          البطاقة في وضع العرض. اضغط تعديل من القائمة أو من شريط الأدوات قبل تغيير البيانات.
+        </p>
+      ) : null}
+
+      <fieldset disabled={fieldsLocked} className="min-w-0 border-0 p-0">
       <FormSectionCard
         title="بيانات الصنف"
         subtitle="الاسم والكود والمجموعة هنا. باقي التفاصيل في التبويبات تحت حسب الحاجة."
@@ -1304,7 +1374,48 @@ function ItemCardPageInner() {
               value={formData.lowerLimit}
               onChange={(e) => patch({ lowerLimit: e.target.value })}
             />
+            <CompactFormField
+              label="رصيد أول المدة"
+              type="text"
+              value={formData.beginningBalance}
+              readOnly
+              hint="من بضاعة أول المدة"
+            />
+            <CompactFormField
+              label="تكلفة أول المدة"
+              type="text"
+              value={formData.beginningCostPrice}
+              readOnly
+              hint="من بضاعة أول المدة"
+            />
+            <CompactFormField label="حساب المخزون">
+              <AccountSelect
+                value={formData.mainAccountId}
+                onChange={(id) => patch({ mainAccountId: id })}
+                statementType="BALANCE_SHEET"
+              />
+            </CompactFormField>
           </div>
+          {itemDetail?.quantities?.length ? (
+            <div className="mt-4 overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-right text-slate-500">
+                    <th className="py-1">المخزن</th>
+                    <th className="py-1">الكمية</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {itemDetail.quantities.map((row, index) => (
+                    <tr key={`${row.warehouse?.arabicName ?? 'wh'}-${index}`}>
+                      <td className="py-1">{row.warehouse?.arabicName || '—'}</td>
+                      <td className="py-1 font-mono">{row.quantity ?? 0}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
         </TabPanel>
       )}
       </fieldset>
@@ -1655,6 +1766,34 @@ function ItemCardPageInner() {
         onClose={() => setShowUnitDefinition(false)}
       />
 
+      <EtaDetailsDialog
+        key={`item-eta-${activeItemId || 'new'}-${etaOpen}`}
+        kind="item"
+        open={etaOpen}
+        initial={etaProfile}
+        itemTaxRate={formData.isTaxExempt ? '0' : formData.defaultTaxPercent}
+        onClose={() => setEtaOpen(false)}
+        onSave={async (profile) => {
+          const next = {
+            ...profile,
+            taxRate: formData.isTaxExempt ? '0' : formData.defaultTaxPercent || '0',
+          };
+          etaEditedRef.current = true;
+          setEtaProfile(next);
+          if (!activeItemId) {
+            setSuccess('هتتحفظ مع حفظ بطاقة الصنف');
+            setEtaOpen(false);
+            return;
+          }
+          try {
+            await apiClient.put(`/inventory/items/${activeItemId}`, { etaProfile: next });
+            setSuccess('تم حفظ تفاصيل الفاتورة الإلكترونية للصنف');
+            setEtaOpen(false);
+          } catch (err: unknown) {
+            setError(err instanceof Error ? err.message : 'تعذر حفظ تفاصيل الفاتورة الإلكترونية');
+          }
+        }}
+      />
       {showPrint ? (
         <BarcodePrintModal
           open
@@ -1719,15 +1858,30 @@ function ItemCardPageInner() {
             }
             setSavingGroup(true);
             try {
-              const created = await apiClient.post<{ id?: string }>('/inventory/item-categories', {
+              const created = await apiClient.post<{
+                id?: string;
+                code?: string | null;
+                arabicName?: string | null;
+                groupType?: string | null;
+                parentCategoryId?: string | null;
+              }>('/inventory/item-categories', {
                 arabicName: newGroupName.trim(),
                 groupType: newGroupParentId ? 'SUB' : 'MAIN',
                 parentCategoryId: newGroupParentId || null,
               });
               const id = created.data?.id;
+              if (id) {
+                rememberCreatedItemCategory(queryClient, {
+                  id,
+                  code: created.data?.code,
+                  arabicName: created.data?.arabicName || newGroupName.trim(),
+                  groupType: created.data?.groupType || (newGroupParentId ? 'SUB' : 'MAIN'),
+                  parentCategoryId: created.data?.parentCategoryId ?? (newGroupParentId || null),
+                });
+                patch({ categoryId: id });
+              }
               invalidateQuery(['item-categories']);
               invalidateQuery(['items']);
-              if (id) patch({ categoryId: id });
               setShowGroupModal(false);
               setNewGroupName('');
               setNewGroupParentId('');

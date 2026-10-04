@@ -1,0 +1,31 @@
+---
+description: Gates database access - bounded reads, no query loops, set-based work, index and constraint discipline, shared Prisma client, safe schema and migration changes
+globs: gates-backend/prisma/**,gates-backend/src/modules/**/services/**,gates-backend/src/modules/**/routes/**,gates-backend/src/shared/database/**,gates-backend/src/workers/**
+alwaysApply: false
+---
+
+# Gates database access
+
+## Reads
+- Never read growing transactional tables unbounded: `journalEntry`, `journalEntryLine`, `invoice`, `invoiceLine`, `inventoryMovement`, `cashTransaction`, stock document lines, logs. Bound by date range, page (`take`/`skip`) or an aggregate.
+- Do not load a dataset only to filter, sort or paginate it in Node; push `where`, `orderBy`, `take`, `groupBy` into the query.
+- Use `select` for what the caller needs; no deep `include` trees on list endpoints.
+- The global middleware caps GET `limit` at 1000 (missing = 50). Design list endpoints around pages and search, not "give me everything".
+
+## Loops
+- No `await prisma.*` / `tx.*` inside loops over growing sets (per-row updates, per-party or per-month aggregates, N+1 fetches). Use `in` lists, `groupBy`, `createMany`, `updateMany` or one aggregate query.
+- Loops over one document's lines inside its own posting transaction are fine.
+
+## Raw SQL
+- Only tagged templates (`Prisma.sql`, `Prisma.join`) with bound values; `Prisma.raw` only for fixed identifiers, never user input. Never `$queryRawUnsafe` / `$executeRawUnsafe` with dynamic strings.
+- Raw SQL bypasses the tenant extension: always filter `companyId` yourself (pattern: `journalEntryFilterSql` in `financial-report.service.ts`).
+
+## Indexes and constraints
+- Read the model's existing `@@index` / `@@unique` before adding one. Add an index only for a real, measured query (`EXPLAIN ANALYZE`); no speculative indexes. `journal_entry_lines` has no company/date/cost-center index; measure before changing it.
+- Keep foreign keys and uniques; enforce business uniqueness in the database with the right scope. Check existing data for duplicates before adding a unique constraint.
+
+## Client and schema
+- Use the shared client from `src/shared/database/prisma.ts`; never create a `PrismaClient` per request or module.
+- Do not touch `schema.prisma` in unrelated work. Schema changes need a migration plan: data compatibility, index/constraint impact, rollback thinking. No destructive changes to simplify code.
+- New company-owned model: add `companyId` + relation + indexes, then run `node gates-backend/scripts/generate-tenant-scoped-models.mjs`.
+- Migrations run on backend boot (`scripts/railway-start.mjs`); a failing migration blocks startup. Never mark a failed production migration as rolled back without checking which one failed and the real database state.

@@ -33,8 +33,10 @@ const CUSTOMER_LIST_SELECT = {
   currencyCode: true,
   priceTier: true,
   priceListId: true,
+  sellingPrice: true,
   linkedSupplierId: true,
   customerCategoryId: true,
+  etaProfile: true,
   createdAt: true,
   updatedAt: true,
 } as const;
@@ -76,11 +78,11 @@ export interface CreateCustomerData {
   paymentTermsDays?: number | null;
   customerCategoryId?: string;
   currencyCode?: string;
+  etaProfile?: Record<string, unknown> | null;
 }
 
 export interface UpdateCustomerData extends Partial<CreateCustomerData> {
   isActive?: boolean;
-  balance?: number;
 }
 
 export class CustomerService {
@@ -133,7 +135,8 @@ export class CustomerService {
         requestedAccountId: data.mainAccountId ?? data.accountId,
       });
 
-      const customer = await prisma.customer.create({
+      const createdCustomer = await prisma.$transaction(async (tx) => {
+      const customer = await tx.customer.create({
         data: {
           companyId,
           serial,
@@ -175,6 +178,7 @@ export class CustomerService {
           paymentTermsDays: data.paymentTermsDays ?? null,
           customerCategoryId: data.customerCategoryId ?? null,
           currencyCode: data.currencyCode,
+          etaProfile: data.etaProfile === undefined ? undefined : data.etaProfile ?? undefined,
         },
         include: {
           mainAccount: {
@@ -188,33 +192,17 @@ export class CustomerService {
       });
 
       if (data.linkedSupplierId) {
-        await syncCustomerSupplierLink(prisma, companyId, customer.id, data.linkedSupplierId);
+        await syncCustomerSupplierLink(tx, companyId, customer.id, data.linkedSupplierId);
       }
 
-      try {
-        await customerLedgerAccountService.ensureForCustomer({
-          companyId,
-          customerId: customer.id,
-          requestedAccountId: data.mainAccountId ?? data.accountId,
-        });
-      } catch (ensureError) {
-        try {
-          await prisma.customer.delete({ where: { id: customer.id } });
-        } catch {
-          await prisma.customer.update({
-            where: { id: customer.id },
-            data: {
-              deletedAt: new Date(),
-              isActive: false,
-              mainAccountId: null,
-              accountId: null,
-            },
-          });
-        }
-        throw ensureError;
-      }
+      await customerLedgerAccountService.ensureForCustomer({
+        companyId,
+        customerId: customer.id,
+        requestedAccountId: data.mainAccountId ?? data.accountId,
+        db: tx,
+      });
 
-      const withLedger = await prisma.customer.findFirst({
+      return tx.customer.findFirstOrThrow({
         where: { id: customer.id, companyId },
         include: {
           mainAccount: {
@@ -226,10 +214,9 @@ export class CustomerService {
           },
         },
       });
+      });
 
-      logger.info({ companyId, customerId: customer.id }, 'Customer created');
-
-      const createdCustomer = withLedger ?? customer;
+      logger.info({ companyId, customerId: createdCustomer.id }, 'Customer created');
       void emitDomainEvent({
         companyId,
         eventType: 'customer.created',
@@ -273,12 +260,12 @@ export class CustomerService {
       });
 
       if (!customer) {
-        throw new Error('Customer not found');
+        throw new Error('العميل غير موجود');
       }
 
       return customer;
     } catch (error) {
-      if (!(error instanceof Error && error.message === 'Customer not found')) {
+      if (!(error instanceof Error && error.message === 'العميل غير موجود')) {
         logger.error({ error, companyId, customerId }, 'Error getting customer');
       }
       throw error;
@@ -388,7 +375,7 @@ export class CustomerService {
       });
 
       if (!existing) {
-        throw new Error('Customer not found');
+        throw new Error('العميل غير موجود');
       }
 
       await customerLedgerAccountService.assertLedgerAvailable({
@@ -451,10 +438,8 @@ export class CustomerService {
       if (data.paymentTermsDays !== undefined) {
         updateData.paymentTermsDays = data.paymentTermsDays;
       }
-      if (data.balance !== undefined) {
-        updateData.balance = new Decimal(data.balance);
-      }
       if (data.isActive !== undefined) updateData.isActive = data.isActive;
+      if (data.etaProfile !== undefined) updateData.etaProfile = data.etaProfile;
 
       const customer = await prisma.customer.update({
         where: { id: customerId, companyId },

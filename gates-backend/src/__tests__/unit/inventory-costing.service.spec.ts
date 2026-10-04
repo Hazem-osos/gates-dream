@@ -85,4 +85,23 @@ describe('InventoryCostingService', () => {
       inbound: false,
     });
   });
+
+  it('reverses an inbound layer at its original unit cost, not the later average', () => {
+    let state = applyInboundToState({ quantity: 0, averageCost: 0 }, 10, 100);
+    state = applyInboundToState(state, 10, 140);
+    expect(state.averageCost).toBe(120);
+
+    const reversed = applyInboundToState(state, -10, 100);
+    expect(reversed.quantity).toBe(10);
+    expect(reversed.averageCost).toBe(140);
+  });
+
+  it('keeps a display quantity and a base quantity distinct when the factor is not 1', () => {
+    const line = { quantity: 1, baseQuantity: 24, conversionFactor: 24 };
+    const posted = -line.baseQuantity;
+    const unposted = line.baseQuantity;
+    expect(posted + unposted).toBe(0);
+    expect(unposted).not.toBe(line.quantity);
+    expect(line.quantity * line.conversionFactor).toBe(line.baseQuantity);
+  });
 });

@@ -2,6 +2,7 @@ import prisma from '../../../shared/database/prisma';
 import { Decimal } from '@prisma/client/runtime/library';
 import { AppError } from '../../../shared/middleware/error-handler';
 import { companySettingService } from '../../platform/services/company-setting.service';
+import { sumPartnerNetOriginal } from './party-ledger-balance.service';
 
 export interface CreditCheckResult {
   customerId: string;
@@ -48,10 +49,10 @@ export class PartyCreditService {
       where: { id: customerId, companyId, deletedAt: null },
     });
     if (!customer) {
-      throw new Error('Customer not found');
+      throw new Error('العميل غير موجود');
     }
 
-    const balance = toNumber(customer.balance);
+    const balance = await sumPartnerNetOriginal(prisma, companyId, customerId, 'CUSTOMER');
     const effectiveLimit = this.resolveEffectiveLimit(
       customer.creditLimit,
       customer.estimatedBudget
@@ -66,7 +67,7 @@ export class PartyCreditService {
       if (projected > effectiveLimit) {
         allowed = false;
         creditHold = true;
-        reason = `Projected balance ${projected} exceeds credit limit ${effectiveLimit}`;
+        reason = `رصيد العميل بعد الفاتورة (${projected}) يتجاوز حد الائتمان (${effectiveLimit}).`;
       }
     }
 
@@ -90,7 +91,7 @@ export class PartyCreditService {
     if (!result.allowed) {
       // Was a plain `Error` — fell through the global error handler's
       // "unknown error" branch as a 500 instead of a client-actionable 422.
-      throw new AppError(422, result.reason ?? 'Customer credit limit exceeded');
+      throw new AppError(422, result.reason ?? 'تجاوز حد ائتمان العميل — راجع الرصيد أو اطلب اعتماداً.');
     }
   }
 
@@ -111,10 +112,10 @@ export class PartyCreditService {
       where: { id: supplierId, companyId },
     });
     if (!supplier) {
-      throw new AppError(404, 'Supplier not found');
+      throw new AppError(404, 'المورد غير موجود');
     }
 
-    const balance = toNumber(supplier.balance);
+    const balance = await sumPartnerNetOriginal(prisma, companyId, supplierId, 'SUPPLIER');
     const effectiveLimit = this.resolveEffectiveLimit(
       supplier.creditLimit,
       supplier.estimatedBudget
@@ -129,7 +130,7 @@ export class PartyCreditService {
       if (projected > effectiveLimit) {
         allowed = false;
         creditHold = true;
-        reason = `Projected balance ${projected} exceeds supplier credit limit ${effectiveLimit}`;
+        reason = `رصيد المورد بعد الفاتورة (${projected}) يتجاوز حد الائتمان (${effectiveLimit}).`;
       }
     }
 
@@ -147,7 +148,7 @@ export class PartyCreditService {
 
   assertSupplierCreditAllowed(result: SupplierCreditCheckResult): void {
     if (!result.allowed) {
-      throw new AppError(422, result.reason ?? 'Supplier credit limit exceeded');
+      throw new AppError(422, result.reason ?? 'تجاوز حد ائتمان المورد — راجع الرصيد أو اطلب اعتماداً.');
     }
   }
 
@@ -217,7 +218,7 @@ export class PartyCreditService {
 
   assertLedgerRootBudgetAllowed(result: { allowed: boolean; reason?: string }): void {
     if (!result.allowed) {
-      throw new AppError(422, result.reason ?? 'Ledger root budget exceeded');
+      throw new AppError(422, result.reason ?? 'تجاوز حد ميزانية حساب الجهة في الدليل.');
     }
   }
 

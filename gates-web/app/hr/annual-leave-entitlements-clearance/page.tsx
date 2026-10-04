@@ -14,14 +14,14 @@ import { printPageContent } from '@/lib/print/printHtml';
 type EmployeePreset = 'employee' | 'employee1' | 'employee2';
 
 const EMPLOYEE_BY_PRESET: Record<EmployeePreset, string> = {
-  employee: '1212378971212',
+  employee: '',
   employee1: 'موظف 1',
   employee2: 'موظف 2',
 };
 
 const defaultFormValues: AnnualLeaveEntitlementsClearanceFormInput = {
   serialNumber: '',
-  employee: '1212378971212',
+  employee: '',
   date: '2025-11-26',
   hijriDate: '2025-11-26',
   fromDate: '2025-11-26',
@@ -75,7 +75,7 @@ export default function AnnualLeaveEntitlementsClearancePage() {
   const inputCls =
     'h-9 w-full rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] px-3 text-xs font-medium text-[#094C6B] placeholder:text-slate-400 transition-colors focus:border-[#0E78AA] focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#0E78AA]/15 disabled:cursor-not-allowed disabled:opacity-50 sm:text-sm';
   const dateCls = (name: keyof AnnualLeaveEntitlementsClearanceFormInput) =>
-    `py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg ${
+    `py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg ${
       errors[name] ? 'border-red-400' : ''
     }`;
 
@@ -102,12 +102,12 @@ export default function AnnualLeaveEntitlementsClearancePage() {
                       <input
                         type="text"
                         {...register('serialNumber')}
-                        className={`flex-1 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg ${
+                        className={`flex-1 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg ${
                           errors.serialNumber ? 'border-red-400' : ''
                         }`}
                         placeholder="إدخل رقم المسلسل"
                       />
-                      <svg className="w-5 h-5 text-[#0E79AA]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg className="w-5 h-5 text-[#0E78AA]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path
                           strokeLinecap="round"
                           strokeLinejoin="round"
@@ -125,7 +125,7 @@ export default function AnnualLeaveEntitlementsClearancePage() {
                     <label className="block text-sm text-[#094C6B] mb-2">الموظف</label>
                     <div className="flex items-center gap-2">
                       <select
-                        className="w-32 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg text-sm"
+                        className="w-32 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg text-sm"
                         value={employeePreset}
                         onChange={(e) => {
                           const v = e.target.value as EmployeePreset;
@@ -140,12 +140,12 @@ export default function AnnualLeaveEntitlementsClearancePage() {
                       <input
                         type="text"
                         {...register('employee')}
-                        className={`flex-1 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg text-sm ${
+                        className={`flex-1 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg text-sm ${
                           errors.employee ? 'border-red-400' : ''
                         }`}
-                        placeholder="1212378971212"
+                        placeholder=""
                       />
-                      <svg className="w-5 h-5 text-[#0E79AA]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg className="w-5 h-5 text-[#0E78AA]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path
                           strokeLinecap="round"
                           strokeLinejoin="round"
@@ -240,17 +240,17 @@ export default function AnnualLeaveEntitlementsClearancePage() {
                     <input
                       type="text"
                       placeholder="0"
-                      className="py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg text-center"
+                      className="py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg text-center"
                     />
                     <input
                       type="text"
                       placeholder="0.00"
-                      className="py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg text-center"
+                      className="py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg text-center"
                     />
                     <input
                       type="text"
                       placeholder="0.00"
-                      className="py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg text-center"
+                      className="py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg text-center"
                     />
                   </div>
                   <div className="grid grid-cols-3 gap-2 mt-1 text-xs text-gray-500 text-center">
@@ -266,17 +266,17 @@ export default function AnnualLeaveEntitlementsClearancePage() {
                     <input
                       type="text"
                       placeholder="0"
-                      className="py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg text-center"
+                      className="py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg text-center"
                     />
                     <input
                       type="text"
                       placeholder="0.00"
-                      className="py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg text-center"
+                      className="py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg text-center"
                     />
                     <input
                       type="text"
                       placeholder="0.00"
-                      className="py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg text-center"
+                      className="py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg text-center"
                     />
                   </div>
                   <div className="grid grid-cols-3 gap-2 mt-1 text-xs text-gray-500 text-center">
@@ -292,17 +292,17 @@ export default function AnnualLeaveEntitlementsClearancePage() {
                     <input
                       type="text"
                       placeholder="0"
-                      className="py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg text-center"
+                      className="py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg text-center"
                     />
                     <input
                       type="text"
                       placeholder="0.00"
-                      className="py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg text-center"
+                      className="py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg text-center"
                     />
                     <input
                       type="text"
                       placeholder="0.00"
-                      className="py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg text-center"
+                      className="py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg text-center"
                     />
                   </div>
                   <div className="grid grid-cols-3 gap-2 mt-1 text-xs text-gray-500 text-center">
@@ -318,7 +318,7 @@ export default function AnnualLeaveEntitlementsClearancePage() {
                     <input
                       type="text"
                       placeholder="0.00"
-                      className="w-32 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg text-center"
+                      className="w-32 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg text-center"
                     />
                   </div>
                   <div className="flex items-center gap-3">
@@ -326,7 +326,7 @@ export default function AnnualLeaveEntitlementsClearancePage() {
                     <input
                       type="text"
                       placeholder="0.00"
-                      className="w-32 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg text-center"
+                      className="w-32 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg text-center"
                     />
                   </div>
                   <div className="flex items-center gap-3">
@@ -334,7 +334,7 @@ export default function AnnualLeaveEntitlementsClearancePage() {
                     <input
                       type="text"
                       placeholder="0.00"
-                      className="w-32 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg text-center"
+                      className="w-32 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg text-center"
                     />
                   </div>
                   <div className="flex items-center gap-3">
@@ -342,7 +342,7 @@ export default function AnnualLeaveEntitlementsClearancePage() {
                     <input
                       type="text"
                       placeholder="0.00"
-                      className="w-32 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg text-center"
+                      className="w-32 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg text-center"
                     />
                   </div>
                 </div>
@@ -353,14 +353,14 @@ export default function AnnualLeaveEntitlementsClearancePage() {
               <div className="mb-6 flex justify-start items-center gap-5">
                 <button
                   type="button"
-                  className="px-6 py-2 bg-[#0E79AA] text-white rounded-lg hover:bg-[#094C6B] transition-colors flex items-center gap-2"
+                  className="px-6 py-2 bg-[#0E78AA] text-white rounded-lg hover:bg-[#094C6B] transition-colors flex items-center gap-2"
                 >
                   القيد
                 </button>
                 <input
                   type="text"
                   {...register('record')}
-                  className={`ml-10 px-4 py-2 border border-[#D6EAF3] bg-[#F6FBFD] hover:bg-[#E6F3F8] focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg text-[#094C6B] transition-colors w-40 ${
+                  className={`ml-10 px-4 py-2 border border-[#D6EAF3] bg-[#F6FBFD] hover:bg-[#E6F3F8] focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg text-[#094C6B] transition-colors w-40 ${
                     errors.record ? 'border-red-400' : ''
                   }`}
                 />
@@ -371,7 +371,7 @@ export default function AnnualLeaveEntitlementsClearancePage() {
                 <div className="flex gap-3 items-center">
                   <button
                     type="button"
-                    className="px-6 py-2 bg-[#0E79AA] text-white rounded-lg hover:bg-[#094C6B] transition-colors flex items-center gap-2"
+                    className="px-6 py-2 bg-[#0E78AA] text-white rounded-lg hover:bg-[#094C6B] transition-colors flex items-center gap-2"
                     onClick={() => void printPageContent('تصفية مستحقات الأجازة السنوية')}
                   >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

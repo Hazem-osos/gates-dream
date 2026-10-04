@@ -50,6 +50,10 @@ export function rememberConditionalGet(key: string, etag: string, body: ApiRespo
   }
 }
 
+export function forgetConditionalGet(key: string | undefined): void {
+  if (key) store.delete(key);
+}
+
 export function clearConditionalGetCache(): void {
   store.clear();
 }

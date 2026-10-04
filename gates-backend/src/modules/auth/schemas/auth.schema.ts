@@ -25,7 +25,16 @@ export const tokenRefreshSchema = z.object({
 });
 
 export const logoutSchema = z.object({
-  refreshToken: z.string().min(1, 'Refresh token is required'),
+  refreshToken: z.string().min(1).optional(),
+});
+
+export const forgotPasswordSchema = z.object({
+  email: z.string().email('البريد غير صالح').transform((s) => s.trim().toLowerCase()),
+});
+
+export const resetPasswordSchema = z.object({
+  token: z.string().min(20, 'رابط الاستعادة غير صالح'),
+  password: z.string().min(8, 'كلمة المرور ٨ أحرف على الأقل').max(100),
 });
 
 export type LoginInput = z.infer<typeof loginSchema>;

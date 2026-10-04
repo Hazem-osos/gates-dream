@@ -411,8 +411,12 @@ export const salesInvoiceLineSchema = z.object({
   lineNotes: z.string().optional(),
   taxExemptionReason: z.string().optional(),
   warehouseId: z.string().optional(),
+  itemReservationId: z.string().optional(),
+  reservationFulfillQuantity: z.coerce.number().positive().optional(),
+  reservationLabel: z.string().optional(),
   withholdingTaxRate: z.coerce.number().min(0).optional(),
   withholdingTaxAmount: z.coerce.number().min(0).optional(),
+  withholdingAmountManual: z.boolean().optional(),
   batchAllocations: z
     .array(
       z.object({

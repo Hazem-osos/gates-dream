@@ -191,7 +191,7 @@ export default function DocumentaryCreditPage() {
             <span
               className={cn(
                 'relative h-6 w-11 rounded-full transition-colors',
-                approvalStatus === 'open' ? 'bg-[#0E79AA]' : 'bg-slate-300'
+                approvalStatus === 'open' ? 'bg-[#0E78AA]' : 'bg-slate-300'
               )}
             >
               <span
@@ -218,14 +218,14 @@ export default function DocumentaryCreditPage() {
         />
       </section>
 
-      <section className="mb-3 flex flex-wrap items-center justify-between gap-4 rounded-xl border border-[#0E79AA]/20 bg-gradient-to-l from-[#0E79AA0D] to-white p-3">
+      <section className="mb-3 flex flex-wrap items-center justify-between gap-4 rounded-xl border border-[#0E78AA]/20 bg-gradient-to-l from-[#0E78AA0D] to-white p-3">
         <div className="flex items-center gap-3">
-          <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#0E79AA] text-white">
+          <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#0E78AA] text-white">
             <Banknote className="h-5 w-5" aria-hidden />
           </span>
           <div>
             <p className="text-xs font-semibold text-slate-500">الالتزام المالي للاعتماد</p>
-            <p className="text-xl font-bold tabular-nums text-[#0E79AA]">
+            <p className="text-xl font-bold tabular-nums text-[#0E78AA]">
               {approvalValue.trim() ? formatNum(lcValue) : '—'}{' '}
               <span className="text-sm font-medium text-slate-600">{currency}</span>
             </p>
@@ -398,7 +398,7 @@ export default function DocumentaryCreditPage() {
                 className={cn(
                   'rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors',
                   allocationMethod === method.id
-                    ? 'bg-[#0E79AA] text-white'
+                    ? 'bg-[#0E78AA] text-white'
                     : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
                 )}
               >
@@ -436,18 +436,18 @@ export default function DocumentaryCreditPage() {
                       </td>
                     </tr>
                   ))}
-                  <tr className={cn(denseTrClass, 'bg-[#0E79AA0D] font-semibold')}>
+                  <tr className={cn(denseTrClass, 'bg-[#0E78AA0D] font-semibold')}>
                     <td className={denseTdClass}>الإجمالي</td>
-                    <td className={cn(denseTdClass, 'tabular-nums text-[#0E79AA]')}>{formatNum(expenseTotal)}</td>
+                    <td className={cn(denseTdClass, 'tabular-nums text-[#0E78AA]')}>{formatNum(expenseTotal)}</td>
                   </tr>
                 </tbody>
               </table>
             </div>
             <div className="flex items-center justify-center rounded-lg border border-dashed border-slate-200 bg-slate-50/50 p-4">
               <div className="text-center">
-                <Scale className="mx-auto mb-2 h-8 w-8 text-[#0E79AA]" aria-hidden />
+                <Scale className="mx-auto mb-2 h-8 w-8 text-[#0E78AA]" aria-hidden />
                 <p className="text-sm font-semibold text-slate-700">إجمالي المصاريف للتوزيع</p>
-                <p className="mt-1 text-2xl font-bold tabular-nums text-[#0E79AA]">{formatNum(expenseTotal)}</p>
+                <p className="mt-1 text-2xl font-bold tabular-nums text-[#0E78AA]">{formatNum(expenseTotal)}</p>
               </div>
             </div>
           </div>
@@ -540,7 +540,7 @@ export default function DocumentaryCreditPage() {
                         formatNum(line.allocatedExtra)
                       )}
                     </td>
-                    <td className={cn(denseTdClass, 'tabular-nums font-semibold text-[#0E79AA]')}>
+                    <td className={cn(denseTdClass, 'tabular-nums font-semibold text-[#0E78AA]')}>
                       <span className="inline-flex items-center gap-1">
                         {formatNum(parseNum(line.unitCost))}
                         <ArrowRight className="h-3 w-3 text-slate-400" aria-hidden />

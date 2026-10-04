@@ -40,6 +40,7 @@ export type SecuritiesPaperRecord = {
   customerId?: string | null;
   supplierId?: string | null;
   payeeName?: string | null;
+  partyDisplayName?: string | null;
   payeeBank?: string | null;
   issuerName?: string | null;
   issuerBank?: string | null;
@@ -50,6 +51,7 @@ export type SecuritiesPaperRecord = {
   paperCase?: string | null;
   isPosted?: boolean;
   isCancelled?: boolean;
+  isOpening?: boolean;
   isPaid?: boolean;
   isReceived?: boolean;
   journalEntryId?: string | null;
@@ -57,8 +59,10 @@ export type SecuritiesPaperRecord = {
   entityId?: string | null;
   entity?: { id: string; arabicName?: string | null } | null;
   destinationAccountId?: string | null;
+  partyAccountId?: string | null;
   depositAccountId?: string | null;
   depositDate?: string | Date | null;
+  invoiceAllocations?: Array<{ invoiceId: string; allocatedAmount: number | string }> | null;
   commissionAmount?: number | string | null;
   commissionAccountId?: string | null;
   multiCollectionLines?: Array<{
@@ -93,11 +97,6 @@ export function resolveSecuritiesPaperCase(
     return raw;
   }
   if (record?.isCancelled) return 'BOUNCED';
-  if (record?.isPosted && Array.isArray(record.multiCollectionLines) && record.multiCollectionLines.length > 0) {
-    return 'MULTI_COLLECTED';
-  }
-  if (record?.isPosted) return 'COLLECTED';
-  if (record?.description?.includes('تظهير')) return 'ENDORSED';
   return 'ISSUED';
 }
 
@@ -110,6 +109,26 @@ export function securitiesPaperStatus(record?: Partial<SecuritiesPaperRecord> | 
 
 export function securitiesPaperTitle(kind: SecuritiesPaperKind): string {
   return kind === 'payment' ? 'ورقة مدفوعات' : 'ورقة مقبوضات';
+}
+
+export function paperPartyDisplayName(
+  record?: Partial<SecuritiesPaperRecord> | null,
+  fallback = ''
+): string {
+  const nested = (value: unknown) =>
+    value && typeof value === 'object' && 'arabicName' in value
+      ? String((value as { arabicName?: string | null }).arabicName ?? '').trim()
+      : '';
+  const name = [
+    record?.partyDisplayName,
+    record?.payeeName,
+    record?.issuerName,
+    nested(record?.supplier),
+    nested(record?.customer),
+  ]
+    .map((value) => String(value ?? '').trim())
+    .find(Boolean);
+  return name || fallback;
 }
 
 export function isoDateOnly(value?: string | Date | null): string {

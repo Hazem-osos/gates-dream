@@ -7,6 +7,7 @@ import { EmptyState } from './EmptyState';
 import { TableSkeleton } from './TableSkeleton';
 import { TablePagination, type TablePaginationProps } from './TablePagination';
 import { TableExportActions } from './TableExportActions';
+import { ColumnValueMenu } from '@/components/grid/ColumnValueMenu';
 import {
   appTableColumnsToExport,
   type ExportColumnDef,
@@ -25,7 +26,7 @@ export type AppTableColumn<T> = {
   sortValue?: (row: T) => string | number | null | undefined;
 };
 
-export interface AppTableProps<T extends Record<string, unknown>> {
+export interface AppTableProps<T extends object> {
   columns: AppTableColumn<T>[];
   data: T[];
   getRowKey: (row: T, index: number) => string;
@@ -50,7 +51,8 @@ export interface AppTableProps<T extends Record<string, unknown>> {
 function formatCellValue(value: unknown, numeric?: boolean): React.ReactNode {
   if (value == null || value === '') return '—';
   if (numeric && typeof value === 'number') {
-    return value.toLocaleString('ar-EG', {
+    const locale = typeof document !== 'undefined' && document.documentElement.lang === 'en' ? 'en-GB' : 'ar-EG';
+    return value.toLocaleString(locale, {
       minimumFractionDigits: 2,
       maximumFractionDigits: 4,
     });
@@ -66,7 +68,7 @@ function useClientMounted(): boolean {
   return mounted;
 }
 
-function columnSortable<T extends Record<string, unknown>>(col: AppTableColumn<T>): boolean {
+function columnSortable<T extends object>(col: AppTableColumn<T>): boolean {
   if (col.sortable === false || /^(actions|action|ops|open)$/.test(col.id)) return false;
   if (col.sortable === true || col.sortValue || col.accessor) return true;
   return /serial|code|num|date|name|status|desc|total|amount/.test(col.id);
@@ -88,37 +90,55 @@ function parseSortable(value: unknown): string | number {
   return str;
 }
 
-function inferredFieldValue<T extends Record<string, unknown>>(row: T, colId: string): unknown {
-  if (row[colId] != null && row[colId] !== '') return row[colId];
+function inferredFieldValue<T extends object>(row: T, colId: string): unknown {
+  const record = row as Record<string, unknown>;
+  if (record[colId] != null && record[colId] !== '') return record[colId];
   if (/num|serial|code|number/.test(colId)) {
     return (
-      row.voucherNumber ??
-      row.legacyGlNum ??
-      row.serialNumber ??
-      row.serial ??
-      row.code ??
-      row.invoiceNumber ??
-      row.documentNumber ??
-      row.entryNumber ??
+      record.voucherNumber ??
+      record.legacyGlNum ??
+      record.serialNumber ??
+      record.serial ??
+      record.code ??
+      record.invoiceNumber ??
+      record.documentNumber ??
+      record.entryNumber ??
       ''
     );
   }
   if (/date/.test(colId)) {
-    return row.date ?? row.createdAt ?? row.openingDate ?? '';
+    return record.date ?? record.createdAt ?? record.openingDate ?? '';
   }
-  return row[colId];
+  return record[colId];
 }
 
-function columnSortValue<T extends Record<string, unknown>>(
+function columnFilterText<T extends object>(row: T, col: AppTableColumn<T>): string {
+  if (col.sortValue) {
+    const value = col.sortValue(row);
+    if (value == null || value === '') return '';
+    return String(value).trim();
+  }
+  if (col.accessor) {
+    const value = (row as Record<string, unknown>)[String(col.accessor)];
+    if (value == null || value === '') return '';
+    if (typeof value === 'object') return '';
+    return String(formatCellValue(value, col.numeric)).trim();
+  }
+  const inferred = inferredFieldValue(row, col.id);
+  if (inferred == null || inferred === '' || typeof inferred === 'object') return '';
+  return String(inferred).trim();
+}
+
+function columnSortValue<T extends object>(
   row: T,
   col: AppTableColumn<T>
 ): string | number {
   if (col.sortValue) return parseSortable(col.sortValue(row));
-  if (col.accessor) return parseSortable(row[col.accessor]);
+  if (col.accessor) return parseSortable((row as Record<string, unknown>)[String(col.accessor)]);
   return parseSortable(inferredFieldValue(row, col.id));
 }
 
-export function AppTable<T extends Record<string, unknown>>({
+export function AppTable<T extends object>({
   columns,
   data,
   getRowKey,
@@ -147,6 +167,9 @@ export function AppTable<T extends Record<string, unknown>>({
   const [sort, setSort] = React.useState<{ id: string; dir: 'asc' | 'desc' } | null>(
     defaultSortId ? { id: defaultSortId, dir: defaultSort?.dir ?? 'asc' } : null
   );
+  const [valueFilters, setValueFilters] = React.useState<Record<string, string[]>>({});
+  const [openHeader, setOpenHeader] = React.useState<string | null>(null);
+  const [headerAnchor, setHeaderAnchor] = React.useState<{ top: number; right: number } | null>(null);
   const changeSort = (next: { id: string; dir: 'asc' | 'desc' }) => {
     setSort(next);
     onSortChange?.(next);
@@ -168,12 +191,39 @@ export function AppTable<T extends Record<string, unknown>>({
     });
     return copy;
   }, [columns, data, serverSorted, sort]);
+  const valuesByColumn = React.useMemo(() => {
+    const map = new Map<string, string[]>();
+    for (const col of columns) {
+      if (/^(actions|action|ops|open)$/.test(col.id)) {
+        map.set(col.id, []);
+        continue;
+      }
+      const values = new Set<string>();
+      for (const row of data) {
+        const text = columnFilterText(row, col);
+        if (text && text !== '—') values.add(text);
+      }
+      map.set(col.id, [...values].sort((a, b) => a.localeCompare(b, 'ar')));
+    }
+    return map;
+  }, [columns, data]);
+  const filteredData = React.useMemo(() => {
+    const active = Object.entries(valueFilters).filter(([, selected]) => selected.length > 0);
+    if (!active.length) return sortedData;
+    return sortedData.filter((row) =>
+      active.every(([id, selected]) => {
+        const col = columns.find((item) => item.id === id);
+        if (!col) return true;
+        return selected.includes(columnFilterText(row, col));
+      })
+    );
+  }, [columns, sortedData, valueFilters]);
   const showSkeleton = !mounted || Boolean(isLoading);
   const parentRef = React.useRef<HTMLDivElement>(null);
-  const useVirtual = !showSkeleton && sortedData.length >= virtualizeThreshold;
+  const useVirtual = !showSkeleton && filteredData.length >= virtualizeThreshold;
 
   const virtualizer = useVirtualizer({
-    count: sortedData.length,
+    count: filteredData.length,
     getScrollElement: () => parentRef.current,
     estimateSize: () => 44,
     overscan: 8,
@@ -194,7 +244,7 @@ export function AppTable<T extends Record<string, unknown>>({
       if (col.cell) {
         content = col.cell(row, rowIndex);
       } else if (col.accessor) {
-        content = formatCellValue(row[col.accessor], col.numeric);
+        content = formatCellValue((row as Record<string, unknown>)[String(col.accessor)], col.numeric);
       } else {
         content = '—';
       }
@@ -226,6 +276,8 @@ export function AppTable<T extends Record<string, unknown>>({
         {columns.map((col) => {
           const sortable = columnSortable(col);
           const active = sort?.id === col.id;
+          const columnValues = valuesByColumn.get(col.id) ?? [];
+          const filtering = (valueFilters[col.id]?.length ?? 0) > 0;
           return (
           <th
             key={col.id}
@@ -236,26 +288,36 @@ export function AppTable<T extends Record<string, unknown>>({
               col.align === 'center' && 'text-center',
               col.align !== 'end' && col.align !== 'center' && 'text-right',
               col.numeric && 'min-w-[100px] tabular-nums',
-              sortable && 'cursor-pointer select-none hover:bg-white/10',
+              (columnValues.length > 0 || sortable) && 'cursor-pointer select-none hover:bg-white/10',
               col.headerClassName
             )}
+            onMouseDown={columnValues.length ? (event) => event.stopPropagation() : undefined}
             onClick={
-              sortable
-                ? () =>
-                    changeSort(
-                      sort?.id === col.id
-                        ? { id: col.id, dir: sort.dir === 'asc' ? 'desc' : 'asc' }
-                        : { id: col.id, dir: 'asc' }
-                    )
-                : undefined
+              columnValues.length
+                ? (event) => {
+                    const rect = event.currentTarget.getBoundingClientRect();
+                    setHeaderAnchor({ top: rect.bottom + 6, right: Math.max(8, window.innerWidth - rect.right) });
+                    setOpenHeader((current) => (current === col.id ? null : col.id));
+                  }
+                : sortable
+                  ? () =>
+                      changeSort(
+                        sort?.id === col.id
+                          ? { id: col.id, dir: sort.dir === 'asc' ? 'desc' : 'asc' }
+                          : { id: col.id, dir: 'asc' }
+                      )
+                  : undefined
             }
           >
             <span className="inline-flex items-center gap-1">
               {col.header}
-              {sortable ? (
-                <span className={cn('text-[10px]', active ? 'text-white' : 'text-white/50')}>
-                  {active ? (sort?.dir === 'asc' ? '↑' : '↓') : '↕'}
-                </span>
+              {active ? (
+                <span className="text-[10px] text-amber-200">{sort?.dir === 'asc' ? '↑' : '↓'}</span>
+              ) : sortable && !columnValues.length ? (
+                <span className="text-[10px] text-white/50">↕</span>
+              ) : null}
+              {columnValues.length ? (
+                <span className={cn('text-[10px]', filtering ? 'text-amber-200' : 'text-white/70')}>▾</span>
               ) : null}
             </span>
           </th>
@@ -266,12 +328,16 @@ export function AppTable<T extends Record<string, unknown>>({
   );
 
   let body: React.ReactNode;
-  if (sortedData.length === 0) {
+  if (filteredData.length === 0) {
+    const filtering = Object.values(valueFilters).some((selected) => selected.length > 0);
     body = (
       <tbody>
         <tr>
           <td colSpan={columns.length}>
-            <EmptyState title={emptyTitle} description={emptyDescription} />
+            <EmptyState
+              title={filtering ? 'لا توجد صفوف' : emptyTitle}
+              description={filtering ? 'لا توجد صفوف تطابق القيم المختارة من عنوان العمود.' : emptyDescription}
+            />
           </td>
         </tr>
       </tbody>
@@ -283,7 +349,7 @@ export function AppTable<T extends Record<string, unknown>>({
         style={{ height: virtualizer.getTotalSize() }}
       >
         {virtualizer.getVirtualItems().map((vRow) => {
-          const row = sortedData[vRow.index];
+          const row = filteredData[vRow.index];
           return (
             <tr
               key={getRowKey(row, vRow.index)}
@@ -315,7 +381,7 @@ export function AppTable<T extends Record<string, unknown>>({
   } else {
     body = (
       <tbody>
-        {sortedData.map((row, rowIndex) => (
+        {filteredData.map((row, rowIndex) => (
           <tr
             key={getRowKey(row, rowIndex)}
             tabIndex={0}
@@ -350,7 +416,7 @@ export function AppTable<T extends Record<string, unknown>>({
           <TableExportActions
             fileName={exportFileName}
             columns={resolvedExportColumns}
-            data={sortedData}
+            data={filteredData}
           />
         </div>
       ) : null}
@@ -365,6 +431,42 @@ export function AppTable<T extends Record<string, unknown>>({
           {header}
           {body}
         </table>
+        {openHeader && headerAnchor && (valuesByColumn.get(openHeader)?.length ?? 0) > 0 ? (
+          <ColumnValueMenu
+            label={(() => {
+              const header = columns.find((col) => col.id === openHeader)?.header;
+              return typeof header === 'string' ? header : '';
+            })()}
+            values={valuesByColumn.get(openHeader) ?? []}
+            selected={valueFilters[openHeader] ?? []}
+            sortDirection={sort?.id === openHeader ? sort.dir : null}
+            anchor={headerAnchor}
+            onClose={() => setOpenHeader(null)}
+            onSort={(direction) => {
+              if (!direction) {
+                setSort(null);
+                return;
+              }
+              changeSort({ id: openHeader, dir: direction });
+            }}
+            onSelected={(selected) =>
+              setValueFilters((prev) => {
+                const next = { ...prev };
+                if (!selected.length) delete next[openHeader];
+                else next[openHeader] = selected;
+                return next;
+              })
+            }
+            onClear={() => {
+              setValueFilters((prev) => {
+                const next = { ...prev };
+                delete next[openHeader];
+                return next;
+              });
+              setOpenHeader(null);
+            }}
+          />
+        ) : null}
       </div>
       {pagination ? <TablePagination {...pagination} /> : null}
     </div>

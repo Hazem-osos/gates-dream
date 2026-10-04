@@ -234,7 +234,7 @@ export default function ChartOfAccountsPage() {
                     onClick={() => setNatureFilter(f.id)}
                     className={`px-3 py-1.5 text-xs rounded-full border transition-colors ${
                       natureFilter === f.id
-                        ? 'bg-[#0E79AA] text-white border-[#0E79AA]'
+                        ? 'bg-[#0E78AA] text-white border-[#0E78AA]'
                         : 'bg-white text-slate-600 border-slate-200 hover:border-slate-300 hover:bg-slate-50'
                     }`}
                   >

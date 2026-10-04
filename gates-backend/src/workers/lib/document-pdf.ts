@@ -4,7 +4,9 @@ type MoneyLike = { toString(): string } | number | string | null | undefined;
 
 function money(value: MoneyLike): string {
   const n = Number(value ?? 0);
-  return Number.isFinite(n) ? n.toFixed(2) : '0.00';
+  return Number.isFinite(n)
+    ? n.toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 4, useGrouping: true })
+    : '0.0000';
 }
 
 function text(value: string | null | undefined, fallback = '—'): string {

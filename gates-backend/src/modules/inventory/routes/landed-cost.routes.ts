@@ -41,7 +41,7 @@ router.post(
     try {
       const companyId = req.companyId || req.tenantId;
       if (!companyId) {
-        return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+        return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
       }
 
       const allocation = await landedCostService.createAllocation(companyId, {
@@ -77,7 +77,7 @@ router.get(
     try {
       const companyId = req.companyId || req.tenantId;
       if (!companyId) {
-        return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+        return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
       }
 
       const result = await landedCostService.listAllocations(companyId, {
@@ -110,7 +110,7 @@ router.get(
     try {
       const companyId = req.companyId || req.tenantId;
       if (!companyId) {
-        return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+        return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
       }
 
       const allocation = await landedCostService.getAllocationById(companyId, req.params.id);
@@ -131,7 +131,7 @@ router.post(
     try {
       const companyId = req.companyId || req.tenantId;
       if (!companyId) {
-        return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+        return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
       }
 
       const result = await landedCostService.postAllocation(companyId, req.params.id, buildStockGlPostingContext(req, companyId));
@@ -159,7 +159,7 @@ router.post(
     try {
       const companyId = req.companyId || req.tenantId;
       if (!companyId) {
-        return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+        return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
       }
 
       await landedCostService.unpostAllocation(companyId, req.params.id, buildStockGlPostingContext(req, companyId));
@@ -186,7 +186,7 @@ router.post(
     try {
       const companyId = req.companyId || req.tenantId;
       if (!companyId) {
-        return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+        return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
       }
 
       const allocation = await landedCostService.cancelAllocation(companyId, req.params.id);

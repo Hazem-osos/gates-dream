@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { BodyPortal } from '@/components/ui/BodyPortal';
 import { ActionButtons } from '@/components/ui/ActionButtons';
 import { erpInputClass } from '@/components/erp';
 import {
@@ -67,13 +68,13 @@ export function CashBankChequeModal({
     }
     if (!advance && netAmount > 0 && chequeSum + 0.009 < netAmount) {
       setError(
-        `مجموع الشيكات (${chequeSum.toFixed(2)}) أقل من قيمة الفاتورة (${netAmount.toFixed(2)})`
+        `مجموع الشيكات (${chequeSum.toLocaleString()}) أقل من قيمة الفاتورة (${netAmount.toLocaleString()})`
       );
       return;
     }
     if (!advance && netAmount > 0 && chequeSum > netAmount + 0.009) {
       setError(
-        `مجموع الشيكات (${chequeSum.toFixed(2)}) أكبر من قيمة الفاتورة (${netAmount.toFixed(2)})`
+        `مجموع الشيكات (${chequeSum.toLocaleString()}) أكبر من قيمة الفاتورة (${netAmount.toLocaleString()})`
       );
       return;
     }
@@ -94,8 +95,9 @@ export function CashBankChequeModal({
   if (!open) return null;
 
   return (
+    <BodyPortal>
     <div
-      className="fixed inset-0 z-[10050] flex items-center justify-center bg-black/40 p-4"
+      className="fixed inset-0 z-[12000] flex items-center justify-center bg-black/40 p-4"
       style={{ direction: 'rtl' }}
       role="dialog"
       aria-modal="true"
@@ -170,12 +172,12 @@ export function CashBankChequeModal({
                 : 'bg-rose-50 text-rose-900'
           }`}
         >
-          <div>المجموع: {chequeSum.toFixed(2)} ج.م</div>
+          <div>المجموع: {chequeSum.toLocaleString()} ج.م</div>
           {!advance && leftover > 0.009 ? (
-            <div className="mt-1 font-medium">ناقص عن الفاتورة: {leftover.toFixed(2)} ج.م</div>
+            <div className="mt-1 font-medium">ناقص عن الفاتورة: {leftover.toLocaleString()} ج.م</div>
           ) : null}
           {advance && leftover > 0.009 ? (
-            <div className="mt-1">المتبقي آجل: {leftover.toFixed(2)} ج.م</div>
+            <div className="mt-1">المتبقي آجل: {leftover.toLocaleString()} ج.م</div>
           ) : null}
         </div>
 
@@ -184,5 +186,6 @@ export function CashBankChequeModal({
         <ActionButtons onCancel={onClose} onSave={save} saveText="اعتماد" cancelText="إلغاء" />
       </div>
     </div>
+    </BodyPortal>
   );
 }

@@ -126,6 +126,7 @@ export async function getAdjacentDocument(
     const where = {
       companyId,
       documentRole: 'VOUCHER',
+      invoiceId: null,
       ...(input.transactionKind ? { transactionKind: input.transactionKind } : {}),
       ...(input.fundType === 'BANK_ACCOUNT'
         ? { bankAccountId: { not: null } }

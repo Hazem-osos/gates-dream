@@ -19,6 +19,7 @@ export interface JwtPayload {
   // ── Standard JWT time claims (populated by jwt.verify) ──────────────────
   iat?: number; // issued-at (epoch seconds)
   exp?: number; // expiry   (epoch seconds)
+  jti?: string;
 
   // ── Keycloak role claims ─────────────────────────────────────────────────
   realm_access?: {
@@ -80,6 +81,8 @@ export interface AuthRequest extends Request {
  * CanNavigate -> view, CanAdd + CanModify -> edit, CanDelete -> delete,
  * CanPrint -> print. `approve`/`post` are the web workflow additions, and
  * `override_tier_price` is a fine-grained pricing capability with no CRUD twin.
+ * `unpost` and `reopen_shift` are privileged POS actions. Ordinary `post`/`edit`
+ * must not satisfy them.
  * `create`/`update` used to exist here as edit synonyms; they were removed and
  * their route guards folded into `edit` (nothing could grant them).
  */
@@ -91,6 +94,14 @@ export const PERMISSION_ACTIONS = [
   'post',
   'print',
   'override_tier_price',
+  'unpost',
+  'reopen_shift',
+  'discount',
+  'reprint',
+  'void',
+  'no_sale',
+  'lock_terminal',
+  'handover',
 ] as const;
 
 export type PermissionAction = (typeof PERMISSION_ACTIONS)[number];

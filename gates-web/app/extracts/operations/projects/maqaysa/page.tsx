@@ -11,7 +11,10 @@ import {
   FormSectionCard,
   compactControlClass,
 } from '@/components/ui';
-import { useApiQuery } from '@/lib/hooks/useApi';
+import { useApiQuery, useApiMutation, useInvalidateQuery } from '@/lib/hooks/useApi';
+import ErrorToast from '@/components/ErrorToast';
+import SuccessToast from '@/components/SuccessToast';
+import type { ApiError } from '@/lib/api/types';
 
 type MeasurementRow = {
   id: string;
@@ -28,9 +31,12 @@ export default function MaqaysaPage() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const paramProjectId = searchParams.get('projectId') ?? '';
-
+  const invalidateQuery = useInvalidateQuery();
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
   const [page, setPage] = useState(1);
   const [pageSize] = useState(10);
+  const [form, setForm] = useState({ arabicName: '', unit: '', notes: '' });
 
   const { data: projectsResponse } = useApiQuery<{ id: string; arabicName?: string; serial?: string }[]>(
     ['projects'],
@@ -91,6 +97,38 @@ export default function MaqaysaPage() {
   }));
   const rowsTotal = defsRes?.pagination?.total ?? defsRes?.meta?.total ?? rows.length;
 
+  const createMutation = useApiMutation<unknown, Record<string, unknown>>(
+    '/extracts/measurement-definitions',
+    'POST',
+    {
+      onSuccess: () => {
+        setSuccess('تم إنشاء بند المقايسة');
+        invalidateQuery(['extracts-measurement-definitions']);
+        setForm({ arabicName: '', unit: '', notes: '' });
+      },
+      onError: (err: ApiError) => setError(err.message || 'تعذر إنشاء البند'),
+    }
+  );
+
+  const handleSave = () => {
+    setError('');
+    setSuccess('');
+    if (!projectId) {
+      setError('اختر مشروعاً');
+      return;
+    }
+    if (!form.arabicName.trim()) {
+      setError('الاسم العربي مطلوب');
+      return;
+    }
+    createMutation.mutate({
+      projectId,
+      arabicName: form.arabicName.trim(),
+      unit: form.unit.trim() || undefined,
+      notes: form.notes.trim() || undefined,
+    });
+  };
+
   return (
     <ExtractsPageChrome
       title="مقايسة المشروع"
@@ -99,7 +137,9 @@ export default function MaqaysaPage() {
         { href: '/extracts/operations/projects', label: 'إدارة المشاريع' },
         { label: 'مقايسة المشروع' },
       ]}
-      statusLabel="عرض"
+      onSave={handleSave}
+      savePending={createMutation.isPending}
+      statusLabel="جديد"
       favoriteHref="/extracts/operations/projects/maqaysa"
       browseList={{
         title: 'مقايسات المشروع',
@@ -113,7 +153,10 @@ export default function MaqaysaPage() {
         onSelect: () => undefined,
       }}
     >
-      <FormSectionCard title="بيانات المقايسة" subtitle="اختر المشروع ثم راجع البنود" icon={ClipboardList}>
+      {error ? <ErrorToast message={error} onClose={() => setError('')} /> : null}
+      {success ? <SuccessToast message={success} onClose={() => setSuccess('')} /> : null}
+
+      <FormSectionCard title="بيانات المقايسة" subtitle="اختر المشروع ثم أضف بنود المقايسة" icon={ClipboardList}>
         <CompactFormField label="المشروع">
           <select
             id="maqaysa-project"
@@ -132,9 +175,22 @@ export default function MaqaysaPage() {
             )}
           </select>
         </CompactFormField>
-        <CompactFormField label="الكود" placeholder="00000000001" readOnly />
-        <CompactFormField label="الكمية" placeholder="1" />
-        <CompactFormField label="القيمة" placeholder="إدخل القيمة" />
+        <CompactFormField
+          label="البند الرئيسي"
+          required
+          value={form.arabicName}
+          onChange={(e) => setForm((p) => ({ ...p, arabicName: e.target.value }))}
+        />
+        <CompactFormField
+          label="الوحدة"
+          value={form.unit}
+          onChange={(e) => setForm((p) => ({ ...p, unit: e.target.value }))}
+        />
+        <CompactFormField
+          label="البيان"
+          value={form.notes}
+          onChange={(e) => setForm((p) => ({ ...p, notes: e.target.value }))}
+        />
       </FormSectionCard>
 
       <AppTable

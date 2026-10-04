@@ -14,6 +14,7 @@ export const INVOICE_KIND_BASE_TYPE: Record<InvoiceKind, string> = {
   PURCHASE: 'PI',
   SALE_RETURN: 'SR',
   PURCHASE_RETURN: 'PR',
+  SALES_ORDER: 'SO',
 };
 
 export function invoiceKindToBaseType(kind: InvoiceKind): string {
@@ -33,6 +34,8 @@ export function invoiceSequenceDocType(kind: InvoiceKind): string {
       return 'INV-PR';
     case 'SALE_RETURN':
       return 'INV-SR';
+    case 'SALES_ORDER':
+      return 'INV-SO';
     case 'SALE':
     default:
       return 'INV-SI';

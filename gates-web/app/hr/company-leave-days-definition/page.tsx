@@ -1,6 +1,8 @@
 'use client';
 
 import { useBackendReachability } from '@/lib/hooks/useBackendReachability';
+import { apiClient } from '@/lib/api/client';
+import { toast } from '@/lib/feedback/toast';
 import { useForm, type Resolver, type SubmitHandler } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { HrPageChrome } from '@/components/hr/HrPageChrome';
@@ -37,7 +39,7 @@ export default function CompanyLeaveDaysDefinitionPage() {
   });
 
   const onSave: SubmitHandler<CompanyLeaveDaysDefinitionInput> = (values) => {
-    console.info('[company-leave-days-definition]', values);
+    void apiClient.post('/hr/attendance', { kind: 'holiday', title: values.arabicName, payload: values }).then(() => toast.success('تم الحفظ')).catch((err: unknown) => toast.error(err instanceof Error ? err.message : 'تعذر الحفظ'));
   };
 
   return (

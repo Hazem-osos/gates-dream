@@ -146,7 +146,7 @@ router.post(
           message:
             resolvedTenant.error === 'tenant_mismatch'
               ? 'tenantId must match the authenticated session company and cannot be set to another company.'
-              : 'Company ID is required',
+              : 'معرّف الشركة مطلوب',
         });
       }
       const tenantId = resolvedTenant.tenantId;

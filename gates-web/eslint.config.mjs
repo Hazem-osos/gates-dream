@@ -11,6 +11,17 @@ const compat = new FlatCompat({
 
 const eslintConfig = [
   ...compat.extends("next/core-web-vitals", "next/typescript"),
+  {
+    rules: {
+      "no-restricted-syntax": [
+        "warn",
+        {
+          selector: "Literal[value=/#[0-9A-Fa-f]{3,8}\\b/]",
+          message: "Use brand tokens (text-brand, bg-brand, var(--brand)) instead of a new hex color.",
+        },
+      ],
+    },
+  },
 ];
 
 export default eslintConfig;

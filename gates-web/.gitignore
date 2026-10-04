@@ -45,6 +45,10 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
+# Generated Windows installer checksums. The .exe must be uploadable to Railway.
+/public/downloads/*.sha256
+/public/downloads/GatesESignSetup.exe
+
 # Playwright
 node_modules/
 /test-results/

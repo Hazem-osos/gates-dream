@@ -26,6 +26,10 @@ import { PartyGroupSelectField } from '@/components/accounting/PartyGroupSelectF
 import { entityLabel } from '@/lib/quick-create/catalog';
 import { useQuickCreateHost } from '@/lib/quick-create/useQuickCreateTab';
 import { useNextMasterSerial } from '@/lib/hooks/useNextMasterSerial';
+import { preferForwardSerial } from '@/lib/masters/nextNumericSerial';
+import { queryKeys } from '@/lib/query/query-keys';
+
+type PriceListOption = { id: string; code?: string | null; arabicName: string };
 
 interface Account {
   id: string;
@@ -75,6 +79,7 @@ type SupplierRecord = {
   registrationNumber?: string | null;
   financier?: string | null;
   discountType?: string | null;
+  priceListId?: string | null;
   supplierCategoryId?: string | null;
 };
 
@@ -128,6 +133,7 @@ function SupplierPageInner() {
     registrationNumber: '',
     financier: '',
     discountType: '',
+    priceListId: '',
     supplierCategoryId: '',
   });
 
@@ -161,7 +167,10 @@ function SupplierPageInner() {
 
   useEffect(() => {
     if (selectedId || !nextSerial) return;
-    setFormData((prev) => (prev.serial === nextSerial ? prev : { ...prev, serial: nextSerial }));
+    setFormData((prev) => {
+      const serial = preferForwardSerial(prev.serial, nextSerial);
+      return serial === prev.serial ? prev : { ...prev, serial };
+    });
   }, [nextSerial, selectedId]);
 
   const { data: categoriesResponse } = useApiQuery<
@@ -171,6 +180,13 @@ function SupplierPageInner() {
     isActive: true,
   });
   const supplierCategories = categoriesResponse?.data || [];
+
+  const { data: priceListsResponse } = useApiQuery<PriceListOption[]>(
+    queryKeys.priceLists({ picker: true }),
+    '/inventory/price-lists',
+    { limit: 200, isActive: true }
+  );
+  const priceLists = priceListsResponse?.data || [];
 
   useEffect(() => {
     if (selectedId || !categoryFromUrl) return;
@@ -227,6 +243,7 @@ function SupplierPageInner() {
     registrationNumber: '',
     financier: '',
     discountType: '',
+    priceListId: '',
     supplierCategoryId: categoryId,
   });
 
@@ -279,6 +296,7 @@ function SupplierPageInner() {
     registrationNumber: formData.registrationNumber.trim() || undefined,
     financier: formData.financier.trim() || undefined,
     discountType: formData.discountType || undefined,
+    priceListId: formData.priceListId ? formData.priceListId : null,
     supplierCategoryId: formData.supplierCategoryId || undefined,
   });
 
@@ -318,6 +336,7 @@ function SupplierPageInner() {
       registrationNumber: row.registrationNumber ?? '',
       financier: row.financier ?? '',
       discountType: row.discountType ?? '',
+      priceListId: row.priceListId ?? '',
       supplierCategoryId: row.supplierCategoryId ?? '',
     });
     setIsTaxInfoChecked(Boolean(row.taxData));
@@ -686,6 +705,39 @@ function SupplierPageInner() {
                     </option>
                   ))}
                 </select>
+              </CompactFormField>
+              <CompactFormField
+                label="قائمة الأسعار"
+                hint="تُستخدم تلقائياً في فاتورة المشتريات — سعر الشراء من القائمة"
+              >
+                <select
+                  className={compactControlClass}
+                  value={formData.priceListId}
+                  onChange={(e) =>
+                    setFormData((prev) => ({ ...prev, priceListId: e.target.value }))
+                  }
+                >
+                  <option value="">الافتراضي (قائمة الشركة)</option>
+                  {priceLists.map((priceList) => (
+                    <option key={priceList.id} value={priceList.id}>
+                      {priceList.code ? `${priceList.code} — ` : ''}
+                      {priceList.arabicName}
+                    </option>
+                  ))}
+                </select>
+              </CompactFormField>
+              <CompactFormField
+                label="خصم إضافي %"
+                hint="يُجمع مع خصم قائمة الأسعار على سطور الفاتورة"
+              >
+                <input
+                  className={compactControlClass}
+                  value={formData.discountType}
+                  onChange={(e) =>
+                    setFormData((prev) => ({ ...prev, discountType: e.target.value }))
+                  }
+                  placeholder="مثال: 5"
+                />
               </CompactFormField>
               <CompactFormField
                 label="الدولة"

@@ -14,6 +14,23 @@ function isCountableSerial(raw: string, excludeYears: boolean): number | null {
   return n;
 }
 
+function serialRank(value: string | number | null | undefined): number {
+  const raw = String(value ?? '').trim();
+  if (!/^\d+$/.test(raw)) return 0;
+  const n = Number.parseInt(raw, 10);
+  return Number.isFinite(n) ? n : 0;
+}
+
+/**
+ * A list refetch that started before the save can still answer with the old
+ * next serial. Never roll the form backwards to that stale number.
+ */
+export function preferForwardSerial(current: string, incoming: string): string {
+  if (!incoming) return current;
+  if (!current) return incoming;
+  return serialRank(incoming) >= serialRank(current) ? incoming : current;
+}
+
 /** Next master serial: 00001, 00002, … — empty list always starts at 00001. */
 export function nextNumericSerial(
   values: Array<string | number | null | undefined>,

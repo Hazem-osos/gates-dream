@@ -17,7 +17,7 @@ router.post(
   async (req: AuthRequest, res: Response) => {
     const companyId = req.companyId ?? req.tenantId;
     if (!companyId) {
-      return void res.status(400).json({ status: 'error', message: 'Company ID required' });
+      return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     }
     try {
       const data = await payrollAdvanceService.create(companyId, {
@@ -47,7 +47,7 @@ router.get(
   async (req: AuthRequest, res: Response) => {
     const companyId = req.companyId ?? req.tenantId;
     if (!companyId) {
-      return void res.status(400).json({ status: 'error', message: 'Company ID required' });
+      return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     }
     try {
       const data = await payrollAdvanceService.listOpen(

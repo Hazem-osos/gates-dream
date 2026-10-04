@@ -25,7 +25,7 @@ export function FormCard({
     >
       {title ? (
         <div className="border-b border-[#E6F0F7] px-5 py-3">
-          <h2 className="text-center text-lg font-semibold text-[#0E79AA]">{title}</h2>
+          <h2 className="text-center text-lg font-semibold text-[#0E78AA]">{title}</h2>
         </div>
       ) : null}
       <div className={cn('p-5', bodyClassName)}>{children}</div>

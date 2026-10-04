@@ -1,10 +1,13 @@
+import { Prisma } from '@prisma/client';
 import prisma from '../../../shared/database/prisma';
+import { permanentDelete } from '../../../shared/database/permanent-delete.util';
 import { logger } from '../../../shared/logger';
 
 export interface CreateWagePolicyData {
   code?: string;
   arabicName: string;
   englishName?: string;
+  rules?: Record<string, unknown> | null;
 }
 
 export interface UpdateWagePolicyData extends Partial<CreateWagePolicyData> {
@@ -20,6 +23,7 @@ export class WagePolicyService {
           code: data.code,
           arabicName: data.arabicName,
           englishName: data.englishName,
+          rules: data.rules == null ? undefined : (data.rules as Prisma.InputJsonValue),
         },
       });
 
@@ -153,10 +157,7 @@ export class WagePolicyService {
         throw new Error('Wage policy not found');
       }
 
-      await prisma.wagePolicy.update({
-        where: { id: wagePolicyId },
-        data: { isActive: false },
-      });
+      await permanentDelete('السجل', () => prisma.wagePolicy.delete({ where: { id: wagePolicyId } }));
 
       logger.info({ companyId, wagePolicyId }, 'Wage policy deleted');
       return { success: true };

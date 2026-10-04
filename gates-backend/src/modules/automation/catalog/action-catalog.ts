@@ -15,6 +15,8 @@
  */
 import { type EntityKind, type EventFieldType } from './field-types';
 
+export type ActionConfigFieldFormat = 'url' | 'email';
+
 export interface ActionConfigFieldDefinition {
   key: string;
   type: EventFieldType;
@@ -22,13 +24,34 @@ export interface ActionConfigFieldDefinition {
   descriptionKey?: string;
   required: boolean;
   entityKind?: EntityKind;
+  /** Public alias of `entityKind` for metadata-driven selectors. */
+  entityType?: EntityKind;
   enumValues?: string[];
   /** May this field's value be a `{source:'event', field}` binding instead of a constant? */
   bindable: boolean;
   maxLength?: number;
+  min?: number;
+  format?: ActionConfigFieldFormat;
+  default?: string | number | boolean;
 }
 
 export type ActionExecutor = 'gates' | 'n8n';
+
+export interface ActionExecutionContract {
+  executedBy: ActionExecutor;
+  /** GATES writes an AutomationActionRun row when this action executes. */
+  recordsActionRun: boolean;
+  /** Internal S2S path. Null when n8n executes the action itself (webhook). */
+  endpoint: string | null;
+  method: 'POST' | null;
+  descriptionKey?: string;
+}
+
+export interface SuggestedEventBinding {
+  eventType: string;
+  configKey: string;
+  eventField: string;
+}
 
 export interface AutomationActionDefinition {
   type: string;
@@ -36,6 +59,8 @@ export interface AutomationActionDefinition {
   labelKey: string;
   descriptionKey: string;
   executedBy: ActionExecutor;
+  execution: ActionExecutionContract;
+  suggestedEventBindings?: SuggestedEventBinding[];
   config: ActionConfigFieldDefinition[];
 }
 
@@ -49,6 +74,9 @@ function field(def: {
   enumValues?: string[];
   bindable?: boolean;
   maxLength?: number;
+  min?: number;
+  format?: ActionConfigFieldFormat;
+  default?: string | number | boolean;
 }): ActionConfigFieldDefinition {
   return {
     key: def.key,
@@ -57,15 +85,20 @@ function field(def: {
     descriptionKey: def.descriptionKey,
     required: def.required ?? false,
     entityKind: def.entityKind,
+    entityType: def.entityKind,
     enumValues: def.enumValues,
     bindable: def.bindable ?? false,
     maxLength: def.maxLength,
+    min: def.min,
+    format: def.format,
+    default: def.default,
   };
 }
 
 export const CREATE_PURCHASE_REQUEST_ACTION = 'gates.createPurchaseRequest';
 export const CREATE_NOTIFICATION_ACTION = 'gates.createNotification';
 export const SEND_EMAIL_ACTION = 'email.send';
+export const SEND_WHATSAPP_ACTION = 'whatsapp.send';
 export const WEBHOOK_ACTION = 'webhook';
 
 export const ACTION_CATALOG: AutomationActionDefinition[] = [
@@ -75,6 +108,26 @@ export const ACTION_CATALOG: AutomationActionDefinition[] = [
     labelKey: 'automation.actions.createPurchaseRequest',
     descriptionKey: 'automation.actions.createPurchaseRequest.description',
     executedBy: 'gates',
+    execution: {
+      executedBy: 'gates',
+      recordsActionRun: true,
+      endpoint: '/internal/v1/automation/purchase-requests',
+      method: 'POST',
+      descriptionKey: 'automation.actions.createPurchaseRequest.execution',
+    },
+    suggestedEventBindings: [
+      { eventType: 'inventory.stock.belowMinimum', configKey: 'itemId', eventField: 'itemId' },
+      {
+        eventType: 'inventory.stock.belowMinimum',
+        configKey: 'warehouseId',
+        eventField: 'warehouseId',
+      },
+      {
+        eventType: 'inventory.stock.belowMinimum',
+        configKey: 'quantity',
+        eventField: 'shortageQuantity',
+      },
+    ],
     config: [
       field({
         key: 'supplierId',
@@ -84,11 +137,20 @@ export const ACTION_CATALOG: AutomationActionDefinition[] = [
         required: true,
       }),
       field({
+        key: 'itemId',
+        type: 'entity',
+        entityKind: 'item',
+        labelKey: 'automation.fields.item',
+        required: false,
+        bindable: true,
+      }),
+      field({
         key: 'warehouseId',
         type: 'entity',
         entityKind: 'warehouse',
         labelKey: 'automation.fields.warehouse',
         required: false,
+        bindable: true,
       }),
       field({
         key: 'quantity',
@@ -96,6 +158,7 @@ export const ACTION_CATALOG: AutomationActionDefinition[] = [
         labelKey: 'automation.fields.quantity',
         required: false,
         bindable: true,
+        min: 0,
       }),
       field({
         key: 'description',
@@ -113,6 +176,12 @@ export const ACTION_CATALOG: AutomationActionDefinition[] = [
     labelKey: 'automation.actions.createNotification',
     descriptionKey: 'automation.actions.createNotification.description',
     executedBy: 'gates',
+    execution: {
+      executedBy: 'gates',
+      recordsActionRun: true,
+      endpoint: '/internal/v1/automation/actions/execute',
+      method: 'POST',
+    },
     config: [
       field({
         key: 'title',
@@ -152,6 +221,7 @@ export const ACTION_CATALOG: AutomationActionDefinition[] = [
         labelKey: 'automation.fields.notificationSeverity',
         required: false,
         enumValues: ['info', 'warn', 'error'],
+        default: 'info',
       }),
     ],
   },
@@ -161,15 +231,31 @@ export const ACTION_CATALOG: AutomationActionDefinition[] = [
     labelKey: 'automation.actions.sendEmail',
     descriptionKey: 'automation.actions.sendEmail.description',
     executedBy: 'gates',
+    execution: {
+      executedBy: 'gates',
+      recordsActionRun: true,
+      endpoint: '/internal/v1/automation/actions/execute',
+      method: 'POST',
+    },
     config: [
+      field({
+        key: 'recipientSource',
+        type: 'enum',
+        labelKey: 'automation.fields.emailRecipient',
+        descriptionKey: 'automation.fields.emailRecipient.description',
+        required: false,
+        enumValues: ['manual', 'customer', 'supplier', 'user'],
+        default: 'manual',
+      }),
       field({
         key: 'to',
         type: 'string',
         labelKey: 'automation.fields.emailTo',
         descriptionKey: 'automation.fields.emailTo.description',
-        required: true,
+        required: false,
         maxLength: 500,
         bindable: true,
+        format: 'email',
       }),
       field({
         key: 'subject',
@@ -190,11 +276,72 @@ export const ACTION_CATALOG: AutomationActionDefinition[] = [
     ],
   },
   {
+    type: SEND_WHATSAPP_ACTION,
+    category: 'communication',
+    labelKey: 'automation.actions.sendWhatsApp',
+    descriptionKey: 'automation.actions.sendWhatsApp.description',
+    executedBy: 'gates',
+    execution: {
+      executedBy: 'gates',
+      recordsActionRun: true,
+      endpoint: '/internal/v1/automation/actions/execute',
+      method: 'POST',
+    },
+    config: [
+      field({
+        key: 'recipientSource',
+        type: 'enum',
+        labelKey: 'automation.fields.whatsappRecipient',
+        required: false,
+        enumValues: ['manual', 'customer', 'supplier', 'user'],
+        default: 'customer',
+      }),
+      field({
+        key: 'to',
+        type: 'string',
+        labelKey: 'automation.fields.whatsappTo',
+        required: false,
+        maxLength: 32,
+        bindable: true,
+      }),
+      field({
+        key: 'templateName',
+        type: 'string',
+        labelKey: 'automation.fields.whatsappTemplate',
+        required: true,
+        maxLength: 191,
+      }),
+      field({
+        key: 'templateLanguage',
+        type: 'string',
+        labelKey: 'automation.fields.whatsappLanguage',
+        required: false,
+        maxLength: 16,
+        default: 'ar',
+      }),
+      field({
+        key: 'parameters',
+        type: 'string',
+        labelKey: 'automation.fields.whatsappParameters',
+        descriptionKey: 'automation.fields.whatsappParameters.description',
+        required: false,
+        maxLength: 2000,
+      }),
+    ],
+  },
+  {
     type: WEBHOOK_ACTION,
     category: 'integrations',
     labelKey: 'automation.actions.webhook',
     descriptionKey: 'automation.actions.webhook.description',
     executedBy: 'n8n',
+    execution: {
+      executedBy: 'n8n',
+      recordsActionRun: false,
+      endpoint: null,
+      method: null,
+      descriptionKey: 'automation.actions.webhook.execution',
+    },
     config: [
       field({
         key: 'url',
@@ -203,6 +350,7 @@ export const ACTION_CATALOG: AutomationActionDefinition[] = [
         descriptionKey: 'automation.fields.webhookUrl.description',
         required: true,
         maxLength: 2000,
+        format: 'url',
       }),
       field({
         key: 'method',
@@ -210,6 +358,7 @@ export const ACTION_CATALOG: AutomationActionDefinition[] = [
         labelKey: 'automation.fields.webhookMethod',
         required: false,
         enumValues: ['GET', 'POST', 'PUT', 'PATCH'],
+        default: 'POST',
       }),
       field({
         key: 'body',

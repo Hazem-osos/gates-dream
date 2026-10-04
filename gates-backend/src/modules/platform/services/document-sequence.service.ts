@@ -327,6 +327,51 @@ export class DocumentSequenceService {
   }
 
   /**
+   * Preview the next family serial without writing the sequence row.
+   * Matches `nextNumberForFamily`: an existing counter wins; a missing
+   * counter starts at max(startNumber, highest existing document + 1).
+   */
+  async peekNextForFamily(input: {
+    companyId: string;
+    branchId: string | null;
+    fiscalYearId: string | null;
+    docType: string;
+    legacySuffix: string;
+    padding?: number;
+    seedFromExisting?: () => Promise<number>;
+    isAvailable?: (candidate: string) => Promise<boolean>;
+  }): Promise<{ automatic: boolean; number: string }> {
+    const policy = await this.resolveLegacyNumberingPolicy(input.companyId, input.legacySuffix);
+    if (!policy.automatic) return { automatic: false, number: '' };
+    const fiscalYearId = policy.continuous ? null : input.fiscalYearId;
+    const padding = input.padding ?? 8;
+    const seq = await prisma.documentSequence.findFirst({
+      where: {
+        companyId: input.companyId,
+        branchId: input.branchId,
+        fiscalYearId,
+        docType: input.docType,
+      },
+      select: { lastNumber: true, padding: true },
+    });
+    const existingMax = seq || !input.seedFromExisting ? 0 : await input.seedFromExisting();
+    const pad = seq?.padding ?? padding;
+    let next = seq
+      ? Number(seq.lastNumber) + 1
+      : Math.max(policy.startNumber, existingMax + 1, 1);
+    let candidate = String(next).padStart(pad, '0');
+    if (input.isAvailable) {
+      let skips = 0;
+      while (!(await input.isAvailable(candidate))) {
+        if (++skips > 50) break;
+        next += 1;
+        candidate = String(next).padStart(pad, '0');
+      }
+    }
+    return { automatic: true, number: candidate };
+  }
+
+  /**
    * Builds a `seedFromExisting` resolver over an existing numeric-string
    * column, for docTypes adopted after their table already held documents.
    * Ignores rows whose value isn't a plain number (hand-typed references like
@@ -417,7 +462,7 @@ export class DocumentSequenceService {
   /** GL-family convenience wrapper used by every posting path. */
   async nextGlNumberInTx(
     tx: Prisma.TransactionClient,
-    ctx: { companyId: string; branchId: string; fiscalYearId?: string | null },
+    ctx: { companyId: string; branchId?: string | null; fiscalYearId?: string | null },
     manualNumber?: string | null,
     options?: { forceAutomatic?: boolean }
   ): Promise<string> {
@@ -428,7 +473,7 @@ export class DocumentSequenceService {
 
     return this.nextNumberInTx(tx, {
       companyId: ctx.companyId,
-      branchId: ctx.branchId,
+      branchId: ctx.branchId ?? null,
       fiscalYearId: policy.continuous ? null : (ctx.fiscalYearId ?? null),
       docType: 'GL',
       scope: policy.continuous ? 'C' : 'Y',
@@ -440,7 +485,7 @@ export class DocumentSequenceService {
   async nextGlNumber(
     ctx: {
       companyId: string;
-      branchId: string;
+      branchId?: string | null;
       fiscalYearId?: string | null;
     },
     manualNumber?: string | null,
@@ -453,7 +498,7 @@ export class DocumentSequenceService {
 
     return this.nextNumber({
       companyId: ctx.companyId,
-      branchId: ctx.branchId,
+      branchId: ctx.branchId ?? null,
       fiscalYearId: policy.continuous ? null : (ctx.fiscalYearId ?? null),
       docType: 'GL',
       scope: policy.continuous ? 'C' : 'Y',

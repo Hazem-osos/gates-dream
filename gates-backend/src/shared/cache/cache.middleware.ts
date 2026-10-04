@@ -4,6 +4,7 @@ import { logger } from '../logger';
 import { metricsCollector } from '../monitoring/metrics';
 import type { AuthRequest } from '../auth/types';
 import { buildHttpCacheKey, shouldCacheHttpGet } from './cache-key.util';
+import { getHttpCacheGeneration } from './http-cache-generation';
 
 /**
  * Caching Middleware
@@ -58,7 +59,14 @@ export const cache = (options: CacheOptions = {}) => {
     }
 
     try {
-      const cacheKey = keyGenerator(req);
+      const auth = req as AuthRequest;
+      const companyId = String(
+        auth.companyId ?? auth.tenantId ?? auth.user?.company_id ?? auth.user?.tenant_id ?? 'no-company'
+      );
+      const generation = await getHttpCacheGeneration(companyId);
+      const cacheKey = options.keyGenerator
+        ? keyGenerator(req)
+        : buildHttpCacheKey(auth, generation);
       const redis = redisClient.getClient();
 
       // Try to get from cache

@@ -150,7 +150,7 @@ async function reverseFifoAllocationsInTx(
 
   const cashTxIds = Array.from(new Set(allocations.map((a) => a.cashTransactionId)));
   for (const id of cashTxIds) {
-    await tx.cashTransaction.update({ where: { id }, data: { isCancelled: true } });
+    await tx.cashTransaction.updateMany({ where: { id, companyId }, data: { isCancelled: true } });
   }
 
   const invoiceIds = Array.from(new Set(allocations.map((a) => a.invoiceId)));
@@ -171,7 +171,7 @@ export class CounterpartyOffsetService {
         linkedSupplier: { select: { id: true, arabicName: true, balance: true } },
       },
     });
-    if (!customer) throw new AppError(404, 'Customer not found');
+    if (!customer) throw new AppError(404, 'العميل غير موجود');
     if (!customer.linkedSupplierId || !customer.linkedSupplier) {
       throw new AppError(422, 'Customer is not linked to a supplier');
     }
@@ -239,7 +239,7 @@ export class CounterpartyOffsetService {
         accountId: true,
       },
     });
-    if (!supplier) throw new AppError(404, 'Supplier not found');
+    if (!supplier) throw new AppError(404, 'المورد غير موجود');
 
     const customerArId = resolvePartyAccountId(customer.mainAccountId, customer.accountId);
     const supplierApId = resolvePartyAccountId(supplier.mainAccountId, supplier.accountId);
@@ -308,6 +308,8 @@ export class CounterpartyOffsetService {
             credit: 0,
             lineOrder: 1,
             description: 'تخفيض حساب المورد',
+            partnerId: supplier.id,
+            partnerType: 'SUPPLIER',
           },
           {
             accountId: customerArId,
@@ -315,6 +317,8 @@ export class CounterpartyOffsetService {
             credit: amount,
             lineOrder: 2,
             description: 'تخفيض حساب العميل',
+            partnerId: customer.id,
+            partnerType: 'CUSTOMER',
           },
         ],
       });
@@ -358,15 +362,6 @@ export class CounterpartyOffsetService {
         description: desc,
       });
 
-      await tx.customer.update({
-        where: { id: customer.id },
-        data: { balance: { decrement: amount } },
-      });
-      await tx.supplier.update({
-        where: { id: supplier.id },
-        data: { balance: { decrement: amount } },
-      });
-
       return {
         offsetId: offset.id,
         voucherNumber: offset.voucherNumber,
@@ -406,23 +401,12 @@ export class CounterpartyOffsetService {
       fiscalYearId: params.fiscalYearId,
       userId: params.userId,
     };
-    const amount = Number(offset.amount);
-
     return prisma.$transaction(async (tx) => {
       await journalPostingService.reverseJournalEntryInTx(tx, ctx, offset.journalEntryId!, {
         reason: 'Counterparty offset unposted',
       });
 
       await reverseFifoAllocationsInTx(tx, params.companyId, offset.id);
-
-      await tx.customer.update({
-        where: { id: offset.customerId },
-        data: { balance: { increment: amount } },
-      });
-      await tx.supplier.update({
-        where: { id: offset.supplierId },
-        data: { balance: { increment: amount } },
-      });
 
       return tx.counterpartyOffset.update({
         where: { id: offset.id },

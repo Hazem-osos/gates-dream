@@ -28,8 +28,8 @@ export function MovementTransferConfirmModal({
       <div className="w-full max-w-lg rounded-xl border border-border bg-card p-5 shadow-xl">
         <h2 className="mb-3 text-base font-bold text-foreground">تأكيد نقل الحركات</h2>
         <p className="text-sm leading-7 text-muted-foreground">
-          هل أنت متأكد من نقل [{count}] حركة محاسبية من [{sourceLabel}] إلى [{destinationLabel}]؟ هذا الإجراء
-          سيحدث القيود والتقارير المالية المرتبطة فورياً.
+          هل أنت متأكد من نقل [{count}] حركة من [{sourceLabel}] إلى [{destinationLabel}]؟ التعديل يتم على
+          القيود الأصلية نفسها، مرحلة أو غير مرحلة أو ملغية، من غير قيد تسوية.
         </p>
         <div className="mt-5 flex flex-wrap justify-end gap-2">
           <Button type="button" variant="danger" size="sm" isLoading={pending} onClick={onConfirm}>

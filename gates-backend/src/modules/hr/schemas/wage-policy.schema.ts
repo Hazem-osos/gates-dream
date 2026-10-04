@@ -4,6 +4,7 @@ export const createWagePolicySchema = z.object({
   code: z.string().optional(),
   arabicName: z.string().min(1, 'Arabic name is required'),
   englishName: z.string().optional(),
+  rules: z.record(z.any()).optional().nullable(),
 });
 
 export const updateWagePolicySchema = createWagePolicySchema.partial().extend({

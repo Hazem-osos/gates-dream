@@ -16,6 +16,10 @@ export {
 } from './producers/domain-event.producer';
 export { scheduleAutomationJobs } from './services/automation-scheduler.service';
 export {
+  getAutomationDeliveryDiagnostic,
+  logAutomationDeliveryDiagnostics,
+} from './services/automation-delivery-diagnostics';
+export {
   registerAutomationWorkers,
   closeAutomationWorkers,
   closeAutomationQueues,

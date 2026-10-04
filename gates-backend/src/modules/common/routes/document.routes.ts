@@ -44,7 +44,7 @@ router.get(
   async (req: AuthRequest, res: Response) => {
     try {
       const companyId = req.companyId ?? req.tenantId;
-      if (!companyId) throw new AppError(400, 'Company ID is required');
+      if (!companyId) throw new AppError(400, 'معرّف الشركة مطلوب');
       const data = await documentNavigationService.getAdjacentDocument(companyId, {
         entity: req.query.entity as never,
         currentId: String(req.query.currentId),
@@ -71,7 +71,7 @@ router.post(
   async (req: AuthRequest, res: Response) => {
     try {
       const companyId = req.companyId ?? req.tenantId;
-      if (!companyId) throw new AppError(400, 'Company ID is required');
+      if (!companyId) throw new AppError(400, 'معرّف الشركة مطلوب');
 
       const body = req.body as { type: DocumentConvertType; sourceId: string };
       const data = await documentConverterService.convert({

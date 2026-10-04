@@ -6,7 +6,7 @@ import type { ChequeDirection, ChequeStatus } from '@prisma/client';
 function requireCompanyId(req: AuthRequest, res: Response): string | null {
   const companyId = req.companyId ?? req.tenantId;
   if (!companyId) {
-    res.status(400).json({ status: 'error', message: 'Company ID required' });
+    res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     return null;
   }
   return companyId;

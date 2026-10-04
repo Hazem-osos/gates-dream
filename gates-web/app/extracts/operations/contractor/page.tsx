@@ -6,32 +6,47 @@ import { AiKnowledgeUploadButton } from '@/components/ai/AiKnowledgeUploadButton
 import { ExtractsPageChrome } from '@/components/extracts/ExtractsPageChrome';
 import { CompactFormField, FormSectionCard, compactControlClass } from '@/components/ui';
 import { useApiMutation, useInvalidateQuery } from '@/lib/hooks/useApi';
+import { apiClient } from '@/lib/api/client';
+import { useMutation } from '@tanstack/react-query';
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
 import type { ApiError } from '@/lib/api/types';
+
+type ContractorForm = {
+  serial: string;
+  arabicName: string;
+  englishName: string;
+  taxNumber: string;
+  phone: string;
+  address: string;
+  notes: string;
+};
+
+const emptyForm = (): ContractorForm => ({
+  serial: '',
+  arabicName: '',
+  englishName: '',
+  taxNumber: '',
+  phone: '',
+  address: '',
+  notes: '',
+});
 
 export default function ContractorPage() {
   const invalidateQuery = useInvalidateQuery();
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [formData, setFormData] = useState({
-    serial: '',
-    arabicName: '',
-    englishName: '',
-    taxNumber: '',
-    phone: '',
-    address: '',
-    notes: '',
-  });
+  const [formData, setFormData] = useState<ContractorForm>(emptyForm);
 
-  const contractorMutation = useApiMutation<unknown, Record<string, unknown>>(
+  const createMutation = useApiMutation<unknown, Record<string, unknown>>(
     '/extracts/contractors',
     'POST',
     {
       onSuccess: () => {
         setSuccess('تم حفظ المقاول بنجاح');
         invalidateQuery(['contractors']);
+        invalidateQuery(['extract-contractors-browse']);
         handleCancel();
       },
       onError: (err: ApiError) => {
@@ -40,44 +55,60 @@ export default function ContractorPage() {
     }
   );
 
-  const handleInputChange = (field: string, value: string) => {
+  const updateMutation = useMutation({
+    mutationFn: async (payload: Record<string, unknown>) => {
+      if (!selectedId) throw new Error('معرّف المقاول مطلوب');
+      return apiClient.put(`/extracts/contractors/${selectedId}`, payload);
+    },
+    onSuccess: () => {
+      setSuccess('تم تحديث المقاول بنجاح');
+      invalidateQuery(['contractors']);
+      invalidateQuery(['extract-contractors-browse']);
+    },
+    onError: (err: ApiError) => {
+      setError(err.message || 'حدث خطأ أثناء التحديث');
+    },
+  });
+
+  const handleInputChange = (field: keyof ContractorForm, value: string) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
   };
+
+  const buildPayload = () => ({
+    serial: formData.serial || undefined,
+    arabicName: formData.arabicName,
+    englishName: formData.englishName || undefined,
+    taxNumber: formData.taxNumber || undefined,
+    phone: formData.phone || undefined,
+    address: formData.address || undefined,
+    notes: formData.notes || undefined,
+  });
 
   const handleSave = () => {
     setError('');
     setSuccess('');
 
-    if (!formData.arabicName) {
+    if (!formData.arabicName.trim()) {
       setError('يرجى إدخال الاسم العربي');
       return;
     }
 
-    contractorMutation.mutate({
-      serial: formData.serial || undefined,
-      arabicName: formData.arabicName,
-      englishName: formData.englishName || undefined,
-      taxNumber: formData.taxNumber || undefined,
-      phone: formData.phone || undefined,
-      address: formData.address || undefined,
-      notes: formData.notes || undefined,
-    });
+    const payload = buildPayload();
+    if (selectedId) {
+      updateMutation.mutate(payload);
+    } else {
+      createMutation.mutate(payload);
+    }
   };
 
   const handleCancel = () => {
     setSelectedId(null);
-    setFormData({
-      serial: '',
-      arabicName: '',
-      englishName: '',
-      taxNumber: '',
-      phone: '',
-      address: '',
-      notes: '',
-    });
+    setFormData(emptyForm());
     setError('');
     setSuccess('');
   };
+
+  const savePending = createMutation.isPending || updateMutation.isPending;
 
   return (
     <ExtractsPageChrome
@@ -88,7 +119,7 @@ export default function ContractorPage() {
         { label: 'تعريف المقاول' },
       ]}
       onSave={handleSave}
-      savePending={contractorMutation.isPending}
+      savePending={savePending}
       onNew={handleCancel}
       extraActions={<AiKnowledgeUploadButton category="CONTRACT" compact />}
       favoriteHref="/extracts/operations/contractor"

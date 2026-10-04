@@ -1,4 +1,10 @@
 import { z } from 'zod';
+import { paperDueBeforeIssue } from '../utils/paper-due-date';
+
+const invoiceAllocationSchema = z.object({
+  invoiceId: z.string().uuid(),
+  allocatedAmount: z.number().positive(),
+});
 
 const securitiesReceiptFieldsSchema = z.object({
   branchId: z.string().uuid().optional().nullable(),
@@ -11,6 +17,7 @@ const securitiesReceiptFieldsSchema = z.object({
   customerId: z.string().uuid().optional().nullable(),
   supplierId: z.string().uuid().optional().nullable(),
   destinationAccountId: z.string().uuid().optional().nullable(),
+  partyAccountId: z.string().uuid().optional().nullable(),
   depositAccountId: z.string().uuid().optional().nullable(),
   depositDate: z
     .string()
@@ -25,15 +32,18 @@ const securitiesReceiptFieldsSchema = z.object({
   currencyCode: z.string().min(1, 'Currency code is required'),
   entityName: z.string().max(191).optional().nullable(),
   entityId: z.string().uuid().optional().nullable(),
+  allocations: z.array(invoiceAllocationSchema).optional(),
 });
 
-export const createSecuritiesReceiptSchema = securitiesReceiptFieldsSchema.refine(
-  (data) => data.customerId || data.supplierId || data.destinationAccountId,
-  {
-    message: 'اختر العميل أو حساباً آخر',
-    path: ['destinationAccountId'],
-  }
-);
+export const createSecuritiesReceiptSchema = securitiesReceiptFieldsSchema
+  .refine((data) => data.customerId || data.supplierId || data.partyAccountId, {
+    message: 'اختر العميل أو حساب حركة',
+    path: ['partyAccountId'],
+  })
+  .refine((data) => !paperDueBeforeIssue(data.date, data.dueDate), {
+    message: 'تاريخ الاستحقاق لا يمكن أن يكون قبل تاريخ التحرير',
+    path: ['dueDate'],
+  });
 
 export const updateSecuritiesReceiptSchema = securitiesReceiptFieldsSchema.partial();
 
@@ -44,6 +54,15 @@ export const bounceSecuritiesReceiptSchema = z.object({
     .optional()
     .transform((val) => (val ? new Date(val) : undefined)),
   accountId: z.string().uuid().optional(),
+});
+
+export const depositSecuritiesReceiptSchema = z.object({
+  accountId: z.string().uuid().nullable().optional(),
+  date: z
+    .string()
+    .optional()
+    .nullable()
+    .transform((val) => (val ? new Date(val) : null)),
 });
 
 export const collectSecuritiesSchema = z.object({
@@ -58,6 +77,7 @@ export const collectSecuritiesSchema = z.object({
 
 export const endorseSecuritiesReceiptSchema = z.object({
   accountId: z.string().uuid('اختر الحساب'),
+  supplierId: z.string().uuid().optional(),
   description: z.string().optional(),
   date: z
     .string()
@@ -74,7 +94,10 @@ export const securitiesReceiptQuerySchema = z.object({
   customerId: z.string().uuid().optional(),
   supplierId: z.string().uuid().optional(),
   entityId: z.string().uuid().optional(),
-  isPosted: z.string().optional().transform((val) => val === 'true'),
+  isPosted: z
+    .enum(['true', 'false'])
+    .optional()
+    .transform((val) => (val == null ? undefined : val === 'true')),
 });
 
 export type CreateSecuritiesReceiptInput = z.infer<typeof createSecuritiesReceiptSchema>;

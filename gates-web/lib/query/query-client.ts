@@ -1,4 +1,4 @@
-import { QueryCache, MutationCache, QueryClient, keepPreviousData } from '@tanstack/react-query';
+import { QueryCache, MutationCache, QueryClient } from '@tanstack/react-query';
 import { isSoftQueryFailure } from '@/lib/api/isAbortError';
 import { cachePolicies } from '@/lib/query/cache-policies';
 
@@ -22,11 +22,11 @@ export function createAppQueryClient(): QueryClient {
     }),
     defaultOptions: {
       queries: {
-        staleTime: cachePolicies.defaultQuery.staleTime,
+        staleTime: 0,
         gcTime: cachePolicies.defaultQuery.gcTime,
-        placeholderData: keepPreviousData,
         refetchOnWindowFocus: false,
-        refetchOnMount: false,
+        // A list must not stay on the copy from before the last save.
+        refetchOnMount: 'always',
         retry: defaultQueryRetry,
         throwOnError: () => false,
       },

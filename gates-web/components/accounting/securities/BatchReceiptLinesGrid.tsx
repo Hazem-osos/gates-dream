@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, type KeyboardEvent } from 'react';
+import { type KeyboardEvent } from 'react';
 import { Trash2 } from 'lucide-react';
 import { UniversalDataGrid } from '@/components/ui/data-entry-grid';
 import { dataEntryGridInputClass } from '@/components/ui/data-entry-grid/tokens';
@@ -11,6 +11,8 @@ import {
 } from '@/lib/keyboard/gridLineFocus';
 import { toHijriDate } from '@/lib/hijri-date';
 import { useApiQuery } from '@/lib/hooks/useApi';
+import { EditableAmountInput } from '@/components/grid/EditableAmountInput';
+import { AccountSelect } from '@/app/components/form/AccountSelect';
 
 export type BatchReceiptLine = {
   paperNumber: string;
@@ -19,6 +21,7 @@ export type BatchReceiptLine = {
   bankName: string;
   branchName: string;
   description: string;
+  accountId: string;
 };
 
 type BankOption = {
@@ -32,6 +35,8 @@ type Props = {
   onChange: (lines: BatchReceiptLine[]) => void;
   onAddRow: () => void;
   disabled?: boolean;
+  minDueDate?: string;
+  variant?: 'batch' | 'opening';
 };
 
 export function emptyBatchReceiptLine(): BatchReceiptLine {
@@ -42,6 +47,7 @@ export function emptyBatchReceiptLine(): BatchReceiptLine {
     bankName: '',
     branchName: '',
     description: '',
+    accountId: '',
   };
 }
 
@@ -49,27 +55,24 @@ export function createBlankBatchReceiptLines(count = 3): BatchReceiptLine[] {
   return Array.from({ length: count }, () => emptyBatchReceiptLine());
 }
 
-function formatAmountInput(value: number) {
-  if (!value) return '';
-  return value.toLocaleString('en-US', {
-    minimumFractionDigits: value % 1 === 0 ? 0 : 2,
-    maximumFractionDigits: 2,
-  });
-}
-
-function parseAmount(raw: string): number {
-  const n = Number(String(raw).replace(/,/g, ''));
-  return Number.isFinite(n) ? n : 0;
-}
-
-export function BatchReceiptLinesGrid({ lines, onChange, onAddRow, disabled }: Props) {
+export function BatchReceiptLinesGrid({
+  lines,
+  onChange,
+  onAddRow,
+  disabled,
+  minDueDate,
+  variant = 'batch',
+}: Props) {
+  const opening = variant === 'opening';
   const gridId = 'batch-receipt-lines';
-  const [amountDrafts, setAmountDrafts] = useState<Record<number, string>>({});
+  const fieldOrder = opening
+    ? (['paperNumber', 'description', 'amount', 'dueDate', 'account'] as const)
+    : BATCH_RECEIPT_LINE_FIELD_ORDER;
   const { data: banksResponse } = useApiQuery<BankOption[]>(
     ['banks', 'batch-receipt'],
     '/accounting/banks',
     { isActive: true, limit: 200 },
-    { staleTime: 60_000 }
+    { enabled: !opening, staleTime: 60_000 }
   );
   const banks = banksResponse?.data ?? [];
 
@@ -98,7 +101,7 @@ export function BatchReceiptLinesGrid({ lines, onChange, onAddRow, disabled }: P
   };
 
   const onCellKeyDown = (e: KeyboardEvent<HTMLElement>, index: number, field: string) => {
-    if (e.key === 'Enter' && (field === 'branch' || field === 'description')) {
+    if (e.key === 'Enter' && (field === (opening ? 'account' : 'branch') || field === 'description')) {
       e.preventDefault();
       appendAndFocusPaperNumber();
       return;
@@ -106,7 +109,7 @@ export function BatchReceiptLinesGrid({ lines, onChange, onAddRow, disabled }: P
     handleLineGridKeyDown(e, {
       gridId,
       lineIndex: index,
-      fieldOrder: BATCH_RECEIPT_LINE_FIELD_ORDER,
+      fieldOrder,
       onAppendLine: onAddRow,
       onRemoveLine: removeLine,
     });
@@ -120,15 +123,19 @@ export function BatchReceiptLinesGrid({ lines, onChange, onAddRow, disabled }: P
         { id: 'description', label: 'البيان / ملاحظات' },
         { id: 'amount', label: 'المبلغ', align: 'left' },
         { id: 'dueDate', label: 'تاريخ الاستحقاق' },
-        { id: 'bank', label: 'البنك المسحوب عليه' },
-        { id: 'branch', label: 'الفرع' },
+        { id: opening ? 'account' : 'bank', label: opening ? 'الحساب' : 'البنك المسحوب عليه' },
+        ...(opening ? [] : [{ id: 'branch', label: 'الفرع' }]),
         { id: 'action', label: 'إجراء', className: 'w-14', align: 'center' },
       ]}
       rowCount={lines.length}
       onAddRow={disabled ? undefined : onAddRow}
       addLabel="إضافة ورقة جديدة (Enter)"
       disabled={disabled}
-      emptyMessage="أدخل أوراق القبض الجديدة هنا — الجدول للإدخال وليس لعرض الأوراق السابقة"
+      emptyMessage={
+        opening
+          ? 'أدخل الشيكات السابقة هنا. الحساب ينزل من حساب النمط ويمكن تغييره لكل شيك.'
+          : 'أدخل أوراق القبض الجديدة هنا — الجدول للإدخال وليس لعرض الأوراق السابقة'
+      }
       renderCell={(index, columnId) => {
         const line = lines[index] ?? emptyBatchReceiptLine();
         const attrs = (field: string) => lineGridDataAttrs(gridId, index, field);
@@ -157,25 +164,13 @@ export function BatchReceiptLinesGrid({ lines, onChange, onAddRow, disabled }: P
         }
 
         if (columnId === 'amount') {
-          const draft = amountDrafts[index];
           return (
-            <input
-              inputMode="decimal"
+            <EditableAmountInput
               disabled={disabled}
               className={`${dataEntryGridInputClass} text-end font-mono font-medium`}
               placeholder="0.00"
-              value={draft ?? formatAmountInput(line.amount)}
-              onChange={(e) => {
-                setAmountDrafts((prev) => ({ ...prev, [index]: e.target.value }));
-                updateLine(index, { amount: parseAmount(e.target.value) });
-              }}
-              onBlur={() => {
-                setAmountDrafts((prev) => {
-                  const next = { ...prev };
-                  delete next[index];
-                  return next;
-                });
-              }}
+              value={line.amount}
+              onValueChange={(amount) => updateLine(index, { amount })}
               onKeyDown={(e) => onCellKeyDown(e, index, 'amount')}
               {...attrs('amount')}
             />
@@ -188,6 +183,7 @@ export function BatchReceiptLinesGrid({ lines, onChange, onAddRow, disabled }: P
               <input
                 type="date"
                 disabled={disabled}
+                min={minDueDate || undefined}
                 className={dataEntryGridInputClass}
                 value={line.dueDate}
                 onChange={(e) => updateLine(index, { dueDate: e.target.value })}
@@ -200,6 +196,24 @@ export function BatchReceiptLinesGrid({ lines, onChange, onAddRow, disabled }: P
                 </div>
               ) : null}
             </div>
+          );
+        }
+
+        if (columnId === 'account') {
+          return (
+            <AccountSelect
+              value={line.accountId}
+              disabled={disabled}
+              leafOnly
+              enableQuickCreate={false}
+              placeholder="حساب الشيك"
+              emptyLabel="حساب الشيك"
+              nativeSelectProps={{
+                ...attrs('account'),
+                onKeyDown: (e) => onCellKeyDown(e, index, 'account'),
+              }}
+              onChange={(accountId) => updateLine(index, { accountId })}
+            />
           );
         }
 

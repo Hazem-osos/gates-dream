@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 export const createUnitSchema = z.object({
   code: z.string().optional(),
-  arabicName: z.string().min(1, 'Arabic name is required'),
+  arabicName: z.string().min(1, 'اسم الوحدة بالعربية مطلوب'),
   englishName: z.string().optional(),
 });
 

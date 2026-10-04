@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Building2 } from 'lucide-react';
 import {
   CompactFormField,
@@ -13,27 +14,43 @@ import { useApiMutation, useInvalidateQuery } from '@/lib/hooks/useApi';
 import { toast } from '@/lib/feedback/toast';
 import type { ApiError } from '@/lib/api/types';
 
-export default function PropertyPage() {
-  const invalidateQuery = useInvalidateQuery();
-  const [formData, setFormData] = useState({
-    code: '',
-    arabicName: '',
-    englishName: '',
-    propertyType: '',
-    area: '',
-    price: '',
-    location: '',
-    notes: '',
-  });
+const PATH = '/real-estate-investment/create/property';
 
-  const propertyMutation = useApiMutation<unknown, Record<string, unknown>>(
+const emptyForm = () => ({
+  code: '',
+  arabicName: '',
+  englishName: '',
+  propertyType: '',
+  area: '',
+  price: '',
+  location: '',
+  notes: '',
+});
+
+export default function PropertyPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const invalidateQuery = useInvalidateQuery();
+  const idFromUrl = searchParams.get('id')?.trim() || null;
+  const [selectedId, setSelectedId] = useState<string | null>(idFromUrl);
+  const [formData, setFormData] = useState(emptyForm);
+
+  useEffect(() => {
+    if (idFromUrl) setSelectedId(idFromUrl);
+  }, [idFromUrl]);
+
+  const propertyMutation = useApiMutation<{ id: string }, Record<string, unknown>>(
     '/real-estate/properties',
     'POST',
     {
-      onSuccess: () => {
+      onSuccess: (res) => {
+        const id = res?.data?.id;
         toast.success('تم حفظ العقار بنجاح');
         invalidateQuery(['properties']);
-        handleCancel();
+        if (id) {
+          setSelectedId(id);
+          router.replace(`${PATH}?id=${encodeURIComponent(id)}`, { scroll: false });
+        }
       },
       onError: (error: ApiError) => {
         toast.error(error.message || 'حدث خطأ أثناء الحفظ');
@@ -66,16 +83,9 @@ export default function PropertyPage() {
   };
 
   const handleCancel = () => {
-    setFormData({
-      code: '',
-      arabicName: '',
-      englishName: '',
-      propertyType: '',
-      area: '',
-      price: '',
-      location: '',
-      notes: '',
-    });
+    setSelectedId(null);
+    setFormData(emptyForm());
+    router.replace(PATH, { scroll: false });
   };
 
   const advancedFilledCount = [
@@ -93,7 +103,8 @@ export default function PropertyPage() {
         { label: 'الاستثمار العقاري', href: '/real-estate-investment' },
         { label: 'العقار' },
       ]}
-      favoriteHref="/real-estate-investment/create/property"
+      favoriteHref={PATH}
+      currentId={selectedId}
       onSave={handleSave}
       savePending={propertyMutation.isPending}
       onNew={handleCancel}
@@ -119,10 +130,9 @@ export default function PropertyPage() {
               onChange={(e) => handleInputChange('propertyType', e.target.value)}
             >
               <option value="">اختر نوع العقار</option>
-              <option value="apartment">شقة</option>
-              <option value="villa">فيلا</option>
-              <option value="land">أرض</option>
-              <option value="commercial">تجاري</option>
+              <option value="RESIDENTIAL">سكني</option>
+              <option value="COMMERCIAL">تجاري</option>
+              <option value="ADMINISTRATIVE">إداري</option>
             </select>
           </CompactFormField>
         </FormSectionCard>

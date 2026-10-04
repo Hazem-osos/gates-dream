@@ -206,7 +206,7 @@ export default function DocumentProfilesSettingsPage() {
                   <td className="px-4 py-3">
                     <button
                       type="button"
-                      className="text-[#0E79AA] hover:underline"
+                      className="text-[#0E78AA] hover:underline"
                       onClick={() => {
                         setForm(fromProfile(p));
                         setSlugManual(true);
@@ -402,7 +402,7 @@ export default function DocumentProfilesSettingsPage() {
               </button>
               <button
                 type="button"
-                className="rounded-lg bg-[#0E79AA] px-4 py-2 text-sm text-white"
+                className="rounded-lg bg-[#0E78AA] px-4 py-2 text-sm text-white"
                 onClick={save}
               >
                 حفظ

@@ -1,6 +1,8 @@
 // @ts-nocheck — strict cleanup pending; tracked for incremental typing.
 import prisma from '../../../shared/database/prisma';
+import { permanentDelete } from '../../../shared/database/permanent-delete.util';
 import { logger } from '../../../shared/logger';
+import { clampPageSize } from '../../../shared/pagination';
 
 export interface CreateDepartmentData {
   code?: string;
@@ -96,7 +98,7 @@ export class DepartmentService {
   ) {
     try {
       const page = options.page || 1;
-      const limit = options.limit || 50;
+      const limit = clampPageSize(options.limit);
       const skip = (page - 1) * limit;
 
       const where: any = {
@@ -225,10 +227,7 @@ export class DepartmentService {
         throw new Error('Department not found');
       }
 
-      await prisma.department.update({
-        where: { id: departmentId },
-        data: { isActive: false },
-      });
+      await permanentDelete('السجل', () => prisma.department.delete({ where: { id: departmentId } }));
 
       logger.info({ companyId, departmentId }, 'Department deleted');
       return { success: true };

@@ -20,7 +20,9 @@ router.get(
     if (!companyId) {
       return void res.status(400).json({ status: 'error', message: 'Company ID required' });
     }
-    const data = await posTerminalService.list(companyId);
+    const data = await posTerminalService.list(companyId, {
+      includeInactive: req.query.includeInactive === 'true',
+    });
     return void res.json({ status: 'success', data });
   }
 );
@@ -36,6 +38,17 @@ router.post(
     }
     const data = await posTerminalService.create(companyId, req.body);
     return void res.status(201).json({ status: 'success', data });
+  }
+);
+
+router.put(
+  '/:id',
+  authorize({ resource: 'pos', action: 'edit' }),
+  async (req: AuthRequest, res: Response) => {
+    const companyId = req.companyId ?? req.tenantId;
+    if (!companyId) return void res.status(400).json({ status: 'error', message: 'Company ID required' });
+    const data = await posTerminalService.update(companyId, req.params.id, req.body);
+    return void res.json({ status: 'success', data });
   }
 );
 

@@ -16,6 +16,8 @@ import { IMMUTABLE_CLIENT_INVOICE_STATUSES } from '../types/client-invoice.types
 import { clientInvoiceCalculationService } from './client-invoice-calculation.service';
 import { clientBillingAccountingService } from './client-billing-accounting.service';
 import { money, rate } from '../../utils/money-decimal';
+import { assertNoCompetingWave3OwnerFinancials } from '../../services/contracting-canonical-stack.service';
+import { refreshClientInvoiceSettlementInTx } from '../../settlement/contracting-certificate-balance.service';
 
 type PostedClientInvoice = ClientInvoice & { items: ClientInvoiceItem[] };
 
@@ -25,7 +27,17 @@ export class ClientInvoiceCommandService {
     clientContractId: string,
     dto: CreateOrUpdateDraftClientInvoiceDto
   ) {
-    return prisma.$transaction(async (tx) => {
+    return prisma.$transaction((tx) =>
+      this.createOrUpdateDraftInTx(tx, companyId, clientContractId, dto)
+    );
+  }
+
+  async createOrUpdateDraftInTx(
+    tx: Prisma.TransactionClient,
+    companyId: string,
+    clientContractId: string,
+    dto: CreateOrUpdateDraftClientInvoiceDto
+  ) {
       const contract = await tx.clientContract.findFirst({
         where: { id: clientContractId, companyId },
       });
@@ -55,6 +67,7 @@ export class ClientInvoiceCommandService {
           installSiteStockMaterialIds: dto.installSiteStockMaterialIds,
           allowVariationOrder: dto.allowVariationOrder,
           excludeInvoiceId: existing?.id,
+          excludePreliminaryCertificateId: dto.excludePreliminaryCertificateId,
         }
       );
 
@@ -103,7 +116,6 @@ export class ClientInvoiceCommandService {
         where: { id: invoice.id, companyId },
         include: { items: true, siteStockMaterials: true },
       });
-    });
   }
 
   async submitToClient(companyId: string, invoiceId: string) {
@@ -150,7 +162,7 @@ export class ClientInvoiceCommandService {
     companyId: string,
     invoiceId: string,
     userId: string,
-    branchId: string,
+    branchId?: string | null,
     options?: { installSiteStockMaterialIds?: string[] }
   ): Promise<{
     invoice: PostedClientInvoice;
@@ -165,6 +177,13 @@ export class ClientInvoiceCommandService {
       if (invoice.journalEntryId) {
         throw new ClientInvoiceImmutableError(invoice.id, invoice.status);
       }
+
+      const contract = await tx.clientContract.findFirst({
+        where: { id: invoice.clientContractId, companyId },
+        select: { projectId: true },
+      });
+      if (!contract) throw new ClientContractNotFoundError(companyId, invoice.clientContractId);
+      await assertNoCompetingWave3OwnerFinancials(companyId, contract.projectId);
 
       const calculated = await this.recalculateFromPersistedLines(tx, companyId, invoice, options);
 
@@ -201,6 +220,8 @@ export class ClientInvoiceCommandService {
         userId,
         branchId
       );
+
+      await refreshClientInvoiceSettlementInTx(tx, companyId, invoice.id);
 
       const posted = await tx.clientInvoice.findFirstOrThrow({
         where: { id: invoice.id, companyId },

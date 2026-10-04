@@ -41,7 +41,7 @@ export function ProjectCard({
     <section className={cn('rounded-2xl border border-[#D6EAF3] bg-white p-5 shadow-sm', className)}>
       {title || actions ? (
         <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-          {title ? <h2 className="text-lg font-bold text-[#0E79AA]">{title}</h2> : <span />}
+          {title ? <h2 className="text-lg font-bold text-[#0E78AA]">{title}</h2> : <span />}
           {actions}
         </div>
       ) : null}

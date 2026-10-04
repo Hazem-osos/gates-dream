@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Tags } from 'lucide-react';
 import {
   Button,
@@ -18,13 +19,20 @@ import {
   type PriceListRow,
 } from '@/components/inventory/PriceListsListSection';
 import { BarcodePrintModal } from '@/app/components/print/BarcodePrintModal';
+import { ItemGroupSelect } from '@/app/components/form/ItemGroupSelect';
+import { ItemSelect } from '@/app/components/form/ItemSelect';
+import { fetchAllPages } from '@/lib/api/fetch-all-pages';
 import { useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
+import { useCompanyContextReady } from '@/lib/hooks/useTenantContextReady';
 import { apiClient } from '@/lib/api/client';
 import { queryKeys } from '@/lib/query/query-keys';
 import type { ItemOption } from '@/lib/hooks/useMasterDataQueries';
-import { asItemList, isUngroupedCategory, isVisibleInItemsGuide } from '@/lib/inventory/guide-visible-items';
+import { asItemList } from '@/lib/inventory/guide-visible-items';
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
+import { finishDocumentSave } from '@/lib/documents/finish-save';
+import { invalidateStockViews } from '@/lib/invoices/invalidate-stock-views';
+import { exportRowsToExcel } from '@/lib/export/export-utils';
 
 type PriceMode = 'value' | 'cost' | 'last';
 
@@ -46,6 +54,7 @@ type PriceLine = {
   itemCode: string;
   itemName: string;
   categoryId: string;
+  categoryName: string;
   unitId: string;
   unitName: string;
   discount: string;
@@ -75,9 +84,16 @@ type ApiPrice = {
   unit?: { id?: string; arabicName?: string };
 };
 
+type ItemGroup = {
+  id: string;
+  arabicName: string;
+  code?: string | null;
+  parentCategoryId?: string | null;
+};
+
 type CatalogItem = ItemOption & {
   categoryId?: string | null;
-  category?: { id?: string } | null;
+  category?: { id?: string; arabicName?: string | null } | null;
   isActive?: boolean | null;
   inactiveItem?: boolean | null;
   purchasePrice?: number | string | null;
@@ -91,6 +107,12 @@ type Currency = {
   code: string;
   arabicName: string;
 };
+
+function priceColumnTitle(base: 'سعر الشراء' | 'سعر البيع', mode: PriceMode): string {
+  if (mode === 'cost') return `${base} (% من التكلفة)`;
+  if (mode === 'last') return `${base} (% من آخر شراء)`;
+  return base;
+}
 
 const emptyForm = (): FormState => ({
   code: '',
@@ -118,6 +140,99 @@ function num(value: string): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+const PRICE_SHEET_HEADERS = ['كود الصنف', 'اسم الصنف', 'المجموعة', 'الوحدة', 'الخصم', 'سعر الشراء', 'سعر البيع'];
+
+const PRICE_SHEET_FIELDS: Record<string, 'code' | 'name' | 'discount' | 'purchase' | 'sale'> = {
+  'كود الصنف': 'code',
+  'رقم الصنف': 'code',
+  الكود: 'code',
+  code: 'code',
+  serial: 'code',
+  'اسم الصنف': 'name',
+  'الإسم العربي': 'name',
+  'الاسم العربي': 'name',
+  الخصم: 'discount',
+  discount: 'discount',
+  'سعر الشراء': 'purchase',
+  purchasePrice: 'purchase',
+  'سعر البيع': 'sale',
+  السعر: 'sale',
+  price: 'sale',
+  salesPrice: 'sale',
+};
+
+type SheetPricePatch = {
+  discount?: string;
+  purchasePrice?: string;
+  salePrice?: string;
+};
+
+function sheetCell(value: unknown): string {
+  if (value == null) return '';
+  return String(value).trim();
+}
+
+function parsePriceSheet(matrix: unknown[][]): Array<Record<'code' | 'name' | 'discount' | 'purchase' | 'sale', string>> {
+  if (matrix.length < 2) return [];
+  const headers = (matrix[0] as unknown[]).map((cell) => sheetCell(cell));
+  return matrix.slice(1).flatMap((raw) => {
+    const values = raw as unknown[];
+    const row = { code: '', name: '', discount: '', purchase: '', sale: '' };
+    let touched = false;
+    headers.forEach((header, index) => {
+      const field = PRICE_SHEET_FIELDS[header];
+      if (!field) return;
+      const text = sheetCell(values[index]);
+      if (!text) return;
+      row[field] = text;
+      touched = true;
+    });
+    return touched ? [row] : [];
+  });
+}
+
+function applyPriceSheet(lines: PriceLine[], rows: ReturnType<typeof parsePriceSheet>) {
+  const byCode = new Map<string, string[]>();
+  const byName = new Map<string, string[]>();
+  for (const line of lines) {
+    const code = line.itemCode.trim().toLowerCase();
+    const name = line.itemName.trim();
+    if (code) byCode.set(code, [...(byCode.get(code) ?? []), line.key]);
+    if (name) byName.set(name, [...(byName.get(name) ?? []), line.key]);
+  }
+  const updates = new Map<string, SheetPricePatch>();
+  let missed = 0;
+  for (const row of rows) {
+    const hits =
+      (row.code && byCode.get(row.code.trim().toLowerCase())) ||
+      (row.name && byName.get(row.name.trim())) ||
+      [];
+    if (!hits.length) {
+      missed += 1;
+      continue;
+    }
+    for (const key of hits) {
+      const prev = updates.get(key) ?? {};
+      updates.set(key, {
+        discount: row.discount || prev.discount,
+        purchasePrice: row.purchase || prev.purchasePrice,
+        salePrice: row.sale || prev.salePrice,
+      });
+    }
+  }
+  const next = lines.map((line) => {
+    const patch = updates.get(line.key);
+    if (!patch) return line;
+    return {
+      ...line,
+      discount: patch.discount ?? line.discount,
+      purchasePrice: patch.purchasePrice ?? line.purchasePrice,
+      salePrice: patch.salePrice ?? line.salePrice,
+    };
+  });
+  return { next, matched: updates.size, missed };
+}
+
 function scalePrice(value: string, factor: number): string {
   const n = num(value);
   if (n == null) return value;
@@ -134,6 +249,25 @@ function pickUnit(item?: CatalogItem | ItemOption | null): { unitId: string; uni
   };
 }
 
+function categoryIdsInGroup(rootId: string, groups: ItemGroup[]): Set<string> {
+  const children = new Map<string, string[]>();
+  for (const group of groups) {
+    if (!group.parentCategoryId) continue;
+    const list = children.get(group.parentCategoryId) ?? [];
+    list.push(group.id);
+    children.set(group.parentCategoryId, list);
+  }
+  const ids = new Set<string>();
+  const stack = [rootId];
+  while (stack.length) {
+    const id = stack.pop();
+    if (!id || ids.has(id)) continue;
+    ids.add(id);
+    for (const child of children.get(id) ?? []) stack.push(child);
+  }
+  return ids;
+}
+
 function lineFromCatalog(
   item: CatalogItem,
   saved?: ApiPrice,
@@ -147,6 +281,7 @@ function lineFromCatalog(
     itemCode: item.serial ?? item.code ?? '',
     itemName: item.arabicName ?? '',
     categoryId: item.categoryId ?? item.category?.id ?? '',
+    categoryName: item.category?.arabicName ?? '',
     unitId: saved?.unitId || unit.unitId,
     unitName: saved?.unit?.arabicName || unit.unitName,
     discount: asText(saved?.discount) || discount,
@@ -168,11 +303,17 @@ function mergeCatalog(
     (saved ?? []).map((row) => [`${row.itemId}:${row.unitId}`, row] as const)
   );
   const byItem = new Map((saved ?? []).map((row) => [row.itemId, row] as const));
-  return items.map((item) => {
-    const unit = pickUnit(item);
-    const match = byItemUnit.get(`${item.id}:${unit.unitId}`) ?? byItem.get(item.id);
-    return lineFromCatalog(item, match, discount);
-  });
+  return items
+    .map((item) => {
+      const unit = pickUnit(item);
+      const match = byItemUnit.get(`${item.id}:${unit.unitId}`) ?? byItem.get(item.id);
+      return lineFromCatalog(item, match, discount);
+    })
+    .sort((a, b) => {
+      const byGroup = a.categoryName.localeCompare(b.categoryName, 'ar');
+      if (byGroup) return byGroup;
+      return a.itemName.localeCompare(b.itemName, 'ar');
+    });
 }
 
 function PriceListsPageInner() {
@@ -182,11 +323,13 @@ function PriceListsPageInner() {
   const [form, setForm] = useState<FormState>(emptyForm);
   const [lines, setLines] = useState<PriceLine[]>([]);
   const [filterGroupId, setFilterGroupId] = useState('');
+  const [filterItemId, setFilterItemId] = useState('');
   const [unpricedOnly, setUnpricedOnly] = useState(false);
-  const [applied, setApplied] = useState({ groupId: '', unpriced: false, search: '' });
+  const [applied, setApplied] = useState({ groupId: '', itemId: '', unpriced: false, search: '' });
   const [search, setSearch] = useState('');
   const [showPrint, setShowPrint] = useState(false);
   const [showCopy, setShowCopy] = useState(false);
+  const [markupPct, setMarkupPct] = useState<number | null>(null);
   const [showGuide, setShowGuide] = useState(false);
   const [copySourceId, setCopySourceId] = useState('');
   const [error, setError] = useState('');
@@ -196,6 +339,8 @@ function PriceListsPageInner() {
   const catalogSeeded = useRef(false);
   const lastCatalogLen = useRef(0);
   const pendingPrices = useRef<ApiPrice[] | undefined>(undefined);
+  const priceSheetRef = useRef<HTMLInputElement>(null);
+  const [sheetBusy, setSheetBusy] = useState(false);
 
   const { data: currenciesResponse } = useApiQuery<Currency[]>(
     queryKeys.currencies,
@@ -204,12 +349,12 @@ function PriceListsPageInner() {
   );
   const currencies = currenciesResponse?.data ?? [];
 
-  const { data: groupsResponse } = useApiQuery<{ id: string; arabicName: string }[]>(
+  const { data: groupsResponse } = useApiQuery<ItemGroup[]>(
     queryKeys.itemCategories({ limit: 1000, guide: true }),
     '/inventory/item-categories',
     { limit: 1000, isActive: true }
   );
-  const groups = asItemList<{ id: string; arabicName: string }>(groupsResponse?.data);
+  const groups = asItemList<ItemGroup>(groupsResponse?.data);
 
   const { data: listsResponse } = useApiQuery<PriceListRow[]>(
     queryKeys.priceLists({ picker: true }),
@@ -218,20 +363,14 @@ function PriceListsPageInner() {
   );
   const allLists = listsResponse?.data ?? [];
 
-  const { data: itemsResponse, isLoading: catalogLoading } = useApiQuery<CatalogItem[]>(
-    queryKeys.items({ priceListCatalog: true }),
-    '/inventory/items',
-    { limit: 1000, isActive: true }
-  );
-  const catalog = useMemo(() => {
-    const raw = asItemList<CatalogItem>(itemsResponse?.data);
-    if (!groupsResponse) return [];
-    const activeGroupIds = new Set(groups.map((group) => group.id));
-    const ungroupedCategoryIds = new Set(
-      groups.filter((group) => isUngroupedCategory(group)).map((group) => group.id)
-    );
-    return raw.filter((item) => isVisibleInItemsGuide(item, activeGroupIds, ungroupedCategoryIds));
-  }, [itemsResponse?.data, groups, groupsResponse]);
+  const companyReady = useCompanyContextReady();
+  const catalogQuery = useQuery({
+    queryKey: ['items', 'price-list-catalog', 'all'],
+    enabled: companyReady,
+    queryFn: ({ signal }) => fetchAllPages<CatalogItem>('/inventory/items', { isActive: true }, signal),
+  });
+  const catalog = catalogQuery.data ?? [];
+  const catalogLoading = catalogQuery.isLoading;
 
   const patch = (next: Partial<FormState>) => setForm((prev) => ({ ...prev, ...next }));
   const patchLine = (key: string, next: Partial<PriceLine>) => {
@@ -261,7 +400,7 @@ function PriceListsPageInner() {
     seedFromCatalog(detail.prices);
   };
 
-  const loadList = async (id: string) => {
+  const loadList = async (id: string, afterLoad: 'view' | 'edit' = 'view') => {
     setLoadingDetail(true);
     setError('');
     try {
@@ -271,7 +410,8 @@ function PriceListsPageInner() {
       if (res.data) {
         setSelectedId(res.data.id);
         hydrateFromDetail(res.data);
-        lockToView();
+        if (afterLoad === 'view') lockToView();
+        else unlockForEdit();
       }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'تعذر تحميل القائمة');
@@ -290,17 +430,19 @@ function PriceListsPageInner() {
     pendingPrices.current = undefined;
     seedFromCatalog();
     setFilterGroupId('');
+    setFilterItemId('');
     setUnpricedOnly(false);
-    setApplied({ groupId: '', unpriced: false, search: '' });
+    setApplied({ groupId: '', itemId: '', unpriced: false, search: '' });
     setError('');
     setSuccess('');
     setMode('create');
   };
 
   useEffect(() => {
-    if (!itemsResponse || !groupsResponse) return;
-    const catalogJustArrived = lastCatalogLen.current === 0 && catalog.length > 0;
-    lastCatalogLen.current = catalog.length;
+    const loaded = catalogQuery.data;
+    if (!loaded) return;
+    const catalogJustArrived = lastCatalogLen.current === 0 && loaded.length > 0;
+    lastCatalogLen.current = loaded.length;
     if (selectedId) {
       if (catalogJustArrived) seedFromCatalog(pendingPrices.current);
       return;
@@ -309,38 +451,93 @@ function PriceListsPageInner() {
       seedFromCatalog();
       catalogSeeded.current = true;
     }
-  }, [itemsResponse, groupsResponse, selectedId, catalog]);
+  }, [catalogQuery.data, selectedId, catalog]);
 
   const visible = useMemo(() => {
+    const groupIds = applied.groupId ? categoryIdsInGroup(applied.groupId, groups) : null;
     return lines.filter((row) => {
-      if (applied.groupId && row.categoryId && row.categoryId !== applied.groupId) {
-        return false;
-      }
+      if (groupIds && !groupIds.has(row.categoryId)) return false;
+      if (applied.itemId && row.itemId !== applied.itemId) return false;
       if (applied.unpriced) {
         const priced = Boolean(row.purchasePrice.trim() || row.salePrice.trim());
         if (priced) return false;
       }
       if (applied.search.trim()) {
         const q = applied.search.trim();
-        if (!`${row.itemCode} ${row.itemName}`.includes(q)) return false;
+        if (!`${row.itemCode} ${row.itemName} ${row.categoryName}`.includes(q)) return false;
       }
       return true;
     });
-  }, [lines, applied]);
+  }, [lines, applied, groups]);
 
-  const applyFilters = () => {
-    setApplied({
-      groupId: filterGroupId,
-      unpriced: unpricedOnly,
-      search,
-    });
+  const exportPriceSheet = async () => {
+    setError('');
+    setSheetBusy(true);
+    try {
+      const rows = visible.map((row) => [
+        row.itemCode,
+        row.itemName,
+        row.categoryName || 'بدون مجموعة',
+        row.unitName,
+        row.discount,
+        num(row.purchasePrice) ?? '',
+        num(row.salePrice) ?? '',
+      ]);
+      const name = form.code.trim() || form.arabicName.trim() || 'prices';
+      await exportRowsToExcel(`price-list-${name}.xlsx`, PRICE_SHEET_HEADERS, rows, 'الأسعار');
+      setSuccess(`تم تنزيل ${rows.length} صنف من المعروض.`);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'تعذر تنزيل الشيت');
+    } finally {
+      setSheetBusy(false);
+    }
+  };
+
+  const importPriceSheet = async (file: File) => {
+    if (selectedId && isReadOnly) {
+      setError('اضغط تعديل أولاً قبل استيراد الأسعار');
+      return;
+    }
+    setError('');
+    setSheetBusy(true);
+    try {
+      const XLSX = await import(/* webpackChunkName: "xlsx" */ 'xlsx');
+      const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      if (!sheet) {
+        setError('الملف لا يحتوي على ورقة عمل');
+        return;
+      }
+      const matrix = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: '' });
+      const parsed = parsePriceSheet(matrix);
+      if (!parsed.length) {
+        setError('الشيت فاضي أو الأعمدة مش كود الصنف واسم الصنف وسعر الشراء وسعر البيع');
+        return;
+      }
+      const { next, matched, missed } = applyPriceSheet(lines, parsed);
+      if (!matched) {
+        setError('مفيش صنف في الشيت مطابق لكود أو اسم في القائمة');
+        return;
+      }
+      setLines(next);
+      setSuccess(
+        missed
+          ? `اتحطت أسعار ${matched} صنف. ${missed} صف في الشيت مش لاقي صنف مطابق.`
+          : `اتحطت أسعار ${matched} صنف من الشيت. احفظ لتثبيت القائمة.`
+      );
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'تعذر قراءة شيت الأسعار');
+    } finally {
+      setSheetBusy(false);
+    }
   };
 
   const showAll = () => {
     setFilterGroupId('');
+    setFilterItemId('');
     setUnpricedOnly(false);
     setSearch('');
-    setApplied({ groupId: '', unpriced: false, search: '' });
+    setApplied({ groupId: '', itemId: '', unpriced: false, search: '' });
   };
 
   const applyPercentToTable = (raw: string, direction: 'down' | 'up') => {
@@ -354,6 +551,11 @@ function PriceListsPageInner() {
       setError('النسبة غير صالحة');
       return;
     }
+    if (direction === 'up') {
+      setError('');
+      setMarkupPct(pct);
+      return;
+    }
     setError('');
     setLines((prev) =>
       prev.map((row) => ({
@@ -362,10 +564,25 @@ function PriceListsPageInner() {
         salePrice: scalePrice(row.salePrice, factor),
       }))
     );
+    setSuccess(`تم خصم ${pct}% من أسعار كل الأصناف`);
+  };
+
+  const applyMarkup = (target: 'purchase' | 'sale') => {
+    const pct = markupPct;
+    if (pct == null) return;
+    const factor = 1 + pct / 100;
+    setLines((prev) =>
+      prev.map((row) =>
+        target === 'purchase'
+          ? { ...row, purchasePrice: scalePrice(row.purchasePrice, factor) }
+          : { ...row, salePrice: scalePrice(row.salePrice, factor) }
+      )
+    );
+    setMarkupPct(null);
     setSuccess(
-      direction === 'down'
-        ? `تم خصم ${pct}% من أسعار كل الأصناف`
-        : `تم زيادة أسعار كل الأصناف بنسبة ${pct}%`
+      target === 'purchase'
+        ? `تم زيادة سعر الشراء بنسبة ${pct}%`
+        : `تم زيادة سعر البيع بنسبة ${pct}%`
     );
   };
 
@@ -433,23 +650,42 @@ function PriceListsPageInner() {
     });
     setSaving(true);
     try {
+      const wasUpdate = Boolean(selectedId);
       let id = selectedId;
       if (id) {
         await apiClient.put(`/inventory/price-lists/${id}`, body);
       } else {
         const created = await apiClient.post<PriceListRow>('/inventory/price-lists', body);
         id = created.data?.id ?? null;
-        if (id) setSelectedId(id);
       }
       if (!id) throw new Error('تعذر حفظ قائمة الأسعار');
       await apiClient.put<PriceListRow & { prices?: ApiPrice[] }>(
         `/inventory/price-lists/${id}/prices`,
         { replace: true, prices }
       );
+      invalidateStockViews(invalidateQuery);
       invalidateQuery(['price-lists']);
       invalidateQuery(['price-list']);
-      handleNew();
-      setSuccess('تم حفظ قائمة الأسعار — تقدر تضيف التالي');
+      if (wasUpdate) {
+        finishDocumentSave({
+          label: 'قائمة أسعار',
+          number: form.code,
+          savedId: id,
+          onOpen: (saved) => {
+            void loadList(saved, 'edit');
+          },
+          cleared: false,
+          reset: () => undefined,
+        });
+      } else {
+        finishDocumentSave({
+          label: 'قائمة أسعار',
+          number: form.code,
+          savedId: id,
+          onOpen: (saved) => void loadList(saved, 'edit'),
+          reset: handleNew,
+        });
+      }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'حدث خطأ أثناء الحفظ');
     } finally {
@@ -494,18 +730,14 @@ function PriceListsPageInner() {
       canSave={!saving && !(selectedId && isReadOnly)}
       onNew={handleNew}
       currentId={selectedId}
+      onEdit={() => {
+        if (!selectedId) return;
+        unlockForEdit();
+      }}
+      editDisabled={!selectedId || !isReadOnly}
       onBrowseList={() => setShowGuide(true)}
       favoriteHref="/inventory/creations/price-lists"
       moreMenuItems={[
-        {
-          id: 'edit',
-          label: 'تعديل',
-          onClick: () => {
-            if (!selectedId) return;
-            unlockForEdit();
-          },
-          disabled: !selectedId || !isReadOnly,
-        },
         {
           id: 'delete',
           label: 'حذف',
@@ -529,6 +761,12 @@ function PriceListsPageInner() {
     >
       {error && <ErrorToast message={error} onClose={() => setError('')} />}
       {success && <SuccessToast message={success} onClose={() => setSuccess('')} />}
+
+      {selectedId && isReadOnly ? (
+        <p className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800">
+          القائمة في وضع العرض. اضغط تعديل قبل تغيير الأسعار أو استيراد الشيت.
+        </p>
+      ) : null}
 
       <fieldset disabled={Boolean(selectedId && isReadOnly)} className="min-w-0 border-0 p-0">
       <FormSectionCard title="بيانات القائمة" subtitle="الكود والأسماء والعملة ونسب الخصم والزيادة" icon={Tags}>
@@ -631,45 +869,90 @@ function PriceListsPageInner() {
           </button>
         ))}
       </div>
+      </fieldset>
 
-      <FilterToolbar searchPlaceholder="بحث بكود أو اسم الصنف…" onSearchChange={setSearch}>
-        <select
-          className={`${compactControlClass} w-44`}
-          value={filterGroupId}
-          onChange={(e) => setFilterGroupId(e.target.value)}
-          aria-label="المجموعة"
-        >
-          <option value="">كل المجموعات</option>
-          {groups.map((g) => (
-            <option key={g.id} value={g.id}>
-              {g.arabicName}
-            </option>
-          ))}
-        </select>
+      <FilterToolbar searchPlaceholder="بحث بكود أو اسم الصنف أو المجموعة…" onSearchChange={setSearch}>
+        <div className="w-52">
+          <ItemGroupSelect
+            value={filterGroupId}
+            groups={groups}
+            emptyLabel="كل المجموعات"
+            onChange={(id) => {
+              setFilterGroupId(id);
+              setApplied((prev) => ({ ...prev, groupId: id }));
+            }}
+          />
+        </div>
+        <div className="w-56">
+          <ItemSelect
+            value={filterItemId}
+            allowEmpty
+            emptyLabel="كل الأصناف"
+            enableQuickCreate={false}
+            onChange={(id) => {
+              setFilterItemId(id);
+              setApplied((prev) => ({ ...prev, itemId: id }));
+            }}
+          />
+        </div>
         <label className="flex items-center gap-2 text-sm text-[#0A3D5E]">
           <input
             type="checkbox"
             className="h-4 w-4"
             checked={unpricedOnly}
-            onChange={(e) => setUnpricedOnly(e.target.checked)}
+            onChange={(e) => {
+              const unpriced = e.target.checked;
+              setUnpricedOnly(unpriced);
+              setApplied((prev) => ({ ...prev, unpriced }));
+            }}
           />
           الأصناف غير المسعّرة
         </label>
-        <Button type="button" variant="secondary" size="sm" onClick={applyFilters}>
-          تطبيق
-        </Button>
         <Button type="button" variant="ghost" size="sm" onClick={showAll}>
           عرض الكل
         </Button>
+        <Button type="button" variant="secondary" size="sm" isLoading={sheetBusy} onClick={() => void exportPriceSheet()}>
+          تصدير إكسيل
+        </Button>
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          isLoading={sheetBusy}
+          disabled={Boolean(selectedId && isReadOnly)}
+          onClick={() => priceSheetRef.current?.click()}
+        >
+          استيراد إكسيل
+        </Button>
+        <input
+          ref={priceSheetRef}
+          type="file"
+          accept=".xlsx,.xls,.csv"
+          className="sr-only"
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            event.target.value = '';
+            if (file) void importPriceSheet(file);
+          }}
+        />
       </FilterToolbar>
 
+      <fieldset disabled={Boolean(selectedId && isReadOnly)} className="min-w-0 border-0 p-0">
       <section className="mb-4 mt-4 overflow-visible rounded-xl border border-[#E6F0F7] bg-white p-4 shadow-sm">
         <AppTable<PriceLine>
           isLoading={loadingDetail || catalogLoading}
           data={visible}
           getRowKey={(r) => r.key}
-          emptyTitle="لا توجد أصناف في دليل الأصناف"
-          emptyDescription="أضف الأصناف من دليل الأصناف ثم ارجع لتسعيرها هنا."
+          emptyTitle={
+            filterGroupId || filterItemId || unpricedOnly || search.trim()
+              ? 'لا توجد أصناف مطابقة للتصنيف'
+              : 'لا توجد أصناف في دليل الأصناف'
+          }
+          emptyDescription={
+            filterGroupId || filterItemId || unpricedOnly || search.trim()
+              ? 'غيّر المجموعة أو الصنف، أو اضغط «عرض الكل».'
+              : 'أضف الأصناف من دليل الأصناف ثم ارجع لتسعيرها هنا.'
+          }
           virtualizeThreshold={10_000}
           columns={[
             {
@@ -690,6 +973,12 @@ function PriceListsPageInner() {
               header: 'اسم الصنف',
               className: `${cellCls} min-w-[220px]`,
               cell: (row) => row.itemName || '—',
+            },
+            {
+              id: 'group',
+              header: 'المجموعة',
+              className: `${cellCls} min-w-[140px]`,
+              cell: (row) => row.categoryName || 'بدون مجموعة',
             },
             {
               id: 'unit',
@@ -713,7 +1002,7 @@ function PriceListsPageInner() {
             },
             {
               id: 'purchase',
-              header: 'سعر الشراء',
+              header: priceColumnTitle('سعر الشراء', form.priceMode),
               className: `${cellCls} min-w-[110px]`,
               cell: (row) => (
                 <input
@@ -727,12 +1016,7 @@ function PriceListsPageInner() {
             },
             {
               id: 'sale',
-              header:
-                form.priceMode === 'cost'
-                  ? 'سعر البيع (% من التكلفة)'
-                  : form.priceMode === 'last'
-                    ? 'سعر البيع (% من آخر شراء)'
-                    : 'سعر البيع',
+              header: priceColumnTitle('سعر البيع', form.priceMode),
               className: `${cellCls} min-w-[110px]`,
               cell: (row) => (
                 <input
@@ -769,6 +1053,26 @@ function PriceListsPageInner() {
           selectedId={selectedId}
         />
       </DocumentBrowseDrawer>
+
+      {markupPct != null && (
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/40 p-4" dir="rtl">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+            <h2 className="mb-2 text-lg font-bold text-[#0A3D5E]">تطبيق الزيادة {markupPct}%</h2>
+            <p className="mb-5 text-sm text-[#0A3D5E]">الزيادة تتنزّل على سعر الشراء ولا سعر البيع؟</p>
+            <div className="flex flex-wrap justify-end gap-2">
+              <Button type="button" variant="ghost" onClick={() => setMarkupPct(null)}>
+                تراجع
+              </Button>
+              <Button type="button" variant="secondary" onClick={() => applyMarkup('purchase')}>
+                سعر الشراء
+              </Button>
+              <Button type="button" onClick={() => applyMarkup('sale')}>
+                سعر البيع
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showCopy && (
         <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/40 p-4" dir="rtl">

@@ -13,7 +13,7 @@ export function AutomationDetailsView({ rule }: { rule: AutomationRule }) {
       <FlowConnector />
       <ConditionGroup eventType={rule.eventType} conditions={rule.conditions} onChange={() => {}} readOnly />
       <FlowConnector />
-      <ActionBlock actions={rule.actions} onChange={() => {}} readOnly />
+      <ActionBlock eventType={rule.eventType} actions={rule.actions} onChange={() => {}} readOnly />
     </div>
   );
 }

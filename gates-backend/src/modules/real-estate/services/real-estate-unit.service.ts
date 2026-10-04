@@ -11,12 +11,17 @@ export class RealEstateUnitService {
       costCenterId?: string;
     }
   ) {
+    const projectCode = input.projectCode?.trim();
+    const projectName = input.projectName?.trim();
+    if (!projectCode) throw new AppError(400, 'كود المشروع مطلوب');
+    if (!projectName) throw new AppError(400, 'اسم المشروع مطلوب');
+
     return prisma.realEstateProject.create({
       data: {
         companyId,
-        projectCode: input.projectCode,
-        projectName: input.projectName,
-        costCenterId: input.costCenterId,
+        projectCode,
+        projectName,
+        costCenterId: input.costCenterId || null,
       },
     });
   }
@@ -26,8 +31,28 @@ export class RealEstateUnitService {
       where: { id: projectId, companyId },
       include: { buildings: { include: { units: true } } },
     });
-    if (!row) throw new AppError(404, 'Real estate project not found');
+    if (!row) throw new AppError(404, 'المشروع العقاري غير موجود');
     return row;
+  }
+
+  async updateProject(
+    companyId: string,
+    projectId: string,
+    input: {
+      projectCode?: string;
+      projectName?: string;
+      costCenterId?: string | null;
+    }
+  ) {
+    await this.getProject(companyId, projectId);
+    return prisma.realEstateProject.update({
+      where: { id: projectId },
+      data: {
+        ...(input.projectCode !== undefined ? { projectCode: input.projectCode.trim() } : {}),
+        ...(input.projectName !== undefined ? { projectName: input.projectName.trim() } : {}),
+        ...(input.costCenterId !== undefined ? { costCenterId: input.costCenterId || null } : {}),
+      },
+    });
   }
 
   async createBuilding(
@@ -40,11 +65,16 @@ export class RealEstateUnitService {
     }
   ) {
     await this.getProject(companyId, input.projectId);
+    const buildingCode = input.buildingCode?.trim();
+    const name = input.name?.trim();
+    if (!buildingCode) throw new AppError(400, 'كود المبنى مطلوب');
+    if (!name) throw new AppError(400, 'اسم المبنى مطلوب');
+
     return prisma.realEstateBuilding.create({
       data: {
         projectId: input.projectId,
-        buildingCode: input.buildingCode,
-        name: input.name,
+        buildingCode,
+        name,
         totalFloors: input.totalFloors ?? 1,
       },
     });
@@ -55,8 +85,48 @@ export class RealEstateUnitService {
       where: { id: buildingId, project: { companyId } },
       include: { units: true, project: true },
     });
-    if (!row) throw new AppError(404, 'Building not found');
+    if (!row) throw new AppError(404, 'المبنى غير موجود');
     return row;
+  }
+
+  async listBuildings(companyId: string, filters: { projectId?: string } = {}) {
+    return prisma.realEstateBuilding.findMany({
+      where: {
+        project: { companyId },
+        ...(filters.projectId ? { projectId: filters.projectId } : {}),
+      },
+      include: {
+        project: { select: { id: true, projectCode: true, projectName: true } },
+        _count: { select: { units: true } },
+      },
+      orderBy: [{ project: { projectCode: 'asc' } }, { buildingCode: 'asc' }],
+    });
+  }
+
+  async updateBuilding(
+    companyId: string,
+    buildingId: string,
+    input: {
+      buildingCode?: string;
+      name?: string;
+      totalFloors?: number;
+      projectId?: string;
+    }
+  ) {
+    await this.getBuilding(companyId, buildingId);
+    if (input.projectId) {
+      await this.getProject(companyId, input.projectId);
+    }
+    return prisma.realEstateBuilding.update({
+      where: { id: buildingId },
+      data: {
+        ...(input.projectId !== undefined ? { projectId: input.projectId } : {}),
+        ...(input.buildingCode !== undefined ? { buildingCode: input.buildingCode.trim() } : {}),
+        ...(input.name !== undefined ? { name: input.name.trim() } : {}),
+        ...(input.totalFloors !== undefined ? { totalFloors: input.totalFloors } : {}),
+      },
+      include: { project: true },
+    });
   }
 
   async createUnit(
@@ -76,7 +146,10 @@ export class RealEstateUnitService {
     const building = await prisma.realEstateBuilding.findFirst({
       where: { id: input.buildingId, project: { companyId } },
     });
-    if (!building) throw new AppError(404, 'Building not found');
+    if (!building) throw new AppError(404, 'المبنى غير موجود');
+
+    const unitCode = input.unitCode?.trim();
+    if (!unitCode) throw new AppError(400, 'كود الوحدة مطلوب');
 
     const gross = input.grossArea ?? 0;
     const meter = input.meterPrice ?? 0;
@@ -87,7 +160,7 @@ export class RealEstateUnitService {
     return prisma.realEstateUnit.create({
       data: {
         buildingId: input.buildingId,
-        unitCode: input.unitCode,
+        unitCode,
         unitType: input.unitType ?? 'RESIDENTIAL',
         floor: input.floor ?? 0,
         grossArea: new Decimal(gross),
@@ -105,8 +178,51 @@ export class RealEstateUnitService {
       where: { id: unitId, building: { project: { companyId } } },
       include: { building: { include: { project: true } } },
     });
-    if (!unit) throw new AppError(404, 'Unit not found');
+    if (!unit) throw new AppError(404, 'الوحدة غير موجودة');
     return unit;
+  }
+
+  async updateUnit(
+    companyId: string,
+    unitId: string,
+    input: {
+      buildingId?: string;
+      unitCode?: string;
+      unitType?: string;
+      floor?: number;
+      grossArea?: number;
+      netArea?: number;
+      meterPrice?: number;
+      totalPrice?: number;
+      maintenanceDeposit?: number;
+    }
+  ) {
+    await this.getUnit(companyId, unitId);
+    if (input.buildingId) {
+      const building = await prisma.realEstateBuilding.findFirst({
+        where: { id: input.buildingId, project: { companyId } },
+      });
+      if (!building) throw new AppError(404, 'المبنى غير موجود');
+    }
+
+    const data: Record<string, unknown> = {};
+    if (input.buildingId !== undefined) data.buildingId = input.buildingId;
+    if (input.unitCode !== undefined) data.unitCode = input.unitCode.trim();
+    if (input.unitType !== undefined) data.unitType = input.unitType;
+    if (input.floor !== undefined) data.floor = input.floor;
+    if (input.grossArea !== undefined) data.grossArea = new Decimal(input.grossArea);
+    if (input.netArea !== undefined) data.netArea = new Decimal(input.netArea);
+    if (input.meterPrice !== undefined) data.meterPrice = new Decimal(input.meterPrice);
+    if (input.totalPrice !== undefined) data.totalPrice = new Decimal(input.totalPrice);
+    if (input.maintenanceDeposit !== undefined) {
+      data.maintenanceDeposit = new Decimal(input.maintenanceDeposit);
+    }
+
+    return prisma.realEstateUnit.update({
+      where: { id: unitId },
+      data,
+      include: { building: { include: { project: true } } },
+    });
   }
 
   async listProjects(companyId: string) {

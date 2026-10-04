@@ -18,7 +18,7 @@ type Props = {
 };
 
 export function BankCreditLinesTable({
-  accountColumnLabel = 'الحساب / العميل',
+  accountColumnLabel = 'الحساب',
   ...props
 }: Props) {
   return (

@@ -7,8 +7,9 @@ export default function MonthlyReviewBalancePage() {
     <AccountReportFilterPage
       urlPath="/accounting/account-reports/balances/monthly-review-balance"
       icon="📅"
-      subtitle="ميزان المراجعة لفترة شهرية محددة."
-      fields={{ dates: 'range', branch: true }}
+      subtitle="رصيد ما قبل الفترة، ثم مدين ودائن كل شهر، ثم الإجمالي."
+      defaultFullCalendarYear
+      fields={{ dates: 'range', branch: true, reportOptions: ['showIdleAccounts', 'showUnposted'] }}
     />
   );
 }

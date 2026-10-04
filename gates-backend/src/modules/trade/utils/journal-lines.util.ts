@@ -5,6 +5,8 @@ export function journalLines(
     credit: number;
     description?: string;
     costCenterId?: string;
+    partnerId?: string;
+    partnerType?: string;
   }>
 ) {
   const nonZero = rows.filter((row) => row.debit > 0 || row.credit > 0);

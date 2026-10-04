@@ -25,7 +25,8 @@ export interface ActionHandler {
 export class AutomationActionDispatchError extends Error {
   constructor(
     public readonly statusCode: number,
-    message: string
+    message: string,
+    public readonly code: string = statusCode >= 500 ? 'INTERNAL_ERROR' : 'DOMAIN_ERROR'
   ) {
     super(message);
     this.name = 'AutomationActionDispatchError';

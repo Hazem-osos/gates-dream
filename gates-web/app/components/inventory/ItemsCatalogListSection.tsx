@@ -89,14 +89,6 @@ export function ItemsCatalogListSection({
           printTitle: 'دليل الأصناف',
         }}
       >
-        <Button
-          type="button"
-          variant="primary"
-          size="sm"
-          onClick={() => router.push('/inventory/creations/item-card')}
-        >
-          صنف جديد
-        </Button>
         <Button type="button" variant="secondary" size="sm" onClick={() => setBarcodeOpen(true)}>
           طباعة باركود
         </Button>
@@ -122,7 +114,7 @@ export function ItemsCatalogListSection({
         data={rows}
         getRowKey={(r) => r.id}
         emptyTitle="لا توجد أصناف"
-        emptyDescription="أنشئ صنفاً جديداً أو غيّر عوامل البحث."
+        emptyDescription="غيّر عوامل البحث أو افتح صنفاً من دليل الأصناف."
         columns={[
           {
             id: 'code',

@@ -1,7 +1,12 @@
 'use client';
 
 import { usePathname } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import { UniversalReportViewer } from '@/components/report/UniversalReportViewer';
+import { AccountsBalanceSheet } from '@/components/report/AccountsBalanceSheet';
+import { BalanceSheetStatement } from '@/components/report/BalanceSheetStatement';
+import { TradingAccountSheet } from '@/components/report/TradingAccountSheet';
+import { AccountBalancesSheet } from '@/components/report/AccountBalancesSheet';
 import { getReportByUrlPath } from '@/lib/reports/reportCatalog';
 import { breadcrumbsForReportModule } from '@/lib/reports/reportPageBreadcrumbs';
 
@@ -10,6 +15,7 @@ import { breadcrumbsForReportModule } from '@/lib/reports/reportPageBreadcrumbs'
  */
 export default function CatalogReportPreviewPage() {
   const pathname = usePathname() ?? '';
+  const searchParams = useSearchParams();
   const entry = getReportByUrlPath(pathname);
 
   if (!entry || entry.kind !== 'preview') {
@@ -22,6 +28,27 @@ export default function CatalogReportPreviewPage() {
   }
 
   const registryPath = entry.registryPath;
+  if (
+    entry.reportKey === 'financial-position-statement' ||
+    entry.reportKey === 'accounts-balance' ||
+    entry.reportKey === 'trading-account' ||
+    entry.reportKey === 'account-balances'
+  ) {
+    const query = Object.fromEntries(searchParams.entries());
+    return (
+      <div className="p-4" dir="rtl">
+        {entry.reportKey === 'trading-account' ? (
+          <TradingAccountSheet query={query} />
+        ) : entry.reportKey === 'account-balances' ? (
+          <AccountBalancesSheet query={query} />
+        ) : entry.reportKey === 'accounts-balance' ? (
+          <AccountsBalanceSheet query={query} />
+        ) : (
+          <BalanceSheetStatement query={query} />
+        )}
+      </div>
+    );
+  }
 
   return (
     <UniversalReportViewer

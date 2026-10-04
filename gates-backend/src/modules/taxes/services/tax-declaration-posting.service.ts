@@ -229,19 +229,6 @@ export class TaxDeclarationPostingService {
         { reason: 'Tax authority payment reversed' }
       );
 
-      if (settlement.safeId) {
-        await tx.safe.update({
-          where: { id: settlement.safeId },
-          data: { balance: { increment: settlement.amount } },
-        });
-      }
-      if (settlement.bankAccountId) {
-        await tx.bankAccount.update({
-          where: { id: settlement.bankAccountId },
-          data: { balance: { increment: settlement.amount } },
-        });
-      }
-
       return tx.taxSettlement.delete({ where: { id: taxSettlementId } });
     });
   }
@@ -307,19 +294,6 @@ export class TaxDeclarationPostingService {
         sourceYearId: paySourceYearId,
         lines,
       });
-
-      if (params.safeId) {
-        await tx.safe.update({
-          where: { id: params.safeId },
-          data: { balance: { decrement: new Decimal(amount) } },
-        });
-      }
-      if (params.bankAccountId) {
-        await tx.bankAccount.update({
-          where: { id: params.bankAccountId },
-          data: { balance: { decrement: new Decimal(amount) } },
-        });
-      }
 
       return tx.taxSettlement.create({
         data: {

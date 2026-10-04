@@ -91,7 +91,7 @@ export default function AccountingSettingsPage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
           <InnerCard>
             <div className="text-center">
-              <div className="text-2xl font-bold text-[#0E79AA] mb-1">
+              <div className="text-2xl font-bold text-[#0E78AA] mb-1">
                 {companiesLoading ? '…' : companyTotal}
               </div>
               <div className="text-sm text-gray-600">شركات نشطة (من الخادم)</div>
@@ -99,19 +99,19 @@ export default function AccountingSettingsPage() {
           </InnerCard>
           <InnerCard>
             <div className="text-center">
-              <div className="text-2xl font-bold text-[#0E79AA] mb-1">{sections.length}</div>
+              <div className="text-2xl font-bold text-[#0E78AA] mb-1">{sections.length}</div>
               <div className="text-sm text-gray-600">الأقسام الرئيسية</div>
             </div>
           </InnerCard>
           <InnerCard>
             <div className="text-center">
-              <div className="text-2xl font-bold text-[#0E79AA] mb-1">{SUB_ROUTE_COUNT}</div>
+              <div className="text-2xl font-bold text-[#0E78AA] mb-1">{SUB_ROUTE_COUNT}</div>
               <div className="text-sm text-gray-600">الإعدادات الفرعية (تقريباً)</div>
             </div>
           </InnerCard>
           <InnerCard>
             <div className="text-center">
-              <div className="text-2xl font-bold text-[#0E79AA] mb-1">100%</div>
+              <div className="text-2xl font-bold text-[#0E78AA] mb-1">100%</div>
               <div className="text-sm text-gray-600">متوافق مع المعايير</div>
             </div>
           </InnerCard>
@@ -124,7 +124,7 @@ export default function AccountingSettingsPage() {
           <OuterCard key={section.key}>
             <div 
               className={`p-6 rounded-lg cursor-pointer transition-all duration-200 hover:shadow-lg ${
-                activeSection === section.key ? 'ring-2 ring-[#0E79AA]' : ''
+                activeSection === section.key ? 'ring-2 ring-[#0E78AA]' : ''
               }`}
               onClick={() => setActiveSection(activeSection === section.key ? '' : section.key)}
             >
@@ -151,7 +151,7 @@ export default function AccountingSettingsPage() {
                   <Link
                     href={section.href}
                     onClick={(e) => e.stopPropagation()}
-                    className="block w-full text-center bg-[#0E79AA] text-white py-2 px-4 rounded-lg hover:bg-[#094C6B] transition-colors"
+                    className="block w-full text-center bg-[#0E78AA] text-white py-2 px-4 rounded-lg hover:bg-[#094C6B] transition-colors"
                   >
                     الدخول إلى القسم
                   </Link>

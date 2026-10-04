@@ -1,14 +1,35 @@
 import { z } from 'zod';
 
+const journalDate = z.union([
+  z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  z.string().datetime(),
+  z.date(),
+]);
+
+function meaningfulJournalLines(raw: unknown): unknown {
+  if (!Array.isArray(raw)) return raw;
+  return raw.filter((line) => {
+    if (!line || typeof line !== 'object') return false;
+    const row = line as { accountId?: unknown; debit?: unknown; credit?: unknown };
+    return (
+      Boolean(String(row.accountId ?? '').trim()) &&
+      (Number(row.debit) > 0 || Number(row.credit) > 0)
+    );
+  });
+}
+
 export const journalEntryLineSchema = z
   .object({
-    accountId: z.string().uuid('Account ID must be a valid UUID'),
-    costCenterId: z.string().uuid().optional().nullable(),
+    accountId: z.string().uuid('اختر حساباً صحيحاً في السطر'),
+    costCenterId: z
+      .union([z.string().uuid(), z.literal(''), z.null()])
+      .optional()
+      .transform((v) => (v ? v : undefined)),
     description: z.string().optional(),
-    debit: z.number().nonnegative('Debit must be non-negative'),
-    credit: z.number().nonnegative('Credit must be non-negative'),
-    lineOrder: z.number().int().positive('Line order must be a positive integer'),
-    exchangeRate: z.number().positive().optional(),
+    debit: z.coerce.number().nonnegative('المدين لا يكون سالباً'),
+    credit: z.coerce.number().nonnegative('الدائن لا يكون سالباً'),
+    lineOrder: z.coerce.number().int().positive('ترتيب السطر غير صحيح'),
+    exchangeRate: z.coerce.number().positive().optional(),
     currencyId: z.string().optional().nullable(),
     currencyCode: z.string().optional().nullable(),
     debitBase: z.number().nonnegative().optional(),
@@ -31,16 +52,16 @@ export const journalEntryLineSchema = z
       const hasCredit = line.credit > 0;
       return hasDebit !== hasCredit;
     },
-    { message: 'Each line must have either debit or credit (not both, not neither)' }
+    { message: 'كل سطر يجب أن يكون مدين أو دائن فقط، وليس الاثنين معاً ولا فارغاً' }
   );
 
 export const createJournalEntrySchema = z
   .object({
     voucherNumber: z.string().optional(),
-    date: z.string().datetime().or(z.date()),
+    date: journalDate,
     hijriDate: z.string().optional(),
     description: z.string().optional(),
-    currencyCode: z.string().min(1, 'Currency code is required'),
+    currencyCode: z.string().min(1, 'عملة القيد مطلوبة'),
     isCyclic: z.boolean().optional(),
     isRecurring: z.boolean().optional(),
     entryType: z.string().max(30).optional(),
@@ -49,16 +70,29 @@ export const createJournalEntrySchema = z
     sourceNumber: z.string().max(80).optional(),
     sourceKind: z.string().max(30).optional(),
     exchangeRate: z.number().positive().optional(),
-    lines: z
-      .array(journalEntryLineSchema)
-      .min(2, 'Journal entry must have at least 2 line items'),
+    saveAsDraft: z.boolean().optional(),
+    lines: z.preprocess(
+      meaningfulJournalLines,
+      z.array(journalEntryLineSchema).min(1, 'أدخل سطراً واحداً على الأقل')
+    ),
+  })
+  .superRefine((data, ctx) => {
+    const openingDraft =
+      data.saveAsDraft === true && String(data.entryType ?? '').toUpperCase() === 'OPENING_BALANCE';
+    if (!openingDraft && data.lines.length < 2) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['lines'],
+        message: 'القيد يحتاج سطرين على الأقل',
+      });
+    }
   });
   // Balance is enforced in journalPostingService so SaveUnbalanced can allow drafts.
 
 export const updateJournalEntrySchema = z
   .object({
     voucherNumber: z.string().optional(),
-    date: z.string().datetime().or(z.date()).optional(),
+    date: journalDate.optional(),
     hijriDate: z.string().optional(),
     description: z.string().optional(),
     currencyCode: z.string().optional(),
@@ -70,15 +104,28 @@ export const updateJournalEntrySchema = z
     sourceNumber: z.string().max(80).optional(),
     sourceKind: z.string().max(30).optional(),
     exchangeRate: z.number().positive().optional(),
-    lines: z
-      .array(journalEntryLineSchema)
-      .min(2, 'Journal entry must have at least 2 line items')
-      .optional(),
+    saveAsDraft: z.boolean().optional(),
+    lines: z.preprocess(
+      (raw) => (raw === undefined ? undefined : meaningfulJournalLines(raw)),
+      z.array(journalEntryLineSchema).min(1, 'أدخل سطراً واحداً على الأقل').optional()
+    ),
     // M14 fix (Item 40): optional optimistic-locking token. When provided
     // (echoing the `version` a prior read returned), a concurrent edit that
     // changed the entry since the client last read it is rejected with 409
     // instead of silently overwritten.
     expectedVersion: z.number().int().nonnegative().optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (!data.lines) return;
+    const openingDraft =
+      data.saveAsDraft === true && String(data.entryType ?? '').toUpperCase() === 'OPENING_BALANCE';
+    if (!openingDraft && data.lines.length < 2) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['lines'],
+        message: 'القيد يحتاج سطرين على الأقل',
+      });
+    }
   });
 
 /** Hub/list filters send `YYYY-MM-DD`; keep full ISO datetime accepted too. */

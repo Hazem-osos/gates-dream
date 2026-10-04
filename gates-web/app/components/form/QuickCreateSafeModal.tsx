@@ -48,8 +48,8 @@ export function QuickCreateSafeModal({
     if (!parentId) return null;
     return {
       id: parentId,
-      code: '111',
-      arabicName: 'النقدية وما في حكمها',
+      code: '1110',
+      arabicName: 'الخزن',
       accountKind: 'HEADER',
       accountType: 'asset',
       nature: 'DEBIT',

@@ -97,8 +97,8 @@ export function GenerateScheduleModal({
   return (
     <div className="fixed inset-0 z-[140] flex items-center justify-center bg-black/40 p-4" dir="rtl">
       <div className="max-h-[92vh] w-full max-w-3xl overflow-auto rounded-2xl border border-slate-200 bg-white shadow-2xl">
-        <div className="border-b border-slate-100 bg-[#0E79AA0D] p-5 pb-4">
-          <h2 className="mb-1 text-lg font-bold text-[#0E79AA]">توليد جدول السداد</h2>
+        <div className="border-b border-slate-100 bg-[#0E78AA0D] p-5 pb-4">
+          <h2 className="mb-1 text-lg font-bold text-[#0E78AA]">توليد جدول السداد</h2>
           <p className="text-sm text-slate-500">
             سعر البيع {formatEgp(selling)} + وديعة الصيانة {formatEgp(maintenance)} = المستهدف {formatEgp(selling + maintenance)}
           </p>
@@ -227,7 +227,6 @@ export function GenerateScheduleModal({
           cancelText="إلغاء"
           saveLoading={mutation.isPending}
           saveDisabled={!preview.balanced}
-          respectPermissions={false}
           className="mt-0"
         />
       </div>

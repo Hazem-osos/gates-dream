@@ -5,6 +5,7 @@ import { money, useGrowthImpact } from '@/lib/hooks/useGrowthEngine';
 import {
   CommandCenter,
   MetricBar,
+  SegmentedBar,
   DASH_PANEL,
 } from '@/components/dashboard-primitives';
 import { SensitiveValue } from '@/app/components/ui/SensitiveValue';
@@ -59,6 +60,18 @@ export default function GrowthImpactPage() {
           },
         ]}
       />
+
+      <section className={`${DASH_PANEL} p-4`}>
+        <p className="mb-2 text-xs font-semibold">تكوين الأثر</p>
+        <SegmentedBar
+          segments={[
+            { label: 'إيراد متأثر', value: impact?.influencedRevenue ?? 0, color: '#0E78AA' },
+            { label: 'نقد مسترد', value: impact?.cashRecovered ?? 0, color: '#059669' },
+            { label: 'مخزون مسترد', value: impact?.inventoryRecovered ?? 0, color: '#E3A008' },
+            { label: 'أثر محقق', value: impact?.realizedValue ?? 0, color: '#7C6BB5' },
+          ]}
+        />
+      </section>
 
       <section className={`${DASH_PANEL} space-y-3 p-5`}>
         <h2 className="text-sm font-semibold text-slate-900">العائد التقديري</h2>

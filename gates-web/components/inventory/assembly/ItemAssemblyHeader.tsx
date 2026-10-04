@@ -5,7 +5,7 @@ import { Button } from '@/components/ui';
 import { ErpDocumentPageHeader, type ErpHeaderMenuItem } from '@/components/erp/ErpDocumentPageHeader';
 import { ErpFormHeaderCard } from '@/components/erp/ErpFormHeaderCard';
 import { DatePickerWithHijri } from '@/components/ui/DatePickerWithHijri';
-import { SearchableCombobox } from '@/app/components/form/SearchableCombobox';
+import { ItemSelect } from '@/app/components/form/ItemSelect';
 import { WarehouseSelect } from '@/app/components/form/WarehouseSelect';
 import { CostCenterSelect } from '@/app/components/form/CostCenterSelect';
 import { erpInputClass, erpLabelClass } from '@/components/erp';
@@ -19,6 +19,9 @@ export type AssemblyParentOption = {
 
 type Props = {
   docNumber: string;
+  serialReadOnly?: boolean;
+  serialPlaceholder?: string;
+  onSerialChange?: (value: string) => void;
   isPosted: boolean;
   isCancelled?: boolean;
   parentItemId: string;
@@ -50,6 +53,9 @@ type Props = {
 
 export function ItemAssemblyHeader({
   docNumber,
+  serialReadOnly = true,
+  serialPlaceholder = 'يُولَّد تلقائياً',
+  onSerialChange,
   isPosted,
   isCancelled,
   parentItemId,
@@ -78,11 +84,7 @@ export function ItemAssemblyHeader({
   onBrowseList,
   moreMenuItems,
 }: Props) {
-  const composite = parentItems.filter((item) => item.isAssembly);
-  const options = (composite.length ? composite : parentItems).map((item) => ({
-    value: item.id,
-    label: `${item.arabicName}${item.serial ? ` (${item.serial})` : ''}`,
-  }));
+  const selectedParent = parentItems.find((item) => item.id === parentItemId);
 
   return (
     <>
@@ -93,15 +95,15 @@ export function ItemAssemblyHeader({
           { label: 'تجميع الأصناف' },
         ]}
         title="تجميع الأصناف"
-        docNumber={docNumber || 'ASM-XXXX'}
+        docNumber={docNumber || '—'}
         statusTone={isCancelled ? 'danger' : isPosted ? 'success' : 'warning'}
         statusLabel={
-          isCancelled ? 'ملغي (Cancelled)' : isPosted ? 'مرحل ومثبت (Posted)' : 'مسودة (Draft)'
+          isCancelled ? 'ملغي (Cancelled)' : isPosted ? 'مرحل ومثبت (Posted)' : 'غير مرحّل'
         }
         hideStandalonePost
         onSaveDraft={onSaveDraft}
         onCancel={onCancel}
-        saveLabel="حفظ أمر التجميع"
+        saveLabel="حفظ وترحيل التجميع"
         savePending={savePending}
         canSave={canSave}
         onBrowseList={onBrowseList}
@@ -122,7 +124,7 @@ export function ItemAssemblyHeader({
             ) : (
               <Wand2 className="h-3.5 w-3.5 text-primary" />
             )}
-            تحليل
+            تحميل
           </Button>
         }
         moreMenuItems={moreMenuItems}
@@ -135,21 +137,26 @@ export function ItemAssemblyHeader({
               <label className={erpLabelClass}>المسلسل</label>
               <input
                 type="text"
-                readOnly
+                readOnly={serialReadOnly || disabled}
                 value={docNumber}
-                placeholder="ASM-2026-XXXX"
+                placeholder={serialPlaceholder}
+                onChange={(e) => onSerialChange?.(e.target.value)}
                 className={erpInputClass}
               />
             </div>
             <DatePickerWithHijri label="التاريخ" value={date} onChange={onDate} disabled={disabled} />
             <div>
               <label className={erpLabelClass}>الصنف التجميعي (المنتج التام)</label>
-              <SearchableCombobox
+              <ItemSelect
                 value={parentItemId}
                 onChange={onParentItemId}
-                options={options}
-                placeholder="اختر الصنف التجميعي..."
+                emptyLabel="اختر الصنف التجميعي..."
                 disabled={disabled}
+                assemblyOnly
+                enableQuickCreate={false}
+                className={erpInputClass}
+                menuPlacement="auto"
+                fallbackLabel={selectedParent?.arabicName}
               />
             </div>
             <div>
@@ -187,7 +194,6 @@ export function ItemAssemblyHeader({
                 className={erpInputClass}
                 disabled={disabled}
                 emptyLabel="مخزن المواد الخام..."
-                excludeIds={targetWarehouseId ? [targetWarehouseId] : undefined}
               />
             </div>
             <div>
@@ -198,7 +204,6 @@ export function ItemAssemblyHeader({
                 className={erpInputClass}
                 disabled={disabled}
                 emptyLabel="مخزن المنتج التام..."
-                excludeIds={sourceWarehouseId ? [sourceWarehouseId] : undefined}
               />
             </div>
             <div>

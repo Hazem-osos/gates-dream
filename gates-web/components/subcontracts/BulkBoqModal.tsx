@@ -73,7 +73,7 @@ export function BulkBoqModal({
     <div className="fixed inset-0 z-[140] flex items-center justify-center bg-black/40 p-4" dir="rtl">
       <div className="flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-xl bg-white shadow-xl">
         <div className="p-5 pb-0">
-          <h2 className="mb-4 text-lg font-bold text-[#0E79AA]">إضافة / استيراد بنود BOQ</h2>
+          <h2 className="mb-4 text-lg font-bold text-[#0E78AA]">إضافة / استيراد بنود BOQ</h2>
           <FormSectionCard
             title="بنود المقايسة"
             subtitle="كود البند والوصف والوحدة والكمية وسعر العقد"
@@ -144,7 +144,6 @@ export function BulkBoqModal({
           saveText="حفظ البنود"
           cancelText="إلغاء"
           saveLoading={mutation.isPending}
-          respectPermissions={false}
           className="mt-0"
           extraActions={
             <Button variant="secondary" size="sm" iconStart={<Plus className="h-4 w-4" />} onClick={() => setRows((prev) => [...prev, emptyRow()])}>

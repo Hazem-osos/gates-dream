@@ -1,0 +1,111 @@
+-- P3 Project execution planning & performance
+
+CREATE TABLE `project_execution_plans` (
+  `id` VARCHAR(191) NOT NULL,
+  `companyId` VARCHAR(191) NOT NULL,
+  `projectId` VARCHAR(191) NOT NULL,
+  `planName` VARCHAR(255) NOT NULL,
+  `versionNumber` INT NOT NULL DEFAULT 1,
+  `revisionOfPlanId` VARCHAR(191) NULL,
+  `baselineKind` ENUM('ORIGINAL_BASELINE', 'CURRENT_APPROVED', 'DRAFT_REVISION') NOT NULL DEFAULT 'DRAFT_REVISION',
+  `plannedStart` DATETIME(3) NOT NULL,
+  `plannedFinish` DATETIME(3) NOT NULL,
+  `status` ENUM('DRAFT', 'APPROVED', 'ACTIVE', 'COMPLETED', 'SUPERSEDED') NOT NULL DEFAULT 'DRAFT',
+  `baselineSnapshot` JSON NULL,
+  `approvedAt` DATETIME(3) NULL,
+  `approvedBy` VARCHAR(191) NULL,
+  `activatedAt` DATETIME(3) NULL,
+  `createdBy` VARCHAR(191) NULL,
+  `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  `updatedAt` DATETIME(3) NOT NULL,
+  PRIMARY KEY (`id`),
+  INDEX `pep_company_project_idx` (`companyId`, `projectId`),
+  INDEX `pep_status_idx` (`status`),
+  CONSTRAINT `pep_company_fk` FOREIGN KEY (`companyId`) REFERENCES `companies`(`id`) ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT `pep_project_fk` FOREIGN KEY (`projectId`) REFERENCES `contracting_projects`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE,
+  CONSTRAINT `pep_revision_fk` FOREIGN KEY (`revisionOfPlanId`) REFERENCES `project_execution_plans`(`id`) ON DELETE SET NULL ON UPDATE CASCADE
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+CREATE TABLE `project_execution_activities` (
+  `id` VARCHAR(191) NOT NULL,
+  `companyId` VARCHAR(191) NOT NULL,
+  `projectId` VARCHAR(191) NOT NULL,
+  `executionPlanId` VARCHAR(191) NOT NULL,
+  `parentActivityId` VARCHAR(191) NULL,
+  `code` VARCHAR(64) NOT NULL,
+  `nameAr` VARCHAR(255) NOT NULL,
+  `description` TEXT NULL,
+  `plannedStart` DATETIME(3) NOT NULL,
+  `plannedFinish` DATETIME(3) NOT NULL,
+  `weight` DECIMAL(18, 6) NULL,
+  `status` ENUM('NOT_STARTED', 'IN_PROGRESS', 'COMPLETED', 'DELAYED') NOT NULL DEFAULT 'NOT_STARTED',
+  `sortOrder` INT NOT NULL DEFAULT 0,
+  `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  `updatedAt` DATETIME(3) NOT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE INDEX `pea_plan_code_uq` (`executionPlanId`, `code`),
+  INDEX `pea_company_project_idx` (`companyId`, `projectId`),
+  CONSTRAINT `pea_company_fk` FOREIGN KEY (`companyId`) REFERENCES `companies`(`id`) ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT `pea_project_fk` FOREIGN KEY (`projectId`) REFERENCES `contracting_projects`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE,
+  CONSTRAINT `pea_plan_fk` FOREIGN KEY (`executionPlanId`) REFERENCES `project_execution_plans`(`id`) ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT `pea_parent_fk` FOREIGN KEY (`parentActivityId`) REFERENCES `project_execution_activities`(`id`) ON DELETE SET NULL ON UPDATE CASCADE
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+CREATE TABLE `execution_activity_boq_allocations` (
+  `id` VARCHAR(191) NOT NULL,
+  `companyId` VARCHAR(191) NOT NULL,
+  `executionPlanId` VARCHAR(191) NOT NULL,
+  `executionActivityId` VARCHAR(191) NOT NULL,
+  `projectBOQItemId` VARCHAR(191) NOT NULL,
+  `plannedQuantity` DECIMAL(18, 4) NOT NULL,
+  `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  `updatedAt` DATETIME(3) NOT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE INDEX `eaba_activity_boq_uq` (`executionActivityId`, `projectBOQItemId`),
+  INDEX `eaba_plan_boq_idx` (`executionPlanId`, `projectBOQItemId`),
+  CONSTRAINT `eaba_company_fk` FOREIGN KEY (`companyId`) REFERENCES `companies`(`id`) ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT `eaba_plan_fk` FOREIGN KEY (`executionPlanId`) REFERENCES `project_execution_plans`(`id`) ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT `eaba_activity_fk` FOREIGN KEY (`executionActivityId`) REFERENCES `project_execution_activities`(`id`) ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT `eaba_boq_fk` FOREIGN KEY (`projectBOQItemId`) REFERENCES `project_owner_boq_items`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+CREATE TABLE `project_execution_milestones` (
+  `id` VARCHAR(191) NOT NULL,
+  `companyId` VARCHAR(191) NOT NULL,
+  `projectId` VARCHAR(191) NOT NULL,
+  `executionPlanId` VARCHAR(191) NULL,
+  `nameAr` VARCHAR(255) NOT NULL,
+  `plannedDate` DATETIME(3) NOT NULL,
+  `actualDate` DATETIME(3) NULL,
+  `status` ENUM('PENDING', 'COMPLETED', 'DELAYED') NOT NULL DEFAULT 'PENDING',
+  `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  `updatedAt` DATETIME(3) NOT NULL,
+  PRIMARY KEY (`id`),
+  INDEX `pem_company_project_idx` (`companyId`, `projectId`),
+  CONSTRAINT `pem_company_fk` FOREIGN KEY (`companyId`) REFERENCES `companies`(`id`) ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT `pem_project_fk` FOREIGN KEY (`projectId`) REFERENCES `contracting_projects`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE,
+  CONSTRAINT `pem_plan_fk` FOREIGN KEY (`executionPlanId`) REFERENCES `project_execution_plans`(`id`) ON DELETE SET NULL ON UPDATE CASCADE
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+CREATE TABLE `project_execution_performance_snapshots` (
+  `id` VARCHAR(191) NOT NULL,
+  `companyId` VARCHAR(191) NOT NULL,
+  `projectId` VARCHAR(191) NOT NULL,
+  `snapshotDate` DATETIME(3) NOT NULL,
+  `label` VARCHAR(255) NULL,
+  `plannedProgressPercent` DECIMAL(18, 6) NOT NULL,
+  `actualProgressPercent` DECIMAL(18, 6) NOT NULL,
+  `pv` DECIMAL(18, 4) NOT NULL,
+  `ev` DECIMAL(18, 4) NOT NULL,
+  `ac` DECIMAL(18, 4) NOT NULL,
+  `cpi` DECIMAL(18, 6) NULL,
+  `spi` DECIMAL(18, 6) NULL,
+  `payload` JSON NULL,
+  `createdBy` VARCHAR(191) NULL,
+  `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (`id`),
+  INDEX `peps_company_project_idx` (`companyId`, `projectId`),
+  INDEX `peps_date_idx` (`snapshotDate`),
+  CONSTRAINT `peps_company_fk` FOREIGN KEY (`companyId`) REFERENCES `companies`(`id`) ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT `peps_project_fk` FOREIGN KEY (`projectId`) REFERENCES `contracting_projects`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;

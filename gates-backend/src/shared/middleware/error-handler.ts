@@ -140,7 +140,7 @@ export const errorHandler = (
     logger.debug(logMeta, 'Validation error');
     res.status(400).json({
       status: 'error',
-      message: 'Validation error',
+      message: 'تحقق من البيانات',
       errors: err.errors.map((e) => ({
         path: e.path.join('.'),
         message: e.message,

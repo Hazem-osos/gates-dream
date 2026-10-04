@@ -20,27 +20,27 @@ const toneStyles: Record<
   { wrap: string; Icon: LucideIcon }
 > = {
   success: {
-    wrap: 'bg-emerald-50 text-emerald-800 border-emerald-200',
+    wrap: 'bg-[var(--success-soft)] text-success border-success/20',
     Icon: CheckCircle2,
   },
   warning: {
-    wrap: 'bg-amber-50 text-amber-900 border-amber-200',
+    wrap: 'bg-[var(--warning-soft)] text-warning border-warning/20',
     Icon: Clock,
   },
   danger: {
-    wrap: 'bg-red-50 text-red-800 border-red-200',
+    wrap: 'bg-[var(--danger-soft)] text-danger border-danger/20',
     Icon: XCircle,
   },
   info: {
-    wrap: 'bg-sky-50 text-sky-900 border-sky-200',
+    wrap: 'bg-[var(--info-soft)] text-info border-info/20',
     Icon: AlertCircle,
   },
   purple: {
-    wrap: 'bg-violet-50 text-violet-800 border-violet-200',
+    wrap: 'bg-[var(--info-soft)] text-info border-info/20',
     Icon: Repeat,
   },
   neutral: {
-    wrap: 'bg-slate-100 text-slate-700 border-slate-200',
+    wrap: 'bg-surface-2 text-foreground-muted border-border',
     Icon: Archive,
   },
 };

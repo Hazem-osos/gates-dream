@@ -20,6 +20,7 @@ import {
 } from '@/components/ui';
 import { useApiQuery, useApiMutation, useInvalidateQuery } from '@/lib/hooks/useApi';
 import { apiClient } from '@/lib/api/client';
+import { printHtml } from '@/lib/print/printHtml';
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
 import {
@@ -481,7 +482,7 @@ export default function MonthlySalariesPage() {
             </CompactFormField>
             <CompactFormField
               label="فرع الراتب"
-              placeholder="1212378971212"
+              placeholder=""
               error={errors.salaryBranch?.message}
               {...register('salaryBranch')}
             />
@@ -497,7 +498,7 @@ export default function MonthlySalariesPage() {
             </CompactFormField>
             <CompactFormField
               label="القسم"
-              placeholder="1212378971212"
+              placeholder=""
               error={errors.section?.message}
               {...register('section')}
             />
@@ -513,19 +514,38 @@ export default function MonthlySalariesPage() {
         <section className="mb-4 rounded-xl border border-[#E6F0F7] bg-white p-4 shadow-sm">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <h2 className="text-sm font-bold text-[#094C6B]">جدول الرواتب</h2>
-            <button
-              type="button"
-              onClick={handleLoadEmployees}
-              className="h-9 rounded-lg bg-[#0E79AA] px-4 text-sm font-semibold text-white transition-colors hover:bg-[#0B6188]"
-            >
-              تحميل كل الموظفين
-            </button>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  const rows = salaryData
+                    .map(
+                      (item) =>
+                        `<tr><td>${item.employee?.arabicName || ''}</td><td>${item.basicSalary}</td><td>${item.totalAllowances || 0}</td><td>${item.totalDeductions || 0}</td><td>${item.netSalary}</td></tr>`
+                    )
+                    .join('');
+                  void printHtml(
+                    `<div dir="rtl"><h1>قسائم الرواتب</h1><table border="1" cellpadding="6"><thead><tr><th>الموظف</th><th>الأساسي</th><th>البدلات</th><th>الخصومات</th><th>الصافي</th></tr></thead><tbody>${rows}</tbody></table></div>`
+                  );
+                }}
+                className="h-9 rounded-lg border border-[#0E78AA] px-4 text-sm font-semibold text-[#0E78AA]"
+              >
+                طباعة القسائم
+              </button>
+              <button
+                type="button"
+                onClick={handleLoadEmployees}
+                className="h-9 rounded-lg bg-[#0E78AA] px-4 text-sm font-semibold text-white transition-colors hover:bg-[#0B6188]"
+              >
+                تحميل كل الموظفين
+              </button>
+            </div>
           </div>
 
           <div className={denseTableWrapClass}>
             <table className={denseTableClass}>
               <thead>
-                <tr className="h-10 bg-[#0E79AA] text-xs font-semibold text-white">
+                <tr className="h-10 bg-[#0E78AA] text-xs font-semibold text-white">
                   <th colSpan={3} className="border-l border-[#0B6188]/30 px-2" />
                   <th colSpan={2} className="border-l border-[#0B6188]/30 px-2 text-center">
                     الراتب الأساسي
@@ -575,13 +595,13 @@ export default function MonthlySalariesPage() {
                   salaryData.map((item, index) => (
                     <tr
                       key={item.id}
-                      className={cn('h-10 border-b border-slate-100 transition-colors hover:bg-slate-50/80', index % 2 === 1 && 'bg-[#0E79AA0D]/40')}
+                      className={cn('h-10 border-b border-slate-100 transition-colors hover:bg-slate-50/80', index % 2 === 1 && 'bg-[#0E78AA0D]/40')}
                     >
                       <td className={cn(denseTdClass, 'text-center')}>{index + 1}</td>
-                      <td className={cn(denseTdClass, stickyCodeClass, index % 2 === 1 ? 'bg-[#0E79AA0D]/40' : 'bg-white')}>
+                      <td className={cn(denseTdClass, stickyCodeClass, index % 2 === 1 ? 'bg-[#0E78AA0D]/40' : 'bg-white')}>
                         {item.employee?.code || item.employeeId}
                       </td>
-                      <td className={cn(denseTdClass, stickyNameClass, index % 2 === 1 ? 'bg-[#0E79AA0D]/40' : 'bg-white')}>
+                      <td className={cn(denseTdClass, stickyNameClass, index % 2 === 1 ? 'bg-[#0E78AA0D]/40' : 'bg-white')}>
                         {item.employee?.arabicName || 'غير محدد'}
                       </td>
                       <td className={moneyTd}>{item.workDays || 0}</td>
@@ -598,7 +618,7 @@ export default function MonthlySalariesPage() {
                       <td className={moneyTd}>{(item.advances || 0).toLocaleString()}</td>
                       <td className={moneyTd}>{(item.employeeInsurance || 0).toLocaleString()}</td>
                       <td className={moneyTd}>{(item.companyInsurance || 0).toLocaleString()}</td>
-                      <td className={cn(moneyTd, 'font-semibold text-[#0E79AA]')}>
+                      <td className={cn(moneyTd, 'font-semibold text-[#0E78AA]')}>
                         {item.netSalary?.toLocaleString() || '0'}
                       </td>
                       <td className={denseTdClass}>—</td>
@@ -618,7 +638,7 @@ export default function MonthlySalariesPage() {
               type="button"
               disabled={wave3Busy || Boolean(payrollRunId)}
               onClick={() => void handleWave3CreateRun()}
-              className="h-9 rounded-lg bg-[#0E79AA] px-4 text-sm font-semibold text-white transition-colors hover:bg-[#0B6188] disabled:opacity-50"
+              className="h-9 rounded-lg bg-[#0E78AA] px-4 text-sm font-semibold text-white transition-colors hover:bg-[#0B6188] disabled:opacity-50"
             >
               إنشاء مسودة
             </button>

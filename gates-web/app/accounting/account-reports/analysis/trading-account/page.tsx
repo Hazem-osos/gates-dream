@@ -8,7 +8,7 @@ export default function TradingAccountPage() {
       urlPath="/accounting/account-reports/analysis/trading-account"
       icon="💹"
       subtitle="نتيجة المتاجرة خلال الفترة."
-      fields={{ dates: 'range', branch: true }}
+      fields={{ dates: 'range', costCenter: true, branch: true, compareYear: true }}
     />
   );
 }

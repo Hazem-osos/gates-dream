@@ -4,6 +4,10 @@ import type { OnboardingSetupInput } from '../schemas/company-onboarding.schema'
 import { tenantProvisioningService } from '../../accounting/services/tenant-provisioning.service';
 import { ensureDefaultWarehouseTree } from '../../inventory/services/ensure-default-warehouse';
 import { retireWelcomeTourNotification } from '../../notifications/services/onboarding-welcome-notification.service';
+import {
+  invalidateTenantCache,
+  tenantCacheKeys,
+} from '../../../shared/cache/tenant-metadata-cache';
 
 const LEGACY_STANDARD_COA: Array<{ code: string; arabicName: string; accountType: string }> = [
   { code: '1000', arabicName: 'الصندوق', accountType: 'asset' },
@@ -11,7 +15,6 @@ const LEGACY_STANDARD_COA: Array<{ code: string; arabicName: string; accountType
   { code: '1200', arabicName: 'العملاء', accountType: 'asset' },
   { code: '1300', arabicName: 'المخزون', accountType: 'asset' },
   { code: '2000', arabicName: 'الموردون', accountType: 'liability' },
-  { code: '2100', arabicName: 'ضريبة القيمة المضافة', accountType: 'liability' },
   { code: '3000', arabicName: 'حقوق الملكية', accountType: 'equity' },
   { code: '4000', arabicName: 'إيرادات المبيعات', accountType: 'revenue' },
   { code: '5000', arabicName: 'تكلفة البضاعة المباعة', accountType: 'expense' },
@@ -137,6 +140,13 @@ export class CompanyOnboardingService {
         update: { isActive: true },
       });
 
+      if (input.seedStandardCoa) {
+        await tenantProvisioningService.provisionWithinTransaction(companyId, tx, {
+          currencyCode: input.company.currencyCode,
+          industry: input.industryTemplate,
+        });
+      }
+
       let branch = await tx.branch.findFirst({
         where: { companyId, deletedAt: null },
         orderBy: { createdAt: 'asc' },
@@ -164,6 +174,15 @@ export class CompanyOnboardingService {
         (input.fiscalYear.name.replace(/\D/g, '').slice(0, 4) ||
           String(new Date(input.fiscalYear.startDate).getFullYear()));
 
+      const fiscalYearData = {
+        legacyYearId,
+        arabicName: input.fiscalYear.name,
+        englishName: input.fiscalYear.name,
+        startDate: new Date(input.fiscalYear.startDate),
+        endDate: new Date(input.fiscalYear.endDate),
+        status: 'Open',
+        isActive: true,
+      };
       let fiscalYear = await tx.fiscalYear.findFirst({
         where: { companyId, isActive: true },
         orderBy: { startDate: 'desc' },
@@ -172,14 +191,13 @@ export class CompanyOnboardingService {
         fiscalYear = await tx.fiscalYear.create({
           data: {
             companyId,
-            legacyYearId,
-            arabicName: input.fiscalYear.name,
-            englishName: input.fiscalYear.name,
-            startDate: new Date(input.fiscalYear.startDate),
-            endDate: new Date(input.fiscalYear.endDate),
-            status: 'Open',
-            isActive: true,
+            ...fiscalYearData,
           },
+        });
+      } else {
+        fiscalYear = await tx.fiscalYear.update({
+          where: { id: fiscalYear.id },
+          data: fiscalYearData,
         });
       }
 
@@ -239,6 +257,15 @@ export class CompanyOnboardingService {
             isActive: true,
           },
         });
+      } else {
+        safe = await tx.safe.update({
+          where: { id: safe.id },
+          data: {
+            arabicName: input.treasury.safeArabicName,
+            currencyCode: input.company.currencyCode,
+            glAccountId: safe.glAccountId ?? cashAccount.id,
+          },
+        });
       }
 
       await tx.branch.update({
@@ -250,6 +277,11 @@ export class CompanyOnboardingService {
         branchId: branch.id,
         arabicName: input.warehouse.arabicName,
         postingCode: input.warehouse.code,
+      });
+
+      await tx.warehouse.update({
+        where: { id: warehouse.id },
+        data: { arabicName: input.warehouse.arabicName },
       });
 
       await tx.branch.update({
@@ -268,12 +300,12 @@ export class CompanyOnboardingService {
         safeId: safe.id,
         warehouseId: warehouse.id,
       };
-    });
+    }, { maxWait: 15_000, timeout: 60_000 });
 
     if (input.seedStandardCoa) {
-      await tenantProvisioningService.provisionStandardTenant(companyId, {
-        currencyCode: input.company.currencyCode,
-      });
+      await invalidateTenantCache(tenantCacheKeys.coaTree(companyId));
+      await invalidateTenantCache(tenantCacheKeys.settings(companyId));
+      await invalidateTenantCache(tenantCacheKeys.branches(companyId));
     }
 
     logger.info({ companyId, ...result }, 'Company onboarding setup completed');

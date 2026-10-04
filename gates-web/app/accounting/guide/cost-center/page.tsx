@@ -249,7 +249,7 @@ export default function CostCentersGuidePage() {
 
       {isEmpty ? (
         <div className="mt-8 rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-6 py-16 text-center">
-          <Layers className="mx-auto mb-3 h-8 w-8 text-[#0E79AA]" />
+          <Layers className="mx-auto mb-3 h-8 w-8 text-[#0E78AA]" />
           <p className="text-lg font-semibold text-slate-800">لا توجد مراكز تكلفة بعد</p>
           <p className="mt-1 text-sm text-slate-500">أضف أول مركز لبناء الدليل بنفس أسلوب شجرة الحسابات.</p>
           <Button type="button" className="mt-4" onClick={openCreateRoot}>

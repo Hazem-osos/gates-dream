@@ -4,14 +4,54 @@ export type PriceListMode = 'value' | 'cost' | 'last';
 export type PriceListPriceRow = {
   price?: number | null;
   retailPrice?: number | string | null;
+  purchasePrice?: number | string | null;
+  discount?: number | string | null;
   unitId?: string | null;
   priceList?: {
     id?: string;
     priceMode?: string | null;
     isActive?: boolean | null;
     isDefault?: boolean | null;
+    discountPercentage?: number | string | null;
   } | null;
 };
+
+function pickPriceListRow(
+  rows: PriceListPriceRow[],
+  priceListId?: string | null,
+  unitId?: string | null
+): PriceListPriceRow | undefined {
+  return (
+    (priceListId
+      ? rows.find((row) => row.priceList?.id === priceListId && (!unitId || row.unitId === unitId)) ||
+        rows.find((row) => row.priceList?.id === priceListId)
+      : undefined) ||
+    rows.find((row) => row.priceList?.isDefault) ||
+    (rows.length === 1 ? rows[0] : undefined)
+  );
+}
+
+export function parsePartyDiscountPercent(raw?: string | null): number {
+  const cleaned = String(raw ?? '').replace(/%/g, '').trim();
+  if (!cleaned) return 0;
+  const n = Number(cleaned);
+  return Number.isFinite(n) && n > 0 ? Math.min(100, n) : 0;
+}
+
+export function combinedPriceListDiscountPercent(
+  row: PriceListPriceRow | undefined,
+  partyDiscountRaw?: string | null
+): number {
+  if (!row) return parsePartyDiscountPercent(partyDiscountRaw);
+  const line = Number(row.discount ?? 0);
+  const header = Number(row.priceList?.discountPercentage ?? 0);
+  const party = parsePartyDiscountPercent(partyDiscountRaw);
+  const sum =
+    (Number.isFinite(line) && line > 0 ? line : 0) +
+    (Number.isFinite(header) && header > 0 ? header : 0) +
+    party;
+  return Math.min(100, Math.max(0, sum));
+}
 
 export type PriceListItemBases = {
   averageCost?: number | string | null;
@@ -51,15 +91,35 @@ export function resolvePriceListSalePrice(
     const price = Number(row.price ?? 0);
     return Number.isFinite(price) && price > 0 ? price : 0;
   };
-  const pick =
-    (priceListId
-      ? rows.find((row) => row.priceList?.id === priceListId && (!unitId || row.unitId === unitId)) ||
-        rows.find((row) => row.priceList?.id === priceListId)
-      : undefined) ||
-    rows.find((row) => row.priceList?.isDefault) ||
-    (rows.length === 1 ? rows[0] : undefined);
+  const pick = pickPriceListRow(rows, priceListId, unitId);
   if (!pick) return 0;
   return applyPriceListMode(listedOf(pick), pick.priceList?.priceMode, item);
+}
+
+export function resolvePriceListPurchasePrice(
+  item: PriceListItemBases & { itemPrices?: PriceListPriceRow[] | null },
+  priceListId?: string | null,
+  unitId?: string | null
+): number {
+  const rows = (item.itemPrices ?? []).filter((row) => row.priceList?.isActive !== false);
+  const listedOf = (row: PriceListPriceRow) => {
+    const purchase = Number(row.purchasePrice ?? 0);
+    if (Number.isFinite(purchase) && purchase > 0) return purchase;
+    const price = Number(row.price ?? 0);
+    return Number.isFinite(price) && price > 0 ? price : 0;
+  };
+  const pick = pickPriceListRow(rows, priceListId, unitId);
+  if (!pick) return 0;
+  return applyPriceListMode(listedOf(pick), pick.priceList?.priceMode, item);
+}
+
+export function resolvePriceListRow(
+  item: { itemPrices?: PriceListPriceRow[] | null },
+  priceListId?: string | null,
+  unitId?: string | null
+): PriceListPriceRow | undefined {
+  const rows = (item.itemPrices ?? []).filter((row) => row.priceList?.isActive !== false);
+  return pickPriceListRow(rows, priceListId, unitId);
 }
 
 export type TierPriceFields = {

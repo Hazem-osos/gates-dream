@@ -1,11 +1,24 @@
+import { Prisma } from '@prisma/client';
 import prisma from '../../../shared/database/prisma';
 import { logger } from '../../../shared/logger';
-import { Decimal } from '@prisma/client/runtime/library';
 import { AppError } from '../../../shared/middleware/error-handler';
-import { roundTo4 } from '../../../shared/utils/decimal-round';
-import { journalPostingService } from './journal-posting.service';
-import { fiscalYearService } from '../../platform/services/fiscal-year.service';
-import type { JournalEntryLineData } from '../types/journal-entry.types';
+
+const MOVEMENT_LIST_CAP = 5000;
+
+async function lockJournalEntriesInTx(
+  tx: Prisma.TransactionClient,
+  companyId: string,
+  journalEntryIds: string[]
+) {
+  const ids = [...new Set(journalEntryIds)].sort();
+  if (!ids.length) return;
+  await tx.$queryRaw`
+    SELECT id FROM journal_entries
+    WHERE companyId = ${companyId} AND id IN (${Prisma.join(ids)})
+    ORDER BY id
+    FOR UPDATE
+  `;
+}
 
 export interface TransferCostCenterMovementData {
   fromCostCenterId: string;
@@ -74,161 +87,42 @@ export class CostCenterMovementService {
         }
       }
 
-      // Use transaction to ensure atomicity
+      const lineWhere: Prisma.JournalEntryLineWhereInput = {
+        costCenterId: data.fromCostCenterId,
+        ...(data.accountId ? { accountId: data.accountId } : {}),
+        ...(data.movementIds?.length ? { id: { in: data.movementIds } } : {}),
+        journalEntry: {
+          companyId,
+          deletedAt: null,
+          date: { gte: data.fromDate, lte: data.toDate },
+        },
+      };
+
       const result = await prisma.$transaction(async (tx) => {
         const matchedLines = await tx.journalEntryLine.findMany({
-          where: {
-            costCenterId: data.fromCostCenterId,
-            ...(data.accountId ? { accountId: data.accountId } : {}),
-            ...(data.movementIds?.length ? { id: { in: data.movementIds } } : {}),
-            journalEntry: {
-              companyId,
-              deletedAt: null,
-              date: { gte: data.fromDate, lte: data.toDate },
-            },
-          },
-          select: {
-            id: true,
-            accountId: true,
-            debitBase: true,
-            creditBase: true,
-            journalEntry: { select: { isPosted: true, isCancelled: true } },
-          },
+          where: lineWhere,
+          select: { id: true, journalEntryId: true },
         });
-
         if (matchedLines.length === 0) {
-          throw new Error(
-            'No cost center movements found for the specified criteria and date range'
-          );
+          throw new AppError(422, 'لا توجد قيود على مركز التكلفة هذا في الفترة المحددة');
         }
 
-        const postedLines = matchedLines.filter(
-          (line) => line.journalEntry.isPosted && !line.journalEntry.isCancelled
+        await lockJournalEntriesInTx(
+          tx,
+          companyId,
+          matchedLines.map((line) => line.journalEntryId)
         );
-        const movableLineIds = matchedLines
-          .filter((line) => !line.journalEntry.isPosted || line.journalEntry.isCancelled)
-          .map((line) => line.id);
 
-        if (movableLineIds.length > 0) {
-          await tx.journalEntryLine.updateMany({
-            where: { id: { in: movableLineIds } },
-            data: { costCenterId: data.toCostCenterId },
-          });
-        }
-
-        const netByAccount = new Map<string, number>();
-        for (const line of postedLines) {
-          netByAccount.set(
-            line.accountId,
-            roundTo4(
-              (netByAccount.get(line.accountId) ?? 0) +
-                Number(line.debitBase) -
-                Number(line.creditBase)
-            )
-          );
-        }
-
-        let journalEntryId: string | null = null;
-        const reclassLines: JournalEntryLineData[] = [];
-        for (const [accountId, net] of netByAccount.entries()) {
-          if (Math.abs(net) < 0.0001) continue;
-          const amount = Math.abs(net);
-          if (net > 0) {
-            reclassLines.push(
-              {
-                accountId,
-                debit: amount,
-                credit: 0,
-                lineOrder: reclassLines.length + 1,
-                costCenterId: data.toCostCenterId,
-                description: data.description,
-              },
-              {
-                accountId,
-                debit: 0,
-                credit: amount,
-                lineOrder: reclassLines.length + 2,
-                costCenterId: data.fromCostCenterId,
-                description: data.description,
-              }
-            );
-          } else {
-            reclassLines.push(
-              {
-                accountId,
-                debit: amount,
-                credit: 0,
-                lineOrder: reclassLines.length + 1,
-                costCenterId: data.fromCostCenterId,
-                description: data.description,
-              },
-              {
-                accountId,
-                debit: 0,
-                credit: amount,
-                lineOrder: reclassLines.length + 2,
-                costCenterId: data.toCostCenterId,
-                description: data.description,
-              }
-            );
-          }
-        }
-
-        if (reclassLines.length === 0 && movableLineIds.length === 0) {
-          throw new AppError(422, 'صافي حركة الفترة صفر — لا يوجد ما يُنقل');
-        }
-
-        if (reclassLines.length > 0) {
-          const branchId = (
-            await tx.branch.findFirst({
-              where: { companyId, deletedAt: null },
-              orderBy: { createdAt: 'asc' },
-              select: { id: true },
-            })
-          )?.id;
-          if (!branchId) {
-            throw new AppError(422, 'لا يوجد فرع لترحيل قيد نقل مركز التكلفة');
-          }
-          const reclassDate = new Date();
-          const fiscalYearId = await fiscalYearService.assertOpenForDate(companyId, reclassDate);
-          const companySettings = await tx.companySettings.findUnique({
-            where: { companyId },
-            select: { defaultCurrency: true },
-          });
-          const baseCurrency = (companySettings?.defaultCurrency || 'EGP').toUpperCase();
-          const description =
-            data.description ??
-            `نقل مركز تكلفة: ${fromCostCenter.code} → ${toCostCenter.code}`;
-          const je = await journalPostingService.createAndPostInTx(
-            tx,
-            { companyId, branchId, userId, fiscalYearId },
-            {
-              date: reclassDate,
-              hijriDate: data.hijriDate,
-              description,
-              currencyCode: baseCurrency,
-              exchangeRate: 1,
-              fiscalYearId,
-              entryType: 'RECLASSIFICATION',
-              lines: reclassLines.map((line, index) => ({
-                ...line,
-                lineOrder: index + 1,
-                description: line.description ?? description,
-              })),
-            }
-          );
-          journalEntryId = je.id;
-          await tx.costCenterMovement.createMany({
-            data: reclassLines.map((line) => ({
-              companyId,
-              accountId: line.accountId,
-              costCenterId: line.costCenterId!,
-              date: reclassDate,
-              debit: new Decimal(line.debit),
-              credit: new Decimal(line.credit),
-              description: line.description ?? description,
-            })),
-          });
+        const updated = await tx.journalEntryLine.updateMany({
+          where: {
+            id: { in: matchedLines.map((line) => line.id) },
+            costCenterId: data.fromCostCenterId,
+            journalEntry: { companyId, deletedAt: null },
+          },
+          data: { costCenterId: data.toCostCenterId },
+        });
+        if (updated.count === 0) {
+          throw new AppError(409, 'تم نقل هذه الحركات من عملية أخرى. حدّث القائمة ثم أعد المحاولة.');
         }
 
         logger.info(
@@ -237,16 +131,15 @@ export class CostCenterMovementService {
             fromCostCenterId: data.fromCostCenterId,
             toCostCenterId: data.toCostCenterId,
             dateRange: { from: data.fromDate, to: data.toDate },
-            movementsUpdated: matchedLines.length,
-            journalEntryId,
+            movementsUpdated: updated.count,
             userId,
           },
-          'Cost center movement transferred'
+          'Cost center movement rewritten on the original journal lines'
         );
 
         return {
-          movementsTransferredCount: matchedLines.length,
-          journalEntryId,
+          movementsTransferredCount: updated.count,
+          journalEntryId: null,
           fromCostCenter: {
             id: fromCostCenter.id,
             code: fromCostCenter.code,
@@ -298,8 +191,6 @@ export class CostCenterMovementService {
               companyId,
               deletedAt: null,
               date: { gte: fromDate, lte: toDate },
-              reversalOfJournalEntryId: null,
-              NOT: { entryType: 'REVERSAL' },
             },
           },
           select: {
@@ -320,7 +211,7 @@ export class CostCenterMovementService {
             },
           },
           orderBy: { journalEntry: { date: 'asc' } },
-          take: 500,
+          take: MOVEMENT_LIST_CAP + 1,
         }),
         prisma.journalEntryLine.aggregate({
           where: {
@@ -328,13 +219,15 @@ export class CostCenterMovementService {
             journalEntry: {
               companyId,
               deletedAt: null,
-              reversalOfJournalEntryId: null,
-              NOT: { entryType: 'REVERSAL' },
             },
           },
           _sum: { debitBase: true, creditBase: true },
         }),
       ]);
+
+      if (periodLines.length > MOVEMENT_LIST_CAP) {
+        throw new AppError(422, 'حركات الفترة أكتر من ٥٠٠٠ سطر. ضيّق الفترة ثم حمّل تاني.');
+      }
 
       const totalDebit = periodLines.reduce((sum, line) => sum + Number(line.debitBase), 0);
       const totalCredit = periodLines.reduce((sum, line) => sum + Number(line.creditBase), 0);

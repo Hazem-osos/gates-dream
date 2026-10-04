@@ -34,17 +34,38 @@ export function buildSplitWithOnAccount(
   lines: Exclude<PaymentSplitLine, { type: 'ON_ACCOUNT' }>[],
   grandTotal: number
 ): PaymentSplitLine[] {
-  const allocated = sumPaymentSplits(lines);
+  const fitted = shaveCentOverage(lines, grandTotal);
+  const allocated = sumPaymentSplits(fitted);
   const remaining = Math.max(0, round4(grandTotal - allocated));
-  return [...lines, { type: 'ON_ACCOUNT', amount: round4(remaining) }];
+  return [...fitted, { type: 'ON_ACCOUNT', amount: round4(remaining) }];
 }
 
 function round4(n: number) {
-  return Math.round(n * 10000) / 10000;
+  return Math.round((n + Number.EPSILON) * 10000) / 10000;
+}
+
+function round2(n: number) {
+  return Math.round((n + Number.EPSILON) * 100) / 100;
+}
+
+/** A typed total that matches the invoice at the displayed cent is the same amount. */
+function shaveCentOverage<T extends { amount: number }>(lines: T[], grandTotal: number): T[] {
+  let over = round4(lines.reduce((sum, line) => sum + (Number(line.amount) || 0), 0) - grandTotal);
+  if (over <= 0.0001 || over > 0.01) return lines;
+  const next = lines.map((line) => ({ ...line }));
+  for (let index = next.length - 1; index >= 0 && over > 0.0001; index -= 1) {
+    const amount = Number(next[index].amount) || 0;
+    const cut = Math.min(amount, over);
+    next[index] = { ...next[index], amount: round4(amount - cut) };
+    over = round4(over - cut);
+  }
+  return next.filter((line) => (Number(line.amount) || 0) > 0.0001);
 }
 
 export function splitsMatchTotal(lines: PaymentSplitLine[], grandTotal: number): boolean {
-  return Math.abs(sumPaymentSplits(lines) - grandTotal) < 0.0001;
+  const sum = sumPaymentSplits(lines);
+  if (Math.abs(sum - grandTotal) <= 0.01) return true;
+  return Math.abs(round2(sum) - round2(grandTotal)) < 0.001;
 }
 
 function money(n: number): string {

@@ -239,6 +239,19 @@ export class ItemCategoryService {
           select: { id: true },
         });
         if (!parent) throw new AppError(422, 'المجموعة الرئيسية غير موجودة');
+        const seen = new Set<string>([categoryId]);
+        let cursor: string | null = parent.id;
+        while (cursor) {
+          if (seen.has(cursor)) {
+            throw new AppError(422, 'لا يمكن وضع المجموعة تحت أحد فروعها');
+          }
+          seen.add(cursor);
+          const node: { parentCategoryId: string | null } | null = await prisma.itemCategory.findFirst({
+            where: { id: cursor, companyId },
+            select: { parentCategoryId: true },
+          });
+          cursor = node?.parentCategoryId ?? null;
+        }
       }
       updateData.parentCategoryId = data.parentCategoryId;
     }

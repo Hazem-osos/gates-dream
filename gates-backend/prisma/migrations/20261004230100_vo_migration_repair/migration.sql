@@ -1,0 +1,31 @@
+-- Repair partial apply of 20261004230000 (idempotent fragments)
+
+CREATE TABLE IF NOT EXISTS `subcontract_variation_order_lines` (
+  `id` VARCHAR(191) NOT NULL,
+  `companyId` VARCHAR(191) NOT NULL,
+  `subcontractVariationOrderId` VARCHAR(191) NOT NULL,
+  `lineOrder` INT NOT NULL DEFAULT 1,
+  `changeType` ENUM('QUANTITY_CHANGE', 'RATE_CHANGE', 'NEW_ITEM', 'OMIT') NOT NULL,
+  `subcontractBOQItemId` VARCHAR(191) NULL,
+  `itemCodeSnapshot` VARCHAR(191) NOT NULL,
+  `descriptionArSnapshot` VARCHAR(191) NOT NULL,
+  `unitSnapshot` VARCHAR(20) NOT NULL,
+  `originalQuantity` DECIMAL(18, 4) NOT NULL DEFAULT 0,
+  `quantityDelta` DECIMAL(18, 4) NOT NULL DEFAULT 0,
+  `effectiveQuantityAfter` DECIMAL(18, 4) NULL,
+  `originalRate` DECIMAL(18, 4) NOT NULL DEFAULT 0,
+  `approvedRate` DECIMAL(18, 4) NULL,
+  `rateDelta` DECIMAL(18, 4) NULL,
+  `amountImpact` DECIMAL(18, 4) NOT NULL DEFAULT 0,
+  `notes` TEXT NULL,
+  `createdSubcontractBOQItemId` VARCHAR(191) NULL,
+  `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  `updatedAt` DATETIME(3) NOT NULL,
+  PRIMARY KEY (`id`),
+  INDEX `svo_lines_company_idx` (`companyId`),
+  INDEX `svo_lines_order_idx` (`subcontractVariationOrderId`),
+  INDEX `svo_lines_boq_idx` (`subcontractBOQItemId`),
+  CONSTRAINT `svo_lines_company_fkey` FOREIGN KEY (`companyId`) REFERENCES `companies`(`id`) ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT `svo_lines_order_fkey` FOREIGN KEY (`subcontractVariationOrderId`) REFERENCES `subcontract_variation_orders`(`id`) ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT `svo_lines_boq_fkey` FOREIGN KEY (`subcontractBOQItemId`) REFERENCES `subcontract_boq_items`(`id`) ON DELETE RESTRICT ON UPDATE CASCADE
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;

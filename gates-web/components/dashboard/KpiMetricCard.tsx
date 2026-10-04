@@ -20,12 +20,12 @@ export type KpiMetricCardProps = {
 };
 
 const KPI_ACCENTS: Record<KpiAccent, { icon: string; bar: string }> = {
-  sky: { icon: 'bg-[#0E79AA]/8 text-[#0E79AA]', bar: 'border-t-[#0E79AA]' },
+  sky: { icon: 'bg-[#0E78AA]/8 text-[#0E78AA]', bar: 'border-t-[#0E78AA]' },
   teal: { icon: 'bg-sky-50 text-sky-700', bar: 'border-t-sky-500' },
   emerald: { icon: 'bg-emerald-50/80 text-emerald-700', bar: 'border-t-emerald-500' },
   amber: { icon: 'bg-amber-50/80 text-amber-700', bar: 'border-t-amber-500' },
   rose: { icon: 'bg-rose-50/80 text-rose-700', bar: 'border-t-rose-500' },
-  violet: { icon: 'bg-[#0E79AA]/8 text-[#0E79AA]', bar: 'border-t-[#0E79AA]' },
+  violet: { icon: 'bg-[#0E78AA]/8 text-[#0E78AA]', bar: 'border-t-[#0E78AA]' },
   indigo: { icon: 'bg-sky-50/80 text-sky-700', bar: 'border-t-sky-500' },
 };
 

@@ -113,7 +113,7 @@ export default function LettersOfGuaranteePage() {
               type="button"
               onClick={() => setTab(item.id)}
               className={`rounded-full px-4 py-1.5 text-sm font-bold ${
-                tab === item.id ? 'bg-[#0E79AA] text-white' : 'bg-[#F6FBFD] text-[#094C6B]'
+                tab === item.id ? 'bg-[#0E78AA] text-white' : 'bg-[#F6FBFD] text-[#094C6B]'
               }`}
             >
               {item.label}

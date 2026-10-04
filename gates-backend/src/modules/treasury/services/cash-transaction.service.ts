@@ -8,7 +8,8 @@ import { documentSequenceService } from '../../platform/services/document-sequen
 import { assertCashOverdraftAllowed } from './treasury-overdraft';
 import { splitVoucherLineTotals } from '../types/vouchers.dto';
 import { journalPostingService } from '../../accounting/services/journal-posting.service';
-import { persistFxDecimal } from '../../accounting/utils/company-fx-rate';
+import { fiscalYearService } from '../../platform/services/fiscal-year.service';
+import { asFxRate, persistFxDecimal } from '../../accounting/utils/company-fx-rate';
 
 function emptyToNull(value?: string | null): string | null {
   const trimmed = value?.trim();
@@ -42,6 +43,7 @@ export interface CreateCashTransactionInput {
   currencyCode: string;
   customerId?: string;
   supplierId?: string;
+  subcontractorId?: string;
   offsetAccountId?: string;
   safeId?: string;
   bankAccountId?: string;
@@ -49,6 +51,8 @@ export interface CreateCashTransactionInput {
   exchangeRate?: number;
   isRecurring?: boolean;
   documentRole?: 'ORDER' | 'VOUCHER';
+  /** Separate serial for a screen that is not the cash or bank voucher. */
+  serialGroup?: string;
   departmentId?: string;
   sourceOrderId?: string;
   paymentOrderCode?: string;
@@ -86,11 +90,55 @@ function cashVoucherSuffix(input: { transactionKind: string; bankAccountId?: str
   return cashVoucherFamily(input);
 }
 
+/** Separate sequence row per voucher type so the four families do not share a counter. */
+export function cashVoucherDocType(input: {
+  transactionKind: string;
+  bankAccountId?: string | null;
+  documentRole?: string | null;
+}): string {
+  const family = cashVoucherFamily(input);
+  if (input.documentRole === 'ORDER') return `CASH-ORDER-${family}`;
+  return `CASH-${family}`;
+}
+
+export function cashVoucherFund(bankAccountId?: string | null): 'CASH' | 'BANK' {
+  return bankAccountId ? 'BANK' : 'CASH';
+}
+
+/**
+ * Orders keep a treasury-row family of their own so أمر صرف and أمر توريد
+ * do not share `@@unique(company, voucherFamily, voucherNumber)` with each
+ * other or with the cash/bank vouchers.
+ */
+export function cashTreasuryFamily(input: {
+  documentRole?: string | null;
+  transactionKind: string;
+  bankAccountId?: string | null;
+}): string {
+  if ((input.documentRole ?? 'VOUCHER') === 'ORDER') {
+    const bank = Boolean(input.bankAccountId);
+    const receipt = input.transactionKind === 'RECEIPT';
+    if (bank) return receipt ? 'ORDRB' : 'ORDPB';
+    return receipt ? 'ORDR' : 'ORDP';
+  }
+  return cashVoucherFamily(input);
+}
+
+/** Settlement and other pages must not advance the voucher screen's serial. */
+function externalSerialIdentity(code: string): { docType: string; voucherFamily: string; legacySuffix: string } {
+  const compact = code.replace(/[^A-Za-z0-9]/g, '').slice(0, 8).toUpperCase() || 'EXT';
+  return {
+    docType: `CASH-EXT-${compact}`,
+    voucherFamily: compact,
+    legacySuffix: compact,
+  };
+}
+
 export class CashTransactionService {
   async create(
     companyId: string,
-    branchId: string | undefined,
-    fiscalYearId: string | undefined,
+    branchId: string | null | undefined,
+    fiscalYearId: string | null | undefined,
     input: CreateCashTransactionInput,
     userId?: string
   ) {
@@ -102,8 +150,8 @@ export class CashTransactionService {
   async createInTx(
     tx: Prisma.TransactionClient,
     companyId: string,
-    branchId: string | undefined,
-    fiscalYearId: string | undefined,
+    branchId: string | null | undefined,
+    fiscalYearId: string | null | undefined,
     input: CreateCashTransactionInput,
     extra?: { invoiceId?: string; invoiceInstallmentId?: string },
     userId?: string
@@ -189,9 +237,12 @@ export class CashTransactionService {
       if (!input.safeId && !input.bankAccountId) {
         throw new AppError(422, 'Payment requires safe or bank account');
       }
+      const needed = lines.length
+        ? splitVoucherLineTotals(lines, 'PAYMENT').netCash
+        : Number(input.amount) * asFxRate(input.exchangeRate, 1);
       await assertCashOverdraftAllowed({
         companyId,
-        amount: Number(input.amount),
+        amount: needed,
         safeId: input.safeId,
         bankAccountId: input.bankAccountId,
       });
@@ -200,40 +251,119 @@ export class CashTransactionService {
     let treasuryReceiptId: string | undefined;
     let treasuryPaymentId: string | undefined;
 
-    // Legacy `CreateCashNum` numbers cash/bank vouchers per document type
-    // (`BP`/`BR` for the box, `KP`/`KR` for the bank). The web app accepted a
-    // free-text `voucherNumber` and left it null when the client omitted one,
-    // so vouchers went to the ledger unnumbered.
+    // Legacy `CreateCashNum` numbers each document type on its own series:
+    // BP سند صرف نقدية، BR سند قبض نقدية، KP إشعار خصم بنكي، KR إشعار إضافة بنكي.
+    const documentRole = input.documentRole ?? 'VOUCHER';
+    const settlement = Boolean(extra?.invoiceId);
+    const serialGroup = input.serialGroup?.trim();
+    const external = !settlement && serialGroup ? externalSerialIdentity(serialGroup) : null;
+    const screenFamily = cashVoucherFamily(input);
+    const voucherFund = settlement
+      ? `S${screenFamily}`
+      : external?.voucherFamily || cashTreasuryFamily({ ...input, documentRole });
+    const serialDocType = settlement
+      ? `CASH-SETTLE-${screenFamily}`
+      : external?.docType || cashVoucherDocType({ ...input, documentRole });
+    const serialSuffix = settlement
+      ? `SET${screenFamily}`
+      : external?.legacySuffix || cashVoucherSuffix(input);
+    const legacyFamilies =
+      settlement || external
+        ? [voucherFund]
+        : [voucherFund, input.bankAccountId ? 'BANK' : 'CASH'];
     const voucherNumber =
       input.voucherNumber?.trim() ||
       (await documentSequenceService.nextNumberForFamilyInTx(tx, {
         companyId,
         branchId: branchId ?? null,
         fiscalYearId: fiscalYearId ?? null,
-        docType: 'CASH',
-        legacySuffix: cashVoucherSuffix(input),
-        // Receipts and payments share the CASH series and each enforce a
-        // per-company unique voucher number, so the sequence has to start above
-        // whatever the pre-sequencing rows already used on both sides.
+        docType: serialDocType,
+        legacySuffix: serialSuffix,
         seedFromExisting: documentSequenceService.maxExistingNumber(async () => {
-          const [receipts, payments] = await Promise.all([
-            tx.treasuryReceipt.findMany({ where: { companyId }, select: { voucherNumber: true } }),
-            tx.treasuryPayment.findMany({ where: { companyId }, select: { voucherNumber: true } }),
-          ]);
-          return [...receipts, ...payments].map((r) => r.voucherNumber);
+          if (documentRole === 'ORDER') {
+            const rows = await tx.cashTransaction.findMany({
+              where: {
+                companyId,
+                documentRole: 'ORDER',
+                transactionKind: input.transactionKind,
+                bankAccountId: input.bankAccountId ? { not: null } : null,
+              },
+              select: { voucherNumber: true },
+            });
+            return rows.map((r) => r.voucherNumber);
+          }
+          const settlementLinks = await tx.cashTransaction.findMany({
+            where: { companyId, invoiceId: { not: null } },
+            select: { treasuryPaymentId: true, treasuryReceiptId: true },
+          });
+          const settlementPaymentIds = settlementLinks
+            .map((row) => row.treasuryPaymentId)
+            .filter((id): id is string => Boolean(id));
+          const settlementReceiptIds = settlementLinks
+            .map((row) => row.treasuryReceiptId)
+            .filter((id): id is string => Boolean(id));
+          const where = {
+            companyId,
+            voucherFamily: { in: legacyFamilies },
+            ...(input.transactionKind === 'RECEIPT' ? { receiptType: { not: 'cash' } } : {}),
+          };
+          if (input.transactionKind === 'RECEIPT') {
+            const rows = await tx.treasuryReceipt.findMany({
+              where: {
+                ...where,
+                ...(settlementReceiptIds.length ? { id: { notIn: settlementReceiptIds } } : {}),
+              },
+              select: { voucherNumber: true },
+            });
+            return rows.map((r) => r.voucherNumber);
+          }
+          const rows = await tx.treasuryPayment.findMany({
+            where: {
+              ...where,
+              ...(settlementPaymentIds.length ? { id: { notIn: settlementPaymentIds } } : {}),
+            },
+            select: { voucherNumber: true },
+          });
+          return rows.map((r) => r.voucherNumber);
         }),
         isAvailable: async (candidate) => {
-          const [receipt, payment] = await Promise.all([
-            tx.treasuryReceipt.findFirst({
-              where: { companyId, voucherNumber: candidate },
+          if (documentRole === 'ORDER') {
+            const taken = await tx.cashTransaction.findFirst({
+              where: {
+                companyId,
+                documentRole: 'ORDER',
+                transactionKind: input.transactionKind,
+                bankAccountId: input.bankAccountId ? { not: null } : null,
+                voucherNumber: candidate,
+              },
               select: { id: true },
-            }),
-            tx.treasuryPayment.findFirst({
-              where: { companyId, voucherNumber: candidate },
+            });
+            return !taken;
+          }
+          const where = {
+            companyId,
+            voucherFamily: { in: legacyFamilies },
+            voucherNumber: candidate,
+            ...(input.transactionKind === 'RECEIPT' ? { receiptType: { not: 'cash' } } : {}),
+          };
+          if (input.transactionKind === 'RECEIPT') {
+            const taken = await tx.treasuryReceipt.findFirst({
+              where: {
+                ...where,
+                NOT: { cashTransaction: { is: { invoiceId: { not: null } } } },
+              },
               select: { id: true },
-            }),
-          ]);
-          return !receipt && !payment;
+            });
+            return !taken;
+          }
+          const taken = await tx.treasuryPayment.findFirst({
+            where: {
+              ...where,
+              NOT: { cashTransaction: { is: { invoiceId: { not: null } } } },
+            },
+            select: { id: true },
+          });
+          return !taken;
         },
       }));
     if (!voucherNumber) {
@@ -256,6 +386,7 @@ export class CashTransactionService {
           accountId: input.offsetAccountId,
           safeId: input.safeId,
           bankAccountId: input.bankAccountId,
+          voucherFamily: voucherFund,
           amount: new Decimal(input.amount),
           currencyCode: input.currencyCode,
         },
@@ -276,6 +407,7 @@ export class CashTransactionService {
           accountId: input.offsetAccountId,
           safeId: input.safeId,
           bankAccountId: input.bankAccountId,
+          voucherFamily: voucherFund,
           amount: new Decimal(input.amount),
           currencyCode: input.currencyCode,
         },
@@ -297,6 +429,7 @@ export class CashTransactionService {
         currencyCode: input.currencyCode,
         customerId: input.customerId,
         supplierId: input.supplierId,
+        subcontractorId: input.subcontractorId,
         offsetAccountId: input.offsetAccountId ?? lines[0]?.accountId,
         safeId: input.safeId,
         bankAccountId: input.bankAccountId,
@@ -339,7 +472,7 @@ export class CashTransactionService {
                 : input.transactionKind === 'RECEIPT'
                   ? 'CREDIT'
                   : 'DEBIT',
-          isTiedToInvoice: Boolean(line.isTiedToInvoice && line.invoiceId),
+          isTiedToInvoice: Boolean(line.isTiedToInvoice),
           invoiceId: line.invoiceId || null,
           lineOrder: index + 1,
         })),
@@ -397,217 +530,238 @@ export class CashTransactionService {
     userId?: string,
     options?: { allowPosted?: boolean }
   ) {
-    return prisma.$transaction(async (tx) => {
-      const existing = await tx.cashTransaction.findFirst({
-        where: { id, companyId },
+    return prisma.$transaction(async (tx) =>
+      this.updateInTx(tx, companyId, id, input, userId, options)
+    );
+  }
+
+  async updateInTx(
+    tx: Prisma.TransactionClient,
+    companyId: string,
+    id: string,
+    input: UpdateCashTransactionInput,
+    userId?: string,
+    options?: { allowPosted?: boolean }
+  ) {
+    const existing = await tx.cashTransaction.findFirst({
+      where: { id, companyId },
+    });
+    if (!existing) throw new AppError(404, 'السند غير موجود');
+    if (existing.isPosted && !options?.allowPosted) {
+      throw new AppError(422, 'لا يمكن تعديل سند مرحّل — فك الترحيل أولاً');
+    }
+    if (existing.isCancelled) {
+      throw new AppError(422, 'لا يمكن تعديل سند ملغى');
+    }
+    if (existing.documentRole === 'ORDER') {
+      const linkedVoucher = await this.findActiveVoucherForOrder(tx, companyId, id);
+      if (existing.executionStatus === 'COMPLETED' || linkedVoucher) {
+        throw new AppError(422, 'لا يمكن تعديل أمر مكتمل التنفيذ');
+      }
+    }
+
+    const lines = input.lines ?? [];
+    if (lines.length) {
+      await this.assertVoucherLines(tx, companyId, lines);
+      const { netCash } = splitVoucherLineTotals(lines, input.transactionKind);
+      const isBankPayment = Boolean(input.bankAccountId) && input.transactionKind === 'PAYMENT';
+      const isBankReceipt = Boolean(input.bankAccountId) && input.transactionKind === 'RECEIPT';
+      if (netCash <= 0) {
+        throw new AppError(
+          422,
+          isBankReceipt
+            ? 'صافي المضاف للبنك يجب أن يكون أكبر من صفر'
+            : input.transactionKind === 'RECEIPT'
+              ? 'صافي المقبوض بالخزنة يجب أن يكون أكبر من صفر'
+              : isBankPayment
+                ? 'صافي المخصوم من البنك يجب أن يكون أكبر من صفر'
+                : 'صافي المنصرف من الخزنة يجب أن يكون أكبر من صفر'
+        );
+      }
+      if (Math.abs(netCash - Number(input.amount)) > 0.009) {
+        throw new AppError(
+          422,
+          isBankReceipt
+            ? 'صافي المضاف للبنك (الدائن − الأطراف المدينة) يجب أن يساوي مبلغ الإشعار'
+            : input.transactionKind === 'RECEIPT'
+              ? 'صافي المقبوض (الدائن − الأطراف المدينة) يجب أن يساوي مبلغ السند'
+              : isBankPayment
+                ? 'صافي المخصوم من البنك (المدين − الأطراف الدائنة) يجب أن يساوي مبلغ الإشعار'
+                : 'صافي المنصرف (المدين − الأطراف الدائنة) يجب أن يساوي مبلغ السند'
+        );
+      }
+    }
+
+    if (input.referenceNumber && !input.bankReference) {
+      input.bankReference = input.referenceNumber;
+    }
+
+    const isVoucherDoc = existing.documentRole !== 'ORDER';
+    const nextSourceOrderId = isVoucherDoc
+      ? emptyToNull(input.sourceOrderId)
+      : existing.sourceOrderId;
+    const prevSourceOrderId = existing.sourceOrderId ?? null;
+    if (isVoucherDoc && nextSourceOrderId) {
+      await this.assertSourceOrderAvailable(tx, companyId, nextSourceOrderId, {
+        transactionKind: input.transactionKind,
+        excludeVoucherId: id,
       });
-      if (!existing) throw new AppError(404, 'Cash transaction not found');
-      if (existing.isPosted && !options?.allowPosted) {
-        throw new AppError(422, 'لا يمكن تعديل سند مرحّل — فك الترحيل أولاً');
-      }
-      if (existing.isCancelled) {
-        throw new AppError(422, 'لا يمكن تعديل سند ملغى');
-      }
-      if (existing.documentRole === 'ORDER') {
-        const linkedVoucher = await this.findActiveVoucherForOrder(tx, companyId, id);
-        if (existing.executionStatus === 'COMPLETED' || linkedVoucher) {
-          throw new AppError(422, 'لا يمكن تعديل أمر مكتمل التنفيذ');
-        }
-      }
+    }
 
-      const lines = input.lines ?? [];
-      if (lines.length) {
-        await this.assertVoucherLines(tx, companyId, lines);
-        const { netCash } = splitVoucherLineTotals(lines, input.transactionKind);
-        const isBankPayment = Boolean(input.bankAccountId) && input.transactionKind === 'PAYMENT';
-        const isBankReceipt = Boolean(input.bankAccountId) && input.transactionKind === 'RECEIPT';
-        if (netCash <= 0) {
-          throw new AppError(
-            422,
-            isBankReceipt
-              ? 'صافي المضاف للبنك يجب أن يكون أكبر من صفر'
-              : input.transactionKind === 'RECEIPT'
-                ? 'صافي المقبوض بالخزنة يجب أن يكون أكبر من صفر'
-                : isBankPayment
-                  ? 'صافي المخصوم من البنك يجب أن يكون أكبر من صفر'
-                  : 'صافي المنصرف من الخزنة يجب أن يكون أكبر من صفر'
-          );
-        }
-        if (Math.abs(netCash - Number(input.amount)) > 0.009) {
-          throw new AppError(
-            422,
-            isBankReceipt
-              ? 'صافي المضاف للبنك (الدائن − الأطراف المدينة) يجب أن يساوي مبلغ الإشعار'
-              : input.transactionKind === 'RECEIPT'
-                ? 'صافي المقبوض (الدائن − الأطراف المدينة) يجب أن يساوي مبلغ السند'
-                : isBankPayment
-                  ? 'صافي المخصوم من البنك (المدين − الأطراف الدائنة) يجب أن يساوي مبلغ الإشعار'
-                  : 'صافي المنصرف (المدين − الأطراف الدائنة) يجب أن يساوي مبلغ السند'
-          );
-        }
-      }
+    const allocations = input.allocations ?? [];
+    if (allocations.length) {
+      await this.assertAllocations(tx, companyId, input, allocations);
+    }
+    if (input.safeId && input.bankAccountId) {
+      throw new AppError(422, 'السند يقبل خزينة أو حساباً بنكياً — وليس الاثنين معاً');
+    }
 
-      if (input.referenceNumber && !input.bankReference) {
-        input.bankReference = input.referenceNumber;
-      }
+    const updateResult = await tx.cashTransaction.updateMany({
+      where: {
+        id,
+        companyId,
+        version: input.expectedVersion,
+      },
+      data: {
+        date: input.date,
+        hijriDate: resolveHijriDate(input.date, input.hijriDate),
+        description: input.description,
+        amount: new Decimal(input.amount),
+        currencyCode: input.currencyCode,
+        customerId: emptyToNull(input.customerId),
+        supplierId: emptyToNull(input.supplierId),
+        offsetAccountId: emptyToNull(input.offsetAccountId) ?? lines[0]?.accountId ?? null,
+        safeId: emptyToNull(input.safeId),
+        bankAccountId: emptyToNull(input.bankAccountId),
+        exchangeRate: persistFxDecimal(input.currencyCode, input.exchangeRate),
+        isRecurring: input.isRecurring ?? existing.isRecurring,
+        departmentId: emptyToNull(input.departmentId),
+        sourceOrderId: emptyToNull(nextSourceOrderId),
+        bankReference: input.bankReference ?? null,
+        valueDate: input.valueDate ?? null,
+        version: { increment: 1 },
+      },
+    });
+    assertUpdateCount(updateResult.count);
 
-      const isVoucherDoc = existing.documentRole !== 'ORDER';
-      const nextSourceOrderId = isVoucherDoc
-        ? emptyToNull(input.sourceOrderId)
-        : existing.sourceOrderId;
-      const prevSourceOrderId = existing.sourceOrderId ?? null;
-      if (isVoucherDoc && nextSourceOrderId) {
-        await this.assertSourceOrderAvailable(tx, companyId, nextSourceOrderId, {
-          transactionKind: input.transactionKind,
-          excludeVoucherId: id,
-        });
-      }
-
-      const allocations = input.allocations ?? [];
-      if (allocations.length) {
-        await this.assertAllocations(tx, companyId, input, allocations);
-      }
-      if (input.safeId && input.bankAccountId) {
-        throw new AppError(422, 'السند يقبل خزينة أو حساباً بنكياً — وليس الاثنين معاً');
-      }
-
-      const updateResult = await tx.cashTransaction.updateMany({
-        where: {
-          id,
-          companyId,
-          version: input.expectedVersion,
-        },
+    if (existing.treasuryReceiptId) {
+      await tx.treasuryReceipt.update({
+        where: { id: existing.treasuryReceiptId },
         data: {
           date: input.date,
-          hijriDate: resolveHijriDate(input.date, input.hijriDate),
           description: input.description,
-          amount: new Decimal(input.amount),
-          currencyCode: input.currencyCode,
           customerId: emptyToNull(input.customerId),
           supplierId: emptyToNull(input.supplierId),
-          offsetAccountId: emptyToNull(input.offsetAccountId) ?? lines[0]?.accountId ?? null,
+          accountId: emptyToNull(input.offsetAccountId),
           safeId: emptyToNull(input.safeId),
           bankAccountId: emptyToNull(input.bankAccountId),
-          exchangeRate: persistFxDecimal(input.currencyCode, input.exchangeRate),
-          isRecurring: input.isRecurring ?? existing.isRecurring,
-          departmentId: emptyToNull(input.departmentId),
-          sourceOrderId: emptyToNull(nextSourceOrderId),
-          bankReference: input.bankReference ?? null,
-          valueDate: input.valueDate ?? null,
-          version: { increment: 1 },
+          voucherFamily: cashTreasuryFamily({
+            documentRole: existing.documentRole,
+            transactionKind: input.transactionKind,
+            bankAccountId: emptyToNull(input.bankAccountId),
+          }),
+          amount: new Decimal(input.amount),
+          currencyCode: input.currencyCode,
         },
       });
-      assertUpdateCount(updateResult.count);
-
-      if (existing.treasuryReceiptId) {
-        await tx.treasuryReceipt.update({
-          where: { id: existing.treasuryReceiptId },
-          data: {
-            date: input.date,
-            description: input.description,
-            customerId: emptyToNull(input.customerId),
-            supplierId: emptyToNull(input.supplierId),
-            accountId: emptyToNull(input.offsetAccountId),
-            safeId: emptyToNull(input.safeId),
+    }
+    if (existing.treasuryPaymentId) {
+      await tx.treasuryPayment.update({
+        where: { id: existing.treasuryPaymentId },
+        data: {
+          date: input.date,
+          description: input.description,
+          customerId: emptyToNull(input.customerId),
+          supplierId: emptyToNull(input.supplierId),
+          accountId: emptyToNull(input.offsetAccountId),
+          safeId: emptyToNull(input.safeId),
+          bankAccountId: emptyToNull(input.bankAccountId),
+          voucherFamily: cashTreasuryFamily({
+            documentRole: existing.documentRole,
+            transactionKind: input.transactionKind,
             bankAccountId: emptyToNull(input.bankAccountId),
-            amount: new Decimal(input.amount),
-            currencyCode: input.currencyCode,
+          }),
+          amount: new Decimal(input.amount),
+          currencyCode: input.currencyCode,
+        },
+      });
+    }
+
+    await tx.cashTransactionLine.deleteMany({ where: { cashTransactionId: id } });
+    if (lines.length) {
+      await tx.cashTransactionLine.createMany({
+        data: lines.map((line, index) => ({
+          companyId,
+          cashTransactionId: id,
+          accountId: line.accountId,
+          description: line.description,
+          amount: new Decimal(line.amount),
+          currencyCode: line.currencyCode ?? input.currencyCode,
+          exchangeRate: persistFxDecimal(
+          line.currencyCode ?? input.currencyCode,
+          line.exchangeRate ?? input.exchangeRate
+        ),
+          costCenterId: emptyToNull(line.costCenterId),
+          entrySide:
+          line.entrySide === 'CREDIT'
+            ? 'CREDIT'
+            : line.entrySide === 'DEBIT'
+              ? 'DEBIT'
+              : input.transactionKind === 'RECEIPT'
+                ? 'CREDIT'
+                : 'DEBIT',
+          isTiedToInvoice: Boolean(line.isTiedToInvoice),
+          invoiceId: emptyToNull(line.invoiceId),
+          lineOrder: index + 1,
+        })),
+      });
+    }
+
+    await tx.paymentAllocation.deleteMany({ where: { cashTransactionId: id } });
+    if (allocations.length) {
+      await tx.paymentAllocation.createMany({
+        data: allocations.map((row) => ({
+          companyId,
+          cashTransactionId: id,
+          invoiceId: row.invoiceId,
+          allocatedAmount: new Decimal(row.allocatedAmount),
+        })),
+      });
+    }
+
+    await tx.exchangeRateHistory.deleteMany({ where: { companyId, sourceId: id } });
+    for (const line of lines) {
+      const rate = Number(line.exchangeRate ?? input.exchangeRate ?? 1);
+      const currency = line.currencyCode ?? input.currencyCode;
+      if (currency !== 'EGP') {
+        await tx.exchangeRateHistory.create({
+          data: {
+            companyId,
+            currencyCode: currency,
+            rate: new Decimal(rate),
+            sourceType: cashVoucherFamily(input),
+            sourceId: id,
+            userId: userId ?? null,
           },
         });
       }
-      if (existing.treasuryPaymentId) {
-        await tx.treasuryPayment.update({
-          where: { id: existing.treasuryPaymentId },
-          data: {
-            date: input.date,
-            description: input.description,
-            customerId: emptyToNull(input.customerId),
-            supplierId: emptyToNull(input.supplierId),
-            accountId: emptyToNull(input.offsetAccountId),
-            safeId: emptyToNull(input.safeId),
-            bankAccountId: emptyToNull(input.bankAccountId),
-            amount: new Decimal(input.amount),
-            currencyCode: input.currencyCode,
-          },
-        });
-      }
+    }
 
-      await tx.cashTransactionLine.deleteMany({ where: { cashTransactionId: id } });
-      if (lines.length) {
-        await tx.cashTransactionLine.createMany({
-          data: lines.map((line, index) => ({
-            companyId,
-            cashTransactionId: id,
-            accountId: line.accountId,
-            description: line.description,
-            amount: new Decimal(line.amount),
-            currencyCode: line.currencyCode ?? input.currencyCode,
-            exchangeRate: persistFxDecimal(
-            line.currencyCode ?? input.currencyCode,
-            line.exchangeRate ?? input.exchangeRate
-          ),
-            costCenterId: emptyToNull(line.costCenterId),
-            entrySide:
-            line.entrySide === 'CREDIT'
-              ? 'CREDIT'
-              : line.entrySide === 'DEBIT'
-                ? 'DEBIT'
-                : input.transactionKind === 'RECEIPT'
-                  ? 'CREDIT'
-                  : 'DEBIT',
-            isTiedToInvoice: Boolean(line.isTiedToInvoice && line.invoiceId),
-            invoiceId: emptyToNull(line.invoiceId),
-            lineOrder: index + 1,
-          })),
-        });
+    if (isVoucherDoc) {
+      if (prevSourceOrderId && prevSourceOrderId !== nextSourceOrderId) {
+        await this.releaseSourceOrderIfUnused(tx, companyId, prevSourceOrderId, id);
       }
-
-      await tx.paymentAllocation.deleteMany({ where: { cashTransactionId: id } });
-      if (allocations.length) {
-        await tx.paymentAllocation.createMany({
-          data: allocations.map((row) => ({
-            companyId,
-            cashTransactionId: id,
-            invoiceId: row.invoiceId,
-            allocatedAmount: new Decimal(row.allocatedAmount),
-          })),
-        });
+      if (nextSourceOrderId) {
+        await this.markSourceOrderCompleted(tx, companyId, nextSourceOrderId, userId);
       }
+    }
 
-      await tx.exchangeRateHistory.deleteMany({ where: { companyId, sourceId: id } });
-      for (const line of lines) {
-        const rate = Number(line.exchangeRate ?? input.exchangeRate ?? 1);
-        const currency = line.currencyCode ?? input.currencyCode;
-        if (currency !== 'EGP') {
-          await tx.exchangeRateHistory.create({
-            data: {
-              companyId,
-              currencyCode: currency,
-              rate: new Decimal(rate),
-              sourceType: cashVoucherFamily(input),
-              sourceId: id,
-              userId: userId ?? null,
-            },
-          });
-        }
-      }
-
-      if (isVoucherDoc) {
-        if (prevSourceOrderId && prevSourceOrderId !== nextSourceOrderId) {
-          await this.releaseSourceOrderIfUnused(tx, companyId, prevSourceOrderId, id);
-        }
-        if (nextSourceOrderId) {
-          await this.markSourceOrderCompleted(tx, companyId, nextSourceOrderId, userId);
-        }
-      }
-
-      return this.decorateOrder(
-        await tx.cashTransaction.findFirstOrThrow({
-          where: { id, companyId },
-          include: { lines: true, paymentAllocations: true },
-        })
-      );
-    });
+    return this.decorateOrder(
+      await tx.cashTransaction.findFirstOrThrow({
+        where: { id, companyId },
+        include: { lines: true, paymentAllocations: true },
+      })
+    );
   }
 
   private async assertVoucherLines(
@@ -662,7 +816,7 @@ export class CashTransactionService {
       },
     });
     if (!row) {
-      throw new AppError(404, 'Cash transaction not found');
+      throw new AppError(404, 'السند غير موجود');
     }
     if (row.documentRole === 'ORDER' && row.executionStatus === 'PENDING' && !row.isCancelled) {
       const linked = await this.findActiveVoucherForOrder(prisma, companyId, id);
@@ -708,6 +862,7 @@ export class CashTransactionService {
     if (options?.isRecurring !== undefined) where.isRecurring = options.isRecurring;
     if (options?.transactionKind) where.transactionKind = options.transactionKind;
     if (options?.documentRole) where.documentRole = options.documentRole;
+    if (options?.documentRole === 'VOUCHER') where.invoiceId = null;
     if (options?.departmentId) where.departmentId = options.departmentId;
     if (options?.executionStatus) where.executionStatus = options.executionStatus;
     const search = options?.search?.trim() || options?.voucherNumber?.trim();
@@ -740,7 +895,7 @@ export class CashTransactionService {
             ? [{ date: options.sortDir === 'desc' ? 'desc' : 'asc' }, { voucherNumber: 'asc' }]
             : options?.sortBy === 'amount'
               ? [{ amount: options.sortDir === 'desc' ? 'desc' : 'asc' }, { voucherNumber: 'asc' }]
-              : [{ voucherNumber: options.sortDir === 'desc' ? 'desc' : 'asc' }, { createdAt: 'asc' }],
+              : [{ voucherNumber: options?.sortDir === 'desc' ? 'desc' : 'asc' }, { createdAt: 'asc' }],
         include: {
           lines: { orderBy: { lineOrder: 'asc' } },
           journalEntry: { select: { id: true, voucherNumber: true } },
@@ -812,7 +967,8 @@ export class CashTransactionService {
 
   async cancel(companyId: string, id: string, expectedVersion?: number) {
     const row = await prisma.cashTransaction.findFirst({ where: { id, companyId } });
-    if (!row) throw new AppError(404, 'Cash transaction not found');
+    if (!row) throw new AppError(404, 'السند غير موجود');
+    await fiscalYearService.assertOpenForDate(companyId, row.date);
     if (row.isPosted) throw new AppError(422, 'لا يمكن إلغاء سند مرحّل — فك الترحيل أولاً');
     if (row.documentRole === 'ORDER') {
       const linkedVoucher = await prisma.cashTransaction.findFirst({

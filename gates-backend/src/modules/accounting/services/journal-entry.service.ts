@@ -9,8 +9,14 @@ import {
   journalPostingService,
   JournalPostingContext,
 } from './journal-posting.service';
-import { openingBalanceService } from './opening-balance.service';
+import { companyOpeningJournalWhere, openingBalanceService } from './opening-balance.service';
+import {
+  isSourcedJournalEntry,
+  SOURCED_JOURNAL_MUTATION_MESSAGE,
+} from '../utils/journal-source';
+import { voucherFundBySourceId } from '../utils/voucher-fund';
 import { branchScopeFilter } from '../../../shared/auth/branch-scope';
+import { fiscalYearService } from '../../platform/services/fiscal-year.service';
 import {
   clampKeysetLimit,
   isKeysetListRequest,
@@ -23,6 +29,17 @@ export type {
   JournalEntryLineData,
   UpdateJournalEntryData,
 } from '../types/journal-entry.types';
+
+async function attachVoucherFund<T extends { sourceId?: string | null }>(companyId: string, rows: T[]) {
+  const funds = await voucherFundBySourceId(
+    companyId,
+    rows.map((row) => row.sourceId)
+  );
+  return rows.map((row) => ({
+    ...row,
+    voucherFund: row.sourceId ? (funds.get(row.sourceId) ?? null) : null,
+  }));
+}
 
 export class JournalEntryService {
   buildPostingContext(
@@ -107,7 +124,8 @@ export class JournalEntryService {
         throw new AppError(404, 'القيد غير موجود');
       }
 
-      return journalEntry;
+      const [withFund] = await attachVoucherFund(companyId, [journalEntry]);
+      return withFund;
     } catch (error) {
       if (!(error instanceof AppError) || error.statusCode >= 500) {
         logger.error({ error, companyId, journalEntryId: id }, 'Error getting journal entry');
@@ -182,6 +200,12 @@ export class JournalEntryService {
 
       if (options.entryType) {
         where.entryType = options.entryType;
+        if (options.entryType === 'OPENING_BALANCE') {
+          where.AND = [
+            ...(Array.isArray(where.AND) ? where.AND : []),
+            { OR: [{ sourceType: null }, { sourceType: { notIn: ['OB', 'OPEN'] } }] },
+          ];
+        }
       } else {
         where.NOT = { entryType: { in: ['OPENING_BALANCE', 'REVERSAL'] } };
       }
@@ -248,9 +272,10 @@ export class JournalEntryService {
               select: listSelect,
             });
         const keysetLimit = clampKeysetLimit(options.limit);
+        const items = await attachVoucherFund(companyId, keyed.items);
         return {
-          journalEntries: keyed.items,
-          items: keyed.items,
+          journalEntries: items,
+          items,
           nextCursor: keyed.nextCursor,
           prevCursor: keyed.prevCursor,
           hasMore: keyed.hasMore,
@@ -283,9 +308,10 @@ export class JournalEntryService {
         prisma.journalEntry.count({ where }),
       ]);
 
+      const items = await attachVoucherFund(companyId, journalEntries);
       return {
-        journalEntries,
-        items: journalEntries,
+        journalEntries: items,
+        items,
         nextCursor: null,
         prevCursor: null,
         hasMore: page * limit < total,
@@ -407,7 +433,7 @@ export class JournalEntryService {
       });
 
       if (!journalEntry) {
-        throw new Error('Journal entry not found');
+        throw new Error('القيد غير موجود');
       }
 
       if (journalEntry.isApproved) {
@@ -416,6 +442,9 @@ export class JournalEntryService {
 
       if (journalEntry.isCancelled) {
         throw new Error('Cannot approve a cancelled journal entry');
+      }
+      if (isSourcedJournalEntry(journalEntry)) {
+        throw new AppError(422, SOURCED_JOURNAL_MUTATION_MESSAGE);
       }
 
       // L1 fix (Item 41): this used to have no posted-state guard at all,
@@ -463,6 +492,10 @@ export class JournalEntryService {
         return journalEntry;
       }
 
+      if (isSourcedJournalEntry(journalEntry)) {
+        throw new AppError(422, SOURCED_JOURNAL_MUTATION_MESSAGE);
+      }
+
       if (journalEntry.isPosted) {
         throw new AppError(
           400,
@@ -498,6 +531,10 @@ export class JournalEntryService {
 
     if (!journalEntry) {
       throw new AppError(404, 'القيد غير موجود');
+    }
+
+    if (isSourcedJournalEntry(journalEntry)) {
+      throw new AppError(422, SOURCED_JOURNAL_MUTATION_MESSAGE);
     }
 
     if (journalEntry.isCancelled) {
@@ -537,6 +574,10 @@ export class JournalEntryService {
       throw new AppError(404, 'القيد غير موجود');
     }
 
+    if (isSourcedJournalEntry(journalEntry)) {
+      throw new AppError(422, SOURCED_JOURNAL_MUTATION_MESSAGE);
+    }
+
     if (!journalEntry.isCancelled) {
       throw new AppError(400, 'القيد ليس ملغياً');
     }
@@ -544,10 +585,8 @@ export class JournalEntryService {
     if (journalEntry.entryType === 'OPENING_BALANCE') {
       const otherOpening = await prisma.journalEntry.findFirst({
         where: {
-          companyId,
-          entryType: 'OPENING_BALANCE',
+          ...companyOpeningJournalWhere(companyId, journalEntryId),
           isCancelled: false,
-          id: { not: journalEntryId },
         },
         select: { id: true },
       });
@@ -589,7 +628,7 @@ export class JournalEntryService {
   }
 
   /**
-   * Delete journal entry (soft delete - cancel if not posted)
+   * Delete journal entry permanently (draft only; posted entries cannot be deleted).
    */
   async deleteJournalEntry(companyId: string, journalEntryId: string) {
     try {
@@ -598,17 +637,24 @@ export class JournalEntryService {
       });
 
       if (!journalEntry) {
-        throw new Error('Journal entry not found');
+        throw new Error('القيد غير موجود');
+      }
+
+      if (isSourcedJournalEntry(journalEntry)) {
+        throw new AppError(422, SOURCED_JOURNAL_MUTATION_MESSAGE);
       }
 
       if (journalEntry.isPosted) {
         throw new Error('Cannot delete a posted journal entry');
       }
 
-      // Cancel the journal entry instead of hard delete
-      await prisma.journalEntry.update({
-        where: { id: journalEntryId },
-        data: { isCancelled: true },
+      await fiscalYearService.assertOpenForDate(companyId, journalEntry.date, {
+        allowOpeningDocument: journalEntry.entryType === 'OPENING_BALANCE',
+      });
+
+      await prisma.$transaction(async (tx) => {
+        await tx.journalEntryLine.deleteMany({ where: { journalEntryId } });
+        await tx.journalEntry.delete({ where: { id: journalEntryId, companyId, isPosted: false } });
       });
 
       logger.info({ companyId, journalEntryId }, 'Journal entry deleted');

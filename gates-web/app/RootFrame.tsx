@@ -3,7 +3,8 @@
 import dynamic from 'next/dynamic';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { usePathname } from 'next/navigation';
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
+import { installClearZeroOnFocus } from '@/lib/grid/clearZeroOnFocus';
 
 const ErpApp = dynamic(() => import('./ErpApp').then((mod) => ({ default: mod.ErpApp })), {
   ssr: false,
@@ -35,14 +36,16 @@ function LightQuery({ children }: { children: ReactNode }) {
 export function RootFrame({ children }: { children: ReactNode }) {
   const pathname = usePathname();
 
+  useEffect(() => installClearZeroOnFocus(), []);
+
   if (isMarketingPath(pathname)) {
-    return <main className="min-h-screen bg-white">{children}</main>;
+    return <main className="min-h-screen bg-background text-foreground">{children}</main>;
   }
 
   if (isPublicAppPath(pathname)) {
     return (
       <LightQuery>
-        <main className="min-h-screen bg-white">{children}</main>
+        <main className="min-h-screen bg-background text-foreground">{children}</main>
       </LightQuery>
     );
   }

@@ -11,10 +11,24 @@ import {
   mockSignedDevTag,
   assertEtaSigningReadyForProduction,
 } from './eta-signing-env';
+import { etaPfxConfigured, signEtaDocument } from './eta-pfx-signer';
 
 export interface SignedDocument {
   payload: Record<string, unknown>;
   signature: string;
+}
+
+/** The document posted to ETA, with the issuer signature inside it. */
+export function withIssuerSignature(
+  document: Record<string, unknown>,
+  signature: string
+): Record<string, unknown> {
+  const body = { ...document };
+  delete body.signatures;
+  return {
+    ...body,
+    signatures: [{ signatureType: 'I', value: signature }],
+  };
 }
 
 /**
@@ -45,20 +59,38 @@ export class EtaSigningService {
     document: Record<string, unknown>,
     pinOverride?: string
   ): Promise<SignedDocument> {
+    const unsigned = { ...document };
+    delete unsigned.signatures;
+
+    if (etaPfxConfigured()) {
+      const password = pinOverride?.trim() || process.env.ETA_PFX_PASSWORD?.trim() || '';
+      if (!password) {
+        throw new AppError(422, 'كلمة سر شهادة التوقيع الإلكتروني مطلوبة');
+      }
+      return { payload: unsigned, signature: signEtaDocument(unsigned, password) };
+    }
+
+    if (process.env.NODE_ENV === 'production' && !isEtaSigningEnabled()) {
+      throw new AppError(
+        422,
+        'شهادة التوقيع الإلكتروني مش موجودة على السيرفر، فالفاتورة مش هتتبعت لمصلحة الضرائب'
+      );
+    }
+
     if (!isEtaSigningEnabled()) {
-      return { payload: document, signature: mockSignedDevTag() };
+      return { payload: unsigned, signature: mockSignedDevTag() };
     }
 
     const provider = etaSigningProvider();
 
     if (provider === 'pkcs11') {
       assertEtaSigningReadyForProduction();
-      const { signature } = await signWithPkcs11(document, pinOverride);
-      return { payload: document, signature };
+      const { signature } = await signWithPkcs11(unsigned, pinOverride);
+      return { payload: unsigned, signature };
     }
 
-    const signature = signMock(document);
-    return { payload: document, signature };
+    const signature = signMock(unsigned);
+    return { payload: unsigned, signature };
   }
 }
 

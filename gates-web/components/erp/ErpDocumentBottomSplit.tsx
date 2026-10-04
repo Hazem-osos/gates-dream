@@ -3,6 +3,7 @@
 import { useState, type ReactNode } from 'react';
 import { Card, CardContent } from '@/app/components/ui/card';
 import { FinancialSummaryCard, type FinancialSummaryRow } from '@/components/erp/FinancialSummaryCard';
+import { GeneratedJournalTab } from '@/components/erp/GeneratedJournalTab';
 import { LiveJournalPreviewTable } from '@/components/erp/LiveJournalPreviewTable';
 
 export type ErpBottomTab = {
@@ -27,6 +28,8 @@ type Props = {
   showJournalTab?: boolean;
   journalEmptyTitle?: string;
   currencyCode?: string | null;
+  highlightHeader?: ReactNode;
+  besideNet?: ReactNode;
 };
 
 export function ErpDocumentBottomSplit({
@@ -45,25 +48,34 @@ export function ErpDocumentBottomSplit({
   showJournalTab = true,
   journalEmptyTitle,
   currencyCode,
+  highlightHeader,
+  besideNet,
 }: Props) {
+  const activeJournalOption = journalOptions?.find((option) => option.id === journalEntryId) ?? journalOptions?.[0];
   const journalPreview = (
     <div className="space-y-2">
-      {journalOptions && journalOptions.length > 0 ? (
-        <label className="flex items-center gap-2 text-xs font-semibold text-[#094C6B]">
-          <span className="shrink-0">القيد</span>
-          <select
-            className="h-8 min-w-0 flex-1 rounded-md border border-[#D6EAF3] bg-white px-2 text-xs"
-            value={journalEntryId || journalOptions[0]?.id || ''}
-            onChange={(e) => onJournalIdChange?.(e.target.value)}
-          >
-            {journalOptions.map((option) => (
-              <option key={option.id} value={option.id}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </label>
-      ) : null}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        {journalOptions && journalOptions.length > 0 ? (
+          <label className="flex min-w-0 flex-1 items-center gap-2 text-xs font-semibold text-[#094C6B]">
+            <span className="shrink-0">القيد</span>
+            <select
+              className="h-8 min-w-0 flex-1 rounded-md border border-[#D6EAF3] bg-white px-2 text-xs"
+              value={journalEntryId || journalOptions[0]?.id || ''}
+              onChange={(e) => onJournalIdChange?.(e.target.value)}
+            >
+              {journalOptions.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
+        <GeneratedJournalTab
+          journalEntryId={journalEntryId || activeJournalOption?.id}
+          journalNumber={activeJournalOption?.label}
+        />
+      </div>
       <LiveJournalPreviewTable
         journalEntryId={journalEntryId}
         title=""
@@ -131,6 +143,8 @@ export function ErpDocumentBottomSplit({
           currencyCode={currencyCode}
           showTafqeet={showTafqeet}
           footer={financialFooter}
+          highlightHeader={highlightHeader}
+          besideNet={besideNet}
         />
       </div>
     </div>

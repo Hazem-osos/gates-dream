@@ -4,6 +4,7 @@ export const createDeductionSchema = z.object({
   code: z.string().optional(),
   arabicName: z.string().min(1, 'Arabic name is required'),
   englishName: z.string().optional(),
+  defaultAmount: z.number().nonnegative().optional().nullable(),
 });
 
 export const updateDeductionSchema = createDeductionSchema.partial().extend({

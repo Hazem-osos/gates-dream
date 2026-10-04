@@ -7,13 +7,16 @@ export default function InventoryReportsPage() {
     <InventoryReportFilterPage
       urlPath="/inventory/reports/inventory-reports"
       icon="📦"
-      subtitle="أرصدة الأصناف في المخازن حتى نهاية الفترة."
+      subtitle="أرصدة الأصناف حتى تاريخ، مع المحجوز والمتاح وقيمة المخزون."
       fields={{
-        dates: 'range',
+        dates: 'to',
         warehouse: true,
+        warehouseScope: 'all',
+        itemGroup: true,
         item: true,
         currency: true,
-        branch: true,
+        stockCount: true,
+        user: false,
       }}
     />
   );

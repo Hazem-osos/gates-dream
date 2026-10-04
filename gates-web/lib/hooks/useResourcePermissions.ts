@@ -4,7 +4,7 @@ import { usePathname } from 'next/navigation';
 import { useCurrentUserProfile } from './useCurrentUserProfile';
 import { resourceFromPath } from '../auth/resource-from-path';
 
-export type FgacAction = 'view' | 'edit' | 'delete' | 'post' | 'print' | 'approve' | 'override_tier_price';
+export type FgacAction = 'view' | 'edit' | 'delete' | 'post' | 'print' | 'approve' | 'override_tier_price' | 'unpost' | 'reopen_shift' | 'discount' | 'reprint' | 'void' | 'no_sale' | 'lock_terminal' | 'handover';
 
 export interface ResourcePermissions {
   resource: string | null;

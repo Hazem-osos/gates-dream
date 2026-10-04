@@ -38,7 +38,7 @@ router.get(
   authorize({ resource: 'customer', action: 'view' }),
   async (req: AuthRequest, res: Response) => {
     const cid = companyId(req);
-    if (!cid) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+    if (!cid) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     const data = await personGroupService.list(cid);
     return void res.json({ status: 'success', data });
   }
@@ -50,7 +50,7 @@ router.post(
   validate({ body: createPersonGroupSchema }),
   async (req: AuthRequest, res: Response) => {
     const cid = companyId(req);
-    if (!cid) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+    if (!cid) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     const data = await personGroupService.create(cid, req.body);
     return void res.status(201).json({ status: 'success', data });
   }
@@ -62,7 +62,7 @@ router.put(
   validate({ body: updatePersonGroupSchema }),
   async (req: AuthRequest, res: Response) => {
     const cid = companyId(req);
-    if (!cid) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+    if (!cid) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     const data = await personGroupService.update(cid, req.params.id, req.body);
     return void res.json({ status: 'success', data });
   }
@@ -74,7 +74,7 @@ router.get(
   validate({ query: personQuerySchema }),
   async (req: AuthRequest, res: Response) => {
     const cid = companyId(req);
-    if (!cid) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+    if (!cid) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     const result = await personService.list(cid, {
       page: req.query.page as number | undefined,
       limit: req.query.limit as number | undefined,
@@ -92,7 +92,7 @@ router.post(
   validate({ body: createPersonSchema }),
   async (req: AuthRequest, res: Response) => {
     const cid = companyId(req);
-    if (!cid) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+    if (!cid) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     try {
       const data = await personService.create(cid, req.body);
       return void res.status(201).json({ status: 'success', data });
@@ -109,7 +109,7 @@ router.get(
   authorize({ resource: 'customer', action: 'view' }),
   async (req: AuthRequest, res: Response) => {
     const cid = companyId(req);
-    if (!cid) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+    if (!cid) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     try {
       const data = await personService.getById(cid, req.params.id);
       return void res.json({ status: 'success', data });
@@ -125,7 +125,7 @@ router.put(
   validate({ body: updatePersonSchema }),
   async (req: AuthRequest, res: Response) => {
     const cid = companyId(req);
-    if (!cid) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+    if (!cid) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     const data = await personService.update(cid, req.params.id, req.body);
     return void res.json({ status: 'success', data });
   }
@@ -136,7 +136,7 @@ router.delete(
   authorize({ resource: 'customer', action: 'delete' }),
   async (req: AuthRequest, res: Response) => {
     const cid = companyId(req);
-    if (!cid) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+    if (!cid) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     await personService.delete(cid, req.params.id);
     return void res.status(204).send();
   }
@@ -162,7 +162,7 @@ router.post(
   validate({ body: createPersonItemPriceSchema }),
   async (req: AuthRequest, res: Response) => {
     const cid = companyId(req);
-    if (!cid) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+    if (!cid) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     const data = await personItemPriceService.create(cid, req.body);
     return void res.status(201).json({ status: 'success', data });
   }
@@ -173,7 +173,7 @@ router.get(
   authorize({ resource: 'customer', action: 'view' }),
   async (req: AuthRequest, res: Response) => {
     const cid = companyId(req);
-    if (!cid) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+    if (!cid) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     const data = await customerCategoryService.list(cid);
     return void res.json({ status: 'success', data });
   }
@@ -185,7 +185,7 @@ router.post(
   validate({ body: createCustomerCategorySchema }),
   async (req: AuthRequest, res: Response) => {
     const cid = companyId(req);
-    if (!cid) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+    if (!cid) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     try {
       const data = await customerCategoryService.create(cid, req.body);
       return void res.status(201).json({ status: 'success', data });
@@ -204,7 +204,7 @@ router.put(
   validate({ body: updateCustomerCategorySchema }),
   async (req: AuthRequest, res: Response) => {
     const cid = companyId(req);
-    if (!cid) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+    if (!cid) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     const data = await customerCategoryService.update(cid, req.params.id, req.body);
     return void res.json({ status: 'success', data });
   }
@@ -215,7 +215,7 @@ router.delete(
   authorize({ resource: 'customer', action: 'delete' }),
   async (req: AuthRequest, res: Response) => {
     const cid = companyId(req);
-    if (!cid) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+    if (!cid) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     await customerCategoryService.delete(cid, req.params.id);
     return void res.json({ status: 'success', message: 'تم حذف مجموعة العميل' });
   }
@@ -226,7 +226,7 @@ router.get(
   authorize({ resource: 'supplier', action: 'view' }),
   async (req: AuthRequest, res: Response) => {
     const cid = companyId(req);
-    if (!cid) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+    if (!cid) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     const data = await supplierCategoryService.list(cid);
     return void res.json({ status: 'success', data });
   }
@@ -238,7 +238,7 @@ router.post(
   validate({ body: createSupplierCategorySchema }),
   async (req: AuthRequest, res: Response) => {
     const cid = companyId(req);
-    if (!cid) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+    if (!cid) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     try {
       const data = await supplierCategoryService.create(cid, req.body);
       return void res.status(201).json({ status: 'success', data });
@@ -257,7 +257,7 @@ router.put(
   validate({ body: updateSupplierCategorySchema }),
   async (req: AuthRequest, res: Response) => {
     const cid = companyId(req);
-    if (!cid) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+    if (!cid) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     const data = await supplierCategoryService.update(cid, req.params.id, req.body);
     return void res.json({ status: 'success', data });
   }
@@ -268,7 +268,7 @@ router.delete(
   authorize({ resource: 'supplier', action: 'delete' }),
   async (req: AuthRequest, res: Response) => {
     const cid = companyId(req);
-    if (!cid) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+    if (!cid) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     await supplierCategoryService.delete(cid, req.params.id);
     return void res.json({ status: 'success', message: 'تم حذف مجموعة المورد' });
   }

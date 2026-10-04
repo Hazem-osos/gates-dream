@@ -241,6 +241,7 @@ export class TuitionBillingService {
       ctx.fiscalYearId,
       {
         transactionKind: 'RECEIPT',
+        serialGroup: 'SCHOOL',
         voucherNumber: input.voucherNumber,
         date: new Date(),
         amount,

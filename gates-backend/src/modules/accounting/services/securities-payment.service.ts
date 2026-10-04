@@ -1,15 +1,27 @@
 import prisma from '../../../shared/database/prisma';
 import { Decimal } from '@prisma/client/runtime/library';
 import { AppError } from '../../../shared/middleware/error-handler';
+import { assertPaperDueOnOrAfterIssue } from '../utils/paper-due-date';
 import { documentSequenceService } from '../../platform/services/document-sequence.service';
 import { commercialPaperPostingService } from './commercial-paper-posting.service';
+import {
+  companyOpeningJournalIsPosted,
+  OPENING_JOURNAL_UNPOST_FIRST_MESSAGE,
+} from './opening-balance.service';
 import {
   assertPaperIssued,
   SECURITIES_PAPER_CASES,
 } from '../utils/securities-paper-case';
 import { resolveSecuritiesPaperNumbers } from '../utils/securities-numbering';
 import { resolveSecuritiesEntity } from './securities-entity.service';
+import { normalizeInvoiceAllocations, type InvoiceAllocationInput } from '../utils/invoice-allocations';
+import { attachPartyDisplayNames, firstNonEmpty, resolveStoredPartyName } from '../utils/paper-party-label';
 import type { CollectSecuritiesInput } from './securities-receipt.service';
+import {
+  acquireUniqueKey,
+  releaseUniqueKeyIfUnused,
+  UNIQUE_KINDS,
+} from '../../../shared/database/company-unique-key';
 
 /** Minimal context needed to post a real GL entry for a securities payment (H11). */
 export interface SecuritiesPostingCtx {
@@ -28,6 +40,7 @@ export interface CreateSecuritiesPaymentData {
   customerId?: string;
   supplierId?: string;
   destinationAccountId?: string | null;
+  partyAccountId?: string | null;
   payeeName?: string;
   payeeBank?: string;
   securityNumber?: string;
@@ -36,6 +49,7 @@ export interface CreateSecuritiesPaymentData {
   currencyCode: string;
   entityName?: string | null;
   entityId?: string | null;
+  allocations?: InvoiceAllocationInput[];
 }
 
 export interface UpdateSecuritiesPaymentData {
@@ -49,6 +63,7 @@ export interface UpdateSecuritiesPaymentData {
   customerId?: string;
   supplierId?: string;
   destinationAccountId?: string | null;
+  partyAccountId?: string | null;
   payeeName?: string;
   payeeBank?: string;
   securityNumber?: string;
@@ -57,6 +72,7 @@ export interface UpdateSecuritiesPaymentData {
   currencyCode?: string;
   entityName?: string | null;
   entityId?: string | null;
+  allocations?: InvoiceAllocationInput[];
 }
 
 export class SecuritiesPaymentService {
@@ -123,8 +139,15 @@ export class SecuritiesPaymentService {
       prisma.securitiesPayment.count({ where }),
     ]);
 
+    const named = await attachPartyDisplayNames(payments, (ids) =>
+      prisma.account.findMany({
+        where: { companyId, id: { in: ids } },
+        select: { id: true, code: true, arabicName: true },
+      })
+    );
+
     return {
-      payments,
+      payments: named,
       pagination: {
         page,
         limit,
@@ -176,9 +199,10 @@ export class SecuritiesPaymentService {
     data: CreateSecuritiesPaymentData,
     ctx?: SecuritiesPostingCtx
   ) {
-    if (!data.customerId && !data.supplierId) {
-      throw new AppError(422, 'اختر المورد قبل حفظ ورقة المدفوعات');
+    if (!data.customerId && !data.supplierId && !data.partyAccountId) {
+      throw new AppError(422, 'اختر المورد أو حساب حركة قبل حفظ ورقة المدفوعات');
     }
+    assertPaperDueOnOrAfterIssue(data.date, data.dueDate);
     const destinationAccountId =
       data.destinationAccountId ||
       (await commercialPaperPostingService.resolveDefaultNotesAccount(companyId, 'PAYMENT'));
@@ -229,8 +253,44 @@ export class SecuritiesPaymentService {
       entityId: data.entityId,
       entityName: data.entityName,
     });
+    const payeeName =
+      (await resolveStoredPartyName(
+        {
+          supplierName: async (id) =>
+            (
+              await prisma.supplier.findFirst({
+                where: { id, companyId },
+                select: { arabicName: true },
+              })
+            )?.arabicName,
+          customerName: async (id) =>
+            (
+              await prisma.customer.findFirst({
+                where: { id, companyId },
+                select: { arabicName: true },
+              })
+            )?.arabicName,
+          accountLabel: async (id) => {
+            const account = await prisma.account.findFirst({
+              where: { id, companyId, deletedAt: null },
+              select: { code: true, arabicName: true },
+            });
+            return account?.arabicName
+              ? firstNonEmpty(account.code ? `[${account.code}] ${account.arabicName}` : account.arabicName)
+              : null;
+          },
+        },
+        data
+      )) || data.payeeName;
 
-    const created = await prisma.securitiesPayment.create({
+    const created = await prisma.$transaction(async (tx) => {
+      const securityNumber = await acquireUniqueKey(
+        tx,
+        companyId,
+        UNIQUE_KINDS.chequeNumber,
+        data.securityNumber
+      );
+      return tx.securitiesPayment.create({
       data: {
         companyId,
         branchId: data.branchId ?? ctx?.branchId,
@@ -243,20 +303,23 @@ export class SecuritiesPaymentService {
         customerId: data.customerId,
         supplierId: data.supplierId,
         destinationAccountId,
-        payeeName: data.payeeName,
+        partyAccountId: data.partyAccountId || null,
+        payeeName,
         payeeBank: data.payeeBank,
-        securityNumber: data.securityNumber,
+        securityNumber,
         dueDate: data.dueDate,
         amount: new Decimal(data.amount),
         currencyCode: data.currencyCode,
         entityId: entity?.id,
         entityName: entity?.arabicName ?? data.entityName,
+        invoiceAllocations: normalizeInvoiceAllocations(data.allocations),
         isPaid: true,
         isPosted: false,
         isApproved: false,
         isCancelled: false,
         paperCase: SECURITIES_PAPER_CASES.ISSUED,
       },
+      });
     });
     if (!ctx?.userId) {
       return commercialPaperPostingService.decoratePaper(companyId, 'PAYMENT', created);
@@ -268,7 +331,12 @@ export class SecuritiesPaymentService {
         created.id
       );
     } catch (error) {
-      await prisma.securitiesPayment.delete({ where: { id: created.id } }).catch(() => undefined);
+      await prisma
+        .$transaction(async (tx) => {
+          await tx.securitiesPayment.delete({ where: { id: created.id } });
+          await releaseUniqueKeyIfUnused(tx, companyId, UNIQUE_KINDS.chequeNumber, created.securityNumber);
+        })
+        .catch(() => undefined);
       throw error;
     }
   }
@@ -284,13 +352,17 @@ export class SecuritiesPaymentService {
   ) {
     const payment = await this.getSecuritiesPaymentById(companyId, paymentId);
 
-    if (payment.isPosted) {
-      throw new AppError(400, 'فك الترحيل أولاً قبل تعديل الورقة');
-    }
     if (payment.isCancelled) {
       throw new AppError(400, 'لا يمكن تعديل ورقة ملغاة');
     }
+    if (payment.isOpening && (await companyOpeningJournalIsPosted(companyId))) {
+      throw new AppError(400, OPENING_JOURNAL_UNPOST_FIRST_MESSAGE);
+    }
     assertPaperIssued(payment, 'تعديل الورقة');
+    assertPaperDueOnOrAfterIssue(
+      data.date ?? payment.date,
+      data.dueDate !== undefined ? data.dueDate : payment.dueDate
+    );
 
     // Check payment number uniqueness if changing
     if (data.paymentNumber && data.paymentNumber !== (payment as { paymentNumber?: string | null }).paymentNumber) {
@@ -318,9 +390,12 @@ export class SecuritiesPaymentService {
     if (data.customerId !== undefined) updateData.customerId = data.customerId;
     if (data.supplierId !== undefined) updateData.supplierId = data.supplierId;
     if (data.destinationAccountId !== undefined) updateData.destinationAccountId = data.destinationAccountId;
+    if (data.partyAccountId !== undefined) updateData.partyAccountId = data.partyAccountId;
     if (data.payeeName !== undefined) updateData.payeeName = data.payeeName;
     if (data.payeeBank !== undefined) updateData.payeeBank = data.payeeBank;
-    if (data.securityNumber !== undefined) updateData.securityNumber = data.securityNumber;
+    if (data.securityNumber !== undefined) {
+      updateData.securityNumber = data.securityNumber.trim() || null;
+    }
     if (data.dueDate !== undefined) updateData.dueDate = data.dueDate;
     if (data.amount !== undefined) updateData.amount = new Decimal(data.amount);
     if (data.currencyCode !== undefined) updateData.currencyCode = data.currencyCode;
@@ -332,13 +407,31 @@ export class SecuritiesPaymentService {
       updateData.entityId = entity?.id ?? null;
       updateData.entityName = entity?.arabicName ?? data.entityName ?? null;
     }
+    if (data.allocations !== undefined) {
+      updateData.invoiceAllocations = normalizeInvoiceAllocations(data.allocations);
+    }
 
-    const updated = await prisma.securitiesPayment.update({
-      where: { id: paymentId },
-      data: updateData,
-      include: { customer: true, supplier: true, entity: { select: { id: true, arabicName: true } } },
+    const nextNumber =
+      data.securityNumber !== undefined ? (updateData.securityNumber as string | null) : undefined;
+    const previousNumber = payment.securityNumber?.trim() || null;
+    const updated = await prisma.$transaction(async (tx) => {
+      if (nextNumber && nextNumber !== previousNumber) {
+        await acquireUniqueKey(tx, companyId, UNIQUE_KINDS.chequeNumber, nextNumber);
+      }
+      const row = await tx.securitiesPayment.update({
+        where: { id: paymentId },
+        data: updateData,
+        include: { customer: true, supplier: true, entity: { select: { id: true, arabicName: true } } },
+      });
+      if (previousNumber && nextNumber !== undefined && nextNumber !== previousNumber) {
+        await releaseUniqueKeyIfUnused(tx, companyId, UNIQUE_KINDS.chequeNumber, previousNumber);
+      }
+      return row;
     });
     if (!ctx?.userId) {
+      return commercialPaperPostingService.decoratePaper(companyId, 'PAYMENT', updated);
+    }
+    if (updated.isOpening) {
       return commercialPaperPostingService.decoratePaper(companyId, 'PAYMENT', updated);
     }
     return commercialPaperPostingService.syncIssueJournal(
@@ -370,6 +463,14 @@ export class SecuritiesPaymentService {
     );
   }
 
+  async uncollectSecuritiesPayment(companyId: string, paymentId: string, ctx: SecuritiesPostingCtx) {
+    return commercialPaperPostingService.uncollectPaper(
+      { companyId, branchId: ctx.branchId, userId: ctx.userId },
+      'PAYMENT',
+      paymentId
+    );
+  }
+
   async unpostSecuritiesPayment(companyId: string, paymentId: string, ctx: SecuritiesPostingCtx) {
     return commercialPaperPostingService.unpostPaper(
       { companyId, branchId: ctx.branchId, userId: ctx.userId },
@@ -398,28 +499,14 @@ export class SecuritiesPaymentService {
    */
   async cancelSecuritiesPayment(companyId: string, paymentId: string) {
     const payment = await this.getSecuritiesPaymentById(companyId, paymentId);
-
-    if (payment.isPosted) {
-      throw new Error('Cannot cancel a posted securities payment. Unpost it first.');
+    if (payment.isOpening) {
+      throw new AppError(400, 'لا يمكن حذف شيك مسجّل في الأوراق المالية السابقة كمسودة');
     }
-
-    if (payment.isCancelled) {
-      throw new Error('Securities payment is already cancelled');
-    }
-
-    await commercialPaperPostingService.cancelIssuedPaperJournals(
+    return commercialPaperPostingService.cancelIssuedPaperJournals(
       { companyId, branchId: payment.branchId, userId: '' },
       'PAYMENT',
       paymentId
     );
-    return prisma.securitiesPayment.update({
-      where: { id: paymentId },
-      data: {
-        isCancelled: true,
-        cancelledAt: new Date(),
-        paperCase: SECURITIES_PAPER_CASES.BOUNCED,
-      },
-    });
   }
 
   /**

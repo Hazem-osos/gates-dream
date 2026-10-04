@@ -1,4 +1,5 @@
 import prisma from '../../../shared/database/prisma';
+import { permanentDelete } from '../../../shared/database/permanent-delete.util';
 import { logger } from '../../../shared/logger';
 import { CreateMonthlySalariesDisbursementInput, UpdateMonthlySalariesDisbursementInput } from '../schemas/monthly-salaries-disbursement.schema';
 
@@ -170,7 +171,7 @@ export class MonthlySalariesDisbursementService {
   }
 
   /**
-   * Delete monthly salaries disbursement (soft delete)
+   * Delete permanently (blocked if referenced)
    */
   async deleteMonthlySalariesDisbursement(companyId: string, disbursementId: string) {
     try {
@@ -186,10 +187,7 @@ export class MonthlySalariesDisbursementService {
         throw new Error('Monthly salaries disbursement not found');
       }
 
-      await prisma.monthlySalariesDisbursement.update({
-        where: { id: disbursementId },
-        data: { isActive: false },
-      });
+      await permanentDelete('السجل', () => prisma.monthlySalariesDisbursement.delete({ where: { id: disbursementId } }));
 
       logger.info({ companyId, disbursementId }, 'Monthly salaries disbursement deleted');
       return { success: true };

@@ -4,6 +4,7 @@ import { Download } from 'lucide-react';
 import { ErpDocumentPageHeader } from '@/components/erp/ErpDocumentPageHeader';
 import { DatePickerWithHijri } from '@/components/ui/DatePickerWithHijri';
 import { Button } from '@/components/ui';
+import { STORE_SAVE_AND_POST_LABEL } from '@/lib/inventory/store-document-save-post';
 
 type Props = {
   docNumber?: string;
@@ -25,6 +26,9 @@ type Props = {
   onEdit: () => void;
   onPrint: () => void;
   onExportExcel: () => void;
+  onImportExcel: () => void;
+  importDisabled?: boolean;
+  sheetBusy?: boolean;
   onClearAll: () => void;
   onNew?: () => void;
   newDisabled?: boolean;
@@ -54,6 +58,9 @@ export function OpeningStockHeader({
   onEdit,
   onPrint,
   onExportExcel,
+  onImportExcel,
+  importDisabled,
+  sheetBusy,
   onClearAll,
   onNew,
   newDisabled,
@@ -76,7 +83,7 @@ export function OpeningStockHeader({
         statusTone={isCancelled ? 'danger' : isPosted ? 'success' : 'warning'}
         statusLabel={isCancelled ? 'ملغي' : isPosted ? 'مرحل ومثبت (Posted)' : 'مسودة (Draft)'}
         onSaveDraft={onSave}
-        saveLabel="حفظ"
+        saveLabel={STORE_SAVE_AND_POST_LABEL}
         savePending={savePending}
         canSave={canSave}
         hideStandalonePost
@@ -85,18 +92,33 @@ export function OpeningStockHeader({
         favoriteHref="/inventory/operations/opening-stock"
         favoriteLabel="بضاعة أول المدة"
         extraActions={
-          <Button
-            type="button"
-            variant="secondary"
-            size="sm"
-            className="gap-1.5"
-            isLoading={loadPending}
-            disabled={isReadOnly || isPosted || loadPending}
-            onClick={onLoadItems}
-          >
-            <Download className="h-3.5 w-3.5" />
-            تحميل كافة الأصناف
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              className="gap-1.5"
+              isLoading={loadPending}
+              disabled={isReadOnly || isPosted || loadPending}
+              onClick={onLoadItems}
+            >
+              <Download className="h-3.5 w-3.5" />
+              تحميل كافة الأصناف
+            </Button>
+            <Button type="button" variant="secondary" size="sm" onClick={onExportExcel}>
+              تصدير إكسيل
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              isLoading={sheetBusy}
+              disabled={importDisabled}
+              onClick={onImportExcel}
+            >
+              استيراد إكسيل
+            </Button>
+          </div>
         }
         standardActions={{
           hasDocument,
@@ -106,7 +128,7 @@ export function OpeningStockHeader({
           newLabel: 'جديد',
           newDisabled,
           newHint:
-            newHint ?? 'يوجد كشف بضاعة أول المدة بالفعل. عدّل نفس الكشف أو استرجعه إن كان ملغياً.',
+            newHint ?? 'كشف جديد لمخزن آخر. كل مخزن له بضاعة أول المدة لوحده.',
           onEdit,
           onPost,
           onUnpost,
@@ -142,6 +164,11 @@ export function OpeningStockHeader({
         <p className="mt-1.5 text-[11px] text-muted-foreground">
           نفس تاريخ الرصيد الافتتاحي — اليوم السابق لبداية السنة المالية
           {fiscalYearName ? ` (${fiscalYearName})` : ''}
+        </p>
+        <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
+          الحفظ يُنشئ مسودة فقط. الترحيل يُدخل الكميات للمخزون ويُضيف بنود المخزون إلى مسودة قيد
+          الرصيد الافتتاحي (بدون قيد منفصل). أرصدة الحسابات تتأثر عند ترحيل القيد الافتتاحي من
+          المحاسبة.
         </p>
       </div>
     </>

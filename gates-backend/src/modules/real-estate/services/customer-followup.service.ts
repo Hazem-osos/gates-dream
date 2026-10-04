@@ -21,7 +21,7 @@ export class CustomerFollowupService {
         select: { id: true },
       });
       if (!customer) {
-        throw new Error('Customer not found');
+        throw new Error('العميل غير موجود');
       }
 
       const followup = await prisma.customerFollowup.create({

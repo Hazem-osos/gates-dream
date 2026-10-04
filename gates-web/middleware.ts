@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 import { AUTH_TOKEN_COOKIE_ALIASES, AUTH_TOKEN_COOKIE_NAME } from './lib/auth/constants';
+import { isRouteUnavailable } from './lib/navigation/route-visibility';
 
 /**
  * Route gating mirrors the backend `API_AUTH_MODE`:
@@ -14,10 +15,16 @@ function authGateEnabled(): boolean {
   return process.env.NODE_ENV === 'production';
 }
 
-const PUBLIC_PATHS = ['/login', '/register', '/forgot-password', '/logout', '/share'];
+const PUBLIC_PATHS = ['/login', '/register', '/forgot-password', '/reset-password', '/logout', '/share'];
 
 function isPublicPath(pathname: string): boolean {
-  if (pathname === '/' || pathname === '/health' || pathname.startsWith('/health/') || pathname.startsWith('/api/')) {
+  if (
+    pathname === '/' ||
+    pathname === '/health' ||
+    pathname.startsWith('/health/') ||
+    pathname.startsWith('/api/') ||
+    pathname.startsWith('/downloads/')
+  ) {
     return true;
   }
   return PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`));
@@ -37,9 +44,15 @@ function isClientRouterRequest(request: NextRequest): boolean {
 }
 
 export function middleware(request: NextRequest) {
-  if (!authGateEnabled()) return NextResponse.next();
-
   const { pathname, search } = request.nextUrl;
+  if (isRouteUnavailable(pathname)) {
+    const url = request.nextUrl.clone();
+    url.pathname = '/unavailable';
+    url.search = '';
+    return NextResponse.rewrite(url);
+  }
+
+  if (!authGateEnabled()) return NextResponse.next();
   if (isPublicPath(pathname) || hasSession(request)) return NextResponse.next();
 
   // Client navigations (save URL replace, tab switch) already have the ERP shell.
@@ -53,6 +66,6 @@ export function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|api/|health(?:/|$)|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|txt|xml|woff2?|ttf|eot|webmanifest)$).*)',
+    '/((?!_next/static|_next/image|favicon.ico|api/|downloads/|health(?:/|$)|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|txt|xml|woff2?|ttf|eot|webmanifest|exe)$).*)',
   ],
 };

@@ -166,6 +166,33 @@ export function resolveInvoicePaymentStance(netAmount: number, paidAmount: numbe
   return 'partial';
 }
 
+const INVOICE_MONEY_EPS = 0.009;
+
+/** Posted invoices: server `paidAmount` (settlements). Draft: tender splits / advance field. */
+export function invoiceCashPaidDisplayAmount(input: {
+  isPosted: boolean;
+  savedPaidAmount: number;
+  paymentMethod: 'cash' | 'credit' | 'split';
+  advancePaidAmount: number;
+  splitTenderPaid: number;
+  netAmount: number;
+  pendingAdvanceTotal?: number;
+}): number {
+  const pending = Number(input.pendingAdvanceTotal) || 0;
+  if (input.isPosted) {
+    return Math.max(0, Number(input.savedPaidAmount) || 0) + pending;
+  }
+  const draft =
+    input.paymentMethod === 'split'
+      ? input.splitTenderPaid
+      : input.paymentMethod === 'cash'
+        ? input.advancePaidAmount > INVOICE_MONEY_EPS
+          ? input.advancePaidAmount
+          : input.netAmount
+        : input.advancePaidAmount;
+  return draft + pending;
+}
+
 export function applyPaidToInstallments(
   installments: Array<{ amount: number }>,
   paidAmount: number
@@ -197,6 +224,7 @@ export type InvoiceInstallmentSource = {
 
 export type InvoiceInstallmentView = {
   key: string;
+  id?: string;
   number: number;
   dueDate: string;
   amount: number;
@@ -230,6 +258,7 @@ export function buildInvoiceInstallmentViews(
     const stance = resolveInvoicePaymentStance(amount, applied);
     return {
       key: row.id ?? `inst-${index}`,
+      id: row.id,
       number: row.installmentNumber ?? row.number ?? index + 1,
       dueDate: formatDate(row.dueDate),
       amount,

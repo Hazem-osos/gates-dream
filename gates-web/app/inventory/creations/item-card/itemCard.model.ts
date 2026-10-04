@@ -62,7 +62,13 @@ export type ItemDetail = {
   beginningCostPrice?: number | string | null;
   units?: ItemUnitRow[];
   quantities?: { quantity?: number | string; warehouse?: { arabicName?: string } }[];
-  prices?: { price: number | string; unitId?: string; unit?: { arabicName?: string } }[];
+  prices?: {
+    price: number | string;
+    purchasePrice?: number | string | null;
+    retailPrice?: number | string | null;
+    unitId?: string;
+    unit?: { arabicName?: string };
+  }[];
   priceRetail?: number | string | null;
   priceSemiWholesale?: number | string | null;
   priceWholesale?: number | string | null;
@@ -92,6 +98,7 @@ export type ItemDetail = {
   imageUrl?: string | null;
   defaultWarehouseId?: string | null;
   priceSource?: string | null;
+  etaProfile?: Record<string, unknown> | null;
   lastPurchasePrice?: number | string | null;
 };
 
@@ -256,22 +263,139 @@ export function parseSupplierRows(value: unknown): SupplierRow[] {
   );
 }
 
+export function asText(value: unknown): string {
+  return String(value ?? '').trim();
+}
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export function uuidOrNull(value: unknown): string | null {
+  const text = asText(value);
+  return UUID_RE.test(text) ? text : null;
+}
+
+export function finiteOrNull(value: unknown): number | null {
+  if (value == null || value === '') return null;
+  const n = typeof value === 'number' ? value : parseFloat(String(value).replace(/,/g, ''));
+  return Number.isFinite(n) ? n : null;
+}
+
+const ITEM_TYPES = ['normal', 'pack-sheet', 'pack-kilo', 'roll'] as const;
+const PRICE_MODES = ['value', 'last_purchase_pct', 'cost_pct'] as const;
+
+export function mergeItemCardForm(partial?: Partial<ItemCardForm> | null): ItemCardForm {
+  return { ...EMPTY_ITEM_FORM, ...(partial ?? {}) };
+}
+
 export function compactAssemblyRows(rows: AssemblyRow[]) {
   return rows
-    .filter((row) => row.itemId.trim() || row.itemName.trim() || row.quantity.trim() || row.cost.trim())
+    .filter((row) => asText(row.itemId) || asText(row.itemName) || asText(row.quantity) || asText(row.cost))
     .map((row) => ({
-      itemId: row.itemId.trim() || null,
-      itemName: row.itemName.trim() || null,
-      unitId: row.unitId.trim() || null,
-      unitName: row.unitName.trim() || null,
-      conversionFactor: row.conversionFactor.trim() || null,
-      quantity: row.quantity.trim() || null,
-      cost: row.cost.trim() || null,
+      itemId: uuidOrNull(row.itemId),
+      itemName: asText(row.itemName) || null,
+      unitId: uuidOrNull(row.unitId),
+      unitName: asText(row.unitName) || null,
+      conversionFactor: asText(row.conversionFactor) || null,
+      quantity: asText(row.quantity) || null,
+      cost: asText(row.cost) || null,
     }));
 }
 
+export function buildItemPersistBody(input: {
+  form: ItemCardForm;
+  itemType: string;
+  itemAuto: boolean;
+  companyPriceSource: 'price_list' | 'item_card';
+  baseUnitId: string;
+  assemblyRows: AssemblyRow[];
+  supplierRows: SupplierRow[];
+  etaProfile: Record<string, unknown> | null;
+  includeAssemblyKind: boolean;
+}): Record<string, unknown> {
+  const form = mergeItemCardForm(input.form);
+  const retailTier = optionalMoney(form.retailPrice) ?? optionalMoney(form.priceRetail);
+  const itemType = (ITEM_TYPES as readonly string[]).includes(input.itemType)
+    ? input.itemType
+    : 'normal';
+  const priceMode = (PRICE_MODES as readonly string[]).includes(form.priceMode)
+    ? form.priceMode
+    : 'value';
+
+  return {
+    ...(input.itemAuto ? {} : { serial: asText(form.serial) || undefined }),
+    arabicName: asText(form.arabicName),
+    englishName: asText(form.englishName),
+    categoryId: uuidOrNull(form.categoryId),
+    baseUnitId: uuidOrNull(input.baseUnitId) ?? undefined,
+    barcode: asText(form.barcode) || null,
+    defaultTaxPercent: form.isTaxExempt ? 0 : optionalMoney(form.defaultTaxPercent) ?? null,
+    mainAccountId: uuidOrNull(form.mainAccountId),
+    costCenterId: uuidOrNull(form.costCenterId),
+    specifications: asText(form.specifications),
+    itemType,
+    priceSource: input.companyPriceSource,
+    weight: finiteOrNull(form.weight),
+    manufacturerId: asText(form.manufacturerId) || null,
+    colorId: asText(form.colorId) || null,
+    countryOfOrigin: asText(form.countryOfOrigin) || null,
+    quality: asText(form.quality) || null,
+    size: asText(form.size) || null,
+    property1: asText(form.property1) || null,
+    property2: asText(form.property2) || null,
+    property3: asText(form.property3) || null,
+    property4: asText(form.property4) || null,
+    property5: asText(form.property5) || null,
+    useExpirationDate: Boolean(form.useExpirationDate),
+    inactiveItem: Boolean(form.inactiveItem),
+    notSubjectToTerms: Boolean(form.notSubjectToTerms),
+    cannotBeReturned: Boolean(form.cannotBeReturned),
+    noSellBelowCost: Boolean(form.noSellBelowCost),
+    useSerialNumber: Boolean(form.useSerialNumber),
+    clothingItem: Boolean(form.clothingItem),
+    upperLimit: finiteOrNull(form.upperLimit),
+    orderLimit: finiteOrNull(form.orderLimit),
+    orderLimitPercentage: finiteOrNull(form.orderLimitPercentage),
+    lowerLimit: finiteOrNull(form.lowerLimit),
+    purchaseCount: (() => {
+      const n = finiteOrNull(form.purchaseCount);
+      return n == null ? null : Math.trunc(n);
+    })(),
+    minPurchaseQty: optionalMoney(form.minPurchaseQty) ?? null,
+    lastPurchasePrice: optionalMoney(form.purchasePrice) ?? 0,
+    priceRetail: optionalMoney(form.priceRetail) ?? retailTier,
+    priceSemiWholesale: finiteOrNull(form.priceSemiWholesale) ?? undefined,
+    priceWholesale: finiteOrNull(form.priceWholesale) ?? undefined,
+    priceProjects: finiteOrNull(form.priceProjects) ?? undefined,
+    isService: Boolean(form.isService),
+    ...(input.includeAssemblyKind ? { isAssembly: Boolean(form.isAssembly) } : {}),
+    isTaxExempt: Boolean(form.isTaxExempt),
+    consumerPrice: optionalMoney(form.consumerPrice) ?? 0,
+    retailPrice: retailTier ?? 0,
+    representativePrice: optionalMoney(form.representativePrice) ?? 0,
+    exportPrice: optionalMoney(form.exportPrice) ?? 0,
+    priceMode,
+    priceCurrency: asText(form.priceCurrency) || null,
+    extraAssemblyCost: null,
+    extraAssemblyCostPct: optionalMoney(form.extraAssemblyCostPct) ?? null,
+    assemblyComponents: compactAssemblyRows(input.assemblyRows),
+    preferredSuppliers: compactSupplierRows(input.supplierRows),
+    imageUrl: form.imageUrl || null,
+    defaultWarehouseId: uuidOrNull(form.defaultWarehouseId),
+    etaProfile: input.etaProfile
+      ? {
+          ...input.etaProfile,
+          taxRate: form.isTaxExempt ? '0' : form.defaultTaxPercent || '0',
+          description: undefined,
+        }
+      : undefined,
+  };
+}
+
 export function compactSupplierRows(rows: SupplierRow[]) {
-  return rows.filter((row) => row.supplierName.trim() || row.price.trim() || row.leadTimeDays.trim());
+  return rows.filter(
+    (row) => asText(row.supplierName) || asText(row.price) || asText(row.leadTimeDays)
+  );
 }
 
 export function assemblyRowsTotal(rows: AssemblyRow[]): number {
@@ -349,4 +473,21 @@ export function applyItemToForm(item: Partial<ItemDetail>): ItemCardForm {
     priceSource: item.priceSource === 'item_card' ? 'item_card' : 'price_list',
     purchasePrice: moneyToInput(item.lastPurchasePrice),
   };
+}
+
+/** After PUT/POST, the loaded card must carry the values we just sent. */
+export function assertItemPersisted(
+  sent: { arabicName?: unknown; serial?: unknown },
+  saved: Partial<ItemDetail> | null | undefined
+): ItemDetail {
+  if (!saved?.id || !saved.arabicName) {
+    throw new Error('الحفظ لم يُثبّت على السيرفر');
+  }
+  if (typeof sent.arabicName === 'string' && sent.arabicName && saved.arabicName !== sent.arabicName) {
+    throw new Error('التعديل لم يُحفظ. حدّث الصفحة وجرّب مرة ثانية.');
+  }
+  if (typeof sent.serial === 'string' && sent.serial && saved.serial && saved.serial !== sent.serial) {
+    throw new Error('كود الصنف لم يُحفظ. حدّث الصفحة وجرّب مرة ثانية.');
+  }
+  return saved as ItemDetail;
 }

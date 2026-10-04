@@ -2,12 +2,13 @@
 
 import React, { useEffect, useState } from 'react';
 import { CompactFormField, FormSectionCard } from '@/components/ui';
-import { useApiMutation } from '@/lib/hooks/useApi';
+import { useApiMutation, useApiQuery } from '@/lib/hooks/useApi';
 import { invalidateMasterDataClient } from '@/lib/hooks/invalidateMasterData';
 import type { ApiError } from '@/lib/api/types';
 import type { WarehouseOption } from '@/lib/hooks/useMasterDataQueries';
 import { useQueryClient } from '@tanstack/react-query';
 import { QuickCreateDialog } from '@/app/components/form/QuickCreateDialog';
+import { isCodeAfter } from '@/lib/masters/nextNumericSerial';
 
 type Props = {
   open: boolean;
@@ -22,12 +23,25 @@ export function QuickCreateWarehouseModal({ open, initialName, onClose, onCreate
   const [code, setCode] = useState('');
   const [error, setError] = useState('');
 
+  const { data: nextCodeResponse } = useApiQuery<{ code?: string }>(
+    ['warehouses', 'next-code', 'quick-root'],
+    '/inventory/warehouses/next-code',
+    undefined,
+    { enabled: open }
+  );
+
   useEffect(() => {
     if (!open) return;
     setName(initialName);
-    setCode('');
     setError('');
   }, [open, initialName]);
+
+  useEffect(() => {
+    if (!open) return;
+    const suggested = nextCodeResponse?.data?.code;
+    if (!suggested) return;
+    setCode((prev) => (prev && isCodeAfter(prev, suggested) ? prev : suggested));
+  }, [open, nextCodeResponse?.data?.code]);
 
   const mutation = useApiMutation<WarehouseOption, Record<string, unknown>>(
     '/inventory/warehouses',
@@ -74,6 +88,7 @@ export function QuickCreateWarehouseModal({ open, initialName, onClose, onCreate
       onSave={submit}
     >
       <FormSectionCard title="البيانات الأساسية" bodyClassName="sm:grid-cols-1 lg:grid-cols-1">
+        <CompactFormField label="المسلسل" value={code} disabled placeholder="يُولَّد تلقائياً…" />
         <CompactFormField
           label="اسم المخزن"
           required
@@ -81,7 +96,6 @@ export function QuickCreateWarehouseModal({ open, initialName, onClose, onCreate
           onChange={(e) => setName(e.target.value)}
           autoFocus
         />
-        <CompactFormField label="الكود (اختياري)" value={code} onChange={(e) => setCode(e.target.value)} />
       </FormSectionCard>
     </QuickCreateDialog>
   );

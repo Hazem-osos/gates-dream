@@ -265,6 +265,31 @@ export class ItemUnitService {
         }
       }
 
+      const factorChanging =
+        data.conversionFactor !== undefined &&
+        Number(data.conversionFactor) !== Number(existing.conversionFactor);
+      const baseChanging =
+        data.isBaseUnit !== undefined && Boolean(data.isBaseUnit) !== Boolean(existing.isBaseUnit);
+      if (factorChanging || baseChanging) {
+        const [movement, balance, line] = await Promise.all([
+          prisma.inventoryMovement.findFirst({
+            where: { companyId, itemId: existing.itemId },
+            select: { id: true },
+          }),
+          prisma.itemQuantity.findFirst({
+            where: { itemId: existing.itemId, quantity: { not: 0 } },
+            select: { id: true },
+          }),
+          prisma.invoiceLine.findFirst({
+            where: { itemId: existing.itemId },
+            select: { id: true },
+          }),
+        ]);
+        if (movement || balance || line) {
+          throw new Error('لا يمكن تغيير الوحدة الأساسية أو معامل التحويل بعد وجود حركات على الصنف');
+        }
+      }
+
       // If this is being set as base unit, unset other base units for this item
       if (data.isBaseUnit && !existing.isBaseUnit) {
         await prisma.itemUnit.updateMany({

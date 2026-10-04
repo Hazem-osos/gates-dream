@@ -17,7 +17,7 @@ router.post(
   async (req: AuthRequest, res: Response) => {
     const companyId = req.companyId ?? req.tenantId;
     if (!companyId) {
-      return void res.status(400).json({ status: 'error', message: 'Company ID required' });
+      return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     }
     try {
       const data = await bomService.create(companyId, req.body);
@@ -38,7 +38,7 @@ router.get(
   async (req: AuthRequest, res: Response) => {
     const companyId = req.companyId ?? req.tenantId;
     if (!companyId) {
-      return void res.status(400).json({ status: 'error', message: 'Company ID required' });
+      return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     }
     const data = await bomService.list(companyId);
     return void res.json({ status: 'success', data });
@@ -51,7 +51,7 @@ router.get(
   async (req: AuthRequest, res: Response) => {
     const companyId = req.companyId ?? req.tenantId;
     if (!companyId) {
-      return void res.status(400).json({ status: 'error', message: 'Company ID required' });
+      return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     }
     try {
       const data = await bomService.getById(companyId, req.params.id);
@@ -61,6 +61,27 @@ router.get(
       return void res.status(status).json({
         status: 'error',
         message: e instanceof Error ? e.message : 'Get BOM failed',
+      });
+    }
+  }
+);
+
+router.put(
+  '/:id',
+  authorize({ resource: 'invoice', action: 'edit' }),
+  async (req: AuthRequest, res: Response) => {
+    const companyId = req.companyId ?? req.tenantId;
+    if (!companyId) {
+      return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
+    }
+    try {
+      const data = await bomService.update(companyId, req.params.id, req.body);
+      return void res.json({ status: 'success', data });
+    } catch (e) {
+      const status = e instanceof AppError ? e.statusCode : 500;
+      return void res.status(status).json({
+        status: 'error',
+        message: e instanceof Error ? e.message : 'Update BOM failed',
       });
     }
   }

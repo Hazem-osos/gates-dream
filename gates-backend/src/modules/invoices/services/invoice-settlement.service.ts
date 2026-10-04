@@ -149,21 +149,28 @@ export async function countActiveInvoiceSettlementsInTx(
   return { allocationCount, chequeCount };
 }
 
-async function resolveDefaultSafeId(companyId: string, branchId?: string | null): Promise<string> {
+async function resolveDefaultSafeId(
+  companyId: string,
+  branchId?: string | null,
+  db: Prisma.TransactionClient | typeof prisma = prisma
+): Promise<string> {
   if (branchId) {
-    const branch = await prisma.branch.findFirst({
+    const branch = await db.branch.findFirst({
       where: { id: branchId, companyId },
       select: { defaultSafeId: true },
     });
     if (branch?.defaultSafeId) return branch.defaultSafeId;
   }
-  const safe = await prisma.safe.findFirst({
+  const safe = await db.safe.findFirst({
     where: { companyId, isActive: true },
     orderBy: { createdAt: 'asc' },
     select: { id: true },
   });
   if (!safe) {
-    throw new AppError(422, 'No active cash safe configured for automatic settlement');
+    throw new AppError(
+      422,
+      'لا توجد خزينة نشطة للتحصيل التلقائي. عرّف خزينة من الخزائن أو اختر خزينة افتراضية للفرع ثم أعد الترحيل.'
+    );
   }
   return safe.id;
 }
@@ -195,7 +202,7 @@ export class InvoiceSettlementService {
     }
 
     const kind = settlementKind(invoice.invoiceKind);
-    const safeId = await resolveDefaultSafeId(ctx.companyId, ctx.branchId);
+    const safeId = await resolveDefaultSafeId(ctx.companyId, ctx.branchId, tx);
     const amount = roundTo4(settlementAmount);
 
     const cashTx = await cashTransactionService.createInTx(
@@ -206,7 +213,11 @@ export class InvoiceSettlementService {
       {
         transactionKind: kind,
         date: invoice.date,
-        description: `تسوية نقدية — فاتورة ${invoice.invoiceNumber ?? invoice.id.slice(0, 8)}`,
+        description: `${
+          invoice.invoiceKind === 'SALE_RETURN' || invoice.invoiceKind === 'PURCHASE_RETURN'
+            ? 'تسوية نقدية — مردود'
+            : 'تسوية نقدية — فاتورة'
+        } ${invoice.invoiceNumber ?? invoice.id.slice(0, 8)}`,
         amount,
         currencyCode: invoice.currencyCode,
         customerId: invoice.customerId ?? undefined,
@@ -326,6 +337,7 @@ export class InvoiceSettlementService {
           customerId: invoice.customerId,
           supplierId: invoice.supplierId,
           invoiceId: invoice.id,
+          db: tx,
         });
         const fxJe = await postFxDifferenceInTx(tx, ctx, {
           kind,
@@ -437,7 +449,10 @@ export class InvoiceSettlementService {
 
   async list(companyId: string, invoiceId: string) {
     return prisma.cashTransaction.findMany({
-      where: { companyId, invoiceId },
+      where: {
+        companyId,
+        OR: [{ invoiceId }, { paymentAllocations: { some: { invoiceId } } }],
+      },
       orderBy: [{ date: 'asc' }, { createdAt: 'asc' }],
       select: {
         id: true,

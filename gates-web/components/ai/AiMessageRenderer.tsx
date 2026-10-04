@@ -9,7 +9,7 @@ export function AiScreenChip({ label, href }: { label: string; href: string }) {
   return (
     <Link
       href={href}
-      className="mx-1 inline-flex items-center gap-1 rounded bg-[#0E79AA]/10 px-2 py-0.5 text-xs font-medium text-[#0E79AA] transition-colors hover:bg-[#0E79AA]/20"
+      className="mx-1 inline-flex items-center gap-1 rounded bg-[#0E78AA]/10 px-2 py-0.5 text-xs font-medium text-[#0E78AA] transition-colors hover:bg-[#0E78AA]/20"
     >
       <span>{label}</span>
       <ArrowUpLeft className="h-3 w-3" />
@@ -32,7 +32,7 @@ function renderInline(text: string): ReactNode[] {
   parts.forEach((part, index) => {
     if (part.startsWith('**') && part.endsWith('**')) {
       nodes.push(
-        <strong key={`b-${index}`} className="font-bold text-[#0E79AA]">
+        <strong key={`b-${index}`} className="font-bold text-[#0E78AA]">
           {renderScreenAwareText(part.slice(2, -2), `b-${index}`)}
         </strong>
       );
@@ -85,7 +85,7 @@ export function AiMessageRenderer({ text }: { text: string }) {
     }
     if (trimmed.startsWith('### ')) {
       nodes.push(
-        <h4 key={index} className="mt-2 text-sm font-bold text-[#0E79AA]">
+        <h4 key={index} className="mt-2 text-sm font-bold text-[#0E78AA]">
           {renderInline(trimmed.slice(4))}
         </h4>
       );
@@ -94,7 +94,7 @@ export function AiMessageRenderer({ text }: { text: string }) {
     if (trimmed.startsWith('## ') || trimmed.startsWith('# ')) {
       const title = trimmed.replace(/^#+\s+/, '');
       nodes.push(
-        <h3 key={index} className="mt-2 text-[15px] font-bold text-[#0E79AA]">
+        <h3 key={index} className="mt-2 text-[15px] font-bold text-[#0E78AA]">
           {renderInline(title)}
         </h3>
       );

@@ -1,0 +1,49 @@
+# Generated, dependency, and cache trees. Source, Prisma schema/migrations,
+# docs/architecture, and .cursor/rules stay visible to Cursor.
+
+# Dependencies
+node_modules/
+
+# Next.js and build output
+.next/
+out/
+dist/
+build/
+*.tsbuildinfo
+
+# Caches
+.cache/
+.turbo/
+.vercel/
+
+# Tests and local run output
+coverage/
+.nyc_output/
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
+playwright/.auth/
+
+# Logs and scratch
+logs/
+*.log
+tmp/
+temp/
+
+# Local data, dumps, and exports
+gates-backend/storage/
+gates-backend/backups/
+gates-backend/exports/
+gates-backend/scripts/migration/fixtures/prod-like/
+gates-web/.git.local-backup/
+
+# Generated database catalogs. Prisma schema and the written docs stay indexed.
+gates-backend/docs/database-explorer.json
+gates-backend/docs/database-explorer.html
+gates-backend/docs/database-explorer-index.txt
+gates-backend/docs/DATABASE-FULL-CATALOG.generated.md
+
+# Delphi dump and VCS metadata
+MainProgram/
+.git/

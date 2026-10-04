@@ -96,7 +96,8 @@ export function getCachedPin(): string | undefined {
 }
 
 /**
- * Async ETA signing via PKCS#11. Requires optional `pkcs11js` in the deployment image.
+ * Optional server-side HSM path only. The browser send flow never calls this;
+ * Railway must not look for a USB token attached to the user's PC.
  */
 export async function signWithPkcs11(
   document: Record<string, unknown>,

@@ -51,17 +51,31 @@ const OUTWARD_TRANSITIONS: Record<ChequeAction, string[]> = {
   CANCEL: ['UNDER_HAND'],
 };
 
-const ACTION_LABEL: Record<ChequeAction, string> = {
-  SEND_TO_BANK: 'sent to bank',
-  UNSEND_TO_BANK: 'un-sent from bank',
-  CLEAR: 'cleared',
-  UNCLEAR: 'un-cleared',
-  BOUNCE: 'bounced',
-  UNBOUNCE: 'un-bounced',
-  ENDORSE: 'endorsed',
-  UNENDORSE: 'un-endorsed',
-  CANCEL: 'cancelled',
+const STATUS_AR: Record<string, string> = {
+  UNDER_HAND: 'في الخزينة',
+  SENT_TO_BANK: 'برسم التحصيل',
+  COLLECTED: 'محصّل',
+  ENDORSED: 'مظهَّر لمورد',
+  BOUNCED: 'مرتد',
+  RETURNED_TO_DRAWER: 'مردود للساحب',
+  CANCELLED: 'ملغي',
 };
+
+const ACTION_AR: Record<ChequeAction, string> = {
+  SEND_TO_BANK: 'إيداعه في البنك',
+  UNSEND_TO_BANK: 'فك إيداعه',
+  CLEAR: 'تحصيله',
+  UNCLEAR: 'فك تحصيله',
+  BOUNCE: 'ارتداده',
+  UNBOUNCE: 'فك ارتداده',
+  ENDORSE: 'تظهيره',
+  UNENDORSE: 'فك تظهيره',
+  CANCEL: 'إلغاؤه',
+};
+
+function statusLabel(status: string): string {
+  return STATUS_AR[status] ?? status;
+}
 
 export function assertChequeTransition(
   direction: 'INWARD' | 'OUTWARD',
@@ -70,11 +84,15 @@ export function assertChequeTransition(
 ): void {
   const table = direction === 'INWARD' ? INWARD_TRANSITIONS : OUTWARD_TRANSITIONS;
   const allowedFrom = table[action];
-  if (allowedFrom.length === 0 || !allowedFrom.includes(currentStatus)) {
-    throw new AppError(
-      400,
-      `A ${direction.toLowerCase()} cheque in status "${currentStatus}" cannot be ${ACTION_LABEL[action]}` +
-        (allowedFrom.length > 0 ? ` (requires: ${allowedFrom.join(', ')})` : ' — action not supported for this direction')
-    );
+  if (allowedFrom.includes(currentStatus)) return;
+
+  const paper = direction === 'OUTWARD' ? 'شيك الصرف' : 'شيك القبض';
+  if (allowedFrom.length === 0) {
+    throw new AppError(400, `هذه العملية غير متاحة على ${paper}.`);
   }
+  const needed = allowedFrom.map(statusLabel).join(' أو ');
+  throw new AppError(
+    400,
+    `${paper} حالته «${statusLabel(currentStatus)}». لا يمكن ${ACTION_AR[action]} من هذه الحالة. لازم يكون ${needed} أولاً.`
+  );
 }

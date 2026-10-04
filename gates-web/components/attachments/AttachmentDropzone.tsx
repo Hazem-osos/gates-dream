@@ -68,7 +68,7 @@ export function AttachmentDropzone({
   return (
     <section className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="flex items-center gap-2 text-base font-bold text-[#0E79AA]">
+        <h3 className="flex items-center gap-2 text-base font-bold text-[#0E78AA]">
           <Paperclip className="h-4 w-4" />
           {title}
         </h3>
@@ -87,7 +87,7 @@ export function AttachmentDropzone({
 
       <label
         className={`flex cursor-pointer flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed px-4 py-6 text-center transition ${
-          dragOver ? 'border-[#0E79AA] bg-[#E8F4FA]' : 'border-[#D6EAF3] bg-[#F6FBFD]'
+          dragOver ? 'border-[#0E78AA] bg-[#E8F4FA]' : 'border-[#D6EAF3] bg-[#F6FBFD]'
         }`}
         onDragOver={(event) => {
           event.preventDefault();
@@ -109,10 +109,10 @@ export function AttachmentDropzone({
             event.currentTarget.value = '';
           }}
         />
-        <Upload className="h-5 w-5 text-[#0E79AA]" />
+        <Upload className="h-5 w-5 text-[#0E78AA]" />
         <span className="text-sm font-semibold text-[#094C6B]">اسحب الملف هنا أو انقر للرفع</span>
         <span className="text-xs text-slate-500">الرفع يتم عبر رابط موقّت — لا يُحفظ الملف كـ Base64 داخل السجل</span>
-        {uploadMut.isPending ? <span className="text-xs text-[#0E79AA]">جاري الرفع…</span> : null}
+        {uploadMut.isPending ? <span className="text-xs text-[#0E78AA]">جاري الرفع…</span> : null}
         {uploadMut.isError ? (
           <span className="text-xs text-red-600">
             {uploadMut.error instanceof Error ? uploadMut.error.message : 'فشل الرفع'}

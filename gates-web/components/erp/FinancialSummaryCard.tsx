@@ -24,6 +24,10 @@ type Props = {
   currencyCode?: string | null;
   showTafqeet?: boolean;
   footer?: ReactNode;
+  /** Shown above the net amount, inside the highlight. */
+  highlightHeader?: ReactNode;
+  /** Shown beside the net amount. */
+  besideNet?: ReactNode;
 };
 
 export function FinancialSummaryCard({
@@ -34,6 +38,8 @@ export function FinancialSummaryCard({
   currencyCode,
   showTafqeet = true,
   footer,
+  highlightHeader,
+  besideNet,
 }: Props) {
   const currencyLabel = currencyDisplayLabel(currencyCode);
   const visible = rows.filter((r) => r.show !== false);
@@ -69,12 +75,16 @@ export function FinancialSummaryCard({
           ))}
         </dl>
         <div className="bg-[#0E78AA]/5 text-[#0E78AA] rounded-xl p-3 mt-3">
-          <div className="flex justify-between items-baseline gap-2">
-            <span className="text-sm font-bold">{netLabel}</span>
-            <span className="text-2xl font-black tabular-nums">
-              {formatInvoiceMoney(netAmount)}{' '}
-              <span className="text-sm font-semibold">{currencyLabel}</span>
-            </span>
+          {highlightHeader}
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <span className="text-sm font-bold">{netLabel}</span>
+              <div className="text-2xl font-black tabular-nums">
+                {formatInvoiceMoney(netAmount)}{' '}
+                <span className="text-sm font-semibold">{currencyLabel}</span>
+              </div>
+            </div>
+            {besideNet}
           </div>
           {showTafqeet ? (
             <p

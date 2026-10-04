@@ -8,7 +8,7 @@ import type { AiVisualizationKpi, AiVisualizationPayload } from '@/lib/ai/types'
 
 type RechartsModule = typeof import('recharts');
 
-const DEFAULT_COLORS = ['#0E79AA', '#CB5B53', '#D4A017', '#5B8C5A', '#7C3AED', '#0F766E'];
+const DEFAULT_COLORS = ['#0E78AA', '#CB5B53', '#D4A017', '#5B8C5A', '#7C3AED', '#0F766E'];
 
 function useRecharts() {
   const [mod, setMod] = useState<RechartsModule | null>(null);

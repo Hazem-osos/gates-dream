@@ -9,6 +9,8 @@ import type {
   CalculatedInvoiceLine,
 } from '../types/subcontract-invoice.types';
 import { HISTORICAL_INVOICE_STATUSES } from '../types/subcontract-invoice.types';
+import { sumPreviousSubCertifiedQuantityInTx } from '../../contracting/preliminary/preliminary-quantity-baseline.service';
+import { resolveSubcontractBoqCertificationLimitsInTx } from '../../contracting/variation/contract-variation-effective.service';
 import { money, moneyMin, moneyZero, rate, sumMoney } from '../utils/money-decimal';
 
 type Db = Prisma.TransactionClient | typeof prisma;
@@ -49,14 +51,6 @@ export class SubcontractInvoiceCalculationService {
       orderBy: { sequenceNumber: 'asc' },
     });
 
-    const previousQtyByBoq = new Map<string, ReturnType<typeof money>>();
-    for (const invoice of priorInvoices) {
-      for (const item of invoice.items) {
-        const prev = previousQtyByBoq.get(item.subcontractBOQItemId) ?? moneyZero();
-        previousQtyByBoq.set(item.subcontractBOQItemId, money(prev.plus(item.currentQuantity)));
-      }
-    }
-
     const previousGrossAmount = sumMoney(priorInvoices.map((row) => row.grossCurrentAmount));
     const previouslyRecoveredAdvance = sumMoney(
       priorInvoices.map((row) => row.advancePaymentDeduction)
@@ -72,17 +66,30 @@ export class SubcontractInvoiceCalculationService {
         throw new AppError(400, `BOQ item ${input.subcontractBOQItemId} is not on this subcontract`);
       }
 
-      const previousQuantity = previousQtyByBoq.get(boq.id) ?? moneyZero();
+      const previousQuantity = await sumPreviousSubCertifiedQuantityInTx(
+        db,
+        params.companyId,
+        params.subcontractId,
+        boq.id,
+        params.excludePreliminaryCertificateId,
+        params.excludeInvoiceId
+      );
       const currentQuantity = money(input.currentQuantity);
       if (currentQuantity.lt(0)) {
         throw new AppError(400, `Current quantity cannot be negative for ${boq.itemCode}`);
       }
 
       const totalCumulativeQuantity = money(previousQuantity.plus(currentQuantity));
-      const maxAllowedQuantity = money(boq.maxAllowedQuantity);
-      const unitPrice = money(boq.unitPrice);
+      const limits = await resolveSubcontractBoqCertificationLimitsInTx(
+        db,
+        params.companyId,
+        params.subcontractId,
+        boq.id
+      );
+      const maxAllowedQuantity = limits.maxAllowedQuantity;
+      const unitPrice = limits.unitPrice;
+      const contractQuantity = limits.effectiveContractQuantity;
       const totalCurrentAmount = money(currentQuantity.mul(unitPrice));
-      const contractQuantity = money(boq.contractQuantity);
       const completionPercentage = contractQuantity.gt(0)
         ? money(totalCumulativeQuantity.div(contractQuantity).mul(100))
         : moneyZero();

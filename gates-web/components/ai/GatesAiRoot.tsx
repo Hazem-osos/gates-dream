@@ -42,12 +42,12 @@ function GatesAiChrome() {
           type="button"
           data-gates-ai-launcher
           onClick={() => setOpen(true)}
-          title="Gates Intelligence (Ctrl + Space)"
-          aria-label="فتح Gates Intelligence"
+          title="الذكاء المالي (Ctrl + Space)"
+          aria-label="فتح الذكاء المالي"
           aria-expanded={false}
-          className="group fixed bottom-24 left-3 z-[90] flex h-11 items-center gap-1.5 rounded-full border border-[#0E79AA]/15 bg-white/95 px-2.5 text-[#0A3D5E] shadow-[0_8px_24px_-12px_rgba(10,61,94,0.45)] backdrop-blur-sm transition hover:border-[#0E79AA]/40 hover:shadow-[0_10px_28px_-12px_rgba(14,121,170,0.4)]"
+          className="group fixed bottom-24 end-3 z-[90] flex h-11 items-center gap-1.5 rounded-full border border-border bg-surface-1/95 px-2.5 text-foreground shadow-subtle backdrop-blur-sm transition hover:border-primary/40"
         >
-          <span className="relative flex h-7 w-7 items-center justify-center rounded-full bg-[#0E79AA] text-white">
+            <span className="relative flex h-7 w-7 items-center justify-center rounded-full bg-primary text-primary-foreground">
             <Sparkles className="h-3.5 w-3.5" />
             {criticalInsightCount > 0 ? (
               <span className="absolute -right-1 -top-1 min-w-[1.05rem] rounded-full bg-rose-500 px-1 text-[10px] font-bold leading-4 text-white ring-2 ring-white">
@@ -55,7 +55,7 @@ function GatesAiChrome() {
               </span>
             ) : null}
           </span>
-          <span className="pr-1 text-[11px] font-semibold tracking-[0.28em] text-[#0A3D5E]">AI</span>
+          <span className="pe-1 text-[11px] font-semibold tracking-[0.28em] text-foreground">AI</span>
         </button>
       )}
     </>

@@ -1,3 +1,4 @@
+import { isRouteUnavailable } from '@/lib/navigation/route-visibility';
 import type {
   CategorizedNavGroup,
   FlatModuleNavLink,
@@ -108,7 +109,7 @@ function collectLeafLinks(
   const out: FlatModuleNavLink[] = [];
   for (const node of nodes) {
     const nextAncestors = [...ancestorKeys, node.key];
-    if (node.href && !seen.has(node.href)) {
+    if (node.href && !seen.has(node.href) && !isRouteUnavailable(node.href)) {
       seen.add(node.href);
       out.push(toLink(node, node.href, ancestorKeys, category));
     }
@@ -151,7 +152,7 @@ export function buildCategorizedNavGroups(modules: ModuleNavNode[]): Categorized
     const forced = categoryFromTopLevelGroupKey(group.key);
     const children = group.children ?? [];
 
-    if (group.href && !children.length) {
+    if (group.href && !children.length && !isRouteUnavailable(group.href)) {
       const href = group.href;
       if (seen.has(href)) continue;
       seen.add(href);
@@ -187,7 +188,7 @@ export function buildCategorizedNavGroups(modules: ModuleNavNode[]): Categorized
 
     if (leaves.length) {
       const leafLinks = leaves
-        .filter((leaf) => leaf.href && !seen.has(leaf.href))
+        .filter((leaf) => leaf.href && !seen.has(leaf.href) && !isRouteUnavailable(leaf.href))
         .map((leaf) => {
           const href = leaf.href as string;
           seen.add(href);

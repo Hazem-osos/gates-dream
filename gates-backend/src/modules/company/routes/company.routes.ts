@@ -40,7 +40,7 @@ router.get(
   async (req: AuthRequest, res: Response) => {
     try {
       if (!req.companyId) {
-        return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+        return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
       }
       const result = await companyService.listCompanies({
         page: req.query.page as number | undefined,

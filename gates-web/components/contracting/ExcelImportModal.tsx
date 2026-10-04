@@ -110,7 +110,7 @@ export function ExcelImportModal({
       <div className="flex max-h-[92vh] w-full max-w-6xl flex-col space-y-4 overflow-hidden rounded-xl bg-white p-5 shadow-xl">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h2 className="text-lg font-bold text-[#0E79AA]">{TITLES[mode]}</h2>
+            <h2 className="text-lg font-bold text-[#0E78AA]">{TITLES[mode]}</h2>
             <p className="text-xs text-slate-500">الحد الأقصى 5,000 سطر / 15 ميجابايت — القالب مقفول بالصيغ.</p>
           </div>
           <Button
@@ -126,7 +126,7 @@ export function ExcelImportModal({
         <label
           className={cn(
             'flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed px-4 py-8 text-center transition',
-            dragOver ? 'border-[#0E79AA] bg-[#F0F7FB]' : 'border-[#D6EAF3] bg-[#F6FBFD]'
+            dragOver ? 'border-[#0E78AA] bg-[#F0F7FB]' : 'border-[#D6EAF3] bg-[#F6FBFD]'
           )}
           onDragOver={(event) => {
             event.preventDefault();
@@ -139,11 +139,11 @@ export function ExcelImportModal({
             void onFile(event.dataTransfer.files[0]);
           }}
         >
-          <Upload className="mb-2 h-8 w-8 text-[#0E79AA]" />
+          <Upload className="mb-2 h-8 w-8 text-[#0E78AA]" />
           <p className="text-sm font-semibold text-[#094C6B]">اسحب ملف Excel هنا أو اضغط للاختيار</p>
           <p className="mt-1 text-xs text-slate-500">.xlsx / .csv</p>
           {fileName ? (
-            <p className="mt-2 flex items-center gap-1 text-xs text-[#0E79AA]">
+            <p className="mt-2 flex items-center gap-1 text-xs text-[#0E78AA]">
               <FileSpreadsheet className="h-3.5 w-3.5" />
               {fileName}
             </p>
@@ -160,7 +160,7 @@ export function ExcelImportModal({
         {localError ? <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{localError}</p> : null}
         {validateMut.isPending ? (
           <div className="h-2 overflow-hidden rounded-full bg-slate-100">
-            <div className="h-full w-1/2 animate-pulse rounded-full bg-[#0E79AA]" />
+            <div className="h-full w-1/2 animate-pulse rounded-full bg-[#0E78AA]" />
           </div>
         ) : null}
 
@@ -192,7 +192,7 @@ export function ExcelImportModal({
           <div>
             <p className="mb-1 text-xs text-slate-500">جاري إدخال السطور السليمة في قاعدة البيانات…</p>
             <div className="h-2 overflow-hidden rounded-full bg-slate-100">
-              <div className="h-full w-2/3 animate-pulse rounded-full bg-[#0E79AA]" />
+              <div className="h-full w-2/3 animate-pulse rounded-full bg-[#0E78AA]" />
             </div>
           </div>
         ) : null}

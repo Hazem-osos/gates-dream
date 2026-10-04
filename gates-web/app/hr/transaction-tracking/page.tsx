@@ -25,7 +25,7 @@ interface EmployeeProcedureRow {
 const filterDefaults: TransactionTrackingFilterInput = {
   hijriDate1: '26-11-2025',
   hijriDate2: '26-11-2025',
-  employee: '1212378971212',
+  employee: '',
   fromDate: '26-11-2025',
   toDate: '26-11-2025',
   transactionType: '2025',
@@ -84,7 +84,7 @@ export default function TransactionTrackingPage() {
                     <div className="flex flex-col gap-1">
                       <input
                         type="text"
-                        className={`flex-1 px-3 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg text-[#094C6B] ${errors.employee ? 'border-red-400' : ''}`}
+                        className={`flex-1 px-3 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg text-[#094C6B] ${errors.employee ? 'border-red-400' : ''}`}
                         placeholder="الموظف"
                         {...register('employee')}
                       />
@@ -98,11 +98,11 @@ export default function TransactionTrackingPage() {
                       <div className="flex items-center gap-2">
                         <input
                           type="text"
-                          className={`flex-1 px-3 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg text-[#094C6B] ${errors.fromDate ? 'border-red-400' : ''}`}
+                          className={`flex-1 px-3 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg text-[#094C6B] ${errors.fromDate ? 'border-red-400' : ''}`}
                           placeholder="من التاريخ"
                           {...register('fromDate')}
                         />
-                        <svg className="w-5 h-5 text-[#0E79AA] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg className="w-5 h-5 text-[#0E78AA] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path
                             strokeLinecap="round"
                             strokeLinejoin="round"
@@ -121,11 +121,11 @@ export default function TransactionTrackingPage() {
                       <div className="flex items-center gap-2">
                         <input
                           type="text"
-                          className={`flex-1 px-3 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg text-[#094C6B] ${errors.toDate ? 'border-red-400' : ''}`}
+                          className={`flex-1 px-3 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg text-[#094C6B] ${errors.toDate ? 'border-red-400' : ''}`}
                           placeholder="الى التاريخ"
                           {...register('toDate')}
                         />
-                        <svg className="w-5 h-5 text-[#0E79AA] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg className="w-5 h-5 text-[#0E78AA] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path
                             strokeLinecap="round"
                             strokeLinejoin="round"
@@ -160,11 +160,11 @@ export default function TransactionTrackingPage() {
                     <div className="flex items-center gap-2">
                       <input
                         type="text"
-                        className="flex-1 px-3 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg text-[#094C6B]"
+                        className="flex-1 px-3 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg text-[#094C6B]"
                         placeholder="التاريخ الهجري"
                         {...register('hijriDate1')}
                       />
-                      <svg className="w-5 h-5 text-[#0E79AA] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg className="w-5 h-5 text-[#0E78AA] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path
                           strokeLinecap="round"
                           strokeLinejoin="round"
@@ -180,11 +180,11 @@ export default function TransactionTrackingPage() {
                     <div className="flex items-center gap-2">
                       <input
                         type="text"
-                        className="flex-1 px-3 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg text-[#094C6B]"
+                        className="flex-1 px-3 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg text-[#094C6B]"
                         placeholder="التاريخ الهجري"
                         {...register('hijriDate2')}
                       />
-                      <svg className="w-5 h-5 text-[#0E79AA] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg className="w-5 h-5 text-[#0E78AA] shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path
                           strokeLinecap="round"
                           strokeLinejoin="round"
@@ -198,7 +198,7 @@ export default function TransactionTrackingPage() {
                   <div className="flex gap-3 pt-2">
                     <button
                       type="button"
-                      className="px-6 py-2 bg-[#0E79AA] text-white rounded-lg hover:bg-[#094C6B] transition-colors flex items-center gap-2"
+                      className="px-6 py-2 bg-[#0E78AA] text-white rounded-lg hover:bg-[#094C6B] transition-colors flex items-center gap-2"
                       onClick={() => reset(filterDefaults)}
                     >
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -213,7 +213,7 @@ export default function TransactionTrackingPage() {
                     </button>
                     <button
                       type="button"
-                      className="px-6 py-2 bg-[#0E79AA] text-white rounded-lg hover:bg-[#094C6B] transition-colors flex items-center gap-2"
+                      className="px-6 py-2 bg-[#0E78AA] text-white rounded-lg hover:bg-[#094C6B] transition-colors flex items-center gap-2"
                       onClick={handleSubmit(onSearch)}
                     >
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

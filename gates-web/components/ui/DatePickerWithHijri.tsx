@@ -3,6 +3,7 @@
 import { Calendar } from 'lucide-react';
 import { toHijriDate } from '@/lib/hijri-date';
 import { erpInputClass, erpLabelClass } from '@/components/erp/erpUiTokens';
+import { dateControlClass } from '@/app/components/ui/forms/formTokens';
 
 export function HijriCaption({ value }: { value?: string | null }) {
   const hijriString = value ? toHijriDate(value) : '';
@@ -25,6 +26,7 @@ export type DatePickerWithHijriProps = {
   required?: boolean;
   className?: string;
   hideHijri?: boolean;
+  min?: string;
 };
 
 export function DatePickerWithHijri({
@@ -37,6 +39,7 @@ export function DatePickerWithHijri({
   required,
   className,
   hideHijri,
+  min,
 }: DatePickerWithHijriProps) {
   return (
     <div className="space-y-1" data-hijri-unified="1">
@@ -48,12 +51,14 @@ export function DatePickerWithHijri({
       ) : null}
       <input
         type="date"
+        dir="ltr"
         name={name}
         required={required}
         disabled={disabled}
+        min={min}
         value={value ?? ''}
         onChange={(e) => onChange(e.target.value)}
-        className={`${erpInputClass} ${error ? 'border-red-400 focus:ring-red-200' : ''} ${disabled ? 'cursor-not-allowed bg-[#F3F7FA] text-[#64748B]' : ''} ${className ?? ''}`}
+        className={`${erpInputClass} ${dateControlClass} ${error ? 'border-red-400 focus:ring-red-200' : ''} ${disabled ? 'cursor-not-allowed bg-[#F3F7FA] text-[#64748B]' : ''} ${className ?? ''}`}
       />
       {!hideHijri ? <HijriCaption value={value} /> : null}
     </div>

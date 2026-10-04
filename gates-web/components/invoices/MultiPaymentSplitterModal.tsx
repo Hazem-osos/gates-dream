@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { BodyPortal } from '@/components/ui/BodyPortal';
 import { ActionButtons } from '@/components/ui/ActionButtons';
 import { useApiQuery } from '@/lib/hooks/useApi';
 import { pickDefaultSafeId } from '@/lib/hooks/useMasterDataQueries';
@@ -41,6 +42,9 @@ type Props = {
   direction: 'RECEIPT' | 'PAYMENT';
   initial?: PaymentSplitLine[];
   onConfirm: (splits: PaymentSplitLine[]) => void;
+  onOpenInstallments?: () => void;
+  installmentCount?: number;
+  onLinkAdvance?: () => void;
 };
 
 const EMPTY_SAFES: SafeRow[] = [];
@@ -126,6 +130,9 @@ export function MultiPaymentSplitterModal({
   direction,
   initial,
   onConfirm,
+  onOpenInstallments,
+  installmentCount = 0,
+  onLinkAdvance,
 }: Props) {
   const [cashRows, setCashRows] = useState<CashDraft[]>([]);
   const [bankRows, setBankRows] = useState<BankDraft[]>([]);
@@ -210,11 +217,12 @@ export function MultiPaymentSplitterModal({
 
   if (!open) return null;
 
-  const title = direction === 'RECEIPT' ? 'توزيع تحصيل متعدد' : 'توزيع دفع متعدد';
+  const title = 'الدفع';
 
   return (
+    <BodyPortal>
     <div
-      className="fixed inset-0 z-[10050] flex items-center justify-center bg-black/40 p-4"
+      className="fixed inset-0 z-[12000] flex items-center justify-center bg-black/40 p-4"
       style={{ direction: 'rtl' }}
       role="dialog"
       aria-modal="true"
@@ -223,7 +231,9 @@ export function MultiPaymentSplitterModal({
         <h2 className="mb-1 text-lg font-bold text-[#0A3D5E]">{title}</h2>
         <p className="mb-4 text-sm text-gray-600">
           يمكن الجمع بين نقدي وبنك وقائمة شيكات. الإجمالي:{' '}
-          <strong>{grandTotal.toLocaleString('ar-EG', { minimumFractionDigits: 2 })} ج.م</strong>
+          <strong>
+            {grandTotal.toLocaleString('ar-EG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ج.م
+          </strong>
         </p>
 
         <section className="mb-4 rounded-xl border border-slate-200 p-3">
@@ -428,10 +438,10 @@ export function MultiPaymentSplitterModal({
             valid ? 'bg-emerald-50 text-emerald-900' : 'bg-rose-50 text-rose-900'
           }`}
         >
-          <div>موزّع: {allocated.toFixed(2)} ج.م</div>
-          <div>آجل (متبقي): {onAccount.toFixed(2)} ج.م</div>
+          <div>موزّع: {allocated.toLocaleString()} ج.م</div>
+          <div>آجل (متبقي): {onAccount.toLocaleString()} ج.م</div>
           {!valid ? (
-            <div className="mt-1 font-medium">غير موزّع: {remaining.toFixed(2)} ج.م — يجب أن يصبح 0</div>
+            <div className="mt-1 font-medium">غير موزّع: {remaining.toLocaleString()} ج.م — يجب أن يصبح 0</div>
           ) : (
             <div className="mt-1 font-medium">✓ التوزيع مكتمل</div>
           )}
@@ -439,8 +449,33 @@ export function MultiPaymentSplitterModal({
 
         {error ? <p className="mb-2 text-sm text-red-600">{error}</p> : null}
 
+        {onOpenInstallments || onLinkAdvance ? (
+          <div className="mb-4 flex flex-wrap gap-2">
+            {onOpenInstallments ? (
+              <button
+                type="button"
+                className="rounded-lg border border-[#0E78AA]/30 px-3 py-2 text-sm font-semibold text-[#0E78AA] hover:bg-[#E8F4FA]"
+                onClick={onOpenInstallments}
+              >
+                توزيع الدفعات
+                {installmentCount > 0 ? ` (${installmentCount})` : ''}
+              </button>
+            ) : null}
+            {onLinkAdvance ? (
+              <button
+                type="button"
+                className="rounded-lg border border-[#0E78AA]/30 px-3 py-2 text-sm font-semibold text-[#0E78AA] hover:bg-[#E8F4FA]"
+                onClick={onLinkAdvance}
+              >
+                ربط دفعة مقدمة
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+
         <ActionButtons onCancel={onClose} onSave={save} saveText="اعتماد التوزيع" cancelText="إلغاء" />
       </div>
     </div>
+    </BodyPortal>
   );
 }

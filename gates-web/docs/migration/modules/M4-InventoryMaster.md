@@ -182,7 +182,7 @@ Existing routes in [app.ts](../../../gates-backend/src/app.ts) (`/inventory/*`).
 | GET | `/api/v1/inventory/items/:id/quantity-as-of?date=` | GetAllItemsCount parity | `inventory.view` |
 | POST | `/api/v1/inventory/cost/preview` | simulate GetItemCost | `inventory.cost` |
 | CRUD | `/api/v1/inventory/expire-batches` | expiry | `inventory.manage` |
-| POST | `/api/v1/inventory/movements/post` | unified post with `$transaction` | `inventory.post` |
+| GET | `/api/v1/inventory/movements` | list movement audit rows (read-only) | `item.view` |
 
 Internal (M5): `ItemCostService.applyFromInvoiceLine(dto)` — not public HTTP.
 

@@ -7,11 +7,14 @@ export default function CustomerAccountItemsPage() {
     <InventoryReportFilterPage
       urlPath="/inventory/reports/customer-account-items"
       icon="📦"
-      subtitle="حركة الأصناف لكل عميل ضمن الفترة المحددة."
+      subtitle="حركة العميل بالصنف والكمية وسعر الوحدة، مع التحصيل وقيد اليومية والتسوية، وفي الآخر مدين ودائن ورصيد."
       fields={{
         dates: 'range',
         customer: true,
+        item: true,
+        branch: true,
         showUnposted: true,
+        allAccounts: true,
       }}
     />
   );

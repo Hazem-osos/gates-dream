@@ -150,8 +150,8 @@ function ClientDeductionsSidebar({
   ];
 
   return (
-    <aside className="rounded-2xl border border-[#0E79AA] bg-white p-4 shadow-sm ring-2 ring-[#0E79AA]/20 xl:row-span-2">
-      <h3 className="mb-3 text-sm font-bold text-[#0E79AA]">التسوية المالية الحية</h3>
+    <aside className="rounded-2xl border border-[#0E78AA] bg-white p-4 shadow-sm ring-2 ring-[#0E78AA]/20 xl:row-span-2">
+      <h3 className="mb-3 text-sm font-bold text-[#0E78AA]">التسوية المالية الحية</h3>
       <label className="mb-3 block text-xs">
         <span className="mb-1 block text-slate-500">غرامات الاستشاري / غرامات أخرى</span>
         <Input type="number" min="0" value={penalties} onChange={(e) => onPenalties(e.target.value)} />

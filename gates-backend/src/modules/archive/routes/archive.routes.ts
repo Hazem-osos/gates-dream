@@ -31,7 +31,7 @@ router.post(
   async (req: AuthRequest, res: Response) => {
     try {
       const companyId = req.companyId ?? req.tenantId;
-      if (!companyId) throw new AppError(400, 'Company ID is required');
+      if (!companyId) throw new AppError(400, 'معرّف الشركة مطلوب');
 
       const body = req.body as z.infer<typeof uploadSchema>;
       let buffer: Buffer;
@@ -72,7 +72,7 @@ router.get(
   async (req: AuthRequest, res: Response) => {
     try {
       const companyId = req.companyId ?? req.tenantId;
-      if (!companyId) throw new AppError(400, 'Company ID is required');
+      if (!companyId) throw new AppError(400, 'معرّف الشركة مطلوب');
 
       const data = await documentArchiveService.listForEntity(
         companyId,
@@ -96,7 +96,7 @@ router.delete(
   async (req: AuthRequest, res: Response) => {
     try {
       const companyId = req.companyId ?? req.tenantId;
-      if (!companyId) throw new AppError(400, 'Company ID is required');
+      if (!companyId) throw new AppError(400, 'معرّف الشركة مطلوب');
 
       const data = await documentArchiveService.softDelete(companyId, req.params.id);
       return void res.json({ status: 'success', data });

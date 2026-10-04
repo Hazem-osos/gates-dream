@@ -51,7 +51,7 @@ export function CurrenciesListSection({
     ['currencies', { page: 1, pageSize: 200 }],
     '/accounting/currencies',
     { page: 1, limit: 200 },
-    { staleTime: 15_000 }
+    { staleTime: 0, refetchOnMount: 'always' }
   );
 
   const allRows = useMemo(() => data?.data ?? [], [data?.data]);
@@ -69,7 +69,7 @@ export function CurrenciesListSection({
 
   const exportColumns: ExportColumnDef<CurrencyRow>[] = [
     { id: 'serial', header: 'المسلسل', getValue: (r) => String(r.serial ?? '') },
-    { id: 'code', header: 'الرمز', accessor: 'code' },
+    { id: 'code', header: 'الكود العالمي', accessor: 'code' },
     { id: 'symbol', header: 'الرمز المختصر', getValue: (r) => r.symbol || '' },
     { id: 'arabicName', header: 'الاسم العربي', accessor: 'arabicName' },
     { id: 'englishName', header: 'الاسم الإنجليزي', getValue: (r) => r.englishName || '' },
@@ -111,7 +111,7 @@ export function CurrenciesListSection({
         emptyDescription="أضف عملة جديدة من قائمة الإجراءات."
         columns={[
           { id: 'serial', header: 'المسلسل', cell: (r) => r.serial ?? '—', sortValue: (r) => Number(r.serial) || 0 },
-          { id: 'code', header: 'الرمز', accessor: 'code' },
+          { id: 'code', header: 'الكود العالمي', accessor: 'code' },
           { id: 'symbol', header: 'الرمز', cell: (r) => r.symbol || '—' },
           { id: 'arabicName', header: 'الاسم العربي', accessor: 'arabicName' },
           { id: 'englishName', header: 'الإنجليزي', cell: (r) => r.englishName || '—' },

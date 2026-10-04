@@ -36,10 +36,19 @@ type BusinessVertical =
 const STEPS = [
   'هوية الشركة',
   'طبيعة النشاط',
-  'الفروع والمخازن',
+  'الفترة المالية والفروع',
   'استيراد البيانات',
   'انطلاق',
 ];
+
+function defaultFiscalYear() {
+  const year = new Date().getFullYear();
+  return {
+    name: String(year),
+    startDate: `${year}-01-01`,
+    endDate: `${year}-12-31`,
+  };
+}
 
 const VERTICAL_OPTIONS: {
   id: BusinessVertical;
@@ -77,6 +86,7 @@ export default function OnboardingPage() {
     logoUrl: '',
     currencyCode: 'EGP',
   });
+  const [fiscalYear, setFiscalYear] = useState(defaultFiscalYear);
   const [branch, setBranch] = useState({
     arabicName: 'الفرع الرئيسي',
     warehouseName: 'مخزن الحركة',
@@ -95,6 +105,8 @@ export default function OnboardingPage() {
     { branchId?: string; fiscalYearId?: string },
     Record<string, unknown>
   >('/onboarding/bootstrap', 'POST', {
+    timeout: 120_000,
+    showSuccessToast: false,
     onSuccess: (res) => {
       const d = res.data;
       setTenantContext({
@@ -110,6 +122,8 @@ export default function OnboardingPage() {
   });
 
   const seedDemo = useApiMutation<unknown, void>('/onboarding/seed-demo', 'POST', {
+    timeout: 120_000,
+    showSuccessToast: false,
     onSuccess: () => {
       setSuccess('تم تحميل بيانات تجريبية للاستكشاف');
       invalidateMasterDataQueries(invalidateQuery);
@@ -118,15 +132,29 @@ export default function OnboardingPage() {
   });
 
   const runBootstrapIfNeeded = async () => {
-    if (bootstrapped || bootstrap.isPending) return true;
+    if (bootstrapped) return true;
+    if (bootstrap.isPending) return false;
     if (!company.tradeNameAr.trim()) {
       setError('اسم المنشأة مطلوب');
+      return false;
+    }
+    if (!fiscalYear.name.trim() || !fiscalYear.startDate || !fiscalYear.endDate) {
+      setError('بيانات الفترة المالية مطلوبة قبل إنشاء المخازن');
+      return false;
+    }
+    if (fiscalYear.endDate < fiscalYear.startDate) {
+      setError('تاريخ نهاية الفترة يجب أن يكون بعد تاريخ البداية');
       return false;
     }
     try {
       await bootstrap.mutateAsync({
         vertical,
         currencyCode: company.currencyCode,
+        fiscalYear: {
+          name: fiscalYear.name.trim(),
+          startDate: fiscalYear.startDate,
+          endDate: fiscalYear.endDate,
+        },
         company: {
           tradeNameAr: company.tradeNameAr.trim(),
           tradeNameEn: company.tradeNameEn.trim() || null,
@@ -182,7 +210,7 @@ export default function OnboardingPage() {
 
   return (
     <div
-      className="min-h-screen bg-gradient-to-br from-[#062A42] via-[#0E79AA] to-[#0A3D5E] p-4 md:p-8"
+      className="min-h-screen bg-gradient-to-br from-[#062A42] via-[#0E78AA] to-[#0A3D5E] p-4 md:p-8"
       dir="rtl"
     >
       <div className="max-w-3xl mx-auto">
@@ -202,7 +230,10 @@ export default function OnboardingPage() {
         </div>
 
         <div className="bg-white rounded-2xl p-6 md:p-10 shadow-xl min-h-[420px] flex flex-col">
-          <h2 className="text-xl font-bold text-[#0E79AA] mb-6">{STEPS[step]}</h2>
+          <h2 className="text-xl font-bold text-[#0E78AA] mb-6">{STEPS[step]}</h2>
+          {error ? (
+            <p className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
+          ) : null}
 
           {step === 0 && (
             <div className="grid gap-4 flex-1">
@@ -251,8 +282,8 @@ export default function OnboardingPage() {
                   onClick={() => setVertical(opt.id)}
                   className={`text-right rounded-xl border-2 p-4 transition ${
                     vertical === opt.id
-                      ? 'border-[#0E79AA] bg-[#F0F9FC] shadow-md'
-                      : 'border-[#D6EAF3] hover:border-[#0E79AA]/50'
+                      ? 'border-[#0E78AA] bg-[#F0F9FC] shadow-md'
+                      : 'border-[#D6EAF3] hover:border-[#0E78AA]/50'
                   }`}
                 >
                   <div className="text-2xl mb-1">{opt.icon}</div>
@@ -269,6 +300,40 @@ export default function OnboardingPage() {
 
           {step === 2 && (
             <div className="grid gap-4 flex-1">
+              <div className="rounded-xl border border-[#D6EAF3] bg-[#F6FBFD] p-4 grid gap-4">
+                <p className="text-sm font-bold text-[#094C6B]">الفترة المالية</p>
+                <p className="text-xs text-gray-500 leading-relaxed">
+                  لازم تتحدد قبل المخزن والخزينة، لأن الترحيل والرصيد الافتتاحي مرفوض من غير فترة تغطي تاريخ المستند.
+                </p>
+                <label className="block">
+                  <span className="text-sm text-gray-600">اسم الفترة</span>
+                  <input
+                    className={inputCls}
+                    value={fiscalYear.name}
+                    onChange={(e) => setFiscalYear({ ...fiscalYear, name: e.target.value })}
+                  />
+                </label>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <label className="block">
+                    <span className="text-sm text-gray-600">من تاريخ</span>
+                    <input
+                      type="date"
+                      className={inputCls}
+                      value={fiscalYear.startDate}
+                      onChange={(e) => setFiscalYear({ ...fiscalYear, startDate: e.target.value })}
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="text-sm text-gray-600">إلى تاريخ</span>
+                    <input
+                      type="date"
+                      className={inputCls}
+                      value={fiscalYear.endDate}
+                      onChange={(e) => setFiscalYear({ ...fiscalYear, endDate: e.target.value })}
+                    />
+                  </label>
+                </div>
+              </div>
               <label className="block">
                 <span className="text-sm text-gray-600">الفرع الرئيسي</span>
                 <input
@@ -312,7 +377,7 @@ export default function OnboardingPage() {
                   type="button"
                   onClick={() => setImportMode('excel')}
                   className={`rounded-xl border-2 p-3 text-sm font-medium ${
-                    importMode === 'excel' ? 'border-[#0E79AA] bg-[#F0F9FC]' : 'border-[#D6EAF3]'
+                    importMode === 'excel' ? 'border-[#0E78AA] bg-[#F0F9FC]' : 'border-[#D6EAF3]'
                   }`}
                 >
                   📥 رفع ملف إكسيل
@@ -321,7 +386,7 @@ export default function OnboardingPage() {
                   type="button"
                   onClick={() => setImportMode('demo')}
                   className={`rounded-xl border-2 p-3 text-sm font-medium ${
-                    importMode === 'demo' ? 'border-[#0E79AA] bg-[#F0F9FC]' : 'border-[#D6EAF3]'
+                    importMode === 'demo' ? 'border-[#0E78AA] bg-[#F0F9FC]' : 'border-[#D6EAF3]'
                   }`}
                 >
                   ⚡ بيانات تجريبية
@@ -330,7 +395,7 @@ export default function OnboardingPage() {
                   type="button"
                   onClick={() => setImportMode('skip')}
                   className={`rounded-xl border-2 p-3 text-sm font-medium ${
-                    importMode === 'skip' ? 'border-[#0E79AA] bg-[#F0F9FC]' : 'border-[#D6EAF3]'
+                    importMode === 'skip' ? 'border-[#0E78AA] bg-[#F0F9FC]' : 'border-[#D6EAF3]'
                   }`}
                 >
                   ⏭️ تخطي — بداية فارغة
@@ -365,13 +430,13 @@ export default function OnboardingPage() {
               <div className="text-6xl mb-4">🎉</div>
               <h3 className="text-2xl font-bold text-[#094C6B] mb-2">شركتك جاهزة للانطلاق!</h3>
               <p className="text-gray-600 mb-6 max-w-md mx-auto leading-relaxed">
-                تم إعداد دليل الحسابات، الفرع، المخزن، والخزينة. جولة سريعة ستعرّفك على أهم
+                تم إعداد الفترة المالية، دليل الحسابات، الفرع، المخزن، والخزينة. جولة سريعة ستعرّفك على أهم
                 اختصارات النظام.
               </p>
               <button
                 type="button"
                 onClick={() => void enterApp()}
-                className="mx-auto px-10 py-3 bg-[#0E79AA] text-white rounded-xl font-bold text-lg shadow-lg hover:bg-[#0A3D5E]"
+                className="mx-auto px-10 py-3 bg-[#0E78AA] text-white rounded-xl font-bold text-lg shadow-lg hover:bg-[#0A3D5E]"
               >
                 🚀 الدخول إلى النظام وبدء العمل
               </button>
@@ -384,7 +449,7 @@ export default function OnboardingPage() {
                 type="button"
                 disabled={step === 0}
                 onClick={() => setStep((s) => Math.max(0, s - 1))}
-                className="px-4 py-2 text-[#0E79AA] disabled:opacity-40"
+                className="px-4 py-2 text-[#0E78AA] disabled:opacity-40"
               >
                 السابق
               </button>
@@ -418,7 +483,7 @@ export default function OnboardingPage() {
                     void goLaunch();
                   }
                 }}
-                className="px-6 py-2 bg-[#0E79AA] text-white rounded-lg disabled:opacity-60"
+                className="px-6 py-2 bg-[#0E78AA] text-white rounded-lg disabled:opacity-60"
               >
                 {step === 2 && bootstrap.isPending
                   ? 'جاري التهيئة…'

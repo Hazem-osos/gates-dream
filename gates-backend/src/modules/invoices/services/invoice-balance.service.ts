@@ -12,7 +12,7 @@ async function sumPostedAllocations(db: DbClient, companyId: string, invoiceId: 
     where: {
       companyId,
       invoiceId,
-      cashTransaction: { isPosted: true, isCancelled: false },
+      cashTransaction: { isCancelled: false },
     },
     _sum: { allocatedAmount: true },
   });
@@ -20,18 +20,16 @@ async function sumPostedAllocations(db: DbClient, companyId: string, invoiceId: 
 }
 
 /**
- * H5 fix: a cheque only reduces the invoice's outstanding balance once the
- * bank has actually collected it. Counting UNDER_HAND (still in our drawer)
- * or SENT_TO_BANK (deposited, awaiting clearing) as "paid" overstates
- * collections/payments — uncollected paper is still fully at risk of
- * bouncing or being returned.
+ * A paper linked to the invoice (ورقة مقبوضات / مدفوعات) reduces remaining
+ * as soon as it is recorded against the invoice. Bounce / return / cancel
+ * drop it back out. Cash-in-bank is still tracked separately via status.
  */
 async function sumChequeSettlements(db: DbClient, companyId: string, invoiceId: string) {
   const agg = await db.cheque.aggregate({
     where: {
       companyId,
       invoiceId,
-      status: 'COLLECTED',
+      status: { in: ['UNDER_HAND', 'SENT_TO_BANK', 'COLLECTED'] },
     },
     _sum: { amount: true },
   });
@@ -71,6 +69,18 @@ async function sumLegacyDirectSettlements(db: DbClient, companyId: string, invoi
   return txs.reduce((s, t) => s + Number(t.amount), 0);
 }
 
+/** Cash, legacy vouchers, and live cheques still tied to the invoice. */
+export async function sumActiveInvoiceCollections(
+  db: DbClient,
+  companyId: string,
+  invoiceId: string
+) {
+  const fromAlloc = await sumPostedAllocations(db, companyId, invoiceId);
+  const fromLegacy = await sumLegacyDirectSettlements(db, companyId, invoiceId);
+  const fromCheques = await sumChequeSettlements(db, companyId, invoiceId);
+  return roundTo4(fromAlloc + fromLegacy + fromCheques);
+}
+
 export async function refreshInvoiceBalanceInTx(
   tx: Prisma.TransactionClient,
   companyId: string,
@@ -80,15 +90,12 @@ export async function refreshInvoiceBalanceInTx(
     where: { id: invoiceId, companyId },
     select: { netAmount: true },
   });
-  if (!invoice) throw new AppError(404, 'Invoice not found');
+  if (!invoice) throw new AppError(404, 'الفاتورة غير موجودة');
 
-  const fromAlloc = await sumPostedAllocations(tx, companyId, invoiceId);
-  const fromLegacy = await sumLegacyDirectSettlements(tx, companyId, invoiceId);
-  const fromCheques = await sumChequeSettlements(tx, companyId, invoiceId);
   const chequesUnderCollection = roundTo4(
     await sumChequesUnderCollection(tx, companyId, invoiceId)
   );
-  const paidAmount = roundTo4(fromAlloc + fromLegacy + fromCheques);
+  const paidAmount = await sumActiveInvoiceCollections(tx, companyId, invoiceId);
   const netAmount = Number(invoice.netAmount);
   const remainingAmount = roundTo4(Math.max(netAmount - paidAmount, 0));
   const paymentStatus = deriveInvoicePaymentStatus(paidAmount, netAmount);
@@ -140,7 +147,7 @@ export async function getCashTransactionUnappliedAmount(
     where: { id: cashTransactionId, companyId },
     select: { amount: true, isPosted: true, isCancelled: true },
   });
-  if (!tx) throw new AppError(404, 'Cash transaction not found');
+  if (!tx) throw new AppError(404, 'السند غير موجود');
   if (!tx.isPosted || tx.isCancelled) {
     throw new AppError(422, 'Cash transaction must be posted and active to allocate');
   }

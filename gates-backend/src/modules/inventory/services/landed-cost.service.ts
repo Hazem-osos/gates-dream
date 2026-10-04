@@ -49,7 +49,7 @@ export class LandedCostService {
       include: { lines: true },
     });
     if (!invoice) {
-      throw new AppError(404, 'Invoice not found or does not belong to company');
+      throw new AppError(404, 'الفاتورة غير موجودة or does not belong to company');
     }
     if (invoice.invoiceKind !== 'PURCHASE') {
       throw new AppError(422, 'Landed costs can only be allocated to a PURCHASE invoice');
@@ -391,7 +391,10 @@ export class LandedCostService {
   async unpostAllocation(companyId: string, allocationId: string, glCtx: StockGlPostingContext) {
     const allocation = await prisma.landedCostAllocation.findFirst({
       where: { id: allocationId, companyId },
-      include: { lines: true },
+      include: {
+        lines: { include: { invoiceLine: { select: { warehouseId: true } } } },
+        invoice: { select: { warehouseId: true } },
+      },
     });
     if (!allocation) {
       throw new AppError(404, 'Landed cost allocation not found');
@@ -405,6 +408,37 @@ export class LandedCostService {
 
     await prisma.$transaction(async (tx) => {
       for (const line of allocation.lines) {
+        const warehouseId = resolveInvoiceLineWarehouseId(
+          line.invoiceLine?.warehouseId,
+          allocation.invoice?.warehouseId
+        );
+        const unitAdded = Number(line.unitCostAdded ?? 0);
+        if (warehouseId && unitAdded > 0) {
+          const balance = await tx.itemWarehouseBalance.findUnique({
+            where: {
+              companyId_itemId_warehouseId: {
+                companyId,
+                itemId: line.itemId,
+                warehouseId,
+              },
+            },
+            select: { quantityOnHand: true },
+          });
+          const onHand = Number(balance?.quantityOnHand ?? 0);
+          if (onHand > 0) {
+            await itemCostService.capitalizeAdditionalCostInTx(tx, {
+              companyId,
+              branchId: allocation.branchId ?? undefined,
+              itemId: line.itemId,
+              warehouseId,
+              asOfDate: allocation.date,
+              additionalCost: -roundTo4(unitAdded * onHand),
+              sourceNum: serial,
+              sourceYearId,
+              sourceType: SOURCE_TYPE,
+            });
+          }
+        }
         await itemCostService.removeCostHistoryBySourceInTx(tx, {
           companyId,
           itemId: line.itemId,

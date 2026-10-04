@@ -35,7 +35,7 @@ router.get(
   async (req: AuthRequest, res: Response) => {
     try {
       const companyId = req.companyId ?? req.tenantId;
-      if (!companyId) throw new AppError(400, 'Company ID is required');
+      if (!companyId) throw new AppError(400, 'معرّف الشركة مطلوب');
       const data = await licenseSubscriptionService.getCurrent(companyId);
       return void res.json({ status: 'success', data });
     } catch (e) {
@@ -55,7 +55,7 @@ router.post(
   async (req: AuthRequest, res: Response) => {
     try {
       const companyId = req.companyId ?? req.tenantId;
-      if (!companyId) throw new AppError(400, 'Company ID is required');
+      if (!companyId) throw new AppError(400, 'معرّف الشركة مطلوب');
 
       const body = req.body as z.infer<typeof activateSchema>;
       const data = await licenseSubscriptionService.activate({

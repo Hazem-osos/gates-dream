@@ -11,6 +11,7 @@ import { assemblyService } from '../services/assembly.service';
 import { logger } from '../../../shared/logger';
 import { AuthRequest } from '../../../shared/auth/types';
 import { buildStockGlPostingContext } from '../services/stock-gl-posting-context';
+import { stockPostJson } from '../utils/stock-post-route-response';
 
 const router = Router();
 
@@ -31,7 +32,7 @@ router.post(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -92,7 +93,7 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -144,7 +145,7 @@ router.put(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
       const assembly = await assemblyService.updateAssembly(companyId, req.params.id, {
@@ -194,7 +195,7 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -237,18 +238,19 @@ router.post(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
-      await assemblyService.postAssembly(companyId, req.params.id, buildStockGlPostingContext(req, companyId));
+      const result = await assemblyService.postAssembly(
+        companyId,
+        req.params.id,
+        buildStockGlPostingContext(req, companyId)
+      );
 
       logger.info({ companyId, assemblyId: req.params.id }, 'Assembly posted');
 
-      return void res.json({
-        status: 'success',
-        message: 'Assembly posted successfully',
-      });
+      return void res.json(stockPostJson(result, 'تم ترحيل التجميع بنجاح'));
     } catch (error) {
       logger.error({ error }, 'Error posting assembly');
       const status =
@@ -283,7 +285,7 @@ router.post(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -329,7 +331,7 @@ router.post(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -378,7 +380,7 @@ router.post(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 

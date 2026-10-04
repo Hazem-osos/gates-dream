@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useApiQuery } from '@/lib/hooks/useApi';
 import { itemIsBatchTracked, type TrackedItemLike } from '@/lib/invoices/itemTracking';
 import type { InvoiceLineBatchAllocation } from '@/lib/invoices/invoiceLineColumns';
@@ -27,6 +27,8 @@ type Props = {
     batchAllocations?: InvoiceLineBatchAllocation[];
   }) => void;
   className?: string;
+  /** issue = بيع من تشغيلات موجودة. receive = إدخال تشغيلة جديدة. */
+  mode?: 'issue' | 'receive';
 };
 
 export function SmartBatchExpiryCell({
@@ -39,12 +41,13 @@ export function SmartBatchExpiryCell({
   allocations,
   onChange,
   className,
+  mode = 'receive',
 }: Props) {
   const tracked = itemIsBatchTracked(item);
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<Record<string, number>>({});
 
-  const enabled = tracked && Boolean(itemId && warehouseId && open);
+  const enabled = tracked && Boolean(itemId && warehouseId) && (mode === 'issue' || open);
   const { data, isLoading } = useApiQuery<{ batches: BatchRow[] }>(
     ['item-batches', itemId ?? '', warehouseId ?? ''],
     itemId ? `/inventory/items/${itemId}/batches` : '',
@@ -63,8 +66,80 @@ export function SmartBatchExpiryCell({
     return null;
   }, [allocations, batchNumber, expiryDate, quantity]);
 
+  const pickedKey = useMemo(() => {
+    const lineBatch = batchNumber?.trim() || 'بدون رقم';
+    const lineExpiry = (expiryDate || '').slice(0, 10);
+    const match = batches.find(
+      (row) => row.batchNumber === lineBatch && (row.expiryDate || '') === lineExpiry
+    );
+    return match?.batchId ?? '';
+  }, [batches, batchNumber, expiryDate]);
+
+  const autoPicked = useRef('');
+  useEffect(() => {
+    if (mode !== 'issue' || batches.length !== 1 || batchNumber || expiryDate) return;
+    const only = batches[0];
+    if (!only || autoPicked.current === only.batchId) return;
+    autoPicked.current = only.batchId;
+    onChange({
+      batchNumber: only.batchNumber === 'بدون رقم' ? '' : only.batchNumber,
+      expiryDate: only.expiryDate ?? '',
+      batchAllocations: [
+        {
+          batchId: only.batchId,
+          batchNumber: only.batchNumber,
+          qty: quantity > 0 ? quantity : only.qty,
+          expiryDate: only.expiryDate,
+        },
+      ],
+    });
+  }, [batchNumber, batches, expiryDate, mode, onChange, quantity]);
+
   if (!tracked) {
     return <span className="block px-1 text-center text-slate-400">—</span>;
+  }
+
+  if (mode === 'issue') {
+    return (
+      <div className={className}>
+        {isLoading ? <p className="px-1 text-[11px] text-slate-400">جاري تحميل التشغيلات…</p> : null}
+        {!isLoading && batches.length === 0 ? (
+          <p className="px-1 text-[11px] text-amber-700">لا توجد تشغيلة بصلاحية في هذا المخزن</p>
+        ) : null}
+        {batches.length ? (
+          <select
+            className="h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-xs text-slate-800"
+            value={pickedKey}
+            onChange={(event) => {
+              const lot = batches.find((row) => row.batchId === event.target.value);
+              if (!lot) {
+                onChange({ batchNumber: '', expiryDate: '', batchAllocations: [] });
+                return;
+              }
+              onChange({
+                batchNumber: lot.batchNumber === 'بدون رقم' ? '' : lot.batchNumber,
+                expiryDate: lot.expiryDate ?? '',
+                batchAllocations: [
+                  {
+                    batchId: lot.batchId,
+                    batchNumber: lot.batchNumber,
+                    qty: quantity > 0 ? quantity : lot.qty,
+                    expiryDate: lot.expiryDate,
+                  },
+                ],
+              });
+            }}
+          >
+            <option value="">اختر التشغيلة والصلاحية</option>
+            {batches.map((row) => (
+              <option key={row.batchId} value={row.batchId}>
+                {row.batchNumber} — صلاحية {row.expiryDate || '—'} — متاح {row.qty.toLocaleString('ar-EG')}
+              </option>
+            ))}
+          </select>
+        ) : null}
+      </div>
+    );
   }
 
   const applyAllocations = () => {
@@ -158,7 +233,7 @@ export function SmartBatchExpiryCell({
             {batches.length ? (
               <button
                 type="button"
-                className="rounded-md bg-[#0E79AA] px-2 py-1 text-xs text-white"
+                className="rounded-md bg-[#0E78AA] px-2 py-1 text-xs text-white"
                 onClick={applyAllocations}
               >
                 تطبيق

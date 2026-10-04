@@ -6,9 +6,13 @@ import {
 } from '../../modules/automation/catalog/event-catalog';
 import { ACTION_CATALOG, getActionDefinition } from '../../modules/automation/catalog/action-catalog';
 import { isEventFieldBinding, resolveConfigValue, validateBindingAgainstEvent } from '../../modules/automation/catalog/binding';
-import { AUTOMATION_TEMPLATES } from '../../modules/automation/catalog/templates';
+import {
+  AUTOMATION_TEMPLATES,
+  listAutomationTemplateViews,
+} from '../../modules/automation/catalog/templates';
 import { buildAutomationMetadata } from '../../modules/automation/catalog/metadata.service';
 import { CONDITION_OPERATORS } from '../../modules/automation/catalog/field-types';
+import { listCreatableEvents } from '../../modules/automation/catalog/event-catalog';
 
 describe('Event Catalog', () => {
   it('exposes at least one real, wired event per priority module', () => {
@@ -31,7 +35,7 @@ describe('Event Catalog', () => {
 
   it('getEventDefinition / getEventField resolve real entries', () => {
     expect(getEventDefinition('sales.invoice.created')?.category).toBe('sales');
-    expect(getEventField('sales.invoice.created', 'totalAmount')?.type).toBe('number');
+    expect(getEventField('sales.invoice.created', 'totalAmount')?.type).toBe('money');
     expect(getEventField('sales.invoice.created', 'nonexistentField')).toBeUndefined();
     expect(getEventDefinition('does.not.exist')).toBeUndefined();
   });
@@ -40,7 +44,7 @@ describe('Event Catalog', () => {
     expect(isEventTypeCreatable('sales.invoice.created')).toBe(true);
     expect(isEventTypeCreatable('inventory.stock.belowMinimum')).toBe(true);
     expect(isEventTypeCreatable('sales.invoice.overdue')).toBe(true); // scheduled is still creatable
-    expect(isEventTypeCreatable('sales.invoice.posted')).toBe(false); // plannedNotEmitting
+    expect(isEventTypeCreatable('sales.invoice.posted')).toBe(true);
     expect(isEventTypeCreatable('totally.made.up')).toBe(false);
   });
 
@@ -139,5 +143,40 @@ describe('Metadata API shape', () => {
     expect(metadata.actions.length).toBeGreaterThan(0);
     expect(metadata.categories.events.length).toBeGreaterThan(0);
     expect(metadata.categories.actions.length).toBeGreaterThan(0);
+  });
+
+  it('selectable metadata events are only the currently emitted types', () => {
+    const metadata = buildAutomationMetadata();
+    const types = metadata.events.map((event) => event.eventType);
+    expect(types).toEqual(expect.arrayContaining(listCreatableEvents().map((event) => event.eventType)));
+    expect(types).toContain('sales.invoice.posted');
+    expect(types).toContain('supplier.created');
+    expect(types).toContain('hr.employee.created');
+    expect(types).toContain('project.created');
+    expect(metadata.events.every((event) => event.selectable && event.creatable)).toBe(true);
+    expect(metadata.plannedEvents.some((event) => event.eventType === 'sales.invoice.posted')).toBe(false);
+  });
+});
+
+describe('Template completeness metadata', () => {
+  it('marks keep-stock-replenished as incomplete until supplierId is chosen', () => {
+    const views = listAutomationTemplateViews();
+    const stock = views.find((template) => template.id === 'keep-stock-replenished');
+    expect(stock?.complete).toBe(false);
+    expect(stock?.requiredUserFields).toEqual([
+      expect.objectContaining({
+        key: 'supplierId',
+        entityType: 'supplier',
+        required: true,
+        actionType: 'gates.createPurchaseRequest',
+      }),
+    ]);
+    expect(stock?.actions[0].config).toEqual(
+      expect.objectContaining({
+        itemId: { source: 'event', field: 'itemId' },
+        warehouseId: { source: 'event', field: 'warehouseId' },
+        quantity: { source: 'event', field: 'shortageQuantity' },
+      })
+    );
   });
 });

@@ -416,12 +416,12 @@ export async function seedHazemDemoTransactions(params: TxParams) {
             description: je.num,
           })),
         },
-        { branchId: params.ctx.branchId, fiscalYearId: params.ctx.fiscalYearId }
+        { branchId: params.ctx.branchId ?? undefined, fiscalYearId: params.ctx.fiscalYearId ?? undefined }
       );
       if (!created) continue;
       await journalEntryService.postJournalEntry(params.companyId, created.id, {
-        branchId: params.ctx.branchId,
-        fiscalYearId: params.ctx.fiscalYearId,
+        branchId: params.ctx.branchId ?? undefined,
+        fiscalYearId: params.ctx.fiscalYearId ?? undefined,
         userId: params.ctx.userId,
       });
       summary.journalEntries += 1;
@@ -443,7 +443,7 @@ export async function seedHazemDemoTransactions(params: TxParams) {
       try {
         const doc = await issueService.createIssue(params.companyId, {
           companyId: params.companyId,
-          branchId: params.ctx.branchId,
+          branchId: params.ctx.branchId ?? undefined,
           serial,
           date: DOC_DATE.toISOString().slice(0, 10),
           warehouseId: whGen,
@@ -469,7 +469,7 @@ export async function seedHazemDemoTransactions(params: TxParams) {
       try {
         const doc = await receiptService.createReceipt(params.companyId, {
           companyId: params.companyId,
-          branchId: params.ctx.branchId,
+          branchId: params.ctx.branchId ?? undefined,
           serial,
           date: DOC_DATE.toISOString().slice(0, 10),
           warehouseId: whGen,
@@ -495,7 +495,7 @@ export async function seedHazemDemoTransactions(params: TxParams) {
       try {
         const doc = await transferService.createTransfer(params.companyId, {
           companyId: params.companyId,
-          branchId: params.ctx.branchId,
+          branchId: params.ctx.branchId ?? undefined,
           serial,
           date: DOC_DATE.toISOString().slice(0, 10),
           fromWarehouseId: whGen,

@@ -5,6 +5,9 @@ import { AppError } from '../../../shared/middleware/error-handler';
 import { getActionDefinition, type ActionConfigFieldDefinition } from './action-catalog';
 import { isEventFieldBinding, validateBindingAgainstEvent } from './binding';
 import { assertEntitiesBelongToCompany } from './entity-ownership';
+import { assertSafeWebhookUrl } from './webhook-url';
+import { isCompanyEmailConfigured } from '../../company/services/company-email.service';
+import { isCompanyWhatsappReady } from '../../whatsapp/whatsapp-connection.service';
 
 export interface AutomationActionLike {
   type: string;
@@ -18,8 +21,12 @@ function isEmpty(value: unknown): boolean {
 function assertConstantType(field: ActionConfigFieldDefinition, value: unknown): void {
   switch (field.type) {
     case 'number':
+    case 'money':
       if (typeof value !== 'number' || !Number.isFinite(value)) {
         throw new AppError(400, `Config field "${field.key}" requires a numeric value`);
+      }
+      if (field.min !== undefined && value < field.min) {
+        throw new AppError(400, `Config field "${field.key}" must be at least ${field.min}`);
       }
       return;
     case 'boolean':
@@ -33,6 +40,9 @@ function assertConstantType(field: ActionConfigFieldDefinition, value: unknown):
       }
       if (field.maxLength && value.length > field.maxLength) {
         throw new AppError(400, `Config field "${field.key}" exceeds max length ${field.maxLength}`);
+      }
+      if (field.format === 'url') {
+        assertSafeWebhookUrl(value);
       }
       return;
     case 'date':
@@ -78,6 +88,12 @@ export async function validateAutomationActions(
     if (!definition) {
       throw new AppError(400, `Action type "${action.type}" is not supported`);
     }
+    if (action.type === 'whatsapp.send' && !(await isCompanyWhatsappReady(companyId))) {
+      throw new AppError(400, 'WhatsApp Business is not connected');
+    }
+    if (action.type === 'email.send' && !(await isCompanyEmailConfigured(companyId))) {
+      throw new AppError(400, 'Company email is not configured');
+    }
 
     const config = action.config ?? {};
     const allowedKeys = new Set(definition.config.map((field) => field.key));
@@ -95,6 +111,14 @@ export async function validateAutomationActions(
           `Action "${action.type}" requires config field "${field.key}"`
         );
       }
+      if (
+        action.type === 'email.send' &&
+        field.key === 'to' &&
+        isEmpty(raw) &&
+        (config.recipientSource == null || config.recipientSource === 'manual')
+      ) {
+        throw new AppError(400, 'Action "email.send" requires config field "to"');
+      }
       if (isEmpty(raw)) continue;
 
       if (isEventFieldBinding(raw)) {
@@ -104,7 +128,11 @@ export async function validateAutomationActions(
             `Config field "${field.key}" on action "${action.type}" cannot be bound to an event field`
           );
         }
-        const check = validateBindingAgainstEvent(raw, eventType);
+        const check = validateBindingAgainstEvent(raw, eventType, {
+          key: field.key,
+          type: field.type,
+          entityKind: field.entityKind,
+        });
         if (!check.ok) {
           throw new AppError(400, check.message);
         }

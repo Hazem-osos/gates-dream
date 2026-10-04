@@ -99,7 +99,7 @@ export class CashDisbursementWorkflowService {
         bankAccountId: true,
       },
     });
-    if (!row) throw new AppError(404, 'Cash transaction not found');
+    if (!row) throw new AppError(404, 'السند غير موجود');
     const family = cashVoucherFamily(row);
     const mode = await this.resolvePostingMode(companyId, family);
     if (mode !== 'MULTI') return;
@@ -118,7 +118,7 @@ export class CashDisbursementWorkflowService {
     const row = await prisma.cashTransaction.findFirst({
       where: { id: cashTransactionId, companyId },
     });
-    if (!row) throw new AppError(404, 'Cash transaction not found');
+    if (!row) throw new AppError(404, 'السند غير موجود');
     if (row.isPosted) throw new AppError(422, 'السند مرحّل بالفعل');
 
     let approvers = this.parseState(row.approvalState);
@@ -157,7 +157,7 @@ export class CashDisbursementWorkflowService {
         bankAccountId: true,
       },
     });
-    if (!row) throw new AppError(404, 'Cash transaction not found');
+    if (!row) throw new AppError(404, 'السند غير موجود');
     const family = cashVoucherFamily(row);
     const mode = await this.resolvePostingMode(companyId, family);
     let approvers = this.parseState(row.approvalState);

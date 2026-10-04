@@ -3,6 +3,8 @@ import { authenticate } from '../../../shared/middleware/auth.middleware';
 import { authorize } from '../../../shared/middleware/authorize.middleware';
 import { setTenantContext } from '../../../shared/middleware/tenant.middleware';
 import { inventoryReportsService } from '../services/reports.service';
+import { warehouseDashboardService } from '../services/warehouse-dashboard.service';
+import { parsePresenceFilter } from '../services/sales-invoice-report';
 import { logger } from '../../../shared/logger';
 import { AuthRequest } from '../../../shared/auth/types';
 import { startOfDayUtc, endOfDayUtc } from '../../../shared/utils/report-date';
@@ -25,6 +27,52 @@ function parseRangeEnd(value: unknown, field: string): Date {
 }
 function todayEndOfDayUtc(): Date {
   return endOfDayUtc(new Date().toISOString().split('T')[0], 'today');
+}
+
+function sharedInvoiceDocumentFilters(query: AuthRequest['query']) {
+  return {
+    itemGroupId: query.itemGroupId as string | undefined,
+    driverId: query.driverId as string | undefined,
+    distributorId: query.distributorId as string | undefined,
+    costCenterId: query.costCenterId as string | undefined,
+    delegateId: query.delegateId as string | undefined,
+    sortBy: query.sortBy as string | undefined,
+    additions: parsePresenceFilter(query.additions),
+    otherDiscounts: parsePresenceFilter(query.otherDiscounts),
+    withholdingTax: parsePresenceFilter(query.withholdingTax),
+    salesTax: parsePresenceFilter(query.salesTax),
+  };
+}
+
+function inventoryReportQueryFlags(query: {
+  showUnposted?: unknown;
+  showWarehouse?: unknown;
+  showGroups?: unknown;
+  showEmpty?: unknown;
+  inactiveOnly?: unknown;
+  activeOnly?: unknown;
+  nonReturnableOnly?: unknown;
+  returnableOnly?: unknown;
+  noBelowCostOnly?: unknown;
+  belowCostOnly?: unknown;
+  negativeOnly?: unknown;
+  nonNegativeOnly?: unknown;
+}) {
+  const text = (value: unknown) => (typeof value === 'string' ? value : undefined);
+  return {
+    showUnposted: query.showUnposted === 'true' || query.showUnposted === '1',
+    showWarehouse: text(query.showWarehouse),
+    showGroups: text(query.showGroups),
+    showEmpty: text(query.showEmpty),
+    inactiveOnly: text(query.inactiveOnly),
+    activeOnly: text(query.activeOnly),
+    nonReturnableOnly: text(query.nonReturnableOnly),
+    returnableOnly: text(query.returnableOnly),
+    noBelowCostOnly: text(query.noBelowCostOnly),
+    belowCostOnly: text(query.belowCostOnly),
+    negativeOnly: text(query.negativeOnly),
+    nonNegativeOnly: text(query.nonNegativeOnly),
+  };
 }
 
 /**
@@ -50,6 +98,7 @@ async function getSalesReportHandler(req: AuthRequest, res: Response) {
 
     const filters = {
       ...partyGroupFromQuery(req.query),
+        ...inventoryReportQueryFlags(req.query),
       companyId,
       fromDate: parseRangeStart(req.query.fromDate, 'fromDate'),
       toDate: parseRangeEnd(req.query.toDate, 'toDate'),
@@ -62,18 +111,20 @@ async function getSalesReportHandler(req: AuthRequest, res: Response) {
       currencyId: req.query.currencyId as string | undefined,
       sellerId: req.query.sellerId as string | undefined,
       unpaidOnly: req.query.unpaidOnly === 'true',
+      showUnposted: req.query.showUnposted === 'true' || req.query.showUnposted === '1',
       fromInvoice: req.query.fromInvoice as string | undefined,
       toInvoice: req.query.toInvoice as string | undefined,
       sortBy: req.query.sortBy as string | undefined,
       profileId: req.query.profileId as string | undefined,
+      ...sharedInvoiceDocumentFilters(req.query),
     };
 
     const options = {
       page: req.query.page ? parseInt(req.query.page as string, 10) : 1,
-      limit: req.query.limit ? parseInt(req.query.limit as string, 10) : 100,
+      limit: req.query.limit ? parseInt(req.query.limit as string, 10) : 50,
     };
 
-    const result = await inventoryReportsService.getSalesReport(filters, options);
+    const result = await inventoryReportsService.getSalesDocumentReport(filters, options);
 
     return void res.json({
       status: 'success',
@@ -110,7 +161,7 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -123,21 +174,29 @@ router.get(
 
       const filters = {
         ...partyGroupFromQuery(req.query),
+        ...inventoryReportQueryFlags(req.query),
         companyId,
         fromDate: parseRangeStart(req.query.fromDate, 'fromDate'),
         toDate: parseRangeEnd(req.query.toDate, 'toDate'),
         warehouseId: req.query.warehouseId as string | undefined,
         supplierId: req.query.supplierId as string | undefined,
         branchId: req.query.branchId as string | undefined,
+        itemId: req.query.itemId as string | undefined,
+        currencyId: req.query.currencyId as string | undefined,
+        unpaidOnly: req.query.unpaidOnly === 'true',
+        showUnposted: req.query.showUnposted === 'true' || req.query.showUnposted === '1',
+        fromInvoice: req.query.fromInvoice as string | undefined,
+        toInvoice: req.query.toInvoice as string | undefined,
         profileId: req.query.profileId as string | undefined,
+        ...sharedInvoiceDocumentFilters(req.query),
       };
 
       const options = {
         page: req.query.page ? parseInt(req.query.page as string, 10) : 1,
-        limit: req.query.limit ? parseInt(req.query.limit as string, 10) : 100,
+        limit: req.query.limit ? parseInt(req.query.limit as string, 10) : 50,
       };
 
-      const result = await inventoryReportsService.getPurchaseReport(filters, options);
+      const result = await inventoryReportsService.getPurchaseDocumentReport(filters, options);
 
       return void res.json({
         status: 'success',
@@ -168,33 +227,47 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
       if (!req.query.fromDate || !req.query.toDate) {
         return void res.status(400).json({
           status: 'error',
-          message: 'From date and to date are required',
+          message: 'يرجى اختيار تاريخ البداية والنهاية',
         });
       }
 
       const filters = {
         ...partyGroupFromQuery(req.query),
+        ...inventoryReportQueryFlags(req.query),
         companyId,
         fromDate: parseRangeStart(req.query.fromDate, 'fromDate'),
         toDate: parseRangeEnd(req.query.toDate, 'toDate'),
         warehouseId: req.query.warehouseId as string | undefined,
         customerId: req.query.customerId as string | undefined,
+        delegateId: req.query.delegateId as string | undefined,
         branchId: req.query.branchId as string | undefined,
+        itemId: req.query.itemId as string | undefined,
+        costCenterId: req.query.costCenterId as string | undefined,
+        currencyId: req.query.currencyId as string | undefined,
+        sellerId: req.query.sellerId as string | undefined,
+        unpaidOnly: req.query.unpaidOnly === 'true',
+        showUnposted: req.query.showUnposted === 'true' || req.query.showUnposted === '1',
+        allAccounts: req.query.allAccounts === 'true' || req.query.allAccounts === '1',
+        fromInvoice: req.query.fromInvoice as string | undefined,
+        toInvoice: req.query.toInvoice as string | undefined,
+        sortBy: req.query.sortBy as string | undefined,
+        profileId: req.query.profileId as string | undefined,
+        ...sharedInvoiceDocumentFilters(req.query),
       };
 
       const options = {
         page: req.query.page ? parseInt(req.query.page as string, 10) : 1,
-        limit: req.query.limit ? parseInt(req.query.limit as string, 10) : 100,
+        limit: req.query.limit ? parseInt(req.query.limit as string, 10) : 50,
       };
 
-      const result = await inventoryReportsService.getSalesReturnsReport(filters, options);
+      const result = await inventoryReportsService.getSalesReturnDocumentReport(filters, options);
 
       return void res.json({
         status: 'success',
@@ -225,7 +298,7 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -238,20 +311,27 @@ router.get(
 
       const filters = {
         ...partyGroupFromQuery(req.query),
+        ...inventoryReportQueryFlags(req.query),
+        ...sharedInvoiceDocumentFilters(req.query),
         companyId,
         fromDate: parseRangeStart(req.query.fromDate, 'fromDate'),
         toDate: parseRangeEnd(req.query.toDate, 'toDate'),
         warehouseId: req.query.warehouseId as string | undefined,
         supplierId: req.query.supplierId as string | undefined,
         branchId: req.query.branchId as string | undefined,
+        itemId: req.query.itemId as string | undefined,
+        currencyId: req.query.currencyId as string | undefined,
+        unpaidOnly: req.query.unpaidOnly === 'true',
+        fromInvoice: req.query.fromInvoice as string | undefined,
+        toInvoice: req.query.toInvoice as string | undefined,
       };
 
       const options = {
         page: req.query.page ? parseInt(req.query.page as string, 10) : 1,
-        limit: req.query.limit ? parseInt(req.query.limit as string, 10) : 100,
+        limit: req.query.limit ? parseInt(req.query.limit as string, 10) : 50,
       };
 
-      const result = await inventoryReportsService.getPurchaseReturnsReport(filters, options);
+      const result = await inventoryReportsService.getPurchaseReturnDocumentReport(filters, options);
 
       return void res.json({
         status: 'success',
@@ -282,16 +362,18 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
       const filters = {
         ...partyGroupFromQuery(req.query),
+        ...inventoryReportQueryFlags(req.query),
         companyId,
         warehouseId: req.query.warehouseId as string | undefined,
         itemId: req.query.itemId as string | undefined,
         branchId: req.query.branchId as string | undefined,
+        toDate: req.query.toDate ? parseRangeEnd(req.query.toDate, 'toDate') : undefined,
       };
 
       const options = {
@@ -330,30 +412,44 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
-      if (!req.query.fromDate || !req.query.toDate || !req.query.itemId) {
+      if (!req.query.fromDate || !req.query.toDate) {
         return void res.status(400).json({
           status: 'error',
-          message: 'From date, to date, and item ID are required',
+          message: 'يرجى اختيار تاريخ البداية والنهاية',
         });
       }
+
+      const text = (value: unknown) =>
+        typeof value === 'string' && value.trim() ? value.trim() : undefined;
 
       const filters = {
         ...partyGroupFromQuery(req.query),
+        ...inventoryReportQueryFlags(req.query),
         companyId,
         fromDate: parseRangeStart(req.query.fromDate, 'fromDate'),
         toDate: parseRangeEnd(req.query.toDate, 'toDate'),
-        itemId: req.query.itemId as string,
-        warehouseId: req.query.warehouseId as string | undefined,
-        branchId: req.query.branchId as string | undefined,
+        itemId: text(req.query.itemId),
+        itemGroupId: text(req.query.itemGroupId),
+        warehouseId: text(req.query.warehouseId),
+        branchId: text(req.query.branchId),
+        customerId: text(req.query.customerId),
+        supplierId: text(req.query.supplierId),
+        delegateId: text(req.query.delegateId),
+        sellerId: text(req.query.sellerId),
+        costCenterId: text(req.query.costCenterId),
+        currencyId: text(req.query.currencyId),
+        fromInvoice: text(req.query.fromInvoice),
+        toInvoice: text(req.query.toInvoice),
       };
 
+      const requestedLimit = req.query.limit ? parseInt(req.query.limit as string, 10) : 2000;
       const options = {
         page: req.query.page ? parseInt(req.query.page as string, 10) : 1,
-        limit: req.query.limit ? parseInt(req.query.limit as string, 10) : 100,
+        limit: Number.isFinite(requestedLimit) ? requestedLimit : 2000,
       };
 
       const result = await inventoryReportsService.getItemMovementReport(filters, options);
@@ -387,21 +483,32 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
       const filters = {
         ...partyGroupFromQuery(req.query),
+        ...inventoryReportQueryFlags(req.query),
         companyId,
         customerId: req.query.customerId as string | undefined,
-        asOfDate: req.query.asOfDate ? parseRangeEnd(req.query.asOfDate, 'asOfDate') : todayEndOfDayUtc(),
+        fromDate: req.query.fromDate
+          ? parseRangeStart(req.query.fromDate, 'fromDate')
+          : undefined,
+        asOfDate: req.query.asOfDate
+          ? parseRangeEnd(req.query.asOfDate, 'asOfDate')
+          : req.query.toDate
+            ? parseRangeEnd(req.query.toDate, 'toDate')
+            : todayEndOfDayUtc(),
         branchId: req.query.branchId as string | undefined,
+        costCenterId: req.query.costCenterId as string | undefined,
+        currencyId: req.query.currencyId as string | undefined,
+        allAccounts: req.query.allAccounts === 'true' || req.query.allAccounts === '1',
       };
 
       const options = {
         page: req.query.page ? parseInt(req.query.page as string, 10) : 1,
-        limit: req.query.limit ? parseInt(req.query.limit as string, 10) : 100,
+        limit: req.query.limit ? parseInt(req.query.limit as string, 10) : 5000,
       };
 
       const result = await inventoryReportsService.getCustomerBalancesReport(filters, options);
@@ -435,15 +542,20 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
       const filters = {
         ...partyGroupFromQuery(req.query),
+        ...inventoryReportQueryFlags(req.query),
         companyId,
         supplierId: req.query.supplierId as string | undefined,
-        asOfDate: req.query.asOfDate ? parseRangeEnd(req.query.asOfDate, 'asOfDate') : todayEndOfDayUtc(),
+        asOfDate: req.query.asOfDate
+          ? parseRangeEnd(req.query.asOfDate, 'asOfDate')
+          : req.query.toDate
+            ? parseRangeEnd(req.query.toDate, 'toDate')
+            : todayEndOfDayUtc(),
         branchId: req.query.branchId as string | undefined,
       };
 
@@ -483,21 +595,38 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
       const filters = {
         ...partyGroupFromQuery(req.query),
+        ...inventoryReportQueryFlags(req.query),
         companyId,
         customerId: req.query.customerId as string | undefined,
-        asOfDate: req.query.asOfDate ? parseRangeEnd(req.query.asOfDate, 'asOfDate') : todayEndOfDayUtc(),
+        supplierId: req.query.supplierId as string | undefined,
+        delegateId: req.query.delegateId as string | undefined,
+        warehouseId: req.query.warehouseId as string | undefined,
+        itemId: req.query.itemId as string | undefined,
+        itemGroupId: req.query.itemGroupId as string | undefined,
+        costCenterId: req.query.costCenterId as string | undefined,
+        currencyId: req.query.currencyId as string | undefined,
         branchId: req.query.branchId as string | undefined,
+        minValue: req.query.minValue as string | undefined,
+        ageFromInvoiceFrom: req.query.ageFromInvoiceFrom as string | undefined,
+        ageFromInvoiceTo: req.query.ageFromInvoiceTo as string | undefined,
+        ageFromLastPaymentFrom: req.query.ageFromLastPaymentFrom as string | undefined,
+        ageFromLastPaymentTo: req.query.ageFromLastPaymentTo as string | undefined,
+        asOfDate: req.query.asOfDate
+          ? parseRangeEnd(req.query.asOfDate, 'asOfDate')
+          : req.query.toDate
+            ? parseRangeEnd(req.query.toDate, 'toDate')
+            : todayEndOfDayUtc(),
       };
 
       const options = {
         page: req.query.page ? parseInt(req.query.page as string, 10) : 1,
-        limit: req.query.limit ? parseInt(req.query.limit as string, 10) : 100,
+        limit: req.query.limit ? parseInt(req.query.limit as string, 10) : 2000,
       };
 
       const result = await inventoryReportsService.getReceivablesAgingReport(filters, options);
@@ -531,33 +660,47 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
-      if (!req.query.fromDate || !req.query.toDate) {
+      if (!req.query.toDate) {
         return void res.status(400).json({
           status: 'error',
-          message: 'From date and to date are required',
+          message: 'يرجى اختيار التاريخ',
         });
       }
 
       const filters = {
         ...partyGroupFromQuery(req.query),
         companyId,
-        fromDate: parseRangeStart(req.query.fromDate, 'fromDate'),
         toDate: parseRangeEnd(req.query.toDate, 'toDate'),
         itemId: req.query.itemId as string | undefined,
+        itemGroupId: req.query.itemGroupId as string | undefined,
         warehouseId: req.query.warehouseId as string | undefined,
-        branchId: req.query.branchId as string | undefined,
+        currencyId: req.query.currencyId as string | undefined,
+        otherUnit: req.query.otherUnit as string | undefined,
+        salePriceSource: req.query.salePriceSource as string | undefined,
+        priceTier: req.query.priceTier as string | undefined,
+        showEmpty: req.query.showEmpty as string | undefined,
+        showWarehouse: req.query.showWarehouse as string | undefined,
+        showGroups: req.query.showGroups as string | undefined,
+        inactiveOnly: req.query.inactiveOnly as string | undefined,
+        activeOnly: req.query.activeOnly as string | undefined,
+        nonReturnableOnly: req.query.nonReturnableOnly as string | undefined,
+        returnableOnly: req.query.returnableOnly as string | undefined,
+        noBelowCostOnly: req.query.noBelowCostOnly as string | undefined,
+        belowCostOnly: req.query.belowCostOnly as string | undefined,
+        negativeOnly: req.query.negativeOnly as string | undefined,
+        nonNegativeOnly: req.query.nonNegativeOnly as string | undefined,
       };
 
       const options = {
         page: req.query.page ? parseInt(req.query.page as string, 10) : 1,
-        limit: req.query.limit ? parseInt(req.query.limit as string, 10) : 100,
+        limit: req.query.limit ? parseInt(req.query.limit as string, 10) : 5000,
       };
 
-      const result = await inventoryReportsService.getStockProfitReport(filters, options);
+      const result = await inventoryReportsService.getInventoryValuationProfitReport(filters, options);
 
       return void res.json({
         status: 'success',
@@ -588,21 +731,47 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
       const filters = {
         ...partyGroupFromQuery(req.query),
+        ...inventoryReportQueryFlags(req.query),
         companyId,
+        toDate: req.query.toDate ? parseRangeEnd(req.query.toDate, 'toDate') : undefined,
         warehouseId: req.query.warehouseId as string | undefined,
         itemId: req.query.itemId as string | undefined,
+        itemGroupId: req.query.itemGroupId as string | undefined,
         branchId: req.query.branchId as string | undefined,
+        currencyId: req.query.currencyId as string | undefined,
+        otherUnit: req.query.otherUnit as string | undefined,
+        showEmpty: req.query.showEmpty as string | undefined,
+        showWarehouse: req.query.showWarehouse as string | undefined,
+        showGroups: req.query.showGroups as string | undefined,
+        inactiveOnly: req.query.inactiveOnly as string | undefined,
+        activeOnly: req.query.activeOnly as string | undefined,
+        nonReturnableOnly: req.query.nonReturnableOnly as string | undefined,
+        returnableOnly: req.query.returnableOnly as string | undefined,
+        noBelowCostOnly: req.query.noBelowCostOnly as string | undefined,
+        belowCostOnly: req.query.belowCostOnly as string | undefined,
+        negativeOnly: req.query.negativeOnly as string | undefined,
+        nonNegativeOnly: req.query.nonNegativeOnly as string | undefined,
+        manufacturerId: req.query.manufacturerId as string | undefined,
+        colorId: req.query.colorId as string | undefined,
+        countryOfOrigin: req.query.countryOfOrigin as string | undefined,
+        quality: req.query.quality as string | undefined,
+        size: req.query.size as string | undefined,
+        property1: req.query.property1 as string | undefined,
+        property2: req.query.property2 as string | undefined,
+        property3: req.query.property3 as string | undefined,
+        property4: req.query.property4 as string | undefined,
+        property5: req.query.property5 as string | undefined,
       };
 
       const options = {
         page: req.query.page ? parseInt(req.query.page as string, 10) : 1,
-        limit: req.query.limit ? parseInt(req.query.limit as string, 10) : 100,
+        limit: req.query.limit ? parseInt(req.query.limit as string, 10) : 1000,
       };
 
       const result = await inventoryReportsService.getInventoryReportsDetailed(filters, options);
@@ -636,29 +805,41 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
       if (!req.query.fromDate || !req.query.toDate) {
         return void res.status(400).json({
           status: 'error',
-          message: 'From date and to date are required',
+          message: 'يرجى اختيار تاريخ البداية والنهاية',
         });
       }
 
+      const showUnposted =
+        req.query.showUnposted === 'true' || req.query.showUnposted === '1';
+      const text = (value: unknown) =>
+        typeof value === 'string' && value.trim() ? value.trim() : undefined;
+      const requestedLimit = req.query.limit ? parseInt(req.query.limit as string, 10) : 2000;
+
       const filters = {
         ...partyGroupFromQuery(req.query),
+        ...inventoryReportQueryFlags(req.query),
         companyId,
         fromDate: parseRangeStart(req.query.fromDate, 'fromDate'),
         toDate: parseRangeEnd(req.query.toDate, 'toDate'),
-        warehouseId: req.query.warehouseId as string | undefined,
-        branchId: req.query.branchId as string | undefined,
+        warehouseId: text(req.query.warehouseId),
+        fromWarehouseId: text(req.query.fromWarehouseId),
+        toWarehouseId: text(req.query.toWarehouseId),
+        itemId: text(req.query.itemId),
+        itemGroupId: text(req.query.itemGroupId),
+        branchId: text(req.query.branchId),
+        showUnposted,
       };
 
       const options = {
         page: req.query.page ? parseInt(req.query.page as string, 10) : 1,
-        limit: req.query.limit ? parseInt(req.query.limit as string, 10) : 100,
+        limit: Number.isFinite(requestedLimit) ? requestedLimit : 2000,
       };
 
       const result = await inventoryReportsService.getStockTransferReport(filters, options);
@@ -692,15 +873,21 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
       const filters = {
         ...partyGroupFromQuery(req.query),
+        ...inventoryReportQueryFlags(req.query),
         companyId,
+        fromDate: req.query.fromDate ? parseRangeStart(req.query.fromDate, 'fromDate') : undefined,
+        toDate: req.query.toDate ? parseRangeEnd(req.query.toDate, 'toDate') : undefined,
         warehouseId: req.query.warehouseId as string | undefined,
+        itemId: req.query.itemId as string | undefined,
         branchId: req.query.branchId as string | undefined,
+        categoryId: (req.query.itemGroupId || req.query.categoryId) as string | undefined,
+        limitStatus: typeof req.query.limitStatus === 'string' ? req.query.limitStatus : undefined,
       };
 
       const options = {
@@ -739,29 +926,35 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
-      if (!req.query.toDate) {
-        return void res.status(400).json({
-          status: 'error',
-          message: 'To date is required',
-        });
-      }
+      const text = (value: unknown) =>
+        typeof value === 'string' && value.trim() ? value.trim() : undefined;
 
       const filters = {
         ...partyGroupFromQuery(req.query),
+        ...inventoryReportQueryFlags(req.query),
         companyId,
         fromDate: req.query.fromDate ? parseRangeStart(req.query.fromDate, 'fromDate') : undefined,
-        toDate: parseRangeEnd(req.query.toDate, 'toDate'),
-        warehouseId: req.query.warehouseId as string | undefined,
-        branchId: req.query.branchId as string | undefined,
+        toDate: req.query.toDate ? parseRangeEnd(req.query.toDate, 'toDate') : undefined,
+        warehouseId: text(req.query.warehouseId),
+        branchId: text(req.query.branchId),
+        itemId: text(req.query.itemId),
+        itemGroupId: text(req.query.itemGroupId),
+        delegateId: text(req.query.delegateId),
+        costCenterId: text(req.query.costCenterId),
+        customerId: text(req.query.customerId),
+        supplierId: text(req.query.supplierId),
+        fromInvoice: text(req.query.fromInvoice),
+        toInvoice: text(req.query.toInvoice),
       };
 
+      const requestedLimit = req.query.limit ? parseInt(req.query.limit as string, 10) : 2000;
       const options = {
         page: req.query.page ? parseInt(req.query.page as string, 10) : 1,
-        limit: req.query.limit ? parseInt(req.query.limit as string, 10) : 100,
+        limit: Number.isFinite(requestedLimit) ? requestedLimit : 2000,
       };
 
       const result = await inventoryReportsService.getExpiryDateReport(filters, options);
@@ -795,7 +988,7 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -808,20 +1001,27 @@ router.get(
 
       const filters = {
         ...partyGroupFromQuery(req.query),
+        ...inventoryReportQueryFlags(req.query),
+        ...sharedInvoiceDocumentFilters(req.query),
         companyId,
         fromDate: parseRangeStart(req.query.fromDate, 'fromDate'),
         toDate: parseRangeEnd(req.query.toDate, 'toDate'),
         warehouseId: req.query.warehouseId as string | undefined,
         customerId: req.query.customerId as string | undefined,
         branchId: req.query.branchId as string | undefined,
+        itemId: req.query.itemId as string | undefined,
+        currencyId: req.query.currencyId as string | undefined,
+        unpaidOnly: req.query.unpaidOnly === 'true',
+        fromInvoice: req.query.fromInvoice as string | undefined,
+        toInvoice: req.query.toInvoice as string | undefined,
       };
 
       const options = {
         page: req.query.page ? parseInt(req.query.page as string, 10) : 1,
-        limit: req.query.limit ? parseInt(req.query.limit as string, 10) : 100,
+        limit: req.query.limit ? parseInt(req.query.limit as string, 10) : 50,
       };
 
-      const result = await inventoryReportsService.getSalesAndReturnsReport(filters, options);
+      const result = await inventoryReportsService.getSalesAndReturnsDocumentReport(filters, options);
 
       return void res.json({
         status: 'success',
@@ -852,7 +1052,7 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -863,19 +1063,27 @@ router.get(
         });
       }
 
+      const text = (value: unknown) =>
+        typeof value === 'string' && value.trim() ? value.trim() : undefined;
+
       const filters = {
         ...partyGroupFromQuery(req.query),
+        ...inventoryReportQueryFlags(req.query),
         companyId,
         fromDate: parseRangeStart(req.query.fromDate, 'fromDate'),
         toDate: parseRangeEnd(req.query.toDate, 'toDate'),
-        itemId: req.query.itemId as string | undefined,
-        warehouseId: req.query.warehouseId as string | undefined,
-        branchId: req.query.branchId as string | undefined,
+        itemId: text(req.query.itemId),
+        itemGroupId: text(req.query.itemGroupId),
+        warehouseId: text(req.query.warehouseId),
+        branchId: text(req.query.branchId),
+        currencyId: text(req.query.currencyId),
+        hideUnsoldItems: req.query.hideUnsoldItems === 'true' || req.query.hideUnsoldItems === '1',
       };
 
+      const requestedLimit = req.query.limit ? parseInt(req.query.limit as string, 10) : 2000;
       const options = {
         page: req.query.page ? parseInt(req.query.page as string, 10) : 1,
-        limit: req.query.limit ? parseInt(req.query.limit as string, 10) : 100,
+        limit: Number.isFinite(requestedLimit) ? requestedLimit : 2000,
       };
 
       const result = await inventoryReportsService.getMonthlySalesForItemsReport(filters, options);
@@ -909,12 +1117,13 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
       const filters = {
         ...partyGroupFromQuery(req.query),
+        ...inventoryReportQueryFlags(req.query),
         companyId,
         customerId: req.query.customerId as string | undefined,
         fromDate: req.query.fromDate ? parseRangeStart(req.query.fromDate, 'fromDate') : undefined,
@@ -925,7 +1134,7 @@ router.get(
 
       const options = {
         page: req.query.page ? parseInt(req.query.page as string, 10) : 1,
-        limit: req.query.limit ? parseInt(req.query.limit as string, 10) : 100,
+        limit: req.query.limit ? parseInt(req.query.limit as string, 10) : 5000,
       };
 
       const result = await inventoryReportsService.getCustomerAccountsReport(filters, options);
@@ -959,12 +1168,13 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
       const filters = {
         ...partyGroupFromQuery(req.query),
+        ...inventoryReportQueryFlags(req.query),
         companyId,
         customerId: req.query.customerId as string | undefined,
         fromDate: req.query.fromDate ? parseRangeStart(req.query.fromDate, 'fromDate') : undefined,
@@ -975,7 +1185,7 @@ router.get(
 
       const options = {
         page: req.query.page ? parseInt(req.query.page as string, 10) : 1,
-        limit: req.query.limit ? parseInt(req.query.limit as string, 10) : 100,
+        limit: req.query.limit ? parseInt(req.query.limit as string, 10) : 5000,
       };
 
       const result = await inventoryReportsService.getCustomerAccountsCurrencyReport(filters, options);
@@ -1009,30 +1219,25 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
-        });
-      }
-
-      if (!req.query.customerId) {
-        return void res.status(400).json({
-          status: 'error',
-          message: 'Customer ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
       const filters = {
         ...partyGroupFromQuery(req.query),
+        ...inventoryReportQueryFlags(req.query),
         companyId,
-        customerId: req.query.customerId as string,
+        customerId: (req.query.customerId as string | undefined) || undefined,
         itemId: req.query.itemId as string | undefined,
         fromDate: req.query.fromDate ? parseRangeStart(req.query.fromDate, 'fromDate') : undefined,
         toDate: req.query.toDate ? parseRangeEnd(req.query.toDate, 'toDate') : undefined,
         branchId: req.query.branchId as string | undefined,
+        showUnposted: req.query.showUnposted === 'true' || req.query.showUnposted === '1',
       };
 
       const options = {
         page: req.query.page ? parseInt(req.query.page as string, 10) : 1,
-        limit: req.query.limit ? parseInt(req.query.limit as string, 10) : 100,
+        limit: req.query.limit ? parseInt(req.query.limit as string, 10) : 2000,
       };
 
       const result = await inventoryReportsService.getCustomerAccountItemsReport(filters, options);
@@ -1066,20 +1271,30 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
       const filters = {
         ...partyGroupFromQuery(req.query),
+        ...inventoryReportQueryFlags(req.query),
         companyId,
         customerId: req.query.customerId as string | undefined,
         branchId: req.query.branchId as string | undefined,
+        fromDate: req.query.fromDate ? parseRangeStart(req.query.fromDate, 'fromDate') : undefined,
+        toDate: req.query.toDate ? parseRangeEnd(req.query.toDate, 'toDate') : undefined,
+        currencyId: req.query.currencyId as string | undefined,
+        delegateId: req.query.delegateId as string | undefined,
+        warehouseId: req.query.warehouseId as string | undefined,
+        costCenterId: req.query.costCenterId as string | undefined,
+        itemId: req.query.itemId as string | undefined,
+        itemGroupId: req.query.itemGroupId as string | undefined,
+        minValue: req.query.minValue as string | undefined,
       };
 
       const options = {
         page: req.query.page ? parseInt(req.query.page as string, 10) : 1,
-        limit: req.query.limit ? parseInt(req.query.limit as string, 10) : 100,
+        limit: req.query.limit ? parseInt(req.query.limit as string, 10) : 5000,
       };
 
       const result = await inventoryReportsService.getCustomerReceivablesReport(filters, options);
@@ -1113,12 +1328,13 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
       const filters = {
         ...partyGroupFromQuery(req.query),
+        ...inventoryReportQueryFlags(req.query),
         companyId,
         supplierId: req.query.supplierId as string | undefined,
         fromDate: req.query.fromDate ? parseRangeStart(req.query.fromDate, 'fromDate') : undefined,
@@ -1129,7 +1345,7 @@ router.get(
 
       const options = {
         page: req.query.page ? parseInt(req.query.page as string, 10) : 1,
-        limit: req.query.limit ? parseInt(req.query.limit as string, 10) : 100,
+        limit: req.query.limit ? parseInt(req.query.limit as string, 10) : 5000,
       };
 
       const result = await inventoryReportsService.getSupplierAccountsReport(filters, options);
@@ -1163,12 +1379,13 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
       const filters = {
         ...partyGroupFromQuery(req.query),
+        ...inventoryReportQueryFlags(req.query),
         companyId,
         supplierId: req.query.supplierId as string | undefined,
         fromDate: req.query.fromDate ? parseRangeStart(req.query.fromDate, 'fromDate') : undefined,
@@ -1179,7 +1396,7 @@ router.get(
 
       const options = {
         page: req.query.page ? parseInt(req.query.page as string, 10) : 1,
-        limit: req.query.limit ? parseInt(req.query.limit as string, 10) : 100,
+        limit: req.query.limit ? parseInt(req.query.limit as string, 10) : 5000,
       };
 
       const result = await inventoryReportsService.getSupplierAccountsCurrenciesReport(filters, options);
@@ -1213,30 +1430,25 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
-        });
-      }
-
-      if (!req.query.supplierId) {
-        return void res.status(400).json({
-          status: 'error',
-          message: 'Supplier ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
       const filters = {
         ...partyGroupFromQuery(req.query),
+        ...inventoryReportQueryFlags(req.query),
         companyId,
-        supplierId: req.query.supplierId as string,
+        supplierId: (req.query.supplierId as string | undefined) || undefined,
         itemId: req.query.itemId as string | undefined,
         fromDate: req.query.fromDate ? parseRangeStart(req.query.fromDate, 'fromDate') : undefined,
         toDate: req.query.toDate ? parseRangeEnd(req.query.toDate, 'toDate') : undefined,
         branchId: req.query.branchId as string | undefined,
+        showUnposted: req.query.showUnposted === 'true' || req.query.showUnposted === '1',
       };
 
       const options = {
         page: req.query.page ? parseInt(req.query.page as string, 10) : 1,
-        limit: req.query.limit ? parseInt(req.query.limit as string, 10) : 100,
+        limit: req.query.limit ? parseInt(req.query.limit as string, 10) : 2000,
       };
 
       const result = await inventoryReportsService.getSupplierAccountItemsReport(filters, options);
@@ -1270,21 +1482,36 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
       const filters = {
         ...partyGroupFromQuery(req.query),
+        ...inventoryReportQueryFlags(req.query),
         companyId,
+        allPayments: true,
+        fromDate: req.query.fromDate ? parseRangeStart(req.query.fromDate, 'fromDate') : undefined,
+        toDate: req.query.toDate ? parseRangeEnd(req.query.toDate, 'toDate') : undefined,
         customerId: req.query.customerId as string | undefined,
         supplierId: req.query.supplierId as string | undefined,
+        delegateId: req.query.delegateId as string | undefined,
+        warehouseId: req.query.warehouseId as string | undefined,
+        itemId: req.query.itemId as string | undefined,
+        itemGroupId: req.query.itemGroupId as string | undefined,
+        costCenterId: req.query.costCenterId as string | undefined,
         branchId: req.query.branchId as string | undefined,
+        debtOrder: typeof req.query.debtOrder === 'string' ? req.query.debtOrder : undefined,
+        daysLateOp: typeof req.query.daysLateOp === 'string' ? req.query.daysLateOp : undefined,
+        daysLateDays: typeof req.query.daysLateDays === 'string' ? req.query.daysLateDays : undefined,
+        paymentChannel: typeof req.query.paymentChannel === 'string' ? req.query.paymentChannel : undefined,
+        fromInvoice: typeof req.query.fromInvoice === 'string' ? req.query.fromInvoice : undefined,
+        toInvoice: typeof req.query.toInvoice === 'string' ? req.query.toInvoice : undefined,
       };
 
       const options = {
         page: req.query.page ? parseInt(req.query.page as string, 10) : 1,
-        limit: req.query.limit ? parseInt(req.query.limit as string, 10) : 100,
+        limit: req.query.limit ? parseInt(req.query.limit as string, 10) : 2000,
       };
 
       const result = await inventoryReportsService.getOverduePaymentsReport(filters, options);
@@ -1318,21 +1545,27 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
       const filters = {
         ...partyGroupFromQuery(req.query),
+        ...inventoryReportQueryFlags(req.query),
         companyId,
         customerId: req.query.customerId as string | undefined,
-        supplierId: req.query.supplierId as string | undefined,
         branchId: req.query.branchId as string | undefined,
+        toDate: req.query.toDate
+          ? parseRangeEnd(req.query.toDate, 'toDate')
+          : req.query.asOfDate
+            ? parseRangeEnd(req.query.asOfDate, 'asOfDate')
+            : todayEndOfDayUtc(),
+        allAccounts: req.query.allAccounts === 'true' || req.query.allAccounts === '1',
       };
 
       const options = {
         page: req.query.page ? parseInt(req.query.page as string, 10) : 1,
-        limit: req.query.limit ? parseInt(req.query.limit as string, 10) : 100,
+        limit: req.query.limit ? parseInt(req.query.limit as string, 10) : 5000,
       };
 
       const result = await inventoryReportsService.getCollectionsAndOverduesReport(filters, options);
@@ -1366,7 +1599,7 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -1379,6 +1612,7 @@ router.get(
 
       const filters = {
         ...partyGroupFromQuery(req.query),
+        ...inventoryReportQueryFlags(req.query),
         companyId,
         fromDate: parseRangeStart(req.query.fromDate, 'fromDate'),
         toDate: parseRangeEnd(req.query.toDate, 'toDate'),
@@ -1422,7 +1656,7 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -1435,17 +1669,25 @@ router.get(
 
       const filters = {
         ...partyGroupFromQuery(req.query),
+        ...inventoryReportQueryFlags(req.query),
         companyId,
         fromDate: parseRangeStart(req.query.fromDate, 'fromDate'),
         toDate: parseRangeEnd(req.query.toDate, 'toDate'),
         itemId: req.query.itemId as string | undefined,
+        itemGroupId: req.query.itemGroupId as string | undefined,
         warehouseId: req.query.warehouseId as string | undefined,
         branchId: req.query.branchId as string | undefined,
+        customerId: req.query.customerId as string | undefined,
+        delegateId: req.query.delegateId as string | undefined,
+        costCenterId: req.query.costCenterId as string | undefined,
+        currencyId: req.query.currencyId as string | undefined,
+        fromInvoice: req.query.fromInvoice as string | undefined,
+        toInvoice: req.query.toInvoice as string | undefined,
       };
 
       const options = {
         page: req.query.page ? parseInt(req.query.page as string, 10) : 1,
-        limit: req.query.limit ? parseInt(req.query.limit as string, 10) : 100,
+        limit: req.query.limit ? parseInt(req.query.limit as string, 10) : 5000,
       };
 
       const result = await inventoryReportsService.getItemsProfitReport(filters, options);
@@ -1479,7 +1721,7 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -1492,6 +1734,7 @@ router.get(
 
       const filters = {
         ...partyGroupFromQuery(req.query),
+        ...inventoryReportQueryFlags(req.query),
         companyId,
         fromDate: parseRangeStart(req.query.fromDate, 'fromDate'),
         toDate: parseRangeEnd(req.query.toDate, 'toDate'),
@@ -1535,7 +1778,7 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -1548,6 +1791,7 @@ router.get(
 
       const filters = {
         ...partyGroupFromQuery(req.query),
+        ...inventoryReportQueryFlags(req.query),
         companyId,
         fromDate: parseRangeStart(req.query.fromDate, 'fromDate'),
         toDate: parseRangeEnd(req.query.toDate, 'toDate'),
@@ -1591,7 +1835,7 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -1604,6 +1848,7 @@ router.get(
 
       const filters = {
         ...partyGroupFromQuery(req.query),
+        ...inventoryReportQueryFlags(req.query),
         companyId,
         fromDate: parseRangeStart(req.query.fromDate, 'fromDate'),
         toDate: parseRangeEnd(req.query.toDate, 'toDate'),
@@ -1647,7 +1892,7 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -1660,6 +1905,7 @@ router.get(
 
       const filters = {
         ...partyGroupFromQuery(req.query),
+        ...inventoryReportQueryFlags(req.query),
         companyId,
         fromDate: parseRangeStart(req.query.fromDate, 'fromDate'),
         toDate: parseRangeEnd(req.query.toDate, 'toDate'),
@@ -1704,7 +1950,7 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -1717,6 +1963,7 @@ router.get(
 
       const filters = {
         ...partyGroupFromQuery(req.query),
+        ...inventoryReportQueryFlags(req.query),
         companyId,
         fromDate: parseRangeStart(req.query.fromDate, 'fromDate'),
         toDate: parseRangeEnd(req.query.toDate, 'toDate'),
@@ -1762,30 +2009,39 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
       if (!req.query.fromDate || !req.query.toDate) {
         return void res.status(400).json({
           status: 'error',
-          message: 'From date and to date are required',
+          message: 'يرجى اختيار تاريخ البداية والنهاية',
         });
       }
 
+      const text = (value: unknown) =>
+        typeof value === 'string' && value.trim() ? value.trim() : undefined;
+
       const filters = {
         ...partyGroupFromQuery(req.query),
+        ...inventoryReportQueryFlags(req.query),
         companyId,
         fromDate: parseRangeStart(req.query.fromDate, 'fromDate'),
         toDate: parseRangeEnd(req.query.toDate, 'toDate'),
-        itemId: req.query.itemId as string | undefined,
-        costCenterId: req.query.costCenterId as string | undefined,
-        branchId: req.query.branchId as string | undefined,
+        itemId: text(req.query.itemId),
+        itemGroupId: text(req.query.itemGroupId),
+        warehouseId: text(req.query.warehouseId),
+        branchId: text(req.query.branchId),
+        delegateId: text(req.query.delegateId),
+        costCenterId: text(req.query.costCenterId),
+        userId: text(req.query.userId),
       };
 
+      const requestedLimit = req.query.limit ? parseInt(req.query.limit as string, 10) : 2000;
       const options = {
         page: req.query.page ? parseInt(req.query.page as string, 10) : 1,
-        limit: req.query.limit ? parseInt(req.query.limit as string, 10) : 100,
+        limit: Number.isFinite(requestedLimit) ? requestedLimit : 2000,
       };
 
       const result = await inventoryReportsService.getCostCenterItemMovementReport(filters, options);
@@ -1819,14 +2075,18 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
       const filters = {
         ...partyGroupFromQuery(req.query),
+        ...inventoryReportQueryFlags(req.query),
         companyId,
         priceListId: req.query.priceListId as string | undefined,
+        warehouseId: req.query.warehouseId as string | undefined,
+        itemId: req.query.itemId as string | undefined,
+        itemGroupId: req.query.itemGroupId as string | undefined,
         branchId: req.query.branchId as string | undefined,
       };
 
@@ -1866,23 +2126,26 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
       if (!req.query.fromDate || !req.query.toDate) {
         return void res.status(400).json({
           status: 'error',
-          message: 'From date and to date are required',
+          message: 'يرجى اختيار تاريخ البداية والنهاية',
         });
       }
 
       const filters = {
         ...partyGroupFromQuery(req.query),
+        ...inventoryReportQueryFlags(req.query),
         companyId,
         fromDate: parseRangeStart(req.query.fromDate, 'fromDate'),
         toDate: parseRangeEnd(req.query.toDate, 'toDate'),
         branchId: req.query.branchId as string | undefined,
+        currencyId: req.query.currencyId as string | undefined,
+        showUnposted: req.query.showUnposted === 'true' || req.query.showUnposted === '1',
       };
 
       const options = {
@@ -1903,6 +2166,99 @@ router.get(
       return void res.status(500).json({
         status: 'error',
         message: error instanceof Error ? error.message : 'Failed to get sales and purchase tax report',
+      });
+    }
+  }
+);
+
+/**
+ * GET /api/v1/inventory/reports/slow-moving
+ * أصناف راكدة: رصيد بلا حركة منذ بداية الفترة.
+ */
+router.get(
+  '/slow-moving',
+  authorize({ resource: 'report', action: 'view' }),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const companyId = req.companyId || req.tenantId;
+      if (!companyId) {
+        return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
+      }
+      const result = await inventoryReportsService.getSlowMovingReport(
+        {
+          companyId,
+          warehouseId: req.query.warehouseId as string | undefined,
+          itemId: req.query.itemId as string | undefined,
+          fromDate: req.query.fromDate ? parseRangeStart(req.query.fromDate, 'fromDate') : undefined,
+          toDate: req.query.toDate ? parseRangeEnd(req.query.toDate, 'toDate') : undefined,
+        },
+        {
+          page: req.query.page ? parseInt(req.query.page as string, 10) : 1,
+          limit: req.query.limit ? parseInt(req.query.limit as string, 10) : 100,
+        }
+      );
+      return void res.json({
+        status: 'success',
+        data: result.data,
+        summary: result.summary,
+        pagination: result.pagination,
+      });
+    } catch (error) {
+      logger.error({ error }, 'Error getting slow-moving report');
+      return void res.status(500).json({
+        status: 'error',
+        message: error instanceof Error ? error.message : 'تعذر إنشاء تقرير الأصناف الراكدة',
+      });
+    }
+  }
+);
+
+/**
+ * GET /api/v1/inventory/reports/warehouse-pulse
+ * Posted stock, today's in/out, and warehouse alerts.
+ */
+router.get(
+  '/warehouse-pulse',
+  authorize({ resource: 'report', action: 'view' }),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const companyId = req.companyId || req.tenantId;
+      if (!companyId) {
+        return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
+      }
+      const warehouseId = typeof req.query.warehouseId === 'string' ? req.query.warehouseId : undefined;
+      const data = await warehouseDashboardService.pulse(companyId, warehouseId || undefined);
+      return void res.json({ status: 'success', data });
+    } catch (error) {
+      logger.error({ error }, 'Error getting warehouse pulse');
+      return void res.status(500).json({
+        status: 'error',
+        message: error instanceof Error ? error.message : 'تعذر تحميل نبض المخازن',
+      });
+    }
+  }
+);
+
+/**
+ * GET /api/v1/inventory/reports/warehouse-compare
+ * Warehouse value, movement speed, dead stock, and expiry bands.
+ */
+router.get(
+  '/warehouse-compare',
+  authorize({ resource: 'report', action: 'view' }),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const companyId = req.companyId || req.tenantId;
+      if (!companyId) {
+        return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
+      }
+      const data = await warehouseDashboardService.compare(companyId);
+      return void res.json({ status: 'success', data });
+    } catch (error) {
+      logger.error({ error }, 'Error getting warehouse comparison');
+      return void res.status(500).json({
+        status: 'error',
+        message: error instanceof Error ? error.message : 'تعذر تحميل مقارنة المخازن',
       });
     }
   }

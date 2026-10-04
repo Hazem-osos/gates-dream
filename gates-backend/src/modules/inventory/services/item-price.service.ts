@@ -458,6 +458,26 @@ export class ItemPriceService {
       throw error;
     }
   }
+
+  async upsertItemUnitPrice(companyId: string, data: CreateItemPriceData) {
+    const existing = await prisma.itemPrice.findFirst({
+      where: {
+        itemId: data.itemId,
+        priceListId: data.priceListId,
+        unitId: data.unitId,
+        item: { companyId },
+      },
+      select: { id: true },
+    });
+    if (existing) {
+      return this.updateItemPrice(companyId, existing.id, {
+        price: data.price,
+        purchasePrice: data.purchasePrice,
+        retailPrice: data.retailPrice,
+      });
+    }
+    return this.createItemPrice(companyId, data);
+  }
 }
 
 export const itemPriceService = new ItemPriceService();

@@ -23,6 +23,7 @@ export type InvoiceLineColumnId =
   | 'serialNumbers'
   | 'taxExemptionReason'
   | 'withholdingTax'
+  | 'withholdingAmount'
   | 'color'
   | 'size'
   | 'freeBonus'
@@ -58,7 +59,7 @@ export const INVOICE_LINE_COLUMN_DEFS: InvoiceLineColumnDef[] = [
   { id: 'notes', labelAr: 'ملاحظات', defaultVisible: true, focusField: 'notes' },
   { id: 'barcode', labelAr: 'الباركود', defaultVisible: false, focusField: 'barcode' },
   { id: 'warehouse', labelAr: 'المخزن', locked: true, defaultVisible: true, focusField: 'warehouse' },
-  { id: 'stockBalance', labelAr: 'الرصيد', defaultVisible: false },
+  { id: 'stockBalance', labelAr: 'الكمية المتاحة', locked: true, defaultVisible: true },
   { id: 'unit', labelAr: 'الوحدة', locked: true, defaultVisible: true, focusField: 'unit' },
   { id: 'baseUnit', labelAr: 'الوحدة الأساسية', locked: true, defaultVisible: true },
   { id: 'baseQuantity', labelAr: 'كمية الوحدة الأساسية', defaultVisible: false, focusField: 'baseQuantity' },
@@ -68,6 +69,7 @@ export const INVOICE_LINE_COLUMN_DEFS: InvoiceLineColumnDef[] = [
   { id: 'discount', labelAr: 'الخصم', locked: true, defaultVisible: true, focusField: 'discount' },
   { id: 'taxRate', labelAr: 'ضريبة القيمة المضافة (ض.ق.م)', locked: true, defaultVisible: true, focusField: 'taxRate' },
   { id: 'withholdingTax', labelAr: 'خصم المنبع', defaultVisible: false, focusField: 'withholdingTax' },
+  { id: 'withholdingAmount', labelAr: 'قيمة الخصم', defaultVisible: false, focusField: 'withholdingAmount' },
   { id: 'total', labelAr: 'الإجمالي', locked: true, defaultVisible: true },
   { id: 'costCenter', labelAr: 'مركز التكلفة', defaultVisible: false, focusField: 'costCenter' },
   { id: 'lineAccount', labelAr: 'حساب إيراد مخصص', defaultVisible: false, focusField: 'lineAccount' },
@@ -91,7 +93,7 @@ export const INVOICE_LINE_COLUMN_DEFS: InvoiceLineColumnDef[] = [
 
 export const INVOICE_LINE_COLUMN_GROUPS: InvoiceLineColumnGroup[] = [
   { id: 'costCenter', labelAr: 'مركز التكلفة', columns: ['costCenter'] },
-  { id: 'withholdingTax', labelAr: 'خصم المنبع', columns: ['withholdingTax'] },
+  { id: 'withholdingTax', labelAr: 'خصم المنبع', columns: ['withholdingTax', 'withholdingAmount'] },
   { id: 'colorAndSize', labelAr: 'اللون والمقاس', columns: ['color', 'size'] },
   { id: 'batchAndExpiry', labelAr: 'التشغيلة والصلاحية', columns: ['batchAndExpiry'] },
   { id: 'serialsAndNotes', labelAr: 'السيريال والملاحظات', columns: ['serialNumbers', 'notes'] },
@@ -101,13 +103,14 @@ export const INVOICE_LINE_COLUMN_GROUPS: InvoiceLineColumnGroup[] = [
 export type InvoiceColumnStorageKey = 'gates:columns:sales-invoice' | 'gates:columns:purchase-invoice';
 
 /** Bump when locked/default columns change so browsers pick up new layout. */
-const COLUMN_LAYOUT_VERSION = 7;
+const COLUMN_LAYOUT_VERSION = 8;
 
 export const SALES_INVOICE_STORAGE_DEFAULT: InvoiceLineColumnId[] = [
   'rowIndex',
   'item',
   'notes',
   'warehouse',
+  'stockBalance',
   'unit',
   'baseUnit',
   'quantity',
@@ -123,6 +126,7 @@ export const PURCHASE_INVOICE_STORAGE_DEFAULT: InvoiceLineColumnId[] = [
   'item',
   'notes',
   'warehouse',
+  'stockBalance',
   'unit',
   'baseUnit',
   'quantity',
@@ -167,6 +171,10 @@ function mergeVisible(parsed: InvoiceLineColumnId[], fallback: InvoiceLineColumn
     ...lockedIds(),
     ...parsed.filter((id) => allowed.has(id)),
   ]);
+  if (visibleSet.has('withholdingTax') || visibleSet.has('withholdingAmount')) {
+    visibleSet.add('withholdingTax');
+    visibleSet.add('withholdingAmount');
+  }
   const merged = INVOICE_LINE_COLUMN_DEFS.filter((c) => visibleSet.has(c.id)).map((c) => c.id);
   return merged.length ? merged : fallback;
 }
@@ -208,6 +216,15 @@ export function saveVisibleColumnIds(
   localStorage.setItem(storageKey, JSON.stringify(toSave));
 }
 
+/** خصم المنبع وقيمة الخصم يظهران معًا لما الضربة تكون مفعّلة. */
+export function ensureWithholdingColumns(ids: InvoiceLineColumnId[]): InvoiceLineColumnId[] {
+  if (ids.includes('withholdingTax') && ids.includes('withholdingAmount')) return ids;
+  const set = new Set(ids);
+  set.add('withholdingTax');
+  set.add('withholdingAmount');
+  return INVOICE_LINE_COLUMN_DEFS.filter((c) => set.has(c.id)).map((c) => c.id);
+}
+
 export function mergeVisibleColumnIds(
   storageKey: InvoiceColumnStorageKey,
   ids: InvoiceLineColumnId[]
@@ -245,9 +262,9 @@ export function toggleColumnGroup(
   return INVOICE_LINE_COLUMN_DEFS.filter((c) => next.has(c.id)).map((c) => c.id);
 }
 
-/** Columns shown in «تخصيص الأعمدة» — every grid field except the delete control. */
+/** Columns shown in «تخصيص الأعمدة». قيمة الخصم follows خصم المنبع and is not a separate checkbox. */
 export const CUSTOMIZABLE_INVOICE_COLUMNS = INVOICE_LINE_COLUMN_DEFS.filter(
-  (c) => c.id !== 'rowDelete'
+  (c) => c.id !== 'rowDelete' && c.id !== 'withholdingAmount'
 );
 
 export function toggleColumn(
@@ -259,6 +276,15 @@ export function toggleColumn(
   const next = new Set(visibleIds);
   if (next.has(columnId)) next.delete(columnId);
   else next.add(columnId);
+  if (columnId === 'withholdingTax' || columnId === 'withholdingAmount') {
+    if (next.has(columnId)) {
+      next.add('withholdingTax');
+      next.add('withholdingAmount');
+    } else {
+      next.delete('withholdingTax');
+      next.delete('withholdingAmount');
+    }
+  }
   for (const id of lockedIds()) next.add(id);
   return INVOICE_LINE_COLUMN_DEFS.filter((c) => next.has(c.id)).map((c) => c.id);
 }
@@ -284,6 +310,7 @@ export type InvoiceLineExtended = {
   taxExemptionReason?: string;
   withholdingTaxRate?: number;
   withholdingTaxAmount?: number;
+  withholdingAmountManual?: boolean;
   batchAllocations?: InvoiceLineBatchAllocation[];
   color?: string;
   size?: string;

@@ -75,8 +75,8 @@ export function AiKnowledgeUploadButton({
         disabled={uploading}
         className={
           iconOnly
-            ? 'inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-[#0E79AA] disabled:opacity-50'
-            : 'inline-flex h-8 items-center gap-1 rounded-lg border border-[#D6EAF3] px-2 text-[11px] text-[#0E79AA] hover:bg-[#DEEFF6] disabled:opacity-50'
+            ? 'inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-[#0E78AA] disabled:opacity-50'
+            : 'inline-flex h-8 items-center gap-1 rounded-lg border border-[#D6EAF3] px-2 text-[11px] text-[#0E78AA] hover:bg-[#DEEFF6] disabled:opacity-50'
         }
         title="إرفاق عقد أو مستند PDF للتحليل"
       >

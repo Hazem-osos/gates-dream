@@ -20,7 +20,7 @@ export async function buildSecurityContext(req: AuthRequest): Promise<SecurityCo
   const userId = req.user?.sub;
   const companyId = req.companyId ?? req.tenantId;
   if (!userId) throw new AppError(401, 'Authentication required');
-  if (!companyId) throw new AppError(400, 'Company ID is required');
+  if (!companyId) throw new AppError(400, 'معرّف الشركة مطلوب');
 
   const cached = await getCachedUserPermissions(userId, companyId);
   const permissions = permissionsFromCache(cached.grantAll, cached.permissions);

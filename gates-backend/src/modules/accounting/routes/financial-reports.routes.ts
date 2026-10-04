@@ -35,12 +35,15 @@ function parseRangeStart(value: unknown, field: string): Date {
 
 function baseParams(req: AuthRequest) {
   const companyId = req.companyId ?? req.tenantId;
-  if (!companyId) throw new AppError(400, 'Company ID is required');
+  if (!companyId) throw new AppError(400, 'معرّف الشركة مطلوب');
   return {
     companyId,
     branchId: (req.query.branchId as string) || undefined,
     fiscalYearId: (req.query.fiscalYearId as string) || req.fiscalYearId || undefined,
     costCenterId: (req.query.costCenterId as string) || undefined,
+    createdBy: (req.query.userId as string) || undefined,
+    includeUnposted: req.query.showUnposted === 'true',
+    withBudgetOnly: req.query.withBudgetOnly === 'true',
   };
 }
 
@@ -54,6 +57,11 @@ router.get(
         startDate: parseRangeStart(req.query.startDate ?? req.query.fromDate, 'startDate'),
         endDate: parseDate(req.query.endDate ?? req.query.toDate, 'endDate'),
         level: req.query.level ? parseInt(String(req.query.level), 10) : undefined,
+        accountId: String(req.query.accountId ?? '').trim() || undefined,
+        currencyId: String(req.query.currencyId ?? '').trim() || undefined,
+        fromVoucher: req.query.fromVoucher ? Number(req.query.fromVoucher) : undefined,
+        toVoucher: req.query.toVoucher ? Number(req.query.toVoucher) : undefined,
+        showIdleAccounts: req.query.showIdleAccounts === 'true',
       });
       return void res.json({ status: 'success', data });
     } catch (e) {
@@ -71,11 +79,16 @@ router.get(
   authorize({ resource: 'report', action: 'view' }),
   async (req: AuthRequest, res: Response) => {
     try {
+      const levelRaw = req.query.level ? parseInt(String(req.query.level), 10) : undefined;
       const data = await financialReportService.getAccountStatement({
         ...baseParams(req),
         accountId: req.params.accountId,
         startDate: parseRangeStart(req.query.startDate ?? req.query.fromDate, 'startDate'),
         endDate: parseDate(req.query.endDate ?? req.query.toDate, 'endDate'),
+        level: levelRaw && levelRaw > 0 ? levelRaw : undefined,
+        description: String(req.query.description ?? '').trim() || undefined,
+        counterpartAccountId: String(req.query.counterpartAccountId ?? '').trim() || undefined,
+        currencyId: String(req.query.currencyId ?? '').trim() || undefined,
       });
       return void res.json({ status: 'success', data });
     } catch (e) {
@@ -83,6 +96,34 @@ router.get(
       return void res.status(status).json({
         status: 'error',
         message: e instanceof Error ? e.message : 'Account statement failed',
+      });
+    }
+  }
+);
+
+router.get(
+  '/cost-center-statement/:costCenterId',
+  authorize({ resource: 'report', action: 'view' }),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const levelRaw = req.query.level ? parseInt(String(req.query.level), 10) : undefined;
+      const data = await financialReportService.getCostCenterStatement({
+        ...baseParams(req),
+        costCenterId: req.params.costCenterId,
+        startDate: parseRangeStart(req.query.startDate ?? req.query.fromDate, 'startDate'),
+        endDate: parseDate(req.query.endDate ?? req.query.toDate, 'endDate'),
+        level: levelRaw && levelRaw > 0 ? levelRaw : undefined,
+        description: String(req.query.description ?? '').trim() || undefined,
+        counterpartAccountId: String(req.query.counterpartAccountId ?? '').trim() || undefined,
+        currencyId: String(req.query.currencyId ?? '').trim() || undefined,
+        accountId: String(req.query.accountId ?? '').trim() || undefined,
+      });
+      return void res.json({ status: 'success', data });
+    } catch (e) {
+      const status = e instanceof AppError ? e.statusCode : 500;
+      return void res.status(status).json({
+        status: 'error',
+        message: e instanceof Error ? e.message : 'Cost center statement failed',
       });
     }
   }
@@ -104,6 +145,64 @@ router.get(
       return void res.status(status).json({
         status: 'error',
         message: e instanceof Error ? e.message : 'Income statement failed',
+      });
+    }
+  }
+);
+
+router.get(
+  '/monthly-performance',
+  authorize({ resource: 'report', action: 'view' }),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const year = Number(req.query.year);
+      const month = Number(req.query.month);
+      if (!Number.isInteger(year) || year < 2000 || year > 2100) {
+        throw new AppError(400, 'السنة غير صالحة');
+      }
+      if (!Number.isInteger(month) || month < 1 || month > 12) {
+        throw new AppError(400, 'الشهر غير صالح');
+      }
+      const data = await financialReportService.getMonthlyPerformance({
+        companyId: baseParams(req).companyId,
+        branchId: (req.query.branchId as string) || undefined,
+        costCenterId: (req.query.costCenterId as string) || undefined,
+        year,
+        month,
+      });
+      return void res.json({ status: 'success', data });
+    } catch (e) {
+      const status = e instanceof AppError ? e.statusCode : 500;
+      return void res.status(status).json({
+        status: 'error',
+        message: e instanceof Error ? e.message : 'Monthly performance failed',
+      });
+    }
+  }
+);
+
+router.get(
+  '/cost-center-profitability',
+  authorize({ resource: 'report', action: 'view' }),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const year = Number(req.query.year);
+      const month = Number(req.query.month);
+      if (!Number.isInteger(year) || year < 2000 || year > 2100) throw new AppError(400, 'السنة غير صالحة');
+      if (!Number.isInteger(month) || month < 1 || month > 12) throw new AppError(400, 'الشهر غير صالح');
+      const scope = baseParams(req);
+      const data = await financialReportService.getCostCenterProfitability({
+        companyId: scope.companyId,
+        branchId: scope.branchId,
+        year,
+        month,
+      });
+      return void res.json({ status: 'success', data });
+    } catch (e) {
+      const status = e instanceof AppError ? e.statusCode : 500;
+      return void res.status(status).json({
+        status: 'error',
+        message: e instanceof Error ? e.message : 'Cost center profitability failed',
       });
     }
   }

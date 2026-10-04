@@ -1,10 +1,8 @@
+import { Prisma } from '@prisma/client';
 import prisma from '../../../shared/database/prisma';
 import { logger } from '../../../shared/logger';
 import { AppError } from '../../../shared/middleware/error-handler';
-import { roundTo4 } from '../../../shared/utils/decimal-round';
-import { journalPostingService } from './journal-posting.service';
-import { fiscalYearService } from '../../platform/services/fiscal-year.service';
-import type { JournalEntryLineData } from '../types/journal-entry.types';
+import { applyPostedJournalBalancesInTx } from './ledger-balance.service';
 
 export interface TransferAccountMovementData {
   fromAccountId: string;
@@ -17,16 +15,28 @@ export interface TransferAccountMovementData {
   lineIds?: string[];
 }
 
+const MOVEMENT_LIST_CAP = 5000;
+
+async function lockJournalEntriesInTx(
+  tx: Prisma.TransactionClient,
+  companyId: string,
+  journalEntryIds: string[]
+) {
+  const ids = [...new Set(journalEntryIds)].sort();
+  if (!ids.length) return;
+  await tx.$queryRaw`
+    SELECT id FROM journal_entries
+    WHERE companyId = ${companyId} AND id IN (${Prisma.join(ids)})
+    ORDER BY id
+    FOR UPDATE
+  `;
+}
+
 export class AccountMovementService {
   /**
-   * C9 fix — reclassify a posted account balance from one account to
-   * another. Previously this rewrote every matching `journalEntryLine.accountId`
-   * in place, silently changing already-issued trial balances/financial
-   * statements with no audit trail. Posted ledger lines are immutable
-   * accounting facts, so this now posts a single dated reclassification
-   * journal entry (debit the new account, credit the old one, or the
-   * reverse, for the *net* posted balance in range) instead of touching
-   * any historical row.
+   * Move the selected journal lines onto another account.
+   * Posted, unposted and cancelled lines are edited in place. No settlement journal.
+   * Posted lines that still affect balances also move their period and card totals.
    */
   async transferAccountMovement(
     companyId: string,
@@ -48,6 +58,13 @@ export class AccountMovementService {
         throw new Error('To account not found');
       }
 
+      if (toAccount.accountKind === 'HEADER') {
+        throw new AppError(
+          409,
+          `لا يمكن نقل الحركة إلى «${toAccount.code} — ${toAccount.arabicName}» لأنه حساب رئيسي. اختَر حساب حركة.`
+        );
+      }
+
       if (data.fromAccountId === data.toAccountId) {
         throw new Error('From account and to account cannot be the same');
       }
@@ -56,124 +73,95 @@ export class AccountMovementService {
         throw new Error('From date must be before or equal to to date');
       }
 
-      const branchId =
-        data.branchId ??
-        (
-          await prisma.branch.findFirst({
-            where: { companyId, deletedAt: null },
-            orderBy: { createdAt: 'asc' },
-            select: { id: true },
-          })
-        )?.id;
-      if (!branchId) {
-        throw new AppError(422, 'Company has no branch to post the reclassification journal against');
-      }
-
-      const matchedLines = await prisma.journalEntryLine.findMany({
-        where: {
-          accountId: data.fromAccountId,
-          ...(data.lineIds?.length ? { id: { in: data.lineIds } } : {}),
-          journalEntry: {
-            companyId,
-            deletedAt: null,
-            date: { gte: data.fromDate, lte: data.toDate },
-          },
+      const lineWhere: Prisma.JournalEntryLineWhereInput = {
+        accountId: data.fromAccountId,
+        ...(data.lineIds?.length ? { id: { in: data.lineIds } } : {}),
+        journalEntry: {
+          companyId,
+          deletedAt: null,
+          date: { gte: data.fromDate, lte: data.toDate },
         },
-        select: {
-          id: true,
-          debitBase: true,
-          creditBase: true,
-          journalEntryId: true,
-          journalEntry: { select: { isPosted: true, isCancelled: true } },
-        },
-      });
-
-      if (matchedLines.length === 0) {
-        throw new Error(
-          'No journal entries found for the specified account and date range'
-        );
-      }
-
-      const livePostedLines = matchedLines.filter(
-        (line) => line.journalEntry.isPosted && !line.journalEntry.isCancelled
-      );
-      const movableLineIds = matchedLines
-        .filter((line) => !line.journalEntry.isPosted || line.journalEntry.isCancelled)
-        .map((line) => line.id);
-
-      // Wave 2 fix: sum debitBase/creditBase (always EGP), not the raw
-      // transaction-currency debit/credit — mixing lines posted in different
-      // foreign currencies by their face amounts would produce a meaningless
-      // net balance. The reclassification JE itself is always base-currency.
-      const netDebit = roundTo4(
-        livePostedLines.reduce((sum, l) => sum + Number(l.debitBase) - Number(l.creditBase), 0)
-      );
-
-      if (Math.abs(netDebit) < 0.0001 && movableLineIds.length === 0) {
-        throw new AppError(
-          422,
-          'Net posted balance for this account in the date range is zero — nothing to reclassify'
-        );
-      }
-
-      const needsReclass = Math.abs(netDebit) >= 0.0001;
-      const reclassDate = new Date();
-      const fiscalYearId = needsReclass
-        ? await fiscalYearService.assertOpenForDate(companyId, reclassDate)
-        : undefined;
-      const companySettings = await prisma.companySettings.findUnique({
-        where: { companyId },
-        select: { defaultCurrency: true },
-      });
-      const baseCurrency = (companySettings?.defaultCurrency || 'EGP').toUpperCase();
-
-      const description =
-        data.description ??
-        `Reclassification: ${fromAccount.code} → ${toAccount.code} (${data.fromDate.toISOString().slice(0, 10)}..${data.toDate.toISOString().slice(0, 10)})`;
-
-      const lines: JournalEntryLineData[] =
-        netDebit > 0
-          ? [
-              { accountId: data.toAccountId, debit: netDebit, credit: 0, lineOrder: 1, description },
-              { accountId: data.fromAccountId, debit: 0, credit: netDebit, lineOrder: 2, description },
-            ]
-          : [
-              { accountId: data.fromAccountId, debit: -netDebit, credit: 0, lineOrder: 1, description },
-              { accountId: data.toAccountId, debit: 0, credit: -netDebit, lineOrder: 2, description },
-            ];
+      };
 
       const result = await prisma.$transaction(async (tx) => {
-        if (movableLineIds.length > 0) {
-          await tx.journalEntryLine.updateMany({
-            where: { id: { in: movableLineIds } },
-            data: { accountId: data.toAccountId },
+        const matchedLines = await tx.journalEntryLine.findMany({
+          where: lineWhere,
+          select: { id: true, journalEntryId: true },
+        });
+        if (matchedLines.length === 0) {
+          throw new AppError(422, 'لا توجد قيود على هذا الحساب في الفترة المحددة');
+        }
+
+        await lockJournalEntriesInTx(
+          tx,
+          companyId,
+          matchedLines.map((line) => line.journalEntryId)
+        );
+
+        const lines = await tx.journalEntryLine.findMany({
+          where: {
+            id: { in: matchedLines.map((line) => line.id) },
+            accountId: data.fromAccountId,
+            journalEntry: { companyId, deletedAt: null },
+          },
+          select: {
+            id: true,
+            debitBase: true,
+            creditBase: true,
+            journalEntryId: true,
+            journalEntry: { select: { date: true, isPosted: true, postingStatus: true, isCancelled: true } },
+          },
+        });
+        if (lines.length === 0) {
+          throw new AppError(409, 'تم نقل هذه الحركات من عملية أخرى. حدّث القائمة ثم أعد المحاولة.');
+        }
+
+        const postedByPeriod = new Map<string, typeof lines>();
+        for (const line of lines) {
+          const posted = line.journalEntry.isPosted || line.journalEntry.postingStatus === 'Post';
+          if (!posted || line.journalEntry.isCancelled) continue;
+          const date = line.journalEntry.date;
+          const key = `${date.getUTCFullYear()}-${date.getUTCMonth()}`;
+          const group = postedByPeriod.get(key) ?? [];
+          group.push(line);
+          postedByPeriod.set(key, group);
+        }
+        for (const group of postedByPeriod.values()) {
+          const deltas = (accountId: string) =>
+            group.map((line) => ({
+              accountId,
+              debitBase: line.debitBase,
+              creditBase: line.creditBase,
+            }));
+          const balanceMove = {
+            companyId,
+            date: group[0].journalEntry.date,
+            currencyCode: 'EGP',
+            skipPartnerBalances: true,
+          };
+          await applyPostedJournalBalancesInTx(tx, {
+            ...balanceMove,
+            lines: deltas(data.fromAccountId),
+            invert: true,
+          });
+          await applyPostedJournalBalancesInTx(tx, {
+            ...balanceMove,
+            lines: deltas(data.toAccountId),
           });
         }
 
-        const je =
-          needsReclass && fiscalYearId
-            ? await journalPostingService.createAndPostInTx(
-                tx,
-                { companyId, branchId, userId, fiscalYearId },
-                {
-                  date: reclassDate,
-                  hijriDate: data.hijriDate,
-                  description,
-                  currencyCode: baseCurrency,
-                  exchangeRate: 1,
-                  fiscalYearId,
-                  entryType: 'RECLASSIFICATION',
-                  lines,
-                }
-              )
-            : null;
+        const updated = await tx.journalEntryLine.updateMany({
+          where: {
+            id: { in: lines.map((line) => line.id) },
+            accountId: data.fromAccountId,
+          },
+          data: { accountId: data.toAccountId },
+        });
 
         return {
-          journalEntryId: je?.id ?? null,
-          reclassifiedAmount: Math.abs(netDebit),
-          direction: netDebit > 0 ? ('debit' as const) : ('credit' as const),
-          matchedLinesCount: matchedLines.length,
-          matchedJournalEntriesCount: new Set(matchedLines.map((l) => l.journalEntryId)).size,
+          journalEntryId: null,
+          matchedLinesCount: updated.count,
+          matchedJournalEntriesCount: new Set(lines.map((line) => line.journalEntryId)).size,
           fromAccount: {
             id: fromAccount.id,
             code: fromAccount.code,
@@ -193,11 +181,10 @@ export class AccountMovementService {
           fromAccountId: data.fromAccountId,
           toAccountId: data.toAccountId,
           dateRange: { from: data.fromDate, to: data.toDate },
-          journalEntryId: result.journalEntryId,
-          reclassifiedAmount: result.reclassifiedAmount,
+          matchedLinesCount: result.matchedLinesCount,
           userId,
         },
-        'Account movement reclassified via contra journal entry'
+        'Account movement rewritten on the original journal lines'
       );
 
       return result;
@@ -236,8 +223,6 @@ export class AccountMovementService {
               companyId,
               deletedAt: null,
               date: { gte: fromDate, lte: toDate },
-              reversalOfJournalEntryId: null,
-              NOT: { entryType: 'REVERSAL' },
             },
           },
           select: {
@@ -260,7 +245,7 @@ export class AccountMovementService {
             },
           },
           orderBy: { journalEntry: { date: 'asc' } },
-          take: 500,
+          take: MOVEMENT_LIST_CAP + 1,
         }),
         prisma.journalEntryLine.aggregate({
           where: {
@@ -268,13 +253,15 @@ export class AccountMovementService {
             journalEntry: {
               companyId,
               deletedAt: null,
-              reversalOfJournalEntryId: null,
-              NOT: { entryType: 'REVERSAL' },
             },
           },
           _sum: { debitBase: true, creditBase: true },
         }),
       ]);
+
+      if (periodLines.length > MOVEMENT_LIST_CAP) {
+        throw new AppError(422, 'حركات الفترة أكتر من ٥٠٠٠ سطر. ضيّق الفترة ثم حمّل تاني.');
+      }
 
       const totalDebit = periodLines.reduce((sum, line) => sum + Number(line.debitBase), 0);
       const totalCredit = periodLines.reduce((sum, line) => sum + Number(line.creditBase), 0);

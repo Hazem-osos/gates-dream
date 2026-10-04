@@ -1,0 +1,30 @@
+---
+description: Gates backend structure - route -> service -> Prisma, authorize + validate, central errors, shared services, external calls, BullMQ
+globs: gates-backend/src/**/*.ts
+alwaysApply: false
+---
+
+# Gates backend
+
+## Structure (keep it)
+- Routes in `src/modules/<module>/routes/*.routes.ts` declare middleware and call services; business rules and Prisma access live in `src/modules/<module>/services/*.service.ts`. Controllers are rare; there are no repositories. Do not add new layers.
+- Every mutating route: `authorize({ resource, action })` then `validate({ body | query | params })` with a zod schema from the module's `schemas/`. Read the company from `req.companyId` (set by `setTenantContext`), never from the body.
+- Throw `AppError(status, message)` from services; in routes use `asyncHandler` or `next(error)` so `shared/middleware/error-handler.ts` maps Prisma errors. Avoid new `catch` blocks that turn everything into 500. Keep Arabic user messages.
+
+## Reuse shared services, do not reimplement
+- Journals: `journalPostingService` (`createAndPostInTx`, `reverseJournalEntryInTx`, `cascadeSourceJournalInTx`), `autoGlPostingService.commitInTx`.
+- Numbers: `documentSequenceService` (`nextNumberForFamilyInTx`, `nextGlNumberInTx`).
+- Stock and cost: `stockMovementService`, `inventoryCostingService`.
+- Fiscal checks: `fiscalYearService.assertOpenForDate`.
+- Prisma: import the shared client from `src/shared/database/prisma.ts`; never `new PrismaClient()` in application code.
+
+## Timeouts and heavy work
+- `request-timeout.middleware.ts` answers 408 but does not stop the handler or its transaction; design mutations to stay safe if the client retries.
+- Company-wide or long work (imports, exports, backups, mass recalculation, big report generation) goes to BullMQ: `getAsyncQueue` in `src/workers/queue-manager.ts`, processors in `src/workers/processors/`. Return a job id. Keep fast CRUD synchronous.
+- New heavy report routers need the report timeout deliberately (`reportRequestTimeout` in `app.ts`); two routers share `/api/v1/accounting/reports`, check which one serves a path.
+
+## External calls
+- Every `fetch` / SDK call to OpenAI, Meta, ETA, SMTP, n8n or webhooks has an explicit timeout (`AbortSignal.timeout(...)`).
+- Never call external services inside a `prisma.$transaction`.
+- Retries of side-effecting calls need an idempotency key or claim; `shared/resilience/retry.ts` is not safe for business mutations by default.
+- Never log tokens, passwords or provider credentials.

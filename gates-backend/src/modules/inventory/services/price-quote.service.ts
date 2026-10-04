@@ -2,7 +2,9 @@
 import prisma from '../../../shared/database/prisma';
 import { logger } from '../../../shared/logger';
 import { documentSequenceService } from '../../platform/services/document-sequence.service';
-import { defaultInvoiceModuleCode } from '../../invoices/services/invoice-document-type';
+import { AppError } from '../../../shared/middleware/error-handler';
+import { invoiceM5Service } from '../../invoices/services/invoice-m5.service';
+import { conversionStatus, remainingSourceBaseQty } from '../../invoices/services/invoice-line-source.service';
 
 export interface PriceQuoteLine {
   itemId: string;
@@ -81,7 +83,7 @@ export class PriceQuoteService {
       });
 
       if (!customer) {
-        throw new Error('Customer not found or does not belong to company');
+        throw new Error('العميل غير موجود أو لا يتبع الشركة');
       }
 
       // Validate warehouse if provided
@@ -91,7 +93,7 @@ export class PriceQuoteService {
         });
 
         if (!warehouse) {
-          throw new Error('Warehouse not found or does not belong to company');
+          throw new Error('المخزن غير موجود أو لا يتبع الشركة');
         }
       }
 
@@ -102,7 +104,7 @@ export class PriceQuoteService {
         });
 
         if (!currency) {
-          throw new Error('Currency not found or does not belong to company');
+          throw new Error('العملة غير موجودة أو لا تتبع الشركة');
         }
       }
 
@@ -116,7 +118,7 @@ export class PriceQuoteService {
       });
 
       if (items.length !== itemIds.length) {
-        throw new Error('One or more items not found or do not belong to company');
+        throw new Error('أحد الأصناف غير موجود أو لا يتبع الشركة');
       }
 
       // Use transaction to ensure atomicity
@@ -261,6 +263,111 @@ export class PriceQuoteService {
       logger.error({ error, companyId, data }, 'Error creating price quote');
       throw error;
     }
+  }
+
+  /**
+   * Replace header, lines, and conditions of an unposted quote.
+   */
+  async updatePriceQuote(companyId: string, priceQuoteId: string, data: CreatePriceQuoteData) {
+    const existing = await prisma.priceQuote.findFirst({
+      where: { id: priceQuoteId, companyId },
+    });
+    if (!existing) throw new Error('عرض السعر غير موجود');
+    if (existing.isPosted) throw new Error('لا يمكن تعديل عرض سعر مرحّل');
+    if (existing.isConverted) throw new Error('لا يمكن تعديل عرض سعر تم تحويله');
+    if (existing.isCancelled) throw new Error('لا يمكن تعديل عرض سعر ملغى');
+
+    const customer = await prisma.customer.findFirst({
+      where: { id: data.customerId, companyId },
+    });
+    if (!customer) throw new Error('العميل غير موجود');
+
+    const itemIds = data.lines.map((line) => line.itemId);
+    const items = await prisma.item.findMany({
+      where: { id: { in: itemIds }, companyId },
+    });
+    if (items.length !== itemIds.length) throw new Error('أحد الأصناف غير موجود');
+
+    return prisma.$transaction(async (tx) => {
+      let totalAmount = 0;
+      let totalDiscount = 0;
+      let totalTax = 0;
+      let netAmount = 0;
+      for (const lineData of data.lines) {
+        const parts = this.calculateLineTotal(
+          lineData.quantity,
+          lineData.unitPrice,
+          lineData.discountPercentage,
+          lineData.taxPercentage
+        );
+        totalAmount += parts.total;
+        totalDiscount += parts.discountValue || 0;
+        totalTax += parts.taxValue || 0;
+        netAmount += parts.netTotal;
+      }
+
+      await tx.priceQuoteLine.deleteMany({ where: { priceQuoteId } });
+      await tx.priceQuoteCondition.deleteMany({ where: { priceQuoteId } });
+
+      const record = await tx.priceQuote.update({
+        where: { id: priceQuoteId },
+        data: {
+          description: data.description || null,
+          date: new Date(data.date),
+          customerId: data.customerId,
+          warehouseId: data.warehouseId || null,
+          currencyId: data.currencyId || null,
+          exchangeRate: data.exchangeRate || null,
+          paymentMethod: data.paymentMethod || 'credit',
+          isSalesTaxInvoice: data.isSalesTaxInvoice || false,
+          delegateId: data.delegateId || null,
+          costCenterId: data.costCenterId || null,
+          validUntil: data.validUntil ? new Date(data.validUntil) : null,
+          totalAmount,
+          totalDiscount,
+          totalTax,
+          netAmount,
+        },
+      });
+
+      if (data.conditions && data.conditions.length > 0) {
+        for (const condition of data.conditions) {
+          await tx.priceQuoteCondition.create({
+            data: { priceQuoteId, condition },
+          });
+        }
+      }
+
+      const lines = [];
+      for (const lineData of data.lines) {
+        const parts = this.calculateLineTotal(
+          lineData.quantity,
+          lineData.unitPrice,
+          lineData.discountPercentage,
+          lineData.taxPercentage
+        );
+        const line = await tx.priceQuoteLine.create({
+          data: {
+            priceQuoteId,
+            itemId: lineData.itemId,
+            unitId: lineData.unitId,
+            baseUnitId: lineData.baseUnitId || null,
+            quantity: lineData.quantity,
+            baseQuantity: lineData.baseQuantity || lineData.quantity,
+            unitPrice: lineData.unitPrice,
+            total: parts.total,
+            discountPercentage: lineData.discountPercentage || null,
+            discountValue: parts.discountValue || 0,
+            taxPercentage: lineData.taxPercentage || null,
+            taxValue: parts.taxValue || 0,
+            netTotal: parts.netTotal,
+          },
+        });
+        lines.push(line);
+      }
+
+      return { ...record, lines, conditions: data.conditions || [] };
+    });
   }
 
   /**
@@ -723,114 +830,90 @@ export class PriceQuoteService {
       });
 
       if (!priceQuote) {
-        throw new Error('Price quote not found');
+        throw new AppError(404, 'عرض السعر غير موجود');
       }
 
       if (priceQuote.isCancelled) {
-        throw new Error('Cannot convert cancelled price quote');
+        throw new AppError(422, 'لا يمكن تحويل عرض سعر ملغي');
       }
 
-      if (priceQuote.isConverted) {
-        throw new Error('Price quote is already converted to invoice');
+      if (!priceQuote.warehouseId) {
+        throw new AppError(422, 'حدد مخزن عرض السعر قبل التحويل');
       }
 
-      // Use transaction to create invoice from price quote
-      const invoice = await prisma.$transaction(async (tx) => {
-        // Reusing the quote's own number as the invoice number made the two
-        // documents indistinguishable in the ledger, and collided with the
-        // sales-invoice sequence; the invoice gets its own `CreateInvoiceNum`.
-        const invoiceNumber = await documentSequenceService.nextNumberForFamilyInTx(tx, {
-          companyId,
-          branchId: priceQuote.branchId ?? null,
-          fiscalYearId: null,
-          docType: 'INV-SI',
-          legacySuffix: defaultInvoiceModuleCode('SALE'),
-          seedFromExisting: documentSequenceService.maxExistingNumber(async () => {
-            const rows = await tx.invoice.findMany({
-              where: { companyId, invoiceType: 'sales' },
-              select: { invoiceNumber: true },
-            });
-            return rows.map((r) => r.invoiceNumber);
-          }),
-          isAvailable: async (candidate) => {
-            const taken = await tx.invoice.findFirst({
-              where: { companyId, invoiceNumber: candidate },
-              select: { id: true },
-            });
-            return !taken;
-          },
+      const lines = [];
+      let orderedTotal = 0;
+      let usedTotal = 0;
+      for (const quoteLine of priceQuote.lines) {
+        const ordered = Number(quoteLine.baseQuantity ?? quoteLine.quantity);
+        const remaining = await remainingSourceBaseQty(prisma, companyId, 'PRICE_QUOTE', quoteLine.id, ordered);
+        orderedTotal += ordered;
+        usedTotal += ordered - remaining;
+        if (remaining <= 0) continue;
+        const displayQty = Number(quoteLine.quantity);
+        const ratio = ordered > 0 ? displayQty / ordered : 1;
+        lines.push({
+          itemId: quoteLine.itemId,
+          unitId: quoteLine.unitId ?? undefined,
+          quantity: remaining * ratio,
+          baseQuantity: remaining,
+          price: Number(quoteLine.unitPrice ?? 0),
+          discountPercent: quoteLine.discountPercentage != null ? Number(quoteLine.discountPercentage) : undefined,
+          discountAmount: quoteLine.discountValue != null ? Number(quoteLine.discountValue) : undefined,
+          taxPercent: quoteLine.taxPercentage != null ? Number(quoteLine.taxPercentage) : undefined,
+          taxAmount: quoteLine.taxValue != null ? Number(quoteLine.taxValue) : undefined,
+          lineOrder: lines.length + 1,
+          sourceKind: 'PRICE_QUOTE',
+          sourceLineId: quoteLine.id,
         });
-        if (!invoiceNumber) {
-          throw new Error('رقم الفاتورة مطلوب — الترقيم يدوي لهذا النوع من المستندات');
-        }
+      }
+      if (!lines.length) {
+        throw new AppError(422, 'عرض السعر مكتمل ولا توجد كمية متبقية للتحويل');
+      }
 
-        // Create sales invoice
-        const invoiceRecord = await tx.invoice.create({
-          data: {
-            companyId,
-            branchId: priceQuote.branchId || null,
-            invoiceNumber,
-            invoiceType: 'sales',
-            invoiceKind: 'SALE',
-            moduleCode: defaultInvoiceModuleCode('SALE'),
-            date: new Date(),
-            customerId: priceQuote.customerId,
-            warehouseId: priceQuote.warehouseId || null,
-            currencyCode: priceQuote.currencyId || 'EGP',
-            delegateId: priceQuote.delegateId || null,
-            costCenterId: priceQuote.costCenterId || null,
-            totalAmount: priceQuote.netAmount,
-            discountAmount: priceQuote.totalDiscount,
-            taxAmount: priceQuote.totalTax,
-            netAmount: priceQuote.netAmount,
-            paymentMethod: priceQuote.paymentMethod || 'credit',
-            isSalesTaxInvoice: priceQuote.isSalesTaxInvoice || false,
-            isPosted: false,
-            isApproved: false,
-            isCancelled: false,
-          },
+      let currencyCode = 'EGP';
+      if (priceQuote.currencyId) {
+        const currency = await prisma.currency.findFirst({
+          where: { id: priceQuote.currencyId },
+          select: { code: true },
         });
+        currencyCode = currency?.code || 'EGP';
+      }
 
-        // Create invoice lines from price quote lines
-        let lineOrder = 1;
-        for (const quoteLine of priceQuote.lines) {
-          await tx.invoiceLine.create({
-            data: {
-              invoiceId: invoiceRecord.id,
-              itemId: quoteLine.itemId,
-              unitId: quoteLine.unitId,
-              quantity: quoteLine.quantity,
-              baseQuantity: quoteLine.baseQuantity,
-              price: quoteLine.unitPrice,
-              total: quoteLine.total,
-              discountPercent: quoteLine.discountPercentage || null,
-              discountAmount: quoteLine.discountValue || null,
-              taxPercent: quoteLine.taxPercentage || null,
-              taxAmount: quoteLine.taxValue || null,
-              lineOrder,
-            },
-          });
-          lineOrder++;
-        }
-
-        // Link price quote to invoice
-        await tx.priceQuote.update({
-          where: { id: priceQuoteId },
-          data: {
-            invoiceId: invoiceRecord.id,
-            isConverted: true,
-            convertedAt: new Date(),
-          },
-        });
-
-        return invoiceRecord;
-      });
-
-      logger.info(
-        { companyId, priceQuoteId, invoiceId: invoice.id },
-        'Price quote converted to invoice'
+      const invoice = await invoiceM5Service.create(
+        companyId,
+        priceQuote.branchId ?? undefined,
+        undefined,
+        {
+          invoiceKind: 'SALE',
+          date: new Date(),
+          customerId: priceQuote.customerId,
+          warehouseId: priceQuote.warehouseId,
+          currencyCode,
+          exchangeRate: 1,
+          representativeId: priceQuote.delegateId || undefined,
+          costCenterId: priceQuote.costCenterId || undefined,
+          paymentMethod: priceQuote.paymentMethod || undefined,
+          isSalesTaxInvoice: priceQuote.isSalesTaxInvoice || false,
+          description: `فاتورة من عرض سعر ${priceQuote.serial || priceQuote.id}`,
+          lines,
+        },
       );
 
+      const convertedNow = lines.reduce((sum, line) => sum + line.baseQuantity, 0);
+      const status = conversionStatus(orderedTotal, usedTotal + convertedNow);
+      await prisma.priceQuote.update({
+        where: { id: priceQuoteId },
+        data: {
+          invoiceId: invoice.id,
+          isConverted: status === 'مكتمل',
+          convertedAt: new Date(),
+        },
+      });
+
+      logger.info({ companyId, priceQuoteId, invoiceId: invoice.id, status }, 'Price quote converted to invoice');
+
+      return { ...invoice, conversionStatus: status };
       return invoice;
     } catch (error) {
       logger.error({ error, companyId, priceQuoteId }, 'Error converting price quote to invoice');

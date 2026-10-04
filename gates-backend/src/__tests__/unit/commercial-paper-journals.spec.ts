@@ -5,6 +5,7 @@ import {
   buildPaymentCollectLines,
   buildPaymentIssueLines,
   buildReceiptCollectLines,
+  buildReceiptDepositLines,
   buildReceiptIssueLines,
   invertJournalLines,
   paperJournalLabel,
@@ -31,6 +32,12 @@ describe('commercial paper journal builders', () => {
     const lines = buildPaymentIssueLines(base);
     expect(lines[0]).toMatchObject({ accountId: 'party', debit: 1000 });
     expect(lines[1]).toMatchObject({ accountId: 'notes', credit: 1000 });
+  });
+
+  it('deposits a receipt into under-collection and leaves the bank for collection', () => {
+    const lines = buildReceiptDepositLines({ ...base, bankAccountId: 'under-collection' });
+    expect(lines[0]).toMatchObject({ accountId: 'under-collection', debit: 1000, credit: 0 });
+    expect(lines[1]).toMatchObject({ accountId: 'notes', debit: 0, credit: 1000 });
   });
 
   it('builds collect journals against the chosen bank account', () => {

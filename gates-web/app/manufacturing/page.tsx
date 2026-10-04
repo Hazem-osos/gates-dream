@@ -8,6 +8,7 @@ import { staleTimes } from '@/lib/query/query-keys';
 import { formatMoney } from '@/lib/hooks/useExecutiveDashboard';
 import { toFiniteNumber } from '@/components/dashboard';
 import { StatusBadge } from '@/components/ui';
+import { SegmentedBar } from '@/components/dashboard-primitives';
 import {
   ManufacturingPageChrome,
   MfgEmptyRow,
@@ -91,7 +92,7 @@ export default function ManufacturingCommand() {
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
         <MfgMetric label="أوامر نشطة" value={running.length} hint={`${orders.length} إجمالي`} />
         <MfgMetric label="بانتظار صرف خامات" value={drafts.length} tone={drafts.length ? 'warn' : 'ok'} />
-        <MfgMetric label="انحراف الهدر" value={`${scrap.toFixed(1)}٪`} tone={scrap > 0 ? 'bad' : 'ok'} />
+        <MfgMetric label="انحراف الهدر" value={`${scrap.toLocaleString()}٪`} tone={scrap > 0 ? 'bad' : 'ok'} />
         <MfgMetric label="نواقص خامات" value={shortages.length} tone={shortages.length ? 'bad' : 'ok'} />
         <MfgMetric label="نماذج BOM" value={bomsQ.data?.data?.length ?? 0} />
         <MfgMetric
@@ -102,6 +103,18 @@ export default function ManufacturingCommand() {
               0
             )
           )}
+        />
+      </div>
+
+      <div className="rounded-2xl border border-[#D6EAF3] bg-white p-4">
+        <p className="mb-2 text-sm font-semibold text-[#094C6B]">توزيع أوامر التشغيل</p>
+        <SegmentedBar
+          segments={[
+            { label: 'مسودة', value: drafts.length, color: '#E3A008' },
+            { label: 'قيد التشغيل', value: running.length, color: '#0E78AA' },
+            { label: 'تام', value: completed.length, color: '#059669' },
+            { label: 'ملغى', value: orders.filter((o) => o.status === 'CANCELLED').length, color: '#94A3B8' },
+          ]}
         />
       </div>
 

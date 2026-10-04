@@ -1,0 +1,30 @@
+---
+description: Gates inventory invariants - movement ledger, balance caches, moving average cost, row locking, claims, exact reversal
+globs: gates-backend/src/modules/inventory/**,gates-backend/src/modules/invoices/**,gates-backend/src/modules/manufacturing/**,gates-backend/src/modules/pos/**,gates-backend/src/modules/operations-management/**
+alwaysApply: false
+---
+
+# Inventory invariants (mandatory)
+
+## Ledger and caches
+- `InventoryMovement` is the inventory ledger; as-of stock and movement reports read it.
+- `ItemWarehouseBalance` (quantity, reserved, average cost), `ItemQuantity` (per location), `Item.averageCost` and `ItemCostHistory` are caches and history. Never update them directly as a shortcut; repairs go through `inventoryCostingService.recalculateItemCostHistory`.
+
+## Costing
+- Moving weighted average. Inbound updates the average; outbound is valued at the current average.
+- Use `inventoryCostingService.applyInboundMovement`, `applyOutboundMovement`, `reverseInboundInTx`; they call `stockMovementService.postMovementInTx`.
+- Known gaps, do not copy: POS and manufacturing issues post movements without the costing service; purchase-invoice unpost repairs cost after its transaction (audit M-09).
+
+## Locking and posting
+- Stock changes go through `lockStockRowsInTx` / `postMovementInTx` / `adjustStockInTx` (`SELECT ... FOR UPDATE`, atomic quantity increment). Sort lines with `sortForStockLocking` before locking. Negative-stock checks run after the locks, inside the transaction.
+- Claim the document first inside the posting transaction with `claimDocumentPost` (and `claimDocumentUnpost` for unpost), like receipts, issues, stocktaking, assembly and disassembly. Transfers and adjustments currently lack this (audit H-01); new document types must not.
+- Stock, cost, GL entry and party effects of one document post in one transaction (reference: `invoicePostingOrchestrator.post`, `postTransfer` both legs at the outbound unit cost).
+
+## Reversal
+- Unpost / cancel must reverse exactly the original effects: same movements, quantities and costs, in the same transaction.
+
+## Numbers and GL keys
+- Stock document serials are client-entered and not unique; the stock GL `activeSourceKey` uses them (audit M-03). Do not build new source keys from non-unique values.
+
+## Heavy work
+- Catalog-wide recalculation (fix average cost) holds stock locks per item; run it as a background job, not inside a normal request, when adding or changing such tools.

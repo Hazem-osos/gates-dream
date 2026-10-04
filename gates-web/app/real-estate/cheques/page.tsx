@@ -122,7 +122,7 @@ export default function ChequePortfolioPage() {
               type="button"
               onClick={() => setTab(item.id)}
               className={`rounded-full px-3 py-1.5 text-sm font-semibold ${
-                tab === item.id ? 'bg-[#0E79AA] text-white' : 'bg-[#F0F7FB] text-[#094C6B]'
+                tab === item.id ? 'bg-[#0E78AA] text-white' : 'bg-[#F0F7FB] text-[#094C6B]'
               }`}
             >
               {item.label}

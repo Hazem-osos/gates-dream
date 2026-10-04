@@ -58,6 +58,7 @@ export default function ExtractPaymentPage() {
     date: '',
     amount: '',
     chequeNumber: '',
+    extractId: '',
   });
 
   const { data: projectsResponse } = useApiQuery<ExtractProjectOption[]>(
@@ -73,6 +74,18 @@ export default function ExtractPaymentPage() {
     { limit: 1000, isActive: true }
   );
   const contractors = contractorsResponse?.data ?? [];
+
+  const { data: extractsResponse } = useApiQuery<{ id: string; extractNumber?: string | null }[]>(
+    ['extracts', formData.projectId, formData.contractorId],
+    '/extracts',
+    {
+      limit: 200,
+      projectId: formData.projectId || undefined,
+      contractorId: formData.contractorId || undefined,
+    },
+    { enabled: !!formData.projectId }
+  );
+  const extracts = extractsResponse?.data ?? [];
 
   const paymentListParams = useMemo(() => {
     if (!formData.projectId) return undefined;
@@ -146,13 +159,26 @@ export default function ExtractPaymentPage() {
       return;
     }
 
+    if (!formData.extractId) {
+      setError('يرجى اختيار المستخلص');
+      return;
+    }
+
+    const paymentAmount = parseFloat(formData.amount);
+    if (!Number.isFinite(paymentAmount) || paymentAmount < 0) {
+      setError('يرجى إدخال قيمة السند');
+      return;
+    }
+
     paymentMutation.mutate({
-      serial: formData.serial || undefined,
-      description: formData.description || undefined,
+      extractId: formData.extractId,
       projectId: formData.projectId,
       contractorId: formData.contractorId,
-      date: new Date(formData.date).toISOString(),
-      amount: formData.amount ? parseFloat(formData.amount) : undefined,
+      paymentNumber: formData.serial || undefined,
+      paymentDate: new Date(formData.date).toISOString(),
+      paymentAmount,
+      checkNumber: formData.chequeNumber || undefined,
+      description: formData.description || undefined,
     });
   };
 
@@ -165,6 +191,7 @@ export default function ExtractPaymentPage() {
       date: new Date().toISOString().split('T')[0],
       amount: '',
       chequeNumber: '',
+      extractId: '',
     });
     setSelectedPaymentIds([]);
     setError('');
@@ -180,6 +207,7 @@ export default function ExtractPaymentPage() {
       date: new Date().toISOString().split('T')[0],
       amount: '',
       chequeNumber: '',
+      extractId: '',
     }));
     setSelectedPaymentIds([]);
     setError('');
@@ -319,6 +347,20 @@ export default function ExtractPaymentPage() {
             {contractors.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.arabicName ?? c.serial ?? c.id}
+              </option>
+            ))}
+          </select>
+        </CompactFormField>
+        <CompactFormField label="المستخلص" required>
+          <select
+            className={compactControlClass}
+            value={formData.extractId}
+            onChange={(e) => setFormData((p) => ({ ...p, extractId: e.target.value }))}
+          >
+            <option value="">— اختر مستخلصاً —</option>
+            {extracts.map((row) => (
+              <option key={row.id} value={row.id}>
+                {row.extractNumber ?? row.id}
               </option>
             ))}
           </select>

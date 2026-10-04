@@ -38,10 +38,10 @@ type SwitchRowProps = {
 
 function SwitchRow({ checked, onChange, label, hint }: SwitchRowProps) {
   return (
-    <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-[#E6F0F7] bg-white px-3 py-3 hover:border-[#0E79AA]/40">
+    <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-[#E6F0F7] bg-white px-3 py-3 hover:border-[#0E78AA]/40">
       <input
         type="checkbox"
-        className="mt-1 h-4 w-4 accent-[#0E79AA]"
+        className="mt-1 h-4 w-4 accent-[#0E78AA]"
         checked={checked}
         onChange={(e) => onChange(e.target.checked)}
       />
@@ -152,7 +152,7 @@ export function TransactionSettingsForm({
         ) : (
           <div>
             <div className="flex items-center gap-2">
-              <Settings className="h-5 w-5 text-[#0E79AA]" />
+              <Settings className="h-5 w-5 text-[#0E78AA]" />
               <h1 className="text-xl font-bold text-[#0A3D5E]">{title}</h1>
             </div>
             <p className="mt-1 text-sm text-slate-500">
@@ -192,7 +192,7 @@ export function TransactionSettingsForm({
                   onClick={() => patch('numberingMode', id)}
                   className={`flex-1 rounded-xl border px-3 py-2 text-sm font-medium ${
                     form.numberingMode === id
-                      ? 'border-[#0E79AA] bg-[#0E79AA]/10 text-[#0E79AA]'
+                      ? 'border-[#0E78AA] bg-[#0E78AA]/10 text-[#0E78AA]'
                       : 'border-slate-200 bg-white text-slate-600'
                   }`}
                 >
@@ -214,7 +214,7 @@ export function TransactionSettingsForm({
                   onClick={() => patch('sequenceMode', id)}
                   className={`flex-1 rounded-xl border px-3 py-2 text-sm font-medium ${
                     form.sequenceMode === id
-                      ? 'border-[#0E79AA] bg-[#0E79AA]/10 text-[#0E79AA]'
+                      ? 'border-[#0E78AA] bg-[#0E78AA]/10 text-[#0E78AA]'
                       : 'border-slate-200 bg-white text-slate-600'
                   }`}
                 >
@@ -291,7 +291,7 @@ export function TransactionSettingsForm({
                   <input
                     type="radio"
                     name="default-print-kind"
-                    className="accent-[#0E79AA]"
+                    className="accent-[#0E78AA]"
                     checked={printKind === id}
                     onChange={() => {
                       setPrintKind(id);
@@ -314,7 +314,7 @@ export function TransactionSettingsForm({
                     }}
                     className={`flex-1 rounded-xl border px-3 py-2 text-sm font-medium ${
                       thermalWidth === mm
-                        ? 'border-[#0E79AA] bg-[#0E79AA]/10 text-[#0E79AA]'
+                        ? 'border-[#0E78AA] bg-[#0E78AA]/10 text-[#0E78AA]'
                         : 'border-slate-200 bg-white text-slate-600'
                     }`}
                   >
@@ -462,7 +462,7 @@ export function TransactionSettingsForm({
           checked={form.autoApplyWht === true}
           onChange={(v) => patch('autoApplyWht', v)}
           label="تطبيق ضريبة خصم المنبع افتراضياً"
-          hint="تفعيل نسبة الخصم والتحصيل الضريبي تلقائياً في السطور الجديدة."
+          hint="يعلّم خانة ضريبة خصم المنبع في خيارات الفاتورة الإضافية عند فتح فاتورة جديدة. تقدر تلغيها على الفاتورة نفسها."
         />
         <SwitchRow
           checked={form.autoApplyDevelopmentTax === true}
@@ -558,9 +558,18 @@ export function TransactionSettingsForm({
             </select>
           </div>
         </div>
+        <p className="rounded-xl border border-[#D6EAF3] bg-white px-3 py-2 text-xs leading-5 text-slate-600">
+          مركز التكلفة على الفاتورة يُثبَّت في القيد على{' '}
+          <strong className="font-semibold text-[#0A3D5E]">حساب الإيراد أو المخزون/التكلفة</strong>{' '}
+          فقط — لا يُنسخ تلقائياً على حساب العميل أو المورد أو الضريبة أو الخصم.
+        </p>
         <div className="grid gap-3 sm:grid-cols-2">
           <div>
-            <p className="mb-1.5 text-xs font-semibold text-[#0A3D5E]">طرف مركز التكلفة</p>
+            <p className="mb-1.5 text-xs font-semibold text-[#0A3D5E]">جانب القيد لمركز التكلفة</p>
+            <p className="mb-2 text-[11px] leading-5 text-slate-500">
+              فاتورة مبيعات + «حساب المبيعات»: اختر <strong>دائن</strong>. فاتورة شراء + «تكلفة/مخزون»:
+              اختر <strong>مدين</strong>.
+            </p>
             <div className="flex gap-2">
               {([
                 ['DEBIT', 'مدين'],
@@ -572,7 +581,7 @@ export function TransactionSettingsForm({
                   onClick={() => patch('costCenterSide', id)}
                   className={`flex-1 rounded-xl border px-3 py-2 text-sm font-medium ${
                     form.costCenterSide === id
-                      ? 'border-[#0E79AA] bg-[#0E79AA]/10 text-[#0E79AA]'
+                      ? 'border-[#0E78AA] bg-[#0E78AA]/10 text-[#0E78AA]'
                       : 'border-slate-200 bg-white text-slate-600'
                   }`}
                 >
@@ -582,11 +591,14 @@ export function TransactionSettingsForm({
             </div>
           </div>
           <div>
-            <p className="mb-1.5 text-xs font-semibold text-[#0A3D5E]">حساب مركز التكلفة (في الجرد المستمر)</p>
-            <div className="flex gap-2">
+            <p className="mb-1.5 text-xs font-semibold text-[#0A3D5E]">أي قيد يحمل مركز التكلفة</p>
+            <p className="mb-2 text-[11px] leading-5 text-slate-500">
+              «حساب المبيعات» = قيد الإيراد. «تكلفة/مخزون» = قيد COGS أو مخزون الشراء.
+            </p>
+            <div className="flex flex-col gap-2 sm:flex-row">
               {([
-                ['SALES', 'حساب المبيعات'],
-                ['COST_OF_GOODS_SOLD', 'حساب تكلفة البضاعة المباعة (COGS)'],
+                ['SALES', 'حساب المبيعات (إيراد)'],
+                ['COST_OF_GOODS_SOLD', 'تكلفة البضاعة / مخزون'],
               ] as [CostCenterAllocationTarget, string][]).map(([id, label]) => (
                 <button
                   key={id}
@@ -594,7 +606,7 @@ export function TransactionSettingsForm({
                   onClick={() => patch('costCenterAllocationTarget', id)}
                   className={`flex-1 rounded-xl border px-3 py-2 text-sm font-medium ${
                     form.costCenterAllocationTarget === id
-                      ? 'border-[#0E79AA] bg-[#0E79AA]/10 text-[#0E79AA]'
+                      ? 'border-[#0E78AA] bg-[#0E78AA]/10 text-[#0E78AA]'
                       : 'border-slate-200 bg-white text-slate-600'
                   }`}
                 >

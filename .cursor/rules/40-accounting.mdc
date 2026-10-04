@@ -1,0 +1,27 @@
+---
+description: Gates accounting invariants - journal source of truth, base amounts, caches, posting and reversal paths, fiscal periods, report meaning
+globs: gates-backend/src/modules/accounting/**,gates-backend/src/modules/treasury/**,gates-backend/src/modules/invoices/**,gates-backend/src/modules/operations/**,gates-backend/src/modules/pos/**,gates-backend/src/modules/inventory/services/stock-movement-gl.service.ts
+alwaysApply: false
+---
+
+# Accounting invariants (mandatory)
+
+## Source of truth
+- Posted (`isPosted = true`), not cancelled (`isCancelled = false`), not deleted (`deletedAt IS NULL`) journal lines, summed in base currency with `debitBase` / `creditBase`.
+- Caches are not truth: `account_period_balances`, `partner_running_balances`, `customers.balance`, `suppliers.balance`, `safes.balance`, `bank_accounts.balance`. Update them in the same transaction as the posting (`applyPostedJournalBalancesInTx`, document services, `applyManualPartyBalances` for manual journals), with atomic increments.
+
+## Posting and corrections
+- Documents post through `journalPostingService.createAndPostInTx` (directly or via `autoGlPostingService.commitInTx`): fiscal check (`fiscalYearService.assertOpenForDate`), base-amount balance (`assertJournalBalanced`, 4-decimal equality), GL number in the transaction, `activeSourceKey`, cache updates.
+- Posted documents are corrected by a dated reversal plus a new posted entry (`reverseJournalEntryInTx`, `cascadeSourceJournalInTx`). The original stays posted; do not also mark it cancelled.
+- Documented exception only: manual non-sourced journals via `unpostJournalEntry` (company flag + advanced rights). No new exceptions without an accounting decision.
+- Do not use or revive `replacePostedJournalInTx` (in-place rewrite of posted lines) or the retired `postPurchaseReturn` (supplier balance without a journal).
+- Party cache direction for manual journals: customer delta = debitBase - creditBase; supplier delta = creditBase - debitBase. Do not put party-cache updates inside `reverseJournalEntryInTx`.
+
+## Never as a side effect
+Do not change decimal handling (`roundTo4`, `amountsEqualAt4`, `mulToDecimal4`), posting logic, source keys, reversal behavior, fiscal-period checks, sign conventions or balance calculations while doing unrelated work. Never silently change historical results.
+
+## Numbers and reports
+- Document numbers are legal identifiers: do not renumber posted or submitted documents (audit H-02).
+- Reports keep their accounting meaning: same posted / not cancelled / not deleted filters, base amounts, subtree expansion for group accounts and cost centers (`subtreeAccountIds`, `withCostCenterSubtree`). No cache rebuilds inside report requests (audit H-06).
+- If a report is paginated, running balances and totals must stay correct across pages.
+- Credit limits read the party caches today; do not add new decisions on caches without checking drift (audit M-07).

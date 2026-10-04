@@ -5,13 +5,19 @@ import { roundTo4, amountsEqualAt4 } from '../../../shared/utils/decimal-round';
 import { fiscalYearService } from '../../platform/services/fiscal-year.service';
 import { SYSTEM_GL_CODES } from '../data/system-account-map';
 import {
-  accountTreeLevel,
+  arrangeTrialBalanceTree,
+  buildCostCenterProfitability,
+  buildMonthlyPerformance,
   classifyAccount,
+  idsWithBudgetedLineage,
+  ledgerSectionClose,
+  selectTrialBalanceRows,
   splitTrialBalanceColumns,
   verifyTrialBalanceBalanced,
   type AccountClass,
 } from './financial-report.util';
 import { rebuildCompanyBalances } from './ledger-balance.service';
+import { voucherFundBySourceId } from '../utils/voucher-fund';
 
 export interface FinancialReportBaseParams {
   companyId: string;
@@ -21,18 +27,52 @@ export interface FinancialReportBaseParams {
   endDate?: Date;
   asOfDate?: Date;
   costCenterId?: string;
+  /** Selected center plus every center under it. */
+  costCenterIds?: string[];
+  currencyCode?: string;
+  fromVoucher?: number;
+  toVoucher?: number;
+  /** User who created the journal entry. */
+  createdBy?: string;
+  /** Include draft journals. Posted-only stays the default. */
+  includeUnposted?: boolean;
+  /** Keep accounts / cost centers that have a budget amount. */
+  withBudgetOnly?: boolean;
 }
 
 export interface TrialBalanceParams extends FinancialReportBaseParams {
   startDate: Date;
   endDate: Date;
   level?: number;
+  /** Selected account. The report keeps that account and every account under it. */
+  accountId?: string;
+  currencyId?: string;
+  /** Keep accounts that have no opening and no movement. */
+  showIdleAccounts?: boolean;
 }
 
 export interface AccountStatementParams extends FinancialReportBaseParams {
   accountId: string;
   startDate: Date;
   endDate: Date;
+  /** How many levels under the selected account. Omitted = the whole subtree. */
+  level?: number;
+  description?: string;
+  counterpartAccountId?: string;
+  currencyId?: string;
+}
+
+export interface CostCenterStatementParams extends FinancialReportBaseParams {
+  costCenterId: string;
+  startDate: Date;
+  endDate: Date;
+  /** How many levels under the selected cost center. Omitted = the whole subtree. */
+  level?: number;
+  description?: string;
+  counterpartAccountId?: string;
+  currencyId?: string;
+  /** Optional account filter, same role cost center plays on the account ledger. */
+  accountId?: string;
 }
 
 export interface IncomeStatementParams extends FinancialReportBaseParams {
@@ -58,35 +98,348 @@ function journalEntryFilterSql(
 ): Prisma.Sql {
   const parts: Prisma.Sql[] = [
     Prisma.sql`${Prisma.raw(entryAlias)}.companyId = ${params.companyId}`,
-    Prisma.sql`${Prisma.raw(entryAlias)}.isPosted = true`,
     Prisma.sql`${Prisma.raw(entryAlias)}.isCancelled = false`,
     Prisma.sql`${Prisma.raw(entryAlias)}.deletedAt IS NULL`,
   ];
+  if (!params.includeUnposted) {
+    parts.push(Prisma.sql`${Prisma.raw(entryAlias)}.isPosted = true`);
+  }
   if (params.branchId) {
     parts.push(Prisma.sql`${Prisma.raw(entryAlias)}.branchId = ${params.branchId}`);
+  }
+  if (params.createdBy) {
+    parts.push(Prisma.sql`${Prisma.raw(entryAlias)}.createdBy = ${params.createdBy}`);
   }
   if (params.fiscalYearId) {
     parts.push(Prisma.sql`${Prisma.raw(entryAlias)}.fiscalYearId = ${params.fiscalYearId}`);
   }
-  if (params.costCenterId) {
-    parts.push(Prisma.sql`${Prisma.raw(lineAlias)}.costCenterId = ${params.costCenterId}`);
+  const centerIds = params.costCenterIds?.length
+    ? params.costCenterIds
+    : params.costCenterId
+      ? [params.costCenterId]
+      : [];
+  if (centerIds.length === 1) {
+    parts.push(Prisma.sql`${Prisma.raw(lineAlias)}.costCenterId = ${centerIds[0]}`);
+  } else if (centerIds.length > 1) {
+    parts.push(Prisma.sql`${Prisma.raw(lineAlias)}.costCenterId IN (${Prisma.join(centerIds)})`);
+  }
+  if (params.currencyCode) {
+    parts.push(
+      Prisma.sql`(${Prisma.raw(entryAlias)}.currencyCode = ${params.currencyCode} OR ${Prisma.raw(lineAlias)}.currencyCode = ${params.currencyCode})`
+    );
+  }
+  if (params.fromVoucher != null) {
+    parts.push(
+      Prisma.sql`CAST(${Prisma.raw(entryAlias)}.voucherNumber AS DECIMAL(20, 4)) >= ${params.fromVoucher}`
+    );
+  }
+  if (params.toVoucher != null) {
+    parts.push(
+      Prisma.sql`CAST(${Prisma.raw(entryAlias)}.voucherNumber AS DECIMAL(20, 4)) <= ${params.toVoucher}`
+    );
   }
   return Prisma.join(parts, ' AND ');
 }
 
+function subtreeAccountIds(
+  rootId: string,
+  accounts: Array<{ id: string; parentId: string | null }>,
+  maxDepth?: number
+): string[] {
+  const childrenByParent = new Map<string, string[]>();
+  for (const account of accounts) {
+    if (!account.parentId) continue;
+    const bucket = childrenByParent.get(account.parentId) ?? [];
+    bucket.push(account.id);
+    childrenByParent.set(account.parentId, bucket);
+  }
+  const result = [rootId];
+  const queue: Array<{ id: string; depth: number }> = [{ id: rootId, depth: 0 }];
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    if (maxDepth != null && Number.isFinite(maxDepth) && maxDepth > 0 && current.depth >= maxDepth) {
+      continue;
+    }
+    for (const childId of childrenByParent.get(current.id) ?? []) {
+      result.push(childId);
+      queue.push({ id: childId, depth: current.depth + 1 });
+    }
+  }
+  return result;
+}
+
+function accountPathLabel(
+  accountId: string,
+  accountById: Map<string, { id: string; parentId: string | null; code: string; arabicName: string }>
+): string {
+  const parts: string[] = [];
+  let current = accountById.get(accountId);
+  const seen = new Set<string>();
+  while (current && !seen.has(current.id)) {
+    seen.add(current.id);
+    parts.unshift(`${current.code} — ${current.arabicName}`);
+    current = current.parentId ? accountById.get(current.parentId) : undefined;
+  }
+  return parts.join(' › ');
+}
+
+function accountIdsAtRelativeLevel(
+  rootId: string,
+  accounts: Array<{ id: string; parentId: string | null }>,
+  level: number
+): string[] {
+  if (level <= 1) return [rootId];
+  let frontier = [rootId];
+  for (let depth = 1; depth < level; depth += 1) {
+    const next: string[] = [];
+    for (const id of frontier) {
+      for (const account of accounts) {
+        if (account.parentId === id) next.push(account.id);
+      }
+    }
+    frontier = next;
+  }
+  return frontier;
+}
+
+function accountStatementLineFilters(
+  params: AccountStatementParams,
+  currencyCode?: string,
+  counterpartIds?: string[]
+): Prisma.Sql {
+  const parts: Prisma.Sql[] = [Prisma.sql`1 = 1`];
+  const description = params.description?.trim();
+  if (description) {
+    const needle = `%${description.replace(/[%_\\]/g, '')}%`;
+    parts.push(
+      Prisma.sql`COALESCE(jel.description, je.description, '') LIKE ${needle}`
+    );
+  }
+  if (counterpartIds?.length) {
+    parts.push(Prisma.sql`EXISTS (
+      SELECT 1 FROM journal_entry_lines other
+      WHERE other.journalEntryId = jel.journalEntryId
+        AND other.id <> jel.id
+        AND other.accountId IN (${Prisma.join(counterpartIds)})
+    )`);
+  }
+  if (currencyCode) {
+    parts.push(Prisma.sql`(
+      jel.currencyCode = ${currencyCode}
+      OR ((jel.currencyCode IS NULL OR jel.currencyCode = '') AND je.currencyCode = ${currencyCode})
+    )`);
+  }
+  return Prisma.join(parts, ' AND ');
+}
+
+function postedFlag(value: boolean | number | null | undefined): boolean {
+  if (typeof value === 'boolean') return value;
+  return Number(value) === 1;
+}
+
+function ledgerPostingStatusLabel(status: string | null, isPosted: boolean): string {
+  const value = (status ?? '').trim().toLowerCase();
+  if (isPosted || value === 'post' || value === 'posted') return 'مرحّل';
+  return 'غير مرحّل';
+}
+
+type LedgerLine = {
+  accountName: string;
+  accountPath: string;
+  debitBase: number;
+  creditBase: number;
+  runningBalance: number;
+  description: string | null;
+  rowKind?: string;
+};
+
+function ledgerFooterRow<T extends LedgerLine>(
+  sample: T,
+  patch: {
+    description: string;
+    debitBase: number;
+    creditBase: number;
+    runningBalance: number;
+    rowKind: 'opening' | 'total';
+  }
+): T {
+  return {
+    ...sample,
+    description: patch.description,
+    debitBase: patch.debitBase,
+    creditBase: patch.creditBase,
+    runningBalance: patch.runningBalance,
+    rowKind: patch.rowKind,
+    legacyGlNum: null,
+    sourceType: null,
+    sourceKind: null,
+    entryType: null,
+    voucherFund: null,
+    sourceNumber: null,
+    counterpartAccount: null,
+    costCenterName: null,
+    entryLockStatus: null,
+    postingPosition: null,
+    journalEntryId: null,
+    lineId: null,
+    sourceId: null,
+    entryDate: null,
+    movementCurrency: null,
+    exchangeRate: null,
+  } as T;
+}
+
+function withAccountSubtotals<T extends LedgerLine>(lines: T[]): T[] {
+  if (lines.length === 0) return lines;
+  const out: T[] = [];
+  let index = 0;
+  while (index < lines.length) {
+    const accountName = lines[index].accountName;
+    const group: T[] = [];
+    while (index < lines.length && lines[index].accountName === accountName) {
+      group.push(lines[index]);
+      index += 1;
+    }
+    const close = ledgerSectionClose(group);
+    if (close.opening !== 0) {
+      out.push(
+        ledgerFooterRow(group[0], {
+          description: 'رصيد ما قبله',
+          debitBase: close.openingDebit,
+          creditBase: close.openingCredit,
+          runningBalance: close.opening,
+          rowKind: 'opening',
+        })
+      );
+    }
+    out.push(...group);
+    out.push(
+      ledgerFooterRow(group[group.length - 1], {
+        description: 'الإجمالي',
+        debitBase: close.debit,
+        creditBase: close.credit,
+        runningBalance: close.balance,
+        rowKind: 'total',
+      })
+    );
+  }
+  return out;
+}
+
+function levelSummaryRows<T extends LedgerLine & { accountId?: string }>(
+  nodeIds: string[],
+  accountById: Map<string, { id: string; parentId: string | null; code: string; arabicName: string }>,
+  lines: T[],
+  openingByAccount: Map<string, number>,
+  tree: Array<{ id: string; parentId: string | null }>
+): T[] {
+  return nodeIds.map((nodeId) => {
+    const node = accountById.get(nodeId);
+    const label = node ? `${node.code} — ${node.arabicName}` : nodeId;
+    const memberIds = new Set(subtreeAccountIds(nodeId, tree));
+    let debit = 0;
+    let credit = 0;
+    let opening = 0;
+    for (const id of memberIds) opening = roundTo4(opening + (openingByAccount.get(id) ?? 0));
+    for (const line of lines) {
+      if (!line.accountId || !memberIds.has(line.accountId)) continue;
+      debit = roundTo4(debit + line.debitBase);
+      credit = roundTo4(credit + line.creditBase);
+    }
+    const sample = lines[0];
+    return {
+      ...(sample ?? ({} as T)),
+      accountName: label,
+      accountPath: accountPathLabel(nodeId, accountById),
+      description: 'إجمالي',
+      debitBase: debit,
+      creditBase: credit,
+      runningBalance: roundTo4(opening + debit - credit),
+      legacyGlNum: null,
+      sourceType: null,
+      sourceKind: null,
+      entryType: null,
+      voucherFund: null,
+      sourceNumber: null,
+      counterpartAccount: null,
+      costCenterName: null,
+      entryLockStatus: null,
+      postingPosition: null,
+      journalEntryId: null,
+      lineId: null,
+      entryDate: null,
+      rowKind: 'total',
+    } as T;
+  });
+}
+
 function usesLiveJournalSum(params: FinancialReportBaseParams): boolean {
-  return Boolean(params.branchId || params.costCenterId || params.fiscalYearId);
+  return Boolean(
+    params.includeUnposted ||
+      params.branchId ||
+      params.costCenterId ||
+      params.fiscalYearId ||
+      params.currencyCode ||
+      params.fromVoucher != null ||
+      params.toVoucher != null
+  );
 }
 
 export class FinancialReportService {
-  async getTrialBalance(params: TrialBalanceParams) {
-    if (!usesLiveJournalSum(params)) {
-      return this.getTrialBalanceFromPeriodBalances(params);
+  private async withCostCenterSubtree<T extends FinancialReportBaseParams>(params: T): Promise<T> {
+    if (!params.costCenterId || params.costCenterIds?.length) return params;
+    const centers = await prisma.costCenter.findMany({
+      where: { companyId: params.companyId },
+      select: { id: true, parentId: true },
+    });
+    if (!centers.some((center) => center.id === params.costCenterId)) {
+      throw new AppError(400, 'مركز التكلفة غير موجود');
     }
-    return this.getTrialBalanceFromJournalLines(params);
+    return { ...params, costCenterIds: subtreeAccountIds(params.costCenterId, centers) };
   }
 
-  private async getTrialBalanceFromPeriodBalances(params: TrialBalanceParams) {
+  async getTrialBalance(params: TrialBalanceParams) {
+    params = await this.withCostCenterSubtree(params);
+    if (params.currencyId) {
+      const currency = await prisma.currency.findFirst({
+        where: { id: params.currencyId, companyId: params.companyId },
+        select: { code: true },
+      });
+      if (!currency) throw new AppError(400, 'العملة غير موجودة');
+      params = { ...params, currencyCode: currency.code };
+    }
+    const tree = await prisma.account.findMany({
+      where: { companyId: params.companyId, deletedAt: null },
+      select: { id: true, parentId: true, code: true },
+    });
+    if (params.accountId && !tree?.some((account) => account.id === params.accountId)) {
+      throw new AppError(404, 'Account not found');
+    }
+    const budgetKeep = params.withBudgetOnly
+      ? await this.budgetedAccountKeepIds(params.companyId, tree)
+      : undefined;
+    if (!usesLiveJournalSum(params)) {
+      return this.getTrialBalanceFromPeriodBalances(params, tree, budgetKeep);
+    }
+    return this.getTrialBalanceFromJournalLines(params, tree, budgetKeep);
+  }
+
+  private async budgetedAccountKeepIds(
+    companyId: string,
+    tree: Array<{ id: string; parentId: string | null }>
+  ) {
+    const budgeted = await prisma.account.findMany({
+      where: { companyId, deletedAt: null, budget: { gt: 0 } },
+      select: { id: true },
+    });
+    return idsWithBudgetedLineage(tree, budgeted.map((account) => account.id));
+  }
+
+  private async getTrialBalanceFromPeriodBalances(
+    params: TrialBalanceParams,
+    tree?: Array<{ id: string; parentId: string | null }>,
+    budgetKeep?: Set<string>
+  ) {
     const [summaryCount, postedCount] = await Promise.all([
       prisma.accountPeriodBalance.count({ where: { companyId: params.companyId } }),
       prisma.journalEntry.count({
@@ -157,10 +510,14 @@ export class FinancialReportService {
       GROUP BY a.id, a.code, a.arabicName, a.accountType
     `);
 
-    return this.mapTrialBalanceRows(rows, params);
+    return this.mapTrialBalanceRows(rows, params, tree, budgetKeep);
   }
 
-  private async getTrialBalanceFromJournalLines(params: TrialBalanceParams) {
+  private async getTrialBalanceFromJournalLines(
+    params: TrialBalanceParams,
+    tree?: Array<{ id: string; parentId: string | null }>,
+    budgetKeep?: Set<string>
+  ) {
     const jeFilter = journalEntryFilterSql(params, 'jel', 'je');
     const start = params.startDate;
     const end = params.endDate;
@@ -201,7 +558,7 @@ export class FinancialReportService {
       GROUP BY a.id, a.code, a.arabicName, a.accountType
     `);
 
-    return this.mapTrialBalanceRows(rows, params);
+    return this.mapTrialBalanceRows(rows, params, tree, budgetKeep);
   }
 
   private mapTrialBalanceRows(
@@ -214,11 +571,26 @@ export class FinancialReportService {
       periodDebit: unknown;
       periodCredit: unknown;
     }>,
-    params: TrialBalanceParams
+    params: TrialBalanceParams,
+    tree?: Array<{ id: string; parentId: string | null; code?: string }>,
+    budgetKeep?: Set<string>
   ) {
-    const accounts = rows
-      .filter((r) => accountTreeLevel(r.code, params.level))
+    const scoped = selectTrialBalanceRows(rows, {
+      accountId: params.accountId,
+      tree,
+    }).filter((row) => !budgetKeep || budgetKeep.has(row.accountId));
+    const ownAccounts = scoped
+      .filter((r) => Number(r.openingNet) !== 0 || Number(r.periodDebit) !== 0 || Number(r.periodCredit) !== 0)
       .map((r) => {
+        const openingNet = roundTo4(Number(r.openingNet));
+        const periodDebit = roundTo4(Number(r.periodDebit));
+        const periodCredit = roundTo4(Number(r.periodCredit));
+        const closing = splitTrialBalanceColumns(roundTo4(openingNet + periodDebit - periodCredit));
+        return { endingDebit: closing.endingDebit, endingCredit: closing.endingCredit };
+      });
+    const accounts = arrangeTrialBalanceTree(scoped, tree ?? [], {
+      maxDepth: params.level && params.level > 0 ? params.level : undefined,
+    }).map((r) => {
         const openingNet = roundTo4(Number(r.openingNet));
         const periodDebit = roundTo4(Number(r.periodDebit));
         const periodCredit = roundTo4(Number(r.periodCredit));
@@ -237,10 +609,13 @@ export class FinancialReportService {
           endingDebit: closingSplit.endingDebit,
           endingCredit: closingSplit.endingCredit,
           closingNet,
+          depth: r.depth,
+          isGroup: r.isGroup,
         };
       })
       .filter(
         (r) =>
+          params.showIdleAccounts ||
           r.periodDebit !== 0 ||
           r.periodCredit !== 0 ||
           r.openingDebit !== 0 ||
@@ -249,7 +624,7 @@ export class FinancialReportService {
           r.endingCredit !== 0
       );
 
-    const verification = verifyTrialBalanceBalanced(accounts);
+    const verification = verifyTrialBalanceBalanced(ownAccounts);
 
     return {
       accounts,
@@ -260,6 +635,7 @@ export class FinancialReportService {
         branchId: params.branchId,
         fiscalYearId: params.fiscalYearId,
         costCenterId: params.costCenterId,
+        accountId: params.accountId,
       },
     };
   }
@@ -270,67 +646,200 @@ export class FinancialReportService {
     });
     if (!account) throw new AppError(404, 'Account not found');
 
-    const jeFilter = journalEntryFilterSql(params, 'jel', 'je');
+    const tree = await prisma.account.findMany({
+      where: { companyId: params.companyId, deletedAt: null },
+      select: { id: true, parentId: true, code: true, arabicName: true },
+    });
+    const accountIds = subtreeAccountIds(account.id, tree);
+    const accountById = new Map(tree.map((row) => [row.id, row]));
+    const levelNodes =
+      params.level && params.level > 0
+        ? accountIdsAtRelativeLevel(account.id, tree, params.level)
+        : null;
+    const accountIdSql = Prisma.join(accountIds);
 
-    const openingRows = await prisma.$queryRaw<Array<{ openingNet: unknown }>>(Prisma.sql`
-      SELECT COALESCE(SUM(jel.debitBase - jel.creditBase), 0) AS openingNet
+    let currency: { code: string; arabicName: string } | null = null;
+    if (params.currencyId) {
+      const row = await prisma.currency.findFirst({
+        where: { id: params.currencyId, companyId: params.companyId },
+        select: { code: true, arabicName: true },
+      });
+      if (!row) throw new AppError(400, 'Currency not found');
+      currency = row;
+    }
+
+    const counterpart = params.counterpartAccountId
+      ? accountById.get(params.counterpartAccountId) ??
+        (await prisma.account.findFirst({
+          where: { id: params.counterpartAccountId, companyId: params.companyId, deletedAt: null },
+          select: { id: true, code: true, arabicName: true },
+        }))
+      : null;
+    if (params.counterpartAccountId && !counterpart) {
+      throw new AppError(400, 'الحساب المقابل غير موجود');
+    }
+    const counterpartIds = params.counterpartAccountId
+      ? subtreeAccountIds(params.counterpartAccountId, tree)
+      : undefined;
+
+    let costCenterLabel: string | null = null;
+    let statementParams = params;
+    if (params.costCenterId) {
+      const centers = await prisma.costCenter.findMany({
+        where: { companyId: params.companyId },
+        select: { id: true, parentId: true, code: true, arabicName: true },
+      });
+      const center = centers.find((row) => row.id === params.costCenterId);
+      if (!center) throw new AppError(400, 'مركز التكلفة غير موجود');
+      costCenterLabel = `${center.code} — ${center.arabicName}`;
+      const costCenterIds = subtreeAccountIds(center.id, centers);
+      statementParams = { ...params, costCenterIds };
+    }
+
+    const jeFilter = journalEntryFilterSql(statementParams, 'jel', 'je');
+    const lineFilters = accountStatementLineFilters(params, currency?.code, counterpartIds);
+
+    const openingRows = await prisma.$queryRaw<Array<{ accountId: string; openingNet: unknown }>>(Prisma.sql`
+      SELECT jel.accountId AS accountId, COALESCE(SUM(jel.debitBase - jel.creditBase), 0) AS openingNet
       FROM journal_entry_lines jel
       INNER JOIN journal_entries je ON je.id = jel.journalEntryId
-      WHERE jel.accountId = ${params.accountId}
+      WHERE jel.accountId IN (${accountIdSql})
         AND je.date < ${params.startDate}
         AND ${jeFilter}
+        AND ${lineFilters}
+      GROUP BY jel.accountId
     `);
-    let running = roundTo4(Number(openingRows[0]?.openingNet ?? 0));
+    const openingByAccount = new Map(
+      openingRows.map((row) => [row.accountId, roundTo4(Number(row.openingNet))])
+    );
 
     type LineRow = {
       id: string;
+      journalEntryId: string;
+      sourceId: string | null;
+      accountId: string;
+      accountCode: string;
+      accountName: string;
       entryDate: Date;
       legacyGlNum: string | null;
       sourceType: string | null;
+      sourceKind: string | null;
+      entryType: string | null;
       sourceNumber: string | null;
       description: string | null;
       debitBase: unknown;
       creditBase: unknown;
+      lineOrder: number;
+      movementCurrency: string | null;
+      exchangeRate: unknown;
+      counterpartAccount: string | null;
+      costCenterName: string | null;
+      documentStatus: string | null;
+      postingStatus: string | null;
+      isPosted: boolean | number;
+      isApproved: boolean | number | null;
     };
 
     const lines = await prisma.$queryRaw<LineRow[]>(Prisma.sql`
       SELECT
         jel.id,
+        je.id AS journalEntryId,
+        je.sourceId,
+        jel.accountId AS accountId,
+        a.code AS accountCode,
+        a.arabicName AS accountName,
         je.date AS entryDate,
         je.legacyGlNum,
         je.sourceType,
+        je.sourceKind,
+        je.entryType,
         je.sourceNumber,
         COALESCE(jel.description, je.description) AS description,
         jel.debitBase,
-        jel.creditBase
+        jel.creditBase,
+        jel.lineOrder,
+        COALESCE(cur.arabicName, NULLIF(jel.currencyCode, ''), je.currencyCode) AS movementCurrency,
+        COALESCE(jel.exchangeRate, je.exchangeRate) AS exchangeRate,
+        (
+          SELECT GROUP_CONCAT(DISTINCT CONCAT(oa.code, ' — ', oa.arabicName) ORDER BY oa.code SEPARATOR '، ')
+          FROM journal_entry_lines other
+          INNER JOIN accounts oa ON oa.id = other.accountId
+          WHERE other.journalEntryId = jel.journalEntryId
+            AND other.accountId <> jel.accountId
+        ) AS counterpartAccount,
+        CASE
+          WHEN cc.id IS NULL THEN NULL
+          ELSE CONCAT(cc.code, ' — ', cc.arabicName)
+        END AS costCenterName,
+        je.documentStatus,
+        je.postingStatus,
+        je.isPosted,
+        je.isApproved
       FROM journal_entry_lines jel
       INNER JOIN journal_entries je ON je.id = jel.journalEntryId
-      WHERE jel.accountId = ${params.accountId}
+      INNER JOIN accounts a ON a.id = jel.accountId
+      LEFT JOIN cost_centers cc ON cc.id = jel.costCenterId
+      LEFT JOIN currencies cur ON cur.companyId = je.companyId
+        AND cur.code = COALESCE(NULLIF(jel.currencyCode, ''), je.currencyCode)
+      WHERE jel.accountId IN (${accountIdSql})
         AND je.date >= ${params.startDate}
         AND je.date <= ${params.endDate}
         AND ${jeFilter}
-      ORDER BY je.date ASC, je.legacyGlNum ASC, jel.lineOrder ASC
+        AND ${lineFilters}
+      ORDER BY a.code ASC, je.date ASC, je.legacyGlNum ASC, jel.lineOrder ASC
     `);
 
+    const funds = await voucherFundBySourceId(
+      params.companyId,
+      lines.map((line) => line.sourceId)
+    );
+    const runningByAccount = new Map<string, number>();
     const transactions = lines.map((line) => {
       const debitBase = roundTo4(Number(line.debitBase));
       const creditBase = roundTo4(Number(line.creditBase));
-      running = roundTo4(running + debitBase - creditBase);
+      const prior = runningByAccount.has(line.accountId)
+        ? runningByAccount.get(line.accountId)!
+        : (openingByAccount.get(line.accountId) ?? 0);
+      const running = roundTo4(prior + debitBase - creditBase);
+      runningByAccount.set(line.accountId, running);
+      const accountLabel = line.accountCode
+        ? `${line.accountCode} — ${line.accountName}`
+        : line.accountName;
       return {
         lineId: line.id,
+        accountId: line.accountId,
+        journalEntryId: line.journalEntryId,
+        sourceId: line.sourceId,
+        accountName: accountLabel,
+        accountPath: accountPathLabel(line.accountId, accountById),
         entryDate: line.entryDate,
         legacyGlNum: line.legacyGlNum,
         sourceType: line.sourceType,
+        sourceKind: line.sourceKind,
+        entryType: line.entryType,
+        voucherFund: line.sourceId ? funds.get(line.sourceId) ?? null : null,
         sourceNumber: line.sourceNumber,
         description: line.description,
         debitBase,
         creditBase,
         runningBalance: running,
+        movementCurrency: line.movementCurrency,
+        exchangeRate: roundTo4(Number(line.exchangeRate ?? 1)),
+        counterpartAccount: line.counterpartAccount,
+        costCenterName: line.costCenterName,
+        entryLockStatus: postedFlag(line.isApproved) ? 'مؤيد' : 'غير مؤيد',
+        postingPosition: ledgerPostingStatusLabel(line.postingStatus, postedFlag(line.isPosted)),
       };
     });
 
-    const openingNet = roundTo4(Number(openingRows[0]?.openingNet ?? 0));
-    const closingBalance = running;
+    let openingNet = 0;
+    for (const id of accountIds) openingNet = roundTo4(openingNet + (openingByAccount.get(id) ?? 0));
+    let periodNet = 0;
+    for (const line of transactions) periodNet = roundTo4(periodNet + line.debitBase - line.creditBase);
+
+    const visibleTransactions = levelNodes
+      ? levelSummaryRows(levelNodes, accountById, transactions, openingByAccount, tree)
+      : withAccountSubtotals(transactions);
 
     return {
       account: {
@@ -338,9 +847,236 @@ export class FinancialReportService {
         code: account.code,
         arabicName: account.arabicName,
       },
+      currencyName: currency?.arabicName ?? null,
+      counterpartAccountName: counterpart
+        ? `${counterpart.code} — ${counterpart.arabicName}`
+        : null,
+      costCenterName: costCenterLabel,
       openingBalance: openingNet,
-      closingBalance,
-      transactions,
+      closingBalance: roundTo4(openingNet + periodNet),
+      transactions: visibleTransactions,
+    };
+  }
+
+  /**
+   * Same ledger as {@link getAccountStatement}, with the cost center tree
+   * in place of the account tree. Row fields keep the account-ledger names
+   * so the grid, subtotals, and running balance stay identical; `accountName`
+   * is the center and `costCenterName` is the GL account on the line.
+   */
+  async getCostCenterStatement(params: CostCenterStatementParams) {
+    const centers = await prisma.costCenter.findMany({
+      where: { companyId: params.companyId },
+      select: { id: true, parentId: true, code: true, arabicName: true },
+    });
+    const center = centers.find((row) => row.id === params.costCenterId);
+    if (!center) throw new AppError(404, 'مركز التكلفة غير موجود');
+
+    const centerById = new Map(centers.map((row) => [row.id, row]));
+    const centerIds = subtreeAccountIds(center.id, centers);
+    const levelNodes =
+      params.level && params.level > 0
+        ? accountIdsAtRelativeLevel(center.id, centers, params.level)
+        : null;
+    const centerIdSql = Prisma.join(centerIds);
+
+    const accounts = await prisma.account.findMany({
+      where: { companyId: params.companyId, deletedAt: null },
+      select: { id: true, parentId: true, code: true, arabicName: true },
+    });
+    const accountById = new Map(accounts.map((row) => [row.id, row]));
+    const accountIds = params.accountId ? subtreeAccountIds(params.accountId, accounts) : null;
+    if (params.accountId && !accountById.has(params.accountId)) {
+      throw new AppError(400, 'Account not found');
+    }
+
+    let currency: { code: string; arabicName: string } | null = null;
+    if (params.currencyId) {
+      const row = await prisma.currency.findFirst({
+        where: { id: params.currencyId, companyId: params.companyId },
+        select: { code: true, arabicName: true },
+      });
+      if (!row) throw new AppError(400, 'Currency not found');
+      currency = row;
+    }
+
+    const counterpart = params.counterpartAccountId ? accountById.get(params.counterpartAccountId) : null;
+    if (params.counterpartAccountId && !counterpart) {
+      throw new AppError(400, 'الحساب المقابل غير موجود');
+    }
+    const counterpartIds = params.counterpartAccountId
+      ? subtreeAccountIds(params.counterpartAccountId, accounts)
+      : undefined;
+
+    const statementParams: FinancialReportBaseParams = {
+      companyId: params.companyId,
+      branchId: params.branchId,
+      fiscalYearId: params.fiscalYearId,
+    };
+    const jeFilter = journalEntryFilterSql(statementParams, 'jel', 'je');
+    const lineFilters = accountStatementLineFilters(
+      {
+        ...params,
+        accountId: params.accountId ?? params.costCenterId,
+      },
+      currency?.code,
+      counterpartIds
+    );
+    const accountFilter = accountIds?.length
+      ? Prisma.sql`jel.accountId IN (${Prisma.join(accountIds)})`
+      : Prisma.sql`1 = 1`;
+
+    const openingRows = await prisma.$queryRaw<Array<{ costCenterId: string; openingNet: unknown }>>(Prisma.sql`
+      SELECT jel.costCenterId AS costCenterId, COALESCE(SUM(jel.debitBase - jel.creditBase), 0) AS openingNet
+      FROM journal_entry_lines jel
+      INNER JOIN journal_entries je ON je.id = jel.journalEntryId
+      WHERE jel.costCenterId IN (${centerIdSql})
+        AND ${accountFilter}
+        AND je.date < ${params.startDate}
+        AND ${jeFilter}
+        AND ${lineFilters}
+      GROUP BY jel.costCenterId
+    `);
+    const openingByCenter = new Map(
+      openingRows.map((row) => [row.costCenterId, roundTo4(Number(row.openingNet))])
+    );
+
+    const lines = await prisma.$queryRaw<
+      Array<{
+        id: string;
+        journalEntryId: string;
+        sourceId: string | null;
+        costCenterId: string;
+        centerCode: string;
+        centerName: string;
+        accountCode: string;
+        accountName: string;
+        entryDate: Date;
+        legacyGlNum: string | null;
+        sourceType: string | null;
+        sourceKind: string | null;
+        entryType: string | null;
+        sourceNumber: string | null;
+        description: string | null;
+        debitBase: unknown;
+        creditBase: unknown;
+        lineOrder: number;
+        movementCurrency: string | null;
+        exchangeRate: unknown;
+        counterpartAccount: string | null;
+        postingStatus: string | null;
+        isPosted: boolean | number;
+        isApproved: boolean | number | null;
+      }>
+    >(Prisma.sql`
+      SELECT
+        jel.id,
+        je.id AS journalEntryId,
+        je.sourceId,
+        jel.costCenterId AS costCenterId,
+        cc.code AS centerCode,
+        cc.arabicName AS centerName,
+        a.code AS accountCode,
+        a.arabicName AS accountName,
+        je.date AS entryDate,
+        je.legacyGlNum,
+        je.sourceType,
+        je.sourceKind,
+        je.entryType,
+        je.sourceNumber,
+        COALESCE(jel.description, je.description) AS description,
+        jel.debitBase,
+        jel.creditBase,
+        jel.lineOrder,
+        COALESCE(cur.arabicName, NULLIF(jel.currencyCode, ''), je.currencyCode) AS movementCurrency,
+        COALESCE(jel.exchangeRate, je.exchangeRate) AS exchangeRate,
+        (
+          SELECT GROUP_CONCAT(DISTINCT CONCAT(oa.code, ' — ', oa.arabicName) ORDER BY oa.code SEPARATOR '، ')
+          FROM journal_entry_lines other
+          INNER JOIN accounts oa ON oa.id = other.accountId
+          WHERE other.journalEntryId = jel.journalEntryId
+            AND other.accountId <> jel.accountId
+        ) AS counterpartAccount,
+        je.postingStatus,
+        je.isPosted,
+        je.isApproved
+      FROM journal_entry_lines jel
+      INNER JOIN journal_entries je ON je.id = jel.journalEntryId
+      INNER JOIN cost_centers cc ON cc.id = jel.costCenterId
+      INNER JOIN accounts a ON a.id = jel.accountId
+      LEFT JOIN currencies cur ON cur.companyId = je.companyId
+        AND cur.code = COALESCE(NULLIF(jel.currencyCode, ''), je.currencyCode)
+      WHERE jel.costCenterId IN (${centerIdSql})
+        AND ${accountFilter}
+        AND je.date >= ${params.startDate}
+        AND je.date <= ${params.endDate}
+        AND ${jeFilter}
+        AND ${lineFilters}
+      ORDER BY cc.code ASC, je.date ASC, je.legacyGlNum ASC, jel.lineOrder ASC
+    `);
+
+    const funds = await voucherFundBySourceId(
+      params.companyId,
+      lines.map((line) => line.sourceId)
+    );
+    const runningByCenter = new Map<string, number>();
+    const transactions = lines.map((line) => {
+      const debitBase = roundTo4(Number(line.debitBase));
+      const creditBase = roundTo4(Number(line.creditBase));
+      const prior = runningByCenter.has(line.costCenterId)
+        ? runningByCenter.get(line.costCenterId)!
+        : (openingByCenter.get(line.costCenterId) ?? 0);
+      const running = roundTo4(prior + debitBase - creditBase);
+      runningByCenter.set(line.costCenterId, running);
+      const centerLabel = line.centerCode ? `${line.centerCode} — ${line.centerName}` : line.centerName;
+      const accountLabel = line.accountCode ? `${line.accountCode} — ${line.accountName}` : line.accountName;
+      return {
+        lineId: line.id,
+        accountId: line.costCenterId,
+        journalEntryId: line.journalEntryId,
+        sourceId: line.sourceId,
+        accountName: centerLabel,
+        accountPath: accountPathLabel(line.costCenterId, centerById),
+        entryDate: line.entryDate,
+        legacyGlNum: line.legacyGlNum,
+        sourceType: line.sourceType,
+        sourceKind: line.sourceKind,
+        entryType: line.entryType,
+        voucherFund: line.sourceId ? funds.get(line.sourceId) ?? null : null,
+        sourceNumber: line.sourceNumber,
+        description: line.description,
+        debitBase,
+        creditBase,
+        runningBalance: running,
+        movementCurrency: line.movementCurrency,
+        exchangeRate: roundTo4(Number(line.exchangeRate ?? 1)),
+        counterpartAccount: line.counterpartAccount,
+        costCenterName: accountLabel,
+        entryLockStatus: postedFlag(line.isApproved) ? 'مؤيد' : 'غير مؤيد',
+        postingPosition: ledgerPostingStatusLabel(line.postingStatus, postedFlag(line.isPosted)),
+      };
+    });
+
+    let openingNet = 0;
+    for (const id of centerIds) openingNet = roundTo4(openingNet + (openingByCenter.get(id) ?? 0));
+    let periodNet = 0;
+    for (const line of transactions) periodNet = roundTo4(periodNet + line.debitBase - line.creditBase);
+
+    const visibleTransactions = levelNodes
+      ? levelSummaryRows(levelNodes, centerById, transactions, openingByCenter, centers)
+      : withAccountSubtotals(transactions);
+
+    const account = params.accountId ? accountById.get(params.accountId) : null;
+    return {
+      account: account
+        ? { id: account.id, code: account.code, arabicName: account.arabicName }
+        : undefined,
+      currencyName: currency?.arabicName ?? null,
+      counterpartAccountName: counterpart ? `${counterpart.code} — ${counterpart.arabicName}` : null,
+      costCenterName: `${center.code} — ${center.arabicName}`,
+      openingBalance: openingNet,
+      closingBalance: roundTo4(openingNet + periodNet),
+      transactions: visibleTransactions,
     };
   }
 
@@ -369,6 +1105,10 @@ export class FinancialReportService {
       netAmount: unknown;
     };
 
+    const budgetSql = params.withBudgetOnly
+      ? Prisma.sql`AND COALESCE(a.budget, 0) > 0`
+      : Prisma.empty;
+
     const rows = await prisma.$queryRaw<AggRow[]>(Prisma.sql`
       SELECT
         a.id AS accountId,
@@ -381,6 +1121,7 @@ export class FinancialReportService {
       INNER JOIN accounts a ON a.id = jel.accountId
       WHERE ${jeFilter}
         AND ${dateClause}
+        ${budgetSql}
       GROUP BY a.id, a.code, a.arabicName, a.accountType
     `);
 
@@ -428,6 +1169,48 @@ export class FinancialReportService {
     return { byClass, detail, dateBefore };
   }
 
+  private async companyCurrencyName(companyId: string): Promise<string> {
+    const settings = await prisma.companySettings.findFirst({
+      where: { companyId },
+      select: { defaultCurrency: true },
+    });
+    const code = settings?.defaultCurrency?.trim() || 'EGP';
+    const currency = await prisma.currency.findFirst({
+      where: { companyId, code },
+      select: { arabicName: true },
+    });
+    return currency?.arabicName?.trim() || (code === 'EGP' ? 'جنيه مصري' : code);
+  }
+
+  private async withAccountGroups<T extends { accountId: string }>(
+    companyId: string,
+    lines: T[]
+  ): Promise<Array<T & { groupPath: string; groupNames: string }>> {
+    if (!lines.length) return [];
+    const accounts = await prisma.account.findMany({
+      where: { companyId },
+      select: { id: true, parentId: true, code: true, arabicName: true },
+    });
+    const byId = new Map(accounts.map((account) => [account.id, account]));
+    return lines.map((line) => {
+      const chain: Array<{ code: string; arabicName: string }> = [];
+      const seen = new Set<string>();
+      let current = byId.get(line.accountId);
+      while (current?.parentId && !seen.has(current.parentId)) {
+        seen.add(current.parentId);
+        const parent = byId.get(current.parentId);
+        if (!parent) break;
+        chain.unshift({ code: parent.code, arabicName: parent.arabicName });
+        current = parent;
+      }
+      return {
+        ...line,
+        groupPath: chain.map((item) => item.code).join('|'),
+        groupNames: chain.map((item) => item.arabicName).join('|'),
+      };
+    });
+  }
+
   async getIncomeStatement(params: IncomeStatementParams) {
     const { byClass, detail } = await this.aggregateByAccountClass(params);
 
@@ -445,8 +1228,9 @@ export class FinancialReportService {
       operatingExpenses,
       operatingProfit,
       netProfit,
-      lines: detail.filter((d) =>
-        ['REVENUE', 'COGS', 'EXPENSE'].includes(d.class)
+      lines: await this.withAccountGroups(
+        params.companyId,
+        detail.filter((d) => ['REVENUE', 'COGS', 'EXPENSE'].includes(d.class))
       ),
       summary: {
         totalRevenue,
@@ -454,12 +1238,167 @@ export class FinancialReportService {
         grossProfit,
         totalExpenses: operatingExpenses,
         netProfit,
+        currencyName: await this.companyCurrencyName(params.companyId),
       },
       params: {
         startDate: params.startDate,
         endDate: params.endDate,
         costCenterId: params.costCenterId,
       },
+    };
+  }
+
+  async getMonthlyPerformance(params: FinancialReportBaseParams & { year: number; month: number }) {
+    const scoped = await this.withCostCenterSubtree(params);
+    const from = new Date(Date.UTC(scoped.year - 1, 0, 1, 0, 0, 0, 0));
+    const to = new Date(Date.UTC(scoped.year, 11, 31, 23, 59, 59, 999));
+    const monthStart = new Date(Date.UTC(scoped.year, scoped.month - 1, 1, 0, 0, 0, 0));
+    const monthEnd = new Date(Date.UTC(scoped.year, scoped.month, 0, 23, 59, 59, 999));
+    const jeFilter = journalEntryFilterSql(scoped, 'jel', 'je');
+
+    type AggRow = {
+      year: number | bigint;
+      month: number | bigint;
+      accountId: string;
+      code: string;
+      arabicName: string;
+      accountType: string | null;
+      netAmount: unknown;
+    };
+
+    const aggregated = await prisma.$queryRaw<AggRow[]>(Prisma.sql`
+      SELECT
+        YEAR(je.date) AS year,
+        MONTH(je.date) AS month,
+        a.id AS accountId,
+        a.code,
+        a.arabicName,
+        a.accountType,
+        COALESCE(SUM(jel.creditBase - jel.debitBase), 0) AS netAmount
+      FROM journal_entry_lines jel
+      INNER JOIN journal_entries je ON je.id = jel.journalEntryId
+      INNER JOIN accounts a ON a.id = jel.accountId
+      WHERE ${jeFilter}
+        AND je.date >= ${from}
+        AND je.date <= ${to}
+      GROUP BY YEAR(je.date), MONTH(je.date), a.id, a.code, a.arabicName, a.accountType
+    `);
+
+    const rows = aggregated.flatMap((row) => {
+      const cls = classifyAccount(row.code, row.accountType);
+      if (cls !== 'REVENUE' && cls !== 'COGS' && cls !== 'EXPENSE') return [];
+      const net = roundTo4(Number(row.netAmount));
+      const amount = cls === 'REVENUE' ? net : roundTo4(-net);
+      if (amount === 0) return [];
+      return [{
+        year: Number(row.year),
+        month: Number(row.month),
+        class: cls,
+        amount,
+        accountId: row.accountId,
+        code: row.code,
+        arabicName: row.arabicName,
+      }];
+    });
+
+    type BalanceRow = { debit: unknown; credit: unknown };
+    const [balance] = await prisma.$queryRaw<BalanceRow[]>(Prisma.sql`
+      SELECT
+        COALESCE(SUM(jel.debitBase), 0) AS debit,
+        COALESCE(SUM(jel.creditBase), 0) AS credit
+      FROM journal_entry_lines jel
+      INNER JOIN journal_entries je ON je.id = jel.journalEntryId
+      WHERE ${jeFilter}
+        AND je.date >= ${monthStart}
+        AND je.date <= ${monthEnd}
+    `);
+    const debit = roundTo4(Number(balance?.debit ?? 0));
+    const credit = roundTo4(Number(balance?.credit ?? 0));
+    const centerIds = scoped.costCenterIds?.length
+      ? scoped.costCenterIds
+      : scoped.costCenterId
+        ? [scoped.costCenterId]
+        : [];
+    const unpostedCount = await prisma.journalEntry.count({
+      where: {
+        companyId: scoped.companyId,
+        isPosted: false,
+        isCancelled: false,
+        deletedAt: null,
+        date: { gte: monthStart, lte: monthEnd },
+        ...(scoped.branchId ? { branchId: scoped.branchId } : {}),
+        ...(centerIds.length ? { lines: { some: { costCenterId: { in: centerIds } } } } : {}),
+      },
+    });
+
+    return {
+      ...buildMonthlyPerformance(scoped.year, scoped.month, rows),
+      currencyName: await this.companyCurrencyName(scoped.companyId),
+      books: {
+        balanced: amountsEqualAt4(debit, credit),
+        debit,
+        credit,
+        difference: roundTo4(debit - credit),
+        unpostedCount,
+      },
+    };
+  }
+
+  async getCostCenterProfitability(params: FinancialReportBaseParams & { year: number; month: number }) {
+    const from = new Date(Date.UTC(params.year, 0, 1, 0, 0, 0, 0));
+    const to = new Date(Date.UTC(params.year, 11, 31, 23, 59, 59, 999));
+    const jeFilter = journalEntryFilterSql(
+      { companyId: params.companyId, branchId: params.branchId },
+      'jel',
+      'je'
+    );
+    type AggRow = {
+      year: number | bigint;
+      month: number | bigint;
+      costCenterId: string | null;
+      code: string;
+      accountType: string | null;
+      netAmount: unknown;
+    };
+    const aggregated = await prisma.$queryRaw<AggRow[]>(Prisma.sql`
+      SELECT
+        YEAR(je.date) AS year,
+        MONTH(je.date) AS month,
+        jel.costCenterId AS costCenterId,
+        a.code,
+        a.accountType,
+        COALESCE(SUM(jel.creditBase - jel.debitBase), 0) AS netAmount
+      FROM journal_entry_lines jel
+      INNER JOIN journal_entries je ON je.id = jel.journalEntryId
+      INNER JOIN accounts a ON a.id = jel.accountId
+      WHERE ${jeFilter}
+        AND je.date >= ${from}
+        AND je.date <= ${to}
+      GROUP BY YEAR(je.date), MONTH(je.date), jel.costCenterId, a.code, a.accountType
+    `);
+    const folded = new Map<string, { year: number; month: number; costCenterId: string | null; class: 'REVENUE' | 'COGS' | 'EXPENSE'; amount: number }>();
+    for (const row of aggregated) {
+      const cls = classifyAccount(row.code, row.accountType);
+      if (cls !== 'REVENUE' && cls !== 'COGS' && cls !== 'EXPENSE') continue;
+      const net = roundTo4(Number(row.netAmount));
+      const amount = cls === 'REVENUE' ? net : roundTo4(-net);
+      if (amount === 0) continue;
+      const year = Number(row.year);
+      const month = Number(row.month);
+      const key = `${year}|${month}|${row.costCenterId ?? ''}|${cls}`;
+      const existing = folded.get(key);
+      if (existing) existing.amount = roundTo4(existing.amount + amount);
+      else folded.set(key, { year, month, costCenterId: row.costCenterId, class: cls, amount });
+    }
+    const centers = await prisma.costCenter.findMany({
+      where: { companyId: params.companyId },
+      select: { id: true, code: true, arabicName: true },
+    });
+    return {
+      ...buildCostCenterProfitability(params.year, params.month, [...folded.values()], centers),
+      year: params.year,
+      month: params.month,
+      currencyName: await this.companyCurrencyName(params.companyId),
     };
   }
 
@@ -525,6 +1464,8 @@ export class FinancialReportService {
     const sectioned = (rows: typeof detail, section: string) =>
       rows.map((r) => ({ ...r, section }));
 
+    const sheet = await this.buildBalanceSheetSides(params.companyId, detail, openPnl);
+
     return {
       asOfDate: params.asOfDate,
       assets: totalAssets,
@@ -548,6 +1489,7 @@ export class FinancialReportService {
         ...sectioned(liabilityRows, 'LIABILITIES'),
         ...sectioned(equityRows, 'EQUITY'),
       ],
+      sheet,
       summary: {
         totalAssets,
         totalLiabilities,
@@ -555,6 +1497,86 @@ export class FinancialReportService {
         equationBalanced,
       },
     };
+  }
+
+  private async buildBalanceSheetSides(
+    companyId: string,
+    detail: Array<{ accountId: string; class: string; amount: number }>,
+    openPnl: number
+  ) {
+    const accounts = await prisma.account.findMany({
+      where: { companyId, deletedAt: null },
+      select: { id: true, parentId: true, code: true, arabicName: true, accountType: true },
+      orderBy: { code: 'asc' },
+    });
+    const byId = new Map(accounts.map((account) => [account.id, account]));
+    const children = new Map<string, typeof accounts>();
+    for (const account of accounts) {
+      if (!account.parentId || !byId.has(account.parentId)) continue;
+      const bucket = children.get(account.parentId) ?? [];
+      bucket.push(account);
+      children.set(account.parentId, bucket);
+    }
+    const direct = new Map<string, number>();
+    for (const row of detail) {
+      if (row.class !== 'ASSET' && row.class !== 'LIABILITY' && row.class !== 'EQUITY') continue;
+      direct.set(row.accountId, roundTo4((direct.get(row.accountId) ?? 0) + row.amount));
+    }
+    const sideOf = (account: (typeof accounts)[number]) => {
+      const cls = classifyAccount(account.code, account.accountType);
+      if (cls === 'ASSET') return 'assets';
+      if (cls === 'LIABILITY' || cls === 'EQUITY') return 'liabilities';
+      return null;
+    };
+
+    const rolled = new Map<string, number>();
+    const roll = (id: string): number => {
+      const cached = rolled.get(id);
+      if (cached != null) return cached;
+      const account = byId.get(id);
+      const side = account ? sideOf(account) : null;
+      let sum = side ? (direct.get(id) ?? 0) : 0;
+      for (const child of children.get(id) ?? []) {
+        const childSum = roll(child.id);
+        if (side && sideOf(child) === side) sum = roundTo4(sum + childSum);
+      }
+      rolled.set(id, sum);
+      return sum;
+    };
+    for (const account of accounts) roll(account.id);
+
+    const flatten = (account: (typeof accounts)[number], depth: number, side: 'assets' | 'liabilities') => {
+      const amount = rolled.get(account.id) ?? 0;
+      if (amount === 0) return [] as Array<{ code: string; arabicName: string; amount: number; depth: number }>;
+      const rows = [{ code: account.code, arabicName: account.arabicName, amount, depth }];
+      for (const child of children.get(account.id) ?? []) {
+        if (sideOf(child) !== side) continue;
+        rows.push(...flatten(child, depth + 1, side));
+      }
+      return rows;
+    };
+
+    const roots = accounts.filter((account) => {
+      const side = sideOf(account);
+      if (!side) return false;
+      const parent = account.parentId ? byId.get(account.parentId) : undefined;
+      return !parent || sideOf(parent) !== side;
+    });
+    const assets = roots
+      .filter((account) => sideOf(account) === 'assets')
+      .flatMap((account) => flatten(account, 0, 'assets'));
+    const liabilities = roots
+      .filter((account) => sideOf(account) === 'liabilities')
+      .flatMap((account) => flatten(account, 0, 'liabilities'));
+    if (openPnl !== 0) {
+      liabilities.push({
+        code: '',
+        arabicName: 'أرباح (خسائر) الفترة الحالية',
+        amount: openPnl,
+        depth: 0,
+      });
+    }
+    return { assets, liabilities };
   }
 
   /**
@@ -597,6 +1619,7 @@ export class FinancialReportService {
       costCenterId,
       startDate,
       endDate,
+      includeUnposted: params.includeUnposted,
     });
 
     const nonCash = detail.filter((d) => !cashAccountIds.has(d.accountId));

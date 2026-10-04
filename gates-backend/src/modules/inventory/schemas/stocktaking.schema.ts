@@ -1,10 +1,13 @@
 import { z } from 'zod';
 
+const emptyToNull = (value: unknown) => (value === '' || value === undefined ? null : value);
+const optionalUuid = z.preprocess(emptyToNull, z.string().uuid().optional().nullable());
+
 export const stocktakingLineSchema = z.object({
   itemId: z.string().uuid('Item ID must be a valid UUID'),
   warehouseId: z.string().uuid('Warehouse ID must be a valid UUID'),
-  locationId: z.string().uuid('Location ID must be a valid UUID').optional().nullable(),
-  unitId: z.string().uuid('Unit ID must be a valid UUID').optional().nullable(),
+  locationId: optionalUuid,
+  unitId: optionalUuid,
   bookQuantity: z.number().nonnegative('Book quantity must be non-negative').optional(),
   actualQuantity: z.number().nonnegative('Actual quantity must be non-negative'),
   unitPrice: z.number().nonnegative('Unit price must be non-negative'),
@@ -15,7 +18,7 @@ export const stocktakingLineSchema = z.object({
 });
 
 export const createStocktakingSchema = z.object({
-  branchId: z.string().uuid('Branch ID must be a valid UUID').optional().nullable(),
+  branchId: optionalUuid,
   description: z.string().optional(),
   serial: z.string().optional(),
   date: z.string().datetime('Date must be a valid ISO datetime'),

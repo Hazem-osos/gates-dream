@@ -2,6 +2,10 @@
 import prisma from '../../../shared/database/prisma';
 import { logger } from '../../../shared/logger';
 import { Decimal } from '@prisma/client/runtime/library';
+import { AppError } from '../../../shared/middleware/error-handler';
+import { journalPostingService } from '../../accounting/services/journal-posting.service';
+import { hrGlAccountResolverService } from './hr-gl-account-resolver.service';
+import { journalLines } from '../../trade/utils/journal-lines.util';
 
 export interface EOSClearanceData {
   employeeId: string;
@@ -86,28 +90,49 @@ export class EOSClearanceService {
             throw new Error('Account not found');
           }
 
-          await tx.journalEntry.create({
-            data: {
-              companyId,
-              date: data.clearanceDate,
-              hijriDate: data.hijriDate,
-              description: `EOS Clearance for employee ${employee.arabicName}`,
-              currencyCode: 'SAR',
-              isPosted: true,
-              isApproved: true,
-              createdBy: userId,
-              lines: {
-                create: [
-                  {
-                    accountId: data.accountId,
-                    debit: new Decimal(data.eosAmount),
-                    credit: new Decimal(0),
-                    description: `EOS Payment - ${employee.arabicName}`,
-                  },
-                ],
-              },
-            },
+          const company = await tx.company.findUnique({
+            where: { id: companyId },
+            select: { defaultCurrency: true },
           });
+          const fiscalYear = await tx.fiscalYear.findFirst({
+            where: { companyId, status: 'Open', isActive: true },
+            orderBy: { startDate: 'desc' },
+          });
+          if (!fiscalYear) {
+            throw new AppError(400, 'لا توجد سنة مالية مفتوحة لترحيل تصفية نهاية الخدمة');
+          }
+          const accounts = await hrGlAccountResolverService.resolveAccounts(companyId);
+          if (!accounts.accruedPayrollAccountId) {
+            throw new AppError(400, 'حساب مستحقات الرواتب غير معرّف في إعدادات الموارد البشرية');
+          }
+          const amount = Number(data.eosAmount);
+          await journalPostingService.createAndPostInTx(
+            tx,
+            { companyId, userId },
+            {
+              fiscalYearId: fiscalYear.id,
+              date: data.clearanceDate,
+              description: `تصفية نهاية خدمة ${employee.arabicName}`,
+              currencyCode: company?.defaultCurrency?.trim() || 'EGP',
+              exchangeRate: 1,
+              entryType: 'EosClearance',
+              sourceType: 'HR',
+              lines: journalLines([
+                {
+                  accountId: data.accountId,
+                  debit: amount,
+                  credit: 0,
+                  description: `مصروف نهاية الخدمة - ${employee.arabicName}`,
+                },
+                {
+                  accountId: accounts.accruedPayrollAccountId,
+                  debit: 0,
+                  credit: amount,
+                  description: `مستحق نهاية الخدمة - ${employee.arabicName}`,
+                },
+              ]),
+            }
+          );
         }
 
         return created;

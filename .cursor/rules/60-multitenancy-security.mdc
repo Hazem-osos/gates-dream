@@ -1,0 +1,33 @@
+---
+description: Gates multi-tenancy and security - authenticated company context, parent ownership for child models, tenant extension limits, backend authorization and zod validation
+globs: gates-backend/src/**/*.ts,gates-backend/prisma/schema.prisma
+alwaysApply: false
+---
+
+# Multi-tenancy and security
+
+## Company context
+- The company comes from the JWT via `setTenantContext` (`src/shared/middleware/tenant.middleware.ts`) as `req.companyId`. Never trust a `companyId` from body, query or headers by itself (a mismatching `X-Company-Id` is rejected by `tenantAndFiscalContextMiddleware`).
+- Every company-owned read and write is scoped: `where: { id, companyId }`, or through a verified company-owned parent.
+
+## Child models without companyId
+About 80 models have no `companyId` (journal lines, invoice lines, stock document lines, `ItemQuantity`, ...). Verify the parent before update or delete:
+
+```ts
+// good: item-unit.service.ts
+await prisma.itemUnit.findFirst({ where: { id: itemUnitId, item: { companyId } } });
+```
+
+Never update or delete a child row by its id alone.
+
+## Tenant extension is a second layer only
+- `src/shared/database/tenant-scoping.extension.ts` adds `companyId` only for models in `tenant-scoped-models.generated.ts`, only inside a request context, never inside `runWithoutTenantScoping`, and never for raw SQL. Five newer models are missing today (audit M-10).
+- Adding a company-owned model: add `companyId`, then run `node gates-backend/scripts/generate-tenant-scoped-models.mjs`.
+- Cross-company jobs use `runWithoutTenantScoping` deliberately and filter by company explicitly.
+
+## Authorization and validation
+- Frontend permission checks are UX only. Every mutating route uses `authorize({ resource, action })`; keep the module's extra checks (advanced posting rights, `GLPost` / `GLUnPost` flags, owner-only backup, branch scope).
+- Validate external input with zod via `validate({ body | query | params })` (`src/shared/middleware/validate.ts`).
+- Do not weaken helmet, CORS, CSRF, rate limits, sanitization or `apiAuthGate` to make a feature work. New public endpoints (webhooks) follow the Meta webhook / internal automation pattern with their own verification.
+- Destructive or bulk admin tools need real authorization; no "password check skipped" placeholders.
+- Never log or return secrets: tokens, passwords, encrypted WhatsApp / SMTP / ETA / OpenAI credentials.

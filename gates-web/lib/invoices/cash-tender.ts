@@ -73,6 +73,18 @@ export function bankDraftFromSplits(splits: PaymentSplitLine[] | undefined): {
   };
 }
 
+export function treasuryIdFromSplits(splits: PaymentSplitLine[] | undefined): string {
+  const cash = (splits ?? []).find(
+    (line): line is Extract<PaymentSplitLine, { type: 'CASH' }> => line.type === 'CASH'
+  );
+  return cash?.safeId ? String(cash.safeId) : '';
+}
+
+export function isCashPaymentMethod(value: unknown): boolean {
+  const method = String(value ?? '').trim();
+  return method.toUpperCase() === 'CASH' || method === 'نقدي';
+}
+
 export function tenderPaidFromSplits(splits: PaymentSplitLine[] | undefined): number {
   return (splits ?? [])
     .filter((line) => line.type !== 'ON_ACCOUNT')
@@ -212,8 +224,8 @@ export function buildCashTenderSplits(input: {
     return {
       error:
         leftover > 0.009
-          ? `مجموع الشيكات (${sum.toFixed(2)}) أقل من قيمة الفاتورة (${net.toFixed(2)})`
-          : `مجموع الشيكات (${sum.toFixed(2)}) يجب أن يساوي قيمة الفاتورة (${net.toFixed(2)})`,
+          ? `مجموع الشيكات (${sum.toLocaleString()}) أقل من قيمة الفاتورة (${net.toLocaleString()})`
+          : `مجموع الشيكات (${sum.toLocaleString()}) يجب أن يساوي قيمة الفاتورة (${net.toLocaleString()})`,
     };
   }
   return { splits: lines };

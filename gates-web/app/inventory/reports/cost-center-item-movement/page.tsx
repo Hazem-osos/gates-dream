@@ -7,7 +7,7 @@ export default function CostCenterItemMovementPage() {
     <InventoryReportFilterPage
       urlPath="/inventory/reports/cost-center-item-movement"
       icon="🏷️"
-      subtitle="حركة الأصناف حسب مركز التكلفة."
+      subtitle="حركة الأصناف على مراكز التكلفة: المدخلات والمخرجات والرصيد، مثل حركة الأصناف."
       fields={{
         dates: 'range',
         delegate: true,
@@ -16,6 +16,8 @@ export default function CostCenterItemMovementPage() {
         item: true,
         costCenter: true,
         branch: true,
+        reportOptions: true,
+        groupByLayout: true,
       }}
     />
   );

@@ -8,7 +8,7 @@ import type { DocumentProfileColumnKey } from './types';
 const GROUP_TO_COLUMNS: Record<DocumentProfileColumnKey, InvoiceLineColumnId[]> = {
   colorAndSize: ['color', 'size'],
   batchAndExpiry: ['batchAndExpiry'],
-  withholdingTax: ['withholdingTax'],
+  withholdingTax: ['withholdingTax', 'withholdingAmount'],
   costCenter: ['costCenter'],
   serialsAndNotes: ['serialNumbers'],
 };

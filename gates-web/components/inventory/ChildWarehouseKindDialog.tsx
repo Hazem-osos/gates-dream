@@ -15,14 +15,14 @@ export function ChildWarehouseKindDialog({ open, parentLabel, onClose, onPick }:
   return (
     <CenteredOverlay open={open} onClose={onClose} width="md" labelledBy="child-warehouse-kind-title">
       <div className="p-6" dir="rtl">
-        <h2 id="child-warehouse-kind-title" className="text-lg font-bold text-[#0E79AA]">
+        <h2 id="child-warehouse-kind-title" className="text-lg font-bold text-[#0E78AA]">
           نوع المخزن الفرعي
         </h2>
         <p className="mt-1 text-sm text-slate-500">تحت: {parentLabel}</p>
         <div className="mt-5 grid gap-3">
           <button
             type="button"
-            className="rounded-xl border border-[#D6EAF3] bg-[#F6FBFD] px-4 py-3 text-right hover:border-[#0E79AA] hover:bg-white"
+            className="rounded-xl border border-[#D6EAF3] bg-[#F6FBFD] px-4 py-3 text-right hover:border-[#0E78AA] hover:bg-white"
             onClick={() => onPick('POSTING')}
           >
             <span className="block text-sm font-bold text-[#0A3D5E]">عمليات</span>
@@ -32,7 +32,7 @@ export function ChildWarehouseKindDialog({ open, parentLabel, onClose, onPick }:
           </button>
           <button
             type="button"
-            className="rounded-xl border border-[#D6EAF3] bg-[#F6FBFD] px-4 py-3 text-right hover:border-[#0E79AA] hover:bg-white"
+            className="rounded-xl border border-[#D6EAF3] bg-[#F6FBFD] px-4 py-3 text-right hover:border-[#0E78AA] hover:bg-white"
             onClick={() => onPick('HEADER')}
           >
             <span className="block text-sm font-bold text-[#0A3D5E]">رئيسي فرعي</span>

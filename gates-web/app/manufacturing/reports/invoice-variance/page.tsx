@@ -1,7 +1,9 @@
 'use client';
 
+import { reportDefaultDateRange } from '@/lib/reports/reportDefaultDates';
+
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { InlineReportResults } from '@/components/report/InlineReportResults';
 import { ManufacturingReportChrome } from '@/components/manufacturing/ManufacturingReportChrome';
 import {
   ReportFilterCheckbox,
@@ -13,14 +15,13 @@ import {
 import { useApiQuery } from '@/lib/hooks/useApi';
 
 const defaultFilters = () => ({
-  fromDate: new Date().toISOString().split('T')[0],
-  toDate: new Date().toISOString().split('T')[0],
+  ...reportDefaultDateRange(),
   currencyId: '',
   costCenterId: '',
 });
 
 export default function InvoiceVariancePage() {
-  const router = useRouter();
+  const [previewQuery, setPreviewQuery] = useState<Record<string, string> | null>(null);
   const [error, setError] = useState('');
   const [showUnposted, setShowUnposted] = useState(true);
   const [filters, setFilters] = useState(defaultFilters);
@@ -48,7 +49,7 @@ export default function InvoiceVariancePage() {
     if (filters.currencyId) params.append('currencyId', filters.currencyId);
     if (filters.costCenterId) params.append('costCenterId', filters.costCenterId);
     if (showUnposted) params.append('showUnposted', 'true');
-    router.push(`/manufacturing/reports/invoice-variance/preview?${params.toString()}`);
+    setPreviewQuery(Object.fromEntries(params));
   };
 
   return (
@@ -58,9 +59,11 @@ export default function InvoiceVariancePage() {
       onReset={() => {
         setFilters(defaultFilters());
         setShowUnposted(true);
+        setPreviewQuery(null);
       }}
       error={error}
       onClearError={() => setError('')}
+      below={previewQuery ? <InlineReportResults urlPath="/manufacturing/reports/invoice-variance" query={previewQuery} /> : null}
     >
       <ReportFilterSection title="التواريخ">
         <ReportFilterDate label="من تاريخ" value={filters.fromDate} onChange={(fromDate) => patch({ fromDate })} />

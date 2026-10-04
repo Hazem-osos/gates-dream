@@ -39,7 +39,7 @@ export function AiSupportHandoff({ currentPath }: { currentPath?: string }) {
           setOpen(true);
           openSupportTicketModal({ screen });
         }}
-        className="inline-flex items-center gap-1 text-xs font-semibold text-[#0E79AA] hover:underline"
+        className="inline-flex items-center gap-1 text-xs font-semibold text-[#0E78AA] hover:underline"
       >
         <span>💬 التواصل مع الدعم الفني لـ Gates</span>
         <ExternalLink className="h-3 w-3" />
@@ -49,7 +49,7 @@ export function AiSupportHandoff({ currentPath }: { currentPath?: string }) {
           <div className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-4 text-right shadow-xl">
             <div className="mb-2 flex items-center justify-between">
               <p className="inline-flex items-center gap-1 text-sm font-semibold text-[#094C6B]">
-                <MessageCircle className="h-4 w-4 text-[#0E79AA]" />
+                <MessageCircle className="h-4 w-4 text-[#0E78AA]" />
                 طلب مساعدة فنية
               </p>
               <button type="button" onClick={() => setOpen(false)} className="text-slate-400" aria-label="إغلاق">
@@ -58,11 +58,11 @@ export function AiSupportHandoff({ currentPath }: { currentPath?: string }) {
             </div>
             <p className="text-xs leading-5 text-slate-500">
               سيُفتح بريد الدعم مع مسار الشاشة الحالية مضمّناً:{' '}
-              <span className="font-mono text-[11px] text-[#0E79AA]">{screen}</span>
+              <span className="font-mono text-[11px] text-[#0E78AA]">{screen}</span>
             </p>
             <a
               href={mailto}
-              className="mt-3 inline-flex w-full items-center justify-center gap-1 rounded-lg bg-[#0E79AA] px-3 py-2 text-xs font-semibold text-white"
+              className="mt-3 inline-flex w-full items-center justify-center gap-1 rounded-lg bg-[#0E78AA] px-3 py-2 text-xs font-semibold text-white"
             >
               إرسال إلى {SUPPORT_EMAIL}
             </a>

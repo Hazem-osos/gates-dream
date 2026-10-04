@@ -2,32 +2,61 @@
 import prisma from '../../../shared/database/prisma';
 import { logger } from '../../../shared/logger';
 import { roundTo4 } from '../../../shared/utils/decimal-round';
-import { stockMovementService } from './stock-movement.service';
 import { itemCostService } from './item-cost.service';
 import { inventoryCostingService } from './inventory-costing.service';
 import { COSTING_MOVEMENT } from './inventory-costing-math';
-import {
-  resolveStockGlAccounts,
-  stockMovementGlService,
-  type StockGlPostingContext,
-} from './stock-movement-gl.service';
+import { resolveStockGlAccounts, type StockGlPostingContext } from './stock-movement-gl.service';
 import { assertStoreDocumentRight } from './store-document-rights';
 import { fiscalYearService } from '../../platform/services/fiscal-year.service';
-import { journalPostingService } from '../../accounting/services/journal-posting.service';
-import type { JournalEntryLineData } from '../../accounting/types/journal-entry.types';
 import {
   assertWarehouseActive,
   getInventorySystem,
   loadWarehouseGlMap,
   pickInventoryAccount,
 } from '../utils/inventory-system';
+import {
+  ensurePerpetualInventoryGlReady,
+  PERPETUAL_GL_CONTEXT_AR,
+} from '../utils/stock-gl-posting-guard';
+import { AppError } from '../../../shared/middleware/error-handler';
 import { openingBalanceService } from '../../accounting/services/opening-balance.service';
+import {
+  removeOpeningStockFromOpeningJournalInTx,
+  syncOpeningStockIntoOpeningJournalInTx,
+} from './opening-stock-opening-journal.sync';
+import type {
+  OpeningInventoryGlSlice,
+  OpeningInventoryValuationGroup,
+} from './opening-stock-gl-slices';
 
-async function collectOpeningInventoryValues(
+export type { OpeningInventoryGlSlice };
+import { duplicateOpeningStockLine, openingLinesWithoutWarehouseOverlap } from './opening-stock-valuation';
+
+const OPENING_STOCK_NEGATIVE_STOCK_AR =
+  'لا يمكن إتمام العملية لأن جزءاً من كمية بضاعة أول المدة خُرج بالبيع أو بحركة لاحقة. راجع فواتير البيع والمخزون، أو فك ترحيل قيد الرصيد الافتتاحي إن كان مرتبطاً.';
+
+function rethrowOpeningStockStockConflict(error: unknown): never {
+  if (error instanceof AppError && error.statusCode === 422) {
+    const msg = error.message || '';
+    if (msg.includes('بالسالب') || msg.includes('لا تكفي')) {
+      throw new AppError(422, OPENING_STOCK_NEGATIVE_STOCK_AR);
+    }
+  }
+  throw error;
+}
+
+async function collectOpeningInventoryGlSlices(
   companyId: string,
-  lines: Array<{ itemId: string; warehouseId: string; quantity: unknown; unitPrice: unknown }>,
+  lines: Array<{
+    itemId: string;
+    warehouseId: string;
+    quantity: unknown;
+    unitPrice: unknown;
+    item?: { arabicName?: string | null; serial?: string | null } | null;
+    warehouse?: { arabicName?: string | null; code?: string | null } | null;
+  }>,
   db: { item: { findMany: typeof prisma.item.findMany } } = prisma
-): Promise<Map<string, number>> {
+): Promise<OpeningInventoryGlSlice[]> {
   const companyAccounts = await resolveStockGlAccounts(companyId).catch(() => null);
   const companyInventoryId = companyAccounts?.inventoryAccountId;
   const system = companyAccounts?.system ?? (await getInventorySystem(companyId));
@@ -37,26 +66,81 @@ async function collectOpeningInventoryValues(
   );
   const items = await db.item.findMany({
     where: { id: { in: [...new Set(lines.map((line) => line.itemId))] } },
-    select: { id: true, mainAccountId: true },
+    select: { id: true, mainAccountId: true, arabicName: true, serial: true },
   });
-  const itemAccountById = new Map(items.map((item) => [item.id, item.mainAccountId]));
-  const accountValues = new Map<string, number>();
+  const itemById = new Map(items.map((item) => [item.id, item]));
+  const slices: OpeningInventoryGlSlice[] = [];
   for (const line of lines) {
     const value = roundTo4(Number(line.quantity) * Number(line.unitPrice));
     if (value === 0) continue;
+    const itemRow = line.item ?? itemById.get(line.itemId);
     const accountId = pickInventoryAccount(
       system,
       companyInventoryId,
       warehouseMap.get(line.warehouseId)?.inventoryAccountId,
-      itemAccountById.get(line.itemId)
+      itemRow?.mainAccountId
     );
     if (!accountId) continue;
-    accountValues.set(accountId, roundTo4((accountValues.get(accountId) ?? 0) + value));
+    const itemLabel = itemRow?.arabicName || itemRow?.serial || line.itemId;
+    const whLabel =
+      line.warehouse?.arabicName || line.warehouse?.code || line.warehouseId.slice(0, 8);
+    slices.push({
+      accountId,
+      value,
+      description: `بضاعة أول المدة — ${itemLabel} (${whLabel})`,
+      warehouseId: line.warehouseId,
+    });
   }
-  return accountValues;
+  return slices;
+}
+
+function aggregateOpeningValuationGroups(
+  slices: OpeningInventoryGlSlice[],
+  warehouseNames: Map<string, string>
+): OpeningInventoryValuationGroup[] {
+  const buckets = new Map<string, OpeningInventoryValuationGroup>();
+  for (const slice of slices) {
+    const warehouseId = String(slice.warehouseId || '').trim();
+    if (!warehouseId || slice.value === 0) continue;
+    const key = `${warehouseId}|${slice.accountId}`;
+    const prev = buckets.get(key);
+    if (prev) {
+      prev.valuation = roundTo4(prev.valuation + slice.value);
+      continue;
+    }
+    buckets.set(key, {
+      warehouseId,
+      warehouseName: warehouseNames.get(warehouseId) || warehouseId.slice(0, 8),
+      accountId: slice.accountId,
+      valuation: roundTo4(slice.value),
+    });
+  }
+  return [...buckets.values()].sort((a, b) =>
+    a.warehouseName.localeCompare(b.warehouseName, 'ar')
+  );
 }
 
 const SOURCE_TYPE = 'OB';
+
+async function resolveCompanyBranchId(companyId: string, requested?: string | null): Promise<string> {
+  const requestedId = requested?.trim();
+  if (requestedId) {
+    const branch = await prisma.branch.findFirst({
+      where: { id: requestedId, companyId, deletedAt: null },
+      select: { id: true },
+    });
+    if (branch) return branch.id;
+  }
+  const fallback = await prisma.branch.findFirst({
+    where: { companyId, deletedAt: null },
+    orderBy: { createdAt: 'asc' },
+    select: { id: true },
+  });
+  if (!fallback) {
+    throw new Error('لا يوجد فرع للشركة. أضف فرعاً من إعدادات الشركة ثم أعد حفظ بضاعة أول المدة.');
+  }
+  return fallback.id;
+}
 
 async function resolveLockedOpeningDate(companyId: string, fallbackDate?: string) {
   try {
@@ -66,23 +150,6 @@ async function resolveLockedOpeningDate(companyId: string, fallbackDate?: string
     const parsed = fallbackDate ? new Date(fallbackDate) : new Date();
     return Number.isNaN(parsed.getTime()) ? new Date() : parsed;
   }
-}
-
-async function firstUsableWarehouseId(companyId: string) {
-  const warehouses = await prisma.warehouse.findMany({
-    where: { companyId, isActive: true },
-    select: {
-      id: true,
-      warehouseKind: true,
-      _count: { select: { childWarehouses: { where: { isActive: true } } } },
-    },
-    orderBy: [{ code: 'asc' }, { arabicName: 'asc' }],
-  });
-  const usable = warehouses.find(
-    (warehouse) =>
-      warehouse.warehouseKind === 'POSTING' || warehouse._count.childWarehouses === 0
-  );
-  return usable?.id ?? warehouses[0]?.id ?? '';
 }
 
 function assertUsableOpeningWarehouse(warehouse: {
@@ -99,6 +166,40 @@ function assertUsableOpeningWarehouse(warehouse: {
       `المخزن «${warehouse.arabicName}» مجموعة وليس مخزناً تشغيلياً. اختر مخزناً فرعياً قابلاً للترحيل.`
     );
   }
+}
+
+async function assertWarehousesFreeForOpening(
+  tx: { $queryRaw: typeof prisma.$queryRaw; openingStockLine: typeof prisma.openingStockLine },
+  companyId: string,
+  warehouseIds: string[],
+  exceptOpeningStockId?: string
+) {
+  const ids = [...new Set(warehouseIds.map((id) => id.trim()).filter(Boolean))].sort();
+  for (const warehouseId of ids) {
+    await tx.$queryRaw`
+      SELECT id FROM warehouses WHERE id = ${warehouseId} AND companyId = ${companyId} FOR UPDATE
+    `;
+  }
+  if (ids.length === 0) return;
+  const conflict = await tx.openingStockLine.findFirst({
+    where: {
+      warehouseId: { in: ids },
+      openingStock: {
+        companyId,
+        isCancelled: false,
+        ...(exceptOpeningStockId ? { id: { not: exceptOpeningStockId } } : {}),
+      },
+    },
+    select: {
+      warehouse: { select: { arabicName: true } },
+      openingStock: { select: { serial: true } },
+    },
+  });
+  if (!conflict) return;
+  const serial = conflict.openingStock.serial ? ` رقم ${conflict.openingStock.serial}` : '';
+  throw new Error(
+    `المخزن «${conflict.warehouse.arabicName}» له كشف بضاعة أول المدة${serial} بالفعل. افتح نفس الكشف وعدّله، وكل مخزن له كشف لوحده.`
+  );
 }
 
 function nextOpeningSerial(existing: Array<string | null | undefined>, year: number): string {
@@ -126,6 +227,29 @@ export interface OpeningStockLine {
   quantity: number;
   unitPrice: number;
   total: number;
+  batchNumber?: string | null;
+  expiryDate?: Date | string | null;
+}
+
+function openingStockLineCreateData(openingStockId: string, lineData: OpeningStockLine) {
+  const batchNumber = lineData.batchNumber?.trim() || null;
+  let expiryDate: Date | null = null;
+  if (lineData.expiryDate) {
+    const parsed =
+      lineData.expiryDate instanceof Date ? lineData.expiryDate : new Date(lineData.expiryDate);
+    expiryDate = Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+  return {
+    openingStockId,
+    itemId: lineData.itemId,
+    warehouseId: lineData.warehouseId,
+    locationId: lineData.locationId || null,
+    quantity: lineData.quantity,
+    unitPrice: lineData.unitPrice,
+    total: lineData.total,
+    batchNumber,
+    expiryDate,
+  };
 }
 
 export interface CreateOpeningStockData {
@@ -139,95 +263,7 @@ export interface CreateOpeningStockData {
 
 export class OpeningStockService {
   /**
-   * Groups line values by each item's own GL control account (mirroring
-   * `mainAccountId` usage in assembly/disassembly/landed-cost) and posts a
-   * single balanced entry: debit each inventory account for its share,
-   * credit the company's stock-adjustment/suspense account as the offset
-   * (the accountant reclasses that to opening-balance equity separately,
-   * same pattern goods receipt already uses for its "other side").
-   *
-   * Inventory-truth fix: previously opening stock only ever wrote
-   * `item_quantities` + (now) `ItemCostHistory` — it never touched the GL,
-   * so the inventory control account could never reconcile to the stock
-   * ledger for any company with historical opening balances.
-   */
-  private async postOpeningBalanceGlInTx(
-    tx: any,
-    ctx: StockGlPostingContext,
-    doc: {
-      openingStockId: string;
-      date: Date;
-      description?: string | null;
-      sourceNumber: string;
-      sourceYearId: string;
-      accountValues: Map<string, number>;
-    }
-  ) {
-    const totalValue = roundTo4(
-      [...doc.accountValues.values()].reduce((s, v) => s + v, 0)
-    );
-    if (totalValue <= 0) return null;
-
-    // Don't let an unconfigured chart of accounts block the inventory
-    // quantity/cost effect (which already applies unconditionally) — a
-    // company that hasn't wired up its inventory GL accounts yet simply
-    // gets no GL entry, same as before this fix, rather than a hard
-    // failure on every opening-stock create.
-    const accounts = await resolveStockGlAccounts(ctx.companyId).catch((err) => {
-      logger.warn(
-        { companyId: ctx.companyId, error: err instanceof Error ? err.message : err },
-        'Opening balance GL posting skipped — inventory GL accounts not configured'
-      );
-      return null;
-    });
-    if (!accounts) return null;
-    const lines: JournalEntryLineData[] = [];
-    let lineOrder = 1;
-    for (const [accountId, value] of doc.accountValues.entries()) {
-      if (value === 0) continue;
-      lines.push({
-        accountId,
-        debit: value,
-        credit: 0,
-        lineOrder: lineOrder++,
-        description: 'Opening balance — inventory',
-      });
-    }
-    lines.push({
-      accountId: accounts.adjustmentAccountId,
-      debit: 0,
-      credit: totalValue,
-      lineOrder: lineOrder++,
-      description: 'Opening balance — offset (reclass to equity separately)',
-    });
-
-    const je = await journalPostingService.createAndPostInTx(tx, ctx, {
-      date: doc.date,
-      description: doc.description ?? `Opening stock ${doc.sourceNumber}`,
-      currencyCode: 'EGP',
-      fiscalYearId: ctx.fiscalYearId,
-      sourceType: SOURCE_TYPE,
-      sourceNumber: doc.sourceNumber,
-      sourceYearId: doc.sourceYearId,
-      entryType: 'OPENING_BALANCE',
-      lines,
-    });
-    await tx.openingStock.update({
-      where: { id: doc.openingStockId },
-      data: {
-        record: je.legacyGlNum ?? je.id,
-        journalEntryId: je.id,
-        // Mark posted in the same transaction as GL to ensure atomicity —
-        // prevents a second JE being created if the separate outer update fails.
-        isPosted: true,
-        postedAt: new Date(),
-      },
-    });
-    return je;
-  }
-
-  /**
-   * Create opening stock entry
+   * Create opening stock entry (draft — stock + opening-journal legs on post).
    */
   async createOpeningStock(
     companyId: string,
@@ -236,13 +272,12 @@ export class OpeningStockService {
   ) {
     try {
       // Validate all items and warehouses belong to company
-      const fallbackWarehouseId = await firstUsableWarehouseId(companyId);
       data.lines = data.lines.map((line) => ({
         ...line,
-        warehouseId: line.warehouseId || fallbackWarehouseId,
+        warehouseId: String(line.warehouseId ?? '').trim(),
       }));
       if (data.lines.some((line) => !line.warehouseId)) {
-        throw new Error('لا يوجد مخزن تشغيلي. أنشئ مخزناً من دليل المخازن ثم أعد الحفظ.');
+        throw new Error('اختر المخزن التشغيلي على كل سطر قبل الحفظ.');
       }
       const itemIds = [...new Set(data.lines.map((line) => line.itemId).filter(Boolean))];
       const warehouseIds = [...new Set(data.lines.map((line) => line.warehouseId).filter(Boolean))];
@@ -295,19 +330,17 @@ export class OpeningStockService {
         }
       }
 
-      const existingOpening = await prisma.openingStock.findFirst({
-        where: { companyId },
-        select: { id: true, isCancelled: true, isPosted: true },
-      });
-      if (existingOpening) {
-        if (existingOpening.isPosted) {
-          throw new Error('كشف بضاعة أول المدة مرحّل. فك الترحيل أولاً ثم عدّل نفس الكشف.');
-        }
-        return this.updateOpeningStock(companyId, existingOpening.id, data, glCtx);
+      data.branchId = await resolveCompanyBranchId(companyId, data.branchId);
+      if (warehouseIds.length !== 1) {
+        throw new Error('كشف بضاعة أول المدة لمخزن واحد. احفظ كل مخزن في كشف لوحده.');
+      }
+      if (duplicateOpeningStockLine(data.lines)) {
+        throw new Error('الصنف متكرر في نفس المخزن. اترك سطراً واحداً لكل صنف وتشغيلة.');
       }
 
       // Use transaction to ensure atomicity
       const openingStock = await prisma.$transaction(async (tx) => {
+        await assertWarehousesFreeForOpening(tx, companyId, warehouseIds);
         // Create opening stock record
         const year = lockedDate.getUTCFullYear();
         const usedSerials = await tx.openingStock.findMany({
@@ -333,48 +366,12 @@ export class OpeningStockService {
           },
         });
 
-        // H1 fix: route the quantity mutation through stockMovementService
-        // (row lock + InventoryMovement audit row + negative-stock guard)
-        // instead of an unlocked read-modify-write on item_quantities. Kept
-        // at create time (not post time) to preserve this document's
-        // existing behaviour of taking immediate effect.
-        const sourceType = SOURCE_TYPE;
-        const sourceNumber = serial;
-        const sourceYearId = String(year);
-
-        // Create opening stock lines and update item quantities
         const lines = [];
         for (const lineData of data.lines) {
-          // Create opening stock line
           const line = await tx.openingStockLine.create({
-            data: {
-              openingStockId: record.id,
-              itemId: lineData.itemId,
-              warehouseId: lineData.warehouseId,
-              locationId: lineData.locationId || null,
-              quantity: lineData.quantity,
-              unitPrice: lineData.unitPrice,
-              total: lineData.total,
-            },
+            data: openingStockLineCreateData(record.id, lineData),
           });
           lines.push(line);
-
-          await inventoryCostingService.applyInboundMovement(tx, {
-            companyId,
-            branchId: data.branchId ?? undefined,
-            warehouseId: lineData.warehouseId,
-            itemId: lineData.itemId,
-            locationId: lineData.locationId ?? null,
-            quantity: Number(lineData.quantity),
-            unitCost: Number(lineData.unitPrice),
-            movementType: COSTING_MOVEMENT.ADJUSTMENT_POSITIVE,
-            sourceType,
-            sourceNumber,
-            sourceYearId,
-            sourceDocumentId: record.id,
-            transactionDate: new Date(data.date),
-          });
-
         }
 
         return {
@@ -385,7 +382,7 @@ export class OpeningStockService {
 
       logger.info(
         { companyId, openingStockId: openingStock.id, linesCount: data.lines.length },
-        'Opening stock created'
+        'Opening stock created (draft — post to apply stock and opening journal lines)'
       );
 
       return openingStock;
@@ -396,8 +393,8 @@ export class OpeningStockService {
   }
 
   /**
-   * Replace lines on the singleton opening-stock document (draft or cancelled).
-   * Cancelled docs only persist the new parties; restore re-applies stock.
+   * Replace lines on one warehouse's opening-stock document (draft or cancelled).
+   * Stock and opening-journal legs apply only on post.
    */
   async updateOpeningStock(
     companyId: string,
@@ -416,13 +413,12 @@ export class OpeningStockService {
       throw new Error('لا يمكن تعديل كشف مرحّل. فك الترحيل أولاً.');
     }
 
-    const fallbackWarehouseId = await firstUsableWarehouseId(companyId);
     data.lines = data.lines.map((line) => ({
       ...line,
-      warehouseId: line.warehouseId || fallbackWarehouseId,
+      warehouseId: String(line.warehouseId ?? '').trim(),
     }));
     if (data.lines.some((line) => !line.warehouseId)) {
-      throw new Error('لا يوجد مخزن تشغيلي. أنشئ مخزناً من دليل المخازن ثم أعد الحفظ.');
+      throw new Error('اختر المخزن التشغيلي على كل سطر قبل الحفظ.');
     }
     const itemIds = [...new Set(data.lines.map((line) => line.itemId).filter(Boolean))];
     const warehouseIds = [...new Set(data.lines.map((line) => line.warehouseId).filter(Boolean))];
@@ -465,83 +461,31 @@ export class OpeningStockService {
     }
 
     const lockedDate = await resolveLockedOpeningDate(companyId, data.date);
-    const sourceType = SOURCE_TYPE;
-    const sourceNumber = existing.serial ?? existing.id.slice(0, 8);
-    const sourceYearId = String(lockedDate.getUTCFullYear());
+    if (duplicateOpeningStockLine(data.lines)) {
+      throw new Error('الصنف متكرر في نفس المخزن. اترك سطراً واحداً لكل صنف وتشغيلة.');
+    }
+    if (warehouseIds.length > 1) {
+      const previous = new Set(existing.lines.map((line) => line.warehouseId));
+      if (warehouseIds.some((id) => !previous.has(id))) {
+        throw new Error('كشف بضاعة أول المدة لمخزن واحد. احفظ كل مخزن في كشف لوحده.');
+      }
+    }
+    const branchId = await resolveCompanyBranchId(companyId, data.branchId || existing.branchId);
 
     return prisma.$transaction(async (tx) => {
-      if (!existing.isCancelled) {
-        for (const line of existing.lines) {
-          await stockMovementService.postMovementInTx(tx, {
-            companyId,
-            branchId: existing.branchId ?? undefined,
-            warehouseId: line.warehouseId,
-            itemId: line.itemId,
-            locationId: line.locationId ?? null,
-            quantityDelta: -Number(line.quantity),
-            movementType: `${sourceType}-EDIT`,
-            sourceType: `${sourceType}-EDIT`,
-            sourceNumber,
-            sourceYearId,
-            documentDate: existing.date,
-          });
-          await itemCostService.removeCostHistoryBySourceInTx(tx, {
-            companyId,
-            itemId: line.itemId,
-            sourceType,
-            sourceNumber,
-            sourceYearId,
-          });
-        }
-        if (glCtx) {
-          await stockMovementGlService.reverseBySourceInTx(
-            tx,
-            glCtx,
-            sourceType,
-            sourceNumber,
-            sourceYearId,
-            'Opening stock lines replaced'
-          );
-        }
-      }
-
+      await assertWarehousesFreeForOpening(tx, companyId, warehouseIds, openingStockId);
       await tx.openingStockLine.deleteMany({ where: { openingStockId } });
       const lines = [];
       for (const lineData of data.lines) {
         const line = await tx.openingStockLine.create({
-          data: {
-            openingStockId,
-            itemId: lineData.itemId,
-            warehouseId: lineData.warehouseId,
-            locationId: lineData.locationId || null,
-            quantity: lineData.quantity,
-            unitPrice: lineData.unitPrice,
-            total: lineData.total,
-          },
+          data: openingStockLineCreateData(openingStockId, lineData),
         });
         lines.push(line);
-        if (!existing.isCancelled) {
-          await inventoryCostingService.applyInboundMovement(tx, {
-            companyId,
-            branchId: existing.branchId ?? undefined,
-            warehouseId: lineData.warehouseId,
-            itemId: lineData.itemId,
-            locationId: lineData.locationId ?? null,
-            quantity: Number(lineData.quantity),
-            unitCost: Number(lineData.unitPrice),
-            movementType: COSTING_MOVEMENT.ADJUSTMENT_POSITIVE,
-            sourceType,
-            sourceNumber,
-            sourceYearId,
-            sourceDocumentId: openingStockId,
-            transactionDate: lockedDate,
-          });
-        }
       }
-
       const record = await tx.openingStock.update({
         where: { id: openingStockId },
         data: {
+          branchId,
           description: data.description ?? existing.description,
           date: lockedDate,
           totalAmount: data.lines.reduce((sum, line) => sum + line.total, 0),
@@ -668,6 +612,7 @@ export class OpeningStockService {
               select: {
                 id: true,
                 warehouseId: true,
+                warehouse: { select: { arabicName: true, code: true } },
               },
               take: 1,
             },
@@ -694,6 +639,47 @@ export class OpeningStockService {
   /**
    * Post opening stock (make it final)
    */
+  private async applyOpeningStockLinesInTx(
+    tx: Parameters<Parameters<typeof prisma.$transaction>[0]>[0],
+    companyId: string,
+    openingStock: {
+      id: string;
+      date: Date;
+      branchId: string | null;
+      serial: string | null;
+      lines: Array<{
+        itemId: string;
+        warehouseId: string;
+        locationId: string | null;
+        quantity: unknown;
+        unitPrice: unknown;
+      }>;
+    }
+  ) {
+    const sourceType = SOURCE_TYPE;
+    const sourceNumber = openingStock.serial ?? openingStock.id.slice(0, 8);
+    const sourceYearId = String(new Date(openingStock.date).getFullYear());
+    for (const line of openingStock.lines) {
+      const qty = Number(line.quantity);
+      if (!(qty > 0)) continue;
+      await inventoryCostingService.applyInboundMovement(tx, {
+        companyId,
+        branchId: openingStock.branchId ?? undefined,
+        warehouseId: line.warehouseId,
+        itemId: line.itemId,
+        locationId: line.locationId ?? null,
+        quantity: qty,
+        unitCost: Number(line.unitPrice),
+        movementType: COSTING_MOVEMENT.ADJUSTMENT_POSITIVE,
+        sourceType,
+        sourceNumber,
+        sourceYearId,
+        sourceDocumentId: openingStock.id,
+        transactionDate: openingStock.date,
+      });
+    }
+  }
+
   async postOpeningStock(
     companyId: string,
     openingStockId: string,
@@ -723,9 +709,10 @@ export class OpeningStockService {
         throw new Error('كشف بضاعة أول المدة مرحّل مسبقاً');
       }
 
-      await fiscalYearService.assertOpenForDate(companyId, openingStock.date, {
+      const fiscalYearId = await fiscalYearService.assertOpenForDate(companyId, openingStock.date, {
         allowOpeningDocument: true,
       });
+      const branchId = await resolveCompanyBranchId(companyId, openingStock.branchId);
 
       for (const warehouseId of new Set(
         openingStock.lines.map((line) => line.warehouseId).filter(Boolean)
@@ -733,38 +720,45 @@ export class OpeningStockService {
         await assertWarehouseActive(companyId, warehouseId);
       }
 
-      if (glCtx) {
-        // GL and isPosted are set atomically inside postOpeningBalanceGlInTx
-        const accountValues = await collectOpeningInventoryValues(companyId, openingStock.lines);
-        await prisma.$transaction(async (tx) => {
-          await this.postOpeningBalanceGlInTx(tx, glCtx, {
-            openingStockId,
-            date: openingStock.date,
-            description: openingStock.description,
-            sourceNumber: openingStock.serial ?? openingStock.id.slice(0, 8),
-            sourceYearId: String(openingStock.date.getFullYear()),
-            accountValues,
-          });
-          // If GL accounts are not configured, postOpeningBalanceGlInTx returns
-          // null without setting isPosted; mark it posted here so the document
-          // lifecycle still advances.
-          await tx.openingStock.update({
-            where: { id: openingStockId, isPosted: false },
-            data: { isPosted: true, postedAt: new Date() },
-          });
-        });
-      } else {
-        // No GL — just flip the flag
-        await prisma.openingStock.update({
-          where: { id: openingStockId },
-          data: { isPosted: true, postedAt: new Date() },
-        });
+      const primaryWarehouseId = openingStock.lines[0]?.warehouseId ?? null;
+      const inventorySystem = await ensurePerpetualInventoryGlReady(
+        companyId,
+        glCtx,
+        primaryWarehouseId
+      );
+
+      const glSlices = await collectOpeningInventoryGlSlices(companyId, openingStock.lines);
+
+      if (inventorySystem === 'PERPETUAL' && !glCtx) {
+        throw new AppError(422, PERPETUAL_GL_CONTEXT_AR);
       }
 
-      // Re-fetch to return the latest state
-      const updated = await prisma.openingStock.findFirst({
-        where: { id: openingStockId },
+      await prisma.$transaction(async (tx) => {
+        await this.applyOpeningStockLinesInTx(tx, companyId, openingStock);
+
+        let journalEntryId: string | null = openingStock.journalEntryId;
+        if (glCtx && inventorySystem === 'PERPETUAL' && glSlices.length) {
+          const accounts = await resolveStockGlAccounts(companyId);
+          journalEntryId = await syncOpeningStockIntoOpeningJournalInTx(tx, companyId, {
+            openingStockId,
+            glSlices,
+            creditAccountId: accounts.adjustmentAccountId,
+          });
+        }
+
+        await tx.openingStock.update({
+          where: { id: openingStockId },
+          data: {
+            isPosted: true,
+            postedAt: new Date(),
+            branchId,
+            journalEntryId,
+          },
+        });
       });
+
+      // Re-fetch to return the latest state
+      const updated = await this.getOpeningStockById(companyId, openingStockId);
 
       logger.info({ companyId, openingStockId }, 'Opening stock posted');
 
@@ -815,25 +809,22 @@ export class OpeningStockService {
         });
 
         for (const line of lines) {
-          await stockMovementService.postMovementInTx(tx, {
+          await inventoryCostingService.reverseInboundInTx(tx, {
             companyId,
             branchId: openingStock.branchId ?? undefined,
             warehouseId: line.warehouseId,
             itemId: line.itemId,
             locationId: line.locationId ?? null,
-            quantityDelta: -Number(line.quantity),
+            quantity: Number(line.quantity),
+            originalUnitCost: Number(line.unitPrice),
             movementType: `${sourceType}-UNPOST`,
             sourceType: `${sourceType}-UNPOST`,
             sourceNumber,
             sourceYearId,
-            documentDate: openingStock.date,
+            transactionDate: openingStock.date,
+            updateLastPurchasePrice: false,
           });
 
-          // Mirror assembly/disassembly: the opening-balance cost entry is
-          // removed outright rather than re-averaged out (safe because it
-          // is keyed to this exact document, and re-averaging a removal
-          // the way SALE_RETURN used to is exactly the bug Phase 2 fixed
-          // elsewhere).
           await itemCostService.removeCostHistoryBySourceInTx(tx, {
             companyId,
             itemId: line.itemId,
@@ -843,16 +834,7 @@ export class OpeningStockService {
           });
         }
 
-        if (glCtx) {
-          await stockMovementGlService.reverseBySourceInTx(
-            tx,
-            glCtx,
-            sourceType,
-            sourceNumber,
-            sourceYearId,
-            'Opening stock unposted'
-          );
-        }
+        await removeOpeningStockFromOpeningJournalInTx(tx, companyId, openingStockId);
 
         // Update to unposted
         await tx.openingStock.update({
@@ -869,7 +851,7 @@ export class OpeningStockService {
       return { success: true };
     } catch (error) {
       logger.error({ error, companyId, openingStockId }, 'Error unposting opening stock');
-      throw error;
+      rethrowOpeningStockStockConflict(error);
     }
   }
 
@@ -902,58 +884,8 @@ export class OpeningStockService {
         throw new Error('لا يمكن إلغاء كشف مرحّل. فك الترحيل أولاً.');
       }
 
-      // The quantity/cost/GL effect is applied at create time (not post
-      // time), so a still-draft (unposted) opening stock has already moved
-      // stock. Reverse it all here — otherwise cancelling leaves a stray,
-      // unaccounted-for quantity/cost/GL increment forever.
-      const sourceType = SOURCE_TYPE;
-      const sourceNumber = openingStock.serial ?? openingStock.id.slice(0, 8);
-      const sourceYearId = String(new Date(openingStock.date).getFullYear());
-
       const updated = await prisma.$transaction(async (tx) => {
-        for (const line of openingStock.lines) {
-          await stockMovementService.postMovementInTx(tx, {
-            companyId,
-            branchId: openingStock.branchId ?? undefined,
-            warehouseId: line.warehouseId,
-            itemId: line.itemId,
-            locationId: line.locationId ?? null,
-            quantityDelta: -Number(line.quantity),
-            movementType: `${sourceType}-CANCEL`,
-            sourceType: `${sourceType}-CANCEL`,
-            sourceNumber,
-            sourceYearId,
-            documentDate: openingStock.date,
-          });
-
-          await itemCostService.removeCostHistoryBySourceInTx(tx, {
-            companyId,
-            itemId: line.itemId,
-            sourceType,
-            sourceNumber,
-            sourceYearId,
-          });
-        }
-
-        if (glCtx) {
-          await stockMovementGlService.reverseBySourceInTx(
-            tx,
-            glCtx,
-            sourceType,
-            sourceNumber,
-            sourceYearId,
-            'Opening stock cancelled'
-          );
-        }
-        await journalPostingService.cascadeSourceJournalInTx(
-          tx,
-          companyId,
-          [openingStock.journalEntryId],
-          'cancel',
-          glCtx?.userId,
-          { sourceId: openingStock.id, sourceType, sourceNumber }
-        );
-
+        await removeOpeningStockFromOpeningJournalInTx(tx, companyId, openingStockId);
         return tx.openingStock.update({
           where: { id: openingStockId },
           data: {
@@ -997,51 +929,12 @@ export class OpeningStockService {
         throw new Error('كشف بضاعة أول المدة ليس ملغياً');
       }
 
-      const otherActive = await prisma.openingStock.findFirst({
-        where: { companyId, isCancelled: false, id: { not: openingStockId } },
-        select: { id: true },
-      });
-      if (otherActive) {
-        throw new Error('يوجد كشف بضاعة أول المدة نشط بالفعل. ألغِ الجديد أولاً ثم استرجع الملغي.');
-      }
-
-      // Symmetric with cancelOpeningStock: re-apply the quantity/cost/GL
-      // effect that was reversed on cancel.
-      const sourceType = SOURCE_TYPE;
-      const sourceNumber = openingStock.serial ?? openingStock.id.slice(0, 8);
-      const sourceYearId = String(new Date(openingStock.date).getFullYear());
+      const warehouseIds = [
+        ...new Set(openingStock.lines.map((line) => String(line.warehouseId || '').trim()).filter(Boolean)),
+      ];
 
       const updated = await prisma.$transaction(async (tx) => {
-        const accountValues = await collectOpeningInventoryValues(companyId, openingStock.lines, tx);
-        for (const line of openingStock.lines) {
-          await inventoryCostingService.applyInboundMovement(tx, {
-            companyId,
-            branchId: openingStock.branchId ?? undefined,
-            warehouseId: line.warehouseId,
-            itemId: line.itemId,
-            locationId: line.locationId ?? null,
-            quantity: Number(line.quantity),
-            unitCost: Number(line.unitPrice),
-            movementType: COSTING_MOVEMENT.ADJUSTMENT_POSITIVE,
-            sourceType,
-            sourceNumber,
-            sourceYearId,
-            sourceDocumentId: openingStock.id,
-            transactionDate: openingStock.date,
-          });
-        }
-
-        if (glCtx) {
-          await this.postOpeningBalanceGlInTx(tx, glCtx, {
-            openingStockId: openingStock.id,
-            date: openingStock.date,
-            description: openingStock.description,
-            sourceNumber,
-            sourceYearId,
-            accountValues,
-          });
-        }
-
+        await assertWarehousesFreeForOpening(tx, companyId, warehouseIds, openingStockId);
         return tx.openingStock.update({
           where: { id: openingStockId },
           data: {
@@ -1061,55 +954,50 @@ export class OpeningStockService {
   }
 
   /**
-   * Sum of opening-stock line valuations for the company's active fiscal year:
-   * Σ (quantity × unitPrice). Used by the opening-balance journal screen.
+   * Σ (quantity × unitPrice) of every non-cancelled opening stock.
+   * The document date is the day before the fiscal year, so a year-range
+   * filter would drop them. Each warehouse is counted from one document only.
    */
-  async getTotalValuation(companyId: string, fiscalYearId?: string) {
-    let year = fiscalYearId
-      ? await prisma.fiscalYear.findFirst({
-          where: { id: fiscalYearId, companyId },
-          select: { id: true, startDate: true, endDate: true },
-        })
-      : null;
-    if (!year) {
-      const resolvedId = await fiscalYearService.resolveDefaultFiscalYearId(companyId);
-      year = resolvedId
-        ? await prisma.fiscalYear.findFirst({
-            where: { id: resolvedId, companyId },
-            select: { id: true, startDate: true, endDate: true },
-          })
-        : null;
-    }
-
-    const dateFilter = year
-      ? { gte: year.startDate, lte: year.endDate }
-      : undefined;
-
-    const lines = await prisma.openingStockLine.findMany({
-      where: {
-        openingStock: {
-          companyId,
-          isCancelled: false,
-          ...(dateFilter ? { date: dateFilter } : {}),
+  async getTotalValuation(companyId: string, _fiscalYearId?: string) {
+    const docs = await prisma.openingStock.findMany({
+      where: { companyId, isCancelled: false, isPosted: true },
+      select: {
+        id: true,
+        isPosted: true,
+        updatedAt: true,
+        lines: {
+          select: {
+            quantity: true,
+            unitPrice: true,
+            itemId: true,
+            warehouseId: true,
+            warehouse: { select: { arabicName: true, code: true } },
+            item: { select: { arabicName: true, serial: true, mainAccountId: true } },
+          },
         },
       },
-      select: {
-        quantity: true,
-        unitPrice: true,
-        itemId: true,
-        warehouseId: true,
-      },
     });
+    const keptDocs = openingLinesWithoutWarehouseOverlap(docs);
+    const lines = keptDocs.flatMap((doc) => doc.lines);
 
-    let totalValuation = 0;
+    const warehouseNames = new Map<string, string>();
+    for (const line of lines) {
+      const id = String(line.warehouseId || '').trim();
+      if (!id) continue;
+      const label = line.warehouse?.arabicName || line.warehouse?.code || id.slice(0, 8);
+      warehouseNames.set(id, label);
+    }
+
+    const glSlices = await collectOpeningInventoryGlSlices(companyId, lines);
+    const groups = aggregateOpeningValuationGroups(glSlices, warehouseNames);
+
+    let totalValuation = roundTo4(groups.reduce((sum, row) => sum + row.valuation, 0));
     const itemIds = new Set<string>();
     const warehouseIds = new Set<string>();
     for (const line of lines) {
-      totalValuation += Number(line.quantity || 0) * Number(line.unitPrice || 0);
       if (line.itemId) itemIds.add(line.itemId);
       if (line.warehouseId) warehouseIds.add(line.warehouseId);
     }
-    totalValuation = roundTo4(totalValuation);
 
     let defaultStockAccountId: string | null = null;
     try {
@@ -1143,6 +1031,8 @@ export class OpeningStockService {
       itemsCount: itemIds.size,
       warehousesCount: warehouseIds.size,
       defaultStockAccountId,
+      /** One GL debit line per warehouse (and inventory account when they differ). */
+      groups,
     };
   }
 }

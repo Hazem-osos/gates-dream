@@ -3,5 +3,5 @@
 import { HrMasterLocalFormPage } from '@/components/hr/HrMasterLocalFormPage';
 
 export default function ProceduresPage() {
-  return <HrMasterLocalFormPage title="تعريف الإجراءات" />;
+  return <HrMasterLocalFormPage title="تعريف الإجراءات" kind="procedure" />;
 }

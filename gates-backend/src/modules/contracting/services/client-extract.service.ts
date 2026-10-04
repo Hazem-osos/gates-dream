@@ -8,6 +8,7 @@ import {
 } from '../../accounting/services/journal-posting.service';
 import { documentSequenceService } from '../../platform/services/document-sequence.service';
 import { contractingProjectService } from './contracting-project.service';
+import { requireLegacyWave3Stack } from './contracting-canonical-stack.service';
 import { contractingAccountResolverService } from './contracting-account-resolver.service';
 import { calculateClientExtractAmounts } from './extract-calculation.util';
 
@@ -41,6 +42,7 @@ export class ClientExtractService {
       periodEnd?: Date;
     }
   ) {
+    await requireLegacyWave3Stack(companyId, input.projectId);
     const project = await contractingProjectService.getById(companyId, input.projectId);
     const settings = await contractingAccountResolverService.getSettings(companyId);
 
@@ -78,6 +80,7 @@ export class ClientExtractService {
     });
     if (!extract) throw new AppError(404, 'Client extract not found');
     if (extract.status === 'POSTED') throw new AppError(400, 'Extract already posted');
+    await requireLegacyWave3Stack(ctx.companyId, extract.projectId);
 
     const accounts = await contractingAccountResolverService.resolveAccounts(ctx.companyId);
     const gross = roundTo4(Number(extract.grossAmount));

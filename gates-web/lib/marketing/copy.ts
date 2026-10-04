@@ -1,3 +1,5 @@
+import { storyLayers } from './story-copy';
+
 export type MarketingLocale = 'ar' | 'en';
 
 export const marketingCopy = {
@@ -234,6 +236,7 @@ export const marketingCopy = {
       legal: 'Legal',
       legalSoon: 'Legal pages will be published here.',
     },
+    ...storyLayers.en,
     login: {
       product: 'Integrated business operating system',
       title: 'Sign in',
@@ -480,6 +483,7 @@ export const marketingCopy = {
       legal: 'قانوني',
       legalSoon: 'ستُنشر الصفحات القانونية هنا.',
     },
+    ...storyLayers.ar,
     login: {
       product: 'نظام إدارة الموارد المتكامل',
       title: 'تسجيل الدخول',

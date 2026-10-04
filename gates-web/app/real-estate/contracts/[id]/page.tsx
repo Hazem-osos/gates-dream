@@ -15,6 +15,8 @@ import { usePrintDocument } from '@/lib/documentLayout/usePrintDocument';
 import { pickSavedDocumentLayout } from '@/lib/documentLayout/pickSavedDocumentLayout';
 import { realEstateReceiptToPreview } from '@/lib/documentLayout/fromDomain';
 import { lazyNamedModal } from '@/components/ui/lazyModal';
+import { apiClient } from '@/lib/api/client';
+import { toast } from '@/lib/feedback/toast';
 
 const GenerateScheduleModal = lazyNamedModal(
   () => import('@/components/real-estate/GenerateScheduleModal'),
@@ -45,6 +47,7 @@ export default function ContractWorkspacePage() {
   const [cancelOpen, setCancelOpen] = useState(false);
   const [resaleOpen, setResaleOpen] = useState(false);
   const [settleRow, setSettleRow] = useState<UnitInstallment | null>(null);
+  const [actionPending, setActionPending] = useState<string | null>(null);
   const { printDocument } = usePrintDocument();
 
   const { data, isLoading, isError } = useApiQuery<UnitContract>(
@@ -63,11 +66,31 @@ export default function ContractWorkspacePage() {
     invalidate(queryKeys.realEstate.contracts());
   };
 
+  const runAction = async (key: string, path: string, successMsg: string, body?: Record<string, unknown>) => {
+    setActionPending(key);
+    try {
+      await apiClient.post(path, body);
+      toast.success(successMsg);
+      refresh();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'تعذر تنفيذ العملية');
+    } finally {
+      setActionPending(null);
+    }
+  };
+
   const projectName =
     contract?.propertyUnit?.phase?.project?.nameAr ||
     contract?.unit?.building?.project?.projectName ||
     contract?.propertyUnit?.phase?.nameAr ||
     '—';
+
+  const isPosted = Boolean(contract?.contractJournalEntryId || contract?.postedAt);
+  const isHandedOver = Boolean(contract?.handoverJournalEntryId || contract?.handoverAt);
+  const canActOnContract =
+    contract &&
+    (contract.status === 'ACTIVE' || contract.status === 'COMPLETED') &&
+    !contract.resaleLock;
 
   const scheduleBreakdown = useMemo(() => {
     if (!contract) return null;
@@ -100,11 +123,77 @@ export default function ContractWorkspacePage() {
         docNumber={contract?.contractNumber}
         currentId={contract?.id}
         extraActions={
-          contract && contract.status === 'ACTIVE' ? (
+          contract && canActOnContract ? (
             <div className="flex flex-wrap gap-2">
-              <Button size="sm" onClick={() => setScheduleOpen(true)}>توليد جدول الأقساط</Button>
-              <Button size="sm" variant="secondary" onClick={() => setResaleOpen(true)}>طلب إعادة بيع</Button>
-              <Button size="sm" variant="danger" onClick={() => setCancelOpen(true)}>فسخ ومصادرة</Button>
+              {!isPosted ? (
+                <Button
+                  size="sm"
+                  disabled={actionPending !== null}
+                  onClick={() =>
+                    void runAction(
+                      'post',
+                      `/real-estate/contracts/${contract.id}/post-contract`,
+                      'تم ترحيل العقد'
+                    )
+                  }
+                >
+                  {actionPending === 'post' ? 'جاري الترحيل…' : 'ترحيل العقد'}
+                </Button>
+              ) : null}
+              {isPosted && !isHandedOver ? (
+                <>
+                  <Button
+                    size="sm"
+                    disabled={actionPending !== null}
+                    onClick={() =>
+                      void runAction(
+                        'handover',
+                        `/real-estate/contracts/${contract.id}/handover`,
+                        'تم تسليم الوحدة'
+                      )
+                    }
+                  >
+                    {actionPending === 'handover' ? 'جاري التسليم…' : 'تسليم الوحدة'}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={actionPending !== null}
+                    onClick={() =>
+                      void runAction(
+                        'unpost',
+                        `/real-estate/contracts/${contract.id}/unpost-contract`,
+                        'تم إلغاء ترحيل العقد'
+                      )
+                    }
+                  >
+                    {actionPending === 'unpost' ? 'جاري الإلغاء…' : 'إلغاء ترحيل العقد'}
+                  </Button>
+                </>
+              ) : null}
+              {isHandedOver ? (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={actionPending !== null}
+                  onClick={() =>
+                    void runAction(
+                      'unpost-handover',
+                      `/real-estate/contracts/${contract.id}/unpost-handover`,
+                      'تم إلغاء ترحيل التسليم'
+                    )
+                  }
+                >
+                  {actionPending === 'unpost-handover' ? 'جاري الإلغاء…' : 'إلغاء ترحيل التسليم'}
+                </Button>
+              ) : null}
+              {contract.status === 'ACTIVE' ? (
+                <>
+                  <Button size="sm" onClick={() => setScheduleOpen(true)}>توليد جدول الأقساط</Button>
+                  <Button size="sm" variant="secondary" onClick={() => setResaleOpen(true)}>طلب إعادة بيع</Button>
+                  <Button size="sm" variant="danger" onClick={() => setCancelOpen(true)}>فسخ ومصادرة</Button>
+                </>
+              ) : null}
             </div>
           ) : undefined
         }
@@ -132,7 +221,12 @@ export default function ContractWorkspacePage() {
                 <p className="text-xs text-slate-500">{contract.customer?.code}</p>
               </div>
               <div className="space-y-2">
+                <ContractStatusBadge status={contract.status} />
                 <ResaleLockBadge locked={contract.resaleLock} />
+                <p className="text-xs text-slate-500">
+                  {isPosted ? 'مرحّل' : 'غير مرحّل'}
+                  {isHandedOver ? ' · تم التسليم' : ''}
+                </p>
                 <p className="text-xs text-slate-500">تاريخ العقد {formatDateAr(contract.contractDate)}</p>
               </div>
             </div>
@@ -149,9 +243,9 @@ export default function ContractWorkspacePage() {
           </div>
 
           <ReCard>
-            <h2 className="mb-1 text-lg font-bold text-[#0E79AA]">جدول الأقساط</h2>
+            <h2 className="mb-1 text-lg font-bold text-[#0E78AA]">جدول الأقساط</h2>
             {scheduleBreakdown ? (
-              <p className="mb-3 rounded-lg border border-[#D6EAF3] bg-[#0E79AA0D] px-3 py-2 text-xs leading-relaxed text-slate-600">
+              <p className="mb-3 rounded-lg border border-[#D6EAF3] bg-[#0E78AA0D] px-3 py-2 text-xs leading-relaxed text-slate-600">
                 <span className="font-semibold text-[#094C6B]">تركيب الجدول: </span>
                 مقدم {formatEgp(scheduleBreakdown.downPayment)}
                 {' · '}

@@ -1,4 +1,5 @@
 import prisma from '../../../shared/database/prisma';
+import { permanentDelete } from '../../../shared/database/permanent-delete.util';
 import { logger } from '../../../shared/logger';
 import { Decimal } from '@prisma/client/runtime/library';
 import { CreateEOSDisbursementInput, UpdateEOSDisbursementInput } from '../schemas/eos-disbursement.schema';
@@ -244,7 +245,7 @@ export class EOSDisbursementService {
   }
 
   /**
-   * Delete end of service disbursement (soft delete)
+   * Delete permanently (blocked if referenced)
    */
   async deleteEOSDisbursement(companyId: string, disbursementId: string) {
     try {
@@ -260,10 +261,7 @@ export class EOSDisbursementService {
         throw new Error('End of service disbursement not found');
       }
 
-      await prisma.endOfServiceDisbursement.update({
-        where: { id: disbursementId },
-        data: { isActive: false },
-      });
+      await permanentDelete('السجل', () => prisma.endOfServiceDisbursement.delete({ where: { id: disbursementId } }));
 
       logger.info({ companyId, disbursementId }, 'End of service disbursement deleted');
       return { success: true };

@@ -81,21 +81,6 @@ export class ProductionOrderService {
       throw new AppError(400, 'Only DRAFT orders can be released');
     }
 
-    const requirements = await bomService.explodeRequirements(
-      order.bomId,
-      Number(order.plannedQuantity)
-    );
-
-    for (const req of requirements) {
-      await stockMovementService.assertNegativeStockAllowed(
-        companyId,
-        order.warehouseIdRaw,
-        req.rawItemId,
-        null,
-        -req.quantity
-      );
-    }
-
     return prisma.productionOrder.update({
       where: { id: orderId },
       data: { status: 'RELEASED', releasedAt: new Date() },
@@ -171,7 +156,7 @@ export class ProductionOrderService {
       for (const line of issueLines) {
         await stockMovementService.postMovementInTx(tx, {
           companyId: ctx.companyId,
-          branchId: ctx.branchId,
+          branchId: ctx.branchId ?? undefined,
           warehouseId: order.warehouseIdRaw,
           itemId: line.rawItemId,
           quantityDelta: -line.quantity,
@@ -265,8 +250,11 @@ export class ProductionOrderService {
     if (order.status !== 'IN_PROGRESS') {
       throw new AppError(400, 'Order must be IN_PROGRESS to complete');
     }
-    if (!order.materialsIssueJournalEntryId || !order.laborOverheadJournalEntryId) {
-      throw new AppError(422, 'Issue materials and labor/overhead before completion');
+    const laborBooked = Number(order.totalLaborCost);
+    const overheadBooked = Number(order.totalOverheadCost);
+    const needsLaborJournal = laborBooked > 0 || overheadBooked > 0;
+    if (!order.materialsIssueJournalEntryId || (needsLaborJournal && !order.laborOverheadJournalEntryId)) {
+      throw new AppError(422, 'صرف الخامات قبل إنهاء أمر التصنيع');
     }
     if (actualQuantity <= 0) throw new AppError(422, 'Actual quantity must be positive');
 
@@ -289,7 +277,7 @@ export class ProductionOrderService {
 
       await manufacturingCostingService.receiveFinishedGoodsInTx(tx, {
         companyId: ctx.companyId,
-        branchId: ctx.branchId,
+        branchId: ctx.branchId ?? undefined,
         warehouseId: order.warehouseIdFinished,
         itemId: order.finishedItemId,
         quantity: actualQuantity,
@@ -336,7 +324,7 @@ export class ProductionOrderService {
       if (qty > 0) {
         await stockMovementService.postMovementInTx(tx, {
           companyId: ctx.companyId,
-          branchId: ctx.branchId,
+          branchId: ctx.branchId ?? undefined,
           warehouseId: order.warehouseIdFinished,
           itemId: order.finishedItemId,
           quantityDelta: -qty,
@@ -412,7 +400,7 @@ export class ProductionOrderService {
         for (const line of issue.lines) {
           await stockMovementService.postMovementInTx(tx, {
             companyId: ctx.companyId,
-            branchId: ctx.branchId,
+            branchId: ctx.branchId ?? undefined,
             warehouseId: order.warehouseIdRaw,
             itemId: line.rawItemId,
             quantityDelta: Number(line.quantity),

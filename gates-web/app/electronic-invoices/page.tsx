@@ -42,7 +42,7 @@ export default function ElectronicInvoicesCommand() {
       onRefresh={() => void refetch()}
       shortcuts={[
         { key: 'F2', label: 'إرسال', href: '/electronic-invoices/creations/send-invoice' },
-        { key: 'F4', label: 'مرتجع', href: '/electronic-invoices/creations/send-returns' },
+        { key: 'F4', label: 'مرتجع', href: '/electronic-invoices/creations/send-invoice?view=credit' },
         { key: 'F6', label: 'إعدادات', href: '/electronic-invoices/settings' },
       ]}
     >
@@ -70,7 +70,7 @@ export default function ElectronicInvoicesCommand() {
           <SegmentedBar
             segments={[
               { label: 'غير مرسلة', value: k?.notSubmitted ?? 0, color: '#D97706' },
-              { label: 'معالجة', value: k?.processing ?? 0, color: '#0E79AA' },
+              { label: 'معالجة', value: k?.processing ?? 0, color: '#0E78AA' },
               { label: 'مقبولة', value: k?.valid ?? 0, color: '#059669' },
               { label: 'مرفوضة', value: k?.invalid ?? 0, color: '#E11D48' },
             ]}

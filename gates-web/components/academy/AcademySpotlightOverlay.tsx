@@ -152,10 +152,10 @@ export function AcademySpotlightOverlay({
       />
 
       <div
-        className="absolute z-[73] rounded-2xl border border-[#0E79AA]/30 bg-white p-3.5 shadow-2xl"
+        className="absolute z-[73] rounded-2xl border border-[#0E78AA]/30 bg-white p-3.5 shadow-2xl"
         style={{ top: tooltip.top, left: tooltip.left, width: tooltip.width }}
       >
-        <p className="text-[10px] font-bold tracking-wide text-[#0E79AA]">
+        <p className="text-[10px] font-bold tracking-wide text-[#0E78AA]">
           أكاديمية Gates الذكية — خطوة {stepIndex + 1} من {total}
         </p>
         <h3 className="mt-1 text-sm font-bold text-[#094C6B]">{step.titleAr}</h3>
@@ -177,7 +177,7 @@ export function AcademySpotlightOverlay({
             <button
               type="button"
               onClick={goNext}
-              className="rounded-lg bg-[#0E79AA] px-2.5 py-1 text-xs font-semibold text-white"
+              className="rounded-lg bg-[#0E78AA] px-2.5 py-1 text-xs font-semibold text-white"
             >
               {lastStep ? 'إنهاء' : 'التالي'}
             </button>

@@ -8,7 +8,7 @@ export default function CancelledOperationsPage() {
       urlPath="/accounting/account-reports/moves/cancelled-operations"
       icon="📋"
       subtitle="العمليات الملغاة خلال الفترة."
-      fields={{ dates: 'range', branch: true }}
+      fields={{ dates: 'range', branch: true, account: true, costCenter: true }}
     />
   );
 }

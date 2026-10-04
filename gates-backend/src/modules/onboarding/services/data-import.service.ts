@@ -2,6 +2,9 @@ import prisma from '../../../shared/database/prisma';
 import { AppError } from '../../../shared/middleware/error-handler';
 import { Decimal } from '@prisma/client/runtime/library';
 import { onboardingImportService } from '../../company/services/onboarding-import.service';
+import { inventoryCostingService } from '../../inventory/services/inventory-costing.service';
+import { COSTING_MOVEMENT } from '../../inventory/services/inventory-costing-math';
+import { openingImportIdentity, openingImportLookup } from '../../inventory/services/inventory-integrity';
 
 function rowLabel(index: number): string {
   return `صف ${index + 1}`;
@@ -12,7 +15,7 @@ function requireArabicName(
   errors: string[]
 ): Array<{ arabicName: string; mobile?: string; code?: string; openingBalance?: number }> {
   const parsed: Array<{ arabicName: string; mobile?: string; code?: string; openingBalance?: number }> = [];
-  rows.slice(0, 500).forEach((r, i) => {
+  rows.forEach((r, i) => {
     const arabicName = String(r.arabicName ?? r.name ?? '').trim();
     if (!arabicName) {
       errors.push(`${rowLabel(i)}: الإسم العربي مطلوب`);
@@ -48,6 +51,9 @@ export class DataImportService {
     }
 
     if (entity === 'CUSTOMERS') {
+      if (rows.length > 500) {
+        throw new AppError(422, 'استيراد العملاء حدّه 500 صف في المرة');
+      }
       const parsed = requireArabicName(rows, errors);
       if (errors.length) {
         throw new AppError(
@@ -76,6 +82,9 @@ export class DataImportService {
     }
 
     if (entity === 'SUPPLIERS') {
+      if (rows.length > 500) {
+        throw new AppError(422, 'استيراد الموردين حدّه 500 صف في المرة');
+      }
       const parsed = requireArabicName(rows, errors);
       if (errors.length) {
         throw new AppError(
@@ -114,27 +123,31 @@ export class DataImportService {
       }
     }
 
-    rows.slice(0, 500).forEach((r, i) => {
+    rows.forEach((r, i) => {
       const arabicName = String(r.arabicName ?? r.name ?? '').trim();
       if (!arabicName) {
         errors.push(`${rowLabel(i)}: الإسم العربي مطلوب للصنف`);
       }
     });
     if (errors.length) {
-      throw new AppError(422, `Import validation failed: ${errors.join('; ')}`);
+      throw new AppError(422, `Import validation failed: ${errors.slice(0, 15).join(' · ')}`);
     }
 
-    const wh =
-      warehouseId ??
-      (
-        await prisma.warehouse.findFirst({
-          where: { companyId, isActive: true },
-          select: { id: true },
+    const wh = warehouseId
+      ? await prisma.warehouse.findFirst({
+          where: { id: warehouseId, companyId },
+          select: { id: true, branchId: true, isActive: true },
         })
-      )?.id;
+      : await prisma.warehouse.findFirst({
+          where: { companyId, isActive: true },
+          select: { id: true, branchId: true, isActive: true },
+        });
 
     if (openingStock && !wh) {
-      throw new AppError(422, 'Warehouse required for opening stock');
+      throw new AppError(422, 'المخزن مطلوب للرصيد الافتتاحي');
+    }
+    if (openingStock && wh && !wh.isActive) {
+      throw new AppError(422, 'المخزن غير نشط');
     }
 
     const base = await onboardingImportService.importItems(
@@ -151,44 +164,52 @@ export class DataImportService {
     );
 
     if (openingStock && wh) {
+      const year = String(new Date().getFullYear());
+      const stockChunk = 100;
+      for (let offset = 0; offset < rows.length; offset += stockChunk) {
       await prisma.$transaction(async (tx) => {
-        for (const r of rows.slice(0, 500)) {
-          const serial = r.barcode != null ? String(r.barcode) : r.serial != null ? String(r.serial) : null;
-          const name = String(r.arabicName ?? r.name ?? '').trim();
-          const qty = Number(r.quantity ?? r.qty ?? r.openingQty ?? 0);
-          if (!name || !Number.isFinite(qty) || qty <= 0) continue;
-          const item = await tx.item.findFirst({
-            where: {
-              companyId,
-              OR: [...(serial ? [{ serial }] : []), { arabicName: name }],
-            },
-            select: { id: true },
-          });
+        for (const r of rows.slice(offset, offset + stockChunk)) {
+          const identity = openingImportIdentity(r);
+          const lookup = openingImportLookup(identity);
+          if (lookup.kind === 'skip') continue;
+          const item =
+            lookup.kind === 'codes'
+              ? (lookup.serial
+                  ? await tx.item.findFirst({
+                      where: { companyId, serial: lookup.serial },
+                      select: { id: true, serial: true, averageCost: true },
+                    })
+                  : null) ??
+                (lookup.barcode
+                  ? await tx.item.findFirst({
+                      where: { companyId, barcode: lookup.barcode },
+                      select: { id: true, serial: true, averageCost: true },
+                    })
+                  : null)
+              : await tx.item.findFirst({
+                  where: { companyId, arabicName: lookup.name },
+                  select: { id: true, serial: true, averageCost: true },
+                });
           if (!item) continue;
-          const existing = await tx.itemQuantity.findFirst({
-            where: {
-              itemId: item.id,
-              warehouseId: wh,
-              item: { companyId },
-              warehouse: { companyId },
-            },
+          const unitCost = identity.unitCost > 0 ? identity.unitCost : Number(item.averageCost ?? 0);
+          await inventoryCostingService.applyInboundMovement(tx, {
+            companyId,
+            branchId: wh.branchId ?? undefined,
+            warehouseId: wh.id,
+            itemId: item.id,
+            locationId: null,
+            quantity: identity.qty,
+            unitCost,
+            movementType: COSTING_MOVEMENT.ADJUSTMENT_POSITIVE,
+            sourceType: 'IMPORT_OPENING',
+            sourceNumber: item.serial || item.id.slice(0, 8),
+            sourceYearId: year,
+            transactionDate: new Date(),
+            updateLastPurchasePrice: identity.unitCost > 0,
           });
-          if (existing) {
-            await tx.itemQuantity.update({
-              where: { id: existing.id },
-              data: { quantity: new Decimal(Number(existing.quantity) + qty) },
-            });
-          } else {
-            await tx.itemQuantity.create({
-              data: {
-                itemId: item.id,
-                warehouseId: wh,
-                quantity: new Decimal(qty),
-              },
-            });
-          }
         }
-      });
+      }, { timeout: 30_000 });
+      }
     }
 
     return { entity: 'ITEMS', ...base, openingStockApplied: Boolean(openingStock && wh) };

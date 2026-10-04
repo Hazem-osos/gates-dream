@@ -24,7 +24,7 @@ router.get(
     try {
       const companyId = req.companyId || req.tenantId;
       if (!companyId) {
-        return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+        return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
       }
       const result = await representativeCommissionQuantityService.list(companyId, {
         page: req.query.page as number | undefined,
@@ -54,7 +54,7 @@ router.put(
     try {
       const companyId = req.companyId || req.tenantId;
       if (!companyId) {
-        return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+        return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
       }
       const result = await representativeCommissionQuantityService.replaceAll(companyId, req.body);
       return void res.json({

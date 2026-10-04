@@ -3,6 +3,7 @@ import { authenticate } from '../../../shared/middleware/auth.middleware';
 import { authorize } from '../../../shared/middleware/authorize.middleware';
 import { setTenantContext } from '../../../shared/middleware/tenant.middleware';
 import { hrReportsService } from '../services/reports.service';
+import prisma from '../../../shared/database/prisma';
 import { logger } from '../../../shared/logger';
 import { AuthRequest } from '../../../shared/auth/types';
 import { startOfDayUtc, endOfDayUtc } from '../../../shared/utils/report-date';
@@ -39,7 +40,7 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -88,7 +89,7 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -146,7 +147,7 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -185,6 +186,42 @@ router.get(
       return void res.status(500).json({
         status: 'error',
         message: error instanceof Error ? error.message : 'Failed to get end of service report',
+      });
+    }
+  }
+);
+
+router.get(
+  '/leave',
+  authorize({ resource: 'report', action: 'view' }),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const companyId = req.companyId || req.tenantId;
+      if (!companyId) {
+        return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
+      }
+      if (!req.query.fromDate || !req.query.toDate) {
+        return void res.status(400).json({ status: 'error', message: 'يرجى اختيار تاريخ البداية والنهاية' });
+      }
+      const rows = await prisma.annualLeaveEntitlementsDisbursement.findMany({
+        where: {
+          companyId,
+          date: {
+            gte: parseRangeStart(req.query.fromDate, 'fromDate'),
+            lte: parseRangeEnd(req.query.toDate, 'toDate'),
+          },
+          ...(req.query.employeeId ? { employeeId: String(req.query.employeeId) } : {}),
+        },
+        include: { employee: { select: { arabicName: true, serial: true } } },
+        orderBy: { date: 'desc' },
+        take: 200,
+      });
+      return void res.json({ status: 'success', data: rows });
+    } catch (error) {
+      logger.error({ error }, 'Error getting leave report');
+      return void res.status(500).json({
+        status: 'error',
+        message: error instanceof Error ? error.message : 'تعذر تحميل تقرير الإجازات',
       });
     }
   }

@@ -70,10 +70,10 @@ describe('AutomationRuleService — catalog enforcement', () => {
     expect(rule.eventType).toBe('sales.invoice.created');
   });
 
-  it('rejects creating a rule for a plannedNotEmitting event', async () => {
+  it('rejects creating a rule for an unknown event', async () => {
     const service = new AutomationRuleService(createMemoryDb());
     await expect(
-      service.createRule(COMPANY_A, { ...validCreateInput, eventType: 'sales.invoice.posted' })
+      service.createRule(COMPANY_A, { ...validCreateInput, eventType: 'not.a.real.event' })
     ).rejects.toMatchObject({ statusCode: 400 });
   });
 
@@ -139,6 +139,27 @@ describe('AutomationRuleService — catalog enforcement', () => {
     const service = new AutomationRuleService(createMemoryDb(seed));
     const updated = await service.updateRule(COMPANY_A, 'rule-1', { enabled: false });
     expect(updated.enabled).toBe(false);
+  });
+
+  it('allows enable/disable of an existing plannedNotEmitting rule without treating it as creatable', async () => {
+    const seed = [
+      {
+        id: 'rule-posted',
+        companyId: COMPANY_A,
+        name: 'Legacy posted',
+        description: null,
+        eventType: 'sales.invoice.posted',
+        enabled: true,
+        conditions: [{ field: 'totalAmount', operator: 'gt', value: 1 }],
+        actions: validCreateInput.actions,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    ];
+    const service = new AutomationRuleService(createMemoryDb(seed));
+    const disabled = await service.setEnabled(COMPANY_A, 'rule-posted', false);
+    expect(disabled.enabled).toBe(false);
+    expect(disabled.eventType).toBe('sales.invoice.posted');
   });
 
   it('duplicateRule copies conditions/actions but always starts disabled', async () => {

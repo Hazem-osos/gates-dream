@@ -78,7 +78,7 @@ export function CompactActivityTable<T extends { id: string }>({
                     <td className={denseTdClass}>
                       <Link
                         href={hrefOf(row)}
-                        className="inline-flex h-7 items-center gap-1 rounded-md text-[11px] font-semibold text-[#0E79AA] hover:underline"
+                        className="inline-flex h-7 items-center gap-1 rounded-md text-[11px] font-semibold text-[#0E78AA] hover:underline"
                       >
                         فتح
                         <ChevronLeft className="h-3 w-3" aria-hidden />

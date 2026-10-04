@@ -72,7 +72,6 @@ import { assertChequeTransition } from '../src/modules/treasury/services/cheque-
 import { SYSTEM_GL_CODES } from '../src/modules/accounting/data/system-account-map.js';
 import { roundTo4, amountsEqualAt4 } from '../src/shared/utils/decimal-round.js';
 import { runWithTenantContext, runWithoutTenantScoping } from '../src/shared/database/tenant-context.js';
-import { INVOICE_DELETE_SETTLEMENT_LOCK_MESSAGE } from '../src/modules/invoices/services/invoice-settlement-policy.js';
 import { PERIOD_LOCKED_MESSAGE } from '../src/modules/accounting/constants/ledger-integrity.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1767,15 +1766,17 @@ async function suite4InvoiceCancelDeleteTraps(
   }
 
   const removeResult = await attempt(() => services.invoiceM5Service.remove(ctx.companyId, invoice.id));
-  const removeCheck = expectAppError(removeResult, 422, INVOICE_DELETE_SETTLEMENT_LOCK_MESSAGE);
+  const cancelledRow = removeResult.ok
+    ? await prisma.invoice.findUnique({ where: { id: invoice.id }, select: { isCancelled: true } })
+    : null;
   check({
     suite: SUITE4,
     id: 'invoice-delete-with-settlement-history',
     severity: 'P0',
-    title: 'Deleting an unposted invoice with settlement history is rejected with INVOICE_DELETE_SETTLEMENT_LOCK_MESSAGE',
-    pass: removeCheck.pass,
-    expected: `AppError 422 "${INVOICE_DELETE_SETTLEMENT_LOCK_MESSAGE}"`,
-    actual: removeCheck.actual,
+    title: 'Deleting an unposted invoice after collections are cleared cancels it and keeps settlement history',
+    pass: removeResult.ok && cancelledRow?.isCancelled === true,
+    expected: 'invoice remains and isCancelled is true',
+    actual: removeResult.ok ? `isCancelled=${cancelledRow?.isCancelled}` : String((removeResult.error as Error)?.message ?? removeResult.error),
   });
 
   // Best-effort cleanup so this fixture invoice doesn't linger for later checks.

@@ -10,6 +10,7 @@
  * templating engine — only this one explicit, typed reference shape.
  */
 import { getEventField } from './event-catalog';
+import { fieldTypesCompatible, type EntityKind, type EventFieldType } from './field-types';
 
 export interface EventFieldBinding {
   source: 'event';
@@ -28,16 +29,29 @@ export function isEventFieldBinding(value: unknown): value is EventFieldBinding 
 
 export type BindingValidation = { ok: true } | { ok: false; message: string };
 
-/** The referenced field must genuinely exist on the rule's own triggering event. */
+export type BindingTarget = {
+  key?: string;
+  type: EventFieldType;
+  entityKind?: EntityKind;
+};
+
+/** The referenced field must exist on the event and match the config field's type. */
 export function validateBindingAgainstEvent(
   binding: EventFieldBinding,
-  eventType: string
+  eventType: string,
+  target?: BindingTarget
 ): BindingValidation {
   const field = getEventField(eventType, binding.field);
   if (!field) {
     return {
       ok: false,
       message: `Event field "${binding.field}" does not exist on event "${eventType}"`,
+    };
+  }
+  if (target && !fieldTypesCompatible(field, target)) {
+    return {
+      ok: false,
+      message: `Event field "${binding.field}" is not compatible with config field "${target.key ?? target.type}"`,
     };
   }
   return { ok: true };

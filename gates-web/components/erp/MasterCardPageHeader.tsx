@@ -71,7 +71,7 @@ export function MasterCardPageHeader({
       lockWhenPosted={false}
       breadcrumbs={breadcrumbs}
       title={title}
-      docNumber={docNumber || (currentId ? 'تعديل' : 'جديد')}
+      docNumber={docNumber || (currentId ? '—' : 'جديد')}
       statusTone="info"
       statusLabel={statusLabel}
       saveLabel="حفظ"

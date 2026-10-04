@@ -7,7 +7,8 @@ export type SubcontractInvoiceStatus =
   | 'TECH_OFFICE_APPROVED'
   | 'FINANCE_POSTED'
   | 'REJECTED'
-  | 'PAID';
+  | 'PAID'
+  | 'REVERSED';
 
 export type SubcontractInvoiceType = 'INTERIM_RUNNING' | 'FINAL_SETTLEMENT';
 
@@ -103,6 +104,10 @@ export type SubcontractInvoice = {
   earlyPaymentDiscountDeduction: string | number;
   netPayableAmount: string | number;
   journalEntryId?: string | null;
+  reversalJournalEntryId?: string | null;
+  reversedAt?: string | null;
+  reversedBy?: string | null;
+  reversalReason?: string | null;
   notes?: string | null;
   items?: SubcontractInvoiceItem[];
 };

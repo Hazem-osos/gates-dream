@@ -41,7 +41,7 @@ export default function SalesEmployees() {
             <option value="أنثى">أنثى</option>
           </select>
         </CompactFormField>
-        <CompactFormField label="المستخدم" defaultValue="1010101" />
+        <CompactFormField label="المستخدم" defaultValue="" />
         <label className="flex items-center gap-2 pb-2 text-sm text-[#094C6B] sm:col-span-2">
           <input type="checkbox" className="accent-[#0E78AA]" />
           الإطلاع على جميع العملاء

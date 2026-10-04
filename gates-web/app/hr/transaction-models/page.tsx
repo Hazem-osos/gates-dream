@@ -94,7 +94,7 @@ export default function TransactionModelsPage() {
                       <label className="text-sm text-[#094C6B] font-semibold min-w-[60px]">موظف 1</label>
                       <input
                         type="text"
-                        defaultValue="1212378971212"
+                        defaultValue=""
                         className="flex-1 px-3 py-2 border border-[#D6EAF3] bg-[#F6FBFD] rounded-lg text-[#094C6B]"
                         placeholder="رقم الموظف"
                       />
@@ -114,7 +114,7 @@ export default function TransactionModelsPage() {
               <div className="bg-white border border-[#D6EAF3] rounded-lg p-4">
                 <div className="flex flex-wrap gap-4 mb-4">
                   <label className="flex items-center gap-2">
-                    <input type="checkbox" className="w-4 h-4 text-[#0E79AA] border-[#D6EAF3] rounded focus:ring-[#0E79AA]" {...register('boldFont')} />
+                    <input type="checkbox" className="w-4 h-4 text-[#0E78AA] border-[#D6EAF3] rounded focus:ring-[#0E78AA]" {...register('boldFont')} />
                     <span className="text-sm text-[#094C6B]">خط سميك</span>
                   </label>
                   <div className="flex items-center gap-2">

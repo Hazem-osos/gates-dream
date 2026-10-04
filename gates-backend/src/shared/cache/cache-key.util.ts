@@ -5,7 +5,7 @@ import type { AuthRequest } from '../auth/types';
  * Builds a Redis HTTP cache key scoped to tenant + user + fiscal context.
  * Exported for unit tests (tenant isolation).
  */
-export function buildHttpCacheKey(req: AuthRequest): string {
+export function buildHttpCacheKey(req: AuthRequest, generation = '0'): string {
   const auth = req as AuthRequest;
   const userId = auth.user?.sub ?? 'anon';
   const companyId =
@@ -24,6 +24,7 @@ export function buildHttpCacheKey(req: AuthRequest): string {
     branchId,
     fiscalYearId,
     authFingerprint,
+    generation,
     req.method,
     req.originalUrl ?? req.url,
     queryString,

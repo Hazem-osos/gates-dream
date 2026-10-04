@@ -32,7 +32,7 @@ export function PeriodSegmentedControl({
             className={cn(
               'h-7 rounded-md px-2.5 text-xs font-semibold transition-colors',
               active
-                ? 'bg-white text-[#0E79AA] shadow-[0_1px_2px_rgba(0,0,0,0.06)] dark:bg-slate-900'
+                ? 'bg-white text-[#0E78AA] shadow-[0_1px_2px_rgba(0,0,0,0.06)] dark:bg-slate-900'
                 : 'text-slate-500 hover:text-slate-800'
             )}
           >

@@ -53,7 +53,7 @@ const RootQueryType = new GraphQLObjectType({
         try {
           const companyId = args.companyId || context.companyId;
           if (!companyId) {
-            throw new Error('Company ID is required');
+            throw new Error('معرّف الشركة مطلوب');
           }
 
           const toDate = args.toDate ? new Date(args.toDate) : new Date();
@@ -128,7 +128,7 @@ const RootQueryType = new GraphQLObjectType({
         try {
           const companyId = args.companyId || context.companyId;
           if (!companyId) {
-            throw new Error('Company ID is required');
+            throw new Error('معرّف الشركة مطلوب');
           }
 
           const toDate = args.toDate ? new Date(args.toDate) : new Date();

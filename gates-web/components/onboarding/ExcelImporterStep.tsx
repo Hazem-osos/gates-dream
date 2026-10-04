@@ -119,13 +119,13 @@ export function ExcelImporterStep({
         <button
           type="button"
           onClick={() => void downloadTemplate()}
-          className="mr-auto text-sm text-[#0E79AA] underline"
+          className="mr-auto text-sm text-[#0E78AA] underline"
         >
           تنزيل قالب Excel
         </button>
       </div>
-      <label className="flex flex-col items-center justify-center border-2 border-dashed border-[#0E79AA]/40 rounded-xl p-8 cursor-pointer bg-[#F6FBFD] hover:bg-[#EEF7FB]">
-        <span className="text-[#0E79AA] font-medium">إفلات الملف هنا أو انقر للاختيار</span>
+      <label className="flex flex-col items-center justify-center border-2 border-dashed border-[#0E78AA]/40 rounded-xl p-8 cursor-pointer bg-[#F6FBFD] hover:bg-[#EEF7FB]">
+        <span className="text-[#0E78AA] font-medium">إفلات الملف هنا أو انقر للاختيار</span>
         {fileName ? <span className="text-xs text-gray-500 mt-2">{fileName}</span> : null}
         <input
           type="file"
@@ -151,7 +151,7 @@ export function ExcelImporterStep({
         type="button"
         disabled={importMut.isPending || allRows.length === 0}
         onClick={() => void submit()}
-        className="w-full py-2.5 bg-[#0E79AA] text-white rounded-lg font-medium disabled:opacity-50"
+        className="w-full py-2.5 bg-[#0E78AA] text-white rounded-lg font-medium disabled:opacity-50"
       >
         {importMut.isPending ? 'جاري الاستيراد…' : 'استيراد إلى النظام'}
       </button>

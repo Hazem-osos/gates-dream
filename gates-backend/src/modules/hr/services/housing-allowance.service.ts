@@ -2,6 +2,10 @@
 import prisma from '../../../shared/database/prisma';
 import { logger } from '../../../shared/logger';
 import { Decimal } from '@prisma/client/runtime/library';
+import { AppError } from '../../../shared/middleware/error-handler';
+import { journalPostingService } from '../../accounting/services/journal-posting.service';
+import { hrGlAccountResolverService } from './hr-gl-account-resolver.service';
+import { journalLines } from '../../trade/utils/journal-lines.util';
 
 export interface HousingAllowanceClearanceData {
   employeeId: string;
@@ -109,28 +113,49 @@ export class HousingAllowanceService {
             throw new Error('Account not found');
           }
 
-          await tx.journalEntry.create({
-            data: {
-              companyId,
-              date: data.date,
-              hijriDate: data.hijriDate,
-              description: `Housing Allowance for employee ${employee.arabicName} - ${data.periodYear}-${data.periodMonth}`,
-              currencyCode: 'SAR',
-              isPosted: true,
-              isApproved: true,
-              createdBy: userId,
-              lines: {
-                create: [
-                  {
-                    accountId: data.accountId,
-                    debit: new Decimal(data.allowanceAmount),
-                    credit: new Decimal(0),
-                    description: `Housing Allowance - ${employee.arabicName}`,
-                  },
-                ],
-              },
-            },
+          const company = await tx.company.findUnique({
+            where: { id: companyId },
+            select: { defaultCurrency: true },
           });
+          const fiscalYear = await tx.fiscalYear.findFirst({
+            where: { companyId, status: 'Open', isActive: true },
+            orderBy: { startDate: 'desc' },
+          });
+          if (!fiscalYear) {
+            throw new AppError(400, 'لا توجد سنة مالية مفتوحة لترحيل بدل السكن');
+          }
+          const accounts = await hrGlAccountResolverService.resolveAccounts(companyId);
+          if (!accounts.accruedPayrollAccountId) {
+            throw new AppError(400, 'حساب مستحقات الرواتب غير معرّف في إعدادات الموارد البشرية');
+          }
+          const amount = Number(data.allowanceAmount);
+          await journalPostingService.createAndPostInTx(
+            tx,
+            { companyId, userId },
+            {
+              fiscalYearId: fiscalYear.id,
+              date: data.date,
+              description: `تصفية بدل سكن ${employee.arabicName} ${data.periodYear}-${data.periodMonth}`,
+              currencyCode: company?.defaultCurrency?.trim() || 'EGP',
+              exchangeRate: 1,
+              entryType: 'HousingAllowance',
+              sourceType: 'HR',
+              lines: journalLines([
+                {
+                  accountId: data.accountId,
+                  debit: amount,
+                  credit: 0,
+                  description: `مصروف بدل السكن - ${employee.arabicName}`,
+                },
+                {
+                  accountId: accounts.accruedPayrollAccountId,
+                  debit: 0,
+                  credit: amount,
+                  description: `مستحق بدل السكن - ${employee.arabicName}`,
+                },
+              ]),
+            }
+          );
         }
 
         return created;

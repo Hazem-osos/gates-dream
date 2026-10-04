@@ -19,14 +19,14 @@ router.use(setTenantContext);
 function ctx(req: AuthRequest) {
   const companyId = req.companyId ?? req.tenantId;
   const userId = req.user?.sub;
-  if (!companyId) throw new AppError(400, 'Company ID is required');
+  if (!companyId) throw new AppError(400, 'معرّف الشركة مطلوب');
   if (!userId) throw new AppError(401, 'User context is required');
   return { companyId, userId };
 }
 
 router.get(
   '/state',
-  authorize({ resource: 'report', action: 'view' }),
+  authorize({ resource: 'journal', action: 'view' }),
   validate({ query: approvalEntityQuerySchema }),
   async (req: AuthRequest, res: Response) => {
     try {

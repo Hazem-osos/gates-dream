@@ -11,7 +11,37 @@ const EXACT: Record<string, string> = {
   'company context is required': 'يجب اختيار الشركة',
   'branch context is required for posting (send x-branch-id)': 'يجب اختيار الفرع قبل الترحيل',
   'branch context is required (x-branch-id or token branch_id)': 'يجب اختيار الفرع قبل الترحيل',
+  'fiscal year context is required for posting (send x-fiscal-year-id)':
+    'يجب اختيار سنة مالية مفتوحة قبل الترحيل — من شريط الفرع/السنة أعلى الشاشة.',
+  'invoice cannot be posted in current workflow state':
+    'لا يمكن ترحيل الفاتورة في حالتها الحالية — قد تحتاج اعتماداً قبل الترحيل.',
+  'invoice is already posted': 'الفاتورة مرحّلة مسبقاً',
+  'cannot post a cancelled invoice': 'لا يمكن ترحيل فاتورة ملغاة',
+  'no active cash safe configured for automatic settlement':
+    'لا توجد خزينة نشطة للتحصيل التلقائي. عرّف خزينة أو خزينة افتراضية للفرع ثم أعد الترحيل.',
+  'party control account is not configured on master or company settings':
+    'حساب العميل/المورد غير مضبوط في تعريف الحسابات — راجع الدليل ثم أعد الترحيل.',
+  'inventory account is not configured (item or company settings)':
+    'حساب المخزون غير مضبوط في تعريف الحسابات أو على الصنف.',
+  'sales revenue account is not configured': 'حساب إيراد المبيعات غير مضبوط في تعريف الحسابات.',
+  'customer credit limit exceeded': 'تجاوز حد ائتمان العميل — راجع الرصيد أو اطلب اعتماداً.',
+  'supplier credit limit exceeded': 'تجاوز حد ائتمان المورد — راجع الرصيد أو اطلب اعتماداً.',
+  'ledger root budget exceeded': 'تجاوز حد ميزانية حساب الجهة في الدليل.',
+  'sales discount requires salesdiscountaccount in company account definitions':
+    'خصم المبيعات يحتاج حساب خصم مبيعات في تعريف الحسابات قبل الترحيل.',
+  'sales withholding tax requires whtreceivableaccount in company account definitions':
+    'خصم المنبع على المبيعات يحتاج حساب ضريبة خصم المنبع في تعريف الحسابات قبل الترحيل.',
   'journal entry not found': 'القيد غير موجود',
+  'fiscal year not found': 'السنة المالية غير موجودة. اختر سنة مفتوحة من أعلى الشاشة.',
+  'original journal is not posted': 'القيد الأصلي غير مرحّل',
+  'account id must be a valid uuid': 'اختر حساباً صحيحاً في السطر',
+  'currency code is required': 'عملة القيد مطلوبة',
+  'each line must have either debit or credit (not both, not neither)':
+    'كل سطر يجب أن يكون مدين أو دائن فقط، وليس الاثنين معاً ولا فارغاً',
+  'journal entry must have at least 2 line items': 'القيد يحتاج سطرين على الأقل',
+  'no branch configured for this company. add a branch in company settings or run tenant seed.':
+    'لا يوجد فرع لهذه الشركة. أضف فرعاً من إعدادات الشركة ثم أعد المحاولة.',
+  'user does not have access to this branch': 'ليس لديك صلاحية على هذا الفرع',
   'journal entry is already posted': 'القيد مرحّل مسبقاً',
   'journal entry document is not open for posting': 'مستند القيد غير مفتوح للترحيل',
   'journal entry belongs to a different branch': 'القيد يتبع فرعاً آخر. غيّر الفرع ثم أعد الترحيل.',
@@ -21,6 +51,7 @@ const EXACT: Record<string, string> = {
   'failed to post journal entry': 'تعذّر ترحيل القيد',
   'failed to get journal entry': 'تعذّر تحميل القيد',
   'authentication required': 'يجب تسجيل الدخول',
+  'invalid username or password': 'اسم المستخدم أو كلمة المرور غير صحيحة.',
   'insufficient permissions':
     'لا تملك صلاحية لهذه العملية. الحل: اطلب من المدير إضافة الصلاحية لمجموعتك.',
   'an internal server error occurred':
@@ -75,8 +106,21 @@ const EXACT: Record<string, string> = {
     'بيانات التحصيل غير مكتملة. حدد الخزينة أو البنك أو الشيك ثم أعد الحفظ.',
   'invoice not found': 'الفاتورة غير موجودة',
   'company not found': 'الشركة غير موجودة',
+  'open pos shift not found': 'لا توجد وردية مفتوحة على هذا الجهاز. افتح وردية من شاشة الجلسة.',
+  'pos manual discount is not permitted': 'ليس لديك صلاحية خصم يدوي في نقطة البيع.',
+  'pos price override is not permitted': 'ليس لديك صلاحية تعديل السعر في نقطة البيع.',
+  'pos price override needs supervisor approval': 'تعديل السعر يحتاج موافقة المشرف.',
+  'pos discount needs supervisor approval': 'الخصم يحتاج موافقة المشرف.',
+  'pos line item was not found in this company': 'أحد أصناف السلة غير موجود في الشركة.',
+  'coupon was not found': 'كود الكوبون غير صحيح.',
   'account not found': 'الحساب غير موجود',
   'assembly not found': 'مستند التجميع غير موجود',
+  'cannot post cancelled transfer': 'لا يمكن ترحيل نقل ملغى',
+  'transfer is already posted': 'النقل مرحّل بالفعل',
+  'transfer is not posted': 'النقل غير مرحّل',
+  'cannot edit a posted transfer': 'لا يمكن تعديل نقل مرحّل. فك الترحيل أولاً.',
+  'cannot edit a cancelled transfer': 'لا يمكن تعديل نقل ملغى',
+  'cannot delete posted transfer. unpost it first.': 'لا يمكن حذف نقل مرحّل. فك الترحيل أولاً.',
   'disassembly not found': 'مستند التفكيك غير موجود',
   'opening stock not found': 'كشف بضاعة أول المدة غير موجود',
   'cannot post cancelled opening stock': 'لا يمكن ترحيل كشف بضاعة أول المدة الملغي. استرجعه أولاً.',
@@ -87,6 +131,19 @@ const EXACT: Record<string, string> = {
     'لا يمكن إلغاء كشف مرحّل. فك الترحيل أولاً.',
   'opening stock is not cancelled': 'كشف بضاعة أول المدة ليس ملغياً',
   'transfer not found': 'مستند التحويل غير موجود',
+  'receipt not found': 'إذن الإضافة غير موجود',
+  'issue not found': 'إذن الصرف غير موجود',
+  'failed to create receipt': 'تعذّر حفظ إذن الإضافة. راجع المخزن والأصناف ثم أعد المحاولة.',
+  'failed to create issue': 'تعذّر حفظ إذن الصرف. راجع المخزن والأصناف ثم أعد المحاولة.',
+  'failed to post receipt': 'تعذّر ترحيل إذن الإضافة. راجع السنة المالية وحسابات المخزون ثم أعد المحاولة.',
+  'failed to post issue': 'تعذّر ترحيل إذن الصرف. راجع الكمية المتاحة وحسابات المخزون ثم أعد المحاولة.',
+  'document date is outside the header fiscal year':
+    'تاريخ المستند خارج السنة المالية المختارة أعلى الشاشة. غيّر التاريخ أو اختر السنة الصحيحة ثم أعد الترحيل.',
+  'failed to initialize document sequence': 'تعذّر إنشاء رقم المسلسل. حدّث الصفحة ثم أعد الحفظ.',
+  'could not allocate document number': 'تعذّر تخصيص رقم المستند. أعد المحاولة.',
+  'issue is already posted': 'إذن الصرف مرحّل بالفعل',
+  'issue is not posted': 'إذن الصرف غير مرحّل',
+  'cannot post cancelled issue': 'لا يمكن ترحيل إذن صرف ملغي',
   'stocktaking not found': 'جرد المخزون غير موجود',
   'other adjustment not found': 'التسوية غير موجودة',
   'price quote not found': 'عرض السعر غير موجود',
@@ -103,7 +160,6 @@ const EXACT: Record<string, string> = {
   'invoice must be posted before collecting payment': 'يجب ترحيل الفاتورة قبل التحصيل',
   'invoice must be posted before approval': 'يجب ترحيل الفاتورة قبل الاعتماد',
   'error getting journal entry': 'تعذّر تحميل القيد',
-  'failed to get journal entry': 'تعذّر تحميل القيد',
   'cannot unapprove a posted journal entry': 'تم إلغاء الاعتماد — يمكنك فك الترحيل الآن',
   'cannot update a posted journal entry':
     'القيد مرحّل ولا يمكن تعديله. فك الترحيل أولاً من قائمة (...).',
@@ -122,6 +178,8 @@ const EXACT: Record<string, string> = {
     'حساب المخزون غير مضبوط في إعدادات الشركة',
   'stock issue expense account is not configured in company settings':
     'حساب مصروف الصرف غير مضبوط في إعدادات الشركة',
+  'inventory adjustment account is not configured in company settings':
+    'حساب تسوية المخزون غير مضبوط في إعدادات الشركة — من شجرة الحسابات أو تعريف الحسابات الافتراضية.',
   'operation failed: a related record does not exist.':
     'تعذّر الحفظ لأن بياناً مرتبطاً غير موجود. الحل: تأكد أن الحساب أو الصنف أو المخزن المختار ما زال موجوداً.',
   'invalid data: a required relation is missing.':
@@ -154,6 +212,22 @@ const EXACT: Record<string, string> = {
 };
 
 const RULES: Rule[] = [
+  {
+    test: /account id must be a valid uuid/i,
+    ar: 'اختر حساباً صحيحاً في السطر',
+  },
+  {
+    test: /invalid uuid/i,
+    ar: 'أحد المعرّفات غير صحيح. راجع الحساب أو مركز التكلفة ثم أعد الحفظ.',
+  },
+  {
+    test: /user is not permitted to post store transfers/i,
+    ar: 'لا تملك صلاحية ترحيل النقل المخزني. فعّل صلاحية «التحويل المخزني» لمجموعة المستخدم.',
+  },
+  {
+    test: /user is not permitted to unpost store transfers/i,
+    ar: 'لا تملك صلاحية فك ترحيل النقل المخزني.',
+  },
   {
     test: /payment splits must sum to invoice total/i,
     ar: 'توزيع التحصيل يجب أن يساوي إجمالي الفاتورة',
@@ -243,6 +317,14 @@ const RULES: Rule[] = [
     ar: 'يوجد كشف بضاعة أول المدة بالفعل. عدّل نفس الكشف أو استرجعه إن كان ملغياً.',
   },
   {
+    test: /أنشئ قيد الرصيد الافتتاحي|create.*opening (journal|balance).*first/i,
+    ar: 'أنشئ مسودة قيد الرصيد الافتتاحي من المحاسبة أولاً، ثم رحّل كشف بضاعة أول المدة.',
+  },
+  {
+    test: /قيد الرصيد الافتتاحي مرحّل|opening (journal|balance).*posted/i,
+    ar: 'قيد الرصيد الافتتاحي مرحّل. فك ترحيله أولاً ثم عدّل أو رحّل بضاعة أول المدة.',
+  },
+  {
     test: /failed to (create|list|get|update|delete) opening stock/i,
     ar: (m) =>
       m[1] === 'list'
@@ -267,6 +349,18 @@ const RULES: Rule[] = [
   {
     test: /advancedrights|not permitted to post general ledger/i,
     ar: 'ليس لديك صلاحية ترحيل القيود. اطلب من المدير تفعيل ترحيل دفتر الأستاذ.',
+  },
+  {
+    test: /not permitted to post .* invoice/i,
+    ar: 'ليس لديك صلاحية ترحيل هذا النوع من الفواتير. اطلب من المدير تفعيل الصلاحية من الحقوق المتقدمة.',
+  },
+  {
+    test: /tax period .* is closed|posting is locked for this date/i,
+    ar: 'فترة الضريبة مغلقة لهذا التاريخ — لا يمكن ترحيل الفاتورة.',
+  },
+  {
+    test: /projected balance .* exceeds (supplier )?credit limit/i,
+    ar: 'رصيد الجهة بعد الفاتورة يتجاوز حد الائتمان — راجع الرصيد أو اطلب اعتماداً.',
   },
   {
     test: /journal entry belongs to a different branch/i,
@@ -337,6 +431,34 @@ const RULES: Rule[] = [
     ar: 'حدث خطأ غير متوقع. الحل: حدّث الصفحة وأعد المحاولة.',
   },
   {
+    test: /a (inward|outward) cheque in status "([^"]+)" cannot be ([^.(]+)/i,
+    ar: (match) => {
+      const paper = match[1].toLowerCase() === 'outward' ? 'شيك الصرف' : 'شيك القبض';
+      const status: Record<string, string> = {
+        UNDER_HAND: 'في الخزينة',
+        SENT_TO_BANK: 'برسم التحصيل',
+        COLLECTED: 'محصّل',
+        ENDORSED: 'مظهَّر لمورد',
+        BOUNCED: 'مرتد',
+        CANCELLED: 'ملغي',
+      };
+      const action: Record<string, string> = {
+        'sent to bank': 'إيداعه في البنك',
+        'un-sent from bank': 'فك إيداعه',
+        cleared: 'تحصيله',
+        'un-cleared': 'فك تحصيله',
+        bounced: 'ارتداده',
+        'un-bounced': 'فك ارتداده',
+        endorsed: 'تظهيره',
+        'un-endorsed': 'فك تظهيره',
+        cancelled: 'إلغاؤه',
+      };
+      const stage = status[match[2]] ?? match[2];
+      const verb = action[match[3].trim().toLowerCase()] ?? 'تنفيذ العملية عليه';
+      return `${paper} حالته «${stage}». لا يمكن ${verb} من هذه الحالة.`;
+    },
+  },
+  {
     test: /account not found for code\/id/i,
     ar: 'حساب أوراق القبض غير موجود في الدليل. أضف الحساب أو اربطه من إعدادات الحسابات الافتراضية ثم أعد الحفظ.',
   },
@@ -400,7 +522,11 @@ const RULES: Rule[] = [
   },
 ];
 
-const FISCAL_CLOSED_PATTERNS = [/fiscal year is closed/i, /closed for this document date/i];
+const FISCAL_CLOSED_PATTERNS = [
+  /fiscal year is closed/i,
+  /closed for this document date/i,
+  /document date is outside the header fiscal year/i,
+];
 const LICENSE_PATTERNS = [/not licensed for this tenant/i, /subscription is not active/i];
 
 function containsArabic(text: string): boolean {
@@ -433,6 +559,9 @@ export function localizeApiErrorMessage(message: string, httpStatus?: number): s
 
   if (containsArabic(raw)) return raw;
 
+  if (/invalid username or password/i.test(raw)) {
+    return 'اسم المستخدم أو كلمة المرور غير صحيحة.';
+  }
   if (httpStatus === 401) {
     return 'انتهت صلاحية الجلسة — يرجى تسجيل الدخول مرة أخرى.';
   }
@@ -455,6 +584,13 @@ export function localizeApiErrorMessage(message: string, httpStatus?: number): s
 
   const mapped = applyRules(raw);
   if (mapped) return mapped;
+
+  if (
+    /ETA (authentication|submit) failed/i.test(raw) ||
+    /\bstage=(canonical_rebuilt|eta_authenticate|eta_submit|eta_interpreted)\b/.test(raw)
+  ) {
+    return raw;
+  }
 
   if (looksLikeEnglishUserMessage(raw)) {
     return 'تعذّر تنفيذ العملية. الحل: راجع البيانات المدخلة وأعد المحاولة. لو تكرر الخطأ بعد التصحيح حدّث الصفحة.';

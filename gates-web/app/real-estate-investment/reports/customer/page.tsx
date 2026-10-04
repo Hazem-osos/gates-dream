@@ -1,7 +1,9 @@
 'use client';
 
+import { reportDefaultDateRange } from '@/lib/reports/reportDefaultDates';
+
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { InlineReportResults } from '@/components/report/InlineReportResults';
 import { CatalogReportFilterShell } from '@/components/report/CatalogReportFilterShell';
 import {
   ReportFilterDate,
@@ -10,12 +12,11 @@ import {
 
 
 const defaultFilters = () => ({
-  fromDate: new Date().toISOString().split('T')[0],
-  toDate: new Date().toISOString().split('T')[0],
+  ...reportDefaultDateRange(),
 });
 
 export default function CustomerPage() {
-  const router = useRouter();
+  const [previewQuery, setPreviewQuery] = useState<Record<string, string> | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [error, setError] = useState('');
   
@@ -33,7 +34,7 @@ export default function CustomerPage() {
     const params = new URLSearchParams();
     params.append('fromDate', filters.fromDate);
     params.append('toDate', filters.toDate);
-    router.push(`/real-estate-investment/reports/customer/preview?${params.toString()}`);
+    setPreviewQuery(Object.fromEntries(params));
   };
 
   return (
@@ -42,12 +43,13 @@ export default function CustomerPage() {
       onPreview={handlePreview}
       onReset={() => {
         setFilters(defaultFilters());
-        
+        setPreviewQuery(null);
       }}
       error={error}
       onClearError={() => setError('')}
       settingsOpen={showSettings}
       onSettingsOpenChange={setShowSettings}
+      below={previewQuery ? <InlineReportResults urlPath="/real-estate-investment/reports/customer" query={previewQuery} /> : null}
     >
         <ReportFilterSection title="التواريخ">
           <ReportFilterDate

@@ -1,6 +1,6 @@
 'use client';
 
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api/client';
 import { clearConditionalGetCache } from '@/lib/api/conditional-get-cache';
 import { useApiQuery, useInvalidateQuery } from './useApi';
@@ -53,16 +53,50 @@ function useCoaRefresh() {
     void invalidate(['accounts']);
     void invalidate(['coa-suggest-code']);
     void invalidate(['safes']);
+    void invalidate(['bank-accounts']);
     void invalidate(['journal-entries']);
     void invalidate(['journal-entry']);
   };
 }
 
+function mergeCreatedAccountIntoPickerCache(
+  queryClient: ReturnType<typeof useQueryClient>,
+  account: { id?: string; code?: string | null; arabicName?: string | null; accountKind?: string | null }
+) {
+  if (!account.id) return;
+  const row = {
+    id: account.id,
+    code: account.code ?? '',
+    arabicName: account.arabicName ?? '',
+    accountKind: account.accountKind ?? 'POSTING',
+    _count: { children: 0 },
+  };
+  queryClient.setQueriesData({ queryKey: ['accounts'] }, (old) => {
+    if (!old || typeof old !== 'object' || !('data' in old) || !Array.isArray(old.data)) return old;
+    if (old.data.some((item) => item && typeof item === 'object' && 'id' in item && item.id === row.id)) {
+      return old;
+    }
+    return { ...old, data: [row, ...old.data] };
+  });
+}
+
 export function useCreateAccountMutation() {
   const refresh = useCoaRefresh();
+  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (body: AccountFormPayload) => apiClient.post('/accounting/accounts', body),
-    onSuccess: refresh,
+    onSuccess: (res) => {
+      const account = res?.data;
+      if (account && typeof account === 'object') {
+        mergeCreatedAccountIntoPickerCache(queryClient, account as {
+          id?: string;
+          code?: string | null;
+          arabicName?: string | null;
+          accountKind?: string | null;
+        });
+      }
+      refresh();
+    },
   });
 }
 

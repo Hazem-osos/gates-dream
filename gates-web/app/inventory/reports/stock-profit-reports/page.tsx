@@ -7,14 +7,15 @@ export default function StockProfitReportsPage() {
     <InventoryReportFilterPage
       urlPath="/inventory/reports/stock-profit-reports"
       icon="📦"
-      subtitle="أرباح المخزون خلال الفترة."
+      subtitle="أرباح المخزون حتى تاريخ. سعر البيع من بطاقة الصنف أو من قائمة الأسعار المختارة."
       fields={{
-        dates: 'range',
+        dates: 'to',
         warehouse: true,
         itemGroup: true,
         item: true,
         currency: true,
-        branch: true,
+        stockProfit: true,
+        groupByLayout: true,
       }}
     />
   );

@@ -3,7 +3,7 @@ import { validate } from '../../../shared/middleware/validate';
 import { authenticate } from '../../../shared/middleware/auth.middleware';
 import { authorize } from '../../../shared/middleware/authorize.middleware';
 import { setTenantContext } from '../../../shared/middleware/tenant.middleware';
-import { costPreviewSchema, postMovementSchema } from '../../accounting/schemas/party-masters.schema';
+import { costPreviewSchema } from '../../accounting/schemas/party-masters.schema';
 import { z } from 'zod';
 import { itemCostService } from '../services/item-cost.service';
 import { stockMovementService } from '../services/stock-movement.service';
@@ -28,7 +28,7 @@ router.post(
   async (req: AuthRequest, res: Response) => {
     const companyId = req.companyId || req.tenantId;
     if (!companyId) {
-      return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+      return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     }
     const result = await itemCostService.calculateMovingAverage({
       companyId,
@@ -53,7 +53,7 @@ router.get(
   async (req: AuthRequest, res: Response) => {
     const companyId = req.companyId || req.tenantId;
     if (!companyId) {
-      return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+      return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     }
     const rows = await prisma.itemCostHistory.findMany({
       where: { companyId, itemId: req.params.id },
@@ -112,7 +112,7 @@ router.get(
     const itemId = req.params.id;
 
     if (!companyId) {
-      return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+      return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     }
     if (!warehouseId) {
       return void res.status(400).json({ status: 'error', message: 'warehouseId is required' });
@@ -131,38 +131,80 @@ router.get(
       return void res.status(404).json({ status: 'error', message: 'Item not found' });
     }
 
-    const inboundKinds = ['PURCHASE', 'SALE_RETURN'];
     const lines = await prisma.invoiceLine.findMany({
       where: {
         itemId,
-        batchNumber: { not: null },
-        invoice: { companyId, isCancelled: false },
-        OR: [{ warehouseId }, { warehouseId: null, invoice: { warehouseId } }],
+        OR: [{ batchNumber: { not: null } }, { expiryDate: { not: null } }],
+        invoice: { companyId, isCancelled: false, isPosted: true },
+        AND: [{ OR: [{ warehouseId }, { warehouseId: null, invoice: { warehouseId } }] }],
       },
       select: {
         id: true,
         batchNumber: true,
         expiryDate: true,
         quantity: true,
+        batchAllocations: true,
         invoice: { select: { invoiceKind: true, invoiceType: true } },
       },
+    });
+
+    const openingLines = await prisma.openingStockLine.findMany({
+      where: {
+        itemId,
+        warehouseId,
+        OR: [{ batchNumber: { not: null } }, { expiryDate: { not: null } }],
+        openingStock: { companyId, isCancelled: false, isPosted: true },
+      },
+      select: { batchNumber: true, expiryDate: true, quantity: true },
     });
 
     const buckets = new Map<
       string,
       { batchNumber: string; expiryDate: string | null; qty: number }
     >();
-    for (const line of lines) {
-      const number = (line.batchNumber || '').trim();
-      if (!number) continue;
-      const kind = String(line.invoice.invoiceKind || line.invoice.invoiceType || '').toUpperCase();
-      const inbound = inboundKinds.includes(kind) || kind === 'PURCHASE' || kind.includes('PURCHASE');
-      const signed = Number(line.quantity) * (inbound ? 1 : -1);
-      const expiry = line.expiryDate ? line.expiryDate.toISOString().slice(0, 10) : null;
-      const key = `${number}::${expiry ?? ''}`;
-      const prev = buckets.get(key) ?? { batchNumber: number, expiryDate: expiry, qty: 0 };
+    const addLot = (batchNumber: string | null | undefined, expiry: Date | string | null | undefined, signed: number) => {
+      if (!Number.isFinite(signed) || signed === 0) return;
+      const number = (batchNumber || '').trim() || 'بدون رقم';
+      const expiryDate =
+        expiry instanceof Date
+          ? expiry.toISOString().slice(0, 10)
+          : typeof expiry === 'string' && expiry
+            ? expiry.slice(0, 10)
+            : null;
+      if (number === 'بدون رقم' && !expiryDate) return;
+      const key = `${number}::${expiryDate ?? ''}`;
+      const prev = buckets.get(key) ?? { batchNumber: number, expiryDate, qty: 0 };
       prev.qty += signed;
       buckets.set(key, prev);
+    };
+    const inboundKind = (kind: string) => {
+      const value = kind.toUpperCase();
+      if (value === 'PURCHASE' || value === 'SALE_RETURN' || value === 'SALESRETURN') return true;
+      if (value.includes('PURCHASE') && !value.includes('RETURN')) return true;
+      if (value.includes('SALE') && value.includes('RETURN')) return true;
+      return false;
+    };
+    for (const line of lines) {
+      const kind = String(line.invoice.invoiceKind || line.invoice.invoiceType || '');
+      const sign = inboundKind(kind) ? 1 : -1;
+      const allocations = Array.isArray(line.batchAllocations) ? line.batchAllocations : [];
+      if (allocations.length) {
+        for (const alloc of allocations) {
+          if (!alloc || typeof alloc !== 'object') continue;
+          const row = alloc as { batchNumber?: unknown; expiryDate?: unknown; qty?: unknown; quantity?: unknown };
+          const qty = Number(row.qty ?? row.quantity ?? 0);
+          addLot(
+            typeof row.batchNumber === 'string' ? row.batchNumber : line.batchNumber,
+            row.expiryDate instanceof Date || typeof row.expiryDate === 'string' ? row.expiryDate : line.expiryDate,
+            qty * sign
+          );
+        }
+        continue;
+      }
+      addLot(line.batchNumber, line.expiryDate, Number(line.quantity) * sign);
+    }
+    for (const line of openingLines) {
+      addLot(line.batchNumber, line.expiryDate, Number(line.quantity));
     }
 
     const batches = [...buckets.values()]
@@ -206,7 +248,7 @@ router.get(
     const itemId = req.params.id;
 
     if (!companyId) {
-      return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+      return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     }
     if (!warehouseId) {
       return void res.status(400).json({ status: 'error', message: 'warehouseId is required' });
@@ -244,6 +286,7 @@ router.get(
         quantityOnHand: balance.quantityOnHand,
         reservedQuantity: balance.reservedQuantity,
         availableQuantity: balance.availableQuantity,
+        averageCost: balance.averageCost,
       },
     });
   }
@@ -274,7 +317,7 @@ router.get(
   async (req: AuthRequest, res: Response) => {
     const companyId = req.companyId || req.tenantId;
     if (!companyId) {
-      return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+      return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     }
     const result = await stockMovementService.listMovements(companyId, {
       page: req.query.page as number | undefined,
@@ -302,37 +345,13 @@ router.get(
   }
 );
 
-router.post(
-  '/movements/post',
-  authorize({ resource: 'item', action: 'edit' }),
-  validate({ body: postMovementSchema }),
-  async (req: AuthRequest, res: Response) => {
-    const companyId = req.companyId || req.tenantId;
-    if (!companyId) {
-      return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
-    }
-    try {
-      const data = await stockMovementService.postMovement({
-        companyId,
-        ...req.body,
-      });
-      return void res.status(201).json({ status: 'success', data });
-    } catch (e) {
-      return void res.status(400).json({
-        status: 'error',
-        message: e instanceof Error ? e.message : 'Movement failed',
-      });
-    }
-  }
-);
-
 router.get(
   '/items/:id/quick-peek',
   authorize({ resource: 'item', action: 'view' }),
   async (req: AuthRequest, res: Response) => {
     const companyId = req.companyId || req.tenantId;
     if (!companyId) {
-      return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+      return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     }
     try {
       const unitPriceHint = req.query.unitPrice

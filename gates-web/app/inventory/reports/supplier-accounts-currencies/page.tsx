@@ -7,7 +7,7 @@ export default function SupplierAccountsCurrenciesPage() {
     <InventoryReportFilterPage
       urlPath="/inventory/reports/supplier-accounts-currencies"
       icon="💱"
-      subtitle="حسابات الموردين حسب العملة."
+      subtitle="كشف حساب لكل مورد: الكود والاسم أولاً، وبعدين التاريخ والرقم والشرح، ومدين ودائن ورصيد لكل عملة معرّفة في الشركة. العملة اختيارية لو عايز عملة واحدة بس."
       fields={{
         dates: 'range',
         supplier: true,

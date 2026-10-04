@@ -7,19 +7,19 @@ export default function OverduePaymentsPage() {
     <InventoryReportFilterPage
       urlPath="/inventory/reports/overdue-payments"
       icon="⏰"
-      subtitle="الدفعات المتأخرة على العملاء."
+      subtitle="دفعات فواتير المبيعات والمشتريات خلال الفترة، مع حالة السداد وأيام التأخير."
       fields={{
-        dates: 'none',
+        dates: 'range',
         customer: true,
+        supplier: true,
         delegate: true,
         warehouse: true,
         itemGroup: true,
         item: true,
         costCenter: true,
-        currency: true,
         branch: true,
-        minValue: true,
-        allAccounts: true,
+        invoiceRange: true,
+        debtSchedule: true,
       }}
     />
   );

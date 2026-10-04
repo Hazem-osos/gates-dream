@@ -7,8 +7,17 @@ export default function ItemsExceedingOrderLimitPage() {
     <InventoryReportFilterPage
       urlPath="/inventory/reports/items-exceeding-order-limit"
       icon="⚠️"
-      subtitle="أصناف تجاوزت حد الطلب في المخزن."
-      fields={{ dates: 'none', warehouse: true, branch: true }}
+      subtitle="أصناف رصيدها عند حد الطلب أو أقل حتى نهاية الفترة."
+      fields={{
+        dates: 'range',
+        warehouse: true,
+        item: true,
+        itemGroup: true,
+        branch: true,
+        limitStatus: true,
+        reportOptions: ['showEmpty', 'inactiveOnly', 'activeOnly', 'negativeOnly', 'nonNegativeOnly'],
+        groupByLayout: true,
+      }}
     />
   );
 }

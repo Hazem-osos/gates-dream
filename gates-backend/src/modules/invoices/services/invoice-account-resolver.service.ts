@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import prisma from '../../../shared/database/prisma';
 import { AppError } from '../../../shared/middleware/error-handler';
 import { VAT_ACCOUNT_UNMAPPED_MESSAGE } from '../../accounting/constants/ledger-integrity';
@@ -20,14 +21,18 @@ export class InvoiceAccountResolverService {
     return undefined;
   }
 
-  async resolveAccountId(companyId: string, codeOrId: string): Promise<string> {
-    const byId = await prisma.account.findFirst({
+  async resolveAccountId(
+    companyId: string,
+    codeOrId: string,
+    db: Prisma.TransactionClient | typeof prisma = prisma
+  ): Promise<string> {
+    const byId = await db.account.findFirst({
       where: { id: codeOrId, companyId, deletedAt: null },
       select: { id: true },
     });
     if (byId) return byId.id;
 
-    const byCode = await prisma.account.findFirst({
+    const byCode = await db.account.findFirst({
       where: { code: codeOrId, companyId, deletedAt: null },
       select: { id: true },
     });
@@ -35,6 +40,47 @@ export class InvoiceAccountResolverService {
       throw new AppError(422, `Account not found for code/id: ${codeOrId}`);
     }
     return byCode.id;
+  }
+
+  /**
+   * Company mappings sometimes point at a header (the English fixture
+   * 4100/5100). Journals can only hit a posting account, so a header falls
+   * through to the chart's movement account for that role.
+   */
+  private async movementAccountId(
+    companyId: string,
+    accountId: string,
+    fallbackCodes: string[]
+  ): Promise<string> {
+    const account = await prisma.account.findFirst({
+      where: { id: accountId, companyId, deletedAt: null },
+      select: {
+        id: true,
+        code: true,
+        arabicName: true,
+        accountKind: true,
+        _count: { select: { children: { where: { deletedAt: null } } } },
+      },
+    });
+    if (!account) return accountId;
+    const header = account.accountKind === 'HEADER' || (account._count.children ?? 0) > 0;
+    if (!header) return account.id;
+
+    for (const code of fallbackCodes) {
+      const leaf = await prisma.account.findFirst({
+        where: { companyId, code, deletedAt: null, accountKind: 'POSTING' },
+        select: {
+          id: true,
+          _count: { select: { children: { where: { deletedAt: null } } } },
+        },
+      });
+      if (leaf && (leaf._count.children ?? 0) === 0) return leaf.id;
+    }
+
+    throw new AppError(
+      422,
+      `الحساب ${account.code} (${account.arabicName}) حساب رئيسي ولا يُرحَّل عليه. حدّد حساب حركة في إعدادات الحسابات.`
+    );
   }
 
   async resolveForInvoice(params: {
@@ -118,8 +164,18 @@ export class InvoiceAccountResolverService {
       'discountAccount',
       'purchaseDiscountAccount',
     ]);
-    const vatOutputAccountIdRaw = this.pick(defs, ['vatOutputAccount', 'salesTaxAccount']);
-    const vatInputAccountIdRaw = this.pick(defs, ['vatInputAccount', 'purchaseTaxAccount']);
+    const vatOutputAccountIdRaw = this.pick(defs, [
+      'vatOutputAccount',
+      'salesTaxAccount',
+      'defaultVatAccountId',
+    ]);
+    const vatInputAccountIdRaw = this.pick(defs, [
+      'vatInputAccount',
+      'purchaseTaxAccount',
+      'vatOutputAccount',
+      'salesTaxAccount',
+      'defaultVatAccountId',
+    ]);
     // `daribaManbaAccount` / `daribaManbaAccountDebit` are the legacy slot names
     // (`DaribaManbaAccount`, withholding tax at source) — they are what the
     // gl-account-defaults screen writes and what tenant provisioning seeds, so
@@ -138,13 +194,19 @@ export class InvoiceAccountResolverService {
     ]);
 
     if (!partyAccountId) {
-      throw new AppError(422, 'Party control account is not configured on master or company settings');
+      throw new AppError(
+        422,
+        'حساب العميل/المورد غير مضبوط في تعريف الحسابات أو على بطاقة الجهة — راجع الدليل ثم أعد الترحيل.'
+      );
     }
     if (!inventoryAccountIdRaw) {
-      throw new AppError(422, 'Inventory account is not configured (item or company settings)');
+      throw new AppError(
+        422,
+        'حساب المخزون غير مضبوط في تعريف الحسابات أو على الصنف — راجع الإعدادات ثم أعد الترحيل.'
+      );
     }
     if ((params.kind === 'SALE' || params.kind === 'SALE_RETURN') && !revenueAccountIdRaw) {
-      throw new AppError(422, 'Sales revenue account is not configured');
+      throw new AppError(422, 'حساب إيراد المبيعات غير مضبوط في تعريف الحسابات.');
     }
     if ((params.kind === 'SALE' || params.kind === 'SALE_RETURN' || params.kind === 'PURCHASE_RETURN') && !cogsAccountIdRaw) {
       throw new AppError(422, 'COGS account is not configured');
@@ -182,11 +244,23 @@ export class InvoiceAccountResolverService {
       ? await this.resolveAccountId(params.companyId, purchaseReturnAccountIdRaw)
       : undefined;
 
+    const revenueFallback =
+      params.kind === 'SALE_RETURN' ? ['413', '4120', '4110', '411'] : ['4110', '411'];
+    const [postingRevenue, postingCogs, postingInventory] = await Promise.all([
+      revenueAccountId
+        ? this.movementAccountId(params.companyId, revenueAccountId, revenueFallback)
+        : Promise.resolve(revenueAccountId),
+      cogsAccountId
+        ? this.movementAccountId(params.companyId, cogsAccountId, ['5110', '511'])
+        : Promise.resolve(cogsAccountId),
+      this.movementAccountId(params.companyId, inventoryAccountId, ['1310', '131', '1300']),
+    ]);
+
     return {
       partyAccountId: partyAccountIdResolved,
-      inventoryAccountId,
-      revenueAccountId,
-      cogsAccountId,
+      inventoryAccountId: postingInventory,
+      revenueAccountId: postingRevenue,
+      cogsAccountId: postingCogs,
       vatOutputAccountId,
       vatInputAccountId,
       withholdingAccountId,
@@ -224,7 +298,9 @@ export class InvoiceAccountResolverService {
 
     const isPurchase = transactionType === 'PURCHASE' || transactionType === 'PURCHASE_RETURN';
     if (opts?.hasTax) {
-      const vatId = isPurchase ? accounts.vatInputAccountId : accounts.vatOutputAccountId;
+      const vatId = isPurchase
+        ? accounts.vatInputAccountId ?? accounts.vatOutputAccountId
+        : accounts.vatOutputAccountId ?? accounts.vatInputAccountId;
       if (!vatId) {
         throw new AppError(422, VAT_ACCOUNT_UNMAPPED_MESSAGE);
       }
@@ -236,14 +312,14 @@ export class InvoiceAccountResolverService {
     ) {
       throw new AppError(
         422,
-        'Sales discount requires salesDiscountAccount in company account definitions'
+        'خصم المبيعات يحتاج حساب خصم مبيعات في تعريف الحسابات قبل الترحيل.'
       );
     }
     if (opts?.hasWht) {
       if (isPurchase && !accounts.withholdingAccountId) {
         throw new AppError(
           422,
-          'Purchase withholding tax requires withholdingTaxAccount in company account definitions'
+          'خصم المنبع محتاج حساب ضريبة خصم المنبع في تعريف الحسابات قبل الترحيل'
         );
       }
       if (
@@ -252,7 +328,7 @@ export class InvoiceAccountResolverService {
       ) {
         throw new AppError(
           422,
-          'Sales withholding tax requires whtReceivableAccount in company account definitions'
+          'خصم المنبع على المبيعات يحتاج حساب ضريبة خصم المنبع (مدين) في تعريف الحسابات قبل الترحيل.'
         );
       }
     }

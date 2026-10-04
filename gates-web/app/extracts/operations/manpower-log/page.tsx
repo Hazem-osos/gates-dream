@@ -43,6 +43,9 @@ export default function ManpowerLogPage() {
     contractorId: '',
     projectId: '',
     description: '',
+    workerName: '',
+    workerType: '',
+    wage: '',
   });
 
   const { data: projectsResponse } = useApiQuery<ExtractProjectOption[]>(
@@ -104,17 +107,32 @@ export default function ManpowerLogPage() {
     setError('');
     setSuccess('');
 
+    if (!formData.projectId) {
+      setError('يرجى اختيار المشروع');
+      return;
+    }
+
     if (!formData.date) {
       setError('يرجى تحديد التاريخ');
       return;
     }
 
+    if (!formData.workerName.trim()) {
+      setError('يرجى إدخال اسم العامل');
+      return;
+    }
+
+    const parsedWage = formData.wage.trim() ? Number(formData.wage) : undefined;
+    const wage = parsedWage != null && Number.isFinite(parsedWage) ? parsedWage : undefined;
+
     manpowerLogMutation.mutate({
-      serial: formData.serial || undefined,
+      projectId: formData.projectId,
       date: new Date(formData.date).toISOString(),
-      hijriDate: formData.hijriDate || undefined,
-      contractorId: formData.contractorId || undefined,
-      projectId: formData.projectId || undefined,
+      workerName: formData.workerName.trim(),
+      workerType: formData.workerType || undefined,
+      wage,
+      total: wage,
+      notes: formData.description || undefined,
     });
   };
 
@@ -126,6 +144,9 @@ export default function ManpowerLogPage() {
       contractorId: '',
       projectId: '',
       description: '',
+      workerName: '',
+      workerType: '',
+      wage: '',
     });
     setError('');
     setSuccess('');
@@ -191,6 +212,26 @@ export default function ManpowerLogPage() {
             ))}
           </select>
         </CompactFormField>
+        <CompactFormField
+          label="إسم العامل"
+          placeholder="إدخل اسم العامل"
+          value={formData.workerName}
+          onChange={(e) => setFormData((p) => ({ ...p, workerName: e.target.value }))}
+        />
+        <CompactFormField
+          label="رقم البطاقة"
+          placeholder="رقم البطاقة"
+          value={formData.workerType}
+          onChange={(e) => setFormData((p) => ({ ...p, workerType: e.target.value }))}
+        />
+        <CompactFormField
+          label="المبلغ"
+          type="number"
+          min={0}
+          step="0.01"
+          value={formData.wage}
+          onChange={(e) => setFormData((p) => ({ ...p, wage: e.target.value }))}
+        />
         <CompactFormField
           label="مقاول العمال"
           placeholder="كود المقاول"

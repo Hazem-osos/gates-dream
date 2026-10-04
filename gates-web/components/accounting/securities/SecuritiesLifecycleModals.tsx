@@ -190,6 +190,15 @@ export function SecuritiesCollectModal({
         />
       </div>
       <DatePickerWithHijri label="التاريخ" value={date} onChange={setDate} />
+      {kind === 'receipt' ? (
+        <p className="sm:col-span-2 text-sm text-slate-600">
+          القيد: من حـ/ البنك إلى حـ/ أوراق القبض، أو إلى «برسم التحصيل» إذا كانت الورقة مودعة. رصيد البنك يزيد بقيمة الورقة.
+        </p>
+      ) : (
+        <p className="sm:col-span-2 text-sm text-slate-600">
+          القيد: من حـ/ أوراق الدفع إلى حـ/ البنك. رصيد البنك ينقص بقيمة الورقة.
+        </p>
+      )}
       <div className="sm:col-span-2">
         <label className={erpLabelClass}>حساب البنك</label>
         <AccountSelect
@@ -199,8 +208,8 @@ export function SecuritiesCollectModal({
           leafOnly
           bankOnly
           allowEmpty
-          emptyLabel="اختر حساب البنك"
-          placeholder="اختر حساب البنك"
+          emptyLabel="اختر حساب بنك"
+          placeholder="حسابات البنوك فقط"
         />
       </div>
       <div className="sm:col-span-2">
@@ -271,7 +280,7 @@ export function SecuritiesBounceModal({
       footer={<ActionFooter pending={pending} saveLabel="حفظ الارتداد" onSave={() => void save()} onClose={onClose} />}
     >
       <p className="sm:col-span-2 text-sm leading-6 text-slate-600">
-        الارتداد بيعكس قيد التحرير: المدين يبقى دائن والدائن يبقى مدين. لو الورقة عليها إيداع، بيتعمل قيدين عكس: قيد الإيداع ثم قيد التحرير.
+        يُنشأ قيد ارتداد جديد (عكس بنود التحرير) ويظل قيد التحرير مرحّلاً في السجل. لو الورقة عليها إيداع، يُنشأ قيد ارتداد لعكس الإيداع ثم قيد ارتداد لعكس التحرير.
       </p>
       <div className="sm:col-span-2">
         <label className={erpLabelClass}>الشرح</label>
@@ -378,11 +387,14 @@ export function SecuritiesEndorseModal({
           value={accountId}
           onChange={setAccountId}
           className={erpInputClass}
-          leafOnly
+          leafOnly={false}
           allowEmpty
-          emptyLabel="اختر الحساب"
-          placeholder="اختر الحساب من الدليل"
+          emptyLabel="اختر الحساب من الشجرة"
+          placeholder="ابحث في شجرة الحسابات"
         />
+        <p className="mt-1 text-[11px] leading-4 text-slate-500">
+          تظهر كل شجرة الحسابات. اختَر حساب حركة، وليس حساباً رئيسياً.
+        </p>
       </div>
       {error ? <p className="sm:col-span-2 text-sm text-red-600">{error}</p> : null}
     </Shell>

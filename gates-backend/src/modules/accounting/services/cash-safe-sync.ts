@@ -15,7 +15,7 @@ export function isSystemCashPostingCode(code: string | null | undefined): boolea
 
 export function cashPostingParentBlockedMessage(parentName?: string | null): string {
   const label = parentName?.trim() || 'الخزينة الرئيسية';
-  return `لا يمكن إضافة حساب فرعي تحت ${label} لأنها حساب حركة. أنشئ الخزينة الجديدة تحت «النقدية وما في حكمها».`;
+  return `لا يمكن إضافة حساب فرعي تحت ${label} لأنها حساب حركة. أنشئ الخزينة الجديدة تحت «الخزن».`;
 }
 
 async function companyCurrency(companyId: string): Promise<string> {
@@ -99,8 +99,12 @@ function isCashTreasuryAccount(params: {
 }): boolean {
   if (params.accountKind === 'HEADER') return false;
   if (isSystemCashPostingCode(params.code)) return true;
-  if (params.code === BANK_PARENT_CODE) return false;
-  return params.parentCode === '111' || isSystemCashPostingCode(params.parentCode);
+  if (params.code === BANK_PARENT_CODE || params.code === SYSTEM_GL_CODES.cashSafesFolder) return false;
+  return (
+    params.parentCode === SYSTEM_GL_CODES.cashSafesFolder ||
+    params.parentCode === '111' ||
+    isSystemCashPostingCode(params.parentCode)
+  );
 }
 
 /** Banks folder is a control HEADER even when the template shipped it as a leaf. */
@@ -253,7 +257,52 @@ export async function createCashGlForNewSafe(
   return account.id;
 }
 
-/** Default main treasury: POSTING leaf under 111 (النقدية وما في حكمها). */
+/** «الخزن» is the رئيسي فرعي under 111. The main safe posts on the child, not on the folder. */
+async function ensureCashSafesFolder(
+  companyId: string,
+  cashEquivalents: {
+    id: string;
+    accountType: string | null;
+    accountSide: string | null;
+    accountNature: string | null;
+    statementType: string | null;
+  }
+): Promise<{ id: string }> {
+  const existing = await prisma.account.findFirst({
+    where: { companyId, code: SYSTEM_GL_CODES.cashSafesFolder, deletedAt: null },
+    select: { id: true, parentId: true, accountKind: true, arabicName: true },
+  });
+  if (existing) {
+    const patch: { parentId?: string; accountKind?: 'HEADER'; arabicName?: string } = {};
+    if (existing.parentId !== cashEquivalents.id) patch.parentId = cashEquivalents.id;
+    if (existing.accountKind !== 'HEADER') patch.accountKind = 'HEADER';
+    if (!existing.arabicName?.trim()) patch.arabicName = 'الخزن';
+    if (Object.keys(patch).length > 0) {
+      await prisma.account.update({ where: { id: existing.id }, data: patch });
+    }
+    return { id: existing.id };
+  }
+
+  const created = await prisma.account.create({
+    data: {
+      companyId,
+      code: SYSTEM_GL_CODES.cashSafesFolder,
+      arabicName: 'الخزن',
+      englishName: 'Cash Safes',
+      accountType: cashEquivalents.accountType ?? 'asset',
+      parentId: cashEquivalents.id,
+      accountSide: cashEquivalents.accountSide ?? 'مدين',
+      accountNature: cashEquivalents.accountNature ?? 'DEBIT',
+      statementType: cashEquivalents.statementType ?? 'BALANCE_SHEET',
+      accountKind: 'HEADER',
+      isActive: true,
+    },
+    select: { id: true },
+  });
+  return created;
+}
+
+/** Default main treasury: POSTING leaf under «الخزن» (1110), which sits under 111. */
 export async function ensureCashMainPosting(companyId: string): Promise<string | null> {
   const folder = await prisma.account.findFirst({
     where: { companyId, code: '111', deletedAt: null },
@@ -275,13 +324,15 @@ export async function ensureCashMainPosting(companyId: string): Promise<string |
     });
   }
 
+  const safesFolder = await ensureCashSafesFolder(companyId, folder);
+
   const live = await prisma.account.findFirst({
     where: { companyId, code: SYSTEM_GL_CODES.cashMain, deletedAt: null },
     select: { id: true, parentId: true, accountKind: true },
   });
   if (live) {
     const patch: { parentId?: string; accountKind?: 'POSTING' } = {};
-    if (live.parentId !== folder.id) patch.parentId = folder.id;
+    if (live.parentId !== safesFolder.id) patch.parentId = safesFolder.id;
     if (live.accountKind !== 'POSTING') patch.accountKind = 'POSTING';
     if (Object.keys(patch).length > 0) {
       await prisma.account.update({ where: { id: live.id }, data: patch });
@@ -306,7 +357,7 @@ export async function ensureCashMainPosting(companyId: string): Promise<string |
       data: {
         code: SYSTEM_GL_CODES.cashMain,
         arabicName: ghost.arabicName?.trim() || 'الخزينة الرئيسية',
-        parentId: folder.id,
+        parentId: safesFolder.id,
         accountKind: 'POSTING',
         isActive: true,
         deletedAt: null,
@@ -323,7 +374,7 @@ export async function ensureCashMainPosting(companyId: string): Promise<string |
       arabicName: 'الخزينة الرئيسية',
       englishName: 'Main Cash Safe',
       accountType: folder.accountType ?? 'asset',
-      parentId: folder.id,
+      parentId: safesFolder.id,
       accountSide: folder.accountSide ?? 'مدين',
       accountNature: folder.accountNature ?? 'DEBIT',
       statementType: folder.statementType ?? 'BALANCE_SHEET',
@@ -344,9 +395,13 @@ export function isTreasuryMovementAccount(gl: {
   if (gl.accountKind === 'HEADER') return false;
   const code = String(gl.code ?? '').trim();
   const parentCode = String(gl.parentCode ?? '').trim();
-  if (code === BANK_PARENT_CODE) return false;
+  if (code === BANK_PARENT_CODE || code === SYSTEM_GL_CODES.cashSafesFolder) return false;
   if (code === SYSTEM_GL_CODES.cashMain) return true;
-  return parentCode === '111' || parentCode === SYSTEM_GL_CODES.cashMain;
+  return (
+    parentCode === SYSTEM_GL_CODES.cashSafesFolder ||
+    parentCode === '111' ||
+    parentCode === SYSTEM_GL_CODES.cashMain
+  );
 }
 
 /** Turns cash-leaf GL accounts into safes so they appear in every treasury picker. */

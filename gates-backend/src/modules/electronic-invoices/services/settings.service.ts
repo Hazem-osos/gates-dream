@@ -1,70 +1,29 @@
-import prisma from '../../../shared/database/prisma';
 import { logger } from '../../../shared/logger';
 import { eInvoiceSubmissionService } from './e-invoice-submission.service';
-
-export interface ElectronicInvoiceSettings {
-  companyId: string;
-  taxAuthority?: 'ETA' | 'ZATCA' | 'FTA';
-  clientId?: string;
-  clientSecret?: string;
-  tokenPin?: string;
-  environment?: 'PRE_PRODUCTION' | 'PRODUCTION';
-  issuerTaxId?: string;
-  issuerName?: string;
-  activityCode?: string;
-  apiBaseUrl?: string;
-  autoSubmit?: boolean;
-  defaultTaxRate?: number;
-  invoicePrefix?: string;
-  returnPrefix?: string;
-  amendmentPrefix?: string;
-}
+import {
+  buildEinvoiceSettingsPatch,
+  toPublicEinvoiceSettings,
+  type EinvoiceSettingsInput,
+} from '../utils/einvoice-settings-map';
 
 export class ElectronicInvoiceSettingsService {
-  async getSettings(companyId: string): Promise<ElectronicInvoiceSettings> {
+  async getSettings(companyId: string) {
     try {
       const row = await eInvoiceSubmissionService.getSettings(companyId);
-      return {
-        companyId,
-        taxAuthority: 'ETA',
-        clientId: row?.clientId ?? undefined,
-        clientSecret: row?.clientSecret ? '***' : undefined,
-        tokenPin: row?.tokenPin ? '***' : undefined,
-        environment: (row?.environment as 'PRE_PRODUCTION' | 'PRODUCTION') ?? 'PRE_PRODUCTION',
-        issuerTaxId: row?.issuerTaxId ?? undefined,
-        issuerName: row?.issuerName ?? undefined,
-        activityCode: row?.activityCode ?? undefined,
-        apiBaseUrl: row?.apiBaseUrl ?? undefined,
-        autoSubmit: false,
-        defaultTaxRate: 14,
-        invoicePrefix: 'INV',
-        returnPrefix: 'RET',
-        amendmentPrefix: 'AMEND',
-      };
+      return toPublicEinvoiceSettings(companyId, row);
     } catch (error) {
       logger.error({ error, companyId }, 'Error getting electronic invoice settings');
       throw error;
     }
   }
 
-  async updateSettings(companyId: string, settings: Partial<ElectronicInvoiceSettings>) {
+  async updateSettings(companyId: string, settings: EinvoiceSettingsInput) {
     try {
-      const updated = await eInvoiceSubmissionService.upsertSettings(companyId, {
-        clientId: settings.clientId,
-        clientSecret: settings.clientSecret,
-        tokenPin: settings.tokenPin,
-        environment: settings.environment,
-        issuerTaxId: settings.issuerTaxId,
-        issuerName: settings.issuerName,
-        activityCode: settings.activityCode,
-        apiBaseUrl: settings.apiBaseUrl,
-      });
+      const existing = await eInvoiceSubmissionService.getSettings(companyId);
+      const patch = buildEinvoiceSettingsPatch(settings, existing);
+      const updated = await eInvoiceSubmissionService.upsertSettings(companyId, patch);
       logger.info({ companyId }, 'Electronic invoice settings updated');
-      return {
-        companyId,
-        ...settings,
-        clientSecret: updated.clientSecret ? '***' : undefined,
-      };
+      return toPublicEinvoiceSettings(companyId, updated);
     } catch (error) {
       logger.error({ error, companyId }, 'Error updating electronic invoice settings');
       throw error;

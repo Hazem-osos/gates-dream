@@ -86,6 +86,21 @@ export async function replaceInvoiceInstallmentsInTx(
 ) {
   if (rows === undefined) return;
 
+  if (rows.length > 0) {
+    const invoice = await tx.invoice.findFirst({
+      where: { id: invoiceId },
+      select: { netAmount: true, paidAmount: true },
+    });
+    const sum = roundTo4(rows.reduce((total, row) => total + Number(row.amount || 0), 0));
+    const net = roundTo4(Number(invoice?.netAmount ?? 0));
+    const outstanding = roundTo4(Math.max(net - Number(invoice?.paidAmount ?? 0), 0));
+    const coversNet = Math.abs(sum - net) <= 0.05;
+    const coversOutstanding = Math.abs(sum - outstanding) <= 0.05;
+    if (invoice && !coversNet && !coversOutstanding) {
+      throw new AppError(422, 'مجموع الأقساط يجب أن يساوي صافي الفاتورة');
+    }
+  }
+
   const paid = await tx.invoiceInstallment.findMany({
     where: {
       invoiceId,
@@ -128,13 +143,27 @@ export class InvoiceInstallmentService {
       where: { id: invoiceId, companyId },
       select: { id: true },
     });
-    if (!invoice) throw new AppError(404, 'Invoice not found');
+    if (!invoice) throw new AppError(404, 'الفاتورة غير موجودة');
 
     const rows = await prisma.invoiceInstallment.findMany({
       where: { invoiceId },
       orderBy: { installmentNumber: 'asc' },
     });
     return rows.map(mapInstallmentRow);
+  }
+
+  async replace(companyId: string, invoiceId: string, rows: InvoiceInstallmentInput[]) {
+    const invoice = await prisma.invoice.findFirst({
+      where: { id: invoiceId, companyId },
+      select: { id: true, isCancelled: true },
+    });
+    if (!invoice) throw new AppError(404, 'الفاتورة غير موجودة');
+    if (invoice.isCancelled) throw new AppError(422, 'Cancelled invoices cannot be settled');
+
+    await prisma.$transaction(async (tx) => {
+      await replaceInvoiceInstallmentsInTx(tx, invoiceId, rows);
+    });
+    return this.listByInvoice(companyId, invoiceId);
   }
 
   async listTracker(companyId: string, query: InvoiceInstallmentTrackerQuery) {
@@ -223,7 +252,7 @@ export class InvoiceInstallmentService {
         isCancelled: true,
       },
     });
-    if (!invoice) throw new AppError(404, 'Invoice not found');
+    if (!invoice) throw new AppError(404, 'الفاتورة غير موجودة');
     if (invoice.isCancelled) throw new AppError(422, 'Cancelled invoices cannot be settled');
     if (!invoice.isPosted) {
       throw new AppError(422, 'رحّل الفاتورة قبل تحصيل القسط');
@@ -247,10 +276,10 @@ export class InvoiceInstallmentService {
     const collectAmount = roundTo4(input.amount ?? installmentRemaining);
     if (collectAmount <= 0) throw new AppError(422, 'أدخل مبلغ تحصيل أكبر من صفر');
     if (collectAmount > installmentRemaining + AMOUNT_TOLERANCE) {
-      throw new AppError(422, `مبلغ التحصيل أكبر من المتبقي على القسط (${installmentRemaining.toFixed(2)})`);
+      throw new AppError(422, `مبلغ التحصيل أكبر من المتبقي على القسط (${installmentRemaining.toLocaleString()})`);
     }
     if (collectAmount > invoiceOutstanding + AMOUNT_TOLERANCE) {
-      throw new AppError(422, `مبلغ التحصيل أكبر من المتبقي على الفاتورة (${invoiceOutstanding.toFixed(2)})`);
+      throw new AppError(422, `مبلغ التحصيل أكبر من المتبقي على الفاتورة (${invoiceOutstanding.toLocaleString()})`);
     }
 
     const kind = settlementKind(invoice.invoiceKind);

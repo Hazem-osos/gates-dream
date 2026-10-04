@@ -32,7 +32,7 @@ router.get(
   async (req: AuthRequest, res: Response) => {
     const companyId = req.companyId || req.tenantId;
     if (!companyId) {
-      return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+      return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     }
     const result = await distributorService.listDistributors(companyId, {
       page: req.query.page as number | undefined,
@@ -50,7 +50,7 @@ router.get(
   async (req: AuthRequest, res: Response) => {
     const companyId = req.companyId || req.tenantId;
     if (!companyId) {
-      return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+      return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     }
     try {
       const data = await distributorService.getDistributorById(companyId, req.params.id);
@@ -68,7 +68,7 @@ router.post(
   async (req: AuthRequest, res: Response) => {
     const companyId = req.companyId || req.tenantId;
     if (!companyId) {
-      return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+      return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     }
     const data = await distributorService.createDistributor(companyId, req.body);
     return void res.status(201).json({ status: 'success', data });
@@ -82,7 +82,7 @@ router.put(
   async (req: AuthRequest, res: Response) => {
     const companyId = req.companyId || req.tenantId;
     if (!companyId) {
-      return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+      return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     }
     try {
       const data = await distributorService.updateDistributor(companyId, req.params.id, req.body);
@@ -99,7 +99,7 @@ router.delete(
   async (req: AuthRequest, res: Response) => {
     const companyId = req.companyId || req.tenantId;
     if (!companyId) {
-      return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+      return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     }
     try {
       await distributorService.deleteDistributor(companyId, req.params.id);

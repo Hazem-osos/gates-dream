@@ -211,7 +211,7 @@ export function ThermalPrintModal({
                 onClick={() => onWidth(mm)}
                 className={`rounded-lg border px-3 py-1.5 text-xs font-bold ${
                   widthMm === mm
-                    ? 'border-[#0E79AA] bg-[#0E79AA]/10 text-[#0E79AA]'
+                    ? 'border-[#0E78AA] bg-[#0E78AA]/10 text-[#0E78AA]'
                     : 'border-slate-200 text-slate-600 hover:border-slate-300'
                 }`}
               >
@@ -246,7 +246,7 @@ export function ThermalPrintModal({
           <p className="px-5 pt-2 text-xs text-red-600">{error}</p>
         ) : null}
         {phase !== 'idle' ? (
-          <p className="px-5 pt-2 text-xs font-semibold text-[#0E79AA]">{PHASE_LABEL[phase]}</p>
+          <p className="px-5 pt-2 text-xs font-semibold text-[#0E78AA]">{PHASE_LABEL[phase]}</p>
         ) : null}
 
         <footer className="flex flex-col gap-2 px-5 py-4">

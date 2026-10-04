@@ -17,7 +17,7 @@ const inputCls =
 
 const settingsDefaults: HrSettingsFormInput = {
   treasury: "الخزينة الرئيسية",
-  accountCode: "1212378971212",
+  accountCode: "",
   payrollAccount: "حساب الرواتب المستحقة",
   insuranceAccount: "حساب التأمينات الأجتماعية",
   insuranceExpense: "حساب مصروفات التأمينات الأجتماعية",
@@ -153,7 +153,7 @@ export default function HRSettingsPage() {
                     <label className="block text-sm text-[#094C6B] mb-1">كود الحساب</label>
                     <div className="relative">
                       <input className={inputCls + " pr-8"} {...register("accountCode")} />
-                      <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[#0E79AA]">🔍</span>
+                      <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[#0E78AA]">🔍</span>
                     </div>
                   </div>
                   <div>

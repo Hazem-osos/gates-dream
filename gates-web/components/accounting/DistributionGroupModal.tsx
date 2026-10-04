@@ -5,6 +5,7 @@ import { CenteredOverlay } from '@/components/erp/CenteredOverlay';
 import { CompactFormField, FormStickyFooter } from '@/components/ui';
 import { apiClient } from '@/lib/api/client';
 import { useNextMasterSerial } from '@/lib/hooks/useNextMasterSerial';
+import { preferForwardSerial } from '@/lib/masters/nextNumericSerial';
 
 export type DistributionFolderRole = 'DRIVER' | 'DISTRIBUTOR' | 'DELEGATE';
 
@@ -61,7 +62,7 @@ export function DistributionGroupModal({
 
   useEffect(() => {
     if (!open || isEdit || !nextSerial) return;
-    setCode(nextSerial);
+    setCode((prev) => preferForwardSerial(prev, nextSerial));
   }, [isEdit, nextSerial, open]);
 
   const submit = async () => {
@@ -96,7 +97,7 @@ export function DistributionGroupModal({
     <CenteredOverlay open={open} onClose={onClose} width="md" labelledBy="distribution-group-title">
       <div className="flex min-h-0 flex-col" dir="rtl">
         <div className="p-6 pb-2">
-          <h2 id="distribution-group-title" className="text-lg font-bold text-[#0E79AA]">
+          <h2 id="distribution-group-title" className="text-lg font-bold text-[#0E78AA]">
             {initial ? 'تعديل مجموعة' : 'إضافة مجموعة'}
           </h2>
           <p className="mt-1 mb-4 text-sm text-slate-500">
@@ -124,7 +125,6 @@ export function DistributionGroupModal({
           onSave={() => void submit()}
           saveLoading={saving}
           cancelText="إلغاء"
-          respectPermissions={false}
           className="mt-0"
         />
       </div>

@@ -3,7 +3,7 @@
 export function Sparkline({
   data,
   className,
-  stroke = '#0E79AA',
+  stroke = '#0E78AA',
 }: {
   data: number[];
   className?: string;

@@ -1,6 +1,8 @@
 'use client';
 
 import { useBackendReachability } from '@/lib/hooks/useBackendReachability';
+import { apiClient } from '@/lib/api/client';
+import { toast } from '@/lib/feedback/toast';
 import { useForm, type Resolver, type SubmitHandler } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { HrPageChrome } from '@/components/hr/HrPageChrome';
@@ -11,7 +13,7 @@ const defaults: AttendanceFingerprintFormInput = {
   month: 'يناير',
   year: '2025',
   monthDays: '',
-  sheet: '1212378971212',
+  sheet: '',
   date: '2025-02-22',
   employeeId: '1212342',
   entryExitCode: '12342354',
@@ -37,7 +39,7 @@ export default function AttendanceSheetFingerprintPage() {
   });
 
   const onSave: SubmitHandler<AttendanceFingerprintFormInput> = (values) => {
-    console.info('[attendance-sheet-fingerprint]', values);
+    void apiClient.post('/hr/attendance', { kind: 'sheet', payload: values }).then(() => toast.success('تم حفظ الكشف')).catch((err: unknown) => toast.error(err instanceof Error ? err.message : 'تعذر الحفظ'));
   };
 
   return (
@@ -79,7 +81,7 @@ export default function AttendanceSheetFingerprintPage() {
                     <label className="block text-sm text-[#094C6B] mb-2">إعداد أيام الشهر</label>
                     <button
                       type="button"
-                      className="px-4 py-2 bg-[#0E79AA] text-white rounded-lg hover:bg-[#094C6B] focus:ring-2 focus:ring-[#0E79AA] focus:ring-opacity-50 transition-all duration-200 shadow-sm hover:shadow-md"
+                      className="px-4 py-2 bg-[#0E78AA] text-white rounded-lg hover:bg-[#094C6B] focus:ring-2 focus:ring-[#0E78AA] focus:ring-opacity-50 transition-all duration-200 shadow-sm hover:shadow-md"
                     >
                       إعداد أيام الشهر
                     </button>
@@ -120,7 +122,7 @@ export default function AttendanceSheetFingerprintPage() {
                     <label className="block text-sm text-[#094C6B] mb-2">الشيت</label>
                     <div className="flex items-center gap-2">
                       <select
-                        className="w-32 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg text-sm"
+                        className="w-32 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg text-sm"
                         defaultValue="sheet"
                       >
                         <option value="sheet">الشيت</option>
@@ -129,8 +131,8 @@ export default function AttendanceSheetFingerprintPage() {
                       </select>
                       <input
                         type="text"
-                        className={`flex-1 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg text-sm ${errors.sheet ? 'border-red-400' : ''}`}
-                        placeholder="1212378971212"
+                        className={`flex-1 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg text-sm ${errors.sheet ? 'border-red-400' : ''}`}
+                        placeholder=""
                         {...register('sheet')}
                       />
                     </div>

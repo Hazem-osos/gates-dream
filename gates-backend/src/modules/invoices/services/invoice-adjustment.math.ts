@@ -27,16 +27,36 @@ export function computeAdjustmentInvoiceAmount(
 }
 
 /** Party-facing extras only — rows with offsetAccountId stay off AR/AP. */
+export function splitPartyAdjustments(
+  rows: InvoiceAdjustmentCalcInput[],
+  baseSubtotal: number,
+  invoiceExchangeRate = 1
+): { additions: number; deductions: number } {
+  let additions = 0;
+  let deductions = 0;
+  for (const row of rows) {
+    if (String(row.offsetAccountId ?? '').trim()) continue;
+    const amount = computeAdjustmentInvoiceAmount(row, baseSubtotal, invoiceExchangeRate);
+    if (row.type === 'ADDITION') additions += amount;
+    else deductions += amount;
+  }
+  return { additions: roundTo4(additions), deductions: roundTo4(deductions) };
+}
+
+/**
+ * Net party extras as extra invoice discount: deductions minus additions.
+ * A 100 discount and a 20 addition become 80. Additions are not other fees.
+ */
+export function partyExtrasAsExtraDiscount(additions: number, deductions: number): number {
+  return roundTo4((Number(deductions) || 0) - (Number(additions) || 0));
+}
+
+/** Party-facing extras only — rows with offsetAccountId stay off AR/AP. */
 export function sumPartyAdjustments(
   rows: InvoiceAdjustmentCalcInput[],
   baseSubtotal: number,
   invoiceExchangeRate = 1
 ): number {
-  let net = 0;
-  for (const row of rows) {
-    if (String(row.offsetAccountId ?? '').trim()) continue;
-    const amount = computeAdjustmentInvoiceAmount(row, baseSubtotal, invoiceExchangeRate);
-    net += row.type === 'ADDITION' ? amount : -amount;
-  }
-  return roundTo4(net);
+  const split = splitPartyAdjustments(rows, baseSubtotal, invoiceExchangeRate);
+  return roundTo4(split.additions - split.deductions);
 }

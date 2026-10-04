@@ -76,9 +76,17 @@ export default function SubcontractDashboardPage() {
         statusBadge={subcontract ? <SubcontractStatusBadge status={subcontract.status} /> : undefined}
         actions={
           subcontract?.status === 'ACTIVE' ? (
-            <Link href={`/subcontracts/${id}/invoices/new`}>
-              <Button iconStart={<FilePlus2 className="h-4 w-4" />}>مستخلص جديد</Button>
-            </Link>
+            <div className="flex flex-wrap gap-2">
+              <Link href={`/subcontracts/${id}/invoices/new`}>
+                <Button iconStart={<FilePlus2 className="h-4 w-4" />}>مستخلص جديد</Button>
+              </Link>
+              <Link href={`/subcontracts/${id}/preliminary-certificates`}>
+                <Button variant="secondary">المستخلصات الابتدائية</Button>
+              </Link>
+              <Link href={`/subcontracts/${id}/variation-orders`}>
+                <Button variant="secondary">أوامر التغيير</Button>
+              </Link>
+            </div>
           ) : undefined
         }
       />
@@ -105,7 +113,7 @@ export default function SubcontractDashboardPage() {
               </div>
               <div>
                 <p className="text-xs text-slate-500">قيمة العقد</p>
-                <p className="text-lg font-bold text-[#0E79AA]">{formatEgp(subcontract.totalContractValue)}</p>
+                <p className="text-lg font-bold text-[#0E78AA]">{formatEgp(subcontract.totalContractValue)}</p>
               </div>
             </div>
           </SubcontractCard>
@@ -141,7 +149,7 @@ export default function SubcontractDashboardPage() {
 
           <SubcontractCard>
             <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-lg font-bold text-[#0E79AA]">المستخلصات</h2>
+              <h2 className="text-lg font-bold text-[#0E78AA]">المستخلصات</h2>
             </div>
             {subcontract.invoices.length === 0 ? (
               <EmptyState title="لا توجد مستخلصات" description="أنشئ أول مستخلص بعد إدخال بنود المقايسة." />
@@ -161,7 +169,7 @@ export default function SubcontractDashboardPage() {
                     {subcontract.invoices.map((invoice) => (
                       <tr key={invoice.id} className="border-t border-slate-100">
                         <td className="px-3 py-2">
-                          <Link href={`/subcontracts/${id}/invoices/${invoice.id}`} className="text-[#0E79AA] underline">
+                          <Link href={`/subcontracts/${id}/invoices/${invoice.id}`} className="text-[#0E78AA] underline">
                             {invoice.invoiceNumber}
                           </Link>
                         </td>

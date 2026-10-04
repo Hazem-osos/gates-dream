@@ -8,6 +8,7 @@ import {
 } from '../../accounting/services/journal-posting.service';
 import { documentSequenceService } from '../../platform/services/document-sequence.service';
 import { contractingProjectService } from './contracting-project.service';
+import { requireLegacyWave3Stack } from './contracting-canonical-stack.service';
 import { contractingAccountResolverService } from './contracting-account-resolver.service';
 import { calculateSubcontractorExtractAmounts } from './extract-calculation.util';
 
@@ -44,6 +45,7 @@ export class SubcontractorExtractService {
       periodEnd?: Date;
     }
   ) {
+    await requireLegacyWave3Stack(companyId, input.projectId);
     const project = await contractingProjectService.getById(companyId, input.projectId);
     const sub = await prisma.projectSubcontract.findFirst({
       where: { id: input.projectSubcontractId, projectId: project.id },
@@ -89,6 +91,7 @@ export class SubcontractorExtractService {
     });
     if (!extract) throw new AppError(404, 'Subcontractor extract not found');
     if (extract.status === 'POSTED') throw new AppError(400, 'Extract already posted');
+    await requireLegacyWave3Stack(ctx.companyId, extract.projectId);
 
     const accounts = await contractingAccountResolverService.resolveAccounts(ctx.companyId);
     const gross = roundTo4(Number(extract.grossAmount));

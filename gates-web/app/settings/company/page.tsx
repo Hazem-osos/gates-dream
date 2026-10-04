@@ -9,12 +9,12 @@ import {
   PageHeader,
   FormSectionCard,
   CompactFormField,
-  AdvancedFieldsSection,
   FormStickyFooter,
   compactControlClass,
 } from '@/components/ui';
 import { DatePickerWithHijri } from '@/components/ui/DatePickerWithHijri';
-import { Building2, CalendarRange, GitBranch, ShieldCheck } from 'lucide-react';
+import { Building2, CalendarRange, FileText, GitBranch, ShieldCheck } from 'lucide-react';
+import { composeEtaAddressParts } from '@/lib/electronic-invoices/etaProfile';
 import { useCurrentUserProfile } from '@/lib/hooks/useCurrentUserProfile';
 import { downloadTenantBackup } from '@/lib/company/download-tenant-backup';
 import { refreshTenantContextFromApi } from '@/lib/tenant/refresh-tenant-context';
@@ -41,12 +41,25 @@ interface CompanyCurrent {
     tokenPin: string | null;
     environment: string;
     issuerTaxId: string | null;
+    issuerName?: string | null;
+    issuerAddress?: Record<string, unknown> | null;
   } | null;
 }
 
 interface BranchRow {
   id: string;
   arabicName: string;
+  branchNumber?: string | null;
+  activityCode?: string | null;
+  registrationNumber?: string | null;
+  country?: string | null;
+  governorate?: string | null;
+  city?: string | null;
+  district?: string | null;
+  streetName?: string | null;
+  buildingNumber?: string | null;
+  postalCode?: string | null;
+  address?: string | null;
   defaultWarehouseId: string | null;
   defaultSafeId: string | null;
   defaultWarehouse?: { id: string; arabicName: string } | null;
@@ -121,12 +134,25 @@ export default function CompanySettingsPage() {
     clientId: '',
     clientSecret: '',
     activityCode: '',
+    withholdingSubType: 'W001',
   });
+  const [issuerProfile, setIssuerProfile] = useState<Record<string, unknown> | null>(null);
   const [branchForm, setBranchForm] = useState({
     id: '',
     arabicName: 'الفرع الرئيسي',
     warehouseName: 'مخزن الحركة',
     safeName: 'الخزينة الرئيسية',
+    branchNumber: '01',
+    activityCode: '',
+    registrationNumber: '',
+    country: 'EG',
+    governorate: '',
+    city: '',
+    district: '',
+    buildingNumber: '',
+    streetName: '',
+    postalCode: '',
+    address: '',
   });
   const [fiscalForm, setFiscalForm] = useState({
     id: '',
@@ -176,28 +202,70 @@ export default function CompanySettingsPage() {
   useEffect(() => {
     if (!company) return;
     setForm(company);
+    const issuerAddress = (company.eInvoiceSettings?.issuerAddress ?? {}) as Record<string, unknown>;
     setEInv({
       clientId: company.eInvoiceSettings?.clientId ?? '',
       clientSecret: '',
       activityCode: company.eInvoiceSettings?.activityCode ?? company.activityCode ?? '',
+      withholdingSubType: String(issuerAddress.withholdingSubType ?? 'W001'),
+    });
+    const address = (company.eInvoiceSettings?.issuerAddress ?? {}) as Record<string, unknown>;
+    setIssuerProfile({
+      taxId: company.eInvoiceSettings?.issuerTaxId ?? company.taxRegistrationNumber ?? '',
+      name: company.eInvoiceSettings?.issuerName ?? company.nameAr ?? '',
+      activityCode: company.eInvoiceSettings?.activityCode ?? company.activityCode ?? '',
+      ...address,
     });
   }, [company]);
 
   useEffect(() => {
     if (!mainBranch) return;
-    setBranchForm((prev) => ({
-      id: mainBranch.id,
-      arabicName: mainBranch.arabicName || prev.arabicName,
-      warehouseName:
-        mainBranch.defaultWarehouse?.arabicName ||
-        warehouses.find((w) => w.id === mainBranch.defaultWarehouseId)?.arabicName ||
-        prev.warehouseName,
-      safeName:
-        mainBranch.defaultSafe?.arabicName ||
-        safes.find((s) => s.id === mainBranch.defaultSafeId)?.arabicName ||
-        prev.safeName,
-    }));
-  }, [mainBranch, warehouses, safes]);
+    const issuerAddress = (company?.eInvoiceSettings?.issuerAddress ?? {}) as Record<string, unknown>;
+    setBranchForm((prev) => {
+      const next = {
+        ...prev,
+        id: mainBranch.id,
+        arabicName: mainBranch.arabicName || prev.arabicName,
+        warehouseName:
+          mainBranch.defaultWarehouse?.arabicName ||
+          warehouses.find((w) => w.id === mainBranch.defaultWarehouseId)?.arabicName ||
+          prev.warehouseName,
+        safeName:
+          mainBranch.defaultSafe?.arabicName ||
+          safes.find((s) => s.id === mainBranch.defaultSafeId)?.arabicName ||
+          prev.safeName,
+        branchNumber: mainBranch.branchNumber || String(issuerAddress.branchID ?? prev.branchNumber),
+        activityCode:
+          mainBranch.activityCode ||
+          String(issuerAddress.activityCode ?? company?.activityCode ?? prev.activityCode),
+        registrationNumber:
+          mainBranch.registrationNumber ||
+          String(issuerAddress.taxId ?? company?.taxRegistrationNumber ?? prev.registrationNumber),
+        country: mainBranch.country || String(issuerAddress.country ?? 'EG'),
+        governorate: mainBranch.governorate || String(issuerAddress.governate ?? ''),
+        city: mainBranch.city || String(issuerAddress.regionCity ?? ''),
+        district: mainBranch.district || String(issuerAddress.additionalInformation ?? ''),
+        buildingNumber: mainBranch.buildingNumber || String(issuerAddress.buildingNumber ?? ''),
+        streetName: mainBranch.streetName || String(issuerAddress.street ?? ''),
+        postalCode: mainBranch.postalCode || String(issuerAddress.postalCode ?? ''),
+        address: mainBranch.address || prev.address,
+      };
+      return {
+        ...next,
+        address:
+          next.address ||
+          composeEtaAddressParts({
+            buildingNumber: next.buildingNumber,
+            street: next.streetName,
+            district: next.district,
+            city: next.city,
+            governorate: next.governorate,
+            country: next.country,
+            postalCode: next.postalCode,
+          }),
+      };
+    });
+  }, [company, mainBranch, warehouses, safes]);
 
   useEffect(() => {
     const year = years[0];
@@ -248,10 +316,6 @@ export default function CompanySettingsPage() {
     reader.readAsDataURL(file);
   };
 
-  const eInvFilledCount = [eInv.clientId, eInv.clientSecret, eInv.activityCode].filter(
-    (v) => String(v ?? '').trim().length > 0
-  ).length;
-
   const handleSave = () => {
     setError('');
     setSuccess('');
@@ -276,21 +340,50 @@ export default function CompanySettingsPage() {
       return;
     }
 
+    const composedAddress =
+      composeEtaAddressParts({
+        buildingNumber: branchForm.buildingNumber,
+        street: branchForm.streetName,
+        district: branchForm.district,
+        city: branchForm.city,
+        governorate: branchForm.governorate,
+        country: branchForm.country,
+        postalCode: branchForm.postalCode,
+      }) || branchForm.address;
+    const nextIssuer = {
+      ...(issuerProfile ?? {}),
+      taxId: branchForm.registrationNumber || String(issuerProfile?.taxId ?? form.taxRegistrationNumber ?? ''),
+      name: String(issuerProfile?.name ?? form.nameAr ?? ''),
+      activityCode: branchForm.activityCode || eInv.activityCode,
+      branchID: branchForm.branchNumber || '0',
+      country: branchForm.country || 'EG',
+      governate: branchForm.governorate,
+      regionCity: branchForm.city,
+      street: branchForm.streetName,
+      buildingNumber: branchForm.buildingNumber,
+      postalCode: branchForm.postalCode,
+      additionalInformation: branchForm.district,
+      withholdingSubType: eInv.withholdingSubType || 'W001',
+    };
+
     saveBasics.mutate({
       nameAr: form.nameAr?.trim(),
       nameEn: form.nameEn,
-      taxRegistrationNumber: form.taxRegistrationNumber,
+      taxRegistrationNumber: form.taxRegistrationNumber || branchForm.registrationNumber,
       commercialRegister: form.commercialRegister,
       currencyCode: form.currencyCode || 'EGP',
       logoUrl: form.logoUrl,
       phone: form.phone,
       email: form.email?.trim() || null,
       address: form.address,
-      activityCode: eInv.activityCode,
+      activityCode: branchForm.activityCode || eInv.activityCode,
       eInvoiceSettings: {
         clientId: eInv.clientId || null,
         ...(eInv.clientSecret ? { clientSecret: eInv.clientSecret } : {}),
-        activityCode: eInv.activityCode || null,
+        activityCode: nextIssuer.activityCode || null,
+        issuerTaxId: nextIssuer.taxId || null,
+        issuerName: nextIssuer.name || null,
+        issuerAddress: nextIssuer,
       },
       branch: {
         ...(branchForm.id ? { id: branchForm.id } : {}),
@@ -299,6 +392,17 @@ export default function CompanySettingsPage() {
         safeName: branchForm.safeName.trim(),
         defaultWarehouseId: mainBranch?.defaultWarehouseId || null,
         defaultSafeId: mainBranch?.defaultSafeId || null,
+        branchNumber: branchForm.branchNumber.trim() || '01',
+        activityCode: branchForm.activityCode.trim() || null,
+        registrationNumber: branchForm.registrationNumber.trim() || null,
+        country: branchForm.country || 'EG',
+        governorate: branchForm.governorate.trim() || null,
+        city: branchForm.city.trim() || null,
+        district: branchForm.district.trim() || null,
+        buildingNumber: branchForm.buildingNumber.trim() || null,
+        streetName: branchForm.streetName.trim() || null,
+        postalCode: branchForm.postalCode.trim() || null,
+        address: composedAddress || null,
       },
       fiscalYear: {
         ...(fiscalForm.id ? { id: fiscalForm.id } : {}),
@@ -435,37 +539,74 @@ export default function CompanySettingsPage() {
             />
           </FormSectionCard>
 
-          <AdvancedFieldsSection title="الفوترة الإلكترونية (ETA)" badgeCount={eInvFilledCount}>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              <CompactFormField
-                label="Client ID"
-                value={eInv.clientId}
-                onChange={(e) => setEInv({ ...eInv, clientId: e.target.value })}
-              />
-              <CompactFormField
-                label="Client Secret"
-                type="password"
-                placeholder={
-                  company?.eInvoiceSettings?.clientSecretConfigured
-                    ? '******** (اتركه فارغاً للإبقاء)'
-                    : ''
-                }
-                value={eInv.clientSecret}
-                onChange={(e) => setEInv({ ...eInv, clientSecret: e.target.value })}
-              />
-              <CompactFormField
-                label="Issuer Activity Code"
-                value={eInv.activityCode}
-                onChange={(e) => setEInv({ ...eInv, activityCode: e.target.value })}
-              />
-            </div>
-          </AdvancedFieldsSection>
+          <FormSectionCard
+            title="بيانات الفاتورة الإلكترونية"
+            subtitle="بيانات الشركة المطلوبة لإرسال الفاتورة لمصلحة الضرائب"
+            icon={FileText}
+            bodyClassName="grid-cols-1 sm:grid-cols-2 lg:grid-cols-3"
+          >
+            <CompactFormField
+              label="الرقم الضريبي"
+              value={branchForm.registrationNumber}
+              onChange={(e) => setBranchForm((f) => ({ ...f, registrationNumber: e.target.value }))}
+            />
+            <CompactFormField
+              label="اسم الشركة في الفاتورة"
+              value={String(issuerProfile?.name ?? '')}
+              onChange={(e) => setIssuerProfile((profile) => ({ ...(profile ?? {}), name: e.target.value }))}
+            />
+            <CompactFormField
+              label="كود النشاط"
+              value={branchForm.activityCode}
+              onChange={(e) => setBranchForm((f) => ({ ...f, activityCode: e.target.value }))}
+            />
+            <CompactFormField
+              label="كود الفرع"
+              value={branchForm.branchNumber}
+              onChange={(e) => setBranchForm((f) => ({ ...f, branchNumber: e.target.value }))}
+            />
+            <CompactFormField
+              label="الدولة"
+              value={branchForm.country}
+              onChange={(e) => setBranchForm((f) => ({ ...f, country: e.target.value }))}
+            />
+            <CompactFormField
+              label="المحافظة"
+              value={branchForm.governorate}
+              onChange={(e) => setBranchForm((f) => ({ ...f, governorate: e.target.value }))}
+            />
+            <CompactFormField
+              label="المدينة"
+              value={branchForm.city}
+              onChange={(e) => setBranchForm((f) => ({ ...f, city: e.target.value }))}
+            />
+            <CompactFormField
+              label="الحي"
+              value={branchForm.district}
+              onChange={(e) => setBranchForm((f) => ({ ...f, district: e.target.value }))}
+            />
+            <CompactFormField
+              label="الشارع"
+              value={branchForm.streetName}
+              onChange={(e) => setBranchForm((f) => ({ ...f, streetName: e.target.value }))}
+            />
+            <CompactFormField
+              label="رقم المبنى"
+              value={branchForm.buildingNumber}
+              onChange={(e) => setBranchForm((f) => ({ ...f, buildingNumber: e.target.value }))}
+            />
+            <CompactFormField
+              label="الرقم البريدي"
+              value={branchForm.postalCode}
+              onChange={(e) => setBranchForm((f) => ({ ...f, postalCode: e.target.value }))}
+            />
+          </FormSectionCard>
 
           {canBackup ? (
             <FormSectionCard title="نسخة احتياطية مشفّرة">
               <p className="mb-3 text-sm text-slate-600">
                 للنسخة الشاملة بصيغة JSON افتح{' '}
-                <a href="/settings/backup" className="font-semibold text-[#0E79AA] hover:underline">
+                <a href="/settings/backup" className="font-semibold text-[#0E78AA] hover:underline">
                   صفحة النسخ الاحتياطي
                 </a>
                 .
@@ -504,8 +645,7 @@ export default function CompanySettingsPage() {
             saveText="حفظ"
             saveLoading={saveBasics.isPending}
             saveDisabled={saveBasics.isPending}
-            respectPermissions={false}
-          />
+            />
         </>
       )}
     </div>

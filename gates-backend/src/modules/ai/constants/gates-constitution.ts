@@ -47,8 +47,8 @@ export const GATES_ERP_CONSTITUTION = `
 - سندات الصرف: /accounting/operations/treasury/payment
 - سندات القبض: /accounting/operations/treasury/receipt
 - أوراق الدفع: /accounting/operations/securities/payment
-- أوراق القبض: /accounting/operations/securities/reciept
-- الشيكات الواردة والتظهير: /accounting/operations/securities/reciept
+- أوراق القبض: /accounting/operations/securities/receipt
+- الشيكات الواردة والتظهير: /accounting/operations/securities/receipt
 - إشعارات خصم المنبع (نموذج 41): /accounting/tax/wht-certificates
 - إعدادات الفواتير وسياسات الحركات: اضغط ⚙️ بجانب اسم الشاشة في القائمة الجانبية.
 - عند توجيه المستخدم لشاشة، اكتب اسمها بين قوسين مربعين حرفياً ليتحول في الواجهة إلى زر تنقّل: [فواتير المبيعات] [مردودات المبيعات] [فواتير المشتريات] [سندات الصرف] [سندات القبض] [الشيكات الواردة] [إشعارات خصم المنبع].

@@ -11,7 +11,6 @@ import { ModuleNavSearch } from '@/app/components/navigation/ModuleNavSearch';
 import { buildCategorizedNavGroups } from '@/lib/navigation/categorize-module-nav';
 import { filterModuleNavLinks, flattenModuleNavLinks } from '@/lib/navigation/flatten-module-nav';
 import {
-  readNavGroupOpenState,
   writeNavGroupOpenState,
   type NavGroupOpenState,
 } from '@/lib/navigation/module-nav-group-storage';
@@ -74,7 +73,7 @@ function NavLinkRow({ link, active }: { link: FlatModuleNavLink; active: boolean
         <PrefetchNavLink
           href={settingsHref}
           aria-label="إعدادات الشاشة"
-          className="absolute left-1 top-1/2 z-10 -translate-y-1/2 rounded-md p-1 text-slate-400 opacity-0 transition-opacity hover:text-[#0E79AA] group-hover:opacity-100"
+          className="absolute left-1 top-1/2 z-10 -translate-y-1/2 rounded-md p-1 text-slate-400 opacity-0 transition-opacity hover:text-[#0E78AA] group-hover:opacity-100"
           onClick={(e) => e.stopPropagation()}
           data-tour="settings-gear"
         >
@@ -98,8 +97,8 @@ export function SubNavigationSidebar({
   const allLinks = useMemo(() => flattenModuleNavLinks(modules), [modules]);
   const [search, setSearch] = useState('');
   const [openGroups, setOpenGroups] = useState<NavGroupOpenState>(() => ({
-    operations: true,
-    master: true,
+    operations: false,
+    master: false,
     reports: false,
     settings: false,
   }));
@@ -117,32 +116,14 @@ export function SubNavigationSidebar({
   }, [filteredLinks]);
 
   useEffect(() => {
-    const saved = readNavGroupOpenState(moduleKey);
-    setOpenGroups((prev) => ({ ...prev, ...saved }));
+    setOpenGroups({
+      operations: false,
+      master: false,
+      reports: false,
+      settings: false,
+    });
+    setOpenSubgroups({});
   }, [moduleKey]);
-
-  useEffect(() => {
-    if (!pathname) return;
-    const settingsSourceHref = sourceHrefForSettingsPath(pathname);
-    const matches = (href: string) =>
-      pathname === href || pathname.startsWith(`${href}/`) || settingsSourceHref === href;
-    const activeGroup = groups.find(
-      (g) =>
-        g.items.some((item) => matches(item.href)) ||
-        g.subgroups.some((sg) => sg.items.some((item) => matches(item.href)))
-    );
-    const activeSubgroup = activeGroup?.subgroups.find((sg) => sg.items.some((item) => matches(item.href)));
-    if (activeSubgroup) {
-      setOpenSubgroups((prev) => ({ ...prev, [activeSubgroup.id]: true }));
-    }
-    if (activeGroup) {
-      setOpenGroups((prev) => {
-        const next = { ...prev, [activeGroup.id]: true };
-        writeNavGroupOpenState(moduleKey, next);
-        return next;
-      });
-    }
-  }, [pathname, groups, moduleKey]);
 
   useEffect(() => {
     if (!search.trim()) return;
@@ -165,10 +146,12 @@ export function SubNavigationSidebar({
   );
 
   const settingsSourceHref = sourceHrefForSettingsPath(pathname);
-  const isLinkActive = (href: string) =>
-    pathname === href ||
-    settingsSourceHref === href ||
-    (href !== '/' && Boolean(pathname?.startsWith(`${href}/`)));
+  const isLinkActive = (href: string) => {
+    if (pathname === href || settingsSourceHref === href) return true;
+    if (href === '/contracting') return pathname === '/contracting';
+    if (href === '/extracts') return pathname === '/extracts';
+    return href !== '/' && Boolean(pathname?.startsWith(`${href}/`));
+  };
 
   const renderSearchResults = () => {
     if (!search.trim()) return null;
@@ -231,13 +214,13 @@ export function SubNavigationSidebar({
           {isOpen ? (
             <div className="mt-1 space-y-2">
               {visibleSubgroups.map((sg) => {
-                const sgOpen = search.trim() ? true : openSubgroups[sg.id] !== false;
+                const sgOpen = search.trim() ? true : !!openSubgroups[sg.id];
                 return (
                   <div key={sg.id} className="rounded-xl bg-white/80 px-1 py-1 dark:bg-slate-800/40">
                     <button
                       type="button"
                       onClick={() =>
-                        setOpenSubgroups((prev) => ({ ...prev, [sg.id]: !(prev[sg.id] !== false) }))
+                        setOpenSubgroups((prev) => ({ ...prev, [sg.id]: !prev[sg.id] }))
                       }
                       className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-right"
                     >

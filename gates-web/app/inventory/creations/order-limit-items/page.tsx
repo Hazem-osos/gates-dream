@@ -2,14 +2,22 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Package } from 'lucide-react';
-import { CompactFormField, FormSectionCard, AppTable, FilterToolbar, compactControlClass } from '@/components/ui';
+import { Button, CompactFormField, FormSectionCard, AppTable, FilterToolbar, compactControlClass } from '@/components/ui';
 import { MasterCardShell } from '@/components/erp';
 import { WarehouseSelect } from '@/components/form/WarehouseSelect';
 import { useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
 import { apiClient } from '@/lib/api/client';
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
+import { finishDocumentSave } from '@/lib/documents/finish-save';
+import { invalidateStockViews } from '@/lib/invoices/invalidate-stock-views';
 import type { OrderLimitListRow } from '@/components/inventory/OrderLimitListsSection';
+import { exportRowsToExcel } from '@/lib/export/export-utils';
+import {
+  ORDER_LIMIT_SHEET_HEADERS,
+  applyOrderLimitSheet,
+  parseOrderLimitSheet,
+} from '@/lib/inventory/order-limit-sheet';
 
 type FormState = {
   code: string;
@@ -111,6 +119,8 @@ export default function OrderLimitItemsPage() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [saving, setSaving] = useState(false);
+  const [sheetBusy, setSheetBusy] = useState(false);
+  const sheetRef = useRef<HTMLInputElement>(null);
 
   const warehouseId = form.warehouseId;
   const hydrateKeyRef = useRef('');
@@ -243,6 +253,71 @@ export default function OrderLimitItemsPage() {
     return lines.filter((row) => `${row.itemCode} ${row.itemName}`.includes(q));
   }, [lines, search]);
 
+  const exportSheet = async () => {
+    if (!warehouseId) {
+      setError('اختر المخزن أولاً');
+      return;
+    }
+    setError('');
+    setSheetBusy(true);
+    try {
+      const rows = visible.map((row) => [
+        row.itemCode,
+        row.itemName,
+        row.warehouseQty,
+        row.lowerLimit,
+        row.orderLimit,
+        row.upperLimit,
+      ]);
+      const name = form.code.trim() || 'order-limits';
+      await exportRowsToExcel(`${name}.xlsx`, [...ORDER_LIMIT_SHEET_HEADERS], rows, 'حد الطلب');
+      setSuccess(`تم تنزيل ${rows.length} صنف.`);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'تعذر تنزيل الشيت');
+    } finally {
+      setSheetBusy(false);
+    }
+  };
+
+  const importSheet = async (file: File) => {
+    if (!warehouseId || lines.length === 0) {
+      setError('اختر المخزن أولاً حتى تتحمّل الأصناف، وبعدين استورد الشيت');
+      return;
+    }
+    setError('');
+    setSheetBusy(true);
+    try {
+      const XLSX = await import(/* webpackChunkName: "xlsx" */ 'xlsx');
+      const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      if (!sheet) {
+        setError('الملف لا يحتوي على ورقة عمل');
+        return;
+      }
+      const matrix = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: '' });
+      const parsed = parseOrderLimitSheet(matrix);
+      if (!parsed.length) {
+        setError('الشيت فاضي أو الأعمدة مش كود الصنف وحد الطلب');
+        return;
+      }
+      const { next, matched, missed } = applyOrderLimitSheet(lines, parsed);
+      if (!matched) {
+        setError('مفيش صنف في الشيت مطابق لكود أو اسم في القائمة');
+        return;
+      }
+      setLines(next);
+      setSuccess(
+        missed
+          ? `اتحطت حدود ${matched} صنف. ${missed} صف في الشيت مش لاقي صنف مطابق. احفظ لتثبيت البطاقة.`
+          : `اتحطت حدود ${matched} صنف من الشيت. احفظ لتثبيت البطاقة.`
+      );
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'تعذر قراءة الشيت');
+    } finally {
+      setSheetBusy(false);
+    }
+  };
+
   const handleSave = async () => {
     setError('');
     setSuccess('');
@@ -265,14 +340,33 @@ export default function OrderLimitItemsPage() {
     };
     setSaving(true);
     try {
+      const wasUpdate = Boolean(selectedId || existingListId);
       const targetId = selectedId || existingListId || '';
       const res = targetId
         ? await apiClient.put<ApiDetail>(`/inventory/item-order-limits/${targetId}`, payload)
         : await apiClient.post<ApiDetail>('/inventory/item-order-limits', payload);
-      if (res.data?.id) setSelectedId(res.data.id);
+      const id = res.data?.id ?? (targetId || null);
+      invalidateStockViews(invalidateQuery);
       invalidateQuery(['item-order-limits']);
-      invalidateQuery(['items']);
-      setSuccess('تم حفظ حدود الأصناف — التنبيه هيشتغل حسب رصيد المخزن المختار');
+      if (wasUpdate) {
+        if (id) setSelectedId(id);
+        finishDocumentSave({
+          label: 'حد الطلب',
+          number: form.code,
+          savedId: id,
+          onOpen: (saved) => setSelectedId(saved),
+          cleared: false,
+          reset: () => undefined,
+        });
+      } else {
+        finishDocumentSave({
+          label: 'حد الطلب',
+          number: form.code || res.data?.code,
+          savedId: id,
+          onOpen: (saved) => setSelectedId(saved),
+          reset: handleNew,
+        });
+      }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : '';
       setError(message && !/^failed to /i.test(message) ? message : 'تعذر حفظ حدود الأصناف. راجع المخزن ثم أعد المحاولة.');
@@ -343,7 +437,32 @@ export default function OrderLimitItemsPage() {
         </CompactFormField>
       </FormSectionCard>
 
-      <FilterToolbar searchPlaceholder="بحث بكود أو اسم الصنف…" onSearchChange={setSearch} />
+      <FilterToolbar searchPlaceholder="بحث بكود أو اسم الصنف…" onSearchChange={setSearch}>
+        <Button type="button" variant="secondary" size="sm" isLoading={sheetBusy} disabled={!warehouseId} onClick={() => void exportSheet()}>
+          تصدير إكسيل
+        </Button>
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          isLoading={sheetBusy}
+          disabled={!warehouseId}
+          onClick={() => sheetRef.current?.click()}
+        >
+          استيراد إكسيل
+        </Button>
+        <input
+          ref={sheetRef}
+          type="file"
+          accept=".xlsx,.xls,.csv"
+          className="sr-only"
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            event.target.value = '';
+            if (file) void importSheet(file);
+          }}
+        />
+      </FilterToolbar>
 
       <section className="mb-4 mt-4 overflow-visible rounded-xl border border-[#E6F0F7] bg-white p-4 shadow-sm">
         <AppTable<LimitLine>

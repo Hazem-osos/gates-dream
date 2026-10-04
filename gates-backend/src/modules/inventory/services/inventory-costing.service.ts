@@ -1,11 +1,16 @@
 import { Decimal } from '@prisma/client/runtime/library';
 import { Prisma } from '@prisma/client';
 import prisma from '../../../shared/database/prisma';
+import { AppError } from '../../../shared/middleware/error-handler';
 import { logger } from '../../../shared/logger';
 import { roundTo4 } from '../../../shared/utils/decimal-round';
 import { itemCostService } from './item-cost.service';
 import { stockMovementService } from './stock-movement.service';
 import { getWarehouseBalance } from './adjust-stock-in-tx';
+import {
+  assertLedgerMatchesWarehouseBalanceInTx,
+  syncItemQuantityToWarehouseBalanceInTx,
+} from './warehouse-quantity-sync';
 import {
   applyInboundToState,
   applyOutboundToState,
@@ -34,6 +39,8 @@ export interface CostingMovementInput {
   postStock?: boolean;
   /** Override company negative-stock policy. `undefined` = company setting. */
   allowNegativeStock?: boolean;
+  /** Reject negative on post when document transaction settings require it. */
+  forceStrictNegativeCheck?: boolean;
   /** SALE_RETURN / restore: average in at the current MAC, never a selling price. */
   inheritCurrentCost?: boolean;
   /** Default true for genuine purchases; false for transfers / assembly / returns. */
@@ -135,6 +142,7 @@ export class InventoryCostingService {
         documentDate: input.transactionDate,
         effectiveAt: input.transactionDate,
         allowNegativeStock: input.allowNegativeStock,
+        forceStrictNegativeCheck: input.forceStrictNegativeCheck,
       });
       movementId = posted.movement.id;
       quantityOnHand = posted.quantityOnHand;
@@ -150,9 +158,13 @@ export class InventoryCostingService {
     });
 
     if (input.sourceType && input.sourceNumber && input.sourceYearId) {
+      const branchId = input.branchId?.trim();
+      if (!branchId) {
+        throw new AppError(422, 'يجب اختيار الفرع قبل تسجيل تكلفة الصنف.');
+      }
       await itemCostService.upsertCostSnapshotInTx(tx, {
         companyId: input.companyId,
-        branchId: input.branchId ?? '',
+        branchId,
         itemId: input.itemId,
         cost: globalAverageCost,
         invoiceDate: input.transactionDate,
@@ -187,14 +199,19 @@ export class InventoryCostingService {
       outboundQty
     );
 
-    if (input.allowNegativeStock === false && outbound.quantityOnHand < 0) {
+    const forceStrict = input.forceStrictNegativeCheck === true;
+    if (
+      forceStrict ||
+      (input.allowNegativeStock === false && outbound.quantityOnHand < 0)
+    ) {
       await stockMovementService.assertNegativeStockAllowed(
         input.companyId,
         input.warehouseId,
         input.itemId,
         input.locationId,
         -outboundQty,
-        tx
+        tx,
+        forceStrict
       );
     }
 
@@ -219,9 +236,19 @@ export class InventoryCostingService {
         documentDate: input.transactionDate,
         effectiveAt: input.transactionDate,
         allowNegativeStock: input.allowNegativeStock,
+        forceStrictNegativeCheck: input.forceStrictNegativeCheck,
       });
       movementId = posted.movement.id;
       quantityOnHand = posted.quantityOnHand;
+    }
+
+    if (outboundQty > 0 && input.postStock !== false) {
+      await this.syncItemValuation(tx, {
+        companyId: input.companyId,
+        itemId: input.itemId,
+        inboundCost: snapshot.averageCost,
+        updateLastPurchasePrice: false,
+      });
     }
 
     return {
@@ -233,11 +260,133 @@ export class InventoryCostingService {
     };
   }
 
+  /** Unit cost stored on the inbound movement that posted this document line. */
+  async postedUnitCost(
+    tx: Prisma.TransactionClient,
+    input: {
+      companyId: string;
+      itemId: string;
+      warehouseId: string;
+      sourceType: string;
+      sourceNumber?: string;
+      sourceDocumentId?: string;
+    }
+  ): Promise<number | null> {
+    const row = await tx.inventoryMovement.findFirst({
+      where: {
+        companyId: input.companyId,
+        itemId: input.itemId,
+        warehouseId: input.warehouseId,
+        sourceType: input.sourceType,
+        ...(input.sourceNumber ? { sourceNumber: input.sourceNumber } : {}),
+        ...(input.sourceDocumentId ? { sourceDocumentId: input.sourceDocumentId } : {}),
+        quantityDelta: { gt: 0 },
+      },
+      orderBy: { effectiveAt: 'desc' },
+      select: { unitCost: true },
+    });
+    if (row?.unitCost == null) return null;
+    const cost = Number(row.unitCost);
+    return Number.isFinite(cost) ? cost : null;
+  }
+
+  /**
+   * Undo an inbound layer at its original unit cost.
+   * 10@100 then 10@140 → avg 120; reversing the first 10 leaves 10@140.
+   */
+  async reverseInboundInTx(
+    tx: Prisma.TransactionClient,
+    input: CostingMovementInput & { originalUnitCost: number }
+  ): Promise<InboundMovementResult> {
+    const qty = Math.abs(Number(input.quantity) || 0);
+    const originalUnitCost = roundTo4(Number(input.originalUnitCost) || 0);
+    const snapshot = await this.readCostSnapshot(tx, input);
+    if (qty <= 0) {
+      return {
+        unitCost: originalUnitCost,
+        inboundQty: 0,
+        previousQty: snapshot.quantity,
+        previousAverageCost: snapshot.averageCost,
+        resultingAverageCost: snapshot.averageCost,
+        quantityOnHand: snapshot.quantity,
+        globalAverageCost: snapshot.globalAverageCost,
+        totalValuation: 0,
+      };
+    }
+
+    const next = applyInboundToState(
+      { quantity: snapshot.quantity, averageCost: snapshot.averageCost },
+      -qty,
+      originalUnitCost
+    );
+
+    const posted = await stockMovementService.postMovementInTx(tx, {
+      companyId: input.companyId,
+      branchId: input.branchId,
+      warehouseId: input.warehouseId,
+      itemId: input.itemId,
+      locationId: input.locationId,
+      quantityDelta: -qty,
+      unitCost: originalUnitCost,
+      resultingAverageCost: next.averageCost,
+      sourceDocumentId: input.sourceDocumentId,
+      movementType: input.movementType,
+      sourceType: input.sourceType,
+      sourceNumber: input.sourceNumber,
+      sourceYearId: input.sourceYearId,
+      documentDate: input.transactionDate,
+      effectiveAt: input.transactionDate,
+      allowNegativeStock: input.allowNegativeStock,
+      forceStrictNegativeCheck: input.forceStrictNegativeCheck,
+    });
+
+    await this.persistWarehouseAverage(tx, input, next.averageCost);
+    const globalAverageCost = await this.syncItemValuation(tx, {
+      companyId: input.companyId,
+      itemId: input.itemId,
+      inboundCost: originalUnitCost,
+      updateLastPurchasePrice: false,
+    });
+
+    if (input.sourceType && input.sourceNumber && input.sourceYearId) {
+      const branchId = input.branchId?.trim();
+      if (!branchId) {
+        throw new AppError(422, 'يجب اختيار الفرع قبل تسجيل تكلفة الصنف.');
+      }
+      await itemCostService.upsertCostSnapshotInTx(tx, {
+        companyId: input.companyId,
+        branchId,
+        itemId: input.itemId,
+        cost: globalAverageCost,
+        invoiceDate: input.transactionDate,
+        sourceType: input.sourceType,
+        sourceNum: input.sourceNumber,
+        sourceYearId: input.sourceYearId,
+        hijriDate: input.hijriDate,
+      });
+    }
+
+    return {
+      unitCost: originalUnitCost,
+      inboundQty: -qty,
+      previousQty: snapshot.quantity,
+      previousAverageCost: snapshot.averageCost,
+      resultingAverageCost: next.averageCost,
+      quantityOnHand: posted.quantityOnHand,
+      globalAverageCost,
+      totalValuation: roundTo4(qty * originalUnitCost),
+      movementId: posted.movement.id,
+    };
+  }
+
   /**
    * frmRepairCost parity: replay movements chronologically and rewrite
-   * cost snapshots + warehouse/item MAC. Posted journal entries are never
-   * mutated (C11); draft COGS journals for the same source document are
-   * restated when the new outbound valuation is known.
+   * cost snapshots, warehouse on-hand, and warehouse/item MAC.
+   * Posted journal entries are never mutated. Draft COGS journals for the
+   * same source document are restated when the new outbound valuation is known.
+   * This is opt-in. It is not run on import, startup, or the integrity report.
+   * Location rows are updated only when the warehouse has a single unlocated
+   * quantity row. Duplicates and located stock are left as-is.
    */
   async recalculateItemCostHistory(
     input: RecalculateItemCostHistoryInput
@@ -364,6 +513,20 @@ export class InventoryCostingService {
           averageCost: new Decimal(state.averageCost),
         },
       });
+      await assertLedgerMatchesWarehouseBalanceInTx(
+        tx,
+        input.companyId,
+        input.itemId,
+        warehouseId,
+        state.quantity
+      );
+      await syncItemQuantityToWarehouseBalanceInTx(
+        tx,
+        input.companyId,
+        input.itemId,
+        warehouseId,
+        state.quantity
+      );
     }
 
     await tx.item.updateMany({
@@ -449,6 +612,14 @@ export class InventoryCostingService {
     tx: Prisma.TransactionClient,
     input: Pick<CostingMovementInput, 'companyId' | 'itemId' | 'warehouseId' | 'transactionDate'>
   ): Promise<{ quantity: number; averageCost: number; globalAverageCost: number }> {
+    await tx.$queryRaw`
+      SELECT iq.id FROM item_quantities iq
+      INNER JOIN warehouses w ON w.id = iq.warehouseId
+      WHERE iq.itemId = ${input.itemId}
+        AND iq.warehouseId = ${input.warehouseId}
+        AND w.companyId = ${input.companyId}
+      FOR UPDATE
+    `;
     await tx.$queryRaw`
       SELECT id FROM item_warehouse_balances
       WHERE companyId = ${input.companyId}

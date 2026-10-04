@@ -1,26 +1,25 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
-import { useOwnTabSearchParams } from '@/lib/navigation/tab-route-lock';
+import { useState, useEffect, useMemo, useRef } from 'react';
+import { useRouter } from 'next/navigation';
+import { useOwnTabPathname, useOwnTabSearchParams } from '@/lib/navigation/tab-route-lock';
 import { useForm, type Resolver, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { ErpDocumentLayout, ErpDocumentPageHeader } from '@/components/erp';
 import { DocumentBrowseDrawer } from '@/components/erp/DocumentBrowseDrawer';
 import { GenericRecordsList } from '@/components/erp/GenericRecordsList';
-import CrudButtons from '@/components/ui/CrudButtons';
 import {
   FormSectionCard,
   CompactFormField,
   AdvancedFieldsSection,
-  FormStickyFooter,
   compactControlClass,
-  compactLabelClass,
   denseTableWrapClass,
   denseTableClass,
   denseTheadClass,
   denseThClass,
 } from '@/components/ui';
 import { useApiQuery, useApiMutation, useInvalidateQuery } from '@/lib/hooks/useApi';
+import { apiClient } from '@/lib/api/client';
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
 import {
@@ -30,21 +29,24 @@ import {
 } from '@/lib/validation/inventory.schema';
 import type { ApiError } from '@/lib/api/types';
 import { onFieldErrors } from '@/lib/forms/on-field-errors';
+import { finishDocumentSave } from '@/lib/documents/finish-save';
+import { unpostedDocumentStatusLabel } from '@/lib/documents/document-status-labels';
+import { invalidateStockViews } from '@/lib/invoices/invalidate-stock-views';
+import { postStoreDocumentAfterSave } from '@/lib/inventory/post-store-document-after-save';
 
 import { InvoiceFinancialSummary } from '@/components/inventory/InvoiceFinancialSummary';
 import { computeInvoiceFinancialSummary } from '@/lib/invoices/computeInvoiceFinancialSummary';
-import { simpleInvoiceLineRowCells } from '@/lib/inventory/invoiceLineTableCells';
-import { EmptyState } from '@/components/ui/EmptyState';
+import { InvoiceLineStockBalanceCell } from '@/components/invoices/InvoiceLineStockBalanceCell';
 import { WarehouseSelect } from '@/components/form/WarehouseSelect';
 import { CostCenterSelect } from '@/components/form/CostCenterSelect';
 import { SupplierSelect } from '@/components/form/PartySelect';
-
-interface Item {
-  id: string;
-  code: string;
-  arabicName: string;
-  englishName?: string;
-}
+import { ItemSelect } from '@/app/components/form/ItemSelect';
+import { toFiniteNumber } from '@/components/dashboard/period';
+import {
+  isAtOrderLimit,
+  reorderPurchaseQuantity,
+  type ReorderCandidate,
+} from '@/lib/inventory/reorder-items';
 
 interface Currency {
   id: string;
@@ -55,10 +57,21 @@ interface Currency {
 
 interface PurchaseOrderLine {
   itemId: string;
+  itemLabel?: string;
   quantity: number;
   unitPrice: number;
   discount?: number;
   tax?: number;
+}
+
+function emptyOrderLine(): PurchaseOrderLine {
+  return { itemId: '', quantity: 1, unitPrice: 0, discount: 0, tax: 0 };
+}
+
+function orderLineNet(line: PurchaseOrderLine): number {
+  const gross = (Number(line.quantity) || 0) * (Number(line.unitPrice) || 0);
+  const afterDiscount = gross * (1 - (Number(line.discount) || 0) / 100);
+  return afterDiscount * (1 + (Number(line.tax) || 0) / 100);
 }
 
 function emptyPurchaseOrderHeader(today: string): InventoryPurchaseOrderHeaderFormInput {
@@ -98,20 +111,20 @@ export default function PurchaseOrderPage() {
   });
 
   const isPosted = watch('isPosted');
+  const warehouseId = watch('warehouseId');
 
   const [showCanceled, setShowCanceled] = useState(false);
-  const [printEnglishInvoice, setPrintEnglishInvoice] = useState(false);
-  const [dontPrintEmptyLines, setDontPrintEmptyLines] = useState(false);
-  const [showPrint, setShowPrint] = useState(false);
-  const [showTermsModal, setShowTermsModal] = useState(false);
-  const [conditions, setConditions] = useState<string[]>(['الشرط 1']);
-
-  const [orderLines, setOrderLines] = useState<PurchaseOrderLine[]>([]);
+  const [orderLines, setOrderLines] = useState<PurchaseOrderLine[]>([emptyOrderLine()]);
   const [showList, setShowList] = useState(false);
+  const router = useRouter();
+  const ownPathname = useOwnTabPathname();
   const searchParams = useOwnTabSearchParams();
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(
     () => searchParams.get('orderId')?.trim() || null
   );
+  const fromOrderLimit = searchParams.get('from') === 'order-limit';
+  const reorderApplied = useRef(false);
+  const postAfterSaveRef = useRef(false);
 
   const financialSummary = useMemo(
     () =>
@@ -138,12 +151,12 @@ export default function PurchaseOrderPage() {
   );
   const currencies = useMemo(() => currenciesResponse?.data ?? [], [currenciesResponse?.data]);
 
-  const { data: itemsResponse } = useApiQuery<Item[]>(
-    ['items'],
+  const { data: reorderItemsResponse } = useApiQuery<ReorderCandidate[]>(
+    ['purchase-order-reorder-items'],
     '/inventory/items',
-    { limit: 2000, isActive: true }
+    { limit: 200, isActive: true },
+    { enabled: fromOrderLimit && !selectedOrderId, staleTime: 15_000 }
   );
-  const items = itemsResponse?.data ?? [];
 
   const { data: selectedOrderResponse } = useApiQuery<{
     orderNumber?: string | null;
@@ -161,6 +174,7 @@ export default function PurchaseOrderPage() {
       itemId: string;
       quantity?: number | string;
       unitPrice?: number | string;
+      discountPercentage?: number | string;
       discountValue?: number | string;
       taxPercentage?: number | string;
     }>;
@@ -192,30 +206,159 @@ export default function PurchaseOrderPage() {
         itemId: line.itemId,
         quantity: Number(line.quantity ?? 0),
         unitPrice: Number(line.unitPrice ?? 0),
-        discount: Number(line.discountValue ?? 0),
+        discount: Number(line.discountPercentage ?? line.discountValue ?? 0),
         tax: Number(line.taxPercentage ?? 0),
       }))
     );
   }, [selectedOrderResponse, selectedOrderId, reset, todayStr]);
 
+  useEffect(() => {
+    if (!fromOrderLimit || selectedOrderId || reorderApplied.current) return;
+    if (!reorderItemsResponse) return;
+    const rows = (reorderItemsResponse.data ?? []).filter(isAtOrderLimit);
+    reorderApplied.current = true;
+    setOrderLines(
+      rows.length
+        ? rows.map((item) => ({
+            itemId: item.id,
+            itemLabel: item.arabicName?.trim() || undefined,
+            quantity: reorderPurchaseQuantity(item),
+            unitPrice: toFiniteNumber(item.lastPurchasePrice),
+            discount: 0,
+            tax: 0,
+          }))
+        : [emptyOrderLine()]
+    );
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete('from');
+    const qs = params.toString();
+    router.replace(qs ? `${ownPathname}?${qs}` : ownPathname, { scroll: false });
+  }, [fromOrderLimit, ownPathname, reorderItemsResponse, router, searchParams, selectedOrderId]);
+
   // Purchase order mutation
-  const purchaseOrderMutation = useApiMutation<unknown, Record<string, unknown>>(
-    '/inventory/purchase-orders',
-    'POST',
+  const stayOnOrder = (id: string) => {
+    setSelectedOrderId(id);
+    const params = new URLSearchParams(searchParams.toString());
+    params.set('orderId', id);
+    const qs = params.toString();
+    router.replace(qs ? `${ownPathname}?${qs}` : ownPathname, { scroll: false });
+    invalidateQuery(['purchase-order', id]);
+  };
+
+  const clearOrderForNext = () => {
+    setSelectedOrderId(null);
+    setOrderLines([emptyOrderLine()]);
+    reset(emptyPurchaseOrderHeader(new Date().toISOString().split('T')[0]));
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete('orderId');
+    const qs = params.toString();
+    router.replace(qs ? `${ownPathname}?${qs}` : ownPathname, { scroll: false });
+  };
+
+  const purchaseOrderMutation = useApiMutation<
+    { id?: string; orderNumber?: string; serial?: string; serialNumber?: string },
+    Record<string, unknown>
+  >('/inventory/purchase-orders', 'POST', {
+    showSuccessToast: false,
+    onSuccess: (res) => {
+      invalidateStockViews(invalidateQuery);
+      const id = res.data?.id;
+      const number = res.data?.orderNumber || res.data?.serialNumber || res.data?.serial;
+      const shouldPost = postAfterSaveRef.current;
+      postAfterSaveRef.current = false;
+      const finish = (posted: boolean) => {
+        finishDocumentSave({
+          label: 'أمر شراء',
+          number,
+          posted,
+          savedId: id,
+          onOpen: stayOnOrder,
+          onSavedOpen: (saved) => invalidateQuery(['purchase-order', saved]),
+          reset: clearOrderForNext,
+        });
+      };
+      if (shouldPost && id) {
+        void postStoreDocumentAfterSave({
+          postPath: `/inventory/purchase-orders/${id}/post`,
+          onPosted: () => {
+            setValue('isPosted', true);
+            invalidateQuery(['purchase-orders']);
+            finish(true);
+          },
+          onPostFailed: (message) => {
+            setError(message);
+            stayOnOrder(id);
+          },
+        });
+        return;
+      }
+      finish(false);
+    },
+    onError: (error: ApiError) => {
+      postAfterSaveRef.current = false;
+      setError(error.message || 'حدث خطأ أثناء الحفظ');
+    },
+  });
+
+  const purchaseOrderUpdateMutation = useApiMutation<unknown, Record<string, unknown>>(
+    selectedOrderId ? `/inventory/purchase-orders/${selectedOrderId}` : '/inventory/purchase-orders',
+    'PUT',
     {
+      showSuccessToast: false,
       onSuccess: () => {
-        setSuccess('تم حفظ أمر الشراء بنجاح');
-        invalidateQuery(['purchase-orders']);
-        reset(emptyPurchaseOrderHeader(new Date().toISOString().split('T')[0]));
-        setOrderLines([]);
+        invalidateStockViews(invalidateQuery);
+        const id = selectedOrderId;
+        const number = watch('orderNumber');
+        const shouldPost = postAfterSaveRef.current;
+        postAfterSaveRef.current = false;
+        const finish = (posted: boolean) => {
+          finishDocumentSave({
+            label: 'أمر شراء',
+            number,
+            posted,
+            savedId: id,
+            onOpen: stayOnOrder,
+            onSavedOpen: (saved) => invalidateQuery(['purchase-order', saved]),
+            reset: clearOrderForNext,
+          });
+        };
+        if (shouldPost && id) {
+          void postStoreDocumentAfterSave({
+            postPath: `/inventory/purchase-orders/${id}/post`,
+            onPosted: () => {
+              setValue('isPosted', true);
+              invalidateQuery(['purchase-orders']);
+              finish(true);
+            },
+            onPostFailed: (message) => {
+              setError(message);
+              if (id) invalidateQuery(['purchase-order', id]);
+            },
+          });
+          return;
+        }
+        finish(false);
       },
       onError: (error: ApiError) => {
+        postAfterSaveRef.current = false;
         setError(error.message || 'حدث خطأ أثناء الحفظ');
       },
     }
   );
 
-  const loading = purchaseOrderMutation.isPending;
+  const approveMutation = useApiMutation<unknown, Record<string, unknown>>(
+    selectedOrderId ? `/inventory/purchase-orders/${selectedOrderId}/approve` : '/inventory/purchase-orders',
+    'POST',
+    {
+      onSuccess: () => {
+        setSuccess('تم اعتماد أمر الشراء');
+        if (selectedOrderId) invalidateQuery(['purchase-order', selectedOrderId]);
+      },
+      onError: (error: ApiError) => setError(error.message || 'تعذر الاعتماد'),
+    }
+  );
+
+  const loading = purchaseOrderMutation.isPending || purchaseOrderUpdateMutation.isPending || approveMutation.isPending;
 
   useEffect(() => {
     reset((prev) => ({ ...prev, date: prev.date || todayStr }));
@@ -229,26 +372,70 @@ export default function PurchaseOrderPage() {
   }, [currencies, getValues, setValue]);
 
   const inputCls = compactControlClass;
-  const labelCls = compactLabelClass;
   const advancedFilledCount = [watch('hijriDate'), watch('costCenterId')].filter(Boolean).length;
 
-  const addCondition = () => {
-    const newCondition = `الشرط ${conditions.length + 1}`;
-    setConditions([...conditions, newCondition]);
-  };
-
-  const updateCondition = (index: number, value: string) => {
-    const updatedConditions = [...conditions];
-    updatedConditions[index] = value;
-    setConditions(updatedConditions);
-  };
-
   const handleNew = () => {
-    setSelectedOrderId(null);
     setError('');
     setSuccess('');
-    setOrderLines([]);
-    reset(emptyPurchaseOrderHeader(new Date().toISOString().split('T')[0]));
+    clearOrderForNext();
+  };
+
+  const submitOrderSave = (header: InventoryPurchaseOrderHeaderFormInput) => {
+    setError('');
+    setSuccess('');
+    const parsed = inventoryPurchaseOrderFormSchema.safeParse({
+      ...header,
+      lines: orderLines.filter((line) => line.itemId),
+    });
+    if (!parsed.success) {
+      postAfterSaveRef.current = false;
+      setError(parsed.error.issues[0]?.message ?? 'خطأ في البيانات');
+      return;
+    }
+    const d = parsed.data;
+    (selectedOrderId ? purchaseOrderUpdateMutation : purchaseOrderMutation).mutate({
+      orderNumber: d.orderNumber,
+      description: d.description,
+      date: d.date || new Date().toISOString(),
+      hijriDate: d.hijriDate,
+      supplierId: d.supplierId,
+      warehouseId: d.warehouseId,
+      costCenterId: d.costCenterId,
+      currencyId: d.currencyId,
+      isPosted: d.isPosted,
+      isApproved: d.isApproved,
+      lines: d.lines.map((line) => ({
+        itemId: line.itemId,
+        quantity: line.quantity,
+        unitPrice: line.unitPrice,
+        discountPercentage: line.discount || 0,
+        taxPercentage: line.tax || 0,
+      })),
+    });
+  };
+
+  const requestPostAfterSave = () => {
+    if (isPosted) return;
+    postAfterSaveRef.current = true;
+    void handleSubmit(submitOrderSave, onFieldErrors(setError))();
+  };
+
+  const postExistingOrder = () => {
+    if (!selectedOrderId) {
+      requestPostAfterSave();
+      return;
+    }
+    void apiClient
+      .post(`/inventory/purchase-orders/${selectedOrderId}/post`)
+      .then(() => {
+        setValue('isPosted', true);
+        setSuccess('تم ترحيل أمر الشراء');
+        invalidateQuery(['purchase-orders']);
+        invalidateQuery(['purchase-order', selectedOrderId]);
+      })
+      .catch((err: unknown) => {
+        setError(err instanceof Error ? err.message : 'تعذر الترحيل');
+      });
   };
 
   return (
@@ -266,36 +453,9 @@ export default function PurchaseOrderPage() {
         title="أمر الشراء"
         docNumber={watch('orderNumber') || ''}
         statusTone={isPosted ? 'success' : 'warning'}
-        statusLabel={isPosted ? 'مرحّل' : 'مسودة'}
+        statusLabel={isPosted ? 'مرحّل' : unpostedDocumentStatusLabel(Boolean(selectedOrderId))}
         saveLabel="حفظ"
-        onSaveDraft={() =>
-          void handleSubmit((header) => {
-            setError('');
-            setSuccess('');
-            const parsed = inventoryPurchaseOrderFormSchema.safeParse({
-              ...header,
-              lines: orderLines,
-            });
-            if (!parsed.success) {
-              setError(parsed.error.issues[0]?.message ?? 'خطأ في البيانات');
-              return;
-            }
-            const d = parsed.data;
-            purchaseOrderMutation.mutate({
-              orderNumber: d.orderNumber,
-              description: d.description,
-              date: d.date || new Date().toISOString(),
-              hijriDate: d.hijriDate,
-              supplierId: d.supplierId,
-              warehouseId: d.warehouseId,
-              costCenterId: d.costCenterId,
-              currencyId: d.currencyId,
-              isPosted: d.isPosted,
-              isApproved: d.isApproved,
-              lines: d.lines,
-            });
-          }, onFieldErrors(setError))()
-        }
+        onSaveDraft={() => void handleSubmit(submitOrderSave, onFieldErrors(setError))()}
         savePending={loading}
         canSave={!isPosted && !loading}
         hideStandalonePost
@@ -306,14 +466,46 @@ export default function PurchaseOrderPage() {
         standardActions={{
           hasDocument: Boolean(selectedOrderId),
           isPosted: Boolean(isPosted),
-          onPost: () => setValue('isPosted', true),
-          onUnpost: () => setValue('isPosted', false),
+          onPost: () => postExistingOrder(),
+          onUnpost: () => {
+            if (!selectedOrderId) {
+              setError('احفظ أمر الشراء أولاً');
+              return;
+            }
+            void apiClient
+              .post(`/inventory/purchase-orders/${selectedOrderId}/unpost`)
+              .then(() => {
+                setValue('isPosted', false);
+                setSuccess('تم إلغاء ترحيل أمر الشراء');
+                invalidateQuery(['purchase-orders']);
+                invalidateQuery(['purchase-order', selectedOrderId]);
+              })
+              .catch((err: unknown) => {
+                setError(err instanceof Error ? err.message : 'تعذر إلغاء الترحيل');
+              });
+          },
           onNew: handleNew,
           newLabel: 'جديد',
+          extraItems: [
+            {
+              id: 'approve',
+              label: 'اعتماد',
+              disabled: !selectedOrderId || Boolean(watch('isApproved')) || approveMutation.isPending,
+              onClick: () => approveMutation.mutate({}),
+            },
+          ],
         }}
       />
 
       <DocumentBrowseDrawer open={showList} onClose={() => setShowList(false)} title="أوامر الشراء السابقة">
+        <label className="mb-3 flex items-center gap-2 text-sm text-[#0A3D5E]">
+          <input
+            type="checkbox"
+            checked={showCanceled}
+            onChange={(e) => setShowCanceled(e.target.checked)}
+          />
+          عرض الملغي
+        </label>
         <GenericRecordsList
           apiPath="/inventory/purchase-orders"
           listKey="purchase-orders-browse"
@@ -341,49 +533,17 @@ export default function PurchaseOrderPage() {
             },
           ]}
           onSelect={(id) => {
-            setSelectedOrderId(id);
+            stayOnOrder(id);
             setShowList(false);
           }}
         />
       </DocumentBrowseDrawer>
 
-      {/* View Controls */}
-      <div className="mb-6 flex justify-start">
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-[#0A3D5E] font-medium">عرض:</span>
-          <div className="flex bg-gray-200 rounded-lg p-1">
-            <button 
-              onClick={() => setShowCanceled(false)}
-              className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${
-                !showCanceled ? 'bg-[#0E78AA] text-white' : 'text-gray-600 hover:bg-gray-300'
-              }`}
-            >
-              عرض عادي
-            </button>
-            <button 
-              onClick={() => setShowCanceled(true)}
-              className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${
-                showCanceled ? 'bg-[#0E78AA] text-white' : 'text-gray-600 hover:bg-gray-300'
-              }`}
-            >
-              عرض الملغي
-            </button>
-          </div>
-          
-          {/* Restore Link - Only shows when "عرض الملغي" is selected */}
-          {showCanceled && (
-            <button className="text-xs text-[#0E78AA] hover:text-[#0E78AA]/80 underline transition-colors mr-2">
-              استعادة
-            </button>
-          )}
-        </div>
-      </div>
-
       <FormSectionCard
         title="بيانات أمر الشراء"
         subtitle="المورد والتاريخ والعملة والمخزن"
       >
-        <CompactFormField label="رقم الفاتورة" placeholder="إدخل رقم السند" {...register('orderNumber')} />
+        <CompactFormField label="رقم أمر الشراء" placeholder="يُولَّد عند الحفظ" {...register('orderNumber')} />
         <CompactFormField
           label="التاريخ"
           type="date"
@@ -447,81 +607,85 @@ export default function PurchaseOrderPage() {
               )}
             />
           </CompactFormField>
-          <div className="flex flex-wrap items-end gap-2">
-            <input type="checkbox" className="h-4 w-4 rounded border-[#0E78AA]/50 text-[#0E78AA]" />
-            <label className={`${labelCls} mb-0`}>السماح بالإرجاع خلال</label>
-            <input className={`${inputCls} w-20`} defaultValue="365" />
-            <span className="text-xs font-semibold text-[#094C6B]">يوم</span>
-          </div>
         </div>
       </AdvancedFieldsSection>
 
       <FormSectionCard title="أصناف أمر الشراء" subtitle="الصنف والكمية والسعر" bodyClassName="grid-cols-1 sm:grid-cols-1 lg:grid-cols-1">
+        <div className="mb-2 flex justify-end">
+          <button
+            type="button"
+            className="rounded-lg bg-[#0E78AA] px-3 py-1.5 text-sm font-bold text-white"
+            onClick={() => setOrderLines((prev) => [...prev, emptyOrderLine()])}
+            disabled={Boolean(isPosted)}
+          >
+            إضافة صنف
+          </button>
+        </div>
         <div className={`${denseTableWrapClass} [&_input]:h-8 [&_select]:h-8`}>
           <table className={denseTableClass}>
             <thead className={denseTheadClass}>
               <tr>
                 <th className={denseThClass}>م</th>
                 <th className={denseThClass}>الصنف</th>
-                <th className={denseThClass}>الوحدة</th>
-                <th className={denseThClass}>الكمية</th>
-                <th className={denseThClass}>الوحدة الأساسية</th>
+                <th className={denseThClass}>المتاح</th>
                 <th className={denseThClass}>الكمية</th>
                 <th className={denseThClass}>السعر</th>
-                <th className={denseThClass}>الإجمالي</th>
                 <th className={denseThClass}>خصم %</th>
-                <th className={denseThClass}>خصم قيمة</th>
-                <th className={denseThClass}>ض. مبيعات %</th>
-                <th className={denseThClass}>قيمتها</th>
+                <th className={denseThClass}>ضريبة %</th>
+                <th className={denseThClass}>الإجمالي</th>
+                <th className={denseThClass}>حذف</th>
               </tr>
             </thead>
             <tbody>
-              {orderLines.length === 0 ? (
-                <tr>
-                  <td colSpan={12} className="py-6">
-                    <EmptyState title="لا توجد بنود — أضف أصناف أمر الشراء." />
-                  </td>
-                </tr>
-              ) : (
-                orderLines.map((line, i) => {
-                  const cells = simpleInvoiceLineRowCells(items, line, i);
-                  return (
-                    <tr key={`${line.itemId}-${i}`} className={i % 2 === 0 ? 'bg-[#F6FBFD]' : 'bg-white'}>
-                      {cells.map((cell, ci) => (
-                        <td key={ci} className="h-9 py-1 px-2 border-x border-[#D6EAF3] text-sm">
-                          {cell}
-                        </td>
-                      ))}
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-      </FormSectionCard>
-
-      <FormSectionCard title="الحسابات" subtitle="بنود القيد عند الترحيل" bodyClassName="grid-cols-1 sm:grid-cols-1 lg:grid-cols-1">
-        <div className="overflow-x-auto rounded-xl border border-[#D6EAF3] bg-white [&_input]:h-9 [&_select]:h-9">
-          <table className="min-w-full text-center border-separate border-spacing-0">
-            <thead>
-              <tr>
-                <th className="py-2 px-2 text-xs font-bold">م</th>
-                <th className="py-2 px-2 text-xs font-bold">الحساب</th>
-                <th className="py-2 px-2 text-xs font-bold">الخصم</th>
-                <th className="py-2 px-2 text-xs font-bold">الإضافة</th>
-                <th className="py-2 px-2 text-xs font-bold">الشرح</th>
-                <th className="py-2 px-2 text-xs font-bold">مركز التكلفة</th>
-                <th className="py-2 px-2 text-xs font-bold">العملة</th>
-                <th className="py-2 px-2 text-xs font-bold">سعر الصرف</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td colSpan={8} className="py-6">
-                  <EmptyState title="لا توجد بنود إضافية — تُملأ من القيد عند الترحيل." />
-                </td>
-              </tr>
+              {orderLines.map((line, i) => {
+                const patch = (partial: Partial<PurchaseOrderLine>) =>
+                  setOrderLines((prev) => prev.map((row, idx) => (idx === i ? { ...row, ...partial } : row)));
+                const locked = Boolean(isPosted);
+                return (
+                  <tr key={`${line.itemId}-${i}`} className={i % 2 === 0 ? 'bg-[#F6FBFD]' : 'bg-white'}>
+                    <td className="h-9 px-2 py-1 text-sm">{i + 1}</td>
+                    <td className="h-9 min-w-[180px] px-2 py-1 text-sm">
+                      <ItemSelect
+                        value={line.itemId}
+                        fallbackLabel={line.itemLabel}
+                        disabled={locked}
+                        onChange={(itemId) => patch({ itemId })}
+                      />
+                    </td>
+                    <td className="h-9 px-2 py-1 text-center text-sm">
+                      <InvoiceLineStockBalanceCell itemId={line.itemId} warehouseId={warehouseId} />
+                    </td>
+                    <td className="h-9 px-2 py-1 text-sm">
+                      <input type="number" min={0} step="any" className="w-20" disabled={locked} value={line.quantity} onChange={(e) => patch({ quantity: Number(e.target.value) || 0 })} />
+                    </td>
+                    <td className="h-9 px-2 py-1 text-sm">
+                      <input type="number" min={0} step="any" className="w-24" disabled={locked} value={line.unitPrice} onChange={(e) => patch({ unitPrice: Number(e.target.value) || 0 })} />
+                    </td>
+                    <td className="h-9 px-2 py-1 text-sm">
+                      <input type="number" min={0} max={100} step="any" className="w-16" disabled={locked} value={line.discount ?? 0} onChange={(e) => patch({ discount: Number(e.target.value) || 0 })} />
+                    </td>
+                    <td className="h-9 px-2 py-1 text-sm">
+                      <input type="number" min={0} step="any" className="w-16" disabled={locked} value={line.tax ?? 0} onChange={(e) => patch({ tax: Number(e.target.value) || 0 })} />
+                    </td>
+                    <td className="h-9 px-2 py-1 text-sm font-mono">{orderLineNet(line).toLocaleString('en-US', { maximumFractionDigits: 4 })}</td>
+                    <td className="h-9 px-2 py-1 text-sm">
+                      <button
+                        type="button"
+                        className="text-red-600 disabled:opacity-40"
+                        disabled={locked}
+                        onClick={() =>
+                          setOrderLines((prev) => {
+                            const next = prev.filter((_, idx) => idx !== i);
+                            return next.length > 0 ? next : [emptyOrderLine()];
+                          })
+                        }
+                      >
+                        حذف
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -529,281 +693,6 @@ export default function PurchaseOrderPage() {
 
       <InvoiceFinancialSummary summary={financialSummary} taxLabel="قيمة ضريبة المشتريات" />
 
-      {/* Stamps Section */}
-      <div className="mt-6 rounded-xl border border-[#E6F0F7] bg-[#F6FBFD] p-6 shadow-sm">
-        <div className="flex items-center gap-3 mb-6">
-          <div className="w-8 h-8 bg-gradient-to-br from-[#0E78AA] to-[#0A5F8A] rounded-lg flex items-center justify-center">
-            <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clipRule="evenodd" />
-            </svg>
-          </div>
-          <h3 className="text-xl font-bold text-[#0A3D5E]">الدمغات</h3>
-        </div>
-                    <div className="overflow-x-auto rounded-lg border border-[#D6EAF3] bg-white">
-                      <table className="min-w-full text-center border-separate border-spacing-0">
-                        <thead>
-                          <tr>
-                            <th className="py-3 px-2 font-bold">دمغة</th>
-                            <th className="py-3 px-2 font-bold">عامة 1</th>
-                            <th className="py-3 px-2 font-bold">عامة 2</th>
-                            <th className="py-3 px-2 font-bold">عامة 3</th>
-                            <th className="py-3 px-2 font-bold">عامة 4</th>
-                            <th className="py-3 px-2 font-bold">عامة 5</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          <tr className="bg-[#F6FBFD]">
-                            <td className="py-3 px-2 border-x border-[#D6EAF3] text-gray-700">دمغة</td>
-                            <td className="py-3 px-2 border-x border-[#D6EAF3] text-gray-700">عامة 1</td>
-                            <td className="py-3 px-2 border-x border-[#D6EAF3] text-gray-700">عامة 2</td>
-                            <td className="py-3 px-2 border-x border-[#D6EAF3] text-gray-700">عامة 3</td>
-                            <td className="py-3 px-2 border-x border-[#D6EAF3] text-gray-700">عامة 4</td>
-                            <td className="py-3 px-2 border-x border-[#D6EAF3] text-gray-700">عامة 5</td>
-                          </tr>
-                        </tbody>
-                      </table>
-                    </div>
-        
-        {/* Terms Button */}
-        <div className="mt-6 flex justify-center">
-          <button 
-            onClick={() => setShowTermsModal(true)}
-            className="px-4 py-2 bg-gradient-to-r from-[#0E78AA] to-[#0A5F8A] text-white rounded-lg hover:from-[#0A5F8A] hover:to-[#084A6B] transition-all duration-300 font-bold shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 flex items-center justify-center gap-2">
-            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clipRule="evenodd" />
-            </svg>
-            الشروط
-          </button>
-        </div>
-      </div>
-
-
-      {/* Print Options Row */}
-      <div className="mt-8 rounded-xl border border-[#E6F0F7] bg-[#F6FBFD] p-6 shadow-sm">
-        <div className="flex justify-between items-center">
-          <div className="flex items-center gap-6">
-            <div className="flex items-center gap-3 bg-white/70 backdrop-blur-sm rounded-lg p-3 border border-blue-100">
-              <input 
-                type="checkbox" 
-                checked={printEnglishInvoice}
-                onChange={(e) => setPrintEnglishInvoice(e.target.checked)}
-                className="w-5 h-5 text-[#0E78AA] border-2 border-[#0E78AA] rounded focus:ring-2 focus:ring-[#0E78AA]"
-              />
-              <label className="text-sm text-[#0A3D5E] font-medium">طباعة فاتورة إنجليزي</label>
-            </div>
-            
-            <div className="flex items-center gap-3 bg-white/70 backdrop-blur-sm rounded-lg p-3 border border-blue-100">
-              <input 
-                type="checkbox" 
-                checked={dontPrintEmptyLines}
-                onChange={(e) => setDontPrintEmptyLines(e.target.checked)}
-                className="w-5 h-5 text-[#0E78AA] border-2 border-[#0E78AA] rounded focus:ring-2 focus:ring-[#0E78AA]"
-              />
-              <label className="text-sm text-[#0A3D5E] font-medium">عدم طباعة أسطر فارغة</label>
-            </div>
-          </div>
-          
-          <div className="flex items-center gap-3">
-            <button className="px-6 py-3 bg-gradient-to-r from-[#0E78AA] to-[#0A5F8A] text-white rounded-xl hover:from-[#0A5F8A] hover:to-[#084A6B] transition-all duration-300 font-bold shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 flex items-center gap-2">
-              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" />
-              </svg>
-              طباعة تواريخ الصلاحية
-            </button>
-            
-            <button 
-              onClick={() => setShowPrint(true)}
-              className="px-6 py-3 bg-gradient-to-r from-[#0E78AA] to-[#0A5F8A] text-white rounded-xl hover:from-[#0A5F8A] hover:to-[#084A6B] transition-all duration-300 font-bold shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 flex items-center gap-2">
-              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clipRule="evenodd" />
-              </svg>
-              طباعة الباركود
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <FormStickyFooter
-        onCancel={() => {
-          setError('');
-          setSuccess('');
-          setOrderLines([]);
-          reset(emptyPurchaseOrderHeader(new Date().toISOString().split('T')[0]));
-        }}
-        onSave={() =>
-          void handleSubmit((header) => {
-            setError('');
-            setSuccess('');
-            const parsed = inventoryPurchaseOrderFormSchema.safeParse({
-              ...header,
-              lines: orderLines,
-            });
-            if (!parsed.success) {
-              setError(parsed.error.issues[0]?.message ?? 'خطأ في البيانات');
-              return;
-            }
-            const d = parsed.data;
-            purchaseOrderMutation.mutate({
-              orderNumber: d.orderNumber,
-              description: d.description,
-              date: d.date || new Date().toISOString(),
-              hijriDate: d.hijriDate,
-              supplierId: d.supplierId,
-              warehouseId: d.warehouseId,
-              costCenterId: d.costCenterId || undefined,
-              currencyId: d.currencyId || undefined,
-              lines: d.lines.map((line) => ({
-                itemId: line.itemId,
-                quantity: line.quantity,
-                unitPrice: line.unitPrice,
-                discount: line.discount || 0,
-                tax: line.tax || 0,
-              })),
-            });
-          }, onFieldErrors(setError))()
-        }
-        saveLoading={loading}
-        extraActions={
-          <>
-            <CrudButtons onPrevious={() => setShowList(true)} />
-            <button className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-white border border-[#E6EAF3] text-[#0A3D5E] shadow-sm hover:bg-[#F6FBFD] transition-colors">
-              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                <path d="M10 12a2 2 0 100-4 2 2 0 000 4z" />
-                <path fillRule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd" />
-              </svg>
-              <span>معاينة</span>
-            </button>
-            <button className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-white border border-[#E6EAF3] text-[#0A3D5E] shadow-sm hover:bg-[#F6FBFD] transition-colors">
-              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm0 4a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z" clipRule="evenodd" />
-              </svg>
-              <span>تصميم</span>
-            </button>
-          </>
-        }
-      />
-
-      {showPrint && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-          <div className="w-[760px] max-w-[92vw] rounded-2xl shadow-2xl border border-[#D6EAF3] bg-white/95 overflow-hidden" style={{ direction: 'rtl' }}>
-            <div className="relative px-6 py-4 bg-gradient-to-l from-[#0E78AA] to-[#1E88E5]">
-              <h3 className="text-center text-white font-bold">طباعة الباركود</h3>
-              <button onClick={() => setShowPrint(false)} className="absolute left-4 top-1/2 -translate-y-1/2 text-white/90 hover:text-white">✕</button>
-            </div>
-            <div className="p-6">
-              <div className="grid grid-cols-2 gap-6 items-center">
-                <label className="text-[#0A3D5E] text-sm">الطابعة</label>
-                <select className="h-9 w-full rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] px-3 text-xs font-medium text-[#094C6B] placeholder:text-slate-400 transition-colors focus:border-[#0E78AA] focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#0E78AA]/15 disabled:cursor-not-allowed disabled:opacity-50 sm:text-sm">
-                  <option>Microsoft Print Pdf</option>
-                </select>
-
-                <label className="text-[#0A3D5E] text-sm">العدد</label>
-                <input type="number" min="0" defaultValue="0" className="h-9 w-full rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] px-3 text-xs font-medium text-[#094C6B] placeholder:text-slate-400 transition-colors focus:border-[#0E78AA] focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#0E78AA]/15 disabled:cursor-not-allowed disabled:opacity-50 sm:text-sm" />
-              </div>
-
-              <div className="flex items-center justify-between mt-6">
-                <div className="flex items-center gap-6">
-                  <label className="flex items-center gap-2">
-                    <input type="checkbox" className="w-4 h-4 text-[#0E78AA] border border-[#0E78AA] rounded focus:ring-2 focus:ring-[#0E78AA]/20" defaultChecked />
-                    <span className="text-sm text-[#0A3D5E]">تصميم صغير</span>
-                  </label>
-                  <button className="px-3 py-1.5 text-sm border border-[#D6EAF3] rounded-lg hover:bg-[#F6FBFD] text-[#0A3D5E]">تصميم</button>
-                </div>
-
-                <div className="flex items-center gap-3">
-                  <button onClick={() => setShowPrint(false)} className="px-6 py-2 rounded-lg text-white bg-[#1F74D0] hover:brightness-110 transition">تراجع</button>
-                  <button className="px-6 py-2 rounded-lg text-white bg-gradient-to-l from-[#31B36B] to-[#22A060] hover:brightness-110 transition">حفظ</button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Terms Modal */}
-      {showTermsModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-          <div className="w-[700px] max-w-[95vw] rounded-2xl shadow-2xl border border-[#D6EAF3] bg-white overflow-hidden" style={{ direction: 'rtl' }}>
-            {/* Header */}
-            <div className="relative px-8 py-6 bg-gradient-to-l from-[#0E78AA] to-[#1E88E5]">
-              <h3 className="text-center text-white font-bold text-2xl">الشروط</h3>
-              <button onClick={() => setShowTermsModal(false)} className="absolute left-6 top-1/2 -translate-y-1/2 text-white/90 hover:text-white text-xl">✕</button>
-            </div>
-            
-            {/* Content */}
-            <div className="p-8 space-y-8">
-              {/* Payment Method Field */}
-              <div className="flex items-center justify-between">
-                <label className="text-[#0A3D5E] font-semibold text-base">طريقة الدفع</label>
-                <div className="flex items-center gap-3">
-                  <select className="h-9 w-full rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] px-3 text-xs font-medium text-[#094C6B] placeholder:text-slate-400 transition-colors focus:border-[#0E78AA] focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#0E78AA]/15 disabled:cursor-not-allowed disabled:opacity-50 sm:text-sm">
-                    <option>Microsoft Print Pdf</option>
-                    <option>طريقة دفع أخرى</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* Conditions Section */}
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <label className="text-[#0A3D5E] font-semibold text-base">الشروط</label>
-                  <button 
-                    onClick={addCondition}
-                    className="w-10 h-10 bg-[#0E78AA] text-white rounded-lg hover:bg-[#0A5F8A] transition-colors flex items-center justify-center">
-                    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
-                    </svg>
-                  </button>
-                </div>
-                
-                {/* Dynamic Conditions List */}
-                <div className="space-y-3">
-                  {conditions.map((condition, index) => (
-                    <div key={index} className="flex items-center gap-3">
-                      <input
-                        type="text"
-                        value={condition}
-                        onChange={(e) => updateCondition(index, e.target.value)}
-                        className="flex-1 p-3 border border-[#D6EAF3] rounded-lg bg-white text-gray-700 text-base focus:ring-2 focus:ring-[#0E78AA]/20 focus:border-[#0E78AA]"
-                        placeholder={`الشرط ${index + 1}`}
-                      />
-                      {conditions.length > 1 && (
-                        <button
-                          onClick={() => {
-                            const updatedConditions = conditions.filter((_, i) => i !== index);
-                            setConditions(updatedConditions);
-                          }}
-                          className="w-10 h-10 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors flex items-center justify-center">
-                          <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                            <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
-                          </svg>
-                        </button>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            {/* Footer */}
-            <div className="bg-gray-50 px-8 py-6 flex justify-between">
-              <button
-                onClick={() => setShowTermsModal(false)}
-                className="px-8 py-3 bg-[#1F74D0] text-white rounded-lg hover:brightness-110 transition font-medium text-base">
-                تراجع
-              </button>
-              <button
-                onClick={() => {
-                  // Handle save logic here
-                  setShowTermsModal(false);
-                }}
-                className="px-8 py-3 bg-gradient-to-l from-[#31B36B] to-[#22A060] text-white rounded-lg hover:brightness-110 transition font-medium text-base">
-                حفظ
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </ErpDocumentLayout>
   );
 }

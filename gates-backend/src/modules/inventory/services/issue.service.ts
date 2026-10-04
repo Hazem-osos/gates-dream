@@ -3,10 +3,25 @@ import prisma from '../../../shared/database/prisma';
 import { logger } from '../../../shared/logger';
 import { stockMovementGlService, type StockGlPostingContext } from './stock-movement-gl.service';
 import { journalPostingService } from '../../accounting/services/journal-posting.service';
-import { stockMovementService } from './stock-movement.service';
+import { inventoryCostingService } from './inventory-costing.service';
 import { itemCostService } from './item-cost.service';
 import { assertWarehouseActive } from '../utils/inventory-system';
 import { assertUpdateCount } from '../../../shared/concurrency/optimistic-lock';
+import { fiscalYearService } from '../../platform/services/fiscal-year.service';
+import { claimDocumentPost, claimDocumentUnpost } from '../utils/claim-document-post';
+import { resolveStoreDocumentSerialInTx } from './store-document-numbering.service';
+import {
+  ensurePerpetualInventoryGlReady,
+  runCompanyStockGlPosting,
+} from '../utils/stock-gl-posting-guard';
+import {
+  attachDocumentFiscalYear,
+  resolveStockMovementBranchId,
+} from './stock-gl-posting-context';
+import {
+  fulfillReservationInTx,
+  reverseReservationFulfillmentInTx,
+} from './item-reservation.service';
 import { sortForStockLocking } from '../utils/stock-lock-order.util';
 
 export interface IssueLine {
@@ -15,6 +30,8 @@ export interface IssueLine {
   quantity: number;
   unitPrice?: number;
   total?: number;
+  itemReservationId?: string | null;
+  reservationFulfillQuantity?: number | null;
 }
 
 export interface CreateIssueData {
@@ -26,6 +43,7 @@ export interface CreateIssueData {
   hijriDate?: string;
   record?: string;
   warehouseId: string;
+  customerId?: string | null;
   lines: IssueLine[];
 }
 
@@ -37,6 +55,13 @@ export class IssueService {
     try {
       // Validate warehouse belongs to company
       await assertWarehouseActive(companyId, data.warehouseId);
+      if (data.customerId) {
+        const customer = await prisma.customer.findFirst({
+          where: { id: data.customerId, companyId },
+          select: { id: true },
+        });
+        if (!customer) throw new Error('العميل غير موجود أو لا يتبع الشركة');
+      }
 
       // Validate all items belong to company
       const itemIds = data.lines.map((line) => line.itemId);
@@ -77,17 +102,26 @@ export class IssueService {
           0
         );
 
+        const serial = await resolveStoreDocumentSerialInTx(tx, {
+          companyId,
+          branchId: data.branchId ?? null,
+          fiscalYearId: null,
+          kind: 'issue',
+          clientSerial: data.serial,
+        });
+
         // Create issue record
         const record = await tx.issue.create({
           data: {
             companyId,
             branchId: data.branchId || null,
             description: data.description || null,
-            serial: data.serial || null,
+            serial,
             date: new Date(data.date),
             hijriDate: data.hijriDate || null,
             record: data.record || null,
             warehouseId: data.warehouseId,
+            customerId: data.customerId || null,
             totalAmount,
             isPosted: false,
             isApproved: false,
@@ -109,6 +143,15 @@ export class IssueService {
               quantity: lineData.quantity,
               unitPrice,
               total,
+              ...(lineData.itemReservationId
+                ? {
+                    itemReservationId: lineData.itemReservationId,
+                    reservationFulfillQuantity:
+                      lineData.reservationFulfillQuantity != null
+                        ? lineData.reservationFulfillQuantity
+                        : null,
+                  }
+                : {}),
             },
           });
           lines.push(line);
@@ -135,6 +178,67 @@ export class IssueService {
       logger.error({ error, companyId, data }, 'Error creating issue');
       throw error;
     }
+  }
+
+  async updateIssue(companyId: string, issueId: string, data: CreateIssueData) {
+    const existing = await prisma.issue.findFirst({ where: { id: issueId, companyId } });
+    if (!existing) throw new Error('Issue not found');
+    if (existing.isPosted) throw new Error('لا يمكن تعديل سند مرحّل. ألغِ الترحيل أولاً');
+    if (existing.isCancelled) throw new Error('لا يمكن تعديل سند ملغى');
+    await assertWarehouseActive(companyId, data.warehouseId);
+    if (data.customerId) {
+      const customer = await prisma.customer.findFirst({
+        where: { id: data.customerId, companyId },
+        select: { id: true },
+      });
+      if (!customer) throw new Error('العميل غير موجود أو لا يتبع الشركة');
+    }
+    const itemIds = [...new Set(data.lines.map((line) => line.itemId).filter(Boolean))];
+    const items = await prisma.item.findMany({ where: { id: { in: itemIds }, companyId } });
+    if (items.length !== itemIds.length) throw new Error('أحد الأصناف غير موجود أو لا يتبع الشركة');
+    const totalAmount = data.lines.reduce(
+      (sum, line) => sum + (line.total || line.quantity * (line.unitPrice || 0)),
+      0
+    );
+    await prisma.$transaction(async (tx) => {
+      await tx.issueLine.deleteMany({ where: { issueId } });
+      await tx.issue.update({
+        where: { id: issueId },
+        data: {
+          branchId: data.branchId || existing.branchId,
+          description: data.description || null,
+          serial: data.serial || existing.serial,
+          date: new Date(data.date),
+          hijriDate: data.hijriDate || existing.hijriDate,
+          record: data.record || existing.record,
+          warehouseId: data.warehouseId,
+          customerId: data.customerId || null,
+          totalAmount,
+        },
+      });
+      await tx.issueLine.createMany({
+        data: data.lines.map((line) => ({
+          issueId,
+          itemId: line.itemId,
+          itemReservationId: line.itemReservationId || null,
+          reservationFulfillQuantity:
+            line.reservationFulfillQuantity != null ? line.reservationFulfillQuantity : null,
+          locationId: line.locationId || null,
+          quantity: line.quantity,
+          unitPrice: line.unitPrice || 0,
+          total: line.total || line.quantity * (line.unitPrice || 0),
+        })),
+      });
+    });
+    return this.getIssueById(companyId, issueId);
+  }
+
+  async deleteIssue(companyId: string, issueId: string) {
+    const existing = await prisma.issue.findFirst({ where: { id: issueId, companyId } });
+    if (!existing) throw new Error('Issue not found');
+    if (existing.isPosted) throw new Error('لا يمكن حذف سند مرحّل. ألغِ الترحيل أولاً');
+    await prisma.issue.delete({ where: { id: issueId } });
+    return { success: true };
   }
 
   /**
@@ -314,7 +418,14 @@ export class IssueService {
         throw new Error('Issue is already posted');
       }
 
+      const fiscalYearId = await fiscalYearService.assertOpenForDate(companyId, issue.date);
       await assertWarehouseActive(companyId, issue.warehouseId);
+      const postingCtx = attachDocumentFiscalYear(glCtx, fiscalYearId, issue.branchId);
+      const inventorySystem = await ensurePerpetualInventoryGlReady(
+        companyId,
+        postingCtx,
+        issue.warehouseId
+      );
 
       // H1 fix: route the quantity mutation through stockMovementService
       // (row lock + InventoryMovement audit row + negative-stock guard)
@@ -329,8 +440,17 @@ export class IssueService {
         issue.lines.map((l) => l.itemId),
         issue.date
       );
+      const movementBranchId = resolveStockMovementBranchId(postingCtx, issue.branchId);
 
+      let glSkipped = false;
       await prisma.$transaction(async (tx) => {
+        await claimDocumentPost((args) => tx.issue.updateMany(args), issueId, companyId);
+        if (!issue.branchId) {
+          await tx.issue.update({
+            where: { id: issueId },
+            data: { branchId: movementBranchId },
+          });
+        }
         // Sort lines in canonical lock order to avoid deadlocks with concurrent
         // invoice/transfer posts that lock (warehouseId, itemId) in the same order.
         const sortedLines = sortForStockLocking(issue.lines, (l) => ({
@@ -338,39 +458,47 @@ export class IssueService {
           itemId: l.itemId,
         }));
         for (const line of sortedLines) {
-          await stockMovementService.postMovementInTx(tx, {
+          const reservationId = line.itemReservationId as string | null | undefined;
+          const fulfillQty = Number(line.reservationFulfillQuantity ?? 0);
+          if (reservationId && fulfillQty > 0) {
+            await fulfillReservationInTx(tx, companyId, {
+              reservationId,
+              warehouseId: issue.warehouseId,
+              itemId: line.itemId,
+              quantity: fulfillQty,
+            });
+          }
+          await inventoryCostingService.applyOutboundMovement(tx, {
             companyId,
-            branchId: issue.branchId ?? undefined,
+            branchId: movementBranchId,
             warehouseId: issue.warehouseId,
             itemId: line.itemId,
             locationId: line.locationId ?? null,
-            quantityDelta: -Number(line.quantity),
-            unitCost: unitCosts.get(line.itemId) ?? 0,
+            quantity: Number(line.quantity),
             movementType: sourceType,
             sourceType,
             sourceNumber,
             sourceYearId,
-            documentDate: issue.date,
+            transactionDate: new Date(issue.date),
           });
         }
 
-        if (glCtx) {
-          await stockMovementGlService.postGoodsIssueGlInTx(tx, glCtx, issue);
+        if (postingCtx) {
+          glSkipped = await runCompanyStockGlPosting(inventorySystem, () =>
+            stockMovementGlService.postGoodsIssueGlInTx(tx, postingCtx, issue)
+          );
         }
 
-        // Mark issue as posted
-        await tx.issue.update({
-          where: { id: issueId },
-          data: {
-            isPosted: true,
-            postedAt: new Date(),
-          },
-        });
       });
 
-      logger.info({ companyId, issueId }, 'Issue posted');
+      const { projectCostSyncService } = await import(
+        '../../contracting/project-cost/project-cost-sync.service'
+      );
+      await projectCostSyncService.syncPostedIssueInTx(prisma, companyId, issueId);
 
-      return { success: true };
+      logger.info({ companyId, issueId, glSkipped }, 'Issue posted');
+
+      return { success: true, glSkipped };
     } catch (error) {
       logger.error({ error, companyId, issueId }, 'Error posting issue');
       throw error;
@@ -400,47 +528,69 @@ export class IssueService {
         throw new Error('Issue is not posted');
       }
 
+      const fiscalYearId = await fiscalYearService.assertOpenForDate(companyId, issue.date);
+      const postingCtx = attachDocumentFiscalYear(glCtx, fiscalYearId, issue.branchId);
+
       const sourceType = 'GI';
       const sourceNumber = issue.serial ?? issue.id.slice(0, 8);
       const sourceYearId = String(new Date(issue.date).getFullYear());
 
       // Use transaction to reverse movements atomically
       await prisma.$transaction(async (tx) => {
+        await claimDocumentUnpost((args) => tx.issue.updateMany(args), issueId, companyId);
         for (const line of issue.lines) {
-          await stockMovementService.postMovementInTx(tx, {
+          await inventoryCostingService.applyInboundMovement(tx, {
             companyId,
             branchId: issue.branchId ?? undefined,
             warehouseId: issue.warehouseId,
             itemId: line.itemId,
             locationId: line.locationId ?? null,
-            quantityDelta: Number(line.quantity),
+            quantity: Number(line.quantity),
+            inheritCurrentCost: true,
+            updateLastPurchasePrice: false,
             movementType: `${sourceType}-UNPOST`,
             sourceType: `${sourceType}-UNPOST`,
             sourceNumber,
             sourceYearId,
-            documentDate: issue.date,
+            transactionDate: new Date(issue.date),
           });
+          const reservationId = line.itemReservationId as string | null | undefined;
+          const fulfillQty = Number(line.reservationFulfillQuantity ?? 0);
+          if (reservationId && fulfillQty > 0) {
+            await reverseReservationFulfillmentInTx(tx, companyId, {
+              reservationId,
+              warehouseId: issue.warehouseId,
+              itemId: line.itemId,
+              quantity: fulfillQty,
+            });
+          }
         }
 
-        if (glCtx) {
-          await stockMovementGlService.reverseBySourceInTx(
-            tx,
-            glCtx,
-            sourceType,
-            sourceNumber,
-            sourceYearId,
-            `Issue ${sourceNumber} unposted`
-          );
+        if (postingCtx) {
+          if (issue.journalEntryId) {
+            await journalPostingService.reverseJournalEntryInTx(tx, postingCtx, issue.journalEntryId, {
+              reason: `Issue ${sourceNumber} unposted`,
+            });
+            await journalPostingService.cascadeSourceJournalInTx(
+              tx,
+              companyId,
+              [issue.journalEntryId],
+              'unpost',
+              postingCtx.userId
+            );
+          } else {
+            await stockMovementGlService.reverseBySourceInTx(
+              tx,
+              postingCtx,
+              sourceType,
+              sourceNumber,
+              sourceYearId,
+              `Issue ${sourceNumber} unposted`,
+              issue.id
+            );
+          }
         }
 
-        // Mark issue as unposted
-        await tx.issue.update({
-          where: { id: issueId },
-          data: {
-            isPosted: false,
-            postedAt: null,
-          },
-        });
       });
 
       logger.info({ companyId, issueId }, 'Issue unposted');

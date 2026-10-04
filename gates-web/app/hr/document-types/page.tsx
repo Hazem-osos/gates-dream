@@ -3,5 +3,5 @@
 import { HrMasterLocalFormPage } from '@/components/hr/HrMasterLocalFormPage';
 
 export default function DocumentTypesPage() {
-  return <HrMasterLocalFormPage title="أنواع المستندات" />;
+  return <HrMasterLocalFormPage title="أنواع المستندات" kind="document_type" />;
 }

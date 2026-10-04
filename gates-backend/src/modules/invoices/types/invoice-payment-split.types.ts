@@ -49,7 +49,7 @@ export type InternalNoteEntry = z.infer<typeof internalNoteEntrySchema>;
 export function validatePaymentSplitsTotal(
   splits: InvoicePaymentSplitLine[],
   grandTotal: number,
-  tolerance = 0.0001
+  tolerance = 0.01
 ): boolean {
   const sum = splits.reduce((s, line) => s + line.amount, 0);
   return Math.abs(sum - grandTotal) <= tolerance;
@@ -71,8 +71,20 @@ export function withNormalizedOnAccount(
   splits: InvoicePaymentSplitLine[],
   grandTotal: number
 ): InvoicePaymentSplitLine[] {
-  const tenders = splits.filter((line) => line.type !== 'ON_ACCOUNT');
-  const tenderSum = tenders.reduce((sum, line) => sum + Number(line.amount || 0), 0);
+  let tenders = splits.filter((line) => line.type !== 'ON_ACCOUNT');
+  let tenderSum = tenders.reduce((sum, line) => sum + Number(line.amount || 0), 0);
+  let over = Math.round((tenderSum - grandTotal) * 10000) / 10000;
+  if (over > 0.0001 && over <= 0.01) {
+    tenders = tenders.map((line) => ({ ...line }));
+    for (let index = tenders.length - 1; index >= 0 && over > 0.0001; index -= 1) {
+      const amount = Number(tenders[index].amount) || 0;
+      const cut = Math.min(amount, over);
+      tenders[index] = { ...tenders[index], amount: Math.round((amount - cut) * 10000) / 10000 };
+      over = Math.round((over - cut) * 10000) / 10000;
+    }
+    tenders = tenders.filter((line) => Number(line.amount) > 0.0001);
+    tenderSum = tenders.reduce((sum, line) => sum + Number(line.amount || 0), 0);
+  }
   const remainder = Math.round(Math.max(0, grandTotal - tenderSum) * 10000) / 10000;
   return remainder > 0.0001 ? [...tenders, { type: 'ON_ACCOUNT', amount: remainder }] : tenders;
 }

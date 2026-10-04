@@ -12,6 +12,12 @@ function track(ctx: MigrationContext, table: string) {
 }
 
 export async function runPhaseB(ctx: MigrationContext) {
+  if (process.env.MIGRATION_ENGINE_ENABLED === 'true') {
+    const { blockLegacyPhaseBItemStore } = await import(
+      '../../../src/modules/migration-engine/policies/inventory-source-policy'
+    );
+    blockLegacyPhaseBItemStore();
+  }
   console.log('\n=== Phase B: Opening balances ===');
 
   for await (const { batch, batchIndex, batchTotal } of ctx.extractor.iterateBatches(

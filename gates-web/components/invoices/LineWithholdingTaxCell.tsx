@@ -11,7 +11,6 @@ const PRESETS = [
 
 type Props = {
   rate?: number;
-  amount?: number;
   lineAfterDiscount: number;
   onChange: (patch: { withholdingTaxRate: number; withholdingTaxAmount: number }) => void;
   className?: string;
@@ -19,7 +18,6 @@ type Props = {
 
 export function LineWithholdingTaxCell({
   rate = 0,
-  amount = 0,
   lineAfterDiscount,
   onChange,
   className,
@@ -63,11 +61,6 @@ export function LineWithholdingTaxCell({
           placeholder="%"
           onChange={(e) => commit(Number(e.target.value) || 0)}
         />
-      ) : null}
-      {amount > 0 ? (
-        <p className="mt-0.5 text-left font-mono text-[10px] text-slate-500">
-          {amount.toLocaleString('ar-EG', { minimumFractionDigits: 2 })}
-        </p>
       ) : null}
     </div>
   );

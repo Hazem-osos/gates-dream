@@ -1,4 +1,5 @@
 import prisma from '../../../shared/database/prisma';
+import { permanentDelete } from '../../../shared/database/permanent-delete.util';
 import { logger } from '../../../shared/logger';
 import { Decimal } from '@prisma/client/runtime/library';
 
@@ -420,10 +421,7 @@ export class MonthlySalaryService {
         throw new Error('Monthly salary not found');
       }
 
-      await prisma.monthlySalary.update({
-        where: { id: salaryId },
-        data: { isActive: false },
-      });
+      await permanentDelete('السجل', () => prisma.monthlySalary.delete({ where: { id: salaryId } }));
 
       logger.info({ companyId, salaryId }, 'Monthly salary deleted');
       return { success: true };

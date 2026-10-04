@@ -97,7 +97,7 @@ export function BoqMarkupModal({
     <div className="fixed inset-0 z-[140] flex items-center justify-center bg-black/40 p-4" dir="rtl">
       <div className="max-h-[90vh] w-full max-w-2xl overflow-auto rounded-xl bg-white shadow-xl">
         <div className="p-5 pb-0">
-          <h2 className="mb-4 text-lg font-bold text-[#0E79AA]">تحميل التكاليف والربح — {item.itemCode}</h2>
+          <h2 className="mb-4 text-lg font-bold text-[#0E78AA]">تحميل التكاليف والربح — {item.itemCode}</h2>
           <FormSectionCard title="نسب التحميل" subtitle="الأعباء غير المباشرة وهامش الربح والضرائب" icon={Calculator}>
             {FIELDS.map((field) => (
               <CompactFormField
@@ -112,7 +112,7 @@ export function BoqMarkupModal({
                     min="0"
                     max="40"
                     step="0.1"
-                    className="w-full accent-[#0E79AA]"
+                    className="w-full accent-[#0E78AA]"
                     value={rates[field.key]}
                     onChange={(e) => setRates((prev) => ({ ...prev, [field.key]: e.target.value }))}
                   />
@@ -156,11 +156,11 @@ export function BoqMarkupModal({
             </div>
             <div>
               <p className="text-slate-500">سعر بيع الوحدة النهائي</p>
-              <p className="font-bold tabular-nums text-[#0E79AA]">{formatEgp(calc.selling)}</p>
+              <p className="font-bold tabular-nums text-[#0E78AA]">{formatEgp(calc.selling)}</p>
             </div>
             <div>
               <p className="text-slate-500">إجمالي قيمة البند</p>
-              <p className="font-bold tabular-nums text-[#0E79AA]">{formatEgp(calc.total)}</p>
+              <p className="font-bold tabular-nums text-[#0E78AA]">{formatEgp(calc.total)}</p>
             </div>
           </div>
         </div>
@@ -170,7 +170,6 @@ export function BoqMarkupModal({
           saveText="حفظ واحتساب السعر"
           cancelText="إلغاء"
           saveLoading={save.isPending}
-          respectPermissions={false}
           className="mt-0"
         />
       </div>

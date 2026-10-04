@@ -12,6 +12,8 @@ export default function SalesAndReturnsReportsPage() {
         dates: 'range',
         customer: true,
         delegate: true,
+        driver: true,
+        distributor: true,
         warehouse: true,
         itemGroup: true,
         item: true,
@@ -19,7 +21,10 @@ export default function SalesAndReturnsReportsPage() {
         invoiceRange: true,
         currency: true,
         branch: true,
+        sortBy: true,
         unpaidOnly: true,
+        showUnposted: true,
+        financialPresence: true,
         allAccounts: true,
       }}
     />

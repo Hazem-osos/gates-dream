@@ -9,7 +9,7 @@ import type {
   CreateM5InvoiceInput,
   UpdateM5InvoiceInput,
 } from '../schemas/invoice-m5.schema';
-import type { InvoiceKind } from '../types/invoice-posting.types';
+import type { InvoiceKind, InvoicePostingContext } from '../types/invoice-posting.types';
 import {
   assertDraftInvoiceIntegrity,
   assertNoOverReturn,
@@ -37,6 +37,12 @@ import {
   nextProfileInvoiceNumber,
 } from '../../document-profiles/services/document-profile-invoice';
 import { fiscalYearService } from '../../platform/services/fiscal-year.service';
+import { recordInvoiceLineSource } from './invoice-line-source.service';
+import {
+  applyItemOffersToSalesLines,
+  contractDueDays,
+  contractPaymentSplits,
+} from './sales-document-enrichment.service';
 import { branchScopeFilter } from '../../../shared/auth/branch-scope';
 import {
   clampKeysetLimit,
@@ -47,11 +53,12 @@ import {
 import { applyFullTextIds, findFullTextIds } from '../../../shared/database/fulltext-search';
 import { linkSourceAfterSave } from './invoice-source.service';
 import {
-  INVOICE_DELETE_SETTLEMENT_LOCK_MESSAGE,
-  INVOICE_DRAFT_SETTLEMENT_LOCK_MESSAGE,
+  INVOICE_CANCEL_COLLECTIONS_FIRST_MESSAGE,
   invoiceHasLinkedSettlementRecords,
-  invoiceHasUnclearedSettlementHistory,
+  invoiceNetCoversCollections,
+  invoiceValueBelowCollectionsMessage,
 } from './invoice-settlement-policy';
+import { sumActiveInvoiceCollections } from './invoice-balance.service';
 import {
   assertModuleWarehouseAllowed,
   invoiceSequenceDocType,
@@ -61,11 +68,48 @@ import {
   shouldAutoPostOnSave,
   shouldCheckMinusQtyOnDraft,
 } from './invoice-document-type';
+import { transactionEnforcesStrictNegativeStock } from '../../inventory/services/strict-inventory';
 import { invoicePostingOrchestrator } from './invoice-posting-orchestrator';
 import { logger } from '../../../shared/logger';
 import { assertNotSellingBelowCost } from './invoice-below-cost';
 import { assertAllowedLinePrices } from '../../transaction-settings/transaction-settings-invoice-guards';
 import { assertPurchaseReturnPolicy, assertSalesReturnPolicy } from './sales-return.service';
+import { invoiceSettlementSplitService, isSplitPaymentInvoice } from './invoice-settlement-split.service';
+import { invoiceSettlementService, isImmediateCashInvoice } from './invoice-settlement.service';
+
+async function autoSettleInvoiceOnSaveInTx(
+  tx: Prisma.TransactionClient,
+  ctx: { companyId: string; branchId?: string; fiscalYearId?: string; userId?: string },
+  invoice: {
+    id: string;
+    invoiceKind: string | null;
+    invoiceNumber: string | null;
+    date: Date;
+    currencyCode: string;
+    customerId: string | null;
+    supplierId: string | null;
+    netAmount: Prisma.Decimal | number;
+    paymentMethod?: string | null;
+    paymentSplits?: unknown;
+  }
+) {
+  if (!ctx.branchId || !ctx.fiscalYearId) return;
+  const kind = invoice.invoiceKind;
+  if (kind !== 'SALE' && kind !== 'PURCHASE') return;
+  const postingCtx: InvoicePostingContext = {
+    companyId: ctx.companyId,
+    branchId: ctx.branchId,
+    fiscalYearId: ctx.fiscalYearId,
+    userId: ctx.userId ?? 'system',
+  };
+  if (isSplitPaymentInvoice(invoice)) {
+    await invoiceSettlementSplitService.autoSettleSplitInTx(tx, postingCtx, invoice);
+    return;
+  }
+  if (isImmediateCashInvoice(invoice)) {
+    await invoiceSettlementService.autoSettleCashInTx(tx, postingCtx, invoice, Number(invoice.netAmount));
+  }
+}
 
 function kindToLegacyType(kind: InvoiceKind): string {
   switch (kind) {
@@ -75,6 +119,8 @@ function kindToLegacyType(kind: InvoiceKind): string {
       return 'purchaseReturn';
     case 'SALE_RETURN':
       return 'salesReturn';
+    case 'SALES_ORDER':
+      return 'salesOrder';
     case 'SALE':
     default:
       return 'sales';
@@ -90,6 +136,9 @@ function toLineRow(
   cascadingDiscounts = false,
   pricingBasis: PricingCalculationBasis = 'SELECTED_UNIT_QTY'
 ) {
+  if (!line.unitId) {
+    throw new AppError(422, 'وحدة الصنف مطلوبة');
+  }
   const pricedQty = resolvePricedQuantity(line.quantity, line.baseQuantity, pricingBasis);
   const { lineTotal, lineDiscount, lineTax } = computeLineAmounts(
     { ...line, quantity: pricedQty },
@@ -125,6 +174,11 @@ function toLineRow(
     lineNotes: line.lineNotes ?? null,
     taxExemptionReason: line.taxExemptionReason ?? null,
     warehouseId: line.warehouseId ?? null,
+    itemReservationId: line.itemReservationId ?? null,
+    reservationFulfillQuantity:
+      line.reservationFulfillQuantity != null
+        ? new Decimal(line.reservationFulfillQuantity)
+        : null,
     costCenterId: line.costCenterId ?? null,
     withholdingTaxRate: line.withholdingTaxRate != null ? new Decimal(line.withholdingTaxRate) : new Decimal(0),
     withholdingTaxAmount: line.withholdingTaxAmount != null ? new Decimal(line.withholdingTaxAmount) : new Decimal(0),
@@ -147,17 +201,18 @@ async function resolveDueDate(
     explicit?: Date | null;
     customerId?: string | null;
     supplierId?: string | null;
+    contractDays?: number | null;
   }
 ): Promise<Date> {
   if (params.explicit) return params.explicit;
 
-  let termDays: number | null = null;
+  let termDays: number | null = params.contractDays ?? null;
   if (params.customerId) {
     const customer = await tx.customer.findUnique({
       where: { id: params.customerId },
       select: { paymentTermsDays: true },
     });
-    termDays = customer?.paymentTermsDays ?? null;
+    if (termDays == null) termDays = customer?.paymentTermsDays ?? null;
   } else if (params.supplierId) {
     const supplier = await tx.supplier.findUnique({
       where: { id: params.supplierId },
@@ -261,8 +316,8 @@ async function emitSalesInvoiceCreatedEvent(
 export class InvoiceM5Service {
   async create(
     companyId: string,
-    branchId: string | undefined,
-    fiscalYearId: string | undefined,
+    branchId: string | null | undefined,
+    fiscalYearId: string | null | undefined,
     data: CreateM5InvoiceInput,
     userId?: string
   ) {
@@ -316,7 +371,14 @@ export class InvoiceM5Service {
       data.isSalesTaxInvoice ??
       (txSettings?.autoApplyVat ?? (moduleSettings.salesDariba ? true : false));
 
-    const lines = await applyNormalizedLineUnits(companyId, data.lines);
+    const offeredLines = await applyItemOffersToSalesLines(
+      companyId,
+      data.invoiceKind,
+      data.lines,
+      data.customerId,
+      data.date
+    );
+    const lines = await applyNormalizedLineUnits(companyId, offeredLines);
     const pricingBasis = await resolveCompanyPricingBasis(companyId, data.pricingCalculationBasis);
 
     const amounts = invoiceAmounts(
@@ -342,6 +404,17 @@ export class InvoiceM5Service {
       invoiceExchangeRate
     );
     const netWithWht = roundTo4(amounts.netAmount + developmentFee.amount - wht + partyAdjustments);
+
+    if (
+      (data.invoiceKind === 'SALE' || data.invoiceKind === 'SALES_ORDER') &&
+      data.customerId &&
+      !data.paymentSplits &&
+      !data.paymentMethod
+    ) {
+      const contractPay = await contractPaymentSplits(companyId, branchId, data.customerId, netWithWht);
+      if (contractPay?.paymentSplits) data.paymentSplits = contractPay.paymentSplits;
+      if (contractPay?.paymentMethod) data.paymentMethod = contractPay.paymentMethod;
+    }
 
     if (txSettings && data.invoiceKind !== 'SALE_RETURN' && data.invoiceKind !== 'PURCHASE_RETURN') {
       await assertAllowedLinePrices({
@@ -383,7 +456,7 @@ export class InvoiceM5Service {
       lines,
       {
         checkMinusQty: await shouldCheckMinusQtyOnDraft(companyId, module.moduleCode),
-        forceMinusQty: Boolean(txSettings?.preventNegativeStock && txSettings.affectStock),
+        forceMinusQty: transactionEnforcesStrictNegativeStock(txSettings),
         // Credit stays a post-time (and draft-update) gate so an over-limit
         // invoice can still be saved and then approved / posted later.
         checkCredit: false,
@@ -397,7 +470,7 @@ export class InvoiceM5Service {
     created = await prisma.$transaction(async (tx) => {
       const manualInvoiceNumber = data.invoiceNumber?.trim();
       const profileNumber =
-        !manualInvoiceNumber && profile?.prefix
+        !manualInvoiceNumber && profile
           ? await nextProfileInvoiceNumber(tx, profile.id)
           : null;
       const invoiceNumber =
@@ -411,7 +484,8 @@ export class InvoiceM5Service {
           legacySuffix: module.moduleCode,
           policyOverride: txSettings
             ? {
-                automatic: txSettings.numberingMode === 'AUTOMATIC',
+                automatic:
+                  txSettings.numberingMode === 'AUTOMATIC' || Boolean(profile),
                 continuous: txSettings.sequenceMode === 'CONTINUOUS',
               }
             : undefined,
@@ -463,6 +537,10 @@ export class InvoiceM5Service {
         explicit: data.dueDate,
         customerId: data.customerId,
         supplierId: data.supplierId,
+        contractDays:
+          data.customerId && (data.invoiceKind === 'SALE' || data.invoiceKind === 'SALES_ORDER')
+            ? await contractDueDays(data.customerId)
+            : null,
       });
 
       await assertNoOverReturn(tx, companyId, data.invoiceKind, null, data.lines);
@@ -532,6 +610,26 @@ export class InvoiceM5Service {
         ),
       });
 
+      if (lines.some((line) => line.sourceLineId && line.sourceKind)) {
+        const savedLines = await tx.invoiceLine.findMany({
+          where: { invoiceId: inv.id },
+          orderBy: { lineOrder: 'asc' },
+          select: { id: true },
+        });
+        for (let i = 0; i < lines.length; i++) {
+          const source = lines[i];
+          const saved = savedLines[i];
+          if (!source?.sourceLineId || !source.sourceKind || !saved) continue;
+          await recordInvoiceLineSource(tx, {
+            companyId,
+            invoiceLineId: saved.id,
+            sourceKind: source.sourceKind,
+            sourceLineId: source.sourceLineId,
+            baseQuantity: Number(source.baseQuantity),
+          });
+        }
+      }
+
       await replaceInvoiceConditions(tx, inv.id, data.invoiceConditions);
       await replaceInvoiceInstallmentsInTx(tx, inv.id, data.installments);
       await replaceInvoiceAdjustmentsInTx(tx, {
@@ -545,6 +643,23 @@ export class InvoiceM5Service {
         sourceType: data.sourceType,
         sourceId: data.sourceId,
       });
+
+      await autoSettleInvoiceOnSaveInTx(
+        tx,
+        { companyId, branchId: branchId ?? undefined, fiscalYearId: fiscalYearId ?? undefined, userId },
+        {
+          id: inv.id,
+          invoiceKind: inv.invoiceKind,
+          invoiceNumber: inv.invoiceNumber,
+          date: inv.date,
+          currencyCode: inv.currencyCode,
+          customerId: inv.customerId,
+          supplierId: inv.supplierId,
+          netAmount: inv.netAmount,
+          paymentMethod: data.paymentMethod,
+          paymentSplits: data.paymentSplits,
+        }
+      );
 
       if (userId) {
         await documentAuditService.record(
@@ -584,15 +699,22 @@ export class InvoiceM5Service {
       void emitSalesInvoiceCreatedEvent(companyId, created);
     }
 
+    const postBranchId = branchId ?? created?.branchId ?? null;
+    const postFiscalYearId = fiscalYearId ?? created?.fiscalYearId ?? null;
     if (
       created &&
-      branchId &&
-      fiscalYearId &&
+      postBranchId &&
+      postFiscalYearId &&
       (await shouldAutoPostOnSave(companyId, module.moduleCode))
     ) {
       try {
         await invoicePostingOrchestrator.post(
-          { companyId, branchId, fiscalYearId, userId: userId ?? 'system' },
+          {
+            companyId,
+            branchId: postBranchId,
+            fiscalYearId: postFiscalYearId,
+            userId: userId ?? 'system',
+          },
           created.id
         );
         return prisma.invoice.findUnique({
@@ -603,10 +725,14 @@ export class InvoiceM5Service {
           },
         });
       } catch (error) {
+        const raw = error instanceof AppError ? error.message : error instanceof Error ? error.message : '';
         logger.warn(
-          { error, companyId, invoiceId: created.id },
+          { error, companyId, invoiceId: created.id, postError: raw },
           'Auto-post after invoice save failed; draft kept'
         );
+        if (raw) {
+          Object.assign(created, { autoPostError: raw });
+        }
         return created;
       }
     }
@@ -623,7 +749,7 @@ export class InvoiceM5Service {
       where: { id, companyId },
       include: { lines: { orderBy: { lineOrder: 'asc' } }, adjustments: true },
     });
-    if (!existing) throw new AppError(404, 'Invoice not found');
+    if (!existing) throw new AppError(404, 'الفاتورة غير موجودة');
     if (existing.isPosted) {
       // H4 fix: an approved+posted invoice can never be unposted (see the
       // orchestrator), so don't send the caller into a dead end — tell them
@@ -655,36 +781,7 @@ export class InvoiceM5Service {
     // protects the narrow window of this request's own lifetime) cannot.
     assertExpectedVersion(existing.version, data.expectedVersion);
 
-    if (data.lines) {
-      const [activeAllocationCount, activeChequeCount] = await Promise.all([
-        prisma.paymentAllocation.count({
-          where: {
-            companyId,
-            invoiceId: id,
-            cashTransaction: { isPosted: true, isCancelled: false },
-          },
-        }),
-        prisma.cheque.count({
-          where: {
-            companyId,
-            invoiceId: id,
-            status: { notIn: ['CANCELLED', 'BOUNCED'] },
-          },
-        }),
-      ]);
-      if (
-        invoiceHasUnclearedSettlementHistory({
-          remainingAmount: Number(existing.remainingAmount),
-          netAmount: Number(existing.netAmount),
-          activeAllocationCount,
-          activeChequeCount,
-        })
-      ) {
-        throw new AppError(422, INVOICE_DRAFT_SETTLEMENT_LOCK_MESSAGE);
-      }
-    }
-
-    const effectiveLines: CreateM5InvoiceInput['lines'] =
+    let effectiveLines: CreateM5InvoiceInput['lines'] =
       data.lines ??
       existing.lines.map((l, index) => ({
         itemId: l.itemId,
@@ -715,6 +812,15 @@ export class InvoiceM5Service {
         conversionFactor: l.conversionFactor != null ? Number(l.conversionFactor) : undefined,
         baseUnitId: l.baseUnitId ?? undefined,
       })) as CreateM5InvoiceInput['lines'];
+    if (data.lines) {
+      effectiveLines = await applyItemOffersToSalesLines(
+        companyId,
+        existing.invoiceKind ?? 'SALE',
+        effectiveLines,
+        data.customerId ?? existing.customerId,
+        data.date ?? existing.date
+      );
+    }
 
     const invoiceKind = (existing.invoiceKind ?? 'SALE') as InvoiceKind;
     const module = await resolveInvoiceModule(companyId, invoiceKind, {
@@ -824,7 +930,11 @@ export class InvoiceM5Service {
       invoiceExchangeRate
     );
     const netWithWht = roundTo4(amounts.netAmount + developmentFee.amount - wht + partyAdjustments);
-    const paid = Number(existing.paidAmount);
+    const collected = await sumActiveInvoiceCollections(prisma, companyId, id);
+    if (!invoiceNetCoversCollections(netWithWht, collected)) {
+      throw new AppError(422, invoiceValueBelowCollectionsMessage(netWithWht, collected));
+    }
+    const paid = collected;
 
     await assertDraftInvoiceIntegrity(
       companyId,
@@ -837,7 +947,7 @@ export class InvoiceM5Service {
       normalizedLines,
       {
         checkMinusQty: await shouldCheckMinusQtyOnDraft(companyId, module.moduleCode),
-        forceMinusQty: Boolean(txSettings?.preventNegativeStock && txSettings.affectStock),
+        forceMinusQty: transactionEnforcesStrictNegativeStock(txSettings),
       }
     );
 
@@ -900,10 +1010,16 @@ export class InvoiceM5Service {
           id,
           companyId,
           version: data.expectedVersion ?? existing.version,
+          // Posting does not bump `version`; a draft edit must not land on a
+          // row that was posted or cancelled after it was validated.
+          isPosted: false,
+          isCancelled: false,
         },
         data: {
           version: { increment: 1 },
-          invoiceNumber: data.invoiceNumber ?? existing.invoiceNumber,
+          invoiceNumber: data.invoiceNumber?.trim()
+            ? data.invoiceNumber.trim()
+            : existing.invoiceNumber,
           date: data.date ?? existing.date,
           dueDate,
           hijriDate: resolveHijriDate(
@@ -995,6 +1111,31 @@ export class InvoiceM5Service {
         sourceId: data.sourceId !== undefined ? data.sourceId : existing.sourceId,
       });
 
+      await autoSettleInvoiceOnSaveInTx(
+        tx,
+        {
+          companyId,
+          branchId: existing.branchId ?? undefined,
+          fiscalYearId: existing.fiscalYearId ?? undefined,
+          userId,
+        },
+        {
+          id,
+          invoiceKind: existing.invoiceKind,
+          invoiceNumber: data.invoiceNumber?.trim()
+            ? data.invoiceNumber.trim()
+            : existing.invoiceNumber,
+          date: data.date ?? existing.date,
+          currencyCode: data.currencyCode ?? existing.currencyCode,
+          customerId: data.customerId ?? existing.customerId,
+          supplierId: data.supplierId ?? existing.supplierId,
+          netAmount: netWithWht,
+          paymentMethod: data.paymentMethod ?? existing.paymentMethod,
+          paymentSplits:
+            data.paymentSplits !== undefined ? data.paymentSplits : existing.paymentSplits,
+        }
+      );
+
       if (userId) {
         await documentAuditService.record(
           {
@@ -1054,13 +1195,27 @@ export class InvoiceM5Service {
   /** Soft delete: keeps the document for audit and excludes it from batch posting. */
   async cancel(companyId: string, id: string, userId?: string) {
     const existing = await prisma.invoice.findFirst({ where: { id, companyId } });
-    if (!existing) throw new AppError(404, 'Invoice not found');
+    if (!existing) throw new AppError(404, 'الفاتورة غير موجودة');
+    const collected = await sumActiveInvoiceCollections(prisma, companyId, id);
+    if (collected > 0.01) {
+      throw new AppError(422, INVOICE_CANCEL_COLLECTIONS_FIRST_MESSAGE);
+    }
     if (existing.isPosted) {
       throw new AppError(422, 'Unpost the invoice before cancelling it');
     }
     if (existing.isCancelled) return existing;
+    await fiscalYearService.assertOpenForDate(companyId, existing.date);
 
     const updated = await prisma.$transaction(async (tx) => {
+      // Claim before the cascade: it looks journals up by source and would
+      // otherwise reverse the journal of a post that committed meanwhile.
+      const claimCancel = await tx.invoice.updateMany({
+        where: { id, companyId, isPosted: false },
+        data: { isCancelled: true },
+      });
+      if (claimCancel.count === 0) {
+        throw new AppError(422, 'Unpost the invoice before cancelling it');
+      }
       await journalPostingService.cascadeSourceJournalInTx(
         tx,
         companyId,
@@ -1069,10 +1224,7 @@ export class InvoiceM5Service {
         userId,
         { sourceId: existing.id, sourceNumber: existing.invoiceNumber ?? undefined }
       );
-      const row = await tx.invoice.update({
-        where: { id },
-        data: { isCancelled: true },
-      });
+      const row = await tx.invoice.findUniqueOrThrow({ where: { id } });
       await this.revertUpstreamConversionInTx(tx, id);
       return row;
     });
@@ -1096,6 +1248,7 @@ export class InvoiceM5Service {
       where: { id, companyId },
       select: {
         id: true,
+        date: true,
         isPosted: true,
         journalEntryId: true,
         costJournalEntryId: true,
@@ -1108,24 +1261,37 @@ export class InvoiceM5Service {
         },
       },
     });
-    if (!existing) throw new AppError(404, 'Invoice not found');
-    if (existing.isPosted || existing.journalEntryId || existing.costJournalEntryId) {
+    if (!existing) throw new AppError(404, 'الفاتورة غير موجودة');
+    await fiscalYearService.assertOpenForDate(companyId, existing.date);
+    const collected = await sumActiveInvoiceCollections(prisma, companyId, id);
+    if (collected > 0.01) {
+      throw new AppError(422, INVOICE_CANCEL_COLLECTIONS_FIRST_MESSAGE);
+    }
+    if (existing.isPosted) {
       throw new AppError(422, 'Posted invoices cannot be deleted — unpost or cancel instead');
     }
     if (
+      existing.journalEntryId ||
+      existing.costJournalEntryId ||
       invoiceHasLinkedSettlementRecords({
         paymentAllocations: existing._count.paymentAllocations,
         cashTransactions: existing._count.settlements,
         cheques: existing._count.settlementCheques,
       })
     ) {
-      throw new AppError(422, INVOICE_DELETE_SETTLEMENT_LOCK_MESSAGE);
+      await this.cancel(companyId, id);
+      return { id };
     }
 
     await prisma.$transaction(async (tx) => {
       await this.revertUpstreamConversionInTx(tx, id);
       await tx.invoiceLine.deleteMany({ where: { invoiceId: id } });
-      await tx.invoice.delete({ where: { id } });
+      const deleted = await tx.invoice.deleteMany({
+        where: { id, companyId, isPosted: false, journalEntryId: null, costJournalEntryId: null },
+      });
+      if (deleted.count === 0) {
+        throw new AppError(422, 'Posted invoices cannot be deleted — unpost or cancel instead');
+      }
     });
 
     return { id };
@@ -1187,7 +1353,7 @@ export class InvoiceM5Service {
         adjustments: { orderBy: { createdAt: 'asc' } },
       },
     });
-    if (!row) throw new AppError(404, 'Invoice not found');
+    if (!row) throw new AppError(404, 'الفاتورة غير موجودة');
     return row;
   }
 

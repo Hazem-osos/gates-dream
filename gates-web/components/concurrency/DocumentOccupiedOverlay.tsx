@@ -48,7 +48,7 @@ export function DocumentOccupiedOverlay({ open, holderName }: Props) {
           <button
             type="button"
             onClick={leave}
-            className="rounded-lg bg-[#0E79AA] px-4 py-2 text-sm font-semibold text-white hover:bg-[#0A3D5E]"
+            className="rounded-lg bg-[#0E78AA] px-4 py-2 text-sm font-semibold text-white hover:bg-[#0A3D5E]"
           >
             خروج من الصفحة
           </button>

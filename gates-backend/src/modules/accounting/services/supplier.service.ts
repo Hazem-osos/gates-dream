@@ -5,6 +5,7 @@ import { applyFullTextIds, findFullTextIds } from '../../../shared/database/full
 import { supplierLedgerAccountService } from './party-ledger-account.service';
 import { nextNumericCode } from '../../../shared/utils/next-numeric-code';
 import { AppError } from '../../../shared/middleware/error-handler';
+import { emitDomainEvent } from '../../automation/events/automation-event-bus.service';
 
 const SUPPLIER_LIST_SELECT = {
   id: true,
@@ -24,6 +25,8 @@ const SUPPLIER_LIST_SELECT = {
   creditLimit: true,
   currencyCode: true,
   supplierCategoryId: true,
+  priceListId: true,
+  discountType: true,
   createdAt: true,
   updatedAt: true,
 } as const;
@@ -55,6 +58,7 @@ export interface CreateSupplierData {
   registrationNumber?: string;
   financier?: string;
   discountType?: string;
+  priceListId?: string | null;
   mainAccountId?: string;
   accountId?: string;
   transactionType?: string;
@@ -67,7 +71,6 @@ export interface CreateSupplierData {
 
 export interface UpdateSupplierData extends Partial<CreateSupplierData> {
   isActive?: boolean;
-  balance?: number;
 }
 
 export class SupplierService {
@@ -109,7 +112,8 @@ export class SupplierService {
         arabicName: data.arabicName,
         requestedAccountId: data.mainAccountId ?? data.accountId,
       });
-      const supplier = await prisma.supplier.create({
+      const createdSupplier = await prisma.$transaction(async (tx) => {
+      const supplier = await tx.supplier.create({
         data: {
           companyId,
           serial,
@@ -138,6 +142,7 @@ export class SupplierService {
           registrationNumber: data.registrationNumber,
           financier: data.financier,
           discountType: data.discountType,
+          priceListId: data.priceListId ?? null,
           mainAccountId: data.mainAccountId,
           accountId: data.accountId,
           transactionType: data.transactionType,
@@ -160,25 +165,14 @@ export class SupplierService {
         },
       });
 
-      try {
-        await supplierLedgerAccountService.ensureForSupplier({
-          companyId,
-          supplierId: supplier.id,
-          requestedAccountId: data.mainAccountId ?? data.accountId,
-        });
-      } catch (ensureError) {
-        try {
-          await prisma.supplier.delete({ where: { id: supplier.id } });
-        } catch {
-          await prisma.supplier.update({
-            where: { id: supplier.id },
-            data: { isActive: false, mainAccountId: null, accountId: null },
-          });
-        }
-        throw ensureError;
-      }
+      await supplierLedgerAccountService.ensureForSupplier({
+        companyId,
+        supplierId: supplier.id,
+        requestedAccountId: data.mainAccountId ?? data.accountId,
+        db: tx,
+      });
 
-      const withLedger = await prisma.supplier.findFirst({
+      return tx.supplier.findFirstOrThrow({
         where: { id: supplier.id, companyId },
         include: {
           mainAccount: {
@@ -190,9 +184,19 @@ export class SupplierService {
           },
         },
       });
+      });
 
-      logger.info({ companyId, supplierId: supplier.id }, 'Supplier created');
-      return withLedger ?? supplier;
+      logger.info({ companyId, supplierId: createdSupplier.id }, 'Supplier created');
+      void emitDomainEvent({
+        companyId,
+        eventType: 'supplier.created',
+        data: {
+          supplierId: createdSupplier.id,
+          arabicName: createdSupplier.arabicName,
+          supplierType: createdSupplier.supplierType ?? null,
+        },
+      });
+      return createdSupplier;
     } catch (error) {
       logger.error({ error, companyId, data }, 'Error creating supplier');
       throw error;
@@ -222,12 +226,12 @@ export class SupplierService {
       });
 
       if (!supplier) {
-        throw new Error('Supplier not found');
+        throw new Error('المورد غير موجود');
       }
 
       return supplier;
     } catch (error) {
-      if (!(error instanceof Error && error.message === 'Supplier not found')) {
+      if (!(error instanceof Error && error.message === 'المورد غير موجود')) {
         logger.error({ error, companyId, supplierId }, 'Error getting supplier');
       }
       throw error;
@@ -246,6 +250,7 @@ export class SupplierService {
       supplierType?: string;
       isActive?: boolean;
       supplierCategoryId?: string;
+      accountId?: string;
     }
   ) {
     try {
@@ -284,6 +289,15 @@ export class SupplierService {
 
       if (options.supplierCategoryId) {
         where.supplierCategoryId = options.supplierCategoryId;
+      }
+
+      if (options.accountId) {
+        where.AND = [
+          ...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []),
+          {
+            OR: [{ accountId: options.accountId }, { mainAccountId: options.accountId }],
+          },
+        ];
       }
 
       const [suppliers, total] = await Promise.all([
@@ -326,7 +340,7 @@ export class SupplierService {
       });
 
       if (!existing) {
-        throw new Error('Supplier not found');
+        throw new Error('المورد غير موجود');
       }
 
       await supplierLedgerAccountService.assertLedgerAvailable({
@@ -338,41 +352,64 @@ export class SupplierService {
         exceptAccountId: existing.mainAccountId ?? existing.accountId,
       });
 
-      const updateData: any = {};
-
-      if (data.code !== undefined) updateData.code = data.code;
-      if (data.arabicName !== undefined) updateData.arabicName = data.arabicName;
-      if (data.englishName !== undefined)
-        updateData.englishName = data.englishName;
-      if (data.supplierType !== undefined)
-        updateData.supplierType = data.supplierType;
-      if (data.balance !== undefined)
-        updateData.balance = new Decimal(data.balance);
+      const updateData: Record<string, unknown> = {};
+      const textFields = [
+        'serial',
+        'code',
+        'arabicName',
+        'englishName',
+        'supplierType',
+        'how',
+        'nationality',
+        'taxAuthority',
+        'taxAuthorityName',
+        'phone1',
+        'phone2',
+        'mobile',
+        'fax',
+        'email',
+        'website',
+        'country',
+        'city',
+        'area',
+        'street',
+        'postalCode',
+        'poBox',
+        'fileNumber',
+        'registrationNumber',
+        'financier',
+        'discountType',
+        'mainAccountId',
+        'accountId',
+        'transactionType',
+        'warning',
+        'currencyCode',
+        'supplierCategoryId',
+      ] as const;
+      for (const key of textFields) {
+        if (data[key] !== undefined) updateData[key] = data[key];
+      }
+      if (data.taxData !== undefined) updateData.taxData = data.taxData;
+      if (data.paymentTermsDays !== undefined) updateData.paymentTermsDays = data.paymentTermsDays;
+      if (data.estimatedBudget !== undefined) {
+        updateData.estimatedBudget =
+          data.estimatedBudget == null ? null : new Decimal(data.estimatedBudget);
+      }
       if (data.isActive !== undefined) updateData.isActive = data.isActive;
-      if (data.paymentTermsDays !== undefined)
-        updateData.paymentTermsDays = data.paymentTermsDays;
-      if (data.supplierCategoryId !== undefined)
-        updateData.supplierCategoryId = data.supplierCategoryId;
-      // Add other fields as needed
+      if (data.priceListId !== undefined) updateData.priceListId = data.priceListId;
 
-      const supplier = await prisma.supplier.update({
-        where: { id: supplierId },
+      const updated = await prisma.supplier.updateMany({
+        where: { id: supplierId, companyId },
         data: updateData,
-        include: {
-          mainAccount: {
-            select: {
-              id: true,
-              code: true,
-              arabicName: true,
-            },
-          },
-        },
       });
+      if (updated.count !== 1) {
+        throw new AppError(404, 'المورد غير موجود');
+      }
 
       await supplierLedgerAccountService.ensureForSupplier({
         companyId,
         supplierId,
-        requestedAccountId: data.mainAccountId ?? data.accountId ?? supplier.mainAccountId,
+        requestedAccountId: data.mainAccountId ?? data.accountId ?? existing.mainAccountId,
       });
 
       const withLedger = await prisma.supplier.findFirst({
@@ -385,7 +422,7 @@ export class SupplierService {
       });
 
       logger.info({ companyId, supplierId }, 'Supplier updated');
-      return withLedger ?? supplier;
+      return withLedger;
     } catch (error) {
       logger.error({ error, companyId, supplierId, data }, 'Error updating supplier');
       throw error;

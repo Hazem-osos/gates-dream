@@ -8,7 +8,7 @@ import {
   type ExportColumnDef,
 } from '@/lib/export/export-utils';
 
-export function TableExportActions<T extends Record<string, unknown>>({
+export function TableExportActions<T extends object>({
   fileName,
   columns,
   data,
@@ -52,16 +52,17 @@ export function TableExportActions<T extends Record<string, unknown>>({
   );
 }
 
-function buildPrintTableHtml<T extends Record<string, unknown>>(
+function buildPrintTableHtml<T extends object>(
   columns: ExportColumnDef<T>[],
   data: T[]
 ): string {
   const headers = columns.map((c) => c.header);
   const bodyRows = data
     .map((row) => {
+      const record = row as Record<string, unknown>;
       const cells = columns
         .map((col) => {
-          let raw: unknown = col.accessor ? row[col.accessor] : '';
+          let raw: unknown = col.accessor ? record[String(col.accessor)] : '';
           if (col.getValue) raw = col.getValue(row);
           const text = raw == null ? '' : String(raw);
           return `<td style="border:1px solid #ccc;padding:6px;text-align:right">${text}</td>`;

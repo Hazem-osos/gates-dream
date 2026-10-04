@@ -8,7 +8,7 @@ export default function ProfitLossPage() {
       urlPath="/accounting/account-reports/analysis/profit-loss"
       icon="📊"
       subtitle="حساب الأرباح والخسائر لنفس قائمة الدخل."
-      fields={{ dates: 'range', branch: true }}
+      fields={{ dates: 'range', costCenter: true, branch: true, compareYear: true }}
     />
   );
 }

@@ -16,9 +16,18 @@ import { treasuryAccountResolverService } from './treasury-account-resolver.serv
 import type { TreasuryPostingContext } from '../types/treasury.types';
 import { assertChequeTransition } from './cheque-transition.util';
 import {
+  acquireUniqueKey,
+  normalizeUniqueValue,
+  releaseUniqueKeyIfUnused,
+  UNIQUE_KINDS,
+} from '../../../shared/database/company-unique-key';
+import {
   resolveCompanyFxRate,
   toBaseAmount,
 } from '../../accounting/utils/company-fx-rate';
+import { syncJournalPartnerAndTreasuryCardsInTx } from '../../accounting/services/party-ledger-balance.service';
+
+const CHEQUE_SKIP_ACCOUNT_CARD_COLUMNS = true;
 
 const chequePartyInclude = {
   customer: { select: { id: true, code: true, arabicName: true } },
@@ -134,11 +143,26 @@ export class ChequeLifecycleService {
       sourceNumber: params.sourceNumber,
       sourceYearId: params.sourceYearId,
       lines: params.lines,
+      skipCardColumns: CHEQUE_SKIP_ACCOUNT_CARD_COLUMNS,
     });
     if (!je) {
-      throw new AppError(422, 'Cheque GL posting was skipped');
+      throw new AppError(422, 'تعذّر إنشاء قيد الشيك. راجع حسابات أوراق القبض والدفع في الدليل ثم أعد المحاولة.');
     }
+    await syncJournalPartnerAndTreasuryCardsInTx(tx, ctx.companyId, je.id);
     return je;
+  }
+
+  private async unpostChequeJournalInTx(
+    tx: Prisma.TransactionClient,
+    ctx: TreasuryPostingContext,
+    journalEntryId: string,
+    reason: string
+  ) {
+    await journalPostingService.reverseJournalEntryInTx(tx, ctx, journalEntryId, {
+      reason,
+      skipCardColumns: CHEQUE_SKIP_ACCOUNT_CARD_COLUMNS,
+    });
+    await syncJournalPartnerAndTreasuryCardsInTx(tx, ctx.companyId, journalEntryId, { invert: true });
   }
 
   async createInwardChequeInTx(
@@ -147,6 +171,13 @@ export class ChequeLifecycleService {
     input: CreateInwardChequeInput,
     extra?: { invoiceId?: string }
   ) {
+    const chequeNumber = await acquireUniqueKey(
+      tx,
+      ctx.companyId,
+      UNIQUE_KINDS.chequeNumber,
+      input.chequeNumber
+    );
+    if (!chequeNumber) throw new AppError(400, 'رقم الشيك مطلوب');
     const chequeAccounts = await treasuryAccountResolverService.resolveChequeAccounts(
       ctx.companyId
     );
@@ -166,23 +197,25 @@ export class ChequeLifecycleService {
         credit: 0,
         lineOrder: 1,
       },
-      { accountId: customerAccountId, debit: 0, credit: amount, lineOrder: 2 },
+      {
+        accountId: customerAccountId,
+        debit: 0,
+        credit: amount,
+        lineOrder: 2,
+        partnerId: input.customerId,
+        partnerType: 'CUSTOMER',
+      },
     ];
 
     const je = await this.postJe(tx, ctx, {
       date: input.dueDate ?? new Date(),
-      description: input.description ?? `Inward cheque ${input.chequeNumber}`,
+      description: input.description ?? `Inward cheque ${chequeNumber}`,
       currencyCode: input.currencyCode,
       exchangeRate,
       sourceType: 'CKR',
-      sourceNumber: input.chequeNumber,
+      sourceNumber: chequeNumber,
       sourceYearId,
       lines,
-    });
-
-    await tx.customer.update({
-      where: { id: input.customerId },
-      data: { balance: { decrement: this.chequeBase(amount, exchangeRate) } },
     });
 
     return tx.cheque.create({
@@ -192,7 +225,7 @@ export class ChequeLifecycleService {
         fiscalYearId: ctx.fiscalYearId,
         direction: 'INWARD',
         status: 'UNDER_HAND',
-        chequeNumber: input.chequeNumber,
+        chequeNumber,
         bankName: input.bankName,
         dueDate: input.dueDate,
         amount: new Decimal(amount),
@@ -219,7 +252,7 @@ export class ChequeLifecycleService {
     const cheque = await prisma.cheque.findFirst({
       where: { id: chequeId, companyId: ctx.companyId, direction: 'INWARD' },
     });
-    if (!cheque) throw new AppError(404, 'Inward cheque not found');
+    if (!cheque) throw new AppError(404, 'ورقة المقبوضات غير موجودة');
     assertChequeTransition('INWARD', cheque.status, 'SEND_TO_BANK');
 
     const accounts = await treasuryAccountResolverService.resolveChequeAccounts(ctx.companyId);
@@ -271,16 +304,19 @@ export class ChequeLifecycleService {
     const cheque = await prisma.cheque.findFirst({
       where: { id: chequeId, companyId: ctx.companyId, direction: 'INWARD' },
     });
-    if (!cheque) throw new AppError(404, 'Inward cheque not found');
+    if (!cheque) throw new AppError(404, 'ورقة المقبوضات غير موجودة');
     assertChequeTransition('INWARD', cheque.status, 'UNSEND_TO_BANK');
     if (!cheque.depositJournalEntryId) {
-      throw new AppError(400, 'Cheque has no deposit journal entry to reverse');
+      throw new AppError(400, 'لا يوجد قيد إيداع على الشيك ليُفك.');
     }
 
     return prisma.$transaction(async (tx) => {
-      await journalPostingService.reverseJournalEntryInTx(tx, ctx, cheque.depositJournalEntryId!, {
-        reason: 'Cheque deposit-to-bank unposted',
-      });
+      await this.unpostChequeJournalInTx(
+        tx,
+        ctx,
+        cheque.depositJournalEntryId!,
+        'Cheque deposit-to-bank unposted'
+      );
 
       return tx.cheque.update({
         where: { id: chequeId },
@@ -298,7 +334,7 @@ export class ChequeLifecycleService {
     const cheque = await prisma.cheque.findFirst({
       where: { id: chequeId, companyId: ctx.companyId, direction: 'INWARD' },
     });
-    if (!cheque) throw new AppError(404, 'Inward cheque not found');
+    if (!cheque) throw new AppError(404, 'ورقة المقبوضات غير موجودة');
     assertChequeTransition('INWARD', cheque.status, 'CLEAR');
 
     await bankBoxRightsService.assertCanPost({
@@ -338,11 +374,6 @@ export class ChequeLifecycleService {
         lines,
       });
 
-      await tx.bankAccount.update({
-        where: { id: bankAccountId },
-        data: { balance: { increment: this.chequeBase(amount, exchangeRate) } },
-      });
-
       return tx.cheque.update({
         where: { id: chequeId },
         data: {
@@ -364,27 +395,25 @@ export class ChequeLifecycleService {
     const cheque = await prisma.cheque.findFirst({
       where: { id: chequeId, companyId: ctx.companyId, direction: 'INWARD' },
     });
-    if (!cheque) throw new AppError(404, 'Inward cheque not found');
+    if (!cheque) throw new AppError(404, 'ورقة المقبوضات غير موجودة');
     assertChequeTransition('INWARD', cheque.status, 'UNCLEAR');
     if (!cheque.clearJournalEntryId) {
-      throw new AppError(400, 'Cheque has no clear journal entry to reverse');
+      throw new AppError(400, 'لا يوجد قيد تحصيل على الشيك ليُفك.');
     }
     if (!cheque.bankAccountId) {
-      throw new AppError(422, 'Cheque has no bank account to reverse the balance on');
+      throw new AppError(422, 'الشيك من غير حساب بنك، فلا يمكن فك رصيد التحصيل.');
     }
 
     const amount = Number(cheque.amount);
     const { exchangeRate } = await this.chequeFx(ctx.companyId, cheque.currencyCode);
 
     return prisma.$transaction(async (tx) => {
-      await journalPostingService.reverseJournalEntryInTx(tx, ctx, cheque.clearJournalEntryId!, {
-        reason: 'Cheque clearing unposted',
-      });
-
-      await tx.bankAccount.update({
-        where: { id: cheque.bankAccountId! },
-        data: { balance: { decrement: this.chequeBase(amount, exchangeRate) } },
-      });
+      await this.unpostChequeJournalInTx(
+        tx,
+        ctx,
+        cheque.clearJournalEntryId!,
+        'Cheque clearing unposted'
+      );
 
       return tx.cheque.update({
         where: { id: chequeId },
@@ -406,10 +435,10 @@ export class ChequeLifecycleService {
     const cheque = await prisma.cheque.findFirst({
       where: { id: chequeId, companyId: ctx.companyId, direction: 'INWARD' },
     });
-    if (!cheque) throw new AppError(404, 'Inward cheque not found');
+    if (!cheque) throw new AppError(404, 'ورقة المقبوضات غير موجودة');
     assertChequeTransition('INWARD', cheque.status, 'BOUNCE');
     if (!cheque.customerId) {
-      throw new AppError(422, 'Cheque has no customer for bounce');
+      throw new AppError(422, 'الشيك من غير عميل، فلا يمكن تسجيل الارتداد.');
     }
 
     const accounts = await treasuryAccountResolverService.resolveChequeAccounts(ctx.companyId);
@@ -463,20 +492,6 @@ export class ChequeLifecycleService {
         lines,
       });
 
-      await tx.customer.update({
-        where: { id: cheque.customerId! },
-        data: { balance: { increment: this.chequeBase(amount, exchangeRate) } },
-      });
-
-      if (wasEndorsed && cheque.endorsedSupplierId) {
-        // Reinstate the payable the endorsement had reduced — the supplier
-        // never actually got paid.
-        await tx.supplier.update({
-          where: { id: cheque.endorsedSupplierId },
-          data: { balance: { increment: this.chequeBase(amount, exchangeRate) } },
-        });
-      }
-
       return tx.cheque.update({
         where: { id: chequeId },
         // Wave 2 fix: store the bounce JE id so the bounce can be reversed
@@ -499,30 +514,22 @@ export class ChequeLifecycleService {
     const cheque = await prisma.cheque.findFirst({
       where: { id: chequeId, companyId: ctx.companyId, direction: 'INWARD' },
     });
-    if (!cheque) throw new AppError(404, 'Inward cheque not found');
+    if (!cheque) throw new AppError(404, 'ورقة المقبوضات غير موجودة');
     assertChequeTransition('INWARD', cheque.status, 'UNBOUNCE');
     if (!cheque.bounceJournalEntryId) {
-      throw new AppError(400, 'Cheque has no bounce journal entry to reverse');
+      throw new AppError(400, 'لا يوجد قيد ارتداد على الشيك ليُفك.');
     }
     const amount = Number(cheque.amount);
     const { exchangeRate } = await this.chequeFx(ctx.companyId, cheque.currencyCode);
     const wasEndorsed = !!cheque.endorsedSupplierId;
 
     return prisma.$transaction(async (tx) => {
-      await journalPostingService.reverseJournalEntryInTx(tx, ctx, cheque.bounceJournalEntryId!, {
-        reason: 'Cheque bounce unposted',
-      });
-
-      await tx.customer.update({
-        where: { id: cheque.customerId! },
-        data: { balance: { decrement: this.chequeBase(amount, exchangeRate) } },
-      });
-      if (wasEndorsed && cheque.endorsedSupplierId) {
-        await tx.supplier.update({
-          where: { id: cheque.endorsedSupplierId },
-          data: { balance: { decrement: this.chequeBase(amount, exchangeRate) } },
-        });
-      }
+      await this.unpostChequeJournalInTx(
+        tx,
+        ctx,
+        cheque.bounceJournalEntryId!,
+        'Cheque bounce unposted'
+      );
 
       return tx.cheque.update({
         where: { id: chequeId },
@@ -552,7 +559,7 @@ export class ChequeLifecycleService {
     const cheque = await prisma.cheque.findFirst({
       where: { id: chequeId, companyId: ctx.companyId, direction: 'INWARD' },
     });
-    if (!cheque) throw new AppError(404, 'Inward cheque not found');
+    if (!cheque) throw new AppError(404, 'ورقة المقبوضات غير موجودة');
     assertChequeTransition('INWARD', cheque.status, 'ENDORSE');
 
     const accounts = await treasuryAccountResolverService.resolveChequeAccounts(ctx.companyId);
@@ -565,7 +572,14 @@ export class ChequeLifecycleService {
     const sourceYearId = cheque.sourceYearId ?? (await this.sourceYearId(ctx));
 
     const lines: JournalEntryLineData[] = [
-      { accountId: supplierAccountId, debit: amount, credit: 0, lineOrder: 1 },
+      {
+        accountId: supplierAccountId,
+        debit: amount,
+        credit: 0,
+        lineOrder: 1,
+        partnerId: supplierId,
+        partnerType: 'SUPPLIER',
+      },
       {
         accountId: accounts.chequesUnderHandAccountId,
         debit: 0,
@@ -586,13 +600,6 @@ export class ChequeLifecycleService {
         sourceNumber: cheque.chequeNumber,
         sourceYearId,
         lines,
-      });
-
-      // Matches issueOutwardChequeInTx's convention: paying down what we
-      // owe the supplier reduces their balance.
-      await tx.supplier.update({
-        where: { id: supplierId },
-        data: { balance: { decrement: this.chequeBase(amount, exchangeRate) } },
       });
 
       return tx.cheque.update({
@@ -623,23 +630,21 @@ export class ChequeLifecycleService {
     const cheque = await prisma.cheque.findFirst({
       where: { id: chequeId, companyId: ctx.companyId, direction: 'INWARD' },
     });
-    if (!cheque) throw new AppError(404, 'Inward cheque not found');
+    if (!cheque) throw new AppError(404, 'ورقة المقبوضات غير موجودة');
     assertChequeTransition('INWARD', cheque.status, 'UNENDORSE');
     if (!cheque.endorseJournalEntryId || !cheque.endorsedSupplierId) {
-      throw new AppError(400, 'Cheque has no endorsement to reverse');
+      throw new AppError(400, 'لا يوجد تظهير على الشيك ليُفك.');
     }
     const amount = Number(cheque.amount);
     const { exchangeRate } = await this.chequeFx(ctx.companyId, cheque.currencyCode);
 
     return prisma.$transaction(async (tx) => {
-      await journalPostingService.reverseJournalEntryInTx(tx, ctx, cheque.endorseJournalEntryId!, {
-        reason: 'Cheque endorsement unposted',
-      });
-
-      await tx.supplier.update({
-        where: { id: cheque.endorsedSupplierId! },
-        data: { balance: { increment: this.chequeBase(amount, exchangeRate) } },
-      });
+      await this.unpostChequeJournalInTx(
+        tx,
+        ctx,
+        cheque.endorseJournalEntryId!,
+        'Cheque endorsement unposted'
+      );
 
       return tx.cheque.update({
         where: { id: chequeId },
@@ -658,6 +663,13 @@ export class ChequeLifecycleService {
     input: CreateOutwardChequeInput,
     extra?: { invoiceId?: string }
   ) {
+    const chequeNumber = await acquireUniqueKey(
+      tx,
+      ctx.companyId,
+      UNIQUE_KINDS.chequeNumber,
+      input.chequeNumber
+    );
+    if (!chequeNumber) throw new AppError(400, 'رقم الشيك مطلوب');
     const accounts = await treasuryAccountResolverService.resolveChequeAccounts(ctx.companyId);
     const supplierAccountId = await treasuryAccountResolverService.resolvePartyAccountId({
       companyId: ctx.companyId,
@@ -669,7 +681,14 @@ export class ChequeLifecycleService {
     const sourceYearId = await this.sourceYearId(ctx);
 
     const lines: JournalEntryLineData[] = [
-      { accountId: supplierAccountId, debit: amount, credit: 0, lineOrder: 1 },
+      {
+        accountId: supplierAccountId,
+        debit: amount,
+        credit: 0,
+        lineOrder: 1,
+        partnerId: input.supplierId,
+        partnerType: 'SUPPLIER',
+      },
       {
         accountId: accounts.notesPayableAccountId,
         debit: 0,
@@ -680,18 +699,13 @@ export class ChequeLifecycleService {
 
     const je = await this.postJe(tx, ctx, {
       date: input.dueDate ?? new Date(),
-      description: input.description ?? `Issue outward cheque ${input.chequeNumber}`,
+      description: input.description ?? `Issue outward cheque ${chequeNumber}`,
       currencyCode: input.currencyCode,
       exchangeRate,
       sourceType: 'PKI',
-      sourceNumber: input.chequeNumber,
+      sourceNumber: chequeNumber,
       sourceYearId,
       lines,
-    });
-
-    await tx.supplier.update({
-      where: { id: input.supplierId },
-      data: { balance: { decrement: this.chequeBase(amount, exchangeRate) } },
     });
 
     return tx.cheque.create({
@@ -701,7 +715,7 @@ export class ChequeLifecycleService {
         fiscalYearId: ctx.fiscalYearId,
         direction: 'OUTWARD',
         status: 'UNDER_HAND',
-        chequeNumber: input.chequeNumber,
+        chequeNumber,
         bankName: input.bankName,
         dueDate: input.dueDate,
         amount: new Decimal(amount),
@@ -726,10 +740,10 @@ export class ChequeLifecycleService {
     const cheque = await prisma.cheque.findFirst({
       where: { id: chequeId, companyId: ctx.companyId, direction: 'OUTWARD' },
     });
-    if (!cheque) throw new AppError(404, 'Outward cheque not found');
+    if (!cheque) throw new AppError(404, 'شيك الصرف غير موجود');
     assertChequeTransition('OUTWARD', cheque.status, 'CLEAR');
     if (!cheque.bankAccountId) {
-      throw new AppError(422, 'Outward cheque has no bank account');
+      throw new AppError(422, 'شيك الصرف من غير حساب بنك.');
     }
 
     await bankBoxRightsService.assertCanPost({
@@ -769,11 +783,6 @@ export class ChequeLifecycleService {
         lines,
       });
 
-      await tx.bankAccount.update({
-        where: { id: cheque.bankAccountId! },
-        data: { balance: { decrement: this.chequeBase(amount, exchangeRate) } },
-      });
-
       return tx.cheque.update({
         where: { id: chequeId },
         data: { status: 'COLLECTED', clearJournalEntryId: je.id },
@@ -791,27 +800,25 @@ export class ChequeLifecycleService {
     const cheque = await prisma.cheque.findFirst({
       where: { id: chequeId, companyId: ctx.companyId, direction: 'OUTWARD' },
     });
-    if (!cheque) throw new AppError(404, 'Outward cheque not found');
+    if (!cheque) throw new AppError(404, 'شيك الصرف غير موجود');
     assertChequeTransition('OUTWARD', cheque.status, 'UNCLEAR');
     if (!cheque.clearJournalEntryId) {
-      throw new AppError(400, 'Cheque has no clear journal entry to reverse');
+      throw new AppError(400, 'لا يوجد قيد تحصيل على الشيك ليُفك.');
     }
     if (!cheque.bankAccountId) {
-      throw new AppError(422, 'Outward cheque has no bank account');
+      throw new AppError(422, 'شيك الصرف من غير حساب بنك.');
     }
 
     const amount = Number(cheque.amount);
     const { exchangeRate } = await this.chequeFx(ctx.companyId, cheque.currencyCode);
 
     return prisma.$transaction(async (tx) => {
-      await journalPostingService.reverseJournalEntryInTx(tx, ctx, cheque.clearJournalEntryId!, {
-        reason: 'Outward cheque clearing unposted',
-      });
-
-      await tx.bankAccount.update({
-        where: { id: cheque.bankAccountId! },
-        data: { balance: { increment: this.chequeBase(amount, exchangeRate) } },
-      });
+      await this.unpostChequeJournalInTx(
+        tx,
+        ctx,
+        cheque.clearJournalEntryId!,
+        'Outward cheque clearing unposted'
+      );
 
       return tx.cheque.update({
         where: { id: chequeId },
@@ -833,20 +840,33 @@ export class ChequeLifecycleService {
     const cheque = await prisma.cheque.findFirst({
       where: { id: chequeId, companyId: ctx.companyId },
     });
-    if (!cheque) throw new AppError(404, 'Cheque not found');
+    if (!cheque) throw new AppError(404, 'الشيك غير موجود');
     if (cheque.status !== 'UNDER_HAND') {
       throw new AppError(400, 'لا يمكن تعديل الشيك إلا وهو في الخزينة');
     }
-    return prisma.cheque.update({
-      where: { id: chequeId },
-      data: {
-        ...(input.chequeNumber != null ? { chequeNumber: input.chequeNumber } : {}),
-        ...(input.bankName !== undefined ? { bankName: input.bankName } : {}),
-        ...(input.dueDate !== undefined ? { dueDate: input.dueDate } : {}),
-        ...(input.description !== undefined ? { description: input.description } : {}),
-      },
-      include: chequePartyInclude,
-    }).then(serializeCheque);
+    const nextNumber = input.chequeNumber != null ? normalizeUniqueValue(input.chequeNumber) : null;
+    if (input.chequeNumber != null && !nextNumber) throw new AppError(400, 'رقم الشيك مطلوب');
+    const previousNumber = normalizeUniqueValue(cheque.chequeNumber);
+    const updated = await prisma.$transaction(async (tx) => {
+      if (nextNumber && nextNumber !== previousNumber) {
+        await acquireUniqueKey(tx, ctx.companyId, UNIQUE_KINDS.chequeNumber, nextNumber);
+      }
+      const row = await tx.cheque.update({
+        where: { id: chequeId },
+        data: {
+          ...(nextNumber ? { chequeNumber: nextNumber } : {}),
+          ...(input.bankName !== undefined ? { bankName: input.bankName } : {}),
+          ...(input.dueDate !== undefined ? { dueDate: input.dueDate } : {}),
+          ...(input.description !== undefined ? { description: input.description } : {}),
+        },
+        include: chequePartyInclude,
+      });
+      if (nextNumber && previousNumber && nextNumber !== previousNumber) {
+        await releaseUniqueKeyIfUnused(tx, ctx.companyId, UNIQUE_KINDS.chequeNumber, previousNumber);
+      }
+      return row;
+    });
+    return serializeCheque(updated);
   }
 
   async cancelInwardCheque(ctx: TreasuryPostingContext, chequeId: string) {
@@ -854,10 +874,10 @@ export class ChequeLifecycleService {
     const cheque = await prisma.cheque.findFirst({
       where: { id: chequeId, companyId: ctx.companyId, direction: 'INWARD' },
     });
-    if (!cheque) throw new AppError(404, 'Inward cheque not found');
+    if (!cheque) throw new AppError(404, 'ورقة المقبوضات غير موجودة');
     assertChequeTransition('INWARD', cheque.status, 'CANCEL');
     if (!cheque.customerId) {
-      throw new AppError(422, 'Cheque has no customer for cancellation');
+      throw new AppError(422, 'الشيك من غير عميل، فلا يمكن إلغاؤه.');
     }
 
     const amount = Number(cheque.amount);
@@ -865,14 +885,18 @@ export class ChequeLifecycleService {
 
     return prisma.$transaction(async (tx) => {
       if (cheque.portfolioJournalEntryId) {
-        await journalPostingService.reverseJournalEntryInTx(tx, ctx, cheque.portfolioJournalEntryId, {
-          reason: `Inward cheque ${cheque.chequeNumber} cancelled`,
+        await this.unpostChequeJournalInTx(
+          tx,
+          ctx,
+          cheque.portfolioJournalEntryId,
+          `Inward cheque ${cheque.chequeNumber} cancelled`
+        );
+      } else {
+        await tx.customer.update({
+          where: { id: cheque.customerId! },
+          data: { balance: { increment: this.chequeBase(amount, exchangeRate) } },
         });
       }
-      await tx.customer.update({
-        where: { id: cheque.customerId! },
-        data: { balance: { increment: this.chequeBase(amount, exchangeRate) } },
-      });
       return tx.cheque.update({
         where: { id: chequeId },
         data: { status: 'CANCELLED' },
@@ -886,10 +910,10 @@ export class ChequeLifecycleService {
     const cheque = await prisma.cheque.findFirst({
       where: { id: chequeId, companyId: ctx.companyId, direction: 'OUTWARD' },
     });
-    if (!cheque) throw new AppError(404, 'Outward cheque not found');
+    if (!cheque) throw new AppError(404, 'شيك الصرف غير موجود');
     assertChequeTransition('OUTWARD', cheque.status, 'CANCEL');
     if (!cheque.supplierId) {
-      throw new AppError(422, 'Cheque has no supplier for cancellation');
+      throw new AppError(422, 'الشيك من غير مورد، فلا يمكن إلغاؤه.');
     }
 
     const accounts = await treasuryAccountResolverService.resolveChequeAccounts(ctx.companyId);
@@ -909,7 +933,14 @@ export class ChequeLifecycleService {
         credit: 0,
         lineOrder: 1,
       },
-      { accountId: supplierAccountId, debit: 0, credit: amount, lineOrder: 2 },
+      {
+        accountId: supplierAccountId,
+        debit: 0,
+        credit: amount,
+        lineOrder: 2,
+        partnerId: cheque.supplierId,
+        partnerType: 'SUPPLIER',
+      },
     ];
 
     return prisma.$transaction(async (tx) => {
@@ -922,11 +953,6 @@ export class ChequeLifecycleService {
         sourceNumber: cheque.chequeNumber,
         sourceYearId,
         lines,
-      });
-
-      await tx.supplier.update({
-        where: { id: cheque.supplierId! },
-        data: { balance: { increment: this.chequeBase(amount, exchangeRate) } },
       });
 
       return tx.cheque.update({
@@ -962,27 +988,24 @@ export class ChequeLifecycleService {
       cheque.direction === 'OUTWARD'
         ? cheque.issueJournalEntryId
         : cheque.portfolioJournalEntryId;
+    const reversesJournal = Boolean(glUnPost && jeId);
 
-    if (cheque.direction === 'INWARD' && cheque.status === 'UNDER_HAND' && cheque.customerId) {
+    if (!reversesJournal && cheque.direction === 'INWARD' && cheque.status === 'UNDER_HAND' && cheque.customerId) {
       await tx.customer.update({
         where: { id: cheque.customerId },
         data: { balance: { increment: this.chequeBase(amount, exchangeRate) } },
       });
     }
 
-    if (cheque.direction === 'OUTWARD' && cheque.status === 'UNDER_HAND' && cheque.supplierId) {
+    if (!reversesJournal && cheque.direction === 'OUTWARD' && cheque.status === 'UNDER_HAND' && cheque.supplierId) {
       await tx.supplier.update({
         where: { id: cheque.supplierId },
         data: { balance: { increment: this.chequeBase(amount, exchangeRate) } },
       });
     }
 
-    if (glUnPost && jeId) {
-      // C11 fix: reverse the cheque's portfolio/issue JE with a dated contra
-      // entry instead of flag-flipping it back to "unposted".
-      await journalPostingService.reverseJournalEntryInTx(tx, ctx, jeId, {
-        reason: `Cheque ${cheque.id.slice(0, 8)} voided`,
-      });
+    if (reversesJournal && jeId) {
+      await this.unpostChequeJournalInTx(tx, ctx, jeId, `Cheque ${cheque.id.slice(0, 8)} voided`);
     }
 
     return tx.cheque.update({
@@ -996,7 +1019,7 @@ export class ChequeLifecycleService {
       where: { id: chequeId, companyId },
       include: chequePartyInclude,
     });
-    if (!cheque) throw new AppError(404, 'Cheque not found');
+    if (!cheque) throw new AppError(404, 'الشيك غير موجود');
     return serializeCheque(cheque);
   }
 

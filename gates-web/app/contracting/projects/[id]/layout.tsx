@@ -41,7 +41,7 @@ export default function ContractingProjectLayout({ children }: { children: React
           { id: 'name', header: 'الاسم', getValue: (r) => String(r.projectName || '—') },
         ],
         onSelect: (nextId) => {
-          router.push(`/contracting/projects/${nextId}/technical-office`);
+          router.push(`/contracting/projects/${nextId}/overview`);
         },
       }}
     >

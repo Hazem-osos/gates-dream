@@ -9,7 +9,7 @@ export function requireLicensedModule(moduleCode: LicenseModuleCode) {
     try {
       const companyId = req.companyId ?? req.tenantId;
       if (!companyId) {
-        throw new AppError(400, 'Company ID is required');
+        throw new AppError(400, 'معرّف الشركة مطلوب');
       }
       await licenseSubscriptionService.assertModuleLicensed(companyId, moduleCode);
       next();
@@ -52,7 +52,7 @@ export function licenseRouteGate(): RequestHandler {
 
       const companyId = authReq.companyId ?? authReq.tenantId;
       if (!companyId) {
-        throw new AppError(400, 'Company ID is required');
+        throw new AppError(400, 'معرّف الشركة مطلوب');
       }
       await licenseSubscriptionService.assertModuleLicensed(companyId, moduleCode);
       next();

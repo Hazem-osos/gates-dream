@@ -90,18 +90,3 @@ export const costPreviewSchema = z.object({
   change: z.number().optional(),
   purchaseInvoicePayCount: z.number().int().optional(),
 });
-
-export const postMovementSchema = z.object({
-  branchId: z.string().uuid().optional(),
-  warehouseId: z.string().uuid(),
-  itemId: z.string().uuid(),
-  locationId: z.string().uuid().optional().nullable(),
-  quantityDelta: z.number(),
-  unitCost: z.number().optional(),
-  movementType: z.string().min(1),
-  sourceType: z.string().optional(),
-  sourceNumber: z.string().optional(),
-  sourceYearId: z.string().optional(),
-  documentDate: z.coerce.date(),
-  effectiveAt: z.coerce.date().optional(),
-});

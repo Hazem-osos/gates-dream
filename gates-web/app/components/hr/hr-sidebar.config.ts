@@ -83,25 +83,14 @@ const payrollChildren: HrNavItem[] = [
 const reportChildren: HrNavItem[] = [
   { key: 'reports-hub', label: 'كل التقارير', href: '/hr/reports' },
   { key: 'employee-data-report', label: 'بيانات الموظفين', href: '/hr/employee-data-report' },
-  { key: 'employee-secondment-report', label: 'إنتداب الموظفين', href: '/hr/employee-secondment-report' },
-  { key: 'employee-penalties-report', label: 'جزاءات الموظفين', href: '/hr/employee-penalties-report' },
-  { key: 'employee-rewards-report', label: 'مكافآت الموظفين', href: '/hr/employee-rewards-report' },
-  { key: 'employee-warnings-report', label: 'إنذارات الموظفين', href: '/hr/employee-warnings-report' },
-  { key: 'employee-courses-report', label: 'دورات الموظفين', href: '/hr/employee-courses-report' },
-  { key: 'employee-transfer-report', label: 'نقل الموظفين', href: '/hr/employee-transfer-report' },
-  { key: 'employee-promotions-report', label: 'ترقيات الموظفين', href: '/hr/employee-promotions-report' },
-  { key: 'employee-suspensions-report', label: 'إيقافات الموظفين', href: '/hr/employee-suspensions-report' },
-  { key: 'employee-termination-report', label: 'إنهاء الخدمة', href: '/hr/employee-termination-report' },
-  { key: 'employee-loans-report', label: 'سلف الموظفين', href: '/hr/employee-loans-report' },
-  { key: 'housing-allowance-report', label: 'بدل السكن', href: '/hr/housing-allowance-report' },
+  { key: 'payroll-report', label: 'الرواتب', href: '/hr/payroll-report' },
   { key: 'leave-entitlements-report', label: 'مستحقات الإجازات', href: '/hr/leave-entitlements-report' },
   { key: 'end-of-service-report', label: 'نهاية الخدمة', href: '/hr/end-of-service-report' },
-  { key: 'employee-recommendations-report', label: 'توصيات الموظفين', href: '/hr/employee-recommendations-report' },
 ];
 
 /** HR sidebar navigation — grouped; Lucide icons only. */
 export const hrModules: HrNavItem[] = [
-  { key: 'hr-settings', label: 'إعدادات شؤون الموظفين', href: '/hr/settings', icon: Settings, color: '#0E79AA' },
+  { key: 'hr-settings', label: 'إعدادات شؤون الموظفين', href: '/hr/settings', icon: Settings, color: '#0E78AA' },
   {
     key: 'basic-data',
     label: 'بيانات أساسية',
@@ -145,12 +134,12 @@ export const hrModulesForTabs = hrModules.map((item) => ({
   label: item.label,
   href: item.href,
   icon: '',
-  color: item.color ?? '#0E79AA',
+  color: item.color ?? '#0E78AA',
   children: item.children?.map((child) => ({
     key: child.key,
     label: child.label,
     href: child.href,
     icon: '',
-    color: '#0E79AA',
+    color: '#0E78AA',
   })),
 }));

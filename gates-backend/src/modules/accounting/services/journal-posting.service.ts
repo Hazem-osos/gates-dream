@@ -4,7 +4,7 @@ import prisma from '../../../shared/database/prisma';
 import { AppError } from '../../../shared/middleware/error-handler';
 import { assertExpectedVersion, throwStaleWrite } from '../../../shared/concurrency/optimistic-lock';
 import { logger } from '../../../shared/logger';
-import { amountsEqualAt4, roundTo4 } from '../../../shared/utils/decimal-round';
+import { amountsEqualAt4 } from '../../../shared/utils/decimal-round';
 import {
   mulToDecimal4,
   sumBaseLines,
@@ -17,7 +17,6 @@ import { approvalWorkflowService } from './approval-workflow.service';
 import { documentAuditService } from './document-audit.service';
 import { documentSequenceService } from '../../platform/services/document-sequence.service';
 import { fiscalYearService } from '../../platform/services/fiscal-year.service';
-import { journalReversalDescription } from '../constants/ledger-integrity';
 import { applyPostedJournalBalancesInTx } from './ledger-balance.service';
 import { glAccountResolver } from './gl-account-resolver.service';
 import type {
@@ -27,13 +26,56 @@ import type {
 } from '../types/journal-entry.types';
 import { resolveHijriDate } from '../../../shared/utils/hijri-date';
 import {
+  isSourcedJournalEntry,
   persistJournalSourceType,
   resolveJournalSourceKind,
+  SOURCED_JOURNAL_MUTATION_MESSAGE,
 } from '../utils/journal-source';
 import { recurringEntriesService } from './recurring-entries.service';
+import {
+  assertSingleOpeningJournal,
+  allowsOpeningDocumentDate,
+  isCompanyOpeningEntry,
+  isOpeningBalanceDraft,
+  OPENING_JOURNAL_EXISTS_MESSAGE,
+  openingJournalSlotKey,
+} from './opening-balance.service';
 import { JournalSourceType } from '@prisma/client';
-import { persistFxRate, persistJournalLineFxRate } from '../utils/company-fx-rate';
+import { isUnitRateCurrency, persistFxRate, persistJournalLineFxRate, rateForSave } from '../utils/company-fx-rate';
 import { AUTOMATION_SYSTEM_ACTOR_ID } from '../../automation/constants';
+
+async function hydrateEntryFx<T extends {
+  currencyCode?: string | null;
+  exchangeRate?: number | null;
+  lines?: Array<{ currencyCode?: string | null; exchangeRate?: number | null }>;
+}>(companyId: string, data: T): Promise<T> {
+  const headerRate = await rateForSave(companyId, data.currencyCode, data.exchangeRate);
+  data.exchangeRate = headerRate;
+  if (data.lines) {
+    for (const line of data.lines) {
+      // A voucher leg can carry 2 USD @ 50 while the header stays EGP.
+      // Resolving that leg as the header currency forces rate 1 and the
+      // journal looks unbalanced even though the base amounts match.
+      if (!line.currencyCode && line.exchangeRate != null && isUnitRateCurrency(data.currencyCode)) {
+        const kept = persistJournalLineFxRate({
+          headerCurrencyCode: data.currencyCode,
+          lineRate: line.exchangeRate,
+          headerRate,
+        });
+        if (kept !== 1) {
+          line.exchangeRate = kept;
+          continue;
+        }
+      }
+      line.exchangeRate = await rateForSave(
+        companyId,
+        line.currencyCode || data.currencyCode,
+        line.exchangeRate ?? headerRate
+      );
+    }
+  }
+  return data;
+}
 
 function lineFxRate(
   headerCurrencyCode: string | null | undefined,
@@ -84,10 +126,13 @@ export class JournalPostingService {
     companyId: string,
     sourceType?: string | null,
     sourceNumber?: string | null,
-    sourceYearId?: string | null
+    sourceYearId?: string | null,
+    sourceDocumentId?: string | null
   ): string | undefined {
     if (!sourceType || !sourceNumber) return undefined;
-    return `${companyId}|${sourceType}|${sourceNumber}|${sourceYearId ?? ''}`;
+    const base = `${companyId}|${sourceType}|${sourceNumber}|${sourceYearId ?? ''}`;
+    const docId = sourceDocumentId?.trim();
+    return docId ? `${base}|${docId}` : base;
   }
 
   /**
@@ -143,8 +188,8 @@ export class JournalPostingService {
         lineOrder: line.lineOrder,
         partnerId: line.partnerId,
         partnerType: line.partnerType,
-        isTiedToInvoice: Boolean(line.isTiedToInvoice && line.invoiceId),
-        invoiceId: line.isTiedToInvoice && line.invoiceId ? line.invoiceId : null,
+        isTiedToInvoice: Boolean(line.isTiedToInvoice),
+        invoiceId: line.invoiceId || null,
         invoiceNumber:
           line.isTiedToInvoice && line.invoiceId
             ? line.invoiceNumber ?? null
@@ -219,7 +264,7 @@ export class JournalPostingService {
         isCyclic: true,
         isRecurring: true,
         sourceId: template.id,
-        sourceNumber: template.templateNameAr,
+        sourceNumber: null,
       },
     });
 
@@ -233,11 +278,10 @@ export class JournalPostingService {
     ctx: JournalPostingContext,
     data: CreateJournalEntryData & { entryType?: string; exchangeRate?: number }
   ) {
-    const saveUnbalanced = await companySettingService.getFlag(
-      ctx.companyId,
-      'SaveUnbalanced',
-      false
-    );
+    const saveUnbalanced =
+      isOpeningBalanceDraft(data) ||
+      (await companySettingService.getFlag(ctx.companyId, 'SaveUnbalanced', false));
+    await hydrateEntryFx(ctx.companyId, data);
     const headerRate = persistFxRate(data.currencyCode, data.exchangeRate);
     const lineInputs = data.lines.map((l) => ({
       debit: l.debit,
@@ -248,31 +292,25 @@ export class JournalPostingService {
       allowUnbalanced: saveUnbalanced,
     });
 
-    const isOpening = (data.entryType ?? '').toUpperCase() === 'OPENING_BALANCE';
-    if (isOpening) {
-      const existingOpening = await prisma.journalEntry.findFirst({
-        where: {
-          companyId: ctx.companyId,
-          entryType: 'OPENING_BALANCE',
-        },
-        select: { id: true, isCancelled: true },
-      });
-      if (existingOpening) {
-        throw new AppError(
-          409,
-          existingOpening.isCancelled
-            ? 'يوجد قيد افتتاحي ملغي. استرجعه أو عدّل نفس القيد بدل إنشاء قيد جديد.'
-            : 'يوجد قيد افتتاحي بالفعل. عدّل نفس القيد بدل إنشاء قيد جديد.'
-        );
-      }
-    }
+    const isOpening = isCompanyOpeningEntry({
+      entryType: data.entryType,
+      sourceType: data.sourceType,
+    });
     const fiscalYearIdFromDate = await fiscalYearService.assertOpenForDate(
       ctx.companyId,
       data.date,
-      { allowOpeningDocument: isOpening }
+      {
+        allowOpeningDocument: allowsOpeningDocumentDate({
+          entryType: data.entryType,
+          sourceType: data.sourceType,
+        }),
+      }
     );
     if (ctx.fiscalYearId && ctx.fiscalYearId !== fiscalYearIdFromDate && !isOpening) {
-      throw new AppError(422, 'Document date is outside the header fiscal year');
+      throw new AppError(
+        422,
+        'تاريخ القيد خارج السنة المالية المختارة أعلى الشاشة. غيّر التاريخ أو اختر السنة الصحيحة ثم أعد الحفظ.'
+      );
     }
     const fiscalYearId = fiscalYearIdFromDate;
 
@@ -304,7 +342,10 @@ export class JournalPostingService {
     const isRecurring =
       data.isRecurring ?? sourceKind === JournalSourceType.RECURRING_TEMPLATE;
 
-    const entry = await prisma.$transaction(async (tx) => {
+    let entry;
+    try {
+      entry = await prisma.$transaction(async (tx) => {
+      if (isOpening) await assertSingleOpeningJournal(tx, ctx.companyId);
       const created = await tx.journalEntry.create({
         data: {
           companyId: ctx.companyId,
@@ -332,6 +373,7 @@ export class JournalPostingService {
           sourceKind,
           workflowStatus: 'APPROVED',
           createdBy: ctx.userId,
+          activeSourceKey: isOpening ? openingJournalSlotKey(ctx.companyId) : undefined,
         },
       });
 
@@ -360,6 +402,18 @@ export class JournalPostingService {
         include: this.journalInclude(),
       });
     });
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002' &&
+        String((error.meta as { target?: unknown } | undefined)?.target ?? '').includes(
+          'activeSourceKey'
+        )
+      ) {
+        throw new AppError(409, OPENING_JOURNAL_EXISTS_MESSAGE);
+      }
+      throw error;
+    }
 
     if (data.isCyclic) {
       const synced = await this.syncCyclicRecurringTemplate(ctx.companyId, entry!.id, {
@@ -369,9 +423,6 @@ export class JournalPostingService {
         date: data.date,
         lines,
       });
-      if (ctx.isAdmin && synced?.id && !synced.isPosted) {
-        return this.postJournalEntry(ctx, synced.id);
-      }
       return synced;
     }
     if (sourceKind === JournalSourceType.RECURRING_TEMPLATE && data.sourceId) {
@@ -383,9 +434,6 @@ export class JournalPostingService {
       'Journal entry created (posting service)'
     );
 
-    if (ctx.isAdmin && entry?.id) {
-      return this.postJournalEntry(ctx, entry.id);
-    }
     return entry;
   }
 
@@ -404,6 +452,7 @@ export class JournalPostingService {
       sourceId?: string;
       fiscalYearId: string;
       legacyGlNum?: string;
+      reversalOfJournalEntryId?: string;
       /**
        * Reversal entries carry the same sourceType/sourceNumber/sourceYearId
        * as the original for traceability, but must never claim the
@@ -416,6 +465,11 @@ export class JournalPostingService {
        * amounts via applyPostedJournalBalancesInTx({ invert: true }).
        */
       skipBalanceApply?: boolean;
+      /**
+       * Invoice posting defers the customer/supplier/safe card update until
+       * after cash settlement, so the safe row is locked before the party row.
+       */
+      skipCardColumns?: boolean;
     }
   ) {
     const glPost = await companySettingService.getFlag(ctx.companyId, 'GLPost', true);
@@ -428,10 +482,14 @@ export class JournalPostingService {
     // year/period lock entirely (the open-year guard only ran for manual GL
     // entries via createJournalEntry). Every document-driven posting must be
     // rejected once its *document date* falls in a closed year or period.
-    await fiscalYearService.assertOpenForDate(ctx.companyId, data.date, {
-      allowOpeningDocument: (data.entryType ?? '').toUpperCase() === 'OPENING_BALANCE',
+    const fiscalYearIdFromDate = await fiscalYearService.assertOpenForDate(ctx.companyId, data.date, {
+      allowOpeningDocument: allowsOpeningDocumentDate({
+        entryType: data.entryType,
+        sourceType: data.sourceType,
+      }),
     });
 
+    await hydrateEntryFx(ctx.companyId, data);
     const headerRate = persistFxRate(data.currencyCode, data.exchangeRate);
     const lineInputs = data.lines.map((l) => ({
       debit: l.debit,
@@ -449,6 +507,7 @@ export class JournalPostingService {
 
     const requestedNumber = data.voucherNumber?.trim() || undefined;
     const existingLegacy = data.legacyGlNum?.trim() || undefined;
+    const fiscalYearId = data.fiscalYearId?.trim() || fiscalYearIdFromDate;
     const legacyGlNum =
       existingLegacy ||
       (await documentSequenceService.nextGlNumberInTx(
@@ -456,7 +515,7 @@ export class JournalPostingService {
         {
           companyId: ctx.companyId,
           branchId: optionalBranchId(ctx.branchId) ?? '',
-          fiscalYearId: data.fiscalYearId,
+          fiscalYearId,
         },
         requestedNumber,
         { forceAutomatic: !requestedNumber }
@@ -464,12 +523,17 @@ export class JournalPostingService {
     const voucherNumber = requestedNumber || legacyGlNum;
     const sourceKind = resolveJournalSourceKind(data.sourceType, data.sourceKind);
     const sourceType = persistJournalSourceType(data.sourceType, sourceKind);
+    const companyOpening = isCompanyOpeningEntry({
+      entryType: data.entryType,
+      sourceType: data.sourceType ?? sourceType,
+    });
+    if (companyOpening) await assertSingleOpeningJournal(tx, ctx.companyId);
 
     const created = await tx.journalEntry.create({
       data: {
         companyId: ctx.companyId,
         branchId: optionalBranchId(ctx.branchId),
-        fiscalYearId: data.fiscalYearId,
+        fiscalYearId,
         legacyGlNum,
         voucherNumber,
         date: data.date,
@@ -493,15 +557,19 @@ export class JournalPostingService {
         activeSourceKey:
           data.claimActiveSourceKey === false
             ? undefined
-            : this.buildActiveSourceKey(
+            : companyOpening
+              ? openingJournalSlotKey(ctx.companyId)
+              : this.buildActiveSourceKey(
                 ctx.companyId,
                 sourceType,
                 data.sourceNumber,
-                data.sourceYearId
+                data.sourceYearId,
+                data.sourceId
               ),
         postedAt: new Date(),
         postedBy: ctx.userId,
         createdBy: ctx.userId,
+        reversalOfJournalEntryId: data.reversalOfJournalEntryId ?? undefined,
       },
     });
 
@@ -515,6 +583,7 @@ export class JournalPostingService {
         companyId: ctx.companyId,
         date: data.date,
         currencyCode: data.currencyCode,
+        skipCardColumns: data.skipCardColumns,
         lines: postedLines,
       });
     }
@@ -545,32 +614,26 @@ export class JournalPostingService {
   }
 
   /**
-   * C11 fix — reverse a posted journal entry with a dated contra entry
-   * instead of flag-flipping it back to "unposted". The original stays
-   * posted forever (an immutable accounting fact); the contra entry
-   * (debit/credit swapped line-for-line) neutralizes its net effect and
-   * is linked back via `reversalOfJournalEntryId`. Idempotent: reversing
-   * an already-reversed entry returns the existing reversal instead of
-   * erroring, since callers (invoice/treasury/cheque unpost) may retry.
+   * Unpost in place: invert period/partner/card balances on the same journal
+   * and clear its posted flag. Never books a second "قيد عكسي" row.
+   * A historical reversal (from the old contra-entry path) is left alone so
+   * balances are not inverted twice.
    */
   async reverseJournalEntryInTx(
     tx: Prisma.TransactionClient,
     ctx: JournalPostingContext,
     journalEntryId: string,
-    opts?: { date?: Date; reason?: string }
+    _opts?: { date?: Date; reason?: string; skipCardColumns?: boolean }
   ) {
     const original = await tx.journalEntry.findFirst({
       where: { id: journalEntryId, companyId: ctx.companyId },
-      include: { lines: { orderBy: { lineOrder: 'asc' } } },
+      include: this.journalInclude(),
     });
     if (!original) {
-      throw new AppError(404, 'Journal entry not found');
+      throw new AppError(404, 'القيد غير موجود');
     }
     if (original.deletedAt) {
-      throw new AppError(400, 'Journal entry is deleted');
-    }
-    if (!original.isPosted) {
-      throw new AppError(400, 'Cannot reverse a journal entry that is not posted');
+      throw new AppError(400, 'القيد محذوف');
     }
 
     const existingReversal = await tx.journalEntry.findFirst({
@@ -581,87 +644,116 @@ export class JournalPostingService {
       return { original, reversal: existingReversal };
     }
 
-    const reversalDate = opts?.date ?? original.date;
-    const contraLines: JournalEntryLineData[] = original.lines.map((line) => ({
-      accountId: line.accountId,
-      costCenterId: line.costCenterId ?? undefined,
-      debit: Number(line.credit),
-      credit: Number(line.debit),
-      exchangeRate: Number(line.exchangeRate),
-      description: line.description ?? undefined,
-      lineOrder: line.lineOrder,
-      partnerId: line.partnerId ?? undefined,
-      partnerType:
-        line.partnerType === 'CUSTOMER' || line.partnerType === 'SUPPLIER'
-          ? line.partnerType
-          : undefined,
-      isTiedToInvoice: Boolean(line.isTiedToInvoice && line.invoiceId),
-      invoiceId: line.invoiceId ?? null,
-      invoiceNumber: line.invoiceNumber ?? null,
-    }));
-
-    const originalNumber =
-      original.voucherNumber ?? original.legacyGlNum ?? original.id.slice(0, 8);
-    const reversal = await this.createAndPostInTx(tx, ctx, {
-      date: reversalDate,
-      hijriDate: original.hijriDate ?? undefined,
-      description: journalReversalDescription(originalNumber, opts?.reason),
-      currencyCode: original.currencyCode,
-      exchangeRate: Number(original.exchangeRate),
-      fiscalYearId: original.fiscalYearId ?? ctx.fiscalYearId!,
-      // entryType is VARCHAR(20) — keep a fixed short tag; the link back to
-      // the original (with its own entryType) is `reversalOfJournalEntryId`.
-      entryType: 'REVERSAL',
-      // Same source triple as the original for traceability/grouping in
-      // reports, but claimActiveSourceKey: false so it never fights the
-      // original (or a future re-post) for the unique activeSourceKey slot.
-      sourceType: original.sourceType ?? undefined,
-      sourceNumber: original.sourceNumber ?? undefined,
-      sourceYearId: original.sourceYearId ?? undefined,
-      claimActiveSourceKey: false,
-      skipBalanceApply: true,
-      lines: contraLines,
-    });
-
-    // Subtract the original (unswapped) amounts so period/partner totals
-    // shrink instead of booking a second debit+credit pair.
-    await applyPostedJournalBalancesInTx(tx, {
-      companyId: ctx.companyId,
-      date: reversalDate,
-      currencyCode: original.currencyCode,
-      invert: true,
-      lines: original.lines,
-    });
-
-    await tx.journalEntry.update({
-      where: { id: reversal.id },
-      data: { reversalOfJournalEntryId: original.id },
-    });
-
-    if (original.activeSourceKey) {
-      await tx.journalEntry.update({
-        where: { id: original.id },
-        data: { activeSourceKey: null },
-      });
+    const posted = Boolean(original.isPosted || original.postingStatus === 'Post');
+    if (!posted) {
+      return { original, reversal: original };
     }
+
+    const unposted = await this.unpostSourceJournalInTx(tx, ctx, journalEntryId, {
+      skipCardColumns: _opts?.skipCardColumns,
+    });
+    const next = unposted
+      ? await tx.journalEntry.findFirst({
+          where: { id: journalEntryId, companyId: ctx.companyId },
+          include: this.journalInclude(),
+        })
+      : original;
 
     await documentAuditService.record(
       {
         companyId: ctx.companyId,
         entityType: 'JOURNAL_ENTRY',
-        entityId: original.id,
-        action: 'REVERSED',
+        entityId: journalEntryId,
+        action: 'UNPOSTED',
         userId: ctx.userId,
       },
       tx
     );
 
-    const reversalWithLines = await tx.journalEntry.findUnique({
-      where: { id: reversal.id },
-      include: this.journalInclude(),
+    return { original: next ?? original, reversal: next ?? original };
+  }
+
+  /**
+   * Books a new dated contra journal that mirrors a posted source JE (original
+   * stays posted). Used by canonical contracting certificate financial reversal.
+   */
+  async createDatedContraReversalJournalInTx(
+    tx: Prisma.TransactionClient,
+    ctx: JournalPostingContext,
+    params: {
+      originalJournalEntryId: string;
+      reversalDate: Date;
+      reason?: string;
+      sourceType?: string;
+      sourceNumber?: string;
+      description?: string;
+    }
+  ): Promise<{ original: { id: string }; reversal: { id: string }; replay: boolean }> {
+    const original = await tx.journalEntry.findFirst({
+      where: { id: params.originalJournalEntryId, companyId: ctx.companyId, deletedAt: null },
+      include: { lines: { orderBy: { lineOrder: 'asc' } } },
+    });
+    if (!original) {
+      throw new AppError(404, 'القيد غير موجود');
+    }
+    const posted = Boolean(original.isPosted || original.postingStatus === 'Post');
+    if (!posted) {
+      throw new AppError(422, 'القيد الأصلي غير مرحّل');
+    }
+
+    const existing = await tx.journalEntry.findFirst({
+      where: {
+        reversalOfJournalEntryId: original.id,
+        companyId: ctx.companyId,
+        deletedAt: null,
+        isCancelled: false,
+      },
+    });
+    if (existing && (existing.isPosted || existing.postingStatus === 'Post')) {
+      return { original: { id: original.id }, reversal: { id: existing.id }, replay: true };
+    }
+
+    const fiscalYearId = await fiscalYearService.assertOpenForDate(ctx.companyId, params.reversalDate);
+    const legacyGlNum = await documentSequenceService.nextGlNumberInTx(tx, {
+      companyId: ctx.companyId,
+      branchId: ctx.branchId ?? '',
+      fiscalYearId,
     });
 
-    return { original, reversal: reversalWithLines! };
+    const mirroredLines: JournalEntryLineData[] = original.lines.map((line, idx) => ({
+      accountId: line.accountId,
+      debit: Number(line.credit),
+      credit: Number(line.debit),
+      exchangeRate: Number(line.exchangeRate),
+      currencyCode: line.currencyCode,
+      costCenterId: line.costCenterId,
+      description: line.description ?? line.descriptionAr ?? undefined,
+      partnerId: line.partnerId,
+      partnerType: line.partnerType as JournalEntryLineData['partnerType'],
+      lineOrder: idx + 1,
+    }));
+
+    const reversal = await this.createAndPostInTx(tx, { ...ctx, fiscalYearId }, {
+      fiscalYearId,
+      legacyGlNum,
+      date: params.reversalDate,
+      description:
+        params.description ??
+        `عكس قيد: ${original.description ?? original.voucherNumber ?? original.id}${
+          params.reason ? ` — ${params.reason}` : ''
+        }`,
+      currencyCode: original.currencyCode,
+      exchangeRate: Number(original.exchangeRate),
+      entryType: 'REVERSAL',
+      sourceType: params.sourceType ?? original.sourceType ?? undefined,
+      sourceNumber: params.sourceNumber ?? original.sourceNumber ?? undefined,
+      sourceYearId: original.sourceYearId ?? undefined,
+      claimActiveSourceKey: false,
+      reversalOfJournalEntryId: original.id,
+      lines: mirroredLines,
+    });
+
+    return { original: { id: original.id }, reversal: { id: reversal.id }, replay: false };
   }
 
   async reverseJournalEntry(
@@ -691,29 +783,29 @@ export class JournalPostingService {
       exchangeRate?: number | null;
       sourceNumber?: string | null;
       lines: JournalEntryLineData[];
-    }
+    },
+    balanceOpts?: { skipCardColumns?: boolean }
   ) {
     const original = await tx.journalEntry.findFirst({
       where: { id: journalEntryId, companyId: ctx.companyId },
       include: { lines: { orderBy: { lineOrder: 'asc' } } },
     });
     if (!original) {
-      throw new AppError(404, 'Journal entry not found');
+      throw new AppError(404, 'القيد غير موجود');
     }
     if (original.deletedAt) {
-      throw new AppError(400, 'Journal entry is deleted');
+      throw new AppError(400, 'القيد محذوف');
     }
     if (original.isCancelled) {
       throw new AppError(400, 'القيد ملغي ولا يمكن تعديله');
     }
-    if (!original.isPosted) {
-      throw new AppError(400, 'Journal entry is not posted');
-    }
 
+    const wasPosted = Boolean(original.isPosted || original.postingStatus === 'Post');
     await fiscalYearService.assertOpenForDate(ctx.companyId, data.date, {
-      allowOpeningDocument: (original.entryType ?? '').toUpperCase() === 'OPENING_BALANCE',
+      allowOpeningDocument: allowsOpeningDocumentDate(original),
     });
 
+    await hydrateEntryFx(ctx.companyId, data);
     const headerRate = persistFxRate(data.currencyCode, data.exchangeRate);
     const resolvedLines = await glAccountResolver.enforceCostCenters(
       tx,
@@ -728,13 +820,16 @@ export class JournalPostingService {
     validateJournalLineSides(lineInputs);
     this.validateDoubleEntryBalance(lineInputs, { allowUnbalanced: false, requireStrictLines: false });
 
-    await applyPostedJournalBalancesInTx(tx, {
-      companyId: ctx.companyId,
-      date: original.date,
-      currencyCode: original.currencyCode,
-      invert: true,
-      lines: original.lines,
-    });
+    if (wasPosted) {
+      await applyPostedJournalBalancesInTx(tx, {
+        companyId: ctx.companyId,
+        date: original.date,
+        currencyCode: original.currencyCode,
+        invert: true,
+        skipCardColumns: balanceOpts?.skipCardColumns,
+        lines: original.lines,
+      });
+    }
 
     await tx.journalEntry.update({
       where: { id: journalEntryId },
@@ -757,12 +852,15 @@ export class JournalPostingService {
       where: { journalEntryId },
       orderBy: { lineOrder: 'asc' },
     });
-    await applyPostedJournalBalancesInTx(tx, {
-      companyId: ctx.companyId,
-      date: data.date,
-      currencyCode: data.currencyCode,
-      lines: nextLines,
-    });
+    if (wasPosted) {
+      await applyPostedJournalBalancesInTx(tx, {
+        companyId: ctx.companyId,
+        date: data.date,
+        currencyCode: data.currencyCode,
+        skipCardColumns: balanceOpts?.skipCardColumns,
+        lines: nextLines,
+      });
+    }
 
     await documentAuditService.record(
       {
@@ -781,6 +879,159 @@ export class JournalPostingService {
     });
   }
 
+  /**
+   * Edit/repost on the same journal id. Cancels a leftover historical
+   * contra row after unwinding its caches so a second "قيد عكسي" is never booked.
+   */
+  async reuseSourceJournalInTx(
+    tx: Prisma.TransactionClient,
+    ctx: JournalPostingContext,
+    journalEntryId: string,
+    data: {
+      date: Date;
+      hijriDate?: string | null;
+      description?: string | null;
+      currencyCode: string;
+      exchangeRate?: number | null;
+      sourceNumber?: string | null;
+      lines: JournalEntryLineData[];
+      activeSourceKey?: string | null;
+    },
+    balanceOpts?: { skipCardColumns?: boolean }
+  ) {
+    const reversal = await tx.journalEntry.findFirst({
+      where: { reversalOfJournalEntryId: journalEntryId, deletedAt: null },
+      include: { lines: { orderBy: { lineOrder: 'asc' } } },
+    });
+    if (reversal) {
+      const reversalPosted =
+        !reversal.isCancelled && Boolean(reversal.isPosted || reversal.postingStatus === 'Post');
+      if (reversalPosted) {
+        await applyPostedJournalBalancesInTx(tx, {
+          companyId: ctx.companyId,
+          date: reversal.date,
+          currencyCode: reversal.currencyCode,
+          invert: true,
+          lines: reversal.lines,
+        });
+      }
+      await tx.journalEntry.update({
+        where: { id: reversal.id },
+        data: {
+          isCancelled: true,
+          isPosted: false,
+          postingStatus: 'UnPost',
+          activeSourceKey: null,
+          deletedAt: new Date(),
+        },
+      });
+    }
+
+    await this.replacePostedJournalInTx(
+      tx,
+      ctx,
+      journalEntryId,
+      {
+        date: data.date,
+        hijriDate: data.hijriDate,
+        description: data.description,
+        currencyCode: data.currencyCode,
+        exchangeRate: data.exchangeRate,
+        sourceNumber: data.sourceNumber,
+        lines: data.lines,
+      },
+      balanceOpts
+    );
+
+    const reposted = await this.repostSourceJournalInTx(
+      tx,
+      ctx,
+      journalEntryId,
+      data.activeSourceKey,
+      balanceOpts
+    );
+    return reposted;
+  }
+
+  /**
+   * Unpost a source-document journal without a contra entry, so the same
+   * voucher stays on the paper and can be posted again.
+   */
+  async unpostSourceJournalInTx(
+    tx: Prisma.TransactionClient,
+    ctx: JournalPostingContext,
+    journalEntryId: string,
+    balanceOpts?: { skipCardColumns?: boolean }
+  ) {
+    const entry = await tx.journalEntry.findFirst({
+      where: { id: journalEntryId, companyId: ctx.companyId, deletedAt: null },
+      include: { lines: { orderBy: { lineOrder: 'asc' } } },
+    });
+    if (!entry || entry.isCancelled) return null;
+    if (entry.entryType === 'REVERSAL') return null;
+    const posted = Boolean(entry.isPosted || entry.postingStatus === 'Post');
+    if (!posted) return entry;
+
+    await applyPostedJournalBalancesInTx(tx, {
+      companyId: ctx.companyId,
+      date: entry.date,
+      currencyCode: entry.currencyCode,
+      invert: true,
+      skipCardColumns: balanceOpts?.skipCardColumns,
+      lines: entry.lines,
+    });
+    return tx.journalEntry.update({
+      where: { id: journalEntryId },
+      data: {
+        isPosted: false,
+        postingStatus: 'UnPost',
+        postedAt: null,
+        postedBy: null,
+        activeSourceKey: null,
+        version: { increment: 1 },
+      },
+    });
+  }
+
+  /** Post the same source journal again after an in-place unpost. */
+  async repostSourceJournalInTx(
+    tx: Prisma.TransactionClient,
+    ctx: JournalPostingContext,
+    journalEntryId: string,
+    activeSourceKey?: string | null,
+    balanceOpts?: { skipCardColumns?: boolean }
+  ) {
+    const entry = await tx.journalEntry.findFirst({
+      where: { id: journalEntryId, companyId: ctx.companyId, deletedAt: null },
+      include: { lines: { orderBy: { lineOrder: 'asc' } } },
+    });
+    if (!entry || entry.isCancelled) {
+      throw new AppError(400, 'قيد الورقة غير موجود');
+    }
+    if (entry.isPosted || entry.postingStatus === 'Post') return entry;
+
+    const { count } = await tx.journalEntry.updateMany({
+      where: { id: journalEntryId, companyId: ctx.companyId, isPosted: false },
+      data: {
+        isPosted: true,
+        postingStatus: 'Post',
+        postedAt: new Date(),
+        postedBy: ctx.userId,
+        activeSourceKey: activeSourceKey ?? entry.activeSourceKey,
+      },
+    });
+    if (count === 0) return entry;
+
+    await applyPostedJournalBalancesInTx(tx, {
+      companyId: ctx.companyId,
+      date: entry.date,
+      currencyCode: entry.currencyCode,
+      skipCardColumns: balanceOpts?.skipCardColumns,
+      lines: entry.lines,
+    });
+    return tx.journalEntry.findFirst({ where: { id: journalEntryId } });
+  }
+
   async updateJournalEntry(
     ctx: JournalPostingContext,
     journalEntryId: string,
@@ -791,16 +1042,19 @@ export class JournalPostingService {
     });
 
     if (!existing) {
-      throw new AppError(404, 'Journal entry not found');
+      throw new AppError(404, 'القيد غير موجود');
     }
     if (existing.deletedAt) {
-      throw new AppError(400, 'Journal entry is deleted');
+      throw new AppError(400, 'القيد محذوف');
     }
     if (existing.postingStatus === 'Post' || existing.isPosted) {
       throw new AppError(
         400,
         'القيد مرحّل ولا يمكن تعديله. فك الترحيل أولاً من قائمة (...).'
       );
+    }
+    if (isSourcedJournalEntry(existing)) {
+      throw new AppError(422, SOURCED_JOURNAL_MUTATION_MESSAGE);
     }
     if (existing.isCancelled && existing.entryType !== 'OPENING_BALANCE') {
       throw new AppError(400, 'القيد ملغي ولا يمكن تعديله');
@@ -820,16 +1074,26 @@ export class JournalPostingService {
     assertExpectedVersion(existing.version, data.expectedVersion);
 
     const entryDate = data.date ?? existing.date;
-    const isOpeningUpdate = (data.entryType ?? existing.entryType ?? '').toUpperCase() === 'OPENING_BALANCE';
+    const isOpeningUpdate = allowsOpeningDocumentDate({
+      entryType: data.entryType ?? existing.entryType,
+      sourceType: existing.sourceType,
+    });
     await fiscalYearService.assertOpenForDate(ctx.companyId, entryDate, {
       allowOpeningDocument: isOpeningUpdate,
     });
 
-    const saveUnbalanced = await companySettingService.getFlag(
-      ctx.companyId,
-      'SaveUnbalanced',
-      false
-    );
+    const saveUnbalanced =
+      isOpeningBalanceDraft({
+        saveAsDraft: data.saveAsDraft,
+        entryType: data.entryType ?? existing.entryType,
+      }) ||
+      (await companySettingService.getFlag(ctx.companyId, 'SaveUnbalanced', false));
+    const hydrated = await hydrateEntryFx(ctx.companyId, {
+      currencyCode: data.currencyCode ?? existing.currencyCode,
+      exchangeRate: data.exchangeRate ?? Number(existing.exchangeRate ?? 1),
+      lines: data.lines,
+    });
+    data.exchangeRate = hydrated.exchangeRate ?? data.exchangeRate;
     const headerRate = persistFxRate(
       data.currencyCode ?? existing.currencyCode,
       data.exchangeRate ?? existing.exchangeRate
@@ -855,7 +1119,16 @@ export class JournalPostingService {
       );
     }
 
+    const wasOpening = isCompanyOpeningEntry(existing);
+    const willBeOpening = isCompanyOpeningEntry({
+      entryType: data.entryType ?? existing.entryType,
+      sourceType: data.sourceType ?? existing.sourceType,
+    });
+
     const updated = await prisma.$transaction(async (tx) => {
+      if (willBeOpening && !wasOpening) {
+        await assertSingleOpeningJournal(tx, ctx.companyId, journalEntryId);
+      }
       const updateData: Record<string, unknown> = {};
       if (data.voucherNumber !== undefined) updateData.voucherNumber = data.voucherNumber;
       if (data.date !== undefined) updateData.date = data.date;
@@ -867,6 +1140,9 @@ export class JournalPostingService {
       if (data.currencyCode !== undefined) updateData.currencyCode = data.currencyCode;
       if (data.isCyclic !== undefined) updateData.isCyclic = data.isCyclic;
       if (data.entryType !== undefined) updateData.entryType = data.entryType;
+      if (willBeOpening && !wasOpening) {
+        updateData.activeSourceKey = openingJournalSlotKey(ctx.companyId);
+      }
       if (data.isRecurring !== undefined) updateData.isRecurring = data.isRecurring;
       if (data.sourceType !== undefined || data.sourceKind !== undefined) {
         const sourceKind = resolveJournalSourceKind(
@@ -970,9 +1246,6 @@ export class JournalPostingService {
         })
       : updated;
 
-    if (ctx.isAdmin && synced?.id && !synced.isPosted) {
-      return this.postJournalEntry(ctx, synced.id);
-    }
     return synced;
   }
 
@@ -1013,12 +1286,15 @@ export class JournalPostingService {
       if (!entry.isBalanced) {
         throw new AppError(422, 'لا يمكن ترحيل قيد غير متزن. ساوِ إجمالي المدين مع إجمالي الدائن ثم أعد الحفظ.');
       }
+      if (isSourcedJournalEntry(entry)) {
+        throw new AppError(422, SOURCED_JOURNAL_MUTATION_MESSAGE);
+      }
       if (entry.isCancelled) {
         throw new AppError(400, 'لا يمكن ترحيل قيد ملغي');
       }
 
       await fiscalYearService.assertOpenForDate(ctx.companyId, entry.date, {
-        allowOpeningDocument: (entry.entryType ?? '').toUpperCase() === 'OPENING_BALANCE',
+        allowOpeningDocument: allowsOpeningDocumentDate(entry),
       });
 
       const { debitBase, creditBase } = this.computeBaseTotals(
@@ -1140,23 +1416,8 @@ export class JournalPostingService {
         throw new AppError(422, 'لا يمكن فك ترحيل قيد عكسي أو قيد إقفال من هنا');
       }
 
-      const autoGlSources = new Set([
-        'SI',
-        'PI',
-        'SR',
-        'PR',
-        'CR',
-        'CP',
-        'CEP',
-        'CKC',
-        'CKB',
-        'CKE',
-      ]);
-      if (entry.sourceType && autoGlSources.has(entry.sourceType)) {
-        throw new AppError(
-          422,
-          'هذا القيد مربوط بمستند آخر. فك الترحيل من شاشة الفاتورة أو السند الأصلي.'
-        );
+      if (isSourcedJournalEntry(entry)) {
+        throw new AppError(422, SOURCED_JOURNAL_MUTATION_MESSAGE);
       }
 
       const existingReversal = await tx.journalEntry.findFirst({
@@ -1171,7 +1432,7 @@ export class JournalPostingService {
       }
 
       await fiscalYearService.assertOpenForDate(ctx.companyId, entry.date, {
-        allowOpeningDocument: (entry.entryType ?? '').toUpperCase() === 'OPENING_BALANCE',
+        allowOpeningDocument: allowsOpeningDocumentDate(entry),
       });
 
       await applyPostedJournalBalancesInTx(tx, {
@@ -1191,7 +1452,10 @@ export class JournalPostingService {
           workflowStatus: 'APPROVED',
           postedAt: null,
           postedBy: null,
-          activeSourceKey: null,
+          activeSourceKey:
+            String(entry.entryType ?? '').toUpperCase() === 'OPENING_BALANCE'
+              ? entry.activeSourceKey
+              : null,
           version: { increment: 1 },
         },
         include: this.journalInclude(),
@@ -1222,7 +1486,8 @@ export class JournalPostingService {
     journalEntryIds: Array<string | null | undefined>,
     action: 'unpost' | 'cancel',
     userId?: string,
-    lookup?: { sourceId?: string; sourceType?: string; sourceNumber?: string }
+    lookup?: { sourceId?: string; sourceType?: string; sourceNumber?: string },
+    balanceOpts?: { skipCardColumns?: boolean }
   ) {
     const ids = new Set(journalEntryIds.filter((id): id is string => Boolean(id)));
     if (lookup?.sourceId) {
@@ -1254,43 +1519,69 @@ export class JournalPostingService {
       if (action === 'cancel' && entry.isCancelled && !entry.isPosted) continue;
       if (action === 'unpost' && !entry.isPosted && entry.postingStatus !== 'Post') continue;
 
-      const hasReversal = await tx.journalEntry.findFirst({
-        where: { reversalOfJournalEntryId: entry.id },
-        select: { id: true },
+      const reversal = await tx.journalEntry.findFirst({
+        where: { reversalOfJournalEntryId: entry.id, deletedAt: null },
+        include: { lines: { orderBy: { lineOrder: 'asc' } } },
       });
+      if (reversal) {
+        const reversalPosted =
+          !reversal.isCancelled && Boolean(reversal.isPosted || reversal.postingStatus === 'Post');
+        if (reversalPosted) {
+          await applyPostedJournalBalancesInTx(tx, {
+            companyId,
+            date: reversal.date,
+            currencyCode: reversal.currencyCode,
+            invert: true,
+            lines: reversal.lines,
+          });
+        }
+        await tx.journalEntry.update({
+          where: { id: reversal.id },
+          data: {
+            isCancelled: true,
+            isPosted: false,
+            postingStatus: 'UnPost',
+            activeSourceKey: null,
+            deletedAt: new Date(),
+          },
+        });
+      }
 
       const posted = entry.isPosted || entry.postingStatus === 'Post';
-      if (posted && !hasReversal) {
-        // Enforce fiscal/period lock before inverting balances so cascade
-        // unpost/cancel cannot corrupt a closed historical period.
-        await fiscalYearService.assertOpenForDate(companyId, entry.date, {
-          allowOpeningDocument: (entry.entryType ?? '').toUpperCase() === 'OPENING_BALANCE',
-        });
-        await applyPostedJournalBalancesInTx(tx, {
-          companyId,
-          date: entry.date,
-          currencyCode: entry.currencyCode,
-          invert: true,
-          lines: entry.lines,
-        });
+      if (posted) {
+        await this.unpostSourceJournalInTx(
+          tx,
+          {
+            companyId,
+            branchId: entry.branchId,
+            fiscalYearId: entry.fiscalYearId ?? undefined,
+            userId: userId ?? AUTOMATION_SYSTEM_ACTOR_ID,
+          },
+          journalEntryId,
+          balanceOpts
+        );
+        if (action === 'cancel') {
+          await tx.journalEntry.update({
+            where: { id: journalEntryId },
+            data: { isCancelled: true },
+          });
+        }
+        await documentAuditService.record(
+          {
+            companyId,
+            entityType: 'JOURNAL_ENTRY',
+            entityId: journalEntryId,
+            action: action === 'cancel' ? 'CANCELLED' : 'UNPOSTED',
+            userId: userId ?? AUTOMATION_SYSTEM_ACTOR_ID,
+          },
+          tx
+        );
+        continue;
       }
 
       await tx.journalEntry.update({
         where: { id: journalEntryId },
-        data: {
-          ...(posted
-            ? {
-                isPosted: false,
-                isApproved: false,
-                postingStatus: 'UnPost',
-                workflowStatus: action === 'cancel' ? 'DRAFT' : 'APPROVED',
-                postedAt: null,
-                postedBy: null,
-                activeSourceKey: null,
-              }
-            : {}),
-          ...(action === 'cancel' ? { isCancelled: true } : {}),
-        },
+        data: action === 'cancel' ? { isCancelled: true } : {},
       });
 
       await documentAuditService.record(

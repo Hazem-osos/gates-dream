@@ -23,6 +23,7 @@ import {
 import {
   collectInvoiceInstallmentSchema,
   invoiceInstallmentTrackerQuerySchema,
+  replaceInvoiceInstallmentsSchema,
 } from '../schemas/invoice-installment.schema';
 import { invoiceInstallmentService } from '../services/invoice-installment.service';
 import { invoiceM5Service } from '../services/invoice-m5.service';
@@ -201,9 +202,30 @@ router.post(
         req.body,
         req.user?.sub
       );
+      const autoPostError =
+        data && typeof data === 'object' && 'autoPostError' in data
+          ? String((data as { autoPostError?: unknown }).autoPostError ?? '').trim()
+          : '';
+      if (autoPostError) {
+        delete (data as { autoPostError?: string }).autoPostError;
+      }
       if (isAdminRequest(req) && data?.id && !data.isPosted) {
-        const posted = await invoicePostingOrchestrator.post(buildPostingContext(req), data.id);
-        return void res.status(201).json({ status: 'success', data: posted });
+        try {
+          const posted = await invoicePostingOrchestrator.post(buildPostingContext(req), data.id);
+          return void res.status(201).json({ status: 'success', data: posted });
+        } catch (postError: unknown) {
+          const raw = postError instanceof Error ? postError.message : '';
+          const message = /[\u0600-\u06FF]/.test(raw)
+            ? `تم حفظ الفاتورة كمسودة. ${raw}`
+            : 'تم حفظ الفاتورة كمسودة، وتعذر ترحيلها. راجع البيانات ثم اضغط ترحيل.';
+          return void res.status(201).json({ status: 'success', data, message });
+        }
+      }
+      if (data?.id && !data.isPosted && autoPostError) {
+        const message = /[\u0600-\u06FF]/.test(autoPostError)
+          ? `تم حفظ الفاتورة كمسودة. ${autoPostError}`
+          : `تم حفظ الفاتورة كمسودة، وتعذر ترحيلها: ${autoPostError}`;
+        return void res.status(201).json({ status: 'success', data, message });
       }
       return void res.status(201).json({ status: 'success', data });
     } catch (e: unknown) {
@@ -409,6 +431,24 @@ router.get(
       return void res.json({ status: 'success', data });
     } catch (e: unknown) {
       return respondError(res, e, 'Failed to load invoice installments');
+    }
+  }
+);
+
+router.put(
+  '/:id/installments',
+  authorize({ resource: 'invoice', action: 'edit' }),
+  validate({ body: replaceInvoiceInstallmentsSchema }),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const data = await invoiceInstallmentService.replace(
+        requireCompany(req),
+        req.params.id,
+        req.body.installments
+      );
+      return void res.json({ status: 'success', data, message: 'تم حفظ توزيع الدفعات' });
+    } catch (e: unknown) {
+      return respondError(res, e, 'تعذر حفظ توزيع الدفعات');
     }
   }
 );

@@ -11,7 +11,11 @@ export function parseDecimal(value: unknown, fallback = 0): number {
   if (typeof value === 'number') return Number.isFinite(value) ? value : fallback;
   const str = String(value).trim();
   if (str === '') return fallback;
-  const normalized = str.replace(/,/g, '');
+  const western = str
+    .replace(/[٠-٩]/g, (digit) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(digit)))
+    .replace(/[۰-۹]/g, (digit) => String('۰۱۲۳۴۵۶۷۸۹'.indexOf(digit)))
+    .replace(/٫/g, '.');
+  const normalized = western.replace(/[,\s٬،]/g, '');
   const n = Number(normalized);
   return Number.isFinite(n) ? n : fallback;
 }

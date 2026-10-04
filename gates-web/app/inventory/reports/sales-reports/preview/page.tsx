@@ -2,7 +2,7 @@
 
 import { Suspense } from 'react';
 import UniversalReportViewer from '@/components/report/UniversalReportViewer';
-import { SALES_REPORT_COLUMNS } from '@/lib/reportEngine/reportColumns';
+import { SALES_DOCUMENT_REPORT_COLUMNS } from '@/lib/reportEngine/reportColumns';
 import { TableSkeleton } from '@/components/ui/TableSkeleton';
 import { breadcrumbsForReportModule } from '@/lib/reports/reportPageBreadcrumbs';
 
@@ -14,7 +14,7 @@ export default function SalesReportsPreviewPage() {
         reportKey="inventory-sales"
         title="تقرير المبيعات التفصيلي"
         exportFileName="sales-report"
-        columnDefs={SALES_REPORT_COLUMNS}
+        columnDefs={SALES_DOCUMENT_REPORT_COLUMNS}
         breadcrumbs={breadcrumbsForReportModule('inventory', 'تقرير المبيعات التفصيلي')}
       />
     </Suspense>

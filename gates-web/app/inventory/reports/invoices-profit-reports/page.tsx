@@ -7,7 +7,7 @@ export default function InvoicesProfitReportsPage() {
     <InventoryReportFilterPage
       urlPath="/inventory/reports/invoices-profit-reports"
       icon="🧾"
-      subtitle="أرباح الفواتير خلال الفترة."
+      subtitle="أرباح كل فاتورة: النوع بعد الرقم، والإضافات والخصومات بعد التكلفة، وثلاث نسب ربح في الآخر."
       fields={{
         dates: 'range',
         customer: true,

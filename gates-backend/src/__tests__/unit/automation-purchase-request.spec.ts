@@ -247,13 +247,13 @@ function createMemory(opts?: {
         lines: Array<{ itemId: string }>;
       };
       if (mapped.supplierId === '33333333-3333-4333-8333-333333333333') {
-        throw new Error('Supplier not found or does not belong to company');
+        throw new Error('المورد غير موجود أو لا يتبع الشركة');
       }
       if (mapped.warehouseId === '44444444-4444-4444-8444-444444444444') {
-        throw new Error('Warehouse not found or does not belong to company');
+        throw new Error('المخزن غير موجود أو لا يتبع الشركة');
       }
       if (mapped.lines.some((l) => l.itemId === '55555555-5555-4555-8555-555555555555')) {
-        throw new Error('One or more items not found or do not belong to company');
+        throw new Error('أحد الأصناف غير موجود أو لا يتبع الشركة');
       }
       errorAtCreate = runs[0]?.errorMessage ?? null;
       poCreates += 1;
@@ -442,7 +442,7 @@ describe('automation purchase request adapter', () => {
     expect(mem.runs[0].status).toBe('FAILED');
     expect(mem.runs[0].attemptCount).toBe(1);
     expect(mem.runs[0].lastErrorCode).toBe(AUTOMATION_ERROR_CODES.OWNERSHIP);
-    expect(mem.runs[0].errorMessage).toMatch(/Supplier not found/);
+    expect(mem.runs[0].errorMessage).toMatch(/المورد غير موجود/);
     expect(mem.runs[0].completedAt).toBeTruthy();
 
     const retry = await svc.createDraftPurchaseOrder(validBody() as never);
@@ -450,7 +450,7 @@ describe('automation purchase request adapter', () => {
     expect(mem.poCreates).toBe(1);
     expect(mem.runs[0].attemptCount).toBe(2);
     expect(mem.runs[0].status).toBe('SUCCEEDED');
-    expect(mem.errorAtCreate).toMatch(/Supplier not found/);
+    expect(mem.errorAtCreate).toMatch(/المورد غير موجود/);
     expect(mem.runs[0].errorMessage).toBeNull();
     expect(mem.runs[0].lastErrorCode).toBeNull();
   });

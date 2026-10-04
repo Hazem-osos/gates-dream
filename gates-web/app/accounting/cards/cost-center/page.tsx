@@ -2,7 +2,6 @@
 import * as React from "react";
 import { useEffect, useState } from "react";
 import { Layers } from "lucide-react";
-import UserPermissionsBar from "@/components/UserPermissionsBar";
 import {
   CompactFormField,
   AdvancedFieldsSection,
@@ -273,7 +272,6 @@ function CostCenterPage() {
       {success && <SuccessToast message={success} onClose={() => setSuccess('')} />}
 
       <div className="mb-4">
-        <UserPermissionsBar resource="cost-center" module="accounting" />
       </div>
       <form className="w-full text-base">
         <FormSectionCard title="البيانات الأساسية" subtitle="الحقول اللازمة لتعريف مركز التكلفة" icon={Layers}>

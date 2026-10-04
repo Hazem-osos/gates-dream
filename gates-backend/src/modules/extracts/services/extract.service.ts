@@ -1,7 +1,7 @@
 import prisma from '../../../shared/database/prisma';
 import { logger } from '../../../shared/logger';
 import { Decimal } from '@prisma/client/runtime/library';
-import { fiscalYearService } from '../../platform/services/fiscal-year.service';
+import { AppError } from '../../../shared/middleware/error-handler';
 
 export interface CreateExtractData {
   projectId: string;
@@ -223,9 +223,8 @@ export class ExtractService {
       }
 
       // Wave 2 fix: `isPosted` previously did nothing at all — a "posted"
-      // extract could still be freely edited or deleted. This module has no
-      // GL integration (see postExtract), so `isPosted` is a workflow lock
-      // only, not an accounting post — but it must actually lock the record.
+      // extract could still be freely edited or deleted. Legacy post no longer
+      // flips this flag (see postExtract); keep the lock for any historical rows.
       if (existing.isPosted) {
         throw new Error('Cannot update a posted extract. Unpost it first.');
       }
@@ -326,47 +325,18 @@ export class ExtractService {
   }
 
   /**
-   * Marks the extract's quantities/statement as confirmed and locks it against
-   * further edits. This module has no GL integration anywhere (creating an
-   * `ExtractPayment` doesn't post a journal entry either), so — per the Wave 2
-   * "real journal entry or no isPosted flag" rule — `isPosted` here is a pure
-   * workflow lock, never an accounting post. It must not be read as evidence
-   * that anything hit the ledger.
+   * Legacy `/extracts` has no journal posting. Real GL lives on contracting
+   * extracts (`/contracting/extracts`). Never flip `isPosted` here — that would
+   * tell users a document posted when nothing hit the ledger.
    */
-  async postExtract(companyId: string, id: string) {
-    try {
-      const extract = await prisma.extract.findFirst({
-        where: { id, project: { companyId } },
-      });
-
-      if (!extract) {
-        throw new Error('Extract not found');
-      }
-
-      if (extract.isCancelled) {
-        throw new Error('Cannot post a cancelled extract');
-      }
-
-      if (extract.isPosted) {
-        throw new Error('Extract is already posted');
-      }
-
-      await fiscalYearService.assertOpenForDate(companyId, extract.extractDate);
-
-      const updated = await prisma.extract.update({
-        where: { id },
-        data: { isPosted: true },
-      });
-
-      logger.info({ companyId, extractId: id }, 'Extract posted (workflow lock, no GL effect)');
-      return updated;
-    } catch (error) {
-      logger.error({ error, companyId, extractId: id }, 'Error posting extract');
-      throw error;
-    }
+  async postExtract(_companyId: string, _id: string): Promise<never> {
+    throw new AppError(400, 'المستخلص يُرحّل من شاشة المقاولات');
   }
 
-  /** Reverses the workflow lock set by postExtract. */
+  /**
+   * Clears a historical workflow lock only. There is no GL reverse — legacy
+   * post never wrote a journal. Prefer contracting extracts for real posting.
+   */
   async unpostExtract(companyId: string, id: string) {
     try {
       const extract = await prisma.extract.findFirst({
@@ -378,17 +348,18 @@ export class ExtractService {
       }
 
       if (!extract.isPosted) {
-        throw new Error('Extract is not posted');
+        throw new AppError(400, 'المستخلص يُرحّل من شاشة المقاولات');
       }
-
-      await fiscalYearService.assertOpenForDate(companyId, extract.extractDate);
 
       const updated = await prisma.extract.update({
         where: { id },
         data: { isPosted: false },
       });
 
-      logger.info({ companyId, extractId: id }, 'Extract unposted');
+      logger.info(
+        { companyId, extractId: id },
+        'Legacy extract unlock (no GL reverse; post path removed)'
+      );
       return updated;
     } catch (error) {
       logger.error({ error, companyId, extractId: id }, 'Error unposting extract');

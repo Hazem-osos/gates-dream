@@ -19,9 +19,12 @@ type Props = {
   docNumber?: string;
   isPosted: boolean;
   isSyncingInventory: boolean;
+  isSyncingPapers: boolean;
   canSync: boolean;
   onSyncOpeningInventory: () => void;
+  onSyncOpeningPapers: () => void;
   onSaveDraft: () => void;
+  onSaveAsDraft: () => void;
   savePending?: boolean;
   canSave?: boolean;
   onBrowseList: () => void;
@@ -47,9 +50,12 @@ export function OpeningBalanceHeader({
   docNumber,
   isPosted,
   isSyncingInventory,
+  isSyncingPapers,
   canSync,
   onSyncOpeningInventory,
+  onSyncOpeningPapers,
   onSaveDraft,
+  onSaveAsDraft,
   savePending,
   canSave,
   onBrowseList,
@@ -96,17 +102,39 @@ export function OpeningBalanceHeader({
         standardActions={standardActions}
         printTrigger={printTrigger}
         extraActions={
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={!canSync || isPosted || isSyncingInventory}
-            onClick={onSyncOpeningInventory}
-            className="gap-1.5 border-emerald-600/30 font-medium text-emerald-700 shadow-sm hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/30"
-          >
-            <RefreshCw className={`h-3.5 w-3.5 ${isSyncingInventory ? 'animate-spin' : ''}`} />
-            <span>تحديث بضاعة أول المدة</span>
-          </Button>
+          <>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={!canSave || savePending}
+              onClick={onSaveAsDraft}
+            >
+              حفظ كمسودة
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={!canSync || isPosted || isSyncingInventory}
+              onClick={onSyncOpeningInventory}
+              className="gap-1.5 border-emerald-600/30 font-medium text-emerald-700 shadow-sm hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/30"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${isSyncingInventory ? 'animate-spin' : ''}`} />
+              <span>تحديث بضاعة أول المدة</span>
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={!canSync || isPosted || isSyncingPapers}
+              onClick={onSyncOpeningPapers}
+              className="gap-1.5 border-[#0E78AA]/30 font-medium text-[#094C6B] shadow-sm hover:bg-[#EAF6FB]"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${isSyncingPapers ? 'animate-spin' : ''}`} />
+              <span>استيراد أوراق مالية سابقة</span>
+            </Button>
+          </>
         }
       />
 

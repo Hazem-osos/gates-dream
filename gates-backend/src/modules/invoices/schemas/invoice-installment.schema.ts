@@ -10,6 +10,10 @@ export const invoiceInstallmentInputSchema = z.object({
 
 export const invoiceInstallmentsArraySchema = z.array(invoiceInstallmentInputSchema);
 
+export const replaceInvoiceInstallmentsSchema = z.object({
+  installments: invoiceInstallmentsArraySchema,
+});
+
 export const invoiceInstallmentTrackerQuerySchema = z.object({
   invoiceId: z.string().uuid().optional(),
   customerId: z.string().uuid().optional(),

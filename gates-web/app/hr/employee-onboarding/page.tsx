@@ -9,7 +9,7 @@ import { employeeOnboardingFormSchema, type EmployeeOnboardingFormInput } from '
 
 const defaults: EmployeeOnboardingFormInput = {
   serialNumber: '',
-  employee: '1212378971212',
+  employee: '',
   date: '2025-11-26',
   hijriDate: '2025-11-26',
   notes: '',
@@ -56,18 +56,18 @@ export default function EmployeeOnboardingPage() {
                     <div className="flex flex-col gap-1">
                       <div className="flex items-center gap-2">
                         <select
-                          className="w-50 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg"
+                          className="w-50 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg"
                           {...register('employee')}
                         >
                           <option value="">اختر...</option>
-                          <option value="1212378971212">1212378971212</option>
+                          <option value=""></option>
                           <option value="employee1">موظف 1</option>
                           <option value="employee2">موظف 2</option>
                           <option value="employee3">موظف 3</option>
                         </select>
                         <input
                           type="text"
-                          className="w-50 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg"
+                          className="w-50 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg"
                           placeholder="إدخل اسم الموظف"
                         />
                       </div>

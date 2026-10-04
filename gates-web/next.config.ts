@@ -1,7 +1,9 @@
 import type { NextConfig } from 'next';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { resolveBackendOrigin } from './lib/server/backend-origin';
 
-/** Server-side proxy target (not exposed to the browser). Defaults to loopback to avoid IPv6/localhost quirks. */
-const backendOrigin = (process.env.BACKEND_PROXY_TARGET || 'http://127.0.0.1:3001').replace(/\/$/, '');
+const gatesWebRoot = path.dirname(fileURLToPath(import.meta.url));
 
 const nextConfig: NextConfig = {
   /* config options here */
@@ -9,7 +11,7 @@ const nextConfig: NextConfig = {
     ignoreDuringBuilds: true,
   },
   typescript: {
-    ignoreBuildErrors: true,
+    ignoreBuildErrors: false,
   },
   images: {
     remotePatterns: [
@@ -39,20 +41,20 @@ const nextConfig: NextConfig = {
   },
   // Output configuration
   output: 'standalone',
+  // Monorepo / stray lockfiles must not nest standalone under Desktop/.../gates-web.
+  outputFileTracingRoot: gatesWebRoot,
   /**
-   * Dev-friendly proxy: browser calls same origin (`/api/v1`, `/health`) so requests are not cross-origin
-   * (avoids CORS and several "Failed to fetch" cases). Set NEXT_PUBLIC_API_URL to skip and hit the API directly.
+   * Dev-friendly proxy: browser calls same origin `/api/v1` so requests are not cross-origin.
+   * `/health` stays on Next (`app/health`) so Railway can healthcheck gates-web without the API.
    */
   async rewrites() {
-    return [
-      { source: '/api/v1/:path*', destination: `${backendOrigin}/api/v1/:path*` },
-      { source: '/health/:path*', destination: `${backendOrigin}/health/:path*` },
-      { source: '/health', destination: `${backendOrigin}/health` },
-    ];
+    const backendOrigin = resolveBackendOrigin();
+    return [{ source: '/api/v1/:path*', destination: `${backendOrigin}/api/v1/:path*` }];
   },
   /** Sidebar / legacy URLs that don't match on-disk route folders */
   async redirects() {
     return [
+      { source: '/downloads/GatesESignSetup.exe', destination: '/downloads/gates-esign', permanent: false },
       { source: '/inventory/creations/items', destination: '/inventory/guide/items', permanent: false },
       { source: '/inventory/creations/categories', destination: '/inventory/creations/item-groups', permanent: false },
       { source: '/inventory/creations/pricing-policies', destination: '/inventory/creations/price-lists', permanent: false },
@@ -63,7 +65,6 @@ const nextConfig: NextConfig = {
       { source: '/inventory/reports/item-balances', destination: '/inventory/reports/inventory-reports', permanent: false },
       { source: '/inventory/reports/valuation', destination: '/inventory/reports/inventory-reports', permanent: false },
       { source: '/inventory/reports/reorder', destination: '/inventory/reports/items-exceeding-order-limit', permanent: false },
-      { source: '/inventory/reports/slow-moving', destination: '/inventory/reports/item-movement-reports', permanent: false },
       { source: '/accounting-settings/create-users', destination: '/accounting-settings/create-user-groups', permanent: false },
       {
         source: '/accounting-settings/company-settings/income-statement-accounts',
@@ -72,7 +73,17 @@ const nextConfig: NextConfig = {
       },
       {
         source: '/accounting/account-reports/balances/cost-centers-balancee',
-        destination: '/accounting/account-reports/balances/cost-center-balancee',
+        destination: '/accounting/account-reports/balances/cost-center-balance',
+        permanent: false,
+      },
+      {
+        source: '/accounting/account-reports/balances/cost-center-balancee',
+        destination: '/accounting/account-reports/balances/cost-center-balance',
+        permanent: false,
+      },
+      {
+        source: '/accounting/account-reports/balances/cost-center-balancee/:path*',
+        destination: '/accounting/account-reports/balances/cost-center-balance/:path*',
         permanent: false,
       },
       { source: '/hr/payroll-policies', destination: '/hr/wage-policy', permanent: false },
@@ -81,6 +92,17 @@ const nextConfig: NextConfig = {
       { source: '/hr/payroll', destination: '/hr/monthly-salaries', permanent: false },
       { source: '/hr/employee-files', destination: '/hr/employee-data', permanent: false },
       { source: '/hr/transactions', destination: '/hr/transaction-tracking', permanent: false },
+      { source: '/treasury', destination: '/accounting/operations/treasury', permanent: false },
+      {
+        source: '/accounting/operations/securities/reciept',
+        destination: '/accounting/operations/securities/receipt',
+        permanent: false,
+      },
+      {
+        source: '/accounting/operations/securities/reciept/:path*',
+        destination: '/accounting/operations/securities/receipt/:path*',
+        permanent: false,
+      },
     ];
   },
   // Headers for security and performance

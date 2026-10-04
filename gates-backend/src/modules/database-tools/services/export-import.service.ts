@@ -62,7 +62,7 @@ export class ExportImportService {
    */
   async exportData(options: ExportOptions): Promise<{ filePath: string; size: number; recordCount: number }> {
     if (!options.companyId) {
-      throw new AppError(400, 'Company ID is required');
+      throw new AppError(400, 'معرّف الشركة مطلوب');
     }
 
     try {
@@ -121,7 +121,7 @@ export class ExportImportService {
    */
   async importData(options: ImportOptions): Promise<{ imported: number; failed: number }> {
     if (!options.companyId) {
-      throw new AppError(400, 'Company ID is required');
+      throw new AppError(400, 'معرّف الشركة مطلوب');
     }
     if (options.format === 'sql') {
       throw new AppError(

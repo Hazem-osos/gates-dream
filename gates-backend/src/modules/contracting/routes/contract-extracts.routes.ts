@@ -14,7 +14,7 @@ router.use(setTenantContext);
 
 function postingContext(req: AuthRequest) {
   const companyId = req.companyId ?? req.tenantId;
-  if (!companyId) throw new AppError(400, 'Company ID required');
+  if (!companyId) throw new AppError(400, 'معرّف الشركة مطلوب');
   return journalEntryService.buildPostingContext(
     companyId,
     req.branchId,
@@ -30,7 +30,7 @@ router.get(
   async (req: AuthRequest, res: Response) => {
     const companyId = req.companyId ?? req.tenantId;
     if (!companyId) {
-      return void res.status(400).json({ status: 'error', message: 'Company ID required' });
+      return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     }
     const projectId = req.query.projectId as string;
     const extractType = req.query.extractType as 'CLIENT' | 'SUBCONTRACTOR';
@@ -65,7 +65,7 @@ router.get(
   async (req: AuthRequest, res: Response) => {
     const companyId = req.companyId ?? req.tenantId;
     if (!companyId) {
-      return void res.status(400).json({ status: 'error', message: 'Company ID required' });
+      return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     }
     try {
       const data = await contractExtractService.list(companyId, {
@@ -90,7 +90,7 @@ router.post(
   async (req: AuthRequest, res: Response) => {
     const companyId = req.companyId ?? req.tenantId;
     if (!companyId) {
-      return void res.status(400).json({ status: 'error', message: 'Company ID required' });
+      return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     }
     try {
       const data = await contractExtractService.createDraft(companyId, {
@@ -116,7 +116,7 @@ router.get(
   async (req: AuthRequest, res: Response) => {
     const companyId = req.companyId ?? req.tenantId;
     if (!companyId) {
-      return void res.status(400).json({ status: 'error', message: 'Company ID required' });
+      return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     }
     try {
       const data = await contractExtractService.getById(companyId, req.params.id);
@@ -137,7 +137,7 @@ router.put(
   async (req: AuthRequest, res: Response) => {
     const companyId = req.companyId ?? req.tenantId;
     if (!companyId) {
-      return void res.status(400).json({ status: 'error', message: 'Company ID required' });
+      return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     }
     try {
       const data = await contractExtractService.updateDraft(companyId, req.params.id, {
@@ -163,7 +163,7 @@ router.post(
   async (req: AuthRequest, res: Response) => {
     const companyId = req.companyId ?? req.tenantId;
     if (!companyId) {
-      return void res.status(400).json({ status: 'error', message: 'Company ID required' });
+      return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     }
     try {
       const data = await contractExtractService.approve(companyId, req.params.id);

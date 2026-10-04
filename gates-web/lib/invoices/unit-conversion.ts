@@ -77,10 +77,22 @@ export function syncLineUnitFields(
   isFactorFixed: boolean;
 } {
   const next = { ...line, ...patch };
+  const quantity = Number(next.quantity) > 0 ? Number(next.quantity) : 0;
+  if (!units?.length) {
+    const factor = Number(next.conversionFactor) > 0 ? Number(next.conversionFactor) : 1;
+    const typedBase = Number(next.baseQuantity);
+    return {
+      quantity,
+      conversionFactor: factor,
+      baseQuantity:
+        Number.isFinite(typedBase) && typedBase > 0 ? typedBase : computeBaseQuantity(quantity, factor),
+      baseUnitId: next.baseUnitId ?? '',
+      isFactorFixed: true,
+    };
+  }
   const selected = unitLinkForItem(units, next.unitId);
   const base = units?.find((u) => u.isBaseUnit) ?? selected;
   const isFactorFixed = isFactorFixedForLink(selected);
-  const quantity = Number(next.quantity) > 0 ? Number(next.quantity) : 0;
   const catalogFactor = catalogFactorForLink(selected);
   const baseUnitId = base?.unit?.id ?? base?.unitId ?? next.baseUnitId ?? '';
 

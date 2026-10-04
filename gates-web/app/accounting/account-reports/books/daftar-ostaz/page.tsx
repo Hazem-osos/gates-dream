@@ -7,7 +7,8 @@ export default function DaftarOstazPage() {
     <AccountReportFilterPage
       urlPath="/accounting/account-reports/books/daftar-ostaz"
       icon="📄"
-      subtitle="حركة حساب محدد مع رصيد افتتاحي وختامي."
+      subtitle="حركة الحساب المختار وكل حساب مدرج تحته، مع الرصيد الافتتاحي والختامي."
+      defaultDatesFromOpenFiscalYear
       fields={{
         dates: 'range',
         datesTourId: 'daftar-ostaz-date-range',
@@ -16,7 +17,16 @@ export default function DaftarOstazPage() {
           placeholder: 'اختر الحساب',
           tourId: 'daftar-ostaz-account-select',
         },
+        costCenter: true,
+        currency: true,
+        level: {
+          label: 'المستوى تحت الحساب',
+          placeholder: 'كل المستويات',
+        },
+        description: true,
+        counterpartAccount: true,
         branch: true,
+        reportOptions: ['showUnposted'],
       }}
     />
   );

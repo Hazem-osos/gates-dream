@@ -1,4 +1,5 @@
 import prisma from '../../../shared/database/prisma';
+import { permanentDelete } from '../../../shared/database/permanent-delete.util';
 import { logger } from '../../../shared/logger';
 
 export interface CreateUserGroupData {
@@ -273,7 +274,7 @@ export class UserGroupService {
   }
 
   /**
-   * Delete user group (soft delete by setting isActive to false)
+   * Delete user group (permanent delete by setting isActive to false)
    */
   async deleteUserGroup(companyId: string, groupId: string) {
     try {
@@ -296,14 +297,9 @@ export class UserGroupService {
         );
       }
 
-      // Soft delete by setting isActive to false
-      const deleted = await prisma.userGroup.update({
-        where: { id: groupId },
-        data: { isActive: false },
-      });
-
-      logger.info({ companyId, groupId }, 'User group deleted (soft delete)');
-      return { id: deleted.id, isActive: deleted.isActive };
+      // permanent delete by setting isActive to false
+      await permanentDelete('مجموعة المستخدمين', () => prisma.userGroup.delete({ where: { id: groupId } }));
+      return { id: groupId, deleted: true };
     } catch (error) {
       logger.error({ error, companyId, groupId }, 'Error deleting user group');
       throw error;

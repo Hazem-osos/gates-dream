@@ -1,8 +1,6 @@
 import prisma from '../../../shared/database/prisma';
 import { Decimal } from '@prisma/client/runtime/library';
-import { autoGlPostingService } from './auto-gl-posting.service';
-import { treasuryPostingService } from '../../treasury/services/treasury-posting.service';
-import { resolveDefaultTreasuryPostingContext } from '../../treasury/services/treasury-posting-context';
+import { documentSequenceService } from '../../platform/services/document-sequence.service';
 import { persistFxDecimal } from '../utils/company-fx-rate';
 
 export interface CreateTreasuryReceiptData {
@@ -151,30 +149,52 @@ export class TreasuryReceiptService {
   /**
    * Create a new treasury receipt
    */
-  async createTreasuryReceipt(companyId: string, userId: string, data: CreateTreasuryReceiptData) {
+  async createTreasuryReceipt(companyId: string, _userId: string, data: CreateTreasuryReceiptData) {
     // Validate receipt type and required fields
     this.validateReceiptData(data);
 
-    // Check voucher number uniqueness
-    if (data.voucherNumber) {
-      const existing = await prisma.treasuryReceipt.findFirst({
-        where: {
-          companyId,
-          voucherNumber: data.voucherNumber,
+    const voucherFamily = 'TEMP';
+    let voucherNumber = data.voucherNumber?.trim() || data.serial?.trim() || undefined;
+    if (!voucherNumber) {
+      voucherNumber = await documentSequenceService.nextNumberForFamily({
+        companyId,
+        branchId: data.branchId ?? null,
+        fiscalYearId: null,
+        docType: 'TEMP-RECEIPT',
+        legacySuffix: 'TEMP',
+        seedFromExisting: documentSequenceService.maxExistingNumber(async () => {
+          const rows = await prisma.treasuryReceipt.findMany({
+            where: { companyId, voucherFamily },
+            select: { voucherNumber: true },
+          });
+          return rows.map((row) => row.voucherNumber);
+        }),
+        isAvailable: async (candidate) => {
+          const taken = await prisma.treasuryReceipt.findFirst({
+            where: { companyId, voucherFamily, voucherNumber: candidate },
+            select: { id: true },
+          });
+          return !taken;
         },
       });
-
-      if (existing) {
-        throw new Error('Voucher number already exists');
-      }
+    }
+    if (!voucherNumber) {
+      throw new Error('رقم الإيصال مطلوب — الترقيم يدوي لهذا النوع');
+    }
+    const existing = await prisma.treasuryReceipt.findFirst({
+      where: { companyId, voucherFamily, voucherNumber },
+      select: { id: true },
+    });
+    if (existing) {
+      throw new Error('Voucher number already exists');
     }
 
     const receipt = await prisma.treasuryReceipt.create({
       data: {
         companyId,
         branchId: data.branchId,
-        serial: data.serial,
-        voucherNumber: data.voucherNumber,
+        serial: data.serial || voucherNumber,
+        voucherNumber,
         date: data.date,
         hijriDate: data.hijriDate,
         description: data.description,
@@ -184,6 +204,7 @@ export class TreasuryReceiptService {
         accountId: data.accountId,
         safeId: data.safeId,
         bankAccountId: data.bankAccountId,
+        voucherFamily,
         amount: new Decimal(data.amount),
         currencyCode: data.currencyCode,
         exchangeRate: persistFxDecimal(data.currencyCode, data.exchangeRate),
@@ -200,17 +221,8 @@ export class TreasuryReceiptService {
       },
     });
 
-    if (await autoGlPostingService.isAutoPostEnabled(companyId)) {
-      try {
-        const ctx = await resolveDefaultTreasuryPostingContext(companyId, userId, data.date);
-        await treasuryPostingService.postFromTreasuryReceipt(ctx, receipt.id);
-        return this.getTreasuryReceiptById(companyId, receipt.id);
-      } catch (error) {
-        await prisma.treasuryReceipt.delete({ where: { id: receipt.id } }).catch(() => undefined);
-        throw error;
-      }
-    }
-
+    // Temporary receipts stay drafts. Auto-post has no offset account, fails,
+    // and deletes the row, so the screen looked like the save never happened.
     return receipt;
   }
 
@@ -245,11 +257,12 @@ export class TreasuryReceiptService {
       this.validateReceiptType(validationData);
     }
 
-    // Check voucher number uniqueness if changing
+    const voucherFamily = 'TEMP';
     if (data.voucherNumber && data.voucherNumber !== receipt.voucherNumber) {
       const existing = await prisma.treasuryReceipt.findFirst({
         where: {
           companyId,
+          voucherFamily,
           voucherNumber: data.voucherNumber,
           id: { not: receiptId },
         },
@@ -272,23 +285,21 @@ export class TreasuryReceiptService {
     if (data.supplierId !== undefined) updateData.supplierId = data.supplierId;
     if (data.accountId !== undefined) updateData.accountId = data.accountId;
     if (data.safeId !== undefined) updateData.safeId = data.safeId;
-    if (data.bankAccountId !== undefined) updateData.bankAccountId = data.bankAccountId;
+    if (data.bankAccountId !== undefined) {
+      updateData.bankAccountId = data.bankAccountId;
+      updateData.voucherFamily = 'TEMP';
+    }
     if (data.amount !== undefined) updateData.amount = new Decimal(data.amount);
     if (data.currencyCode !== undefined) updateData.currencyCode = data.currencyCode;
     if (data.exchangeRate !== undefined)
       updateData.exchangeRate = data.exchangeRate ? new Decimal(data.exchangeRate) : null;
 
-    return prisma.treasuryReceipt.update({
-      where: { id: receiptId },
+    const updated = await prisma.treasuryReceipt.updateMany({
+      where: { id: receiptId, companyId },
       data: updateData,
-      include: {
-        customer: true,
-        supplier: true,
-        account: true,
-        safe: true,
-        bankAccount: { include: { bank: true } },
-      },
     });
+    if (updated.count !== 1) throw new Error('Treasury receipt not found');
+    return this.getTreasuryReceiptById(companyId, receiptId);
   }
 
   // Wave 2 fix: the legacy postTreasuryReceipt/unpostTreasuryReceipt methods
@@ -314,13 +325,15 @@ export class TreasuryReceiptService {
       throw new Error('Treasury receipt is already cancelled');
     }
 
-    return prisma.treasuryReceipt.update({
-      where: { id: receiptId },
+    const updated = await prisma.treasuryReceipt.updateMany({
+      where: { id: receiptId, companyId },
       data: {
         isCancelled: true,
         cancelledAt: new Date(),
       },
     });
+    if (updated.count !== 1) throw new Error('Treasury receipt not found');
+    return this.getTreasuryReceiptById(companyId, receiptId);
   }
 
   /**

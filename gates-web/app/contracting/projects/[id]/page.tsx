@@ -6,5 +6,5 @@ export default async function ContractingProjectIndexPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  redirect(`/contracting/projects/${id}/technical-office`);
+  redirect(`/contracting/projects/${id}/overview`);
 }

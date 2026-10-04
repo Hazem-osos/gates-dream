@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useEffect, useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useOwnTabSearchParams } from '@/lib/navigation/tab-route-lock';
 import { ErpDocumentLayout } from '@/components/erp/ErpDocumentLayout';
 import { DocumentBrowseDrawer } from '@/components/erp/DocumentBrowseDrawer';
@@ -17,6 +17,7 @@ import {
   type AssemblyComponentLine,
 } from '@/components/inventory/assembly/assembly-line-types';
 import { useApiMutation, useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
+import { resolvePostedFlag } from '@/lib/documents/posting-trust';
 import { apiClient } from '@/lib/api/client';
 import { confirmAction } from '@/lib/feedback/confirm';
 import { toHijriDate } from '@/lib/hijri-date';
@@ -25,7 +26,14 @@ import {
   postNamedDocumentAfterSave,
   useRepostAfterUnpost,
 } from '@/lib/accounting/ensure-posted-after-save';
+import { finishDocumentSave } from '@/lib/documents/finish-save';
+import {
+  postSuccessMessage,
+  useDocumentPostMutation,
+} from '@/lib/inventory/use-document-post-mutation';
+import { invalidateStockViews } from '@/lib/invoices/invalidate-stock-views';
 import { printPageContent } from '@/lib/print/printHtml';
+import { useStoreDocumentSerial } from '@/lib/inventory/use-store-document-serial';
 
 type AssemblyParentItem = {
   id: string;
@@ -87,6 +95,7 @@ function AssemblyPageInner() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [explodePending, setExplodePending] = useState(false);
+  const postAfterSaveRef = useRef(false);
 
   const [serial, setSerial] = useState('');
   const [description, setDescription] = useState('');
@@ -100,13 +109,20 @@ function AssemblyPageInner() {
   const [isCancelled, setIsCancelled] = useState(false);
   const [journalEntryId, setJournalEntryId] = useState<string | null>(null);
   const [lines, setLines] = useState<AssemblyComponentLine[]>([emptyAssemblyComponentLine()]);
+  const [viewLocked, setViewLocked] = useState(false);
+
+  const { serialAutomatic, invalidateNextSerial } = useStoreDocumentSerial({
+    kind: 'assembly',
+    enabled: !selectedId,
+    setSerial,
+  });
 
   const { data: itemsResponse } = useApiQuery<AssemblyParentItem[]>(
     ['items', 'assembly-parents'],
     '/inventory/items',
-    { limit: 200, isActive: true }
+    { limit: 200, isActive: true, isAssembly: true }
   );
-  const items = itemsResponse?.data ?? [];
+  const items = Array.isArray(itemsResponse?.data) ? itemsResponse.data : [];
 
   const { data: loadedResponse } = useApiQuery<AssemblyRecord>(
     ['assembly', selectedId ?? ''],
@@ -132,7 +148,7 @@ function AssemblyPageInner() {
     setSourceWarehouseId(loaded.warehouseId || '');
     setTargetWarehouseId(loaded.toWarehouseId || loaded.warehouseId || '');
     setCostCenterId(loaded.costCenterId || '');
-    setIsPosted(Boolean(loaded.isPosted));
+    setIsPosted(resolvePostedFlag(loaded));
     setIsCancelled(Boolean(loaded.isCancelled));
     setJournalEntryId(loaded.journalEntryId || null);
     setLines(
@@ -148,6 +164,7 @@ function AssemblyPageInner() {
         notes: '',
       }))
     );
+    setViewLocked(true);
   }, [loaded, selectedId]);
 
   const entered = useMemo(() => lines.filter(isEnteredAssemblyLine), [lines]);
@@ -155,19 +172,74 @@ function AssemblyPageInner() {
     () => entered.reduce((sum, line) => sum + assemblyLineTotal(line), 0),
     [entered]
   );
-  const readOnly = isPosted || isCancelled;
+  const readOnly = isPosted || isCancelled || viewLocked;
+
+  const stayOnAssembly = (id?: string | null, serialNumber?: string | null) => {
+    if (!id) return;
+    setSelectedId(id);
+    if (serialNumber) setSerial(serialNumber);
+    window.history.replaceState(null, '', `?id=${id}`);
+    invalidateStockViews(invalidateQuery);
+  };
+
+  const openAssembly = (id: string) => {
+    setSelectedId(id);
+    window.history.replaceState(null, '', `?id=${id}`);
+  };
+
+  const postAssemblyAfterSave = (id: string, number?: string | null) => {
+    void apiClient
+      .post(`/inventory/assemblies/${id}/post`)
+      .then((res) => {
+        setIsPosted(true);
+        setSuccess(postSuccessMessage(res));
+        stayOnAssembly(id, number);
+        invalidateStockViews(invalidateQuery);
+      })
+      .catch((err: unknown) => {
+        stayOnAssembly(id, number);
+        setError(err instanceof Error ? err.message : 'تم الحفظ وتعذر ترحيل التجميع');
+        invalidateStockViews(invalidateQuery);
+      });
+  };
 
   const createMutation = useApiMutation<AssemblyRecord, Record<string, unknown>>(
     '/inventory/assemblies',
     'POST',
     {
       showSuccessToast: false,
-      onSuccess: () => {
-        invalidateQuery(['assemblies']);
-        resetNew();
-        setSuccess('تم حفظ أمر التجميع');
+      onSuccess: (res) => {
+        invalidateStockViews(invalidateQuery);
+        invalidateNextSerial();
+        const id = res.data?.id;
+        const shouldPost = postAfterSaveRef.current;
+        postAfterSaveRef.current = false;
+        if (id) invalidateQuery(['assembly', id]);
+        if (shouldPost && id) {
+          postAssemblyAfterSave(id, res.data?.serial);
+          return;
+        }
+        finishDocumentSave({
+          label: 'تجميع',
+          number: res.data?.serial,
+          savedId: id,
+          cleared: false,
+          onOpen: openAssembly,
+          onSavedOpen: (saved) => invalidateQuery(['assembly', saved]),
+          reset: () => {
+            if (id) {
+              openAssembly(id);
+              setViewLocked(true);
+            } else {
+              resetNew();
+            }
+          },
+        });
       },
-      onError: (err: ApiError) => setError(err.message || 'تعذر حفظ أمر التجميع'),
+      onError: (err: ApiError) => {
+        postAfterSaveRef.current = false;
+        setError(err.message || 'تعذر حفظ أمر التجميع');
+      },
     }
   );
 
@@ -176,58 +248,59 @@ function AssemblyPageInner() {
     'PUT',
     {
       showSuccessToast: false,
-      onSuccess: () => {
-        invalidateQuery(['assemblies']);
-        const id = selectedId;
+      onSuccess: (res) => {
+        const id = res.data?.id || selectedId;
+        const number = res.data?.serial || serial;
+        const shouldPost = postAfterSaveRef.current;
+        postAfterSaveRef.current = false;
+        invalidateStockViews(invalidateQuery);
         if (consumeShouldRepost() && id) {
           void postNamedDocumentAfterSave(`/inventory/assemblies/${id}/post`)
             .then(() => {
-              resetNew();
-              setSuccess('تم حفظ التعديلات وترحيل أمر التجميع');
+              finishDocumentSave({
+                label: 'تجميع',
+                number,
+                posted: true,
+                savedId: id,
+                cleared: false,
+                onOpen: openAssembly,
+                reset: () => {
+                  stayOnAssembly(id, number);
+                  setViewLocked(true);
+                },
+              });
             })
             .catch((err: ApiError) => {
-              resetNew();
+              stayOnAssembly(id, res.data?.serial);
               setError(err.message || 'تم الحفظ لكن تعذر ترحيل التجميع');
             });
           return;
         }
-        resetNew();
-        setSuccess('تم تحديث أمر التجميع');
+        if (shouldPost && id) {
+          postAssemblyAfterSave(id, number);
+          return;
+        }
+        finishDocumentSave({
+          label: 'تجميع',
+          number,
+          savedId: id,
+          cleared: false,
+          onOpen: openAssembly,
+          onSavedOpen: (saved) => invalidateQuery(['assembly', saved]),
+          reset: () => {
+            stayOnAssembly(id, number);
+            setViewLocked(true);
+          },
+        });
       },
-      onError: (err: ApiError) => setError(err.message || 'تعذر تحديث أمر التجميع'),
+      onError: (err: ApiError) => {
+        postAfterSaveRef.current = false;
+        setError(err.message || 'تعذر تحديث أمر التجميع');
+      },
     }
   );
 
-  const postMutation = useApiMutation<unknown, Record<string, never>>(
-    selectedId ? `/inventory/assemblies/${selectedId}/post` : '/inventory/assemblies',
-    'POST',
-    {
-      showSuccessToast: false,
-      onSuccess: () => {
-        setIsPosted(true);
-        setSuccess('تم ترحيل أمر التجميع');
-        invalidateQuery(['assemblies']);
-        invalidateQuery(['assembly', selectedId ?? '']);
-      },
-      onError: (err: ApiError) => setError(err.message || 'فشل ترحيل التجميع'),
-    }
-  );
-
-  const unpostMutation = useApiMutation<unknown, Record<string, never>>(
-    selectedId ? `/inventory/assemblies/${selectedId}/unpost` : '/inventory/assemblies',
-    'POST',
-    {
-      showSuccessToast: false,
-      onSuccess: () => {
-        setIsPosted(false);
-        markUnpostedForEdit();
-        setSuccess('تم فك ترحيل التجميع');
-        invalidateQuery(['assemblies']);
-        invalidateQuery(['assembly', selectedId ?? '']);
-      },
-      onError: (err: ApiError) => setError(err.message || 'فشل فك الترحيل'),
-    }
-  );
+  const unpostMutation = useDocumentPostMutation('/inventory/assemblies', selectedId, 'unpost');
 
   const cancelMutation = useApiMutation<unknown, Record<string, never>>(
     selectedId ? `/inventory/assemblies/${selectedId}/cancel` : '/inventory/assemblies',
@@ -246,7 +319,7 @@ function AssemblyPageInner() {
   const buildPayload = () => {
     if (!parentItemId) throw new Error('يرجى اختيار الصنف التجميعي');
     if (!sourceWarehouseId) throw new Error('يرجى اختيار مخزن صرف المكونات');
-    if (entered.length === 0) throw new Error('أضف مكوناً واحداً على الأقل أو اضغط تحليل');
+    if (entered.length === 0) throw new Error('أضف مكوناً واحداً على الأقل أو اضغط تحميل');
     return {
       serial: serial || undefined,
       description: description || undefined,
@@ -254,7 +327,7 @@ function AssemblyPageInner() {
       hijriDate: toHijriDate(date),
       warehouseId: sourceWarehouseId,
       toWarehouseId: targetWarehouseId || sourceWarehouseId,
-      costCenterId: costCenterId || undefined,
+      costCenterId: costCenterId.trim() ? costCenterId.trim() : undefined,
       lines: [
         {
           assembledItemId: parentItemId,
@@ -272,15 +345,22 @@ function AssemblyPageInner() {
   };
 
   const handleSave = () => {
-    if (readOnly) return;
+    if (readOnly && !postAfterSaveRef.current) return;
     setError('');
     try {
       const body = buildPayload();
       if (selectedId) updateMutation.mutate(body);
       else createMutation.mutate(body);
     } catch (err) {
+      postAfterSaveRef.current = false;
       setError(err instanceof Error ? err.message : 'تحقق من البيانات');
     }
+  };
+
+  const handleSaveAndPost = () => {
+    if (isPosted || isCancelled) return;
+    postAfterSaveRef.current = true;
+    handleSave();
   };
 
   const handleExplodeBOM = async () => {
@@ -290,7 +370,7 @@ function AssemblyPageInner() {
     }
     if (entered.length > 0) {
       const ok = await confirmAction(
-        'سيتم إعادة احتساب وتعبئة مكونات الصنف وفقاً لشجرة المنتجات والكمية المحددة، متابعة؟'
+        'سيتم تحميل مكونات الصنف من بطاقة الصنف حسب الكمية المحددة، متابعة؟'
       );
       if (!ok) return;
     }
@@ -303,7 +383,7 @@ function AssemblyPageInner() {
       );
       const components = res.data?.components ?? [];
       if (!components.length) {
-        setError('لا توجد مكونات في شجرة هذا الصنف');
+        setError('لا توجد مكونات في بطاقة هذا الصنف');
         return;
       }
       setLines(
@@ -319,9 +399,9 @@ function AssemblyPageInner() {
           notes: '',
         }))
       );
-      setSuccess('تم تحليل شجرة المكونات وتعبئة الجدول');
+      setSuccess('تم تحميل مكونات الصنف من البطاقة');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'تعذر تحليل شجرة المكونات');
+      setError(err instanceof Error ? err.message : 'تعذر تحميل مكونات الصنف');
     } finally {
       setExplodePending(false);
     }
@@ -329,8 +409,10 @@ function AssemblyPageInner() {
 
   const resetNew = () => {
     resetKeepPosted();
+    setViewLocked(false);
     setSelectedId(null);
     setSerial('');
+    void invalidateNextSerial();
     setDescription('');
     setDate(todayIso());
     setParentItemId('');
@@ -348,8 +430,10 @@ function AssemblyPageInner() {
   };
 
   const handleDuplicate = () => {
+    setViewLocked(false);
     setSelectedId(null);
     setSerial('');
+    void invalidateNextSerial();
     setIsPosted(false);
     setIsCancelled(false);
     setJournalEntryId(null);
@@ -367,6 +451,9 @@ function AssemblyPageInner() {
 
         <ItemAssemblyHeader
           docNumber={serial}
+          serialReadOnly={serialAutomatic || readOnly}
+          serialPlaceholder={serialAutomatic ? 'يُولَّد تلقائياً' : 'أدخل رقم المسلسل'}
+          onSerialChange={setSerial}
           isPosted={isPosted}
           isCancelled={isCancelled}
           parentItemId={parentItemId}
@@ -379,7 +466,10 @@ function AssemblyPageInner() {
           date={date}
           onDate={setDate}
           sourceWarehouseId={sourceWarehouseId}
-          onSourceWarehouseId={setSourceWarehouseId}
+          onSourceWarehouseId={(id) => {
+            setSourceWarehouseId(id);
+            if (!targetWarehouseId) setTargetWarehouseId(id);
+          }}
           targetWarehouseId={targetWarehouseId}
           onTargetWarehouseId={setTargetWarehouseId}
           costCenterId={costCenterId}
@@ -388,7 +478,7 @@ function AssemblyPageInner() {
           explodePending={explodePending}
           canExplode={Boolean(parentItemId) && assemblyQuantity > 0 && !readOnly}
           onExplode={() => void handleExplodeBOM()}
-          onSaveDraft={handleSave}
+          onSaveDraft={handleSaveAndPost}
           onCancel={resetNew}
           savePending={savePending}
           canSave={!readOnly && !savePending}
@@ -397,26 +487,44 @@ function AssemblyPageInner() {
             {
               id: 'edit',
               label: 'تعديل',
-              disabled: !selectedId || isPosted || isCancelled,
+              disabled: !selectedId || isPosted || isCancelled || !viewLocked,
               onClick: () => {
-                if (isPosted) setError('يجب فك الترحيل أولاً للتعديل');
+                if (isPosted) {
+                  setError('يجب فك الترحيل أولاً للتعديل');
+                  return;
+                }
+                setViewLocked(false);
+                setSuccess('');
               },
             },
             {
               id: 'post',
               label: 'ترحيل أمر التجميع',
-              disabled: !selectedId || isPosted || isCancelled || savePending,
-              onClick: () => {
-                if (!selectedId) setError('احفظ أمر التجميع أولاً');
-                else postMutation.mutate({});
-              },
+              disabled: isPosted || isCancelled || savePending,
+              onClick: () => handleSaveAndPost(),
             },
             {
               id: 'unpost',
               label: 'فك ترحيل التجميع',
-              disabled: !selectedId || !isPosted,
+              disabled: !selectedId || !isPosted || unpostMutation.isPending,
               onClick: () => {
-                if (selectedId) unpostMutation.mutate({});
+                if (!selectedId) return;
+                void confirmAction('فك ترحيل أمر التجميع؟ سيتم إرجاع الكميات للمخزن.').then((ok) => {
+                  if (ok)
+                    unpostMutation.mutate(
+                      {},
+                      {
+                        onSuccess: () => {
+                          setIsPosted(false);
+                          setViewLocked(false);
+                          markUnpostedForEdit();
+                          setSuccess('تم فك ترحيل التجميع');
+                          stayOnAssembly(selectedId);
+                        },
+                        onError: (err: ApiError) => setError(err.message || 'فشل فك الترحيل'),
+                      }
+                    );
+                });
               },
             },
             { id: 'print', label: 'طباعة أمر التجميع', onClick: () => void printPageContent('أمر التجميع') },
@@ -450,7 +558,7 @@ function AssemblyPageInner() {
           isPosted={isPosted}
           savePending={savePending}
           canSave={!readOnly && !savePending}
-          onSave={handleSave}
+          onSave={handleSaveAndPost}
           onCancel={resetNew}
         />
 
@@ -478,10 +586,11 @@ function AssemblyPageInner() {
                 ? { variant: 'danger', label: 'ملغي' }
                 : r.isPosted
                   ? { variant: 'success', label: 'مرحّل' }
-                  : { variant: 'warning', label: 'مسودة' }
+                  : { variant: 'warning', label: selectedId ? 'غير مرحّل' : 'جديد' }
             }
             onSelect={(id) => {
               setSelectedId(id);
+              setViewLocked(true);
               setBrowseOpen(false);
               window.history.replaceState(null, '', `?id=${id}`);
             }}

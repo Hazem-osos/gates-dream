@@ -15,8 +15,9 @@ import { DocumentModeProvider, useDocumentMode } from '@/components/common/docum
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
 import { useApiMutation, useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
-import { pickDefaultSafeId, useSafesQuery } from '@/lib/hooks/useMasterDataQueries';
-import { SafeSelect } from '@/app/components/form/SafeSelect';
+import { pickDefaultSafeId, useLiveFundBalance, useSafesQuery } from '@/lib/hooks/useMasterDataQueries';
+import { CashSafeHeaderSelector } from '@/components/accounting/vouchers/CashSafeHeaderSelector';
+import { parseDecimal } from '@/lib/money/parseDecimal';
 import { apiClient } from '@/lib/api/client';
 import { toHijriDate } from '@/lib/hijri-date';
 import type { ApiError } from '@/lib/api/types';
@@ -31,7 +32,6 @@ import { pickCurrencyByCode, rateForCurrency } from '@/lib/accounting/fx-base';
 import { useCompanyBaseCurrency } from '@/lib/hooks/useCompanyBaseCurrency';
 import { DocumentCurrencyRateFields } from '@/components/accounting/DocumentCurrencyRateFields';
 
-type Safe = { id: string; arabicName: string; englishName?: string };
 type Currency = {
   id: string;
   code: string;
@@ -121,6 +121,9 @@ function TemporaryReceiptFormInner() {
   });
 
   const safeId = watch('safeId');
+  const { data: liveSafeResponse } = useLiveFundBalance({ kind: 'safe', id: safeId });
+  const selectedSafe = safes.find((safe) => safe.id === safeId);
+  const safeBalance = parseDecimal(liveSafeResponse?.data?.balance ?? selectedSafe?.balance);
   const currencyId = watch('currencyId');
   const exchangeRateWatch = watch('exchangeRate');
   const amountWatch = watch('amount');
@@ -180,9 +183,10 @@ function TemporaryReceiptFormInner() {
     'POST',
     {
       showSuccessToast: false,
-      onSuccess: () => {
+      onSuccess: (res) => {
         invalidateQuery(['treasury-receipts']);
-        resetNew();
+        if (res.data?.id) applyRecord(res.data);
+        else resetNew();
         setSuccess('تم حفظ الإيصال المؤقت بنجاح');
       },
       onError: (err: ApiError) => setError(err.message || 'حدث خطأ أثناء الحفظ'),
@@ -347,23 +351,18 @@ function TemporaryReceiptFormInner() {
             }
             row2={
               <>
-                <CompactFormField label="الصندوق" error={errors.safeId?.message}>
-                  <Controller
-                    name="safeId"
-                    control={control}
-                    render={({ field }) => (
-                      <SafeSelect
-                        value={field.value || ''}
-                        onChange={field.onChange}
-                        disabled={isReadOnly}
-                        safes={safes}
-                        placeholder="اختر الصندوق"
-                        emptyLabel="اختر الصندوق"
-                        className={`${compactControlClass} ${errors.safeId ? 'border-red-400' : ''}`}
-                      />
-                    )}
+                <div className="min-w-[16rem] flex-1">
+                  <CashSafeHeaderSelector
+                    safes={safes}
+                    value={safeId || ''}
+                    onChange={(id) => setValue('safeId', id, { shouldDirty: true, shouldValidate: true })}
+                    disabled={isReadOnly}
+                    error={Boolean(errors.safeId)}
+                    errorMessage={errors.safeId?.message}
+                    baseCurrency={companyBaseCurrency}
+                    displayBalance={safeBalance}
                   />
-                </CompactFormField>
+                </div>
                 <CompactFormField label="تم تصفيته / تأكيده">
                   <div className="flex h-9 items-center">
                     <Controller

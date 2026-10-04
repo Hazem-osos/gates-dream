@@ -13,14 +13,14 @@ export function ChildItemKindDialog({ open, parentLabel, onClose, onPick }: Prop
   return (
     <CenteredOverlay open={open} onClose={onClose} width="md" labelledBy="child-item-kind-title">
       <div className="p-6" dir="rtl">
-        <h2 id="child-item-kind-title" className="text-lg font-bold text-[#0E79AA]">
+        <h2 id="child-item-kind-title" className="text-lg font-bold text-[#0E78AA]">
           هتضيف إيه تحت المجموعة؟
         </h2>
         <p className="mt-1 text-sm text-slate-500">تحت: {parentLabel}</p>
         <div className="mt-5 grid gap-3">
           <button
             type="button"
-            className="rounded-xl border border-[#D6EAF3] bg-[#F6FBFD] px-4 py-3 text-right hover:border-[#0E79AA] hover:bg-white"
+            className="rounded-xl border border-[#D6EAF3] bg-[#F6FBFD] px-4 py-3 text-right hover:border-[#0E78AA] hover:bg-white"
             onClick={() => onPick('group')}
           >
             <span className="block text-sm font-bold text-[#0A3D5E]">مجموعة</span>
@@ -30,7 +30,7 @@ export function ChildItemKindDialog({ open, parentLabel, onClose, onPick }: Prop
           </button>
           <button
             type="button"
-            className="rounded-xl border border-[#D6EAF3] bg-[#F6FBFD] px-4 py-3 text-right hover:border-[#0E79AA] hover:bg-white"
+            className="rounded-xl border border-[#D6EAF3] bg-[#F6FBFD] px-4 py-3 text-right hover:border-[#0E78AA] hover:bg-white"
             onClick={() => onPick('item')}
           >
             <span className="block text-sm font-bold text-[#0A3D5E]">صنف</span>

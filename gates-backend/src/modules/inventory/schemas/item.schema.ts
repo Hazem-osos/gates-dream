@@ -1,24 +1,34 @@
 import { z } from 'zod';
 
+const emptyToNull = (val: unknown) => (val === '' || val === undefined ? null : val);
+
+const uuidId = z.preprocess(emptyToNull, z.string().uuid().optional().nullable());
+
+const optNum = z.preprocess((val) => {
+  if (val === '' || val === null || val === undefined) return null;
+  if (typeof val === 'number' && !Number.isFinite(val)) return null;
+  return val;
+}, z.number().nonnegative().optional().nullable());
+
 export const createItemSchema = z.object({
   serial: z.string().optional(),
-  arabicName: z.string().min(1, 'Arabic name is required'),
+  arabicName: z.string().trim().min(1, 'اسم الصنف مطلوب'),
   englishName: z.string().optional(),
-  mainAccountId: z.string().uuid().optional().nullable(),
-  costCenterId: z.string().uuid().optional().nullable(),
+  mainAccountId: uuidId,
+  costCenterId: uuidId,
   // Sales Invoice Enterprise Redesign: category-driven GL defaulting +
   // barcode + per-item tax profile defaults (consumed client-side by the
   // sales invoice line grid, still fully editable per line).
-  categoryId: z.string().uuid().optional().nullable(),
-  baseUnitId: z.string().uuid().optional().nullable(),
+  categoryId: uuidId,
+  baseUnitId: uuidId,
   barcode: z.string().optional().nullable(),
-  salesAccountId: z.string().uuid().optional().nullable(),
-  cogsAccountId: z.string().uuid().optional().nullable(),
-  defaultTaxPercent: z.number().min(0).max(100).optional().nullable(),
+  salesAccountId: uuidId,
+  cogsAccountId: uuidId,
+  defaultTaxPercent: optNum,
   taxExemptionReason: z.string().optional().nullable(),
   specifications: z.string().optional(),
   itemType: z.enum(['normal', 'pack-sheet', 'pack-kilo', 'roll']).optional(),
-  weight: z.number().nonnegative().optional().nullable(),
+  weight: optNum,
   manufacturerId: z.string().optional().nullable(),
   colorId: z.string().optional().nullable(),
   countryOfOrigin: z.string().optional().nullable(),
@@ -36,35 +46,42 @@ export const createItemSchema = z.object({
   noSellBelowCost: z.boolean().optional(),
   useSerialNumber: z.boolean().optional(),
   clothingItem: z.boolean().optional(),
-  upperLimit: z.number().nonnegative().optional().nullable(),
-  orderLimit: z.number().nonnegative().optional().nullable(),
-  orderLimitPercentage: z.number().nonnegative().optional().nullable(),
-  lowerLimit: z.number().nonnegative().optional().nullable(),
-  beginningBalance: z.number().nonnegative().optional().nullable(),
-  beginningCostPrice: z.number().nonnegative().optional().nullable(),
-  priceRetail: z.number().nonnegative().optional(),
-  priceSemiWholesale: z.number().nonnegative().optional(),
-  priceWholesale: z.number().nonnegative().optional(),
-  priceProjects: z.number().nonnegative().optional(),
+  upperLimit: optNum,
+  orderLimit: optNum,
+  orderLimitPercentage: optNum,
+  lowerLimit: optNum,
+  beginningBalance: optNum,
+  beginningCostPrice: optNum,
+  priceRetail: optNum,
+  priceSemiWholesale: optNum,
+  priceWholesale: optNum,
+  priceProjects: optNum,
   isService: z.boolean().optional(),
   isAssembly: z.boolean().optional(),
   isTaxExempt: z.boolean().optional(),
-  consumerPrice: z.number().nonnegative().optional(),
-  retailPrice: z.number().nonnegative().optional(),
-  representativePrice: z.number().nonnegative().optional(),
-  exportPrice: z.number().nonnegative().optional(),
-  priceMode: z.enum(['value', 'last_purchase_pct', 'cost_pct']).optional().nullable(),
+  consumerPrice: optNum,
+  retailPrice: optNum,
+  representativePrice: optNum,
+  exportPrice: optNum,
+  priceMode: z.preprocess(
+    emptyToNull,
+    z.enum(['value', 'last_purchase_pct', 'cost_pct']).optional().nullable()
+  ),
   priceCurrency: z.string().max(20).optional().nullable(),
-  extraAssemblyCost: z.number().nonnegative().optional().nullable(),
-  extraAssemblyCostPct: z.number().nonnegative().optional().nullable(),
-  purchaseCount: z.number().int().nonnegative().optional().nullable(),
-  minPurchaseQty: z.number().nonnegative().optional().nullable(),
+  extraAssemblyCost: optNum,
+  extraAssemblyCostPct: optNum,
+  purchaseCount: z.preprocess((val) => {
+    if (val === '' || val === null || val === undefined) return null;
+    if (typeof val === 'number' && !Number.isFinite(val)) return null;
+    return val;
+  }, z.number().int().nonnegative().optional().nullable()),
+  minPurchaseQty: optNum,
   assemblyComponents: z
     .array(
       z.object({
-        itemId: z.string().uuid().optional().nullable(),
+        itemId: uuidId,
         itemName: z.string().optional().nullable(),
-        unitId: z.string().uuid().optional().nullable(),
+        unitId: uuidId,
         unitName: z.string().optional().nullable(),
         conversionFactor: z.union([z.string(), z.number()]).optional().nullable(),
         quantity: z.union([z.string(), z.number()]).optional().nullable(),
@@ -84,9 +101,10 @@ export const createItemSchema = z.object({
     .optional()
     .nullable(),
   imageUrl: z.string().max(2_000_000).optional().nullable(),
-  defaultWarehouseId: z.string().uuid().optional().nullable(),
+  defaultWarehouseId: uuidId,
   priceSource: z.enum(['price_list', 'item_card']).optional().nullable(),
-  lastPurchasePrice: z.number().nonnegative().optional().nullable(),
+  lastPurchasePrice: optNum,
+  etaProfile: z.record(z.string(), z.unknown()).optional().nullable(),
 });
 
 export const updateItemSchema = createItemSchema.partial().extend({
@@ -111,6 +129,7 @@ export const itemQuerySchema = z.object({
     .transform((val) =>
       val === undefined ? undefined : val === true || val === 'true'
     ),
+  warehouseId: z.string().uuid().optional(),
 });
 
 export const findItemByBarcodeQuerySchema = z.object({
@@ -132,15 +151,15 @@ export const itemFinderQuerySchema = z.object({
 });
 
 export const bomExplosionQuerySchema = z.object({
-  quantity: z
-    .string()
-    .optional()
-    .transform((val) => {
-      const n = val ? Number(val) : 1;
-      return Number.isFinite(n) && n > 0 ? n : 1;
-    }),
-  warehouseId: z.string().uuid().optional(),
-  sourceWarehouseId: z.string().uuid().optional(),
+  quantity: z.coerce.number().positive().optional().default(1),
+  warehouseId: z.preprocess(
+    (val) => (val === '' || val == null ? undefined : val),
+    z.string().uuid().optional()
+  ),
+  sourceWarehouseId: z.preprocess(
+    (val) => (val === '' || val == null ? undefined : val),
+    z.string().uuid().optional()
+  ),
 });
 
 export type CreateItemInput = z.infer<typeof createItemSchema>;

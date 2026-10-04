@@ -29,7 +29,7 @@ const TONE: Record<
   },
   info: {
     iconWrap: 'bg-[#E8F4FA] ring-1 ring-[#D6EAF3]',
-    icon: 'text-[#0E79AA]',
+    icon: 'text-[#0E78AA]',
     title: 'text-[#0A3D5E]',
     confirm: 'primary',
   },
@@ -84,7 +84,7 @@ export function ConfirmDialogHost() {
   };
 
   return createPortal(
-    <div className="fixed inset-0 z-[12000] overflow-y-auto p-4 sm:p-6" dir="rtl" role="presentation">
+    <div className="fixed inset-0 z-[12000] overflow-y-auto p-4 sm:p-6" role="presentation">
       <button
         type="button"
         className="absolute inset-0 bg-[#0A3D5E]/45 backdrop-blur-[2px]"
@@ -99,7 +99,7 @@ export function ConfirmDialogHost() {
           aria-describedby="gates-confirm-message"
           className="relative w-full max-w-md overflow-hidden rounded-2xl border border-[#D6EAF3] bg-white shadow-[0_24px_60px_rgba(10,61,94,0.22)]"
         >
-          <div className="h-1.5 bg-gradient-to-l from-[#0E79AA] to-[#094C6B]" />
+          <div className="h-1.5 bg-gradient-to-l from-[#0E78AA] to-[#094C6B]" />
           <div className="p-5 sm:p-6">
             <div className="flex items-start gap-3">
               <span

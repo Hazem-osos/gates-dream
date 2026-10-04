@@ -42,27 +42,10 @@ export default function CompanyAccountingSettingsPage() {
   const { companyId } = useFirstCompany();
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  const tabs = useMemo(() => [
-    'إعدادات عامة',
-    'تعريف الحسابات',
-    'سند قيد يومية',
-    'سند صرف نقدية',
-    'سند قبض نقدية',
-    'سند خصم بنكي',
-    'سند إضافة بنكية',
-    'أوراق الدفع',
-    'أوراق القبض',
-    'إيصالات مؤقتة',
-    'إعتمادات مستندية',
-    'فاتورة مبيعات',
-    'فاتورة مردودات مبيعات',
-    'فاتورة مشتريات',
-    'فاتورة مردودات مشتريات',
-    'النقل المخزني',
-    'الجرد المخزني',
-    'تجميع الأصناف',
-    'تفكيك الأصناف'
-  ], []);
+  const tabs = useMemo(
+    () => ['إعدادات عامة', 'تعريف الحسابات'],
+    []
+  );
   const [activeTab, setActiveTab] = useState<string>('إعدادات عامة');
   const [settings, setSettings] = useState<AccountingSettingsFormState>(() =>
     defaultAccountingSettingsForm()
@@ -328,7 +311,7 @@ export default function CompanyAccountingSettingsPage() {
                                         <input
                                           type="checkbox"
                                           defaultChecked
-                                          className="h-3.5 w-3.5 rounded border-[#D6EAF3] text-[#0E78AA] focus:ring-[#0E79AA]"
+                                          className="h-3.5 w-3.5 rounded border-[#D6EAF3] text-[#0E78AA] focus:ring-[#0E78AA]"
                                         />
                                       </label>
                                     ))}
@@ -340,7 +323,7 @@ export default function CompanyAccountingSettingsPage() {
                                   <input
                                     type="checkbox"
                                     defaultChecked
-                                    className="w-5 h-5 text-[#0E78AA] bg-[#F6FBFD] border-[#D6EAF3] rounded focus:ring-[#0E79AA] focus:ring-2"
+                                    className="w-5 h-5 text-[#0E78AA] bg-[#F6FBFD] border-[#D6EAF3] rounded focus:ring-[#0E78AA] focus:ring-2"
                                   />
                                 </label>
                               </div>
@@ -356,7 +339,7 @@ export default function CompanyAccountingSettingsPage() {
                                     <input 
                                       type="checkbox" 
                                       defaultChecked
-                                      className="w-5 h-5 text-[#0E78AA] bg-[#F6FBFD] border-[#D6EAF3] rounded focus:ring-[#0E79AA] focus:ring-2"
+                                      className="w-5 h-5 text-[#0E78AA] bg-[#F6FBFD] border-[#D6EAF3] rounded focus:ring-[#0E78AA] focus:ring-2"
                                     />
                                     <span className="text-[#094C6B] font-medium">فاتورة مردودات مشتريات خدمية</span>
                                   </label>
@@ -489,7 +472,7 @@ export default function CompanyAccountingSettingsPage() {
                                         <input
                                           type="checkbox"
                                           defaultChecked
-                                          className="h-3.5 w-3.5 rounded border-[#D6EAF3] text-[#0E78AA] focus:ring-[#0E79AA]"
+                                          className="h-3.5 w-3.5 rounded border-[#D6EAF3] text-[#0E78AA] focus:ring-[#0E78AA]"
                                         />
                                       </label>
                                     ))}
@@ -501,7 +484,7 @@ export default function CompanyAccountingSettingsPage() {
                                   <input
                                     type="checkbox"
                                     defaultChecked
-                                    className="w-5 h-5 text-[#0E78AA] bg-[#F6FBFD] border-[#D6EAF3] rounded focus:ring-[#0E79AA] focus:ring-2"
+                                    className="w-5 h-5 text-[#0E78AA] bg-[#F6FBFD] border-[#D6EAF3] rounded focus:ring-[#0E78AA] focus:ring-2"
                                   />
                                 </label>
                               </div>
@@ -517,7 +500,7 @@ export default function CompanyAccountingSettingsPage() {
                                     <input 
                                       type="checkbox" 
                                       defaultChecked
-                                      className="w-5 h-5 text-[#0E78AA] bg-[#F6FBFD] border-[#D6EAF3] rounded focus:ring-[#0E79AA] focus:ring-2"
+                                      className="w-5 h-5 text-[#0E78AA] bg-[#F6FBFD] border-[#D6EAF3] rounded focus:ring-[#0E78AA] focus:ring-2"
                                     />
                                     <span className="text-[#094C6B] font-medium">فاتورة مشتريات خدمية</span>
                                   </label>
@@ -540,12 +523,19 @@ export default function CompanyAccountingSettingsPage() {
                                   accountDetails={settings.accountDetails}
                                 />
                                 <AccountSlotField
-                                  label="حساب ضريبة مدخلات"
-                                  value={settings.taxAccounts.vatInputAccountId}
+                                  label="حساب ضريبة القيمة المضافة (نفس حساب المبيعات)"
+                                  value={
+                                    settings.taxAccounts.vatInputAccountId ||
+                                    settings.taxAccounts.salesTaxAccountId
+                                  }
                                   onChange={(id) =>
                                     setSettings((prev) => ({
                                       ...prev,
-                                      taxAccounts: { ...prev.taxAccounts, vatInputAccountId: id },
+                                      taxAccounts: {
+                                        ...prev.taxAccounts,
+                                        vatInputAccountId: id,
+                                        salesTaxAccountId: id,
+                                      },
                                     }))
                                   }
                                   accountDetails={settings.accountDetails}
@@ -752,7 +742,7 @@ export default function CompanyAccountingSettingsPage() {
                                 </button>
                                 <input 
                                   type="text" 
-                                  value="1212378971212"
+                                  value=""
                                   className="h-full flex-1 bg-transparent outline-none text-[#094C6B] px-2"
                                   readOnly
                                 />
@@ -849,7 +839,7 @@ export default function CompanyAccountingSettingsPage() {
                                         <input
                                           type="checkbox"
                                           defaultChecked
-                                          className="h-3.5 w-3.5 rounded border-[#D6EAF3] text-[#0E78AA] focus:ring-[#0E79AA]"
+                                          className="h-3.5 w-3.5 rounded border-[#D6EAF3] text-[#0E78AA] focus:ring-[#0E78AA]"
                                         />
                                       </label>
                                     ))}
@@ -862,7 +852,7 @@ export default function CompanyAccountingSettingsPage() {
                                   <input
                                     type="checkbox"
                                     defaultChecked
-                                    className="w-5 h-5 text-[#0E78AA] bg-[#F6FBFD] border-[#D6EAF3] rounded focus:ring-[#0E79AA] focus:ring-2"
+                                    className="w-5 h-5 text-[#0E78AA] bg-[#F6FBFD] border-[#D6EAF3] rounded focus:ring-[#0E78AA] focus:ring-2"
                                   />
                                 </label>
                               </div>
@@ -878,7 +868,7 @@ export default function CompanyAccountingSettingsPage() {
                                     <input 
                                       type="checkbox" 
                                       defaultChecked
-                                      className="w-5 h-5 text-[#0E78AA] bg-[#F6FBFD] border-[#D6EAF3] rounded focus:ring-[#0E79AA] focus:ring-2"
+                                      className="w-5 h-5 text-[#0E78AA] bg-[#F6FBFD] border-[#D6EAF3] rounded focus:ring-[#0E78AA] focus:ring-2"
                                     />
                                     <span className="text-[#094C6B] font-medium">فاتورة مبيعات خدمية</span>
                                   </label>
@@ -887,7 +877,7 @@ export default function CompanyAccountingSettingsPage() {
                                     <input 
                                       type="checkbox" 
                                       defaultChecked
-                                      className="w-5 h-5 text-[#0E78AA] bg-[#F6FBFD] border-[#D6EAF3] rounded focus:ring-[#0E79AA] focus:ring-2"
+                                      className="w-5 h-5 text-[#0E78AA] bg-[#F6FBFD] border-[#D6EAF3] rounded focus:ring-[#0E78AA] focus:ring-2"
                                     />
                                     <span className="text-[#094C6B] font-medium">فاتورة عينات</span>
                                   </label>
@@ -909,12 +899,16 @@ export default function CompanyAccountingSettingsPage() {
                                   accountDetails={settings.accountDetails}
                                 />
                                 <AccountSlotField
-                                  label="حساب ضريبة المبيعات"
+                                  label="حساب ضريبة القيمة المضافة"
                                   value={settings.taxAccounts.salesTaxAccountId}
                                   onChange={(id) =>
                                     setSettings((prev) => ({
                                       ...prev,
-                                      taxAccounts: { ...prev.taxAccounts, salesTaxAccountId: id },
+                                      taxAccounts: {
+                                        ...prev.taxAccounts,
+                                        salesTaxAccountId: id,
+                                        vatInputAccountId: id,
+                                      },
                                     }))
                                   }
                                   accountDetails={settings.accountDetails}
@@ -1027,7 +1021,7 @@ export default function CompanyAccountingSettingsPage() {
                                         <input
                                           type="checkbox"
                                           defaultChecked
-                                          className="h-3.5 w-3.5 rounded border-[#D6EAF3] text-[#0E78AA] focus:ring-[#0E79AA]"
+                                          className="h-3.5 w-3.5 rounded border-[#D6EAF3] text-[#0E78AA] focus:ring-[#0E78AA]"
                                         />
                                       </label>
                                     ))}
@@ -1040,7 +1034,7 @@ export default function CompanyAccountingSettingsPage() {
                                   <input
                                     type="checkbox"
                                     defaultChecked
-                                    className="w-5 h-5 text-[#0E78AA] bg-[#F6FBFD] border-[#D6EAF3] rounded focus:ring-[#0E79AA] focus:ring-2"
+                                    className="w-5 h-5 text-[#0E78AA] bg-[#F6FBFD] border-[#D6EAF3] rounded focus:ring-[#0E78AA] focus:ring-2"
                                   />
                                 </label>
                               </div>
@@ -1056,7 +1050,7 @@ export default function CompanyAccountingSettingsPage() {
                                     <input 
                                       type="checkbox" 
                                       defaultChecked
-                                      className="w-5 h-5 text-[#0E78AA] bg-[#F6FBFD] border-[#D6EAF3] rounded focus:ring-[#0E79AA] focus:ring-2"
+                                      className="w-5 h-5 text-[#0E78AA] bg-[#F6FBFD] border-[#D6EAF3] rounded focus:ring-[#0E78AA] focus:ring-2"
                                     />
                                     <span className="text-[#094C6B] font-medium">فاتورة مردودات مبيعات خدمية</span>
                                   </label>
@@ -1065,7 +1059,7 @@ export default function CompanyAccountingSettingsPage() {
                                     <input 
                                       type="checkbox" 
                                       defaultChecked
-                                      className="w-5 h-5 text-[#0E78AA] bg-[#F6FBFD] border-[#D6EAF3] rounded focus:ring-[#0E79AA] focus:ring-2"
+                                      className="w-5 h-5 text-[#0E78AA] bg-[#F6FBFD] border-[#D6EAF3] rounded focus:ring-[#0E78AA] focus:ring-2"
                                     />
                                     <span className="text-[#094C6B] font-medium">فاتورة مردودات عينات</span>
                                   </label>
@@ -1165,7 +1159,7 @@ export default function CompanyAccountingSettingsPage() {
                               <input 
                                 type="checkbox" 
                                 defaultChecked
-                                className="w-5 h-5 text-[#0E78AA] bg-[#F6FBFD] border-[#D6EAF3] rounded focus:ring-[#0E79AA] focus:ring-2"
+                                className="w-5 h-5 text-[#0E78AA] bg-[#F6FBFD] border-[#D6EAF3] rounded focus:ring-[#0E78AA] focus:ring-2"
                               />
                               <span className="text-[#094C6B] font-medium text-base">ترقيم تلقائي للابصالات المؤقتة</span>
                             </label>
@@ -1174,7 +1168,7 @@ export default function CompanyAccountingSettingsPage() {
                               <input 
                                 type="checkbox" 
                                 defaultChecked
-                                className="w-5 h-5 text-[#0E78AA] bg-[#F6FBFD] border-[#D6EAF3] rounded focus:ring-[#0E79AA] focus:ring-2"
+                                className="w-5 h-5 text-[#0E78AA] bg-[#F6FBFD] border-[#D6EAF3] rounded focus:ring-[#0E78AA] focus:ring-2"
                               />
                               <span className="text-[#094C6B] font-medium text-base">ترقيم متصل للابصالات المؤقتة لعدة فترات محاسبية</span>
                             </label>
@@ -1183,7 +1177,7 @@ export default function CompanyAccountingSettingsPage() {
                               <input 
                                 type="checkbox" 
                                 defaultChecked
-                                className="w-5 h-5 text-[#0E78AA] bg-[#F6FBFD] border-[#D6EAF3] rounded focus:ring-[#0E79AA] focus:ring-2"
+                                className="w-5 h-5 text-[#0E78AA] bg-[#F6FBFD] border-[#D6EAF3] rounded focus:ring-[#0E78AA] focus:ring-2"
                               />
                               <span className="text-[#094C6B] font-medium text-base">طباعة مؤقتة للإيصالات المؤقتة عند الحفظ</span>
                             </label>
@@ -1225,7 +1219,7 @@ export default function CompanyAccountingSettingsPage() {
                                   <input
                                     type="checkbox"
                                     defaultChecked
-                                    className="h-3.5 w-3.5 rounded border-[#D6EAF3] text-[#0E78AA] focus:ring-[#0E79AA]"
+                                    className="h-3.5 w-3.5 rounded border-[#D6EAF3] text-[#0E78AA] focus:ring-[#0E78AA]"
                                   />
                                   <span className="text-xs font-medium text-[#094C6B]">{setting}</span>
                                 </label>
@@ -1275,7 +1269,7 @@ export default function CompanyAccountingSettingsPage() {
                                   <input
                                     type="checkbox"
                                     defaultChecked
-                                    className="h-3.5 w-3.5 rounded border-[#D6EAF3] text-[#0E78AA] focus:ring-[#0E79AA]"
+                                    className="h-3.5 w-3.5 rounded border-[#D6EAF3] text-[#0E78AA] focus:ring-[#0E78AA]"
                                   />
                                   <span className="text-xs font-medium text-[#094C6B]">{setting}</span>
                                 </label>
@@ -1362,7 +1356,7 @@ export default function CompanyAccountingSettingsPage() {
                         'طباعة تلقائية للجرد المخزني عند الحفظ'
                       ].map((label, idx) => (
                         <label key={idx} className="flex items-center gap-3 p-4 bg-[#F6FBFD] rounded-lg border border-[#D6EAF3] hover:bg-[#E6F3FF] transition-colors cursor-pointer">
-                          <input type="checkbox" defaultChecked className="w-5 h-5 text-[#0E78AA] bg-[#F6FBFD] border-[#D6EAF3] rounded focus:ring-[#0E79AA] focus:ring-2" />
+                          <input type="checkbox" defaultChecked className="w-5 h-5 text-[#0E78AA] bg-[#F6FBFD] border-[#D6EAF3] rounded focus:ring-[#0E78AA] focus:ring-2" />
                           <span className="text-[#094C6B] font-medium">{label}</span>
                         </label>
                       ))}
@@ -1422,7 +1416,7 @@ export default function CompanyAccountingSettingsPage() {
                         'إلى ترحيل تلقائي عند الحفظ'
                       ].map((label, idx) => (
                         <label key={idx} className="flex items-center gap-3 p-4 bg-[#F6FBFD] rounded-lg border border-[#D6EAF3] hover:bg-[#E6F3FF] transition-colors cursor-pointer">
-                          <input type="checkbox" defaultChecked className="w-5 h-5 text-[#0E78AA] bg-[#F6FBFD] border-[#D6EAF3] rounded focus:ring-[#0E79AA] focus:ring-2" />
+                          <input type="checkbox" defaultChecked className="w-5 h-5 text-[#0E78AA] bg-[#F6FBFD] border-[#D6EAF3] rounded focus:ring-[#0E78AA] focus:ring-2" />
                           <span className="text-[#094C6B] font-medium">{label}</span>
                         </label>
                       ))}
@@ -1482,7 +1476,7 @@ export default function CompanyAccountingSettingsPage() {
                         'إلى ترحيل تلقائي عند الحفظ'
                       ].map((label, idx) => (
                         <label key={idx} className="flex items-center gap-3 p-4 bg-[#F6FBFD] rounded-lg border border-[#D6EAF3] hover:bg-[#E6F3FF] transition-colors cursor-pointer">
-                          <input type="checkbox" defaultChecked className="w-5 h-5 text-[#0E78AA] bg-[#F6FBFD] border-[#D6EAF3] rounded focus:ring-[#0E79AA] focus:ring-2" />
+                          <input type="checkbox" defaultChecked className="w-5 h-5 text-[#0E78AA] bg-[#F6FBFD] border-[#D6EAF3] rounded focus:ring-[#0E78AA] focus:ring-2" />
                           <span className="text-[#094C6B] font-medium">{label}</span>
                         </label>
                       ))}
@@ -1536,7 +1530,7 @@ export default function CompanyAccountingSettingsPage() {
                         'إلى ترحيل تلقائي عند الحفظ'
                       ].map((label, idx) => (
                         <label key={idx} className="flex items-center gap-3 p-4 bg-[#F6FBFD] rounded-lg border border-[#D6EAF3] hover:bg-[#E6F3FF] transition-colors cursor-pointer">
-                          <input type="checkbox" defaultChecked className="w-5 h-5 text-[#0E78AA] bg-[#F6FBFD] border-[#D6EAF3] rounded focus:ring-[#0E79AA] focus:ring-2" />
+                          <input type="checkbox" defaultChecked className="w-5 h-5 text-[#0E78AA] bg-[#F6FBFD] border-[#D6EAF3] rounded focus:ring-[#0E78AA] focus:ring-2" />
                           <span className="text-[#094C6B] font-medium">{label}</span>
                         </label>
                       ))}
@@ -1637,7 +1631,7 @@ export default function CompanyAccountingSettingsPage() {
                                   type="checkbox"
                                   checked={Boolean(settings[key])}
                                   onChange={(e) => update(key, e.target.checked)}
-                                  className="h-3.5 w-3.5 rounded border-[#D6EAF3] text-[#0E78AA] focus:ring-[#0E79AA]"
+                                  className="h-3.5 w-3.5 rounded border-[#D6EAF3] text-[#0E78AA] focus:ring-[#0E78AA]"
                                 />
                               </label>
                             ))}
@@ -1821,7 +1815,7 @@ export default function CompanyAccountingSettingsPage() {
                           type="checkbox"
                           checked={Boolean(settings[key])}
                           onChange={(e) => update(key, e.target.checked)}
-                          className="h-3.5 w-3.5 rounded border-[#D6EAF3] text-[#0E78AA] focus:ring-[#0E79AA]"
+                          className="h-3.5 w-3.5 rounded border-[#D6EAF3] text-[#0E78AA] focus:ring-[#0E78AA]"
                         />
                       </label>
                     ))}

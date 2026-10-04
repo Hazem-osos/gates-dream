@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { formatMoney } from '@/lib/hooks/useExecutiveDashboard';
 
-const BRAND = '#0E79AA';
+const BRAND = '#0E78AA';
 const ACCENT = '#CB5B53';
 
 type RechartsModule = typeof import('recharts');

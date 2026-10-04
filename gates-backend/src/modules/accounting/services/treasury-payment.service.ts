@@ -4,7 +4,7 @@ import { autoGlPostingService } from './auto-gl-posting.service';
 import { treasuryPostingService } from '../../treasury/services/treasury-posting.service';
 import { resolveDefaultTreasuryPostingContext } from '../../treasury/services/treasury-posting-context';
 import { assertCashOverdraftAllowed } from '../../treasury/services/treasury-overdraft';
-import { persistFxDecimal } from '../utils/company-fx-rate';
+import { asFxRate, persistFxDecimal } from '../utils/company-fx-rate';
 
 export interface CreateTreasuryPaymentData {
   branchId?: string;
@@ -157,17 +157,19 @@ export class TreasuryPaymentService {
     this.validatePaymentData(data);
     await assertCashOverdraftAllowed({
       companyId,
-      amount: Number(data.amount),
+      amount: Number(data.amount) * asFxRate(data.exchangeRate, 1),
       safeId: data.safeId,
       bankAccountId: data.bankAccountId,
       accountId: data.accountId,
     });
 
-    // Check voucher number uniqueness
+    const voucherFamily = data.bankAccountId ? 'BANK' : 'CASH';
+    // Uniqueness is per type: سند صرف and إشعار خصم بنكي may share a number.
     if (data.voucherNumber) {
       const existing = await prisma.treasuryPayment.findFirst({
         where: {
           companyId,
+          voucherFamily,
           voucherNumber: data.voucherNumber,
         },
       });
@@ -189,6 +191,7 @@ export class TreasuryPaymentService {
         paymentType: data.paymentType,
         safeId: data.safeId,
         bankAccountId: data.bankAccountId,
+        voucherFamily,
         accountId: data.accountId,
         customerId: data.customerId,
         supplierId: data.supplierId,
@@ -253,11 +256,12 @@ export class TreasuryPaymentService {
       this.validatePaymentType(validationData);
     }
 
-    // Check voucher number uniqueness if changing
+    const voucherFamily = (data.bankAccountId ?? payment.bankAccountId) ? 'BANK' : 'CASH';
     if (data.voucherNumber && data.voucherNumber !== payment.voucherNumber) {
       const existing = await prisma.treasuryPayment.findFirst({
         where: {
           companyId,
+          voucherFamily,
           voucherNumber: data.voucherNumber,
           id: { not: paymentId },
         },
@@ -280,23 +284,21 @@ export class TreasuryPaymentService {
     if (data.supplierId !== undefined) updateData.supplierId = data.supplierId;
     if (data.accountId !== undefined) updateData.accountId = data.accountId;
     if (data.safeId !== undefined) updateData.safeId = data.safeId;
-    if (data.bankAccountId !== undefined) updateData.bankAccountId = data.bankAccountId;
+    if (data.bankAccountId !== undefined) {
+      updateData.bankAccountId = data.bankAccountId;
+      updateData.voucherFamily = data.bankAccountId ? 'BANK' : 'CASH';
+    }
     if (data.amount !== undefined) updateData.amount = new Decimal(data.amount);
     if (data.currencyCode !== undefined) updateData.currencyCode = data.currencyCode;
     if (data.exchangeRate !== undefined)
       updateData.exchangeRate = data.exchangeRate ? new Decimal(data.exchangeRate) : null;
 
-    return prisma.treasuryPayment.update({
-      where: { id: paymentId },
+    const updated = await prisma.treasuryPayment.updateMany({
+      where: { id: paymentId, companyId },
       data: updateData,
-      include: {
-        customer: true,
-        supplier: true,
-        account: true,
-        safe: true,
-        bankAccount: { include: { bank: true } },
-      },
     });
+    if (updated.count !== 1) throw new Error('Treasury payment not found');
+    return this.getTreasuryPaymentById(companyId, paymentId);
   }
 
   // Wave 2 fix: the legacy postTreasuryPayment/unpostTreasuryPayment methods
@@ -320,13 +322,15 @@ export class TreasuryPaymentService {
       throw new Error('Treasury payment is already cancelled');
     }
 
-    return prisma.treasuryPayment.update({
-      where: { id: paymentId },
+    const updated = await prisma.treasuryPayment.updateMany({
+      where: { id: paymentId, companyId },
       data: {
         isCancelled: true,
         cancelledAt: new Date(),
       },
     });
+    if (updated.count !== 1) throw new Error('Treasury payment not found');
+    return this.getTreasuryPaymentById(companyId, paymentId);
   }
 
   /**

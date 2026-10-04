@@ -25,7 +25,7 @@ export default function OwnerBackupPage() {
   return (
     <div className="mx-auto max-w-3xl px-4 py-6" dir="rtl">
       <div className="mb-4 text-sm text-slate-500">
-        <Link href="/settings/company" className="text-[#0E79AA] hover:underline">
+        <Link href="/settings/company" className="text-[#0E78AA] hover:underline">
           إعدادات الشركة
         </Link>
         <span className="mx-1">/</span>

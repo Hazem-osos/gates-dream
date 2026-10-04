@@ -25,7 +25,6 @@ export function ErpDocumentLayout({ children, className = '' }: Props) {
     <div
       ref={rootRef}
       className={`${className} erp-contain isolate content-start min-h-0 min-w-0 max-w-full bg-transparent p-0`.trim()}
-      dir="rtl"
       data-print-root=""
       data-1p-ignore="true"
       data-lpignore="true"

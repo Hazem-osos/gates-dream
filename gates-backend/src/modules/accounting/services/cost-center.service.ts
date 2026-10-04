@@ -4,6 +4,7 @@ import { AppError } from '../../../shared/middleware/error-handler';
 import { logger } from '../../../shared/logger';
 import { advancedFlag } from '../../../shared/utils/next-numeric-code';
 import { resolveCreateCostCenterKind } from '../utils/cost-center-kind';
+import { permanentDelete } from '../../../shared/database/permanent-delete.util';
 
 function retiredCostCenterCode(code: string, id: string): string {
   if (code.includes('__deleted__')) return code;
@@ -393,6 +394,15 @@ export class CostCenterService {
           : requested === 'POSTING'
             ? 'POSTING'
             : 'HEADER';
+        if (nextKind === 'HEADER' && existing.costCenterKind === 'POSTING') {
+          const movementCount = await this.countCostCenterMovements(companyId, costCenterId);
+          if (movementCount > 0) {
+            throw new AppError(
+              409,
+              'لا يمكن تحويل المركز إلى رئيسي لأن عليه حركات. أنشئ مركزاً رئيسياً جديداً وانقل الحركات أولاً.'
+            );
+          }
+        }
         if (nextKind === 'POSTING') {
           const childCount = await prisma.costCenter.count({
             where: { parentId: costCenterId, companyId, isActive: true },
@@ -406,8 +416,8 @@ export class CostCenterService {
         }
       }
 
-      const costCenter = await prisma.costCenter.update({
-        where: { id: costCenterId },
+      const written = await prisma.costCenter.updateMany({
+        where: { id: costCenterId, companyId },
         data: {
           ...(data.code && { code: data.code }),
           ...(data.arabicName && { arabicName: data.arabicName }),
@@ -421,6 +431,12 @@ export class CostCenterService {
           ...(data.currencyCode !== undefined && { currencyCode: data.currencyCode }),
           ...(data.isActive !== undefined && { isActive: data.isActive }),
         },
+      });
+      if (written.count !== 1) {
+        throw new AppError(404, 'مركز التكلفة غير موجود');
+      }
+      const costCenter = await prisma.costCenter.findFirstOrThrow({
+        where: { id: costCenterId, companyId },
         include: {
           parent: { select: { id: true, code: true, arabicName: true } },
           children: { select: { id: true, code: true, arabicName: true } },
@@ -468,25 +484,7 @@ export class CostCenterService {
       );
     }
 
-    await prisma.costCenter.update({
-      where: { id: costCenterId },
-      data: {
-        isActive: false,
-        code: retiredCostCenterCode(costCenter.code, costCenter.id),
-      },
-    });
-
-    try {
-      await prisma.costCenter.delete({ where: { id: costCenterId } });
-    } catch (error) {
-      const blocked =
-        error instanceof Prisma.PrismaClientKnownRequestError &&
-        (error.code === 'P2003' || error.code === 'P2014');
-      if (!blocked) {
-        logger.error({ error, companyId, costCenterId }, 'Error deleting cost center');
-        throw error;
-      }
-    }
+    await permanentDelete('مركز التكلفة', () => prisma.costCenter.delete({ where: { id: costCenterId } }));
 
     logger.info({ companyId, costCenterId }, 'Cost center deleted');
     return { success: true };

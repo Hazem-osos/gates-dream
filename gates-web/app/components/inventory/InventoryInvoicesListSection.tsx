@@ -314,6 +314,20 @@ export function InventoryInvoicesListSection({
               cell: (r) => invoiceNetAmount(r),
             },
             {
+              id: 'paid',
+              header: 'المدفوع',
+              align: 'end',
+              numeric: true,
+              cell: (r) => Number(r.paidAmount ?? 0),
+            },
+            {
+              id: 'remaining',
+              header: 'المتبقي',
+              align: 'end',
+              numeric: true,
+              cell: (r) => invoiceNetAmount(r) - Number(r.paidAmount ?? 0),
+            },
+            {
               id: 'status',
               header: 'الحالة',
               align: 'center',
@@ -502,6 +516,20 @@ export function InventoryInvoicesListSection({
             align: 'end',
             numeric: true,
             cell: (r) => invoiceNetAmount(r),
+          },
+          {
+            id: 'paid',
+            header: 'المدفوع',
+            align: 'end',
+            numeric: true,
+            cell: (r) => Number(r.paidAmount ?? 0),
+          },
+          {
+            id: 'remaining',
+            header: 'المتبقي',
+            align: 'end',
+            numeric: true,
+            cell: (r) => invoiceNetAmount(r) - Number(r.paidAmount ?? 0),
           },
           {
             id: 'status',

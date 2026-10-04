@@ -60,7 +60,7 @@ export function LaunchChecklistWidget() {
       className="mb-6 rounded-2xl border border-[#D6EAF3] bg-white p-5 shadow-sm group"
       dir="rtl"
     >
-      <summary className="cursor-pointer list-none font-bold text-[#0E79AA]">
+      <summary className="cursor-pointer list-none font-bold text-[#0E78AA]">
         🚀 خطواتك لبدء العمل بنجاح ({done}/4 مكتملة)
       </summary>
       <ul className="mt-4 space-y-3 text-sm text-gray-700">
@@ -72,7 +72,7 @@ export function LaunchChecklistWidget() {
           {!checklist.createdFirstItem && (
             <Link
               href="/inventory/creations/item-card"
-              className="rounded-lg bg-[#0E79AA] px-3 py-1.5 text-xs font-bold text-white"
+              className="rounded-lg bg-[#0E78AA] px-3 py-1.5 text-xs font-bold text-white"
             >
               + إضافة صنف
             </Link>
@@ -84,7 +84,7 @@ export function LaunchChecklistWidget() {
             <Link
               href="/inventory/operations/sales-invoice"
               data-tour="new-invoice-action"
-              className="rounded-lg bg-[#0E79AA] px-3 py-1.5 text-xs font-bold text-white"
+              className="rounded-lg bg-[#0E78AA] px-3 py-1.5 text-xs font-bold text-white"
             >
               + إنشاء فاتورة
             </Link>
@@ -95,7 +95,7 @@ export function LaunchChecklistWidget() {
           {!checklist.recordedFirstReceipt && (
             <Link
               href="/accounting/operations/treasury/receipt-voucher"
-              className="rounded-lg bg-[#0E79AA] px-3 py-1.5 text-xs font-bold text-white"
+              className="rounded-lg bg-[#0E78AA] px-3 py-1.5 text-xs font-bold text-white"
             >
               + تسجيل سند
             </Link>

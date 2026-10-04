@@ -27,7 +27,7 @@ export function AiBenefitJourney() {
   const appWrapRef = useRef<HTMLDivElement>(null);
   const captionRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef<HTMLDivElement>(null);
-  const cards = useRef<(HTMLDivElement | null)[]>([]);
+  const cards = useRef<(HTMLElement | null)[]>([]);
   const qRef = useRef<HTMLDivElement>(null);
   const a1Ref = useRef<HTMLDivElement>(null);
   const a2Ref = useRef<HTMLDivElement>(null);

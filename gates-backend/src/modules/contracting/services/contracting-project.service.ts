@@ -1,6 +1,7 @@
 import { Decimal } from '@prisma/client/runtime/library';
 import prisma from '../../../shared/database/prisma';
 import { AppError } from '../../../shared/middleware/error-handler';
+import { requireLegacyWave3ForSubcontractLink } from './contracting-canonical-stack.service';
 
 export interface CreateContractingProjectInput {
   projectCode: string;
@@ -30,7 +31,7 @@ export class ContractingProjectService {
       const customer = await prisma.customer.findFirst({
         where: { id: input.customerId, companyId },
       });
-      if (!customer) throw new AppError(404, 'Customer not found');
+      if (!customer) throw new AppError(404, 'العميل غير موجود');
     }
 
     const advanceAmt = input.advancePaymentBalance ?? 0;
@@ -80,6 +81,7 @@ export class ContractingProjectService {
   }
 
   async addSubcontract(companyId: string, projectId: string, input: CreateSubcontractInput) {
+    await requireLegacyWave3ForSubcontractLink(companyId, projectId);
     await this.getById(companyId, projectId);
     const contractor = await prisma.contractor.findFirst({
       where: { id: input.subcontractorId, companyId },

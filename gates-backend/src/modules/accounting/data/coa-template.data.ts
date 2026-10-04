@@ -33,11 +33,18 @@ const CORE_EGYPTIAN_COA: CoaTemplateRow[] = [
     parentCode: '11',
   },
   {
+    code: '1110',
+    arabicName: 'الخزن',
+    englishName: 'Cash Safes',
+    accountType: 'asset',
+    parentCode: '111',
+  },
+  {
     code: '1111',
     arabicName: 'الخزينة الرئيسية',
     englishName: 'Main Cash Safe',
     accountType: 'asset',
-    parentCode: '111',
+    parentCode: '1110',
     accountSide: 'debit',
   },
   {
@@ -233,8 +240,8 @@ const CORE_EGYPTIAN_COA: CoaTemplateRow[] = [
   },
   {
     code: '2131',
-    arabicName: 'ضريبة القيمة المضافة 14%',
-    englishName: 'VAT Output 14%',
+    arabicName: 'ضريبة القيمة المضافة',
+    englishName: 'VAT (net control)',
     accountType: 'liability',
     parentCode: '213',
     accountSide: 'credit',

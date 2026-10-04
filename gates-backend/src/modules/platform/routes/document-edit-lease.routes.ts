@@ -3,6 +3,7 @@ import { authenticate } from '../../../shared/middleware/auth.middleware';
 import { setTenantContext } from '../../../shared/middleware/tenant.middleware';
 import { validate } from '../../../shared/middleware/validate';
 import { AppError } from '../../../shared/middleware/error-handler';
+import { getCachedUserPermissions } from '../../../shared/cache/tenant-context.cache';
 import type { AuthRequest } from '../../../shared/auth/types';
 import { documentEditLeaseBodySchema } from '../schemas/document-edit-lease.schema';
 import {
@@ -22,6 +23,24 @@ function requireCompanyAndUser(req: AuthRequest): { companyId: string; userId: s
   return { companyId, userId };
 }
 
+async function requireGrantedPermission(
+  req: AuthRequest,
+  _res: Response,
+  next: NextFunction
+): Promise<void> {
+  try {
+    const { companyId, userId } = requireCompanyAndUser(req);
+    const snap = await getCachedUserPermissions(userId, companyId);
+    if (!snap.grantAll && snap.permissions.length === 0) {
+      next(new AppError(403, 'ليست لديك صلاحية لتعديل المستندات'));
+      return;
+    }
+    next();
+  } catch (error) {
+    next(error);
+  }
+}
+
 function holderName(req: AuthRequest, fallback?: string): string {
   const fromBody = fallback?.trim();
   if (fromBody) return fromBody;
@@ -30,6 +49,7 @@ function holderName(req: AuthRequest, fallback?: string): string {
 
 router.post(
   '/acquire',
+  requireGrantedPermission,
   validate({ body: documentEditLeaseBodySchema }),
   async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
@@ -58,6 +78,7 @@ router.post(
 
 router.post(
   '/release',
+  requireGrantedPermission,
   validate({ body: documentEditLeaseBodySchema.pick({ resourceKey: true, sessionId: true }) }),
   async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {

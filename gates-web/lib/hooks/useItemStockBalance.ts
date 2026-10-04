@@ -8,6 +8,7 @@ export type ItemStockBalancePayload = {
   quantityOnHand?: number;
   reservedQuantity?: number;
   availableQuantity: number;
+  averageCost?: number;
 };
 
 /** Live warehouse stock from item_warehouse_balances (not a movement aggregate). */

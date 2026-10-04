@@ -1,52 +1,26 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { InlineReportResults } from '@/components/report/InlineReportResults';
 import { ExtractsReportChrome } from '@/components/extracts/ExtractsReportChrome';
-import { ReportFilterDate } from '@/components/report/reportFilterFields';
 
-const defaultFilters = () => ({
-  fromDate: new Date().toISOString().split('T')[0],
-  toDate: new Date().toISOString().split('T')[0],
-});
-
+/**
+ * Backend `GET /extracts/reports/projects-status` filters by projectId only.
+ * Preview still uses the shared InlineReportResults / report catalog path.
+ */
 export default function ProjectsStatusPage() {
-  const router = useRouter();
-  const [error, setError] = useState('');
-  const [filters, setFilters] = useState(defaultFilters);
-
-  const patch = (p: Partial<ReturnType<typeof defaultFilters>>) =>
-    setFilters((prev) => ({ ...prev, ...p }));
-
-  const handlePreview = () => {
-    if (!filters.fromDate || !filters.toDate) {
-      setError('يرجى اختيار تاريخ البداية والنهاية');
-      return;
-    }
-    const params = new URLSearchParams();
-    params.append('fromDate', filters.fromDate);
-    params.append('toDate', filters.toDate);
-    router.push(`/extracts/reports/projects-status/preview?${params.toString()}`);
-  };
+  const [previewQuery, setPreviewQuery] = useState<Record<string, string> | null>(null);
 
   return (
     <ExtractsReportChrome
       title="تقرير حالة المشاريع"
-      onPreview={handlePreview}
-      onReset={() => setFilters(defaultFilters())}
-      error={error}
-      onClearError={() => setError('')}
+      onPreview={() => setPreviewQuery({})}
+      onReset={() => setPreviewQuery(null)}
+      below={previewQuery ? <InlineReportResults urlPath="/extracts/reports/projects-status" query={previewQuery} /> : null}
     >
-      <ReportFilterDate
-        label="من تاريخ"
-        value={filters.fromDate}
-        onChange={(fromDate) => patch({ fromDate })}
-      />
-      <ReportFilterDate
-        label="إلى تاريخ"
-        value={filters.toDate}
-        onChange={(toDate) => patch({ toDate })}
-      />
+      <p className="text-sm text-slate-600 sm:col-span-2">
+        يعرض موقف المشاريع (نسب وكميات) حسب بيانات المستخلصات المسجّلة.
+      </p>
     </ExtractsReportChrome>
   );
 }

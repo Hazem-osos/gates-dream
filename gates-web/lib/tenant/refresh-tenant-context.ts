@@ -20,6 +20,17 @@ type FiscalYearRow = {
   endDate: string;
 };
 
+async function listCompanyPages<T>(path: string): Promise<T[]> {
+  const rows: T[] = [];
+  for (let page = 1; page <= 20; page += 1) {
+    const res = await apiClient.get<T[]>(path, { page, limit: 50 });
+    const batch = res.data ?? [];
+    rows.push(...batch);
+    if (batch.length < 50) break;
+  }
+  return rows;
+}
+
 /**
  * Re-reads branch + fiscal year from the API and writes X-* tenant headers.
  * Used after first-time company basics and after seeding the chart of accounts.
@@ -43,12 +54,10 @@ export async function refreshTenantContextFromApi(): Promise<TenantContextSnapsh
   let branchId = companyChanged ? null : existing.branchId;
   let fiscalYearId = companyChanged ? null : existing.fiscalYearId;
 
-  const [branchesRes, fyRes] = await Promise.all([
-    apiClient.get<BranchRow[]>('/company/branches', { page: 1, limit: 50 }),
-    apiClient.get<FiscalYearRow[]>('/company/fiscal-years', { page: 1, limit: 50 }),
+  const [branches, years] = await Promise.all([
+    listCompanyPages<BranchRow>('/company/branches'),
+    listCompanyPages<FiscalYearRow>('/company/fiscal-years'),
   ]);
-
-  const branches = branchesRes.data ?? [];
   const branchIds = new Set(branches.map((b) => b.id));
   const meBranch = meRes.data?.branchId;
   const mePermitted = meRes.data?.branches ?? [];
@@ -63,9 +72,9 @@ export async function refreshTenantContextFromApi(): Promise<TenantContextSnapsh
     }
   }
 
-  const years = fyRes.data ?? [];
   const yearIds = new Set(years.map((y) => y.id));
-  if (!fiscalYearId || !yearIds.has(fiscalYearId)) {
+  const storedYear = years.find((year) => year.id === fiscalYearId);
+  if (!fiscalYearId || !yearIds.has(fiscalYearId) || storedYear?.status === 'Close') {
     const today = new Date();
     const openCovering = years.find((y) => {
       if (y.status === 'Close') return false;

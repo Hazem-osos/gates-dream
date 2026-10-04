@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Package } from 'lucide-react';
 import { FilterToolbar, Button, CompactFormField } from '@/components/ui';
 import { ErpDocumentLayout, ErpDocumentPageHeader } from '@/components/erp';
@@ -11,54 +12,54 @@ import { GuideEntityModal } from '@/components/accounting/guide/GuideEntityModal
 import { buildParentTree, type GuideTreeNode } from '@/lib/accounting/buildGuideTree';
 import { NumberingModeControl } from '@/components/accounting/NumberingModeControl';
 import { useAccountingSettingsQuery } from '@/lib/hooks/useAccountingSettings';
-import { useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
+import { fetchAllPages } from '@/lib/api/fetch-all-pages';
+import { useInvalidateQuery } from '@/lib/hooks/useApi';
+import { useCompanyContextReady } from '@/lib/hooks/useTenantContextReady';
 import { apiClient } from '@/lib/api/client';
 import { toast } from '@/lib/feedback/toast';
 import { confirmAction } from '@/lib/feedback/confirm';
-import { asWarehouseRows } from '@/components/inventory/WarehousesListSection';
 import type { ItemRow } from '@/components/inventory/ItemsCatalogListSection';
 import type { ItemGroupRow } from '@/components/inventory/ItemGroupsListSection';
 import { ItemGroupSelect } from '@/components/form/ItemGroupSelect';
 import { ChildItemKindDialog } from '@/components/inventory/ChildItemKindDialog';
+import {
+  ItemsGuideShapeSwitch,
+  ItemsGuideShapeView,
+  type GuideItemDetail,
+  type ItemsGuideShape,
+} from '@/components/inventory/ItemsGuideShapes';
 import { isUngroupedCategory } from '@/lib/inventory/guide-visible-items';
-
-function asRows<T>(data: unknown): T[] {
-  if (Array.isArray(data)) return data as T[];
-  if (data && typeof data === 'object') {
-    const nested =
-      (data as { categories?: unknown }).categories ??
-      (data as { items?: unknown }).items ??
-      (data as { data?: unknown }).data;
-    if (Array.isArray(nested)) return nested as T[];
-  }
-  return asWarehouseRows(data) as T[];
-}
+import { rememberCreatedItemCategory } from '@/lib/inventory/remember-item-category';
 
 export default function ItemsGuidePage() {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const invalidate = useInvalidateQuery();
   const { data: settingsRes } = useAccountingSettingsQuery();
   const itemAuto = settingsRes?.data?.general?.itemAutoNumbering !== false;
   const itemRecordCount = settingsRes?.data?.general?.numberingRecordCounts?.items ?? 0;
 
-  const { data: groupsRes, isLoading: groupsLoading, refetch: refetchGroups } = useApiQuery<ItemGroupRow[]>(
-    ['item-categories', 'guide'],
-    '/inventory/item-categories',
-    { limit: 1000, isActive: true },
-    { staleTime: 15_000 }
-  );
-  const { data: itemsRes, isLoading: itemsLoading, refetch: refetchItems } = useApiQuery<ItemRow[]>(
-    ['items', 'guide'],
-    '/inventory/items',
-    { limit: 1000, isActive: true },
-    { staleTime: 15_000 }
-  );
+  const companyReady = useCompanyContextReady();
+  const groupsQuery = useQuery({
+    queryKey: ['item-categories', 'guide', 'all'],
+    enabled: companyReady,
+    queryFn: ({ signal }) =>
+      fetchAllPages<ItemGroupRow>('/inventory/item-categories', { isActive: true }, signal),
+  });
+  const itemsQuery = useQuery({
+    queryKey: ['items', 'guide', 'all'],
+    enabled: companyReady,
+    queryFn: ({ signal }) => fetchAllPages<ItemRow>('/inventory/items', { isActive: true }, signal),
+  });
+  const refetchGroups = groupsQuery.refetch;
+  const refetchItems = itemsQuery.refetch;
 
-  const groups = asRows<ItemGroupRow>(groupsRes?.data);
-  const items = asRows<ItemRow>(itemsRes?.data);
-  const isLoading = groupsLoading || itemsLoading;
+  const groups = groupsQuery.data ?? [];
+  const items = itemsQuery.data ?? [];
+  const isLoading = groupsQuery.isLoading || itemsQuery.isLoading;
 
   const [search, setSearch] = useState('');
+  const [shape, setShape] = useState<ItemsGuideShape>('tree');
   const [expandToken, setExpandToken] = useState(0);
   const [collapseToken, setCollapseToken] = useState(0);
   const [modalOpen, setModalOpen] = useState(false);
@@ -69,6 +70,7 @@ export default function ItemsGuidePage() {
   const [englishName, setEnglishName] = useState('');
   const [saving, setSaving] = useState(false);
   const [kindPickerParent, setKindPickerParent] = useState<GuideTreeNode | null>(null);
+  const [revealId, setRevealId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [bulkDeleting, setBulkDeleting] = useState(false);
 
@@ -89,7 +91,7 @@ export default function ItemsGuidePage() {
       id: item.id,
       code: String(item.code || item.serial || ''),
       name: item.arabicName,
-      subtitle: item.isActive === false || item.inactiveItem ? 'صنف مؤرشف' : 'صنف',
+      subtitle: item.inactiveItem ? 'صنف غير نشط' : 'صنف',
       folder: false,
       groupKey: 'item',
     });
@@ -125,6 +127,17 @@ export default function ItemsGuidePage() {
       },
     ];
   }, [groups, items]);
+
+  const itemDetails = useMemo(() => {
+    const map = new Map<string, GuideItemDetail>();
+    for (const item of items) {
+      map.set(item.id, {
+        barcode: typeof item.barcode === 'string' ? item.barcode : null,
+        itemType: typeof item.itemType === 'string' ? item.itemType : null,
+      });
+    }
+    return map;
+  }, [items]);
 
   const parentLabel = useMemo(() => {
     if (!parentId) return 'مجموعة رئيسية';
@@ -201,8 +214,19 @@ export default function ItemsGuidePage() {
         await apiClient.put(`/inventory/item-categories/${editId}`, body);
         toast.success('تم حفظ المجموعة');
         setModalOpen(false);
+        setRevealId(editId);
       } else {
-        await apiClient.post('/inventory/item-categories', body);
+        const created = await apiClient.post<ItemGroupRow>('/inventory/item-categories', body);
+        const row = created.data;
+        if (row?.id) {
+          rememberCreatedItemCategory(queryClient, {
+            ...row,
+            arabicName: row.arabicName || body.arabicName,
+            groupType: row.groupType || body.groupType,
+            parentCategoryId: row.parentCategoryId ?? body.parentCategoryId,
+          });
+          setRevealId(row.id);
+        }
         toast.success('تم حفظ المجموعة — تقدر تضيف التالية');
         setArabicName('');
         setEnglishName('');
@@ -332,7 +356,7 @@ export default function ItemsGuidePage() {
 
       {isEmpty ? (
         <div className="mt-8 rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-6 py-16 text-center">
-          <Package className="mx-auto mb-3 h-8 w-8 text-[#0E79AA]" />
+          <Package className="mx-auto mb-3 h-8 w-8 text-[#0E78AA]" />
           <p className="text-lg font-semibold text-slate-800">لا توجد مجموعات أو أصناف بعد</p>
           <p className="mt-1 text-sm text-slate-500">أضف مجموعة أولاً، ثم أصناف تحتها — زي شجرة الحسابات.</p>
           <div className="mt-4 flex flex-wrap justify-center gap-2">
@@ -346,7 +370,8 @@ export default function ItemsGuidePage() {
         </div>
       ) : (
         <>
-          <div className="mt-2 flex items-center gap-2">
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <ItemsGuideShapeSwitch value={shape} onChange={setShape} />
             <Button type="button" size="sm" onClick={() => openCreateGroup()}>
               + إضافة مجموعة
             </Button>
@@ -355,6 +380,7 @@ export default function ItemsGuidePage() {
                 + صنف جديد
               </Button>
             </Link>
+            {shape === 'tree' ? (
             <Button
               type="button"
               variant="ghost"
@@ -370,7 +396,8 @@ export default function ItemsGuidePage() {
                 ? 'إلغاء التحديد'
                 : 'تحديد الكل'}
             </Button>
-            {selectedIds.length > 0 ? (
+            ) : null}
+            {shape === 'tree' && selectedIds.length > 0 ? (
               <Button
                 type="button"
                 variant="secondary"
@@ -394,6 +421,7 @@ export default function ItemsGuidePage() {
             />
           </div>
           <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-5 text-slate-900 shadow-sm">
+            {shape === 'tree' ? (
             <div className="mb-4 flex flex-wrap items-center gap-2">
               <Button type="button" variant="ghost" size="sm" onClick={() => setExpandToken((t) => t + 1)}>
                 ⊞ توسيع الكل
@@ -402,9 +430,10 @@ export default function ItemsGuidePage() {
                 ⊟ طي الكل
               </Button>
             </div>
+            ) : null}
             {isLoading ? (
               <p className="text-slate-600">جاري تحميل الدليل…</p>
-            ) : (
+            ) : shape === 'tree' ? (
               <MasterGuideTree
                 nodes={tree}
                 search={search}
@@ -414,6 +443,7 @@ export default function ItemsGuidePage() {
                 addChildLabel="فرعي"
                 selectable
                 selectedIds={new Set(selectedIds)}
+                revealId={revealId}
                 onToggleSelect={toggleSelect}
                 onAddChild={openCreateChild}
                 canAddChild={(node) => node.groupKey === 'group'}
@@ -427,6 +457,21 @@ export default function ItemsGuidePage() {
                 }}
                 onEdit={openEditGroup}
                 onDelete={(node) => void handleDelete(node)}
+              />
+            ) : (
+              <ItemsGuideShapeView
+                shape={shape}
+                nodes={tree}
+                search={search}
+                details={itemDetails}
+                onOpen={(node) => {
+                  if (node.synthetic) return;
+                  if (node.groupKey === 'item') {
+                    router.push(`/inventory/creations/item-card?id=${node.id}`);
+                    return;
+                  }
+                  router.push(`/inventory/creations/item-groups?id=${node.id}`);
+                }}
               />
             )}
           </div>

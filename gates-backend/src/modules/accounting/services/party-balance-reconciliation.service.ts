@@ -15,7 +15,9 @@ export interface PartyBalanceVariance {
   cachedBalanceOriginal: number;
   /** Cached figure converted to company base currency for the GL tie-out. */
   cachedBalance: number;
-  /** SUM(debitBase − creditBase) [customer] or the AP mirror over posted lines. */
+  /** `partner_running_balances` net in party currency (كشف الحساب). */
+  ledgerBalanceOriginal: number;
+  /** Same partner ledger in company base currency. */
   ledgerBalance: number;
   variance: number;
   isReconciled: boolean;
@@ -53,16 +55,24 @@ async function latestFxRate(companyId: string, currencyCode: string): Promise<nu
   return Number.isFinite(rate) && rate > 0 ? rate : 1;
 }
 
-async function partnerNetBaseById(
+async function partnerRunningTotalsById(
   companyId: string,
   partnerType: 'CUSTOMER' | 'SUPPLIER'
-): Promise<Map<string, number>> {
+): Promise<Map<string, { netOriginal: number; netBase: number }>> {
   const rows = await prisma.partnerRunningBalance.groupBy({
     by: ['partnerId'],
     where: { companyId, partnerType },
-    _sum: { netBase: true },
+    _sum: { netOriginal: true, netBase: true },
   });
-  return new Map(rows.map((row) => [row.partnerId, roundTo4(Number(row._sum.netBase ?? 0))]));
+  return new Map(
+    rows.map((row) => [
+      row.partnerId,
+      {
+        netOriginal: roundTo4(Number(row._sum.netOriginal ?? 0)),
+        netBase: roundTo4(Number(row._sum.netBase ?? 0)),
+      },
+    ])
+  );
 }
 
 /**
@@ -110,9 +120,9 @@ export class PartyBalanceReconciliationService {
   }
 
   async reconcileCustomers(companyId: string, customerId?: string): Promise<PartyBalanceVariance[]> {
-    const [baseCurrency, runningBase, customers] = await Promise.all([
+    const [baseCurrency, running, customers] = await Promise.all([
       companyBaseCurrency(companyId),
-      partnerNetBaseById(companyId, 'CUSTOMER'),
+      partnerRunningTotalsById(companyId, 'CUSTOMER'),
       prisma.customer.findMany({
         where: { companyId, ...(customerId ? { id: customerId } : {}) },
         select: {
@@ -131,31 +141,23 @@ export class PartyBalanceReconciliationService {
     for (const customer of customers) {
       const accountId = customer.mainAccountId ?? customer.accountId;
       const cachedBalanceOriginal = roundTo4(Number(customer.balance));
+      const runningRow = running.get(customer.id);
+      const ledgerBalanceOriginal = runningRow?.netOriginal ?? 0;
+      const ledgerBalanceBase = runningRow?.netBase ?? 0;
       const cachedBalance = await this.cachedBalanceInBase({
         companyId,
         baseCurrency,
         currencyCode: customer.currencyCode,
         cachedOriginal: cachedBalanceOriginal,
-        runningBase: runningBase.get(customer.id),
+        runningBase: ledgerBalanceBase,
       });
-      if (!accountId) {
-        results.push({
-          partyType: 'customer',
-          partyId: customer.id,
-          partyName: customer.arabicName || customer.englishName || customer.id,
-          accountId: null,
-          currencyCode: customer.currencyCode ?? null,
-          cachedBalanceOriginal,
-          cachedBalance,
-          ledgerBalance: cachedBalance,
-          variance: 0,
-          isReconciled: true,
-        });
-        continue;
-      }
-      const { debit, credit } = await this.ledgerDebitCredit(companyId, accountId);
-      const ledgerBalance = roundTo4(debit - credit);
-      const variance = roundTo4(cachedBalance - ledgerBalance);
+      const partyCurrency = (customer.currencyCode || baseCurrency).toUpperCase();
+      const variance =
+        partyCurrency === baseCurrency
+          ? roundTo4(cachedBalanceOriginal - ledgerBalanceOriginal)
+          : roundTo4(cachedBalance - ledgerBalanceBase);
+      const ledgerBalance =
+        partyCurrency === baseCurrency ? ledgerBalanceOriginal : ledgerBalanceBase;
       results.push({
         partyType: 'customer',
         partyId: customer.id,
@@ -164,6 +166,7 @@ export class PartyBalanceReconciliationService {
         currencyCode: customer.currencyCode ?? null,
         cachedBalanceOriginal,
         cachedBalance,
+        ledgerBalanceOriginal,
         ledgerBalance,
         variance,
         isReconciled: Math.abs(variance) <= EPS,
@@ -173,9 +176,9 @@ export class PartyBalanceReconciliationService {
   }
 
   async reconcileSuppliers(companyId: string, supplierId?: string): Promise<PartyBalanceVariance[]> {
-    const [baseCurrency, runningBase, suppliers] = await Promise.all([
+    const [baseCurrency, running, suppliers] = await Promise.all([
       companyBaseCurrency(companyId),
-      partnerNetBaseById(companyId, 'SUPPLIER'),
+      partnerRunningTotalsById(companyId, 'SUPPLIER'),
       prisma.supplier.findMany({
         where: { companyId, ...(supplierId ? { id: supplierId } : {}) },
         select: {
@@ -194,31 +197,23 @@ export class PartyBalanceReconciliationService {
     for (const supplier of suppliers) {
       const accountId = supplier.mainAccountId ?? supplier.accountId;
       const cachedBalanceOriginal = roundTo4(Number(supplier.balance));
+      const runningRow = running.get(supplier.id);
+      const ledgerBalanceOriginal = runningRow?.netOriginal ?? 0;
+      const ledgerBalanceBase = runningRow?.netBase ?? 0;
       const cachedBalance = await this.cachedBalanceInBase({
         companyId,
         baseCurrency,
         currencyCode: supplier.currencyCode,
         cachedOriginal: cachedBalanceOriginal,
-        runningBase: runningBase.get(supplier.id),
+        runningBase: ledgerBalanceBase,
       });
-      if (!accountId) {
-        results.push({
-          partyType: 'supplier',
-          partyId: supplier.id,
-          partyName: supplier.arabicName || supplier.englishName || supplier.id,
-          accountId: null,
-          currencyCode: supplier.currencyCode ?? null,
-          cachedBalanceOriginal,
-          cachedBalance,
-          ledgerBalance: cachedBalance,
-          variance: 0,
-          isReconciled: true,
-        });
-        continue;
-      }
-      const { debit, credit } = await this.ledgerDebitCredit(companyId, accountId);
-      const ledgerBalance = roundTo4(credit - debit);
-      const variance = roundTo4(cachedBalance - ledgerBalance);
+      const partyCurrency = (supplier.currencyCode || baseCurrency).toUpperCase();
+      const variance =
+        partyCurrency === baseCurrency
+          ? roundTo4(cachedBalanceOriginal - ledgerBalanceOriginal)
+          : roundTo4(cachedBalance - ledgerBalanceBase);
+      const ledgerBalance =
+        partyCurrency === baseCurrency ? ledgerBalanceOriginal : ledgerBalanceBase;
       results.push({
         partyType: 'supplier',
         partyId: supplier.id,
@@ -227,6 +222,7 @@ export class PartyBalanceReconciliationService {
         currencyCode: supplier.currencyCode ?? null,
         cachedBalanceOriginal,
         cachedBalance,
+        ledgerBalanceOriginal,
         ledgerBalance,
         variance,
         isReconciled: Math.abs(variance) <= EPS,
@@ -280,12 +276,12 @@ export class PartyBalanceReconciliationService {
       if (item.partyType === 'customer') {
         await prisma.customer.update({
           where: { id: item.partyId },
-          data: { balance: item.ledgerBalance },
+          data: { balance: item.ledgerBalanceOriginal },
         });
       } else {
         await prisma.supplier.update({
           where: { id: item.partyId },
-          data: { balance: item.ledgerBalance },
+          data: { balance: item.ledgerBalanceOriginal },
         });
       }
     }

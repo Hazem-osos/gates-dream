@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import prisma from '../../../shared/database/prisma';
 import { AppError } from '../../../shared/middleware/error-handler';
-import { companySettingService } from '../../platform/services/company-setting.service';
+import { companySettingService, isLegacyTrue } from '../../platform/services/company-setting.service';
 import { strictInventoryFromFlags } from './strict-inventory';
 
 export { strictInventoryFromFlags } from './strict-inventory';
@@ -19,6 +19,8 @@ export type WarehouseStockBalance = {
   quantityOnHand: number;
   reservedQuantity: number;
   availableQuantity: number;
+  /** Warehouse moving-average from `item_warehouse_balances`. */
+  averageCost: number;
 };
 
 type SettingsClient = {
@@ -41,9 +43,17 @@ export async function isStrictInventory(
     where: { companyId },
     select: { allowNegativeBalance: true, preventNegativeStock: true },
   });
+  const readFlag = async (name: string) => {
+    if ((db as unknown) === (prisma as unknown)) return companySettingService.getFlag(companyId, name, false);
+    const row = await (db as unknown as Prisma.TransactionClient).companySettingEntry.findFirst({
+      where: { companyId, branchId: null, name },
+      select: { value: true },
+    });
+    return row ? isLegacyTrue(row.value) : false;
+  };
   const [legacyAllowNegativeStore, legacyAllowMinusQty] = await Promise.all([
-    companySettingService.getFlag(companyId, 'AllowNegativeStore', false),
-    companySettingService.getFlag(companyId, 'AllowMinusQty', false),
+    readFlag('AllowNegativeStore'),
+    readFlag('AllowMinusQty'),
   ]);
   return strictInventoryFromFlags({
     allowNegativeBalance: settings?.allowNegativeBalance,
@@ -56,13 +66,36 @@ export async function isStrictInventory(
 /**
  * Atomic warehouse-level stock mutation (same TX as the stock movement / invoice / receipt).
  * Uses MySQL `INSERT … ON DUPLICATE KEY UPDATE` on `(companyId, itemId, warehouseId)`.
+ *
+ * `deltaQty` must only be applied via `stockMovementService.postMovementInTx` so
+ * `inventory_movements`, `item_quantities`, and `item_warehouse_balances` stay aligned.
+ * Use `deltaReserved` only for item reservations (no on-hand movement row).
  */
+/** Serializes the first insert of a warehouse balance so two posts cannot both miss the row lock. */
+export async function lockWarehouseBalanceInTx(
+  tx: Prisma.TransactionClient,
+  companyId: string,
+  itemId: string,
+  warehouseId: string
+): Promise<void> {
+  if (!companyId) {
+    throw new AppError(400, 'معرّف الشركة مطلوب');
+  }
+  await tx.$queryRaw`
+    SELECT id FROM item_warehouse_balances
+    WHERE companyId = ${companyId}
+      AND itemId = ${itemId}
+      AND warehouseId = ${warehouseId}
+    FOR UPDATE
+  `;
+}
+
 export async function adjustStockInTx(
   tx: Prisma.TransactionClient,
   input: AdjustStockInput
 ): Promise<WarehouseStockBalance> {
   if (!input.companyId) {
-    throw new AppError(400, 'Company ID is required');
+    throw new AppError(400, 'معرّف الشركة مطلوب');
   }
 
   const deltaQty = Number(input.deltaQty ?? 0);
@@ -110,10 +143,23 @@ export async function adjustStockInTx(
     `;
   }
 
+  const quantityOnHand = currentOnHand + deltaQty;
+  const reservedQuantity = currentReserved + deltaReserved;
+  const after = await tx.itemWarehouseBalance.findUnique({
+    where: {
+      companyId_itemId_warehouseId: {
+        companyId: input.companyId,
+        itemId: input.itemId,
+        warehouseId: input.warehouseId,
+      },
+    },
+    select: { averageCost: true },
+  });
   return {
-    quantityOnHand: currentOnHand + deltaQty,
-    reservedQuantity: currentReserved + deltaReserved,
-    availableQuantity: currentOnHand + deltaQty - (currentReserved + deltaReserved),
+    quantityOnHand,
+    reservedQuantity,
+    availableQuantity: quantityOnHand - reservedQuantity,
+    averageCost: after ? Number(after.averageCost) : 0,
   };
 }
 
@@ -130,9 +176,11 @@ export async function getWarehouseBalance(
   });
   const quantityOnHand = row ? Number(row.quantityOnHand) : 0;
   const reservedQuantity = row ? Number(row.reservedQuantity) : 0;
+  const averageCost = row ? Number(row.averageCost) : 0;
   return {
     quantityOnHand,
     reservedQuantity,
     availableQuantity: quantityOnHand - reservedQuantity,
+    averageCost,
   };
 }

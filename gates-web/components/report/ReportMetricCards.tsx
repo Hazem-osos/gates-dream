@@ -2,44 +2,39 @@
 
 import { flattenSummaryEntries } from '@/lib/reportPreview/reportSummaryLabels';
 
-const SUMMARY_ICONS: Record<string, string> = {
-  totalInvoices: '🧾',
-  totalQuantity: '📦',
-  totalSales: '💰',
-  totalPurchases: '💰',
-  netSales: '💰',
-  totalProfit: '📈',
-  totalAmount: '💰',
-};
-
-function suffixForKey(key: string, value: string): string {
-  if (key === 'totalInvoices' && value !== '—') return ` ${Number(value.replace(/,/g, '')) === 1 ? 'فاتورة' : 'فاتورة'}`;
-  if (key === 'totalQuantity' && value !== '—') return ' قطعة';
-  if (/sales|amount|profit|purchase|net/i.test(key) && value !== '—' && !value.includes('ج.م')) {
-    return ' ج.م';
+function suffixForKey(key: string, value: string, currencyLabel: string): string {
+  if (key === 'currencyCode') return '';
+  if (/^(base|foreign)(Debit|Credit|Balance)$/.test(key)) return '';
+  if (/count|invoices|quantity|items|customers|suppliers|pages/i.test(key)) {
+    if (key === 'totalQuantity' && value !== '—') return ' قطعة';
+    return '';
+  }
+  if (/sales|amount|profit|purchase|net|balance|collection|value/i.test(key) && value !== '—' && !value.includes(currencyLabel)) {
+    return ` ${currencyLabel}`;
   }
   return '';
 }
 
-export function ReportMetricCards({ summary }: { summary: unknown }) {
+export function ReportMetricCards({ summary, currencyLabel = 'ج.م' }: { summary: unknown; currencyLabel?: string }) {
   const entries = flattenSummaryEntries(summary);
   if (!entries.length) return null;
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6 bg-slate-50 dark:bg-slate-800/50 p-4 rounded-2xl border border-slate-200 dark:border-slate-800">
+    <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-5">
       {entries.map(({ key, label, value }) => {
-        const icon = SUMMARY_ICONS[key] ?? '📊';
-        const display = `${value}${suffixForKey(key, value)}`;
+        const display = `${value}${suffixForKey(key, value, currencyLabel)}`;
+        const net = key === 'netValue' || key === 'netSales' || key === 'netAmount';
         return (
           <div
             key={key}
-            className="rounded-xl bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-700 px-4 py-3 text-right shadow-sm"
+            className={`rounded-lg border px-3 py-2 text-right ${
+              net
+                ? 'border-[#B7D7E8] bg-[#F4FAFC] dark:border-sky-900 dark:bg-sky-950/30'
+                : 'border-slate-200/80 bg-white dark:border-slate-800 dark:bg-slate-900'
+            }`}
           >
-            <div className="text-xs text-slate-500 mb-1 flex items-center gap-1 justify-end">
-              <span>{label}</span>
-              <span aria-hidden>{icon}</span>
-            </div>
-            <div className="text-lg font-bold text-slate-900 dark:text-slate-100 tabular-nums">
+            <div className="text-[11px] font-medium leading-4 text-slate-500 dark:text-slate-400">{label}</div>
+            <div className={`mt-0.5 text-sm font-semibold tabular-nums leading-5 ${net ? 'text-[#0E4C6E] dark:text-sky-100' : 'text-slate-800 dark:text-slate-100'}`}>
               {display}
             </div>
           </div>

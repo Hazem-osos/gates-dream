@@ -42,7 +42,7 @@ export function CashSafeHeaderSelector({
 
   return (
     <div className="flex flex-wrap items-end gap-3" data-tour-id={tourId}>
-      <div className="w-full max-w-[var(--erp-field-max,32rem)] min-w-0 space-y-1">
+      <div className="min-w-[12rem] max-w-[var(--erp-field-max,32rem)] flex-1 space-y-1">
         <label className={erpLabelClass}>الخزنة</label>
         <SafeSelect
           value={value}

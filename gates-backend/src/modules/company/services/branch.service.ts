@@ -19,6 +19,7 @@ export interface CreateBranchData {
   buildingNumber?: string;
   postalCode?: string;
   address?: string;
+  activityCode?: string;
   defaultWarehouseId?: string;
   defaultSafeId?: string;
 }
@@ -72,6 +73,7 @@ export class BranchService {
           buildingNumber: data.buildingNumber,
           postalCode: data.postalCode,
           address: data.address,
+          activityCode: data.activityCode,
         },
         include: {
           company: {
@@ -248,6 +250,7 @@ export class BranchService {
           buildingNumber: data.buildingNumber,
           postalCode: data.postalCode,
           address: data.address,
+          activityCode: data.activityCode,
           defaultWarehouseId: data.defaultWarehouseId,
           defaultSafeId: data.defaultSafeId,
         },

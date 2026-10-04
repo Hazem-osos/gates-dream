@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import { useQueryClient, type QueryKey } from '@tanstack/react-query';
 import { User } from 'lucide-react';
 import Image from 'next/image';
 import {
@@ -18,6 +19,7 @@ import ErrorToast from '@/components/ErrorToast';
 import { toast } from '@/lib/feedback/toast';
 import type { ApiError } from '@/lib/api/types';
 import { useNextMasterSerial } from '@/lib/hooks/useNextMasterSerial';
+import { nextNumericSerial, preferForwardSerial } from '@/lib/masters/nextNumericSerial';
 import { DistributionGroupSelectField } from '@/components/accounting/DistributionGroupSelectField';
 
 interface PriceList {
@@ -90,8 +92,37 @@ export default function DelegatePage() {
   );
 }
 
+function roleInQueryKey(queryKey: QueryKey): string {
+  for (const part of queryKey) {
+    if (part && typeof part === 'object' && 'role' in part) {
+      const role = (part as { role?: unknown }).role;
+      if (typeof role === 'string' && role) return role;
+    }
+  }
+  return '';
+}
+
+function rememberCreatedDelegate(
+  queryClient: ReturnType<typeof useQueryClient>,
+  row: { id: string; serial?: string | null; code?: string | null; arabicName?: string | null }
+) {
+  const cached = queryClient.getQueriesData({ queryKey: ['delegates'] });
+  for (const [queryKey, old] of cached) {
+    if (queryKey.some((part) => part === 'guide' || part === 'groups' || part === 'next-code')) continue;
+    const role = roleInQueryKey(queryKey);
+    if (role && role !== 'DELEGATE') continue;
+    if (!old || typeof old !== 'object' || !('data' in old) || !Array.isArray(old.data)) continue;
+    if (old.data.some((item) => item && typeof item === 'object' && 'id' in item && item.id === row.id)) continue;
+    queryClient.setQueryData(queryKey, {
+      ...old,
+      data: [...old.data, { id: row.id, serial: row.serial, code: row.code, arabicName: row.arabicName }],
+    });
+  }
+}
+
 function DelegatePageInner() {
   const { isReadOnly, unlockForEdit, lockToView, setMode } = useDocumentMode();
+  const queryClient = useQueryClient();
   const invalidateQuery = useInvalidateQuery();
   const searchParams = useOwnTabSearchParams();
   const clearDocumentQuery = useClearDocumentQuery();
@@ -107,15 +138,18 @@ function DelegatePageInner() {
 
   // Fetch price lists
   const { data: priceListsResponse } = useApiQuery<PriceList[]>(
-    ['price-lists'],
-    '/accounting/price-lists',
-    { limit: 1000, isActive: true }
+    ['price-lists', { picker: true }],
+    '/inventory/price-lists',
+    { limit: 500, isActive: true }
   );
   const priceLists = priceListsResponse?.data || [];
 
   const { data: delegatesResponse } = useApiQuery<
     { id: string; serial?: string; code?: string; arabicName?: string }[]
-  >(['delegates'], '/accounting/delegates', { limit: 1000, isActive: true });
+  >(['delegates'], '/accounting/delegates', { limit: 1000, isActive: true }, {
+    staleTime: 0,
+    refetchOnMount: 'always',
+  });
 
   const { data: groupsResponse } = useApiQuery<
     { id: string; code?: string | null; serial?: string | null; arabicName: string }[]
@@ -135,7 +169,10 @@ function DelegatePageInner() {
 
   useEffect(() => {
     if (selectedId || !nextSerial) return;
-    setFormData((prev) => (prev.serial === nextSerial ? prev : { ...prev, serial: nextSerial }));
+    setFormData((prev) => {
+      const serial = preferForwardSerial(prev.serial, nextSerial);
+      return serial === prev.serial ? prev : { ...prev, serial };
+    });
   }, [nextSerial, selectedId]);
 
   useEffect(() => {
@@ -195,16 +232,20 @@ function DelegatePageInner() {
     'POST',
     {
       showSuccessToast: false,
-      onSuccess: () => {
+      onSuccess: (res) => {
+        const row = res?.data as DelegateRecord | undefined;
+        if (row?.id) rememberCreatedDelegate(queryClient, row);
         toast.success('تم حفظ المندوب بنجاح — تقدر تضيف التالي');
         invalidateQuery(['delegates']);
         invalidateQuery(['delegates', 'groups', 'DELEGATE']);
         invalidateQuery(['delegates', 'guide']);
         invalidateQuery(['delegates', 'next-code']);
+        const assigned = row?.serial != null ? String(row.serial) : formData.serial;
         setSelectedId(null);
         setFormData({
           ...EMPTY_FORM,
           groupId: groupIdFromUrl || '',
+          serial: nextNumericSerial([assigned]),
         });
         setMode('create');
         clearDocumentQuery();

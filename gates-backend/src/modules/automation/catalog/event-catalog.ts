@@ -29,13 +29,20 @@ export interface AutomationEventDefinition {
   emission: EventEmissionStatus;
   /** Human-readable explanation shown in the metadata API for non-realtime events. */
   emissionNote?: string;
+  /**
+   * Whether the frontend may offer this event as a new-rule trigger.
+   * False for plannedNotEmitting events — they stay in the internal catalog
+   * so existing rules (if any) still validate, but they are not selectable.
+   */
+  selectable: boolean;
   fields: EventFieldDefinition[];
 }
 
 const salesInvoiceFields: EventFieldDefinition[] = [
   defineField({
     key: 'invoiceId',
-    type: 'string',
+    type: 'entity',
+    entityKind: 'salesInvoice',
     labelKey: 'automation.fields.invoiceId',
     operators: ['eq', 'neq'],
   }),
@@ -44,8 +51,18 @@ const salesInvoiceFields: EventFieldDefinition[] = [
     type: 'string',
     labelKey: 'automation.fields.invoiceNumber',
   }),
-  defineField({ key: 'totalAmount', type: 'number', labelKey: 'automation.fields.totalAmount' }),
-  defineField({ key: 'netAmount', type: 'number', labelKey: 'automation.fields.netAmount' }),
+  defineField({
+    key: 'totalAmount',
+    type: 'money',
+    labelKey: 'automation.fields.totalAmount',
+    currencyField: 'currencyCode',
+  }),
+  defineField({
+    key: 'netAmount',
+    type: 'money',
+    labelKey: 'automation.fields.netAmount',
+    currencyField: 'currencyCode',
+  }),
   defineField({
     key: 'customerId',
     type: 'entity',
@@ -80,6 +97,7 @@ export const EVENT_CATALOG: AutomationEventDefinition[] = [
     labelKey: 'automation.events.salesInvoiceCreated',
     descriptionKey: 'automation.events.salesInvoiceCreated.description',
     emission: 'realtime',
+    selectable: true,
     fields: salesInvoiceFields,
   },
   {
@@ -87,12 +105,10 @@ export const EVENT_CATALOG: AutomationEventDefinition[] = [
     category: 'sales',
     labelKey: 'automation.events.salesInvoicePosted',
     descriptionKey: 'automation.events.salesInvoicePosted.description',
-    emission: 'plannedNotEmitting',
+    emission: 'realtime',
+    selectable: true,
     emissionNote:
-      'Posting is handled by invoice-posting-orchestrator.ts across several branches ' +
-      '(direct post, settlement-split posting, multiple invoice kinds). Wiring a single ' +
-      'reliable emission point needs its own audit to avoid duplicate/missed emission; ' +
-      'deferred to V2. Metadata kept for frontend forward compatibility.',
+      'Emitted after a sales invoice post commits. The posting transaction itself is unchanged.',
     fields: salesInvoiceFields,
   },
   {
@@ -101,12 +117,19 @@ export const EVENT_CATALOG: AutomationEventDefinition[] = [
     labelKey: 'automation.events.salesInvoiceOverdue',
     descriptionKey: 'automation.events.salesInvoiceOverdue.description',
     emission: 'scheduled',
+    selectable: true,
     emissionNote:
       'Emitted once per calendar day (UTC) by a scheduled job that scans POSTED, ' +
       'not-fully-paid sale invoices past their dueDate. Not a live transaction event — ' +
       'there can be up to ~24h delay between an invoice becoming overdue and the event firing.',
     fields: [
-      defineField({ key: 'invoiceId', type: 'string', labelKey: 'automation.fields.invoiceId', operators: ['eq', 'neq'] }),
+      defineField({
+        key: 'invoiceId',
+        type: 'entity',
+        entityKind: 'salesInvoice',
+        labelKey: 'automation.fields.invoiceId',
+        operators: ['eq', 'neq'],
+      }),
       defineField({ key: 'invoiceNumber', type: 'string', labelKey: 'automation.fields.invoiceNumber' }),
       defineField({
         key: 'customerId',
@@ -115,7 +138,7 @@ export const EVENT_CATALOG: AutomationEventDefinition[] = [
         labelKey: 'automation.fields.customer',
       }),
       defineField({ key: 'daysOverdue', type: 'number', labelKey: 'automation.fields.daysOverdue' }),
-      defineField({ key: 'remainingAmount', type: 'number', labelKey: 'automation.fields.remainingAmount' }),
+      defineField({ key: 'remainingAmount', type: 'money', labelKey: 'automation.fields.remainingAmount' }),
     ],
   },
 
@@ -126,8 +149,15 @@ export const EVENT_CATALOG: AutomationEventDefinition[] = [
     labelKey: 'automation.events.customerCreated',
     descriptionKey: 'automation.events.customerCreated.description',
     emission: 'realtime',
+    selectable: true,
     fields: [
-      defineField({ key: 'customerId', type: 'string', labelKey: 'automation.fields.customerId', operators: ['eq', 'neq'] }),
+      defineField({
+        key: 'customerId',
+        type: 'entity',
+        entityKind: 'customer',
+        labelKey: 'automation.fields.customer',
+        operators: ['eq', 'neq'],
+      }),
       defineField({ key: 'arabicName', type: 'string', labelKey: 'automation.fields.customerName' }),
       defineField({
         key: 'customerType',
@@ -158,6 +188,7 @@ export const EVENT_CATALOG: AutomationEventDefinition[] = [
     labelKey: 'automation.events.stockBelowMinimum',
     descriptionKey: 'automation.events.stockBelowMinimum.description',
     emission: 'realtime',
+    selectable: true,
     fields: [
       defineField({
         key: 'itemId',
@@ -184,13 +215,20 @@ export const EVENT_CATALOG: AutomationEventDefinition[] = [
     labelKey: 'automation.events.purchaseOrderCreated',
     descriptionKey: 'automation.events.purchaseOrderCreated.description',
     emission: 'realtime',
+    selectable: true,
     emissionNote:
       'GATES models "purchase request" and "purchase order" as the same PurchaseOrder ' +
       'entity (a draft, unapproved, unposted PurchaseOrder created by automation IS a ' +
       'purchase request). There is no separate PurchaseRequest table, so this single ' +
       'event covers both concepts. Fired for orders created by a user AND by automation itself.',
     fields: [
-      defineField({ key: 'purchaseOrderId', type: 'string', labelKey: 'automation.fields.purchaseOrderId', operators: ['eq', 'neq'] }),
+      defineField({
+        key: 'purchaseOrderId',
+        type: 'entity',
+        entityKind: 'purchaseOrder',
+        labelKey: 'automation.fields.purchaseOrderId',
+        operators: ['eq', 'neq'],
+      }),
       defineField({ key: 'orderNumber', type: 'string', labelKey: 'automation.fields.orderNumber' }),
       defineField({
         key: 'supplierId',
@@ -204,8 +242,8 @@ export const EVENT_CATALOG: AutomationEventDefinition[] = [
         entityKind: 'warehouse',
         labelKey: 'automation.fields.warehouse',
       }),
-      defineField({ key: 'totalAmount', type: 'number', labelKey: 'automation.fields.totalAmount' }),
-      defineField({ key: 'netAmount', type: 'number', labelKey: 'automation.fields.netAmount' }),
+      defineField({ key: 'totalAmount', type: 'money', labelKey: 'automation.fields.totalAmount' }),
+      defineField({ key: 'netAmount', type: 'money', labelKey: 'automation.fields.netAmount' }),
       defineField({
         key: 'createdByAutomation',
         type: 'boolean',
@@ -219,8 +257,15 @@ export const EVENT_CATALOG: AutomationEventDefinition[] = [
     labelKey: 'automation.events.purchaseOrderApproved',
     descriptionKey: 'automation.events.purchaseOrderApproved.description',
     emission: 'realtime',
+    selectable: true,
     fields: [
-      defineField({ key: 'purchaseOrderId', type: 'string', labelKey: 'automation.fields.purchaseOrderId', operators: ['eq', 'neq'] }),
+      defineField({
+        key: 'purchaseOrderId',
+        type: 'entity',
+        entityKind: 'purchaseOrder',
+        labelKey: 'automation.fields.purchaseOrderId',
+        operators: ['eq', 'neq'],
+      }),
       defineField({ key: 'orderNumber', type: 'string', labelKey: 'automation.fields.orderNumber' }),
       defineField({
         key: 'supplierId',
@@ -228,7 +273,110 @@ export const EVENT_CATALOG: AutomationEventDefinition[] = [
         entityKind: 'supplier',
         labelKey: 'automation.fields.supplier',
       }),
-      defineField({ key: 'netAmount', type: 'number', labelKey: 'automation.fields.netAmount' }),
+      defineField({ key: 'netAmount', type: 'money', labelKey: 'automation.fields.netAmount' }),
+    ],
+  },
+
+  {
+    eventType: 'purchase.invoice.posted',
+    category: 'purchasing',
+    labelKey: 'automation.events.purchaseInvoicePosted',
+    descriptionKey: 'automation.events.purchaseInvoicePosted.description',
+    emission: 'realtime',
+    selectable: true,
+    emissionNote: 'Emitted after a purchase invoice post commits. Posting itself is unchanged.',
+    fields: [
+      defineField({
+        key: 'invoiceId',
+        type: 'entity',
+        entityKind: 'purchaseInvoice',
+        labelKey: 'automation.fields.invoiceId',
+        operators: ['eq', 'neq'],
+      }),
+      defineField({ key: 'invoiceNumber', type: 'string', labelKey: 'automation.fields.invoiceNumber' }),
+      defineField({
+        key: 'supplierId',
+        type: 'entity',
+        entityKind: 'supplier',
+        labelKey: 'automation.fields.supplier',
+      }),
+      defineField({
+        key: 'warehouseId',
+        type: 'entity',
+        entityKind: 'warehouse',
+        labelKey: 'automation.fields.warehouse',
+      }),
+      defineField({
+        key: 'totalAmount',
+        type: 'money',
+        labelKey: 'automation.fields.totalAmount',
+        currencyField: 'currencyCode',
+      }),
+      defineField({
+        key: 'netAmount',
+        type: 'money',
+        labelKey: 'automation.fields.netAmount',
+        currencyField: 'currencyCode',
+      }),
+      defineField({
+        key: 'currencyCode',
+        type: 'string',
+        labelKey: 'automation.fields.currencyCode',
+        operators: ['eq', 'neq'],
+      }),
+    ],
+  },
+
+  {
+    eventType: 'supplier.created',
+    category: 'purchasing',
+    labelKey: 'automation.events.supplierCreated',
+    descriptionKey: 'automation.events.supplierCreated.description',
+    emission: 'realtime',
+    selectable: true,
+    fields: [
+      defineField({
+        key: 'supplierId',
+        type: 'entity',
+        entityKind: 'supplier',
+        labelKey: 'automation.fields.supplier',
+        operators: ['eq', 'neq'],
+      }),
+      defineField({ key: 'arabicName', type: 'string', labelKey: 'automation.fields.supplierName' }),
+      defineField({
+        key: 'supplierType',
+        type: 'enum',
+        labelKey: 'automation.fields.supplierType',
+        enumValues: ['company', 'individual'],
+      }),
+    ],
+  },
+
+  {
+    eventType: 'hr.employee.created',
+    category: 'hr',
+    labelKey: 'automation.events.employeeCreated',
+    descriptionKey: 'automation.events.employeeCreated.description',
+    emission: 'realtime',
+    selectable: true,
+    fields: [
+      defineField({ key: 'arabicName', type: 'string', labelKey: 'automation.fields.employeeName' }),
+      defineField({ key: 'city', type: 'string', labelKey: 'automation.fields.city' }),
+      defineField({ key: 'basicSalary', type: 'money', labelKey: 'automation.fields.basicSalary' }),
+    ],
+  },
+
+  {
+    eventType: 'project.created',
+    category: 'projects',
+    labelKey: 'automation.events.projectCreated',
+    descriptionKey: 'automation.events.projectCreated.description',
+    emission: 'realtime',
+    selectable: true,
+    fields: [
+      defineField({ key: 'arabicName', type: 'string', labelKey: 'automation.fields.projectName' }),
+      defineField({ key: 'englishName', type: 'string', labelKey: 'automation.fields.englishName' }),
+      defineField({ key: 'totalValue', type: 'money', labelKey: 'automation.fields.totalValue' }),
     ],
   },
 ];
@@ -246,8 +394,18 @@ export function getEventField(
   return getEventDefinition(eventType)?.fields.find((field) => field.key === fieldKey);
 }
 
-/** Events a rule may legally target today (excludes plannedNotEmitting). */
+/** Events a rule may legally target today (excludes plannedNotEmitting / non-selectable). */
 export function isEventTypeCreatable(eventType: string): boolean {
   const event = getEventDefinition(eventType);
-  return Boolean(event) && event!.emission !== 'plannedNotEmitting';
+  return Boolean(event) && event!.selectable && event!.emission !== 'plannedNotEmitting';
+}
+
+/** Selectable/creatable events for new automations — the 6 currently emitted types. */
+export function listCreatableEvents(): AutomationEventDefinition[] {
+  return EVENT_CATALOG.filter((event) => event.selectable && event.emission !== 'plannedNotEmitting');
+}
+
+/** Catalog entries that exist internally but must not be offered as working triggers. */
+export function listPlannedEvents(): AutomationEventDefinition[] {
+  return EVENT_CATALOG.filter((event) => !event.selectable || event.emission === 'plannedNotEmitting');
 }

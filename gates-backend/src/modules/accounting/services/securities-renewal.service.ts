@@ -421,19 +421,6 @@ export class SecuritiesRenewalService {
         }
       );
 
-      if (customerId) {
-        await tx.customer.update({
-          where: { id: customerId },
-          data: { balance: { increment: new Decimal(fee) } },
-        });
-      }
-      if (supplierId) {
-        await tx.supplier.update({
-          where: { id: supplierId },
-          data: { balance: { increment: new Decimal(fee) } },
-        });
-      }
-
       return tx.securitiesRenewal.update({
         where: { id: renewalId },
         data: { isPosted: true, postedAt: new Date(), journalEntryId: je.id },
@@ -444,8 +431,7 @@ export class SecuritiesRenewalService {
   }
 
   /**
-   * Unpost a securities renewal: reverses the fee journal entry (if any) and
-   * restores the party balance.
+   * Unpost a securities renewal: reverses the fee journal, which restores the party card.
    */
   async unpostSecuritiesRenewal(
     companyId: string,
@@ -465,14 +451,6 @@ export class SecuritiesRenewalService {
       });
     }
 
-    const fee = renewal.renewalFee ? Number(renewal.renewalFee) : 0;
-    const { customerId, supplierId } = renewal.originalSecurityId && renewal.originalSecurityType
-      ? await this.resolveOriginalSecurityParty(
-          companyId,
-          renewal.originalSecurityId,
-          renewal.originalSecurityType
-        )
-      : { customerId: null, supplierId: null };
     const fiscalYearId = await fiscalYearService.assertOpenForDate(companyId, new Date());
 
     return prisma.$transaction(async (tx) => {
@@ -482,19 +460,6 @@ export class SecuritiesRenewalService {
         renewal.journalEntryId!,
         { reason: 'Securities renewal unposted' }
       );
-
-      if (customerId) {
-        await tx.customer.update({
-          where: { id: customerId },
-          data: { balance: { decrement: new Decimal(fee) } },
-        });
-      }
-      if (supplierId) {
-        await tx.supplier.update({
-          where: { id: supplierId },
-          data: { balance: { decrement: new Decimal(fee) } },
-        });
-      }
 
       return tx.securitiesRenewal.update({
         where: { id: renewalId },

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const documentEntityTypeSchema = z.enum(['INVOICE', 'JOURNAL_ENTRY', 'STOCK_MOVEMENT']);
+export const documentEntityTypeSchema = z.enum(['INVOICE', 'JOURNAL_ENTRY']);
 
 export const approvalEntityQuerySchema = z.object({
   entityType: documentEntityTypeSchema,
@@ -8,9 +8,7 @@ export const approvalEntityQuerySchema = z.object({
 });
 
 export const approvalActionSchema = z.object({
-  entityType: documentEntityTypeSchema.refine((t) => t !== 'STOCK_MOVEMENT', {
-    message: 'Use INVOICE or JOURNAL_ENTRY',
-  }),
+  entityType: documentEntityTypeSchema,
   entityId: z.string().uuid(),
   note: z.string().max(2000).optional(),
 });

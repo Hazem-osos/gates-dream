@@ -1,10 +1,12 @@
 import prisma from '../../../shared/database/prisma';
+import { permanentDelete } from '../../../shared/database/permanent-delete.util';
 import { logger } from '../../../shared/logger';
 
 export interface CreateAllowanceData {
   code?: string;
   arabicName: string;
   englishName?: string;
+  defaultAmount?: number | null;
 }
 
 export interface UpdateAllowanceData extends Partial<CreateAllowanceData> {
@@ -20,6 +22,7 @@ export class AllowanceService {
           code: data.code,
           arabicName: data.arabicName,
           englishName: data.englishName,
+          defaultAmount: data.defaultAmount ?? null,
         },
       });
 
@@ -153,10 +156,7 @@ export class AllowanceService {
         throw new Error('Allowance not found');
       }
 
-      await prisma.allowance.update({
-        where: { id: allowanceId },
-        data: { isActive: false },
-      });
+      await permanentDelete('السجل', () => prisma.allowance.delete({ where: { id: allowanceId } }));
 
       logger.info({ companyId, allowanceId }, 'Allowance deleted');
       return { success: true };

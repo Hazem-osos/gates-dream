@@ -1,9 +1,9 @@
 import { z } from 'zod';
 
 export const createLocationSchema = z.object({
-  warehouseId: z.string().uuid('Warehouse ID must be a valid UUID'),
+  warehouseId: z.string().uuid('اختر المخزن'),
   code: z.string().optional(),
-  arabicName: z.string().min(1, 'Arabic name is required'),
+  arabicName: z.string().min(1, 'اسم الموقع بالعربية مطلوب'),
   englishName: z.string().optional(),
 });
 

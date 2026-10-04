@@ -25,7 +25,7 @@ export function syncAuthTokenCookie(token: string | null, persist: boolean): voi
     return;
   }
 
-  const maxAgeSeconds = persist ? 60 * 60 * 24 * 7 : 60 * 60 * 24; // 7d vs 1d session tab
+  const maxAgeSeconds = 60 * 60 * 24 * (persist ? 30 : 30);
   const value = encodeURIComponent(token);
   document.cookie = `${AUTH_TOKEN_COOKIE_NAME}=${value}; ${suffix}; Max-Age=${maxAgeSeconds}`;
 }

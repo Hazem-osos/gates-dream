@@ -85,6 +85,24 @@ export default function WagePolicyPage() {
       code: data.code || undefined,
       arabicName: data.arabicName,
       englishName: data.englishName || undefined,
+      rules: {
+        vacationEligible,
+        vacationEveryDays,
+        vacationPerDay,
+        vacationNotes,
+        endServiceEligible,
+        endServiceYears,
+        endServiceDaysPerYear,
+        endServiceExtraDaysPerYear,
+        endServiceUnusedLeave,
+        endServiceNoAbsence,
+        endServiceNoPartialYear,
+        housingEligible,
+        housingValueType,
+        housingAmount,
+        housingUnit,
+        housingPayoutEvery,
+      },
     });
   };
 
@@ -146,7 +164,7 @@ export default function WagePolicyPage() {
                       className={`px-6 py-3 rounded-lg font-medium text-sm transition-all duration-300 transform hover:scale-105 ${
                         activeTab === tab.id
                           ? 'bg-[#0E78AA] text-white shadow-lg shadow-blue-200'
-                          : 'text-gray-600 hover:text-[#0E79AA] hover:bg-blue-50'
+                          : 'text-gray-600 hover:text-[#0E78AA] hover:bg-blue-50'
                       }`}
                     >
                       {tab.label}
@@ -236,7 +254,7 @@ export default function WagePolicyPage() {
                     {/* لكل ساعة تأخير يخصم */}
                     <div className="flex items-center gap-4">
                       <label className="text-sm text-[#094C6B] min-w-[200px]">لكل ساعة تأخير يخصم</label>
-                      <input type="number" min={0} step={0.01} className="w-20 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E79AA] focus:ring-[#0E79AA] text-center" placeholder="0.00" />
+                      <input type="number" min={0} step={0.01} className="w-20 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E78AA] focus:ring-[#0E78AA] text-center" placeholder="0.00" />
                       
                       <div className="relative">
                         <select className={inputCls + ' w-32 pr-8'}>
@@ -254,7 +272,7 @@ export default function WagePolicyPage() {
                     {/* لكل يوم غياب يخصم */}
                     <div className="flex items-center gap-4">
                       <label className="text-sm text-[#094C6B] min-w-[200px]">لكل يوم غياب يخصم</label>
-                      <input type="number" min={0} step={0.01} className="w-20 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E79AA] focus:ring-[#0E79AA] text-center" placeholder="0.00" />
+                      <input type="number" min={0} step={0.01} className="w-20 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E78AA] focus:ring-[#0E78AA] text-center" placeholder="0.00" />
                       
                       <div className="relative">
                         <select className={inputCls + ' w-32 pr-8'}>
@@ -272,7 +290,7 @@ export default function WagePolicyPage() {
                     {/* لكل ساعة إضافي يضاف */}
                     <div className="flex items-center gap-4">
                       <label className="text-sm text-[#094C6B] min-w-[200px]">لكل ساعة إضافي يضاف</label>
-                      <input type="number" min={0} step={0.01} className="w-20 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E79AA] focus:ring-[#0E79AA] text-center" placeholder="0.00" />
+                      <input type="number" min={0} step={0.01} className="w-20 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E78AA] focus:ring-[#0E78AA] text-center" placeholder="0.00" />
                    
                       <div className="relative">
                         <select className={inputCls + ' w-32 pr-8'}>
@@ -290,7 +308,7 @@ export default function WagePolicyPage() {
                     {/* لكل يوم إضافي يضاف */}
                     <div className="flex items-center gap-4">
                       <label className="text-sm text-[#094C6B] min-w-[200px]">لكل يوم إضافي يضاف</label>
-                      <input type="number" min={0} step={0.01} className="w-20 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E79AA] focus:ring-[#0E79AA] text-center" placeholder="0.00" />
+                      <input type="number" min={0} step={0.01} className="w-20 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E78AA] focus:ring-[#0E78AA] text-center" placeholder="0.00" />
                
                       <div className="relative">
                         <select className={inputCls + ' w-32 pr-8'}>
@@ -315,11 +333,11 @@ export default function WagePolicyPage() {
                   <div className="md:col-span-2 flex items-center gap-4">
                     <label className="text-sm text-[#094C6B]">مكافأة نهاية الخدمة</label>
                     <div className="flex items-center gap-2">
-                      <label className={`px-4 py-1 rounded-lg border ${endServiceEligible === 'yes' ? 'bg-[#0E79AA] text-white border-[#0E79AA]' : 'bg-[#F6FBFD] text-[#094C6B] border-[#D6EAF3]'} cursor-pointer`}>
+                      <label className={`px-4 py-1 rounded-lg border ${endServiceEligible === 'yes' ? 'bg-[#0E78AA] text-white border-[#0E78AA]' : 'bg-[#F6FBFD] text-[#094C6B] border-[#D6EAF3]'} cursor-pointer`}>
                         <input type="radio" name="end-service-elig" className="hidden" checked={endServiceEligible==='yes'} onChange={()=>setEndServiceEligible('yes')} />
                         يستحق مكافأة نهاية خدمة
                       </label>
-                      <label className={`px-4 py-1 rounded-lg border ${endServiceEligible === 'no' ? 'bg-[#0E79AA] text-white border-[#0E79AA]' : 'bg-[#F6FBFD] text-[#094C6B] border-[#D6EAF3]'} cursor-pointer`}>
+                      <label className={`px-4 py-1 rounded-lg border ${endServiceEligible === 'no' ? 'bg-[#0E78AA] text-white border-[#0E78AA]' : 'bg-[#F6FBFD] text-[#094C6B] border-[#D6EAF3]'} cursor-pointer`}>
                         <input type="radio" name="end-service-elig" className="hidden" checked={endServiceEligible==='no'} onChange={()=>setEndServiceEligible('no')} />
                         لا يستحق مكافأة نهاية خدمة
                       </label>
@@ -344,15 +362,15 @@ export default function WagePolicyPage() {
                   <div className="md:col-span-2">
                     <label className="block text-sm text-[#094C6B] mb-1">تشمل الإضافات التالية</label>
                     <div className="space-y-2">
-                      <label className={`px-4 py-2 rounded-lg border ${endServiceUnusedLeave ? 'bg-[#0E79AA] text-white border-[#0E79AA]' : 'bg-[#F6FBFD] text-[#094C6B] border-[#D6EAF3]'} cursor-pointer flex items-center gap-2`}>
+                      <label className={`px-4 py-2 rounded-lg border ${endServiceUnusedLeave ? 'bg-[#0E78AA] text-white border-[#0E78AA]' : 'bg-[#F6FBFD] text-[#094C6B] border-[#D6EAF3]'} cursor-pointer flex items-center gap-2`}>
                         <input type="checkbox" checked={endServiceUnusedLeave} onChange={(e)=>setEndServiceUnusedLeave(e.target.checked)} className="hidden" />
                         <span>أيام الأجازت السنوية الغير مستهدمة تحول إلى نقود</span>
                       </label>
-                      <label className={`px-4 py-2 rounded-lg border ${endServiceNoAbsence ? 'bg-[#0E79AA] text-white border-[#0E79AA]' : 'bg-[#F6FBFD] text-[#094C6B] border-[#D6EAF3]'} cursor-pointer flex items-center gap-2`}>
+                      <label className={`px-4 py-2 rounded-lg border ${endServiceNoAbsence ? 'bg-[#0E78AA] text-white border-[#0E78AA]' : 'bg-[#F6FBFD] text-[#094C6B] border-[#D6EAF3]'} cursor-pointer flex items-center gap-2`}>
                         <input type="checkbox" checked={endServiceNoAbsence} onChange={(e)=>setEndServiceNoAbsence(e.target.checked)} className="hidden" />
                         <span>لا تحسب أيام الغياب من مدة العمل الكلية</span>
                       </label>
-                      <label className={`px-4 py-2 rounded-lg border ${endServiceNoPartialYear ? 'bg-[#0E79AA] text-white border-[#0E79AA]' : 'bg-[#F6FBFD] text-[#094C6B] border-[#D6EAF3]'} cursor-pointer flex items-center gap-2`}>
+                      <label className={`px-4 py-2 rounded-lg border ${endServiceNoPartialYear ? 'bg-[#0E78AA] text-white border-[#0E78AA]' : 'bg-[#F6FBFD] text-[#094C6B] border-[#D6EAF3]'} cursor-pointer flex items-center gap-2`}>
                         <input type="checkbox" checked={endServiceNoPartialYear} onChange={(e)=>setEndServiceNoPartialYear(e.target.checked)} className="hidden" />
                         <span>أجزاء السنة لا تستحق مكافأة نهاية خدمة</span>
                       </label>
@@ -375,11 +393,11 @@ export default function WagePolicyPage() {
                   <div className="md:col-span-2 flex items-center gap-4">
                     <label className="text-sm text-[#094C6B]">الأجازات السنوية</label>
                     <div className="flex items-center gap-2">
-                      <label className={`px-4 py-1 rounded-lg border ${vacationEligible === 'yes' ? 'bg-[#0E79AA] text-white border-[#0E79AA]' : 'bg-[#F6FBFD] text-[#094C6B] border-[#D6EAF3]'} cursor-pointer`}>
+                      <label className={`px-4 py-1 rounded-lg border ${vacationEligible === 'yes' ? 'bg-[#0E78AA] text-white border-[#0E78AA]' : 'bg-[#F6FBFD] text-[#094C6B] border-[#D6EAF3]'} cursor-pointer`}>
                         <input type="radio" name="vac-elig" className="hidden" checked={vacationEligible==='yes'} onChange={()=>setVacationEligible('yes')} />
                         يستحق إجازة سنوية
                       </label>
-                      <label className={`px-4 py-1 rounded-lg border ${vacationEligible === 'no' ? 'bg-[#0E79AA] text-white border-[#0E79AA]' : 'bg-[#F6FBFD] text-[#094C6B] border-[#D6EAF3]'} cursor-pointer`}>
+                      <label className={`px-4 py-1 rounded-lg border ${vacationEligible === 'no' ? 'bg-[#0E78AA] text-white border-[#0E78AA]' : 'bg-[#F6FBFD] text-[#094C6B] border-[#D6EAF3]'} cursor-pointer`}>
                         <input type="radio" name="vac-elig" className="hidden" checked={vacationEligible==='no'} onChange={()=>setVacationEligible('no')} />
                         لا يستحق إجازة سنوية
                       </label>
@@ -409,11 +427,11 @@ export default function WagePolicyPage() {
                   <div className="md:col-span-2 flex items-center gap-4">
                     <label className="text-sm text-[#094C6B]">بدل السكن</label>
                     <div className="flex items-center gap-2">
-                      <label className={`px-4 py-1 rounded-lg border ${housingEligible === 'yes' ? 'bg-[#0E79AA] text-white border-[#0E79AA]' : 'bg-[#F6FBFD] text-[#094C6B] border-[#D6EAF3]'} cursor-pointer`}>
+                      <label className={`px-4 py-1 rounded-lg border ${housingEligible === 'yes' ? 'bg-[#0E78AA] text-white border-[#0E78AA]' : 'bg-[#F6FBFD] text-[#094C6B] border-[#D6EAF3]'} cursor-pointer`}>
                         <input type="radio" name="housing-elig" className="hidden" checked={housingEligible==='yes'} onChange={()=>setHousingEligible('yes')} />
                         يستحق بدل سكن
                       </label>
-                      <label className={`px-4 py-1 rounded-lg border ${housingEligible === 'no' ? 'bg-[#0E79AA] text-white border-[#0E79AA]' : 'bg-[#F6FBFD] text-[#094C6B] border-[#D6EAF3]'} cursor-pointer`}>
+                      <label className={`px-4 py-1 rounded-lg border ${housingEligible === 'no' ? 'bg-[#0E78AA] text-white border-[#0E78AA]' : 'bg-[#F6FBFD] text-[#094C6B] border-[#D6EAF3]'} cursor-pointer`}>
                         <input type="radio" name="housing-elig" className="hidden" checked={housingEligible==='no'} onChange={()=>setHousingEligible('no')} />
                         لا يستحق بدل سكن
                       </label>
@@ -424,11 +442,11 @@ export default function WagePolicyPage() {
                                       <div className="md:col-span-2">
                       <div className="flex flex-col gap-2">
                         <div className="flex items-center gap-3">
-                          <label className={`px-3 py-1 rounded-lg border ${housingValueType === 'percent' ? 'bg-[#0E79AA] text-white border-[#0E79AA]' : 'bg-[#F6FBFD] text-[#094C6B] border-[#D6EAF3]'} cursor-pointer`}>
+                          <label className={`px-3 py-1 rounded-lg border ${housingValueType === 'percent' ? 'bg-[#0E78AA] text-white border-[#0E78AA]' : 'bg-[#F6FBFD] text-[#094C6B] border-[#D6EAF3]'} cursor-pointer`}>
                             <input type="radio" name="housing-type" className="hidden" checked={housingValueType==='percent'} onChange={()=>setHousingValueType('percent')} />
                             نسبة
                           </label>
-                          <label className={`px-3 py-1 rounded-lg border ${housingValueType === 'amount' ? 'bg-[#0E79AA] text-white border-[#0E79AA]' : 'bg-[#F6FBFD] text-[#094C6B] border-[#D6EAF3]'} cursor-pointer`}>
+                          <label className={`px-3 py-1 rounded-lg border ${housingValueType === 'amount' ? 'bg-[#0E78AA] text-white border-[#0E78AA]' : 'bg-[#F6FBFD] text-[#094C6B] border-[#D6EAF3]'} cursor-pointer`}>
                             <input type="radio" name="housing-type" className="hidden" checked={housingValueType==='amount'} onChange={()=>setHousingValueType('amount')} />
                             قيمة
                           </label>

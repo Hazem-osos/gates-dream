@@ -246,26 +246,37 @@ export async function renderReceiptToCanvas(
   }
   y += 2;
   row('الصافي النهائي', formatThermalMoney(invoiceData.net), true, 18);
+  for (const payment of invoiceData.payments ?? []) {
+    row(payment.label, formatThermalMoney(payment.amount));
+  }
+  if (invoiceData.tendered != null && invoiceData.tendered > 0) {
+    row('المبلغ المستلم', formatThermalMoney(invoiceData.tendered));
+  }
+  if (invoiceData.change != null && invoiceData.change > 0) {
+    row('الباقي', formatThermalMoney(invoiceData.change));
+  }
+  if (invoiceData.cashier) {
+    row('الكاشير', invoiceData.cashier, false, 12);
+  }
 
-  const qrPayload =
-    invoiceData.qrPayload?.trim() ||
-    [
-      invoiceData.companyName,
-      invoiceData.invoiceNumber,
-      invoiceData.dateTime,
-      formatThermalMoney(invoiceData.net),
-    ].join('|');
-
-  const qrSize = options.widthMm === 58 ? 128 : 152;
-  const qrImg = await loadQrImage(qrPayload, qrSize);
-  if (qrImg) {
-    y += 8;
-    ctx.drawImage(qrImg, (width - qrSize) / 2, y, qrSize, qrSize);
-    y += qrSize + 8;
-    ctx.font = `400 10px ${FONT_STACK}`;
-    ctx.textAlign = 'center';
-    ctx.fillText('فاتورة إلكترونية — مصلحة الضرائب', width / 2, y);
-    y += 16;
+  const qrPayload = invoiceData.qrPayload?.trim() || '';
+  for (const line of invoiceData.fiscalLines ?? []) {
+    if (!line.trim()) continue;
+    paint(line, 11, '600', 'center', width / 2);
+  }
+  if (qrPayload) {
+    const qrSize = options.widthMm === 58 ? 128 : 152;
+    const qrImg = await loadQrImage(qrPayload, qrSize);
+    if (qrImg) {
+      y += 8;
+      ctx.drawImage(qrImg, (width - qrSize) / 2, y, qrSize, qrSize);
+      y += qrSize + 8;
+      ctx.font = `400 10px ${FONT_STACK}`;
+      ctx.textAlign = 'center';
+      const eta = qrPayload.includes('invoicing.eta.gov.eg/receipts/search/');
+      ctx.fillText(eta ? 'إيصال إلكتروني — مصلحة الضرائب' : 'رمز الإيصال', width / 2, y);
+      y += 16;
+    }
   }
 
   if (invoiceData.notes) {

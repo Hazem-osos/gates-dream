@@ -34,6 +34,7 @@ import { CostCenterSelect } from '@/components/form/CostCenterSelect';
 import { ItemSelect } from '@/components/form/ItemSelect';
 import { InvoiceLineStockBalanceCell } from '@/components/invoices/InvoiceLineStockBalanceCell';
 import { useApiQuery, useApiMutation, useInvalidateQuery } from '@/lib/hooks/useApi';
+import { resolvePostedFlag } from '@/lib/documents/posting-trust';
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
 import { TableNumberInput } from '@/components/grid/TableNumberInput';
@@ -45,6 +46,18 @@ import {
 import type { ApiError, ApiResponse } from '@/lib/api/types';
 import { useRepostAfterUnpost } from '@/lib/accounting/ensure-posted-after-save';
 import { onFieldErrors } from '@/lib/forms/on-field-errors';
+import { finishDocumentSave } from '@/lib/documents/finish-save';
+import {
+  postSuccessMessage,
+  useDocumentPostMutation,
+} from '@/lib/inventory/use-document-post-mutation';
+import {
+  useStoreDocumentSerial,
+  STORE_DOCUMENT_UNPOSTED_LABEL,
+} from '@/lib/inventory/use-store-document-serial';
+import { STORE_SAVE_AND_POST_LABEL } from '@/lib/inventory/store-document-save-post';
+import { apiClient } from '@/lib/api/client';
+import { invalidateStockViews } from '@/lib/invoices/invalidate-stock-views';
 import { useDraftAutosave } from '@/lib/hooks/useDraftAutosave';
 import { rememberTabHref, rememberTabSearch } from '@/lib/navigation/tab-memory';
 import { normalizeAppPath } from '@/lib/navigation/app-module-root';
@@ -117,7 +130,7 @@ function headerFromTransferDoc(doc: TransferDocumentDetail): InventoryTransferHe
     toWarehouseId: String(doc.toWarehouseId ?? ''),
     fromCostCenterId: String(doc.fromCostCenterId ?? ''),
     toCostCenterId: String(doc.toCostCenterId ?? ''),
-    statusPosted: Boolean(doc.isPosted),
+    statusPosted: resolvePostedFlag(doc),
     useBarcode: true,
     hideExistingQty: false,
   };
@@ -158,6 +171,16 @@ function isTransferDraftEmpty(draft: TransferDraft): boolean {
   );
 }
 
+function transferSerialFromResponse(res: ApiResponse<unknown> | undefined): string | undefined {
+  const data = res?.data;
+  if (data && typeof data === 'object') {
+    const serial = (data as { serialNumber?: unknown; serial?: unknown }).serialNumber
+      ?? (data as { serial?: unknown }).serial;
+    if (typeof serial === 'string' && serial.trim()) return serial;
+  }
+  return undefined;
+}
+
 function transferIdFromResponse(res: ApiResponse<unknown> | undefined): string | null {
   const data = res?.data;
   if (data && typeof data === 'object' && 'id' in data) {
@@ -165,6 +188,18 @@ function transferIdFromResponse(res: ApiResponse<unknown> | undefined): string |
     if (typeof id === 'string' && id.trim()) return id;
   }
   return null;
+}
+
+function transferPostedFromResponse(res: ApiResponse<unknown> | undefined): boolean {
+  const data = res?.data;
+  return Boolean(data && typeof data === 'object' && (data as { isPosted?: unknown }).isPosted);
+}
+
+function postFailureFromSave(res: ApiResponse<unknown> | undefined): string | null {
+  if (transferPostedFromResponse(res)) return null;
+  const message = typeof res?.message === 'string' ? res.message.trim() : '';
+  if (!message.startsWith('تم الحفظ.')) return null;
+  return message.slice('تم الحفظ.'.length).trim() || 'تم الحفظ لكن تعذر الترحيل';
 }
 
 function pinTransferTabSearch(id: string | null) {
@@ -197,6 +232,7 @@ function TransferPageInner() {
   const invalidateQuery = useInvalidateQuery();
   const todayStr = new Date().toISOString().split('T')[0];
   const skipServerHydrateRef = useRef(false);
+  const postAfterSaveRef = useRef(false);
 
   const inputCls = compactControlClass;
   const labelCls = compactLabelClass;
@@ -253,6 +289,17 @@ function TransferPageInner() {
   const [selectedTransferId, setSelectedTransferId] = useState<string | null>(
     () => searchParams.get('id')?.trim() || null
   );
+
+  const setSerialNumber = useCallback(
+    (value: string) =>
+      setValue('serialNumber', value, { shouldDirty: false, shouldValidate: false }),
+    [setValue]
+  );
+  const { serialAutomatic, invalidateNextSerial } = useStoreDocumentSerial({
+    kind: 'transfer',
+    enabled: !selectedTransferId,
+    setSerial: setSerialNumber,
+  });
 
   useEffect(() => {
     if (!selectedTransferId) {
@@ -319,63 +366,135 @@ function TransferPageInner() {
     replaceTransferLines(linesFromTransferDoc(selectedTransfer));
   }, [replaceTransferLines, selectedTransfer, selectedTransferId, reset]);
 
-  const stayOnTransfer = (id: string | null) => {
-    if (id) {
-      openTransfer(id);
-      invalidateQuery(['transfer', id]);
-    }
-    invalidateQuery(['transfers']);
+  const clearTransferForNext = () => {
+    clearDraft();
+    openTransfer(null);
+    replaceTransferLines([]);
+    reset(emptyTransferFormDefaults());
   };
 
-  // Transfer create mutation
   const transferMutation = useApiMutation<unknown, Record<string, unknown>>(
     '/inventory/transfers',
     'POST',
     {
+      showSuccessToast: false,
       onSuccess: (res) => {
-        clearDraft();
+        invalidateStockViews(invalidateQuery);
+        invalidateNextSerial();
+        const failure = postFailureFromSave(res);
         const id = transferIdFromResponse(res);
-        setValue('statusPosted', true);
-        stayOnTransfer(id);
-        setSuccess('تم حفظ وترحيل النقل المخزني');
+        const shouldPost = postAfterSaveRef.current;
+        postAfterSaveRef.current = false;
+        if (failure) {
+          setError(failure);
+          setSuccess('');
+          if (id) openTransfer(id);
+          return;
+        }
+        const number = transferSerialFromResponse(res);
+        const finish = (posted: boolean) => {
+          finishDocumentSave({
+            label: 'تحويل',
+            number,
+            posted,
+            savedId: id,
+            clearDraft,
+            onOpen: (saved) => openTransfer(saved),
+            onSavedOpen: (saved) => invalidateQuery(['transfer', saved]),
+            reset: clearTransferForNext,
+          });
+        };
+        if (shouldPost && id) {
+          void apiClient
+            .post(`/inventory/transfers/${id}/post`)
+            .then((postRes) => {
+              setSuccess(postSuccessMessage(postRes));
+              setValue('statusPosted', true);
+              invalidateStockViews(invalidateQuery);
+              finish(true);
+            })
+            .catch((err: unknown) => {
+              setError(err instanceof Error ? err.message : 'تم الحفظ وتعذر الترحيل');
+              if (id) openTransfer(id);
+              invalidateStockViews(invalidateQuery);
+            });
+          return;
+        }
+        finish(transferPostedFromResponse(res));
       },
       onError: (error: ApiError) => {
+        postAfterSaveRef.current = false;
         setError(error.message || 'حدث خطأ أثناء الحفظ');
       },
     }
   );
 
-  // Transfer update mutation
   const transferUpdateMutation = useApiMutation<unknown, Record<string, unknown>>(
     selectedTransferId ? `/inventory/transfers/${selectedTransferId}` : '/inventory/transfers',
     'PUT',
     {
-      onSuccess: () => {
-        clearDraft();
-        const id = selectedTransferId;
-        setValue('statusPosted', true);
-        stayOnTransfer(id);
-        setSuccess('تم حفظ وترحيل النقل المخزني');
+      showSuccessToast: false,
+      onSuccess: (res) => {
+        invalidateStockViews(invalidateQuery);
+        const failure = postFailureFromSave(res);
+        const id = selectedTransferId ?? transferIdFromResponse(res);
+        const shouldPost = postAfterSaveRef.current;
+        postAfterSaveRef.current = false;
+        if (failure) {
+          setError(failure);
+          setSuccess('');
+          if (id) openTransfer(id);
+          return;
+        }
+        const number =
+          transferSerialFromResponse(res) ||
+          selectedTransfer?.serialNumber ||
+          selectedTransfer?.serial;
+        const finish = (posted: boolean) => {
+          finishDocumentSave({
+            label: 'تحويل',
+            number,
+            posted,
+            savedId: id,
+            clearDraft,
+            onOpen: (saved) => openTransfer(saved),
+            onSavedOpen: (saved) => invalidateQuery(['transfer', saved]),
+            reset: clearTransferForNext,
+          });
+        };
+        if (shouldPost && id) {
+          void apiClient
+            .post(`/inventory/transfers/${id}/post`)
+            .then((postRes) => {
+              setSuccess(postSuccessMessage(postRes));
+              setValue('statusPosted', true);
+              invalidateStockViews(invalidateQuery);
+              finish(true);
+            })
+            .catch((err: unknown) => {
+              setError(err instanceof Error ? err.message : 'تم الحفظ وتعذر الترحيل');
+              invalidateStockViews(invalidateQuery);
+            });
+          return;
+        }
+        finish(transferPostedFromResponse(res));
       },
       onError: (error: ApiError) => {
+        postAfterSaveRef.current = false;
         setError(error.message || 'حدث خطأ أثناء التحديث');
       },
     }
   );
 
-  // Transfer delete mutation
   const transferDeleteMutation = useApiMutation<unknown, Record<string, unknown>>(
     selectedTransferId ? `/inventory/transfers/${selectedTransferId}` : '/inventory/transfers',
     'DELETE',
     {
+      showSuccessToast: false,
       onSuccess: () => {
         setSuccess('تم حذف النقل المخزني بنجاح');
-        invalidateQuery(['transfers']);
-        clearDraft();
-        setSelectedTransferId(null);
-        pinTransferTabSearch(null);
-        replaceTransferLines([]);
-        reset(emptyTransferFormDefaults());
+        invalidateStockViews(invalidateQuery);
+        clearTransferForNext();
       },
       onError: (error: ApiError) => {
         setError(error.message || 'حدث خطأ أثناء الحذف');
@@ -383,54 +502,64 @@ function TransferPageInner() {
     }
   );
 
-  // Post transfer mutation
-  const postTransferMutation = useApiMutation<unknown, Record<string, unknown>>(
-    selectedTransferId ? `/inventory/transfers/${selectedTransferId}/post` : '/inventory/transfers',
-    'POST',
-    {
-      onSuccess: () => {
-        setSuccess('تم ترحيل النقل المخزني بنجاح');
-        setValue('statusPosted', true);
-        invalidateQuery(['transfers']);
-        invalidateQuery(['transfer', selectedTransferId]);
-      },
-      onError: (error: ApiError) => {
-        setError(error.message || 'حدث خطأ أثناء الترحيل');
-      },
-    }
+  const postTransferMutation = useDocumentPostMutation(
+    '/inventory/transfers',
+    selectedTransferId,
+    'post'
   );
-
-  // Unpost transfer mutation
-  const unpostTransferMutation = useApiMutation<unknown, Record<string, unknown>>(
-    selectedTransferId ? `/inventory/transfers/${selectedTransferId}/unpost` : '/inventory/transfers',
-    'POST',
-    {
-      onSuccess: () => {
-        setSuccess('تم فك ترحيل النقل المخزني بنجاح');
-        setValue('statusPosted', false);
-        markUnpostedForEdit();
-        invalidateQuery(['transfers']);
-        invalidateQuery(['transfer', selectedTransferId]);
-      },
-      onError: (error: ApiError) => {
-        setError(error.message || 'حدث خطأ أثناء فك الترحيل');
-      },
-    }
+  const unpostTransferMutation = useDocumentPostMutation(
+    '/inventory/transfers',
+    selectedTransferId,
+    'unpost'
   );
 
   const loading = transferMutation.isPending || transferUpdateMutation.isPending || transferDeleteMutation.isPending;
 
   // Handle post/unpost
   const handlePostUnpost = async (post: boolean) => {
+    if (post && !selectedTransferId) {
+      postAfterSaveRef.current = true;
+      if (typeof document !== 'undefined' && document.activeElement instanceof HTMLElement) {
+        document.activeElement.blur();
+      }
+      void handleSubmit(onSaveValid, onFieldErrors(setError))();
+      return;
+    }
     if (!selectedTransferId) {
-      setError('يرجى اختيار نقل أولاً');
+      setError('احفظ النقل أولاً');
       return;
     }
 
     if (post) {
-      postTransferMutation.mutate({});
+      postTransferMutation.mutate(
+        {},
+        {
+          onSuccess: (res) => {
+            setSuccess(postSuccessMessage(res));
+            setValue('statusPosted', true);
+            invalidateStockViews(invalidateQuery);
+            if (selectedTransferId) invalidateQuery(['transfer', selectedTransferId]);
+          },
+          onError: (error: ApiError) => {
+            setError(error.message || 'حدث خطأ أثناء الترحيل');
+          },
+        }
+      );
     } else {
-      unpostTransferMutation.mutate({});
+      unpostTransferMutation.mutate(
+        {},
+        {
+          onSuccess: () => {
+            setSuccess('تم فك ترحيل النقل المخزني بنجاح');
+            setValue('statusPosted', false);
+            markUnpostedForEdit();
+            invalidateStockViews(invalidateQuery);
+          },
+          onError: (error: ApiError) => {
+            setError(error.message || 'حدث خطأ أثناء فك الترحيل');
+          },
+        }
+      );
     }
   };
 
@@ -449,12 +578,9 @@ function TransferPageInner() {
   // Handle new transfer
   const handleNew = () => {
     resetKeepPosted();
-    clearDraft();
-    openTransfer(null);
-    replaceTransferLines([]);
     setError('');
     setSuccess('');
-    reset(emptyTransferFormDefaults());
+    clearTransferForNext();
   };
 
   const handleRestoreDraft = () => {
@@ -488,7 +614,9 @@ function TransferPageInner() {
   const onSaveValid: SubmitHandler<InventoryTransferHeaderFormInput> = (values) => {
     setError('');
     setSuccess('');
-    const latestLines = transferLinesRef.current;
+    const latestLines = transferLinesRef.current.filter(
+      (line) => String(line.itemId ?? '').trim() && Number(line.quantity) > 0
+    );
     const linesParsed = z.array(inventoryStdLineSchema).min(1, 'يرجى إضافة أصناف للنقل').safeParse(latestLines);
     if (!linesParsed.success) {
       const msg = linesParsed.error.issues[0]?.message;
@@ -540,9 +668,10 @@ function TransferPageInner() {
         title="تحويل بين المخازن"
         docNumber={watch('serialNumber') || ''}
         statusTone={statusPosted ? 'success' : 'warning'}
-        statusLabel={statusPosted ? 'مرحّل' : 'مسودة'}
-        saveLabel="حفظ"
+        statusLabel={statusPosted ? 'مرحّل' : STORE_DOCUMENT_UNPOSTED_LABEL}
+        saveLabel={STORE_SAVE_AND_POST_LABEL}
         onSaveDraft={() => {
+          postAfterSaveRef.current = true;
           if (typeof document !== 'undefined' && document.activeElement instanceof HTMLElement) {
             document.activeElement.blur();
           }
@@ -597,7 +726,12 @@ function TransferPageInner() {
       <DocumentReadOnlyBanner />
       <DocumentFormLock>
       <FormSectionCard title="بيانات التحويل" subtitle="المسلسل والتاريخ والمخازن">
-          <CompactFormField label="المسلسل" placeholder="إدخل رقم المسلسل" {...register('serialNumber')} />
+          <CompactFormField
+            label="المسلسل"
+            placeholder={serialAutomatic ? 'يُولَّد تلقائياً' : 'أدخل رقم المسلسل'}
+            readOnly={serialAutomatic}
+            {...register('serialNumber')}
+          />
           <CompactFormField
             label="التاريخ"
             type="date"
@@ -695,7 +829,7 @@ function TransferPageInner() {
                     onChange={(e) => onChange(e.target.checked)}
                     className="h-4 w-4 rounded border-[#0E78AA]/50"
                   />
-                  عدم إظهار الكمية الموجودة
+                  عدم إظهار الكمية المتاحة
                 </label>
               )}
             />
@@ -756,7 +890,7 @@ function TransferPageInner() {
                 </div>
                 {hideExistingQty ? null : (
                 <div>
-                  <label className={labelCls}>الكمية الموجودة</label>
+                  <label className={labelCls}>الكمية المتاحة</label>
                   <span className={`${inputCls} flex items-center`}>
                     {fromWarehouseId ? (
                       <InvoiceLineStockBalanceCell

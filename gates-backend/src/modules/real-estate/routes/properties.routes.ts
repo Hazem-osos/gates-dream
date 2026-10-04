@@ -25,7 +25,7 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -58,6 +58,77 @@ router.get(
 );
 
 /**
+ * POST /api/v1/real-estate/properties
+ * Create a sellable unit (project + building + unit) for the property card.
+ */
+router.post(
+  '/',
+  authorize({ resource: 'property', action: 'edit' }),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const companyId = req.companyId || req.tenantId;
+      if (!companyId) {
+        return void res.status(400).json({
+          status: 'error',
+          message: 'معرّف الشركة مطلوب',
+        });
+      }
+
+      const body = req.body as {
+        code?: string;
+        arabicName?: string;
+        propertyType?: string;
+        area?: number;
+        price?: number;
+        location?: string;
+      };
+      const arabicName = body.arabicName?.trim();
+      if (!arabicName) {
+        return void res.status(400).json({
+          status: 'error',
+          message: 'الاسم العربي مطلوب',
+        });
+      }
+
+      const code = body.code?.trim() || `RE-${Date.now()}`;
+      const project = await realEstateUnitService.createProject(companyId, {
+        projectCode: code,
+        projectName: arabicName,
+      });
+      const building = await realEstateUnitService.createBuilding(companyId, {
+        projectId: project.id,
+        buildingCode: 'B1',
+        name: body.location?.trim() || arabicName,
+      });
+      const unitTypes = new Set(['RESIDENTIAL', 'COMMERCIAL', 'ADMINISTRATIVE']);
+      const unit = await realEstateUnitService.createUnit(companyId, {
+        buildingId: building.id,
+        unitCode: code,
+        unitType: unitTypes.has(body.propertyType || '') ? body.propertyType : 'RESIDENTIAL',
+        grossArea: body.area,
+        totalPrice: body.price,
+      });
+
+      return void res.status(201).json({
+        status: 'success',
+        data: {
+          id: unit.id,
+          code: unit.unitCode,
+          arabicName,
+        },
+      });
+    } catch (error) {
+      logger.error({ error }, 'Error creating property');
+      const status = error instanceof Error && 'statusCode' in error ? Number((error as { statusCode: number }).statusCode) : 500;
+      return void res.status(status || 500).json({
+        status: 'error',
+        message: error instanceof Error ? error.message : 'تعذر حفظ العقار',
+      });
+    }
+  }
+);
+
+/**
  * POST /api/v1/real-estate/properties/nearby
  * Find properties within radius
  */
@@ -79,7 +150,7 @@ router.post(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -138,7 +209,7 @@ router.post(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 

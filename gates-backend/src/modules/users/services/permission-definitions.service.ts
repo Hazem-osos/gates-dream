@@ -26,6 +26,11 @@ const ACTION_LABELS: Record<Permission['action'], string> = {
   post: 'ترحيل',
   print: 'طباعة',
   override_tier_price: 'تجاوز سعر الشريحة',
+  unpost: 'إلغاء ترحيل',
+  reopen_shift: 'إعادة فتح الوردية',
+  discount: 'خصم يدوي',
+  reprint: 'إعادة طباعة الإيصال',
+  void: 'إلغاء أمر مرحلة',
 };
 
 const CRUD: Permission['action'][] = ['view', 'edit', 'delete'];
@@ -430,6 +435,12 @@ export class PermissionDefinitionsService {
           { action: 'view', label: 'عرض' },
           { action: 'edit', label: 'تعديل' },
           { action: 'post', label: 'ترحيل' },
+          { action: 'override_tier_price', label: 'تجاوز سعر الشريحة' },
+          { action: 'unpost', label: 'إلغاء ترحيل أمر نقطة البيع' },
+          { action: 'reopen_shift', label: 'إعادة فتح وردية مغلقة' },
+          { action: 'discount', label: 'خصم يدوي في نقطة البيع' },
+          { action: 'reprint', label: 'إعادة طباعة إيصال نقطة البيع' },
+          { action: 'void', label: 'إلغاء أمر نقطة بيع مرحّل' },
         ],
       },
       // Extracts (contracting client/subcontractor extracts)

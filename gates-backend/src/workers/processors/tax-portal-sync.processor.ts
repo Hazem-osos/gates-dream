@@ -9,6 +9,16 @@ import { eInvoiceSubmissionService } from '../../modules/electronic-invoices/ser
 import { etaInvoiceService } from '../../modules/electronic-invoices/services/eta-invoice.service';
 import { taxForm41ExportService } from '../../modules/subcontracts/services/tax-form-41-export.service';
 
+function etaResultMessage(results: Array<{ ok: boolean; error?: string }>): string {
+  const failed = results.filter((row) => !row.ok);
+  if (failed.length === 0) return `تم إرسال ${results.length} فاتورة لمصلحة الضرائب`;
+  return failed
+    .map((row) => row.error)
+    .filter(Boolean)
+    .slice(0, 2)
+    .join(' — ') || `تعذر إرسال ${failed.length} من ${results.length}`;
+}
+
 export async function processTaxPortalSyncJob(job: Job<TaxPortalSyncJobData>) {
   const { companyId, userId, kind } = job.data;
   await job.updateProgress(10);
@@ -66,8 +76,43 @@ export async function processTaxPortalSyncJob(job: Job<TaxPortalSyncJobData>) {
       await notifyJobComplete({
         companyId,
         userId,
-        title: 'ETA batch submit finished',
-        message: `${results.filter((r) => r.ok).length}/${results.length} invoices submitted.`,
+        title: 'إرسال الفواتير الإلكترونية',
+        message: etaResultMessage(results),
+        linkUrl: '/electronic-invoices',
+        category: 'ETA',
+      });
+      await job.updateProgress(100);
+      return { success: true, companyId, kind, results };
+    }
+    case 'eta-submit-amendment-batch': {
+      const invoiceIds = job.data.invoiceIds ?? [];
+      const results: Array<{ invoiceId: string; ok: boolean; error?: string }> = [];
+      for (const invoiceId of invoiceIds) {
+        try {
+          const readiness = await etaInvoiceService.validateReadiness(companyId, invoiceId);
+          if (!readiness.ready) {
+            results.push({
+              invoiceId,
+              ok: false,
+              error: readiness.issues.map((i) => i.message).join('; '),
+            });
+            continue;
+          }
+          await eInvoiceSubmissionService.submitM5Amendment(companyId, invoiceId);
+          results.push({ invoiceId, ok: true });
+        } catch (error) {
+          results.push({
+            invoiceId,
+            ok: false,
+            error: error instanceof Error ? error.message : 'Amendment submit failed',
+          });
+        }
+      }
+      await notifyJobComplete({
+        companyId,
+        userId,
+        title: 'تعديل الفواتير الإلكترونية',
+        message: etaResultMessage(results),
         linkUrl: '/electronic-invoices',
         category: 'ETA',
       });

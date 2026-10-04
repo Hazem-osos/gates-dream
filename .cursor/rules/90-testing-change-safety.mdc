@@ -1,0 +1,27 @@
+---
+description: Gates testing and change safety - regression tests matched to risk, real MySQL integration tests for concurrency/accounting/inventory, golden outputs before refactors, verification report. Use for any non-trivial change, bug fix or refactor.
+globs: gates-backend/src/__tests__/**,gates-backend/tests/**,gates-web/lib/**/*.test.ts,gates-web/e2e/**
+alwaysApply: false
+---
+
+# Testing and change safety
+
+## Match tests to risk
+- Bug fix: first write or find a test that reproduces the bug when practical.
+- Accounting, inventory, numbering and concurrency changes: prefer integration tests against real MySQL (`gates-backend/src/__tests__/integration/`) when mocks cannot reproduce locks, unique constraints or rollbacks.
+- Posting flows cover: normal post, duplicate and concurrent post (two parallel calls, exactly one wins), unpost, repost, and rollback on failure (no partial state).
+- Trivial visual or text changes need no new tests.
+
+## Before changing risky workflows
+- Record current inputs and outputs (golden-output test or fixture), especially report numbers, running balances, stock quantities and costs.
+- After the change, verify the same outputs. Architecture cleanup is not permission to change product behavior.
+
+## Keep the suite honest
+- Never delete, skip or weaken an existing test to make a change pass.
+- Backend Jest: `NODE_OPTIONS=--max-old-space-size=4096 npx jest <files> --forceExit --no-coverage` (worker force-exit warnings are expected).
+- Backend typecheck needs a big heap: `NODE_OPTIONS=--max-old-space-size=8192 npx tsc --noEmit`; write output to a file and check the exit code instead of piping through grep.
+- Frontend: `npx vitest run` for `lib/`, Playwright for flows, `npx tsc --noEmit`.
+- Lint changed files with `npx eslint --quiet` (errors are the bar; existing warnings are known).
+
+## Report after the change
+Files changed, intended behavior changes, schema / API changes, queries introduced, transaction and concurrency handling, tests and typecheck results, remaining risks, and how accounting, inventory and tenant correctness is preserved.

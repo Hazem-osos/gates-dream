@@ -11,6 +11,7 @@ export const executeAutomationActionSchema = z.object({
   correlationId: z.string().trim().min(1, 'correlationId is required'),
   ruleId: z.string().uuid('ruleId must be a UUID'),
   actionType: z.string().trim().min(1, 'actionType is required'),
+  actionIndex: z.number().int().min(0).optional(),
   eventType: z.string().trim().min(1, 'eventType is required'),
   /** Raw action config as stored on the rule (constants and/or {source,field} bindings). */
   config: z.record(z.unknown()).default({}),

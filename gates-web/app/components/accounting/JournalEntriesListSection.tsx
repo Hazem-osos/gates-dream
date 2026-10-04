@@ -217,6 +217,8 @@ export function JournalEntriesListSection({
                 sourceKind={r.sourceKind}
                 sourceId={r.sourceId}
                 sourceNumber={r.sourceNumber}
+                entryType={typeof r.entryType === 'string' ? r.entryType : null}
+                voucherFund={r.voucherFund === 'bank' || r.voucherFund === 'cash' ? r.voucherFund : null}
               />
             ),
           },

@@ -11,7 +11,7 @@ import {
   lineGridDataAttrs,
 } from '@/lib/keyboard/gridLineFocus';
 import type { EditableJournalLine } from '@/components/accounting/EditableJournalLinesTable';
-import { formatBaseAmount, isFxRateLocked, lineFxRate, rateForCurrency, toBaseAmount } from '@/lib/accounting/fx-base';
+import { formatBaseAmount, headerLocksLineCurrency, isFxRateLocked, lineFxRate, rateForCurrency, toBaseAmount } from '@/lib/accounting/fx-base';
 import { ExchangeRateInput } from '@/components/accounting/ExchangeRateInput';
 import { TableNumberInput } from '@/components/grid/TableNumberInput';
 import { useCompanyBaseCurrency } from '@/lib/hooks/useCompanyBaseCurrency';
@@ -235,11 +235,13 @@ export function OpeningBalanceLinesTable({
           );
         }
         if (columnId === 'currency') {
+          const headerCode = currencies.find((c) => c.id === defaultCurrencyId)?.code;
+          const currencyLocked = headerLocksLineCurrency(headerCode);
           return (
             <select
               className={dataEntryGridInputClass}
-              disabled={disabled}
-              value={line.currencyId || defaultCurrencyId || ''}
+              disabled={disabled || currencyLocked}
+              value={currencyLocked ? defaultCurrencyId || '' : line.currencyId || defaultCurrencyId || ''}
               onChange={(e) => {
                 const next = currencies.find((c) => c.id === e.target.value);
                 const headerCode = currencies.find((c) => c.id === defaultCurrencyId)?.code;

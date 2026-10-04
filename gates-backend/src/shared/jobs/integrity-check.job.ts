@@ -10,11 +10,20 @@ import { integrityChecker } from '../consistency/integrity-checker';
 
 const INTEGRITY_CHECK_QUEUE = 'integrity-check';
 
+/** Railway Redis requires the user and password embedded in REDIS_URL. */
+function redisConnectionFromEnv() {
+  const parsed = new URL(env.REDIS_URL!);
+  return {
+    host: parsed.hostname,
+    port: parsed.port ? Number(parsed.port) : 6379,
+    username: parsed.username ? decodeURIComponent(parsed.username) : undefined,
+    password: parsed.password ? decodeURIComponent(parsed.password) : undefined,
+    maxRetriesPerRequest: null,
+  };
+}
+
 export const integrityCheckQueue = new Queue(INTEGRITY_CHECK_QUEUE, {
-  connection: {
-    host: new URL(env.REDIS_URL!).hostname,
-    port: parseInt(new URL(env.REDIS_URL!).port),
-  },
+  connection: redisConnectionFromEnv(),
 });
 
 export const integrityCheckWorker = new Worker(
@@ -60,10 +69,7 @@ export const integrityCheckWorker = new Worker(
     }
   },
   {
-    connection: {
-      host: new URL(env.REDIS_URL!).hostname,
-      port: parseInt(new URL(env.REDIS_URL!).port),
-    },
+    connection: redisConnectionFromEnv(),
   }
 );
 

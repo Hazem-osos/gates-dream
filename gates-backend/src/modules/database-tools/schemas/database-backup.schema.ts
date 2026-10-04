@@ -26,11 +26,33 @@ export const importDataSchema = z.object({
   overwrite: z.boolean().default(false),
 });
 
-export const approveDocumentsSchema = z.object({
-  documentIds: z.array(z.string().uuid()).min(1),
-  documentType: z.string().optional(), // 'journal-entry', 'invoice', etc.
-  approveAll: z.boolean().default(false),
-});
+const approveDocumentTypeSchema = z.enum(['journal-entry', 'invoice']);
+
+export const approveDocumentsSchema = z
+  .object({
+    documentIds: z.array(z.string().uuid()).default([]),
+    documentType: approveDocumentTypeSchema.optional(),
+    approveAll: z.boolean().default(false),
+  })
+  .superRefine((body, ctx) => {
+    if (body.approveAll) {
+      if (!body.documentType) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'documentType is required when approveAll is true',
+          path: ['documentType'],
+        });
+      }
+      return;
+    }
+    if (body.documentIds.length < 1) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'At least one documentId is required when approveAll is false',
+        path: ['documentIds'],
+      });
+    }
+  });
 
 export const renumberOperationsSchema = z.object({
   operationType: z.enum(['journal-entry', 'invoice', 'treasury-receipt', 'treasury-payment']),

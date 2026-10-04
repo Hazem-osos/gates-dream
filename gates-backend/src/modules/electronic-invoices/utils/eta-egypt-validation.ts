@@ -35,8 +35,6 @@ export const ETA_GOVERNORATES = [
   'South Sinai',
 ] as const;
 
-const GOV_SET = new Set<string>(ETA_GOVERNORATES.map((g) => g.toLowerCase()));
-
 export function normalizeDigits(value: string): string {
   return value.replace(/\D/g, '');
 }
@@ -50,8 +48,15 @@ export function validateEgyptianNationalId(value: string): boolean {
 }
 
 export function validateGovernorate(value: string | null | undefined): boolean {
-  if (!value?.trim()) return false;
-  return GOV_SET.has(value.trim().toLowerCase());
+  return canonicalGovernorate(value).length > 0;
+}
+
+/** Trim the stored governorate. Arabic values such as الجيزه and القاهرة stay as written. */
+export function canonicalGovernorate(value: string | null | undefined): string {
+  const text = String(value ?? '').trim();
+  if (!text) return '';
+  const english = ETA_GOVERNORATES.find((name) => name.toLowerCase() === text.toLowerCase());
+  return english ?? text;
 }
 
 /** EGS item code: EG-{TaxID}-{ItemCode} */

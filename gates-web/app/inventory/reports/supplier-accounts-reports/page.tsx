@@ -7,7 +7,7 @@ export default function SupplierAccountsReportsPage() {
     <InventoryReportFilterPage
       urlPath="/inventory/reports/supplier-accounts-reports"
       icon="🏭"
-      subtitle="كشف حساب الموردين خلال الفترة."
+      subtitle="كشف حساب المورد بنفس تفاصيل كشف العميل: التاريخ، رقم الفاتورة، مدين، دائن، الرصيد، والشرح حتى المندوب."
       fields={{
         dates: 'range',
         supplier: true,

@@ -24,7 +24,7 @@ router.get(
     try {
       const companyId = req.companyId || req.tenantId;
       if (!companyId) {
-        return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+        return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
       }
       const result = await representativeCommissionValueService.list(companyId, {
         page: req.query.page as number | undefined,
@@ -53,7 +53,7 @@ router.get(
     try {
       const companyId = req.companyId || req.tenantId;
       if (!companyId) {
-        return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+        return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
       }
       const row = await representativeCommissionValueService.getById(companyId, req.params.id);
       return void res.json({ status: 'success', data: row });
@@ -74,7 +74,7 @@ router.post(
     try {
       const companyId = req.companyId || req.tenantId;
       if (!companyId) {
-        return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+        return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
       }
       const row = await representativeCommissionValueService.create(companyId, req.body);
       return void res.status(201).json({ status: 'success', data: row });
@@ -96,7 +96,7 @@ router.put(
     try {
       const companyId = req.companyId || req.tenantId;
       if (!companyId) {
-        return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+        return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
       }
       const row = await representativeCommissionValueService.update(
         companyId,
@@ -121,7 +121,7 @@ router.delete(
     try {
       const companyId = req.companyId || req.tenantId;
       if (!companyId) {
-        return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+        return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
       }
       await representativeCommissionValueService.remove(companyId, req.params.id);
       return void res.status(204).send();

@@ -28,7 +28,12 @@ export interface UserProfile {
 export const DEFAULT_AVATAR_SRC = '/avatar.png';
 
 export function formatUserDisplayName(
-  profile: Pick<UserProfile, 'firstName' | 'lastName' | 'username' | 'email'>
+  profile: {
+    firstName?: string | null;
+    lastName?: string | null;
+    username?: string | null;
+    email?: string | null;
+  }
 ): string {
   const parts = [profile.firstName, profile.lastName].filter((p) => p && p.trim());
   if (parts.length) return parts.join(' ');

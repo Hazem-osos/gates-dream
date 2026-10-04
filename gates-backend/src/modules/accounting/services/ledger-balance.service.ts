@@ -19,12 +19,83 @@ export type ApplyPostedJournalBalancesInput = {
   lines: PostedJournalLineDelta[];
   /** Rebuild partner rows without re-adding account_period_balances. */
   skipAccountPeriod?: boolean;
+  /** Card-only replay. Period and partner summaries were already applied. */
+  skipPartnerBalances?: boolean;
+  /**
+   * Rebuild replays the full historical sum. Card columns already hold a
+   * running total, so they must not be incremented again during a rebuild.
+   */
+  skipCardColumns?: boolean;
   /**
    * Unpost / reverse: apply -1 × the original line amounts so summaries
    * shrink instead of booking swapped debit/credit (which inflates totals).
    */
   invert?: boolean;
 };
+
+export type LinkedCardKind = 'CUSTOMER' | 'SUPPLIER' | 'SAFE' | 'BANK';
+
+export type LinkedCardAccount = {
+  kind: LinkedCardKind;
+  entityId: string;
+  accountId: string;
+};
+
+/**
+ * Customer, safe and bank cards are debit-nature: a debit on the linked
+ * account increases the stored column. Supplier cards are credit-nature:
+ * a credit increases what we owe.
+ */
+export function linkedCardColumnDelta(
+  kind: LinkedCardKind,
+  debitBase: Prisma.Decimal | number | string,
+  creditBase: Prisma.Decimal | number | string
+): Prisma.Decimal {
+  const netDebit = new Prisma.Decimal(toAmountString(debitBase)).sub(
+    new Prisma.Decimal(toAmountString(creditBase))
+  );
+  return kind === 'SUPPLIER' ? netDebit.negated() : netDebit;
+}
+
+/**
+ * One posted line moves a card once. An account shared by two cards of the
+ * same kind is skipped so the amount is not copied onto every card.
+ */
+export function allocateLinkedCardDeltas(
+  accounts: Array<{ accountId: string; debitBase: Prisma.Decimal; creditBase: Prisma.Decimal }>,
+  links: LinkedCardAccount[]
+): Map<string, { kind: LinkedCardKind; entityId: string; delta: Prisma.Decimal }> {
+  const owners = new Map<string, Map<LinkedCardKind, Set<string>>>();
+  for (const link of links) {
+    if (!link.accountId || !link.entityId) continue;
+    const byKind = owners.get(link.accountId) ?? new Map<LinkedCardKind, Set<string>>();
+    const ids = byKind.get(link.kind) ?? new Set<string>();
+    ids.add(link.entityId);
+    byKind.set(link.kind, ids);
+    owners.set(link.accountId, byKind);
+  }
+
+  const deltas = new Map<string, { kind: LinkedCardKind; entityId: string; delta: Prisma.Decimal }>();
+  const seenEntityAccounts = new Set<string>();
+  for (const account of accounts) {
+    const byKind = owners.get(account.accountId);
+    if (!byKind) continue;
+    for (const [kind, ids] of byKind) {
+      if (ids.size !== 1) continue;
+      const entityId = [...ids][0]!;
+      const onceKey = `${kind}\0${entityId}\0${account.accountId}`;
+      if (seenEntityAccounts.has(onceKey)) continue;
+      seenEntityAccounts.add(onceKey);
+      const delta = linkedCardColumnDelta(kind, account.debitBase, account.creditBase);
+      if (delta.isZero()) continue;
+      const bucketKey = `${kind}\0${entityId}`;
+      const prev = deltas.get(bucketKey);
+      if (prev) prev.delta = prev.delta.add(delta);
+      else deltas.set(bucketKey, { kind, entityId, delta });
+    }
+  }
+  return deltas;
+}
 
 function toAmountString(value: Prisma.Decimal | number | string | null | undefined): string {
   if (value == null || value === '') return '0.0000';
@@ -196,6 +267,94 @@ async function upsertPartnerRunningBalance(
   `;
 }
 
+const CARD_LOCK_ORDER: LinkedCardKind[] = ['SAFE', 'BANK', 'CUSTOMER', 'SUPPLIER'];
+
+/**
+ * Saved card columns follow the linked GL account inside the posting
+ * transaction. Safes and banks are locked before customers and suppliers.
+ */
+async function applyLinkedCardColumns(
+  tx: Prisma.TransactionClient,
+  companyId: string,
+  accountRows: PeriodAgg[]
+): Promise<void> {
+  const accountIds = accountRows.map((row) => row.accountId).filter(Boolean);
+  if (accountIds.length === 0) return;
+
+  const [customers, suppliers, safes, banks] = await Promise.all([
+    tx.customer.findMany({
+      where: {
+        companyId,
+        OR: [{ accountId: { in: accountIds } }, { mainAccountId: { in: accountIds } }],
+      },
+      select: { id: true, accountId: true, mainAccountId: true },
+    }),
+    tx.supplier.findMany({
+      where: {
+        companyId,
+        OR: [{ accountId: { in: accountIds } }, { mainAccountId: { in: accountIds } }],
+      },
+      select: { id: true, accountId: true, mainAccountId: true },
+    }),
+    tx.safe.findMany({
+      where: { companyId, glAccountId: { in: accountIds } },
+      select: { id: true, glAccountId: true },
+    }),
+    tx.bankAccount.findMany({
+      where: { companyId, glAccountId: { in: accountIds } },
+      select: { id: true, glAccountId: true },
+    }),
+  ]);
+
+  const links: LinkedCardAccount[] = [];
+  for (const customer of customers) {
+    for (const accountId of new Set([customer.accountId, customer.mainAccountId].filter(Boolean))) {
+      links.push({ kind: 'CUSTOMER', entityId: customer.id, accountId: accountId! });
+    }
+  }
+  for (const supplier of suppliers) {
+    for (const accountId of new Set([supplier.accountId, supplier.mainAccountId].filter(Boolean))) {
+      links.push({ kind: 'SUPPLIER', entityId: supplier.id, accountId: accountId! });
+    }
+  }
+  for (const safe of safes) {
+    if (safe.glAccountId) links.push({ kind: 'SAFE', entityId: safe.id, accountId: safe.glAccountId });
+  }
+  for (const bank of banks) {
+    if (bank.glAccountId) links.push({ kind: 'BANK', entityId: bank.id, accountId: bank.glAccountId });
+  }
+  if (links.length === 0) return;
+
+  const allocated = allocateLinkedCardDeltas(
+    accountRows.map((row) => ({
+      accountId: row.accountId,
+      debitBase: row.debit,
+      creditBase: row.credit,
+    })),
+    links
+  );
+  const grouped = new Map<LinkedCardKind, Array<{ entityId: string; delta: Prisma.Decimal }>>();
+  for (const row of allocated.values()) {
+    const list = grouped.get(row.kind) ?? [];
+    list.push({ entityId: row.entityId, delta: row.delta });
+    grouped.set(row.kind, list);
+  }
+
+  for (const kind of CARD_LOCK_ORDER) {
+    const rows = grouped.get(kind);
+    if (!rows?.length) continue;
+    rows.sort((left, right) => compareLedgerKey(left.entityId, right.entityId));
+    for (const row of rows) {
+      const data = { balance: { increment: row.delta } };
+      const where = { id: row.entityId, companyId };
+      if (kind === 'SAFE') await tx.safe.updateMany({ where, data });
+      else if (kind === 'BANK') await tx.bankAccount.updateMany({ where, data });
+      else if (kind === 'CUSTOMER') await tx.customer.updateMany({ where, data });
+      else await tx.supplier.updateMany({ where, data });
+    }
+  }
+}
+
 /**
  * Apply posted (or reversing) journal lines to summary tables.
  * Must run inside the same Prisma transaction as the journal write so a
@@ -224,19 +383,25 @@ export async function applyPostedJournalBalancesInTx(
   }
 
   const currencyCode = input.currencyCode || 'EGP';
-  const partnerRows = aggregatePartnerDeltas(input.lines, currencyCode);
-  for (const partner of partnerRows) {
-    await upsertPartnerRunningBalance(tx, {
-      companyId: input.companyId,
-      partnerId: partner.partnerId,
-      partnerType: partner.partnerType,
-      currencyCode,
-      debitOriginal: signedAmount(partner.debitOriginal, invert),
-      creditOriginal: signedAmount(partner.creditOriginal, invert),
-      debitBase: signedAmount(partner.debitBase, invert),
-      creditBase: signedAmount(partner.creditBase, invert),
-      lastEntryDate: input.date,
-    });
+  if (!input.skipPartnerBalances) {
+    const partnerRows = aggregatePartnerDeltas(input.lines, currencyCode);
+    for (const partner of partnerRows) {
+      await upsertPartnerRunningBalance(tx, {
+        companyId: input.companyId,
+        partnerId: partner.partnerId,
+        partnerType: partner.partnerType,
+        currencyCode,
+        debitOriginal: signedAmount(partner.debitOriginal, invert),
+        creditOriginal: signedAmount(partner.creditOriginal, invert),
+        debitBase: signedAmount(partner.debitBase, invert),
+        creditBase: signedAmount(partner.creditBase, invert),
+        lastEntryDate: input.date,
+      });
+    }
+  }
+
+  if (!input.skipCardColumns) {
+    await applyLinkedCardColumns(tx, input.companyId, accountRows);
   }
 
   logger.debug(
@@ -302,6 +467,7 @@ export async function rebuildCompanyBalances(
       companyId,
       date: row.lastEntryDate,
       currencyCode: row.currencyCode || 'EGP',
+      skipCardColumns: true,
       lines: [
         {
           accountId: row.accountId,
@@ -362,6 +528,7 @@ export async function rebuildCompanyBalances(
       date: row.lastEntryDate,
       currencyCode: row.currencyCode || 'EGP',
       skipAccountPeriod: true,
+      skipCardColumns: true,
       lines: [
         {
           accountId: row.accountId,
@@ -377,9 +544,51 @@ export async function rebuildCompanyBalances(
   }
 }
 
+/**
+ * Move `customer.balance` / `supplier.balance` from journal lines that carry
+ * `partnerId`, instead of inferring the party from a shared AR/AP account.
+ * Used when `skipCardColumns` avoids ambiguous account-level card updates.
+ */
+export async function applyPartnerCardBalancesFromLinesInTx(
+  tx: Prisma.TransactionClient,
+  companyId: string,
+  lines: PostedJournalLineDelta[],
+  options?: { invert?: boolean }
+): Promise<void> {
+  const invert = Boolean(options?.invert);
+  const buckets = new Map<string, { kind: LinkedCardKind; entityId: string; delta: Prisma.Decimal }>();
+  for (const line of lines) {
+    if (!line.partnerId) continue;
+    const kind: LinkedCardKind = line.partnerType === 'SUPPLIER' ? 'SUPPLIER' : 'CUSTOMER';
+    let delta = linkedCardColumnDelta(
+      kind,
+      line.debit ?? line.debitBase,
+      line.credit ?? line.creditBase
+    );
+    if (invert) delta = delta.negated();
+    if (delta.isZero()) continue;
+    const key = `${kind}\0${line.partnerId}`;
+    const prev = buckets.get(key);
+    if (prev) prev.delta = prev.delta.add(delta);
+    else buckets.set(key, { kind, entityId: line.partnerId, delta });
+  }
+  const sorted = [...buckets.values()].sort((left, right) => {
+    const byKind = CARD_LOCK_ORDER.indexOf(left.kind) - CARD_LOCK_ORDER.indexOf(right.kind);
+    if (byKind !== 0) return byKind;
+    return compareLedgerKey(left.entityId, right.entityId);
+  });
+  for (const row of sorted) {
+    const data = { balance: { increment: row.delta } };
+    const where = { id: row.entityId, companyId };
+    if (row.kind === 'CUSTOMER') await tx.customer.updateMany({ where, data });
+    else await tx.supplier.updateMany({ where, data });
+  }
+}
+
 export class LedgerBalanceService {
   applyPostedJournalBalancesInTx = applyPostedJournalBalancesInTx;
   rebuildCompanyBalances = rebuildCompanyBalances;
+  applyPartnerCardBalancesFromLinesInTx = applyPartnerCardBalancesFromLinesInTx;
 }
 
 export const ledgerBalanceService = new LedgerBalanceService();

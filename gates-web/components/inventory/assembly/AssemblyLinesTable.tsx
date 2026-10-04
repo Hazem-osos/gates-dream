@@ -1,9 +1,8 @@
 'use client';
 
 import { useRef, type KeyboardEvent } from 'react';
-import { Plus, Trash2 } from 'lucide-react';
+import { Trash2 } from 'lucide-react';
 import { ItemSelect } from '@/app/components/form/ItemSelect';
-import { Button } from '@/components/ui';
 import { UniversalDataGrid } from '@/components/ui/data-entry-grid';
 import { TableNumberInput } from '@/components/grid/TableNumberInput';
 import { dataEntryGridInputClass } from '@/components/ui/data-entry-grid/tokens';
@@ -15,7 +14,8 @@ import {
 import { useClipboardTablePaste } from '@/lib/hooks/useClipboardTablePaste';
 import { mapClipboardFromField } from '@/lib/clipboard-table-parser';
 import type { ItemOption } from '@/lib/hooks/useMasterDataQueries';
-import { apiClient } from '@/lib/api/client';
+import { InvoiceLineStockBalanceCell } from '@/components/invoices/InvoiceLineStockBalanceCell';
+import { fetchWarehouseAvailableQuantity, availableFromItemOption } from '@/lib/inventory/fetch-warehouse-stock-balance';
 import {
   assemblyLineTotal,
   emptyAssemblyComponentLine,
@@ -46,6 +46,8 @@ export function AssemblyLinesTable({
   const wrapRef = useRef<HTMLDivElement>(null);
   const pasteFieldRef = useRef('quantity');
   const pasteIndexRef = useRef(0);
+  const linesRef = useRef(lines);
+  linesRef.current = lines;
 
   useFollowHeaderDescription({
     headerDescription,
@@ -57,7 +59,9 @@ export function AssemblyLinesTable({
   });
 
   const updateLine = (index: number, patch: Partial<AssemblyComponentLine>) => {
-    onChange(lines.map((line, i) => (i === index ? { ...line, ...patch } : line)));
+    const next = linesRef.current.map((line, i) => (i === index ? { ...line, ...patch } : line));
+    linesRef.current = next;
+    onChange(next);
   };
 
   const addRow = () =>
@@ -122,7 +126,7 @@ export function AssemblyLinesTable({
           { id: 'itemName', label: 'صنف المكون (المادة الخام)', className: 'min-w-[220px]' },
           { id: 'notes', label: 'البيان', className: 'min-w-[140px]' },
           { id: 'unitName', label: 'الوحدة', className: 'w-24', align: 'center' },
-          { id: 'available', label: 'الكمية الموجودة', className: 'w-28', align: 'center' },
+          { id: 'available', label: 'الكمية المتاحة', className: 'w-28', align: 'center' },
           { id: 'quantity', label: 'الكمية المطلوبة', className: 'w-28', align: 'left' },
           { id: 'unitCost', label: 'تكلفة الوحدة', className: 'w-28', align: 'left' },
           { id: 'total', label: 'إجمالي التكلفة', className: 'w-28', align: 'left' },
@@ -130,7 +134,7 @@ export function AssemblyLinesTable({
         ]}
         rowCount={Math.max(lines.length, 1)}
         onAddRow={disabled ? undefined : addRow}
-        addLabel="إضافة مكون يدوي (Enter)"
+        addLabel="إضافة مكون يدوي"
         disabled={disabled}
         renderCell={(index, columnId) => {
           const line = lines[index] ?? emptyAssemblyComponentLine();
@@ -174,25 +178,19 @@ export function AssemblyLinesTable({
                     unitId: unit?.unitId || unit?.unit?.id || '',
                     unitName: unit?.unit?.arabicName || '',
                     unitCost: line.unitCost || Number(catalog.averageCost) || 0,
-                    availableQuantity: Number(catalog.onHandQuantity) || 0,
+                    availableQuantity: availableFromItemOption(catalog) ?? 0,
                   };
                   updateLine(index, patch);
                   if (warehouseId) {
-                    void apiClient
-                      .get<Array<{ quantity?: number | string }>>(
-                        `/inventory/item-quantities/item/${item.id}`,
-                        { warehouseId }
-                      )
-                      .then((res) => {
-                        const available = (res.data ?? []).reduce(
-                          (sum, row) => sum + (Number(row.quantity) || 0),
-                          0
-                        );
+                    void fetchWarehouseAvailableQuantity(item.id, warehouseId)
+                      .then((available) => {
+                        if (linesRef.current[index]?.itemId !== item.id) return;
                         updateLine(index, { availableQuantity: available });
                       })
                       .catch(() => undefined);
                   }
                 }}
+                warehouseId={warehouseId}
                 onInputKeyDown={(e) => onCellKeyDown(e, index)}
                 inputProps={attrs('itemName')}
                 menuPlacement="auto"
@@ -208,9 +206,13 @@ export function AssemblyLinesTable({
           }
           if (columnId === 'available') {
             return (
-              <span className="block rounded bg-muted/30 py-1 text-center font-mono text-xs text-muted-foreground">
-                {formatMoney(line.availableQuantity)}
-              </span>
+              <div className="flex min-h-[2rem] items-center justify-center">
+                <InvoiceLineStockBalanceCell
+                  itemId={line.itemId}
+                  warehouseId={warehouseId}
+                  fallbackOnHand={line.availableQuantity}
+                />
+              </div>
             );
           }
           if (columnId === 'quantity' || columnId === 'unitCost') {
@@ -258,18 +260,6 @@ export function AssemblyLinesTable({
           );
         }}
       />
-      {!disabled ? (
-        <Button
-          type="button"
-          size="sm"
-          variant="ghost"
-          className="mt-2 gap-1.5 text-xs font-semibold text-primary hover:bg-primary/10"
-          onClick={addRow}
-        >
-          <Plus className="h-3.5 w-3.5" />
-          إضافة مكون يدوي (Enter)
-        </Button>
-      ) : null}
     </div>
   );
 }

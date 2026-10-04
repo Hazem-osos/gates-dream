@@ -11,8 +11,9 @@ export const AI_SCREEN_ROUTES: AiScreenRoute[] = [
   { label: 'فواتير المبيعات', href: '/sales/invoices/new' },
   { label: 'سندات الصرف', href: '/accounting/vouchers/payment/new' },
   { label: 'سندات القبض', href: '/accounting/vouchers/receipt/new' },
-  { label: 'أوراق القبض', href: '/accounting/operations/securities/reciept' },
+  { label: 'أوراق القبض', href: '/accounting/operations/securities/receipt' },
   { label: 'أوراق الدفع', href: '/accounting/operations/securities/payment' },
+  { label: 'إذن إضافة مخزني', href: '/inventory/operations/receipt' },
   { label: 'إذن صرف مخزني', href: '/inventory/operations/issue' },
 ];
 

@@ -27,7 +27,7 @@ function InspectLink({ href }: { href: string }) {
   return (
     <Link
       href={href}
-      className="shrink-0 text-[11px] font-semibold text-[#0E79AA] underline-offset-2 hover:underline"
+      className="shrink-0 text-[11px] font-semibold text-[#0E78AA] underline-offset-2 hover:underline"
     >
       فحص الحركة
     </Link>
@@ -81,7 +81,7 @@ export function SentinelRiskDrawer({ open, onClose }: Props) {
 
   return (
     <CenteredOverlay open={open} onClose={onClose} width="lg" labelledBy="sentinel-drawer-title">
-      <header className="flex shrink-0 items-center justify-between gap-3 bg-gradient-to-l from-[#0A3D56] to-[#0E79AA] px-5 py-3.5 text-white">
+      <header className="flex shrink-0 items-center justify-between gap-3 bg-gradient-to-l from-[#0A3D56] to-[#0E78AA] px-5 py-3.5 text-white">
         <div className="flex min-w-0 items-center gap-3">
           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white/15 ring-1 ring-white/25">
             <ShieldAlert className="h-5 w-5" />
@@ -183,7 +183,7 @@ export function SentinelRiskDrawer({ open, onClose }: Props) {
                       </td>
                       <td className={`px-2 py-2 ${DASH_NUM}`}>{formatMoney(row.salePrice)}</td>
                       <td className={`px-2 py-2 ${DASH_NUM}`}>{formatMoney(row.replacementCost)}</td>
-                      <td className={`px-2 py-2 font-semibold text-[#0E79AA] ${DASH_NUM}`}>
+                      <td className={`px-2 py-2 font-semibold text-[#0E78AA] ${DASH_NUM}`}>
                         {formatMoney(row.suggestedSalePrice)}
                       </td>
                       <td className="px-2 py-2">

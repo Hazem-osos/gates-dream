@@ -1,3 +1,9 @@
+# Committed so Railway CLI uploads force Node (untracked railpack.json is not in snapshots).
+provider = "node"
+
 [packages]
 node = "20"
 npm = "10"
+
+[deploy]
+startCommand = "npm run railway:start"

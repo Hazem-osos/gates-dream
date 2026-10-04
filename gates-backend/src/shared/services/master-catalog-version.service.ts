@@ -39,28 +39,29 @@ export async function getMasterCatalogEtag(
     select: { updatedAt: true },
   });
 
-  let maxUpdated: Date | null = null;
+  // Count changes on insert/delete even when MySQL updatedAt stays in the same second.
   if (entity === 'item') {
     const agg = await prisma.item.aggregate({
       where: { companyId },
       _max: { updatedAt: true },
+      _count: { _all: true },
     });
-    maxUpdated = agg._max?.updatedAt ?? null;
-  } else if (entity === 'customer') {
+    return buildWeakEtag([companyId, entity, company?.updatedAt, agg._max?.updatedAt, agg._count._all]);
+  }
+  if (entity === 'customer') {
     const agg = await prisma.customer.aggregate({
       where: { companyId, deletedAt: null },
       _max: { updatedAt: true },
+      _count: { _all: true },
     });
-    maxUpdated = agg._max?.updatedAt ?? null;
-  } else {
-    const agg = await prisma.account.aggregate({
-      where: { companyId, deletedAt: null },
-      _max: { updatedAt: true },
-    });
-    maxUpdated = agg._max?.updatedAt ?? null;
+    return buildWeakEtag([companyId, entity, company?.updatedAt, agg._max?.updatedAt, agg._count._all]);
   }
-
-  return buildWeakEtag([companyId, entity, company?.updatedAt, maxUpdated]);
+  const agg = await prisma.account.aggregate({
+    where: { companyId, deletedAt: null },
+    _max: { updatedAt: true },
+    _count: { _all: true },
+  });
+  return buildWeakEtag([companyId, entity, company?.updatedAt, agg._max?.updatedAt, agg._count._all]);
 }
 
 export async function getCompanySettingsEtag(companyId: string): Promise<string> {
@@ -107,6 +108,7 @@ export async function getBranchesEtag(
     prisma.branch.aggregate({
       where: { companyId, deletedAt: null },
       _max: { updatedAt: true },
+      _count: { _all: true },
     }),
   ]);
   const redisKey = `${tenantCacheKeys.branches(companyId)}:p${page}:l${limit}`;
@@ -115,6 +117,7 @@ export async function getBranchesEtag(
     'branches',
     company?.updatedAt,
     agg._max?.updatedAt,
+    agg._count._all,
     page,
     limit,
     query?.search,
@@ -131,12 +134,14 @@ export async function getTaxPeriodsEtag(
       ...(fiscalYearId ? { fiscalYearId } : {}),
     },
     _max: { updatedAt: true },
+    _count: { _all: true },
   });
   return etagFromRedisHashOrStamp(tenantCacheKeys.taxPeriods(companyId, fiscalYearId), [
     companyId,
     'tax-periods',
     fiscalYearId ?? 'all',
     agg._max?.updatedAt,
+    agg._count._all,
   ]);
 }
 

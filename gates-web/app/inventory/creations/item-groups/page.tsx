@@ -21,6 +21,8 @@ import { useOwnTabSearchParams } from '@/lib/navigation/tab-route-lock';
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
 import type { ApiError } from '@/lib/api/types';
+import { finishDocumentSave } from '@/lib/documents/finish-save';
+import { invalidateStockViews } from '@/lib/invoices/invalidate-stock-views';
 
 type GroupForm = {
   code: string;
@@ -91,29 +93,39 @@ function ItemGroupCardInner() {
     lockToView();
   }, [idFromUrl, groups, lockToView]);
 
-  const createMutation = useApiMutation<unknown, Record<string, unknown>>(
-    '/inventory/item-categories',
-    'POST',
-    {
-      onSuccess: () => {
-        invalidateQuery(['item-categories']);
-        invalidateQuery(['items']);
-        handleNew();
-        setSuccess('تم حفظ المجموعة — هتظهر في دليل الأصناف');
-      },
-      onError: (err: ApiError) => setError(err.message || 'حدث خطأ أثناء الحفظ'),
-    }
-  );
+  const createMutation = useApiMutation<
+    { id?: string; code?: string | null },
+    Record<string, unknown>
+  >('/inventory/item-categories', 'POST', {
+    showSuccessToast: false,
+    onSuccess: (res) => {
+      invalidateStockViews(invalidateQuery);
+      finishDocumentSave({
+        label: 'مجموعة أصناف',
+        number: res.data?.code || formData.code,
+        savedId: res.data?.id,
+        onOpen: (id) => setSelectedId(id),
+        reset: () => handleNew(),
+      });
+    },
+    onError: (err: ApiError) => setError(err.message || 'حدث خطأ أثناء الحفظ'),
+  });
 
   const updateMutation = useApiMutation<unknown, Record<string, unknown>>(
     selectedId ? `/inventory/item-categories/${selectedId}` : '/inventory/item-categories',
     'PUT',
     {
+      showSuccessToast: false,
       onSuccess: () => {
-        invalidateQuery(['item-categories']);
-        invalidateQuery(['items']);
-        handleNew();
-        setSuccess('تم تحديث المجموعة');
+        invalidateStockViews(invalidateQuery);
+        finishDocumentSave({
+          label: 'مجموعة أصناف',
+          number: formData.code,
+          savedId: selectedId,
+          onOpen: (id) => setSelectedId(id),
+          cleared: false,
+          reset: () => undefined,
+        });
       },
       onError: (err: ApiError) => setError(err.message || 'حدث خطأ أثناء الحفظ'),
     }
@@ -191,7 +203,7 @@ function ItemGroupCardInner() {
         { label: 'التعريفات' },
         { label: 'مجموعة أصناف' },
       ]}
-      docNumber={formData.code || (selectedId ? 'تعديل' : 'جديد')}
+      docNumber={formData.code || (selectedId ? '—' : 'جديد')}
       statusLabel={
         selectedId ? (isReadOnly ? 'عرض — اضغط تعديل' : 'تعديل') : 'جديد'
       }

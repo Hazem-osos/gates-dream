@@ -52,6 +52,17 @@ type Props = {
   onDebitNoteNumber?: (v: string) => void;
   settlementMethod?: string;
   onSettlementMethod?: (v: string) => void;
+  treasuryId?: string;
+  onTreasuryId?: (v: string) => void;
+  delegateId?: string;
+  onDelegateId?: (v: string) => void;
+  driverId?: string;
+  onDriverId?: (v: string) => void;
+  distributorId?: string;
+  onDistributorId?: (v: string) => void;
+  delegates?: { id: string; arabicName: string }[];
+  drivers?: { id: string; arabicName: string }[];
+  distributors?: { id: string; arabicName: string }[];
 };
 
 function formatSourceLabel(inv: SourceInvoiceOption, variant: 'sales' | 'purchase') {
@@ -90,8 +101,15 @@ export function ReturnInvoiceFormHeader({
   onReturnReason,
   debitNoteNumber = '',
   onDebitNoteNumber,
-  settlementMethod = 'credit',
-  onSettlementMethod,
+  delegateId = '',
+  onDelegateId,
+  driverId = '',
+  onDriverId,
+  distributorId = '',
+  onDistributorId,
+  delegates = [],
+  drivers = [],
+  distributors = [],
 }: Props) {
   const partyLabel = variant === 'sales' ? 'العميل' : 'المورد';
   const sourceLabel = variant === 'sales' ? 'فاتورة المبيعات الأصلية' : 'فاتورة المشتريات الأصلية';
@@ -184,6 +202,49 @@ export function ReturnInvoiceFormHeader({
       }
       extras={
         <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+          {onDelegateId ? (
+            <div className="space-y-1">
+              <label className={erpLabelClass}>المندوب</label>
+              <select className={erpInputClass} value={delegateId} onChange={(e) => onDelegateId(e.target.value)}>
+                <option value="">—</option>
+                {delegates.map((row) => (
+                  <option key={row.id} value={row.id}>
+                    {row.arabicName}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : null}
+          {onDriverId ? (
+            <div className="space-y-1">
+              <label className={erpLabelClass}>السائق</label>
+              <select className={erpInputClass} value={driverId} onChange={(e) => onDriverId(e.target.value)}>
+                <option value="">—</option>
+                {drivers.map((row) => (
+                  <option key={row.id} value={row.id}>
+                    {row.arabicName}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : null}
+          {onDistributorId ? (
+            <div className="space-y-1">
+              <label className={erpLabelClass}>الموزع</label>
+              <select
+                className={erpInputClass}
+                value={distributorId}
+                onChange={(e) => onDistributorId(e.target.value)}
+              >
+                <option value="">—</option>
+                {distributors.map((row) => (
+                  <option key={row.id} value={row.id}>
+                    {row.arabicName}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : null}
           <div className="space-y-1">
             <label className={erpLabelClass}>سبب المرتجع</label>
             <select className={erpInputClass} value={returnReason} onChange={(e) => onReturnReason?.(e.target.value)}>
@@ -214,17 +275,6 @@ export function ReturnInvoiceFormHeader({
                   value={debitNoteNumber}
                   onChange={(e) => onDebitNoteNumber?.(e.target.value)}
                 />
-              </div>
-              <div className="space-y-1">
-                <label className={erpLabelClass}>طريقة تسوية الرصيد</label>
-                <select
-                  className={erpInputClass}
-                  value={settlementMethod}
-                  onChange={(e) => onSettlementMethod?.(e.target.value)}
-                >
-                  <option value="credit">تسوية على حساب المورد</option>
-                  <option value="cash">استرداد نقدي</option>
-                </select>
               </div>
               <div className="space-y-1">
                 <label className={erpLabelClass}>مستودع الإخراج</label>

@@ -6,13 +6,9 @@ import {
   formatAccountLabel,
   isPostableLeafAccount,
   ACCOUNT_PICKER_PAGE_SIZE,
-  PICKER_PAGE_SIZE,
   PICKER_UNLIMITED_VISIBLE,
   useAccountsQuery,
-  useCustomersQuery,
-  useSuppliersQuery,
   type AccountOption,
-  type PartyOption,
 } from '@/lib/hooks/useMasterDataQueries';
 import { QuickCreateAccountModal } from '@/app/components/form/QuickCreateAccountModal';
 
@@ -34,14 +30,13 @@ type Props = {
   onPick: (pick: VoucherAccountPick) => void;
 };
 
-function partyLabel(p: PartyOption) {
-  return p.code ? `[${p.code}] ${p.arabicName}` : p.arabicName;
-}
-
+/**
+ * Chart-of-accounts picker for journal and voucher lines.
+ * A customer or supplier personal account appears once, under its account code and name.
+ */
 export function VoucherAccountCombobox({
   value,
   partyId,
-  partyKind,
   valueLabel,
   disabled,
   className,
@@ -55,8 +50,6 @@ export function VoucherAccountCombobox({
   const [pinnedAccount, setPinnedAccount] = useState<AccountOption | null>(null);
   const [pinnedLabel, setPinnedLabel] = useState<string | undefined>(undefined);
   const accountsQ = useAccountsQuery(search, ACCOUNT_PICKER_PAGE_SIZE, { leafOnly: true });
-  const customersQ = useCustomersQuery(PICKER_PAGE_SIZE, search, true);
-  const suppliersQ = useSuppliersQuery(PICKER_PAGE_SIZE, search, true);
 
   const accounts = useMemo(() => {
     const rows = (accountsQ.data?.data ?? []).filter((a: AccountOption) =>
@@ -67,37 +60,18 @@ export function VoucherAccountCombobox({
     }
     return rows;
   }, [accountsQ.data?.data, pinnedAccount]);
-  const customers = useMemo(() => customersQ.data?.data ?? [], [customersQ.data?.data]);
-  const suppliers = useMemo(() => suppliersQ.data?.data ?? [], [suppliersQ.data?.data]);
 
-  const options = useMemo(() => {
-    return [
-      ...accounts.map((a) => ({
+  const options = useMemo(
+    () =>
+      accounts.map((a) => ({
         value: `acct:${a.id}`,
-        label: `حساب · ${formatAccountLabel(a)}`,
+        label: formatAccountLabel(a),
         searchText: `${a.code} ${a.arabicName} ${a.englishName ?? ''}`,
       })),
-      ...customers.map((p) => ({
-        value: `customer:${p.id}`,
-        label: `عميل · ${partyLabel(p)}`,
-        searchText: `${p.code ?? ''} ${p.arabicName} ${p.englishName ?? ''}`,
-      })),
-      ...suppliers.map((p) => ({
-        value: `supplier:${p.id}`,
-        label: `مورد · ${partyLabel(p)}`,
-        searchText: `${p.code ?? ''} ${p.arabicName} ${p.englishName ?? ''}`,
-      })),
-    ];
-  }, [accounts, customers, suppliers]);
+    [accounts]
+  );
 
-  const selectedValue =
-    partyKind === 'CUSTOMER' && partyId
-      ? `customer:${partyId}`
-      : partyKind === 'SUPPLIER' && partyId
-        ? `supplier:${partyId}`
-        : value
-          ? `acct:${value}`
-          : '';
+  const selectedValue = value ? `acct:${value}` : '';
 
   useEffect(() => {
     if (!value && !partyId) {
@@ -114,29 +88,9 @@ export function VoucherAccountCombobox({
       }
       if (raw.startsWith('acct:')) {
         onPick({ kind: 'ACCOUNT', accountId: raw.slice(5) });
-        return;
-      }
-      if (raw.startsWith('customer:')) {
-        const partyId = raw.slice(9);
-        const party = customers.find((p) => p.id === partyId);
-        onPick({
-          kind: 'CUSTOMER',
-          partyId,
-          accountId: party?.accountId || '',
-        });
-        return;
-      }
-      if (raw.startsWith('supplier:')) {
-        const partyId = raw.slice(9);
-        const party = suppliers.find((p) => p.id === partyId);
-        onPick({
-          kind: 'SUPPLIER',
-          partyId,
-          accountId: party?.accountId || '',
-        });
       }
     },
-    [customers, onPick, suppliers]
+    [onPick]
   );
 
   return (
@@ -147,8 +101,8 @@ export function VoucherAccountCombobox({
         options={options}
         disabled={disabled}
         className={className}
-        placeholder="الحساب / العميل / المورد"
-        loading={accountsQ.isLoading || customersQ.isLoading || suppliersQ.isLoading}
+        placeholder="اختر الحساب"
+        loading={accountsQ.isLoading}
         emptyMessage="لا توجد نتائج"
         valueLabel={pinnedLabel || valueLabel}
         onQueryChange={setSearch}
@@ -175,7 +129,7 @@ export function VoucherAccountCombobox({
               arabicName: account.arabicName,
               accountKind: 'POSTING',
             });
-            setPinnedLabel(`حساب · [${account.code}] ${account.arabicName}`);
+            setPinnedLabel(formatAccountLabel(account));
             onPick({ kind: 'ACCOUNT', accountId: account.id });
           }}
         />

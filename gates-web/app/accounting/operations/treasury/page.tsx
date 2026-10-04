@@ -15,7 +15,6 @@ const links = [
   { href: "/accounting/orders/receipt-order/new", label: "أمر توريد نقدية" },
   { href: "/accounting/operations/treasury/payment-voucher", label: "سند صرف نقدية" },
   { href: "/accounting/operations/treasury/receipt-voucher", label: "سند قبض نقدية" },
-  { href: "/accounting/operations/treasury/temp-receipt", label: "إيصال مؤقت" },
 ];
 
 export default function TreasuryHubPage() {

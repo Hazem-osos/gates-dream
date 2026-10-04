@@ -40,6 +40,25 @@
     margin: 0 !important;
   }
 
+  #report-print-root:has(.monthly-review-sheet) {
+    position: static;
+    overflow: visible;
+  }
+
+  .monthly-review-sheet .monthly-review-screen-only {
+    display: none !important;
+  }
+
+  .monthly-review-sheet,
+  .monthly-review-sheet .overflow-hidden,
+  .monthly-review-sheet .overflow-x-auto {
+    overflow: visible !important;
+  }
+
+  .monthly-review-sheet .sticky {
+    position: static !important;
+  }
+
   .report-print-table {
     width: 100%;
     border-collapse: collapse;

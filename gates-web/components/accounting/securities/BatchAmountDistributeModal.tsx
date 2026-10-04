@@ -83,6 +83,9 @@ export function BatchAmountDistributeModal({
       if (total <= 0) throw new Error('أدخل المبلغ الإجمالي');
       if (count < 1) throw new Error('عدد الأوراق يجب أن يكون 1 على الأقل');
       if (!startDate) throw new Error('حدد تاريخ البداية');
+      if (defaultStartDate && startDate < defaultStartDate) {
+        throw new Error('تاريخ الاستحقاق لا يمكن أن يكون قبل تاريخ التحرير');
+      }
       if (first + last - total > 0.005) throw new Error('الدفعة الأولى والأخيرة أكبر من الإجمالي');
 
       const amounts = new Array(count).fill(0);
@@ -174,6 +177,7 @@ export function BatchAmountDistributeModal({
             <label className={erpLabelClass}>بدء من</label>
             <input
               type="date"
+              min={defaultStartDate || undefined}
               className={erpInputClass}
               value={startDate}
               onChange={(e) => setStartDate(e.target.value)}

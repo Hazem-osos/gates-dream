@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { ArrowUpLeft } from 'lucide-react';
 import {
   journalSourceHref,
+  journalSourceLabel,
   resolveJournalSourceKind,
   type JournalSourceType,
 } from '@/lib/accounting/journal-source';
@@ -75,17 +76,27 @@ type Props = {
   sourceKind?: string | null;
   sourceId?: string | null;
   sourceNumber?: string | null;
+  entryType?: string | null;
+  voucherFund?: 'bank' | 'cash' | null;
 };
 
-export function JournalSourceBadge({ sourceType, sourceKind, sourceId, sourceNumber }: Props) {
+export function JournalSourceBadge({
+  sourceType,
+  sourceKind,
+  sourceId,
+  sourceNumber,
+  entryType,
+  voucherFund,
+}: Props) {
   const kind = resolveJournalSourceKind(sourceType, sourceKind);
   const config = SOURCE_CONFIG[kind] || SOURCE_CONFIG.MANUAL;
-  const href = journalSourceHref(kind, sourceId, sourceType);
+  const label = journalSourceLabel(sourceType, sourceKind, { entryType, voucherFund });
+  const href = journalSourceHref(kind, sourceId, sourceType, voucherFund);
 
   return (
     <div className="inline-flex items-center gap-1.5">
       <span className={`rounded px-2 py-0.5 text-xs font-semibold ${config.color}`}>
-        {config.label}
+        {label}
       </span>
       {sourceNumber && href ? (
         <Link

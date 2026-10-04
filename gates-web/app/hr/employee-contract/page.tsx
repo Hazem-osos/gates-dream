@@ -112,6 +112,24 @@ export default function EmployeeContractPage() {
   const [showWagePolicySearch, setShowWagePolicySearch] = useState(false);
   const [showCostCenterSearch, setShowCostCenterSearch] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const { data: contractAllowances } = useApiQuery<
+    Array<{ id: string; code?: string | null; arabicName: string; defaultAmount?: number | string | null }>
+  >(['allowances'], '/hr/allowances', { limit: 200, isActive: true });
+  const { data: contractDeductions } = useApiQuery<
+    Array<{ id: string; code?: string | null; arabicName: string; defaultAmount?: number | string | null }>
+  >(['deductions'], '/hr/deductions', { limit: 200, isActive: true });
+  const { data: contractLeaves } = useApiQuery<Array<{ id: string; date?: string; amount?: number | string }>>(
+    ['annual-leave-disbursements', selectedEmployeeId],
+    '/hr/annual-leave-disbursements',
+    undefined,
+    { enabled: Boolean(selectedEmployeeId) }
+  );
+  const { data: contractHousing } = useApiQuery<Array<{ id: string; date?: string; amount?: number | string }>>(
+    ['housing-disbursements', selectedEmployeeId],
+    '/hr/housing-allowance-disbursements',
+    undefined,
+    { enabled: Boolean(selectedEmployeeId) }
+  );
 
   const formDefaults = useMemo(() => ({ ...contractFormDefaults }), []);
 
@@ -303,7 +321,7 @@ export default function EmployeeContractPage() {
                         setShowEmployeeSearch(true);
                         setSearchTerm('');
                       }}
-                      className={`flex-1 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg cursor-pointer ${fieldBorder('employee')}`}
+                      className={`flex-1 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg cursor-pointer ${fieldBorder('employee')}`}
                       placeholder="اختر الموظف"
                     />
                     <button
@@ -408,11 +426,11 @@ export default function EmployeeContractPage() {
                     type="text"
                     {...register('wagePolicy')}
                     readOnly
-                    className={`w-32 py-2 border border-[#D6EAF3] bg-gray-100 focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg ${fieldBorder('wagePolicy')}`}
+                    className={`w-32 py-2 border border-[#D6EAF3] bg-gray-100 focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg ${fieldBorder('wagePolicy')}`}
                   />
                   <input
                     type="text"
-                    className="w-32 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg"
+                    className="w-32 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg"
                     placeholder=""
                   />
                 </div>
@@ -428,7 +446,7 @@ export default function EmployeeContractPage() {
                     onClick={() => setActiveTab(tab.key)}
                     className={`px-4 py-2 rounded-t-lg text-sm font-medium transition-colors ${
                       activeTab === tab.key
-                        ? 'bg-[#0E79AA] text-white border-b-2 border-[#0E79AA]'
+                        ? 'bg-[#0E78AA] text-white border-b-2 border-[#0E78AA]'
                         : 'bg-[#F6FBFD] text-[#094C6B] hover:bg-[#E6F0F7]'
                     }`}
                   >
@@ -466,8 +484,8 @@ export default function EmployeeContractPage() {
                                       type="button"
                                       className={`px-6 py-3 rounded-lg border-2 cursor-pointer transition-all ${
                                         paymentMethod === 'fund'
-                                          ? 'bg-[#0E79AA] text-white border-[#0E79AA] shadow-lg'
-                                          : 'bg-[#F6FBFD] text-[#094C6B] border-[#D6EAF3] hover:border-[#0E79AA] hover:bg-[#E6F0F7]'
+                                          ? 'bg-[#0E78AA] text-white border-[#0E78AA] shadow-lg'
+                                          : 'bg-[#F6FBFD] text-[#094C6B] border-[#D6EAF3] hover:border-[#0E78AA] hover:bg-[#E6F0F7]'
                                       }`}
                                       onClick={() =>
                                         setValue('paymentMethod', 'fund', { shouldValidate: true, shouldDirty: true })
@@ -479,8 +497,8 @@ export default function EmployeeContractPage() {
                                       type="button"
                                       className={`px-6 py-3 rounded-lg border-2 cursor-pointer transition-all ${
                                         paymentMethod === 'bank'
-                                          ? 'bg-[#0E79AA] text-white border-[#0E79AA] shadow-lg'
-                                          : 'bg-[#F6FBFD] text-[#094C6B] border-[#D6EAF3] hover:border-[#0E79AA] hover:bg-[#E6F0F7]'
+                                          ? 'bg-[#0E78AA] text-white border-[#0E78AA] shadow-lg'
+                                          : 'bg-[#F6FBFD] text-[#094C6B] border-[#D6EAF3] hover:border-[#0E78AA] hover:bg-[#E6F0F7]'
                                       }`}
                                       onClick={() =>
                                         setValue('paymentMethod', 'bank', { shouldValidate: true, shouldDirty: true })
@@ -503,11 +521,11 @@ export default function EmployeeContractPage() {
                                         type="text"
                                         {...register('department')}
                                         readOnly
-                                        className={`w-32 py-2 border border-[#D6EAF3] bg-gray-100 focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg ${fieldBorder('department')}`}
+                                        className={`w-32 py-2 border border-[#D6EAF3] bg-gray-100 focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg ${fieldBorder('department')}`}
                                       />
                                       <input
                                         type="text"
-                                        className="w-32 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg"
+                                        className="w-32 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg"
                                       />
                                     </div>
                                   </div>
@@ -518,11 +536,11 @@ export default function EmployeeContractPage() {
                                         type="text"
                                         {...register('section')}
                                         readOnly
-                                        className={`w-32 py-2 border border-[#D6EAF3] bg-gray-100 focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg ${fieldBorder('section')}`}
+                                        className={`w-32 py-2 border border-[#D6EAF3] bg-gray-100 focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg ${fieldBorder('section')}`}
                                       />
                                       <input
                                         type="text"
-                                        className="w-32 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg"
+                                        className="w-32 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg"
                                       />
                                     </div>
                                   </div>
@@ -533,11 +551,11 @@ export default function EmployeeContractPage() {
                                         type="text"
                                         {...register('jobCadre')}
                                         readOnly
-                                        className={`w-32 py-2 border border-[#D6EAF3] bg-gray-100 focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg ${fieldBorder('jobCadre')}`}
+                                        className={`w-32 py-2 border border-[#D6EAF3] bg-gray-100 focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg ${fieldBorder('jobCadre')}`}
                                       />
                                       <input
                                         type="text"
-                                        className="w-32 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg"
+                                        className="w-32 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg"
                                       />
                                     </div>
                                   </div>
@@ -548,11 +566,11 @@ export default function EmployeeContractPage() {
                                         type="text"
                                         {...register('jobTitle')}
                                         readOnly
-                                        className={`w-32 py-2 border border-[#D6EAF3] bg-gray-100 focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg ${fieldBorder('jobTitle')}`}
+                                        className={`w-32 py-2 border border-[#D6EAF3] bg-gray-100 focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg ${fieldBorder('jobTitle')}`}
                                       />
                                       <input
                                         type="text"
-                                        className="w-32 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg"
+                                        className="w-32 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg"
                                       />
                                     </div>
                                   </div>
@@ -563,11 +581,11 @@ export default function EmployeeContractPage() {
                                         type="text"
                                         {...register('city')}
                                         readOnly
-                                        className={`w-32 py-2 border border-[#D6EAF3] bg-gray-100 focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg ${fieldBorder('city')}`}
+                                        className={`w-32 py-2 border border-[#D6EAF3] bg-gray-100 focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg ${fieldBorder('city')}`}
                                       />
                                       <input
                                         type="text"
-                                        className="w-32 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg"
+                                        className="w-32 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg"
                                       />
                                     </div>
                                   </div>
@@ -578,11 +596,11 @@ export default function EmployeeContractPage() {
                                         type="text"
                                         {...register('workBranch')}
                                         readOnly
-                                        className={`w-32 py-2 border border-[#D6EAF3] bg-gray-100 focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg ${fieldBorder('workBranch')}`}
+                                        className={`w-32 py-2 border border-[#D6EAF3] bg-gray-100 focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg ${fieldBorder('workBranch')}`}
                                       />
                                       <input
                                         type="text"
-                                        className="w-32 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg"
+                                        className="w-32 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg"
                                       />
                                     </div>
                                   </div>
@@ -593,11 +611,11 @@ export default function EmployeeContractPage() {
                                         type="text"
                                         {...register('salaryBranch')}
                                         readOnly
-                                        className={`w-32 py-2 border border-[#D6EAF3] bg-gray-100 focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg ${fieldBorder('salaryBranch')}`}
+                                        className={`w-32 py-2 border border-[#D6EAF3] bg-gray-100 focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg ${fieldBorder('salaryBranch')}`}
                                       />
                                       <input
                                         type="text"
-                                        className="w-32 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg"
+                                        className="w-32 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg"
                                       />
                                     </div>
                                   </div>
@@ -608,11 +626,11 @@ export default function EmployeeContractPage() {
                                         type="text"
                                         {...register('costCenter')}
                                         readOnly
-                                        className={`w-32 py-2 border border-[#D6EAF3] bg-gray-100 focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg ${fieldBorder('costCenter')}`}
+                                        className={`w-32 py-2 border border-[#D6EAF3] bg-gray-100 focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg ${fieldBorder('costCenter')}`}
                                       />
                                       <input
                                         type="text"
-                                        className="w-32 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg"
+                                        className="w-32 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg"
                                       />
                                     </div>
                                   </div>
@@ -684,7 +702,7 @@ export default function EmployeeContractPage() {
                               >
                                 <div className={`w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all ${
                                   autoRenewal 
-                                    ? 'bg-[#0E79AA] border-[#0E79AA] shadow-lg' 
+                                    ? 'bg-[#0E78AA] border-[#0E78AA] shadow-lg' 
                                     : 'bg-white border-[#D6EAF3]'
                                 }`}>
                                   {autoRenewal && (
@@ -718,7 +736,7 @@ export default function EmployeeContractPage() {
                               >
                                 <div className={`w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all ${
                                   attendancePolicy 
-                                    ? 'bg-[#0E79AA] border-[#0E79AA] shadow-lg' 
+                                    ? 'bg-[#0E78AA] border-[#0E78AA] shadow-lg' 
                                     : 'bg-white border-[#D6EAF3]'
                                 }`}>
                                   {attendancePolicy && (
@@ -746,7 +764,7 @@ export default function EmployeeContractPage() {
                               >
                                 <div className={`w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all ${
                                   incomeTax 
-                                    ? 'bg-[#0E79AA] border-[#0E79AA] shadow-lg' 
+                                    ? 'bg-[#0E78AA] border-[#0E78AA] shadow-lg' 
                                     : 'bg-white border-[#D6EAF3]'
                                 }`}>
                                   {incomeTax && (
@@ -788,17 +806,22 @@ export default function EmployeeContractPage() {
                                   </tr>
                                 </thead>
                                 <tbody>
-                                  {[1, 2, 3, 4, 5].map((row) => (
-                                    <tr key={row} className="border-b border-slate-100 hover:bg-slate-50/80">
-                                      <td className="py-3 px-4 text-black">{row}</td>
-                                      <td className="py-3 px-4 text-black"></td>
-                                      <td className="py-3 px-4 text-black"></td>
-                                      <td className="py-3 px-4 text-black"></td>
-                                      <td className="py-3 px-4 text-black"></td>
-                                      <td className="py-3 px-4 text-black"></td>
-                                      <td className="py-3 px-4 text-black"></td>
+                                  {(contractAllowances?.data ?? []).map((row, index) => (
+                                    <tr key={row.id} className="border-b border-slate-100 hover:bg-slate-50/80">
+                                      <td className="py-3 px-4 text-black">{index + 1}</td>
+                                      <td className="py-3 px-4 text-black">{row.code || '—'}</td>
+                                      <td className="py-3 px-4 text-black">{row.arabicName}</td>
+                                      <td className="py-3 px-4 text-black">بدل</td>
+                                      <td className="py-3 px-4 text-black">{row.defaultAmount ?? '—'}</td>
+                                      <td className="py-3 px-4 text-black">مبلغ</td>
+                                      <td className="py-3 px-4 text-black">{row.defaultAmount ?? '—'}</td>
                                     </tr>
                                   ))}
+                                  {(contractAllowances?.data ?? []).length === 0 ? (
+                                    <tr>
+                                      <td colSpan={7} className="py-3 text-slate-500">لا توجد إضافات في الدليل</td>
+                                    </tr>
+                                  ) : null}
                                 </tbody>
                               </table>
                             </div>
@@ -810,6 +833,12 @@ export default function EmployeeContractPage() {
                             {/* Leave Entitlement Section */}
                             <div className="space-y-4">
                               <h3 className="mb-4 text-sm font-semibold text-slate-900">الأجازات السنوية</h3>
+                              <ul className="text-sm text-slate-600">
+                                {(contractLeaves?.data ?? []).map((row) => (
+                                  <li key={row.id}>{String(row.date || '').slice(0, 10)} — {row.amount ?? ''}</li>
+                                ))}
+                                {(contractLeaves?.data ?? []).length === 0 ? <li>لا توجد صرفيات إجازة لهذا الموظف</li> : null}
+                              </ul>
                               
                               {/* Leave Entitlement Radio Buttons */}
                               <div className="space-y-3">
@@ -817,8 +846,8 @@ export default function EmployeeContractPage() {
                                   <div
                                     className={`px-6 py-3 rounded-lg border-2 cursor-pointer transition-all ${
                                       true // defaultChecked
-                                        ? 'bg-[#0E79AA] text-white border-[#0E79AA] shadow-lg'
-                                        : 'bg-[#F6FBFD] text-[#094C6B] border-[#D6EAF3] hover:border-[#0E79AA] hover:bg-[#E6F0F7]'
+                                        ? 'bg-[#0E78AA] text-white border-[#0E78AA] shadow-lg'
+                                        : 'bg-[#F6FBFD] text-[#094C6B] border-[#D6EAF3] hover:border-[#0E78AA] hover:bg-[#E6F0F7]'
                                     }`}
                                     onClick={() => {
                                       // Handle selection logic here
@@ -829,8 +858,8 @@ export default function EmployeeContractPage() {
                                   <div
                                     className={`px-6 py-3 rounded-lg border-2 cursor-pointer transition-all ${
                                       false // not selected
-                                        ? 'bg-[#0E79AA] text-white border-[#0E79AA] shadow-lg'
-                                        : 'bg-[#F6FBFD] text-[#094C6B] border-[#D6EAF3] hover:border-[#0E79AA] hover:bg-[#E6F0F7]'
+                                        ? 'bg-[#0E78AA] text-white border-[#0E78AA] shadow-lg'
+                                        : 'bg-[#F6FBFD] text-[#094C6B] border-[#D6EAF3] hover:border-[#0E78AA] hover:bg-[#E6F0F7]'
                                     }`}
                                     onClick={() => {
                                       // Handle selection logic here
@@ -876,11 +905,11 @@ export default function EmployeeContractPage() {
                                 <div className="flex items-center gap-2">
                                   <input
                                     type="text"
-                                    defaultValue="1212378971212"
+                                    defaultValue=""
                                     readOnly
-                                    className="flex-1 py-2 border border-[#D6EAF3] bg-gray-100 focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg"
+                                    className="flex-1 py-2 border border-[#D6EAF3] bg-gray-100 focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg"
                                   />
-                                  <button className="p-2 text-[#0E79AA] hover:bg-[#F6FBFD] rounded">🔍</button>
+                                  <button className="p-2 text-[#0E78AA] hover:bg-[#F6FBFD] rounded">🔍</button>
                                 </div>
                               </div>
 
@@ -953,17 +982,22 @@ export default function EmployeeContractPage() {
                                   </tr>
                                 </thead>
                                 <tbody>
-                                  {[1, 2, 3, 4, 5].map((row) => (
-                                    <tr key={row} className="border-b border-slate-100 hover:bg-slate-50/80">
-                                      <td className="py-3 px-4 text-black">{row}</td>
-                                      <td className="py-3 px-4 text-black">كود</td>
-                                      <td className="py-3 px-4 text-black">إسم الإستقطاع</td>
-                                      <td className="py-3 px-4 text-black">نوع الإستقطاع</td>
-                                      <td className="py-3 px-4 text-black">القيمة</td>
-                                      <td className="py-3 px-4 text-black">نوع القيمة</td>
-                                      <td className="py-3 px-4 text-black">القيمة المالية</td>
+                                  {(contractDeductions?.data ?? []).map((row, index) => (
+                                    <tr key={row.id} className="border-b border-slate-100 hover:bg-slate-50/80">
+                                      <td className="py-3 px-4 text-black">{index + 1}</td>
+                                      <td className="py-3 px-4 text-black">{row.code || '—'}</td>
+                                      <td className="py-3 px-4 text-black">{row.arabicName}</td>
+                                      <td className="py-3 px-4 text-black">استقطاع</td>
+                                      <td className="py-3 px-4 text-black">{row.defaultAmount ?? '—'}</td>
+                                      <td className="py-3 px-4 text-black">مبلغ</td>
+                                      <td className="py-3 px-4 text-black">{row.defaultAmount ?? '—'}</td>
                                     </tr>
                                   ))}
+                                  {(contractDeductions?.data ?? []).length === 0 ? (
+                                    <tr>
+                                      <td colSpan={7} className="py-3 text-slate-500">لا توجد استقطاعات في الدليل</td>
+                                    </tr>
+                                  ) : null}
                                 </tbody>
                               </table>
                             </div>
@@ -982,8 +1016,8 @@ export default function EmployeeContractPage() {
                                   <div
                                     className={`px-6 py-3 rounded-lg border-2 cursor-pointer transition-all ${
                                       false // not selected
-                                        ? 'bg-[#0E79AA] text-white border-[#0E79AA] shadow-lg'
-                                        : 'bg-[#F6FBFD] text-[#094C6B] border-[#D6EAF3] hover:border-[#0E79AA] hover:bg-[#E6F0F7]'
+                                        ? 'bg-[#0E78AA] text-white border-[#0E78AA] shadow-lg'
+                                        : 'bg-[#F6FBFD] text-[#094C6B] border-[#D6EAF3] hover:border-[#0E78AA] hover:bg-[#E6F0F7]'
                                     }`}
                                     onClick={() => {
                                       // Handle selection logic here
@@ -994,8 +1028,8 @@ export default function EmployeeContractPage() {
                                   <div
                                     className={`px-6 py-3 rounded-lg border-2 cursor-pointer transition-all ${
                                       true // selected
-                                        ? 'bg-[#0E79AA] text-white border-[#0E79AA] shadow-lg'
-                                        : 'bg-[#F6FBFD] text-[#094C6B] border-[#D6EAF3] hover:border-[#0E79AA] hover:bg-[#E6F0F7]'
+                                        ? 'bg-[#0E78AA] text-white border-[#0E78AA] shadow-lg'
+                                        : 'bg-[#F6FBFD] text-[#094C6B] border-[#D6EAF3] hover:border-[#0E78AA] hover:bg-[#E6F0F7]'
                                     }`}
                                     onClick={() => {
                                       // Handle selection logic here
@@ -1046,7 +1080,7 @@ export default function EmployeeContractPage() {
                               <h4 className="text-md font-semibold text-[#094C6B]">سياسة المكافأة</h4>
                               <div className="space-y-3">
                                 <div className="flex items-center gap-3 p-3 rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] hover:bg-[#E6F0F7] transition-colors cursor-pointer">
-                                  <div className="w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all bg-[#0E79AA] border-[#0E79AA] shadow-lg">
+                                  <div className="w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all bg-[#0E78AA] border-[#0E78AA] shadow-lg">
                                     <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
                                       <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
                                     </svg>
@@ -1055,7 +1089,7 @@ export default function EmployeeContractPage() {
                                 </div>
                                 
                                 <div className="flex items-center gap-3 p-3 rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] hover:bg-[#E6F0F7] transition-colors cursor-pointer">
-                                  <div className="w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all bg-[#0E79AA] border-[#0E79AA] shadow-lg">
+                                  <div className="w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all bg-[#0E78AA] border-[#0E78AA] shadow-lg">
                                     <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
                                       <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
                                     </svg>
@@ -1064,7 +1098,7 @@ export default function EmployeeContractPage() {
                                 </div>
                                 
                                 <div className="flex items-center gap-3 p-3 rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] hover:bg-[#E6F0F7] transition-colors cursor-pointer">
-                                  <div className="w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all bg-[#0E79AA] border-[#0E79AA] shadow-lg">
+                                  <div className="w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all bg-[#0E78AA] border-[#0E78AA] shadow-lg">
                                     <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
                                       <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
                                     </svg>
@@ -1093,6 +1127,12 @@ export default function EmployeeContractPage() {
                             {/* Housing Allowance Section */}
                             <div className="space-y-4">
                               <h3 className="mb-4 text-sm font-semibold text-slate-900">بدل السكن</h3>
+                              <ul className="text-sm text-slate-600">
+                                {(contractHousing?.data ?? []).map((row) => (
+                                  <li key={row.id}>{String(row.date || '').slice(0, 10)} — {row.amount ?? ''}</li>
+                                ))}
+                                {(contractHousing?.data ?? []).length === 0 ? <li>لا توجد صرفيات بدل سكن لهذا الموظف</li> : null}
+                              </ul>
                               
                               {/* Housing Allowance Entitlement Radio Buttons */}
                               <div className="space-y-3">
@@ -1100,8 +1140,8 @@ export default function EmployeeContractPage() {
                                   <div
                                     className={`px-6 py-3 rounded-lg border-2 cursor-pointer transition-all ${
                                       false // not selected
-                                        ? 'bg-[#0E79AA] text-white border-[#0E79AA] shadow-lg'
-                                        : 'bg-[#F6FBFD] text-[#094C6B] border-[#D6EAF3] hover:border-[#0E79AA] hover:bg-[#E6F0F7]'
+                                        ? 'bg-[#0E78AA] text-white border-[#0E78AA] shadow-lg'
+                                        : 'bg-[#F6FBFD] text-[#094C6B] border-[#D6EAF3] hover:border-[#0E78AA] hover:bg-[#E6F0F7]'
                                     }`}
                                     onClick={() => {
                                       // Handle selection logic here
@@ -1112,8 +1152,8 @@ export default function EmployeeContractPage() {
                                   <div
                                     className={`px-6 py-3 rounded-lg border-2 cursor-pointer transition-all ${
                                       true // selected
-                                        ? 'bg-[#0E79AA] text-white border-[#0E79AA] shadow-lg'
-                                        : 'bg-[#F6FBFD] text-[#094C6B] border-[#D6EAF3] hover:border-[#0E79AA] hover:bg-[#E6F0F7]'
+                                        ? 'bg-[#0E78AA] text-white border-[#0E78AA] shadow-lg'
+                                        : 'bg-[#F6FBFD] text-[#094C6B] border-[#D6EAF3] hover:border-[#0E78AA] hover:bg-[#E6F0F7]'
                                     }`}
                                     onClick={() => {
                                       // Handle selection logic here
@@ -1131,8 +1171,8 @@ export default function EmployeeContractPage() {
                                   <div
                                     className={`px-6 py-3 rounded-lg border-2 cursor-pointer transition-all ${
                                       false // not selected
-                                        ? 'bg-[#0E79AA] text-white border-[#0E79AA] shadow-lg'
-                                        : 'bg-[#F6FBFD] text-[#094C6B] border-[#D6EAF3] hover:border-[#0E79AA] hover:bg-[#E6F0F7]'
+                                        ? 'bg-[#0E78AA] text-white border-[#0E78AA] shadow-lg'
+                                        : 'bg-[#F6FBFD] text-[#094C6B] border-[#D6EAF3] hover:border-[#0E78AA] hover:bg-[#E6F0F7]'
                                     }`}
                                     onClick={() => {
                                       // Handle selection logic here
@@ -1143,8 +1183,8 @@ export default function EmployeeContractPage() {
                                   <div
                                     className={`px-6 py-3 rounded-lg border-2 cursor-pointer transition-all ${
                                       true // selected
-                                        ? 'bg-[#0E79AA] text-white border-[#0E79AA] shadow-lg'
-                                        : 'bg-[#F6FBFD] text-[#094C6B] border-[#D6EAF3] hover:border-[#0E79AA] hover:bg-[#E6F0F7]'
+                                        ? 'bg-[#0E78AA] text-white border-[#0E78AA] shadow-lg'
+                                        : 'bg-[#F6FBFD] text-[#094C6B] border-[#D6EAF3] hover:border-[#0E78AA] hover:bg-[#E6F0F7]'
                                     }`}
                                     onClick={() => {
                                       // Handle selection logic here
@@ -1208,7 +1248,7 @@ export default function EmployeeContractPage() {
                                 {/* Row 1: Delay Deduction */}
                                 <div className="flex items-center gap-4">
                                   <label className="text-sm text-[#094C6B] min-w-[200px]">لكل ساعة تأخير يخصم</label>
-                                  <select defaultValue="financial" className="py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg min-w-[120px]">
+                                  <select defaultValue="financial" className="py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg min-w-[120px]">
                                     <option value="financial">مالية</option>
                                     <option value="percentage">نسبة</option>
                                     <option value="days">أيام</option>
@@ -1218,14 +1258,14 @@ export default function EmployeeContractPage() {
                                     min="0"
                                     step="0.01"
                                     defaultValue="0.00"
-                                    className="py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg min-w-[100px]"
+                                    className="py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg min-w-[100px]"
                                   />
                                 </div>
 
                                 {/* Row 2: Absence Deduction */}
                                 <div className="flex items-center gap-4">
                                   <label className="text-sm text-[#094C6B] min-w-[200px]">لكل يوم غياب يخصم</label>
-                                  <select defaultValue="financial" className="py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg min-w-[120px]">
+                                  <select defaultValue="financial" className="py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg min-w-[120px]">
                                     <option value="financial">مالية</option>
                                     <option value="percentage">نسبة</option>
                                     <option value="days">أيام</option>
@@ -1235,14 +1275,14 @@ export default function EmployeeContractPage() {
                                     min="0"
                                     step="0.01"
                                     defaultValue="0.00"
-                                    className="py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg min-w-[100px]"
+                                    className="py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg min-w-[100px]"
                                   />
                                 </div>
 
                                 {/* Row 3: Extra Hour Addition */}
                                 <div className="flex items-center gap-4">
                                   <label className="text-sm text-[#094C6B] min-w-[200px]">لكل ساعة إضافي يضاف</label>
-                                  <select defaultValue="financial" className="py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg min-w-[120px]">
+                                  <select defaultValue="financial" className="py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg min-w-[120px]">
                                     <option value="financial">مالية</option>
                                     <option value="percentage">نسبة</option>
                                     <option value="days">أيام</option>
@@ -1252,14 +1292,14 @@ export default function EmployeeContractPage() {
                                     min="0"
                                     step="0.01"
                                     defaultValue="0.00"
-                                    className="py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg min-w-[100px]"
+                                    className="py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg min-w-[100px]"
                                   />
                                 </div>
 
                                 {/* Row 4: Extra Day Addition */}
                                 <div className="flex items-center gap-4">
                                   <label className="text-sm text-[#094C6B] min-w-[200px]">لكل يوم إضافي يضاف</label>
-                                  <select defaultValue="financial" className="py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg min-w-[120px]">
+                                  <select defaultValue="financial" className="py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg min-w-[120px]">
                                     <option value="financial">مالية</option>
                                     <option value="percentage">نسبة</option>
                                     <option value="days">أيام</option>
@@ -1269,7 +1309,7 @@ export default function EmployeeContractPage() {
                                     min="0"
                                     step="0.01"
                                     defaultValue="0.00"
-                                    className="py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg min-w-[100px]"
+                                    className="py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg min-w-[100px]"
                                   />
                                 </div>
                               </div>

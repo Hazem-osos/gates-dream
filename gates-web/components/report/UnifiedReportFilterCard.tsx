@@ -10,9 +10,9 @@ export type UnifiedReportFilterCardProps = {
   subtitle?: string;
   children: ReactNode;
   onPreview: () => void;
+  onSecondaryPreview?: () => void;
+  secondaryPreviewLabel?: string;
   onReset?: () => void;
-  onDesign?: () => void;
-  designLabel?: string;
   previewDisabled?: boolean;
   toolbarExtra?: ReactNode;
   /** @default 'wide' — 4 columns on xl */
@@ -27,9 +27,9 @@ export function UnifiedReportFilterCard({
   subtitle,
   children,
   onPreview,
+  onSecondaryPreview,
+  secondaryPreviewLabel = 'كشف شهري',
   onReset,
-  onDesign,
-  designLabel = 'تخصيص / تصميم',
   previewDisabled,
   toolbarExtra,
   layout = 'wide',
@@ -75,14 +75,15 @@ export function UnifiedReportFilterCard({
               إعادة ضبط الفلاتر
             </button>
           ) : null}
-          {onDesign ? (
+          {onSecondaryPreview ? (
             <button
               type="button"
-              onClick={onDesign}
-              className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#D6EAF3] px-3 text-xs font-semibold text-[#094C6B] hover:bg-[#F6FBFD] sm:text-sm"
+              disabled={previewDisabled}
+              onClick={onSecondaryPreview}
+              className="inline-flex h-9 items-center gap-2 rounded-lg border border-[#0E78AA] px-4 text-xs font-semibold text-[#0E78AA] hover:bg-[#F6FBFD] disabled:opacity-50 sm:text-sm"
             >
-              <span aria-hidden>⚙️</span>
-              {designLabel}
+              <span aria-hidden>📅</span>
+              {secondaryPreviewLabel}
             </button>
           ) : null}
           <button
@@ -91,7 +92,7 @@ export function UnifiedReportFilterCard({
             onClick={onPreview}
             data-tour-id="report-preview-btn"
             data-academy-trigger-id="report.preview-click"
-            className="inline-flex h-9 items-center gap-2 rounded-lg bg-[#0E79AA] px-4 text-xs font-semibold text-white shadow-sm hover:bg-[#094C6B] disabled:opacity-50 sm:text-sm"
+            className="inline-flex h-9 items-center gap-2 rounded-lg bg-[#0E78AA] px-4 text-xs font-semibold text-white shadow-sm hover:bg-[#094C6B] disabled:opacity-50 sm:text-sm"
           >
             <span aria-hidden>👁️</span>
             معاينة التقرير

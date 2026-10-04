@@ -1,28 +1,21 @@
 'use client';
 
-import { useState } from 'react';
-import { FileText, Trash2 } from 'lucide-react';
+import { Trash2 } from 'lucide-react';
 import { CostCenterSelect } from '@/app/components/form/CostCenterSelect';
 import { UniversalDataGrid } from '@/components/ui/data-entry-grid';
 import { dataEntryGridInputClass } from '@/components/ui/data-entry-grid/tokens';
 import { handleLineGridKeyDown, lineGridDataAttrs } from '@/lib/keyboard/gridLineFocus';
-import { useApiQuery } from '@/lib/hooks/useApi';
-import { isFxRateLocked, lineFxRate, rateForCurrency } from '@/lib/accounting/fx-base';
+import { headerLocksLineCurrency, isFxRateLocked, lineFxRate, rateForCurrency } from '@/lib/accounting/fx-base';
 import { ExchangeRateInput } from '@/components/accounting/ExchangeRateInput';
 import { useCompanyBaseCurrency } from '@/lib/hooks/useCompanyBaseCurrency';
 import { lineBaseAmount, type PaymentVoucherLine } from '@/lib/treasury/payment-voucher-line';
+import { EditableAmountInput } from '@/components/grid/EditableAmountInput';
 import { VoucherAccountCombobox } from './VoucherAccountCombobox';
 import { costCenterRuleFromAccount } from '@/lib/accounting/cost-center-rule';
 import { ACCOUNT_PICKER_PAGE_SIZE, useAccountsQuery } from '@/lib/hooks/useMasterDataQueries';
 import { useFollowHeaderDescription } from '@/lib/hooks/useFollowHeaderDescription';
 
 export type PaymentLineCurrency = { id: string; code: string; arabicName?: string; exchangeRate?: number | string | null };
-
-type InvoiceRow = {
-  id: string;
-  invoiceNumber?: string | null;
-  remainingAmount?: number | string | null;
-};
 
 type InvoiceKind = 'SALE' | 'PURCHASE';
 
@@ -42,14 +35,6 @@ type Props = {
   headerDescription?: string;
 };
 
-function formatAmountInput(value: number) {
-  if (!value) return '';
-  return value.toLocaleString('en-US', {
-    minimumFractionDigits: value % 1 === 0 ? 0 : 2,
-    maximumFractionDigits: 2,
-  });
-}
-
 export function PaymentLinesTable({
   gridId,
   lines,
@@ -60,7 +45,7 @@ export function PaymentLinesTable({
   currencies,
   baseCurrency,
   showFx = true,
-  accountColumnLabel = 'الحساب / المستفيد',
+  accountColumnLabel = 'الحساب',
   invoiceKind = 'PURCHASE',
   partyEmptyHint,
   headerDescription = '',
@@ -142,7 +127,7 @@ export function PaymentLinesTable({
     { id: 'account', label: accountColumnLabel, className: 'min-w-[220px]' },
     { id: 'description', label: 'البيان', className: 'min-w-[140px]' },
     { id: 'amount', label: 'المبلغ', className: 'w-32 min-w-[7rem]', align: 'center' as const },
-    { id: 'tied', label: 'مؤيد بفاتورة', className: 'w-40 min-w-[9rem]' },
+    { id: 'tied', label: 'مؤيد', className: 'w-28 min-w-[7rem]' },
     ...(showFx
       ? [
           { id: 'base', label: `المبلغ المعادل (${companyBaseLabel})`, className: 'w-32 min-w-[7rem]', align: 'center' as const },
@@ -212,11 +197,12 @@ export function PaymentLinesTable({
           );
         }
         if (columnId === 'currency') {
+          const currencyLocked = headerLocksLineCurrency(headerCurrency);
           return (
             <select
               className={dataEntryGridInputClass}
-              disabled={disabled}
-              value={line.currencyCode || resolvedBase}
+              disabled={disabled || currencyLocked}
+              value={currencyLocked ? headerCurrency : line.currencyCode || resolvedBase}
               onChange={(e) => {
                 const next = currencies.find((c) => c.code === e.target.value);
                 updateLine(index, {
@@ -256,20 +242,10 @@ export function PaymentLinesTable({
         }
         if (columnId === 'amount') {
           return (
-            <input
-              type="text"
-              inputMode="decimal"
+            <EditableAmountInput
               disabled={disabled}
-              value={formatAmountInput(line.amount)}
-              onChange={(e) => {
-                const raw = e.target.value.replace(/,/g, '');
-                if (raw === '' || raw === '.') {
-                  updateLine(index, { amount: 0 });
-                  return;
-                }
-                const parsed = Number(raw);
-                if (!Number.isNaN(parsed)) updateLine(index, { amount: parsed });
-              }}
+              value={line.amount}
+              onValueChange={(amount) => updateLine(index, { amount })}
               className={`${dataEntryGridInputClass} text-end font-mono font-medium`}
               placeholder="0.00"
               {...keyHandlers(index, 'amount')}
@@ -331,8 +307,6 @@ function InvoiceTieCell({
   line,
   disabled,
   onChange,
-  invoiceKind,
-  partyEmptyHint,
 }: {
   line: PaymentVoucherLine;
   disabled?: boolean;
@@ -340,81 +314,22 @@ function InvoiceTieCell({
   invoiceKind: InvoiceKind;
   partyEmptyHint?: string;
 }) {
-  const [open, setOpen] = useState(false);
-  const tied = Boolean(line.isTiedToInvoice);
-  const isSale = invoiceKind === 'SALE';
-  const { data } = useApiQuery<InvoiceRow[]>(
-    ['open-invoices', invoiceKind, line.partyId ?? ''],
-    '/invoices',
-    {
-      invoiceKind,
-      isPosted: true,
-      openOnly: true,
-      limit: 50,
-      ...(isSale ? { customerId: line.partyId } : { supplierId: line.partyId }),
-    },
-    { enabled: tied && open && Boolean(line.partyId) }
-  );
-  const invoices = data?.data ?? [];
-
   return (
-    <div className="space-y-1">
-      <select
-        className={dataEntryGridInputClass}
-        disabled={disabled}
-        value={tied ? 'yes' : 'no'}
-        onChange={(e) => {
-          const next = e.target.value === 'yes';
-          onChange({ isTiedToInvoice: next, invoiceId: next ? line.invoiceId : null, invoiceLabel: next ? line.invoiceLabel : undefined });
-          setOpen(next);
-        }}
-      >
-        <option value="no">غير مؤيد</option>
-        <option value="yes">مؤيد</option>
-      </select>
-      {tied ? (
-        <div className="relative">
-          <button
-            type="button"
-            disabled={disabled}
-            onClick={() => setOpen((v) => !v)}
-            className="inline-flex w-full items-center gap-1 rounded-md border border-[#D6EAF3] bg-white px-2 py-1 text-[11px] text-[#0E78AA]"
-          >
-            <FileText className="h-3 w-3" />
-            {line.invoiceLabel || (line.invoiceId ? 'فاتورة مربوطة' : 'اختيار الفاتورة')}
-          </button>
-          {open ? (
-            <div className="absolute z-40 mt-1 max-h-48 w-56 overflow-auto rounded-lg border border-[#D6EAF3] bg-white p-1 shadow-lg">
-              {!line.partyId ? (
-                <p className="px-2 py-1.5 text-[11px] text-slate-500">
-                  {partyEmptyHint || (isSale ? 'اختر العميل أولاً' : 'اختر المورد أولاً')}
-                </p>
-              ) : invoices.length === 0 ? (
-                <p className="px-2 py-1.5 text-[11px] text-slate-500">لا توجد فواتير مفتوحة</p>
-              ) : (
-                invoices.map((inv) => (
-                  <button
-                    key={inv.id}
-                    type="button"
-                    className="block w-full rounded px-2 py-1 text-right text-[11px] hover:bg-sky-50"
-                    onClick={() => {
-                      onChange({
-                        invoiceId: inv.id,
-                        invoiceLabel: inv.invoiceNumber || inv.id.slice(0, 8),
-                        isTiedToInvoice: true,
-                      });
-                      setOpen(false);
-                    }}
-                  >
-                    {inv.invoiceNumber || inv.id.slice(0, 8)} —{' '}
-                    {Number(inv.remainingAmount ?? 0).toLocaleString('ar-EG')}
-                  </button>
-                ))
-              )}
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-    </div>
+    <select
+      className={dataEntryGridInputClass}
+      disabled={disabled}
+      value={line.isTiedToInvoice ? 'yes' : 'no'}
+      onChange={(e) => {
+        const next = e.target.value === 'yes';
+        onChange({
+          isTiedToInvoice: next,
+          invoiceId: next ? line.invoiceId : null,
+          invoiceLabel: next ? line.invoiceLabel : undefined,
+        });
+      }}
+    >
+      <option value="no">غير مؤيد</option>
+      <option value="yes">مؤيد</option>
+    </select>
   );
 }

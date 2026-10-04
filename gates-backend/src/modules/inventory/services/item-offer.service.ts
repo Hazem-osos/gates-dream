@@ -65,7 +65,7 @@ export class ItemOfferService {
           where: { id: data.supplierId, companyId },
         });
         if (!supplier) {
-          throw new Error('Supplier not found or does not belong to company');
+          throw new Error('المورد غير موجود أو لا يتبع الشركة');
         }
       }
 
@@ -354,7 +354,7 @@ export class ItemOfferService {
         });
 
         if (!supplier) {
-          throw new Error('Supplier not found or does not belong to company');
+          throw new Error('المورد غير موجود أو لا يتبع الشركة');
         }
       }
 
@@ -624,11 +624,10 @@ export class ItemOfferService {
         const patterns = Array.isArray(offer.targetPatternIds) ? offer.targetPatternIds : [];
         const partyOk =
           offer.applyToAllParties ||
-          !partyId ||
-          parties.includes(partyId) ||
-          (supplierId ? parties.includes(supplierId) : false);
+          (Boolean(partyId) && parties.includes(partyId)) ||
+          (Boolean(supplierId) && parties.includes(supplierId));
         const patternOk = offer.applyToAllPatterns || !patternId || patterns.includes(patternId);
-        const unitOk = !unitId || offer.applyToAllPatterns || offer.unitId === unitId;
+        const unitOk = !unitId || !offer.unitId || offer.unitId === unitId;
         return partyOk && patternOk && unitOk;
       });
     } catch (error) {

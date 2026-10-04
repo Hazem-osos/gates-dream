@@ -51,7 +51,7 @@ export function RecordSiteStockModal({
   return (
     <div className="fixed inset-0 z-[140] flex items-center justify-center bg-black/40 p-4" dir="rtl">
       <div className="w-full max-w-lg space-y-3 rounded-xl bg-white p-5 shadow-xl">
-        <h2 className="text-lg font-bold text-[#0E79AA]">تسجيل تشوين بالموقع</h2>
+        <h2 className="text-lg font-bold text-[#0E78AA]">تسجيل تشوين بالموقع</h2>
         <Input placeholder="وصف الخامة" value={form.materialDescription} onChange={(e) => setForm((p) => ({ ...p, materialDescription: e.target.value }))} />
         <Input type="date" value={form.deliveryDate} onChange={(e) => setForm((p) => ({ ...p, deliveryDate: e.target.value }))} />
         <Input placeholder="رقم إذن التسليم / الاستلام" value={form.warehouseReceiptRef} onChange={(e) => setForm((p) => ({ ...p, warehouseReceiptRef: e.target.value }))} />
@@ -61,7 +61,7 @@ export function RecordSiteStockModal({
           <Input type="number" min="0" max="100" placeholder="نسبة الاعتماد %" value={form.approvedPercentage} onChange={(e) => setForm((p) => ({ ...p, approvedPercentage: e.target.value }))} />
         </div>
         <p className="rounded-lg bg-[#F6FBFD] px-3 py-2 text-sm">
-          صافي المطالبة المعتمدة: <span className="font-bold tabular-nums text-[#0E79AA]">{formatEgp(net)}</span>
+          صافي المطالبة المعتمدة: <span className="font-bold tabular-nums text-[#0E78AA]">{formatEgp(net)}</span>
         </p>
         <div className="flex justify-end gap-2">
           <Button variant="secondary" onClick={onClose}>

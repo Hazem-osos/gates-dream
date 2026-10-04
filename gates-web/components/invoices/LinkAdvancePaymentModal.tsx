@@ -1,11 +1,13 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { BodyPortal } from '@/components/ui/BodyPortal';
 import { useApiMutation, useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
 import { toast } from '@/lib/feedback/toast';
 
 export type AdvanceVoucherRow = {
   id: string;
+  source?: 'RECEIPT' | 'BANK' | 'CHEQUE' | 'PAPER';
   voucherNumber?: string | null;
   date: string;
   amount: number;
@@ -13,6 +15,9 @@ export type AdvanceVoucherRow = {
   description?: string | null;
   currencyCode?: string | null;
   sourceLabel?: string | null;
+  cashTransactionId?: string;
+  chequeId?: string;
+  securitiesReceiptId?: string;
 };
 
 type AvailableAdvances = {
@@ -23,13 +28,25 @@ type AvailableAdvances = {
   advances: AdvanceVoucherRow[];
 };
 
+export type AdvanceLinkAllocation = {
+  source?: AdvanceVoucherRow['source'];
+  cashTransactionId?: string;
+  chequeId?: string;
+  securitiesReceiptId?: string;
+  amount: number;
+};
+
 type Props = {
   open: boolean;
   invoiceId: string | null;
   remaining: number;
   kind: 'RECEIPT' | 'PAYMENT';
+  customerId?: string | null;
+  supplierId?: string | null;
   onClose: () => void;
   onLinked?: () => void;
+  /** Used when the invoice is not saved yet. Applied after the first save. */
+  onHold?: (allocations: AdvanceLinkAllocation[]) => void;
 };
 
 function money(value: number) {
@@ -49,21 +66,32 @@ export function LinkAdvancePaymentModal({
   invoiceId,
   remaining,
   kind,
+  customerId,
+  supplierId,
   onClose,
   onLinked,
+  onHold,
 }: Props) {
   const invalidate = useInvalidateQuery();
   const [selected, setSelected] = useState<Record<string, string>>({});
   const [error, setError] = useState('');
 
-  const { data, isLoading } = useApiQuery<AvailableAdvances>(
+  const partyId = kind === 'RECEIPT' ? customerId?.trim() : supplierId?.trim();
+  const { data, isLoading: invoiceLoading } = useApiQuery<AvailableAdvances>(
     ['invoice-available-advances', invoiceId],
     invoiceId ? `/invoices/${invoiceId}/available-advances` : '',
     undefined,
     { enabled: open && Boolean(invoiceId) }
   );
+  const { data: partyData, isLoading: partyLoading } = useApiQuery<AdvanceVoucherRow[]>(
+    ['party-advances', kind, partyId],
+    '/invoices/party-advances',
+    kind === 'RECEIPT' ? { customerId: partyId } : { supplierId: partyId },
+    { enabled: open && !invoiceId && Boolean(partyId) }
+  );
   const payload = data?.data;
-  const rows = payload?.advances ?? [];
+  const rows = invoiceId ? payload?.advances ?? [] : partyData?.data ?? [];
+  const isLoading = invoiceId ? invoiceLoading : partyLoading;
   const invoiceRemaining = Number(payload?.remainingAmount ?? remaining);
   const isReceipt = (payload?.cashKind ?? kind) === 'RECEIPT';
 
@@ -77,12 +105,19 @@ export function LinkAdvancePaymentModal({
   const allocations = useMemo(
     () =>
       Object.entries(selected)
-        .map(([cashTransactionId, raw]) => ({
-          cashTransactionId,
-          amount: Number(raw),
-        }))
+        .map(([id, raw]) => {
+          const voucher = rows.find((item) => item.id === id);
+          const isPaper = voucher?.source === 'CHEQUE' || voucher?.source === 'PAPER';
+          return {
+            source: voucher?.source,
+            cashTransactionId: isPaper ? undefined : voucher?.cashTransactionId || id,
+            chequeId: voucher?.chequeId,
+            securitiesReceiptId: voucher?.securitiesReceiptId,
+            amount: Number(raw),
+          };
+        })
         .filter((row) => Number.isFinite(row.amount) && row.amount > 0),
-    [selected]
+    [rows, selected]
   );
   const selectedTotal = allocations.reduce((sum, row) => sum + row.amount, 0);
 
@@ -96,6 +131,7 @@ export function LinkAdvancePaymentModal({
         invalidate(['invoices']);
         invalidate(['invoice', invoiceId]);
         invalidate(['invoice-settlements', invoiceId]);
+        invalidate(['invoice-settlements-cheques', invoiceId]);
         invalidate(['invoice-available-advances', invoiceId]);
         onLinked?.();
         onClose();
@@ -110,8 +146,8 @@ export function LinkAdvancePaymentModal({
 
   const title = isReceipt ? 'ربط دفعة مقدمة — تحصيل' : 'ربط دفعة مقدمة — سداد';
   const emptyLabel = isReceipt
-    ? 'لا توجد سندات تحصيل على هذا العميل غير مربوطة بفاتورة'
-    : 'لا توجد سندات سداد على هذا المورد غير مربوطة بفاتورة';
+    ? 'لا توجد سندات قبض أو إشعارات إضافة بنك أو ورقات مقبوضات على هذا العميل غير مربوطة بفاتورة'
+    : 'لا توجد سندات صرف أو إشعارات خصم أو ورقات مدفوعات على هذا المورد غير مربوطة بفاتورة';
 
   const toggle = (row: AdvanceVoucherRow) => {
     setSelected((prev) => {
@@ -127,8 +163,12 @@ export function LinkAdvancePaymentModal({
   };
 
   const submit = () => {
-    if (!invoiceId) {
+    if (!invoiceId && !onHold) {
       setError('احفظ الفاتورة أولاً');
+      return;
+    }
+    if (!invoiceId && !partyId) {
+      setError(isReceipt ? 'اختر العميل أولاً' : 'اختر المورد أولاً');
       return;
     }
     if (allocations.length === 0) {
@@ -140,19 +180,30 @@ export function LinkAdvancePaymentModal({
       return;
     }
     for (const row of allocations) {
-      const voucher = rows.find((item) => item.id === row.cashTransactionId);
+      const voucher = rows.find(
+        (item) =>
+          item.id === row.cashTransactionId ||
+          item.id === row.chequeId ||
+          item.id === row.securitiesReceiptId
+      );
       if (voucher && row.amount > voucher.unapplied + 0.0001) {
         setError('المبلغ أكبر من المتبقي على الدفعة');
         return;
       }
     }
     setError('');
+    if (!invoiceId) {
+      onHold?.(allocations);
+      onClose();
+      return;
+    }
     linkMutation.mutate({ allocations });
   };
 
   return (
+    <BodyPortal>
     <div
-      className="fixed inset-0 z-[10050] flex items-center justify-center bg-black/40 p-4"
+      className="fixed inset-0 z-[12000] flex items-center justify-center bg-black/40 p-4"
       style={{ direction: 'rtl' }}
       role="dialog"
       aria-modal="true"
@@ -166,13 +217,18 @@ export function LinkAdvancePaymentModal({
           <p className="mt-1 text-sm text-slate-600">
             المتبقي على الفاتورة:{' '}
             <strong>{money(invoiceRemaining)} ج.م</strong>
-            {' — '}السندات التالية على نفس {isReceipt ? 'العميل' : 'المورد'} وغير مربوطة بفاتورة.
+            {' — '}كل سندات {isReceipt ? 'القبض وإشعارات إضافة البنك وورقات المقبوضات' : 'الصرف وإشعارات الخصم وورقات المدفوعات'} على نفس{' '}
+            {isReceipt ? 'العميل' : 'المورد'} وغير مربوطة بأي فاتورة.
           </p>
         </div>
 
         <div className="min-h-0 flex-1 overflow-auto px-6 py-4">
           {isLoading ? (
             <p className="py-8 text-center text-sm text-slate-500">جاري تحميل الدفعات…</p>
+          ) : !invoiceId && !partyId ? (
+            <p className="py-8 text-center text-sm text-slate-500">
+              {isReceipt ? 'اختر العميل أولاً' : 'اختر المورد أولاً'}
+            </p>
           ) : rows.length === 0 ? (
             <p className="py-8 text-center text-sm text-slate-500">{emptyLabel}</p>
           ) : (
@@ -259,5 +315,6 @@ export function LinkAdvancePaymentModal({
         </div>
       </div>
     </div>
+    </BodyPortal>
   );
 }

@@ -111,7 +111,7 @@ export function AiCommandInput({
   return (
     <form
       onSubmit={handleSubmit}
-      className="rounded-2xl border border-slate-200/80 bg-white p-2 shadow-xl transition-all focus-within:border-[#0E79AA] focus-within:ring-2 focus-within:ring-[#0E79AA]/30"
+      className="rounded-2xl border border-slate-200/80 bg-white p-2 shadow-xl transition-all focus-within:border-[#0E78AA] focus-within:ring-2 focus-within:ring-[#0E78AA]/30"
     >
       {attachment ? (
         <div className="mb-1.5 flex items-center gap-2 rounded-xl border border-[#D6EAF3] bg-[#F6FBFD] px-2 py-1.5">
@@ -119,7 +119,7 @@ export function AiCommandInput({
             // eslint-disable-next-line @next/next/no-img-element
             <img src={previewUrl} alt="" className="h-12 w-12 rounded-lg object-cover" />
           ) : (
-            <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-white text-[10px] font-semibold text-[#0E79AA]">
+            <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-white text-[10px] font-semibold text-[#0E78AA]">
               PDF
             </div>
           )}
@@ -178,7 +178,7 @@ export function AiCommandInput({
             type="button"
             onClick={() => fileRef.current?.click()}
             disabled={sending}
-            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-[#0E79AA] disabled:opacity-50"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-[#0E78AA] disabled:opacity-50"
             title="إرفاق صورة أو PDF لفاتورة مشتريات"
             aria-label="إرفاق فاتورة"
           >
@@ -188,7 +188,7 @@ export function AiCommandInput({
             type="button"
             onClick={() => cameraRef.current?.click()}
             disabled={sending}
-            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-[#0E79AA] disabled:opacity-50"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-[#0E78AA] disabled:opacity-50"
             title="تصوير فاتورة"
             aria-label="تصوير فاتورة"
           >
@@ -214,7 +214,7 @@ export function AiCommandInput({
             className={`relative inline-flex h-8 w-8 items-center justify-center rounded-full transition disabled:opacity-50 ${
               voice.isListening
                 ? 'bg-red-500 text-white shadow-[0_0_12px_rgba(248,113,113,0.55)]'
-                : 'text-slate-500 hover:bg-slate-100 hover:text-[#0E79AA]'
+                : 'text-slate-500 hover:bg-slate-100 hover:text-[#0E78AA]'
             }`}
             title={
               voice.isSupported
@@ -245,7 +245,7 @@ export function AiCommandInput({
               disabled={!canSend}
               className={`inline-flex h-8 w-8 items-center justify-center rounded-full transition ${
                 canSend
-                  ? 'bg-[#0E79AA] text-white shadow-[0_0_12px_rgba(14,121,170,0.45)]'
+                  ? 'bg-[#0E78AA] text-white shadow-[0_0_12px_rgba(14,121,170,0.45)]'
                   : 'bg-slate-200 text-slate-400'
               }`}
               aria-label="إرسال"

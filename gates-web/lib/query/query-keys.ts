@@ -18,6 +18,8 @@ export const queryKeys = {
   priceListDetail: (id: string) => ['price-list', id] as const,
   itemOrderLimits: (params?: Record<string, unknown>) =>
     ['item-order-limits', params ?? {}] as const,
+  itemReservations: (params?: Record<string, unknown>) =>
+    ['item-reservations', params ?? {}] as const,
   customerContracts: (params?: Record<string, unknown>) =>
     ['customer-contracts', params ?? {}] as const,
   clothingColors: () => ['clothing-colors'] as const,
@@ -59,6 +61,14 @@ export const queryKeys = {
     lettersOfGuarantee: (projectId: string) => ['contracting', 'lg', projectId] as const,
     evm: (projectId: string) => ['contracting', 'evm', projectId] as const,
     budgetVsActual: (projectId: string) => ['contracting', 'budget-vs-actual', projectId] as const,
+    profitabilitySummary: (projectId: string) => ['contracting', 'profitability-summary', projectId] as const,
+    profitabilityBoq: (projectId: string) => ['contracting', 'profitability-boq', projectId] as const,
+    profitabilitySnapshots: (projectId: string) => ['contracting', 'profitability-snapshots', projectId] as const,
+    executionPlan: (projectId: string) => ['contracting', 'execution-plan', projectId] as const,
+    executionPerformance: (projectId: string, asOf?: string) =>
+      ['contracting', 'execution-performance', projectId, asOf ?? 'now'] as const,
+    executionActivities: (projectId: string, asOf?: string) =>
+      ['contracting', 'execution-activities', projectId, asOf ?? 'now'] as const,
   },
   attachments: {
     list: (filters: Record<string, unknown>) => ['attachments', filters] as const,
@@ -87,6 +97,8 @@ export const queryKeys = {
     rule: (id: string) => ['automation', 'rule', id] as const,
     runs: (params?: Record<string, unknown>) => ['automation', 'runs', params ?? {}] as const,
     run: (id: string) => ['automation', 'run', id] as const,
+    metadata: () => ['automation', 'metadata'] as const,
+    templates: () => ['automation', 'templates'] as const,
   },
   ai: {
     all: ['ai'] as const,
@@ -102,15 +114,15 @@ export const queryKeys = {
 };
 
 export const staleTimes = {
-  /** Master / reference data (COA, parties, warehouses, catalog). */
-  masterMs: 10 * 60_000,
+  /** Master / reference data. Freshness is not trusted after a save. */
+  masterMs: 0,
   masterGcMs: 30 * 60_000,
   /** Transactional lists (invoices, journals, stock logs). */
-  transactionalMs: 30_000,
+  transactionalMs: 0,
   transactionalGcMs: 10 * 60_000,
   /** @deprecated use masterMs */
-  metadataMs: 10 * 60_000,
+  metadataMs: 0,
   /** @deprecated use transactionalMs */
-  listMs: 30_000,
+  listMs: 0,
   profileMs: 5 * 60_000,
 };

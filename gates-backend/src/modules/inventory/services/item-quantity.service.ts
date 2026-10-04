@@ -265,6 +265,7 @@ export class ItemQuantityService {
       return balances.map((row) => {
         const quantityOnHand = Number(row.quantityOnHand);
         const reservedQuantity = Number(row.reservedQuantity);
+        const averageCost = Number(row.averageCost) || 0;
         return {
           itemId: row.itemId,
           warehouseId: row.warehouseId,
@@ -273,6 +274,7 @@ export class ItemQuantityService {
           quantityOnHand,
           reservedQuantity,
           availableQuantity: quantityOnHand - reservedQuantity,
+          averageCost,
           item: row.item,
           warehouse: {
             id: warehouse.id,

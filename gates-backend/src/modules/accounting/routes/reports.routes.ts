@@ -6,6 +6,8 @@ import { reportsQueue } from '../../../workers/queues/reports.queue';
 import { enqueueJob, ASYNC_QUEUE_NAMES } from '../../../workers/queue-manager';
 import { respondAcceptedJob } from '../../../shared/jobs/accept-job';
 import { reportsService } from '../services/reports.service';
+import { financialReportService } from '../services/financial-report.service';
+import { AppError } from '../../../shared/middleware/error-handler';
 import { logger } from '../../../shared/logger';
 import { AuthRequest } from '../../../shared/auth/types';
 import prisma from '../../../shared/database/prisma';
@@ -36,6 +38,13 @@ function parseRangeEnd(value: unknown, field: string): Date {
 }
 function todayEndOfDayUtc(): Date {
   return endOfDayUtc(new Date().toISOString().split('T')[0], 'today');
+}
+
+function reportQueryFlags(req: AuthRequest) {
+  return {
+    showUnposted: req.query.showUnposted === 'true',
+    withBudgetOnly: req.query.withBudgetOnly === 'true',
+  };
 }
 
 /**
@@ -70,7 +79,7 @@ router.post(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -132,13 +141,14 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
       const filters = {
         ...partyGroupFromQuery(req.query),
         companyId,
+        ...reportQueryFlags(req),
         fromDate: req.query.fromDate ? parseRangeStart(req.query.fromDate, 'fromDate') : undefined,
         toDate: req.query.toDate ? parseRangeEnd(req.query.toDate, 'toDate') : undefined,
         accountId: req.query.accountId as string | undefined,
@@ -182,21 +192,32 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
       const filters = {
         ...partyGroupFromQuery(req.query),
         companyId,
+        ...reportQueryFlags(req),
         fromDate: req.query.fromDate ? parseRangeStart(req.query.fromDate, 'fromDate') : undefined,
         toDate: req.query.toDate ? parseRangeEnd(req.query.toDate, 'toDate') : undefined,
         branchId: req.query.branchId as string | undefined,
+        accountId: req.query.accountId as string | undefined,
+        costCenterId: req.query.costCenterId as string | undefined,
+        currencyId: req.query.currencyId as string | undefined,
+        description: req.query.description as string | undefined,
+        fromVoucher: req.query.fromVoucher as string | undefined,
+        toVoucher: req.query.toVoucher as string | undefined,
+        accountView: req.query.accountView as string | undefined,
+        amountOp: req.query.amountOp as string | undefined,
+        amount: req.query.amount as string | undefined,
+        amountTo: req.query.amountTo as string | undefined,
       };
 
       const options = {
         page: req.query.page ? parseInt(req.query.page as string, 10) : 1,
-        limit: req.query.limit ? parseInt(req.query.limit as string, 10) : 100,
+        limit: req.query.limit ? parseInt(req.query.limit as string, 10) : 1000,
       };
 
       const result = await reportsService.getDailyJournal(filters, options);
@@ -229,13 +250,14 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
       const filters = {
         ...partyGroupFromQuery(req.query),
         companyId,
+        ...reportQueryFlags(req),
         fromDate: req.query.fromDate ? parseRangeStart(req.query.fromDate, 'fromDate') : undefined,
         toDate: req.query.toDate ? parseRangeEnd(req.query.toDate, 'toDate') : undefined,
         costCenterId: req.query.costCenterId as string | undefined,
@@ -309,13 +331,14 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
       const filters = {
         ...partyGroupFromQuery(req.query),
         companyId,
+        ...reportQueryFlags(req),
         fromDate: req.query.fromDate ? parseRangeStart(req.query.fromDate, 'fromDate') : undefined,
         toDate: req.query.toDate ? parseRangeEnd(req.query.toDate, 'toDate') : undefined,
         accountId: req.query.accountId as string | undefined,
@@ -358,13 +381,14 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
       const filters = {
         ...partyGroupFromQuery(req.query),
         companyId,
+        ...reportQueryFlags(req),
         customerId: req.query.customerId as string | undefined,
         supplierId: req.query.supplierId as string | undefined,
         branchId: req.query.branchId as string | undefined,
@@ -407,13 +431,14 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
       const filters = {
         ...partyGroupFromQuery(req.query),
         companyId,
+        ...reportQueryFlags(req),
         toDate: req.query.toDate ? parseRangeEnd(req.query.toDate, 'toDate') : todayEndOfDayUtc(),
         branchId: req.query.branchId as string | undefined,
       };
@@ -454,29 +479,27 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
-      const filters = {
-        ...partyGroupFromQuery(req.query),
+      const trial = await financialReportService.getTrialBalance({
         companyId,
-        toDate: req.query.toDate ? parseRangeEnd(req.query.toDate, 'toDate') : todayEndOfDayUtc(),
-        branchId: req.query.branchId as string | undefined,
-      };
-
-      const options = {
-        page: req.query.page ? parseInt(req.query.page as string, 10) : 1,
-        limit: req.query.limit ? parseInt(req.query.limit as string, 10) : 1000,
-      };
-
-      const result = await reportsService.getReviewBalance(filters, options);
+        branchId: (req.query.branchId as string) || undefined,
+        costCenterId: (req.query.costCenterId as string) || undefined,
+        accountId: String(req.query.accountId ?? '').trim() || undefined,
+        startDate: req.query.fromDate
+          ? parseRangeStart(req.query.fromDate, 'fromDate')
+          : parseRangeStart('1970-01-01', 'fromDate'),
+        endDate: req.query.toDate ? parseRangeEnd(req.query.toDate, 'toDate') : todayEndOfDayUtc(),
+        includeUnposted: req.query.showUnposted === 'true',
+        withBudgetOnly: req.query.withBudgetOnly === 'true',
+      });
 
       return void res.json({
         status: 'success',
-        data: result.data,
-        summary: result.summary,
-        pagination: result.pagination,
+        data: trial.accounts,
+        summary: trial.verification,
       });
     } catch (error) {
       logger.error({ error }, 'Error getting accounts balance report');
@@ -501,15 +524,18 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
       const filters = {
         ...partyGroupFromQuery(req.query),
         companyId,
+        ...reportQueryFlags(req),
+        fromDate: req.query.fromDate ? parseRangeStart(req.query.fromDate, 'fromDate') : undefined,
         toDate: req.query.toDate ? parseRangeEnd(req.query.toDate, 'toDate') : todayEndOfDayUtc(),
         costCenterId: req.query.costCenterId as string | undefined,
+        currencyId: req.query.currencyId as string | undefined,
         branchId: req.query.branchId as string | undefined,
       };
 
@@ -549,16 +575,18 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
       const filters = {
         ...partyGroupFromQuery(req.query),
         companyId,
+        ...reportQueryFlags(req),
         fromDate: req.query.fromDate ? parseRangeStart(req.query.fromDate, 'fromDate') : undefined,
         toDate: req.query.toDate ? parseRangeEnd(req.query.toDate, 'toDate') : undefined,
         branchId: req.query.branchId as string | undefined,
+        costCenterId: (req.query.costCenterId as string) || undefined,
       };
 
       if (!filters.fromDate || !filters.toDate) {
@@ -592,19 +620,27 @@ router.get(
 router.get(
   '/profit-loss',
   authorize({ resource: 'report', action: 'view' }),
-  (_req: AuthRequest, res: Response) => {
-    // M16 fix (Item 35): `getProfitAndLoss` delegated to `getIncomeStatement`,
-    // which filtered `accountType` as a relation on what is actually a
-    // scalar column — every call to this route threw a 500. The frontend
-    // "profit-loss" catalog entry is a duplicate of "income-statement" and
-    // is now routed to the working M16 endpoint instead
-    // (`resolveReportEndpoint.ts`); this legacy route is unreachable dead
-    // code and retired rather than repaired.
-    return void res.status(410).json({
-      status: 'error',
-      message:
-        'Legacy profit & loss report removed. Use GET /api/v1/accounting/financial-reports/income-statement (M16).',
-    });
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const companyId = req.companyId || req.tenantId;
+      if (!companyId) {
+        return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
+      }
+      const data = await financialReportService.getIncomeStatement({
+        companyId,
+        branchId: (req.query.branchId as string) || undefined,
+        fiscalYearId: (req.query.fiscalYearId as string) || req.fiscalYearId || undefined,
+        startDate: parseRangeStart(req.query.startDate ?? req.query.fromDate, 'startDate'),
+        endDate: parseRangeEnd(req.query.endDate ?? req.query.toDate, 'endDate'),
+      });
+      return void res.json({ status: 'success', data });
+    } catch (error) {
+      const status = error instanceof AppError ? error.statusCode : 500;
+      return void res.status(status).json({
+        status: 'error',
+        message: error instanceof Error ? error.message : 'Income statement failed',
+      });
+    }
   }
 );
 
@@ -621,17 +657,19 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
       const filters = {
         ...partyGroupFromQuery(req.query),
         companyId,
+        ...reportQueryFlags(req),
         fromDate: req.query.fromDate ? parseRangeStart(req.query.fromDate, 'fromDate') : undefined,
         toDate: req.query.toDate ? parseRangeEnd(req.query.toDate, 'toDate') : undefined,
         accountId: req.query.accountId as string | undefined,
         branchId: req.query.branchId as string | undefined,
+        currencyId: req.query.currencyId as string | undefined,
       };
 
       if (!filters.fromDate || !filters.toDate) {
@@ -643,7 +681,7 @@ router.get(
 
       const options = {
         page: req.query.page ? parseInt(req.query.page as string, 10) : 1,
-        limit: req.query.limit ? parseInt(req.query.limit as string, 10) : 100,
+        limit: req.query.limit ? parseInt(req.query.limit as string, 10) : 5000,
       };
 
       const result = await reportsService.getBankMovement(filters, options);
@@ -659,6 +697,40 @@ router.get(
       return void res.status(500).json({
         status: 'error',
         message: error instanceof Error ? error.message : 'Failed to get bank movement report',
+      });
+    }
+  }
+);
+
+/**
+ * GET /api/v1/accounting/reports/bank-monthly-statement
+ * Monthly bank sheet: receipts on the right, payments on the left.
+ */
+router.get(
+  '/bank-monthly-statement',
+  authorize({ resource: 'report', action: 'view' }),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const companyId = req.companyId || req.tenantId;
+      if (!companyId) {
+        return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
+      }
+      const filters = {
+        companyId,
+        ...reportQueryFlags(req),
+        fromDate: req.query.fromDate ? parseRangeStart(req.query.fromDate, 'fromDate') : undefined,
+        toDate: req.query.toDate ? parseRangeEnd(req.query.toDate, 'toDate') : undefined,
+        accountId: req.query.accountId as string | undefined,
+        branchId: req.query.branchId as string | undefined,
+        currencyId: req.query.currencyId as string | undefined,
+      };
+      const result = await reportsService.getBankMonthlyStatement(filters);
+      return void res.json({ status: 'success', data: result.data });
+    } catch (error) {
+      logger.error({ error }, 'Error getting bank monthly statement');
+      return void res.status(500).json({
+        status: 'error',
+        message: error instanceof Error ? error.message : 'Failed to get bank monthly statement',
       });
     }
   }
@@ -697,16 +769,19 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
       const filters = {
         ...partyGroupFromQuery(req.query),
         companyId,
+        ...reportQueryFlags(req),
         fromDate: req.query.fromDate ? parseRangeStart(req.query.fromDate, 'fromDate') : undefined,
         toDate: req.query.toDate ? parseRangeEnd(req.query.toDate, 'toDate') : undefined,
         branchId: req.query.branchId as string | undefined,
+        accountId: req.query.accountId as string | undefined,
+        costCenterId: req.query.costCenterId as string | undefined,
       };
 
       const options = {
@@ -745,16 +820,21 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
       const filters = {
         ...partyGroupFromQuery(req.query),
         companyId,
+        ...reportQueryFlags(req),
         supplierId: req.query.supplierId as string | undefined,
         branchId: req.query.branchId as string | undefined,
-        asOfDate: req.query.asOfDate ? parseRangeEnd(req.query.asOfDate, 'asOfDate') : todayEndOfDayUtc(),
+        asOfDate: req.query.asOfDate
+          ? parseRangeEnd(req.query.asOfDate, 'asOfDate')
+          : req.query.toDate
+            ? parseRangeEnd(req.query.toDate, 'toDate')
+            : todayEndOfDayUtc(),
       };
 
       const options = {
@@ -787,19 +867,26 @@ router.get(
 router.get(
   '/financial-position-statement',
   authorize({ resource: 'report', action: 'view' }),
-  (_req: AuthRequest, res: Response) => {
-    // M16 fix (Item 35): `getFinancialPositionStatement` delegated to
-    // `getBalanceSheet`, which had the same broken scalar-vs-relation
-    // `accountType` filter as `/profit-loss` — every call 500'd. The
-    // frontend "financial-position-statement" catalog entry is already
-    // routed to the working M16 balance-sheet endpoint
-    // (`resolveReportEndpoint.ts`); this legacy route is unreachable dead
-    // code and retired rather than repaired.
-    return void res.status(410).json({
-      status: 'error',
-      message:
-        'Legacy financial position statement removed. Use GET /api/v1/accounting/financial-reports/balance-sheet (M16).',
-    });
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const companyId = req.companyId || req.tenantId;
+      if (!companyId) {
+        return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
+      }
+      const data = await financialReportService.getBalanceSheet({
+        companyId,
+        branchId: (req.query.branchId as string) || undefined,
+        fiscalYearId: (req.query.fiscalYearId as string) || req.fiscalYearId || undefined,
+        asOfDate: parseRangeEnd(req.query.asOfDate ?? req.query.toDate, 'asOfDate'),
+      });
+      return void res.json({ status: 'success', data });
+    } catch (error) {
+      const status = error instanceof AppError ? error.statusCode : 500;
+      return void res.status(status).json({
+        status: 'error',
+        message: error instanceof Error ? error.message : 'Balance sheet failed',
+      });
+    }
   }
 );
 
@@ -816,43 +903,55 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
       const year = req.query.year as string | undefined;
       const month = req.query.month as string | undefined;
+      let fromDate = req.query.fromDate ? parseRangeStart(req.query.fromDate, 'fromDate') : undefined;
+      let toDate = req.query.toDate ? parseRangeEnd(req.query.toDate, 'toDate') : undefined;
 
-      if (!year || !month) {
-        return void res.status(400).json({
-          status: 'error',
-          message: 'Year and month are required',
-        });
+      if ((!fromDate || !toDate) && year && month) {
+        const y = parseInt(year, 10);
+        const m = parseInt(month, 10);
+        if (!Number.isFinite(y) || !Number.isFinite(m) || m < 1 || m > 12) {
+          return void res.status(400).json({
+            status: 'error',
+            message: 'الشهر أو السنة غير صالحين',
+          });
+        }
+        const monthKey = String(m).padStart(2, '0');
+        const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
+        fromDate = fromDate ?? parseRangeStart(`${y}-${monthKey}-01`, 'fromDate');
+        toDate = toDate ?? parseRangeEnd(`${y}-${monthKey}-${String(lastDay).padStart(2, '0')}`, 'toDate');
       }
 
-      // Calculate toDate as end of month
-      const toDate = new Date(parseInt(year), parseInt(month), 0);
+      if (!fromDate || !toDate) {
+        return void res.status(400).json({
+          status: 'error',
+          message: 'يرجى اختيار تاريخ البداية والنهاية',
+        });
+      }
 
       const filters = {
         ...partyGroupFromQuery(req.query),
         companyId,
+        ...reportQueryFlags(req),
+        fromDate,
         toDate,
         branchId: req.query.branchId as string | undefined,
+        showIdleAccounts: req.query.showIdleAccounts === 'true',
       };
 
-      const options = {
-        page: req.query.page ? parseInt(req.query.page as string, 10) : 1,
-        limit: req.query.limit ? parseInt(req.query.limit as string, 10) : 1000,
-      };
-
-      const result = await reportsService.getReviewBalance(filters, options);
+      const result = await reportsService.getMonthlyReviewBalance(filters);
 
       return void res.json({
         status: 'success',
         data: result.data,
         summary: result.summary,
         pagination: result.pagination,
-        period: { year, month },
+        period: { year, month, fromDate, toDate },
       });
     } catch (error) {
       logger.error({ error }, 'Error getting monthly review balance report');
@@ -877,16 +976,19 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
       const filters = {
         ...partyGroupFromQuery(req.query),
         companyId,
+        ...reportQueryFlags(req),
         fromDate: req.query.fromDate ? parseRangeStart(req.query.fromDate, 'fromDate') : undefined,
         toDate: req.query.toDate ? parseRangeEnd(req.query.toDate, 'toDate') : undefined,
         branchId: req.query.branchId as string | undefined,
+        accountId: req.query.accountId as string | undefined,
+        costCenterId: req.query.costCenterId as string | undefined,
       };
 
       const options = {
@@ -894,52 +996,12 @@ router.get(
         limit: req.query.limit ? parseInt(req.query.limit as string, 10) : 100,
       };
 
-      // Get cancelled journal entries
-      const where: any = {
-        companyId,
-        isCancelled: true,
-      };
-
-      if (filters.fromDate || filters.toDate) {
-        where.date = {};
-        if (filters.fromDate) where.date.gte = filters.fromDate;
-        if (filters.toDate) where.date.lte = filters.toDate;
-      }
-
-      const skip = (options.page - 1) * options.limit;
-
-      const [entries, total] = await Promise.all([
-        prisma.journalEntry.findMany({
-          where,
-          skip,
-          take: options.limit,
-          orderBy: { date: 'desc' },
-          include: {
-            lines: {
-              include: {
-                account: {
-                  select: {
-                    id: true,
-                    code: true,
-                    arabicName: true,
-                  },
-                },
-              },
-            },
-          },
-        }),
-        prisma.journalEntry.count({ where }),
-      ]);
+      const result = await reportsService.getCancelledOperations(filters, options);
 
       return void res.json({
         status: 'success',
-        data: entries,
-        pagination: {
-          page: options.page,
-          limit: options.limit,
-          total,
-          totalPages: Math.ceil(total / options.limit),
-        },
+        data: result.data,
+        pagination: result.pagination,
       });
     } catch (error) {
       logger.error({ error }, 'Error getting cancelled operations report');
@@ -1006,14 +1068,16 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
       const filters = {
         ...partyGroupFromQuery(req.query),
         companyId,
+        ...reportQueryFlags(req),
         costCenterId: (req.query.costCenterId as string) || undefined,
+        accountId: (req.query.accountId as string) || undefined,
         toDate: req.query.toDate ? parseRangeEnd(req.query.toDate, 'toDate') : todayEndOfDayUtc(),
         branchId: req.query.branchId as string | undefined,
       };
@@ -1054,15 +1118,19 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
       const filters = {
         ...partyGroupFromQuery(req.query),
         companyId,
+        ...reportQueryFlags(req),
         fromDate: req.query.fromDate ? parseRangeStart(req.query.fromDate, 'fromDate') : undefined,
         toDate: req.query.toDate ? parseRangeEnd(req.query.toDate, 'toDate') : undefined,
+        accountId: req.query.accountId as string | undefined,
+        costCenterId: req.query.costCenterId as string | undefined,
+        currencyId: req.query.currencyId as string | undefined,
         branchId: req.query.branchId as string | undefined,
       };
 
@@ -1102,7 +1170,7 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -1116,15 +1184,18 @@ router.get(
       const filters = {
         ...partyGroupFromQuery(req.query),
         companyId,
+        ...reportQueryFlags(req),
         fromDate: parseRangeStart(req.query.fromDate, 'fromDate'),
         toDate: parseRangeEnd(req.query.toDate, 'toDate'),
         accountId: req.query.accountId as string | undefined,
+        costCenterId: req.query.costCenterId as string | undefined,
+        currencyId: req.query.currencyId as string | undefined,
         branchId: req.query.branchId as string | undefined,
       };
 
       const options = {
         page: req.query.page ? parseInt(req.query.page as string, 10) : 1,
-        limit: req.query.limit ? parseInt(req.query.limit as string, 10) : 100,
+        limit: req.query.limit ? parseInt(req.query.limit as string, 10) : 2000,
       };
 
       const result = await reportsService.getExpensesAnalysis(filters, options);
@@ -1158,7 +1229,7 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -1172,6 +1243,7 @@ router.get(
       const filters = {
         ...partyGroupFromQuery(req.query),
         companyId,
+        ...reportQueryFlags(req),
         fromDate: parseRangeStart(req.query.fromDate, 'fromDate'),
         toDate: parseRangeEnd(req.query.toDate, 'toDate'),
         branchId: req.query.branchId as string | undefined,
@@ -1213,13 +1285,15 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
       const filters = {
         ...partyGroupFromQuery(req.query),
         companyId,
+        ...reportQueryFlags(req),
+        fromDate: req.query.fromDate ? parseRangeStart(req.query.fromDate, 'fromDate') : undefined,
         toDate: req.query.toDate ? parseRangeEnd(req.query.toDate, 'toDate') : todayEndOfDayUtc(),
         branchId: req.query.branchId as string | undefined,
         accountId: (req.query.accountId as string) || undefined,
@@ -1231,7 +1305,7 @@ router.get(
 
       const options = {
         page: req.query.page ? parseInt(req.query.page as string, 10) : 1,
-        limit: req.query.limit ? parseInt(req.query.limit as string, 10) : 1000,
+        limit: req.query.limit ? parseInt(req.query.limit as string, 10) : 5000,
       };
 
       const result = await reportsService.getAccountBalancesCredit(filters, options);
@@ -1265,22 +1339,24 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
       const filters = {
         ...partyGroupFromQuery(req.query),
         companyId,
+        ...reportQueryFlags(req),
         safeId: req.query.safeId as string | undefined,
         fromDate: req.query.fromDate ? parseRangeStart(req.query.fromDate, 'fromDate') : undefined,
         toDate: req.query.toDate ? parseRangeEnd(req.query.toDate, 'toDate') : undefined,
         branchId: req.query.branchId as string | undefined,
+        currencyId: req.query.currencyId as string | undefined,
       };
 
       const options = {
         page: req.query.page ? parseInt(req.query.page as string, 10) : 1,
-        limit: req.query.limit ? parseInt(req.query.limit as string, 10) : 100,
+        limit: req.query.limit ? parseInt(req.query.limit as string, 10) : 5000,
       };
 
       const result = await reportsService.getSafeReport(filters, options);
@@ -1314,7 +1390,7 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -1328,6 +1404,7 @@ router.get(
       const filters = {
         ...partyGroupFromQuery(req.query),
         companyId,
+        ...reportQueryFlags(req),
         fromDate: parseRangeStart(req.query.fromDate, 'fromDate'),
         toDate: parseRangeEnd(req.query.toDate, 'toDate'),
         branchId: req.query.branchId as string | undefined,
@@ -1370,13 +1447,14 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
       const filters = {
         ...partyGroupFromQuery(req.query),
         companyId,
+        ...reportQueryFlags(req),
         fromDate: req.query.fromDate ? parseRangeStart(req.query.fromDate, 'fromDate') : undefined,
         toDate: req.query.toDate ? parseRangeEnd(req.query.toDate, 'toDate') : undefined,
         branchId: req.query.branchId as string | undefined,
@@ -1418,7 +1496,7 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -1432,6 +1510,7 @@ router.get(
       const filters = {
         ...partyGroupFromQuery(req.query),
         companyId,
+        ...reportQueryFlags(req),
         fromDate: parseRangeStart(req.query.fromDate, 'fromDate'),
         toDate: parseRangeEnd(req.query.toDate, 'toDate'),
         branchId: req.query.branchId as string | undefined,
@@ -1474,13 +1553,14 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
       const filters = {
         ...partyGroupFromQuery(req.query),
         companyId,
+        ...reportQueryFlags(req),
         fromDate: req.query.fromDate ? parseRangeStart(req.query.fromDate, 'fromDate') : undefined,
         toDate: req.query.toDate ? parseRangeEnd(req.query.toDate, 'toDate') : undefined,
         branchId: req.query.branchId as string | undefined,

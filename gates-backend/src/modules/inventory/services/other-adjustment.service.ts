@@ -2,11 +2,18 @@ import prisma from '../../../shared/database/prisma';
 import { Prisma } from '@prisma/client';
 import { scopedItemQuantityWhere } from '../utils/item-quantity-tenant';
 import { logger } from '../../../shared/logger';
-import { stockMovementService } from './stock-movement.service';
+import { inventoryCostingService } from './inventory-costing.service';
+import { COSTING_MOVEMENT } from './inventory-costing-math';
 import { stockMovementGlService, type StockGlPostingContext } from './stock-movement-gl.service';
 import { assertStoreDocumentRight } from './store-document-rights';
 import { fiscalYearService } from '../../platform/services/fiscal-year.service';
 import { assertWarehouseActive } from '../utils/inventory-system';
+import { claimDocumentPost, claimDocumentUnpost } from '../utils/claim-document-post';
+import { resolveStoreDocumentSerialInTx } from './store-document-numbering.service';
+import {
+  ensurePerpetualInventoryGlReady,
+  runCompanyStockGlPosting,
+} from '../utils/stock-gl-posting-guard';
 
 export interface OtherAdjustmentSource {
   source: string; // Source name (المصدر)
@@ -52,7 +59,7 @@ export class OtherAdjustmentService {
       });
 
       if (items.length !== itemIds.length) {
-        throw new Error('One or more items not found or do not belong to company');
+        throw new Error('أحد الأصناف غير موجود أو لا يتبع الشركة');
       }
 
       // Validate locations if provided
@@ -109,13 +116,21 @@ export class OtherAdjustmentService {
           0
         );
 
+        const serial = await resolveStoreDocumentSerialInTx(tx, {
+          companyId,
+          branchId: data.branchId ?? null,
+          fiscalYearId: null,
+          kind: 'other-adjustment',
+          clientSerial: data.serial,
+        });
+
         // Create other adjustment record
         const record = await tx.otherAdjustment.create({
           data: {
             companyId,
             branchId: data.branchId || null,
             description: data.description || null,
-            serial: data.serial || null,
+            serial,
             date: new Date(data.date),
             warehouseId: data.warehouseId,
             totalAmount,
@@ -388,45 +403,57 @@ export class OtherAdjustmentService {
       const sourceNumber = adjustment.serial ?? adjustment.id.slice(0, 8);
       const sourceYearId = String(new Date(adjustment.date).getFullYear());
 
+      const inventorySystem = await ensurePerpetualInventoryGlReady(
+        companyId,
+        glCtx,
+        adjustment.warehouseId
+      );
+
+      let glSkipped = false;
       await prisma.$transaction(async (tx) => {
+        await claimDocumentPost((args) => tx.otherAdjustment.updateMany(args), adjustmentId, companyId);
         for (const line of adjustment.lines) {
           const qty = Number(line.quantity);
           if (qty === 0) continue;
-          const delta = line.adjustmentType === 'addition' ? qty : -qty;
-
-          await stockMovementService.postMovementInTx(tx, {
+          const costingBase = {
             companyId,
             branchId: adjustment.branchId ?? undefined,
             warehouseId: adjustment.warehouseId,
             itemId: line.itemId,
             locationId: line.locationId,
-            quantityDelta: delta,
-            unitCost: line.unitPrice != null ? Number(line.unitPrice) : undefined,
-            movementType: sourceType,
+            quantity: qty,
             sourceType,
             sourceNumber,
             sourceYearId,
-            documentDate: adjustment.date,
-          });
+            sourceDocumentId: adjustment.id,
+            transactionDate: adjustment.date,
+          };
+          if (line.adjustmentType === 'addition') {
+            await inventoryCostingService.applyInboundMovement(tx, {
+              ...costingBase,
+              unitCost: line.unitPrice != null ? Number(line.unitPrice) : 0,
+              inheritCurrentCost: line.unitPrice == null,
+              movementType: COSTING_MOVEMENT.ADJUSTMENT_POSITIVE,
+              updateLastPurchasePrice: false,
+            });
+          } else {
+            await inventoryCostingService.applyOutboundMovement(tx, {
+              ...costingBase,
+              movementType: COSTING_MOVEMENT.ADJUSTMENT_NEGATIVE,
+            });
+          }
         }
 
         if (glCtx) {
-          await stockMovementGlService.postOtherAdjustmentGlInTx(tx, glCtx, adjustment);
+          glSkipped = await runCompanyStockGlPosting(inventorySystem, () =>
+            stockMovementGlService.postOtherAdjustmentGlInTx(tx, glCtx, adjustment)
+          );
         }
-
-        // Mark adjustment as posted
-        await tx.otherAdjustment.update({
-          where: { id: adjustmentId },
-          data: {
-            isPosted: true,
-            postedAt: new Date(),
-          },
-        });
       });
 
-      logger.info({ companyId, adjustmentId }, 'Other adjustment posted');
+      logger.info({ companyId, adjustmentId, glSkipped }, 'Other adjustment posted');
 
-      return { success: true };
+      return { success: true, glSkipped };
     } catch (error) {
       logger.error({ error, companyId, adjustmentId }, 'Error posting other adjustment');
       throw error;
@@ -468,25 +495,50 @@ export class OtherAdjustmentService {
       const sourceYearId = String(new Date(adjustment.date).getFullYear());
 
       await prisma.$transaction(async (tx) => {
+        await claimDocumentUnpost((args) => tx.otherAdjustment.updateMany(args), adjustmentId, companyId);
         for (const line of adjustment.lines) {
           const qty = Number(line.quantity);
           if (qty === 0) continue;
           // Reverse of the original delta applied in `postOtherAdjustment`.
-          const delta = line.adjustmentType === 'addition' ? -qty : qty;
-
-          await stockMovementService.postMovementInTx(tx, {
+          const costingBase = {
             companyId,
             branchId: adjustment.branchId ?? undefined,
             warehouseId: adjustment.warehouseId,
             itemId: line.itemId,
             locationId: line.locationId,
-            quantityDelta: delta,
-            movementType: `${sourceType}-UNPOST`,
+            quantity: qty,
             sourceType: `${sourceType}-UNPOST`,
             sourceNumber,
             sourceYearId,
-            documentDate: adjustment.date,
-          });
+            sourceDocumentId: adjustment.id,
+            transactionDate: adjustment.date,
+            updateLastPurchasePrice: false as const,
+          };
+          if (line.adjustmentType === 'addition') {
+            const specified = line.unitPrice != null ? Number(line.unitPrice) : 0;
+            const postedCost =
+              specified > 0
+                ? specified
+                : await inventoryCostingService.postedUnitCost(tx, {
+                    companyId,
+                    itemId: line.itemId,
+                    warehouseId: adjustment.warehouseId,
+                    sourceType,
+                    sourceNumber,
+                    sourceDocumentId: adjustment.id,
+                  });
+            await inventoryCostingService.reverseInboundInTx(tx, {
+              ...costingBase,
+              originalUnitCost: postedCost ?? specified,
+              movementType: COSTING_MOVEMENT.ADJUSTMENT_NEGATIVE,
+            });
+          } else {
+            await inventoryCostingService.applyInboundMovement(tx, {
+              ...costingBase,
+              inheritCurrentCost: true,
+              movementType: COSTING_MOVEMENT.ADJUSTMENT_POSITIVE,
+            });
+          }
         }
 
         if (glCtx) {
@@ -499,15 +551,6 @@ export class OtherAdjustmentService {
             `Unpost other adjustment ${sourceNumber}`
           );
         }
-
-        // Mark adjustment as unposted
-        await tx.otherAdjustment.update({
-          where: { id: adjustmentId },
-          data: {
-            isPosted: false,
-            postedAt: null,
-          },
-        });
       });
 
       logger.info({ companyId, adjustmentId }, 'Other adjustment unposted');

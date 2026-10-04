@@ -72,8 +72,8 @@ export function InvoiceJournalEntryLinesTable({
             <th className={`${cell} font-bold`}>م</th>
             <th className={`${cell} font-bold`}>الحساب</th>
             <th className={`${cell} font-bold`}>الشرح</th>
-            <th className={`${cell} font-bold`}>الخصم</th>
-            <th className={`${cell} font-bold`}>الإضافة</th>
+            <th className={`${cell} font-bold`}>مدين</th>
+            <th className={`${cell} font-bold`}>دائن</th>
             <th className={`${cell} font-bold`}>مركز التكلفة</th>
             <th className={`${cell} font-bold`}>العملة</th>
             <th className={`${cell} font-bold`}>سعر الصرف</th>

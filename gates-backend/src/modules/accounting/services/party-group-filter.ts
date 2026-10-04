@@ -1,6 +1,7 @@
 export function partyGroupFromQuery(query: {
   customerCategoryId?: unknown;
   supplierCategoryId?: unknown;
+  userId?: unknown;
 }) {
   const customerCategoryId =
     typeof query.customerCategoryId === 'string' && query.customerCategoryId
@@ -10,7 +11,8 @@ export function partyGroupFromQuery(query: {
     typeof query.supplierCategoryId === 'string' && query.supplierCategoryId
       ? query.supplierCategoryId
       : undefined;
-  return { customerCategoryId, supplierCategoryId };
+  const userId = typeof query.userId === 'string' && query.userId ? query.userId : undefined;
+  return { customerCategoryId, supplierCategoryId, userId };
 }
 
 export function applyCustomerGroupWhere(

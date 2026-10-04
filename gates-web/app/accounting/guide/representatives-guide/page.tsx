@@ -186,13 +186,30 @@ export default function RepresentativesGuidePage() {
             )
         );
         const { folders, loose } = attachPeopleToGroups(groupTree, rolePeople);
+        const children = sortGuideNodes(folders.map((child) => withTone(child, toneIndex)));
+        if (loose.length) {
+          children.push(
+            withTone(
+              {
+                id: `ungrouped:${folder.role}`,
+                code: '—',
+                name: 'بدون مجموعة',
+                folder: true,
+                synthetic: true,
+                groupKey: folder.role,
+                children: sortGuideNodes(loose),
+              },
+              toneIndex
+            )
+          );
+        }
         return {
           id: folder.id,
           code: folder.code,
           name: folder.name,
           groupKey: folder.role,
           toneIndex,
-          children: sortGuideNodes([...folders, ...loose].map((child) => withTone(child, toneIndex))),
+          children,
         };
       }),
       { keepEmpty: true }

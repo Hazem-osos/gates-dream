@@ -146,7 +146,7 @@ export type TransactionTrackingFilterInput = z.input<typeof transactionTrackingF
 export const hrSimpleReportFilterSchema = z.object({
   hijriDate1: z.string().optional(),
   hijriDate2: z.string().optional(),
-  employee: z.string().min(1, 'أدخل الموظف'),
+  employee: z.string(),
   fromDate: z.string().min(1, 'من التاريخ مطلوب'),
   toDate: z.string().min(1, 'إلى التاريخ مطلوب'),
 });

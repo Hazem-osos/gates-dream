@@ -28,7 +28,7 @@ export function CommandCenter({
   useRegisterScreenChrome();
 
   return (
-    <div className={cn('gates-content-enter', DASH_PAGE)} dir="rtl">
+    <div className={cn('gates-content-enter relative', DASH_PAGE)}>
       <div className={DASH_SHELL}>
         <DashboardHUD
           title={title}

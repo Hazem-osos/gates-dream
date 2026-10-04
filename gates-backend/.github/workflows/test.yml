@@ -11,19 +11,20 @@ jobs:
     runs-on: ubuntu-latest
 
     services:
-      postgres:
-        image: postgres:15-alpine
+      mysql:
+        image: mysql:8
         env:
-          POSTGRES_USER: test_user
-          POSTGRES_PASSWORD: test_password
-          POSTGRES_DB: test_db
+          MYSQL_ROOT_PASSWORD: test_password
+          MYSQL_DATABASE: test_db
+          MYSQL_USER: test_user
+          MYSQL_PASSWORD: test_password
         options: >-
-          --health-cmd pg_isready
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -ptest_password"
           --health-interval 10s
           --health-timeout 5s
-          --health-retries 5
+          --health-retries 12
         ports:
-          - 5432:5432
+          - 3306:3306
 
     steps:
       - uses: actions/checkout@v3
@@ -40,7 +41,7 @@ jobs:
       - name: Generate Prisma Client
         run: npm run prisma:generate
         env:
-          DATABASE_URL: postgresql://test_user:test_password@localhost:5432/test_db
+          DATABASE_URL: mysql://test_user:test_password@localhost:3306/test_db
 
       - name: Run type check
         run: npm run type-check
@@ -48,10 +49,30 @@ jobs:
       - name: Run linter
         run: npm run lint
 
+      - name: Apply migrations
+        run: npx prisma migrate deploy
+        env:
+          DATABASE_URL: mysql://test_user:test_password@localhost:3306/test_db
+
+      - name: Prisma select guard
+        run: npm run audit:prisma-selects
+
       - name: Run tests
         run: npm test
         env:
-          DATABASE_URL: postgresql://test_user:test_password@localhost:5432/test_db
+          DATABASE_URL: mysql://test_user:test_password@localhost:3306/test_db
+          NODE_ENV: test
+
+      - name: Accounting invariants
+        run: npm run test:accounting-invariants
+        env:
+          DATABASE_URL: mysql://test_user:test_password@localhost:3306/test_db
+          NODE_ENV: test
+
+      - name: GL invariants
+        run: npm run test:gl-invariants
+        env:
+          DATABASE_URL: mysql://test_user:test_password@localhost:3306/test_db
           NODE_ENV: test
 
       - name: Upload coverage

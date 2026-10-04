@@ -1,4 +1,5 @@
 import prisma from '../../../shared/database/prisma';
+import { permanentDelete } from '../../../shared/database/permanent-delete.util';
 import { logger } from '../../../shared/logger';
 import { Decimal } from '@prisma/client/runtime/library';
 import { CreateAnnualLeaveDisbursementInput, UpdateAnnualLeaveDisbursementInput } from '../schemas/annual-leave-disbursement.schema';
@@ -244,7 +245,7 @@ export class AnnualLeaveDisbursementService {
   }
 
   /**
-   * Delete annual leave entitlements disbursement (soft delete)
+   * Delete permanently (blocked if referenced)
    */
   async deleteAnnualLeaveDisbursement(companyId: string, disbursementId: string) {
     try {
@@ -260,10 +261,7 @@ export class AnnualLeaveDisbursementService {
         throw new Error('Annual leave entitlements disbursement not found');
       }
 
-      await prisma.annualLeaveEntitlementsDisbursement.update({
-        where: { id: disbursementId },
-        data: { isActive: false },
-      });
+      await permanentDelete('السجل', () => prisma.annualLeaveEntitlementsDisbursement.delete({ where: { id: disbursementId } }));
 
       logger.info({ companyId, disbursementId }, 'Annual leave entitlements disbursement deleted');
       return { success: true };

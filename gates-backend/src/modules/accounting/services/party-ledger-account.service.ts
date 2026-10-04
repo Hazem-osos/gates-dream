@@ -1,5 +1,7 @@
+import { Prisma } from '@prisma/client';
 import prisma from '../../../shared/database/prisma';
 import { AppError } from '../../../shared/middleware/error-handler';
+import { permanentDelete } from '../../../shared/database/permanent-delete.util';
 import { logger } from '../../../shared/logger';
 import { companySettingService } from '../../platform/services/company-setting.service';
 import { accountService } from './account.service';
@@ -8,6 +10,7 @@ import {
   partyAccountTakenMessage,
 } from '../utils/account-name-uniqueness';
 
+type Db = Prisma.TransactionClient | typeof prisma;
 type AccountDefs = Record<string, string | undefined>;
 export type PartyLedgerSide = 'CUSTOMER' | 'SUPPLIER';
 
@@ -129,6 +132,7 @@ export class PartyLedgerAccountService {
     customerId: string;
     branchId?: string | null;
     requestedAccountId?: string | null;
+    db?: Db;
   }): Promise<string> {
     return this.ensureForParty({
       side: 'CUSTOMER',
@@ -136,6 +140,7 @@ export class PartyLedgerAccountService {
       partyId: params.customerId,
       branchId: params.branchId,
       requestedAccountId: params.requestedAccountId,
+      db: params.db,
     });
   }
 
@@ -144,6 +149,7 @@ export class PartyLedgerAccountService {
     supplierId: string;
     branchId?: string | null;
     requestedAccountId?: string | null;
+    db?: Db;
   }): Promise<string> {
     return this.ensureForParty({
       side: 'SUPPLIER',
@@ -151,6 +157,7 @@ export class PartyLedgerAccountService {
       partyId: params.supplierId,
       branchId: params.branchId,
       requestedAccountId: params.requestedAccountId,
+      db: params.db,
     });
   }
 
@@ -195,10 +202,12 @@ export class PartyLedgerAccountService {
     partyId: string;
     branchId?: string | null;
     requestedAccountId?: string | null;
+    db?: Db;
   }): Promise<string> {
+    const db = params.db ?? prisma;
     const party =
       params.side === 'CUSTOMER'
-        ? await prisma.customer.findFirst({
+        ? await db.customer.findFirst({
             where: { id: params.partyId, companyId: params.companyId },
             select: {
               id: true,
@@ -209,7 +218,7 @@ export class PartyLedgerAccountService {
               accountId: true,
             },
           })
-        : await prisma.supplier.findFirst({
+        : await db.supplier.findFirst({
             where: { id: params.partyId, companyId: params.companyId },
             select: {
               id: true,
@@ -240,16 +249,16 @@ export class PartyLedgerAccountService {
 
     for (const candidate of candidates) {
       if (controlSet.has(candidate)) continue;
-      const exists = await prisma.account.findFirst({
+      const exists = await db.account.findFirst({
         where: { id: candidate, companyId: params.companyId, deletedAt: null },
         select: { id: true, parentId: true },
       });
       if (!exists) continue;
       const underControl = exists.parentId ? controlSet.has(exists.parentId) : false;
       if (!underControl && controlIds.length > 0) continue;
-      await this.assertAccountExclusiveToParty(params.companyId, exists.id, party.id);
-      await this.linkPartyAccount(params.side, party.id, exists.id);
-      await this.syncLinkedAccountFromParty(params.companyId, exists.id, party);
+      await this.assertAccountExclusiveToParty(params.companyId, exists.id, party.id, db);
+      await this.linkPartyAccount(params.side, party.id, exists.id, db);
+      await this.syncLinkedAccountFromParty(params.companyId, exists.id, party, db);
       return exists.id;
     }
 
@@ -269,10 +278,11 @@ export class PartyLedgerAccountService {
       arabicName: party.arabicName,
       englishName: party.englishName,
       side: params.side,
+      db,
     });
 
-    await this.linkPartyAccount(params.side, party.id, created.id);
-    await this.syncLinkedAccountFromParty(params.companyId, created.id, party);
+    await this.linkPartyAccount(params.side, party.id, created.id, db);
+    await this.syncLinkedAccountFromParty(params.companyId, created.id, party, db);
     logger.info(
       { companyId: params.companyId, partyId: party.id, accountId: created.id, side: params.side },
       'Created personal party ledger account'
@@ -293,27 +303,11 @@ export class PartyLedgerAccountService {
     await this.assertPartyCanBeDeleted(params.side, params.companyId, params.partyId, party);
 
     const accountIds = uniqueIds(party.mainAccountId, party.accountId);
-    const now = new Date();
 
     if (params.side === 'CUSTOMER') {
-      await prisma.customer.update({
-        where: { id: party.id },
-        data: {
-          isActive: false,
-          deletedAt: now,
-          mainAccountId: null,
-          accountId: null,
-        },
-      });
+      await permanentDelete('العميل', () => prisma.customer.delete({ where: { id: party.id } }));
     } else {
-      await prisma.supplier.update({
-        where: { id: party.id },
-        data: {
-          isActive: false,
-          mainAccountId: null,
-          accountId: null,
-        },
-      });
+      await permanentDelete('المورد', () => prisma.supplier.delete({ where: { id: party.id } }));
     }
 
     for (const accountId of accountIds) {
@@ -403,10 +397,11 @@ export class PartyLedgerAccountService {
   private async assertAccountExclusiveToParty(
     companyId: string,
     accountId: string,
-    exceptPartyId: string
+    exceptPartyId: string,
+    db: Db = prisma
   ) {
     const [customer, supplier] = await Promise.all([
-      prisma.customer.findFirst({
+      db.customer.findFirst({
         where: {
           companyId,
           deletedAt: null,
@@ -415,7 +410,7 @@ export class PartyLedgerAccountService {
         },
         select: { arabicName: true, code: true },
       }),
-      prisma.supplier.findFirst({
+      db.supplier.findFirst({
         where: {
           companyId,
           isActive: true,
@@ -465,9 +460,10 @@ export class PartyLedgerAccountService {
   private async syncLinkedAccountFromParty(
     companyId: string,
     accountId: string,
-    party: Pick<PartyLedgerRecord, 'arabicName' | 'englishName' | 'isActive'>
+    party: Pick<PartyLedgerRecord, 'arabicName' | 'englishName' | 'isActive'>,
+    db: Db = prisma
   ) {
-    const account = await prisma.account.findFirst({
+    const account = await db.account.findFirst({
       where: { id: accountId, companyId, deletedAt: null },
       select: { id: true, arabicName: true, englishName: true, isActive: true },
     });
@@ -482,18 +478,18 @@ export class PartyLedgerAccountService {
     if (account.isActive !== party.isActive) patch.isActive = party.isActive;
 
     if (Object.keys(patch).length === 0) return;
-    await accountService.updateAccount(companyId, accountId, patch);
+    await db.account.update({ where: { id: accountId }, data: patch });
   }
 
-  private async linkPartyAccount(side: PartyLedgerSide, partyId: string, accountId: string) {
+  private async linkPartyAccount(side: PartyLedgerSide, partyId: string, accountId: string, db: Db = prisma) {
     if (side === 'CUSTOMER') {
-      await prisma.customer.update({
+      await db.customer.update({
         where: { id: partyId },
         data: { mainAccountId: accountId, accountId },
       });
       return;
     }
-    await prisma.supplier.update({
+    await db.supplier.update({
       where: { id: partyId },
       data: { mainAccountId: accountId, accountId },
     });
@@ -542,8 +538,10 @@ export class PartyLedgerAccountService {
     arabicName: string;
     englishName?: string | null;
     side: PartyLedgerSide;
+    db?: Db;
   }) {
-    const parent = await prisma.account.findFirst({
+    const db = params.db ?? prisma;
+    const parent = await db.account.findFirst({
       where: { id: params.parentId, companyId: params.companyId, deletedAt: null },
       select: {
         id: true,
@@ -569,20 +567,24 @@ export class PartyLedgerAccountService {
     for (let i = 0; i < 8; i += 1) {
       const code = await accountService.suggestNextAccountCode(params.companyId, parent.id);
       try {
-        return await accountService.createAccount(params.companyId, {
-          code,
-          arabicName,
-          englishName: params.englishName ?? undefined,
-          accountType: parent.accountType ?? undefined,
-          parentId: parent.id,
-          accountNature: parent.accountNature,
-          accountSide: parent.accountSide ?? undefined,
-          statementType: parent.statementType,
-          requiresCostCenter: parent.requiresCostCenter,
-          costCenterRequired: parent.costCenterRequired ?? undefined,
-          accountKind: 'POSTING',
-          allowParentWithMovements: true,
-        });
+        return await accountService.createAccount(
+          params.companyId,
+          {
+            code,
+            arabicName,
+            englishName: params.englishName ?? undefined,
+            accountType: parent.accountType ?? undefined,
+            parentId: parent.id,
+            accountNature: parent.accountNature,
+            accountSide: parent.accountSide ?? undefined,
+            statementType: parent.statementType,
+            requiresCostCenter: parent.requiresCostCenter,
+            costCenterRequired: parent.costCenterRequired ?? undefined,
+            accountKind: 'POSTING',
+            allowParentWithMovements: true,
+          },
+          db
+        );
       } catch (error) {
         const isCodeClash =
           error instanceof AppError &&

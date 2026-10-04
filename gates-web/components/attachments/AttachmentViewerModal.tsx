@@ -50,7 +50,7 @@ export function AttachmentViewerModal({
       <div className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-xl bg-white shadow-xl">
         <div className="flex items-start justify-between gap-3 border-b border-[#E6F0F7] px-5 py-4">
           <div>
-            <h2 className="text-lg font-bold text-[#0E79AA]">{attachment.originalFileName}</h2>
+            <h2 className="text-lg font-bold text-[#0E78AA]">{attachment.originalFileName}</h2>
             <p className="text-xs text-slate-500">
               {DOCUMENT_CATEGORY_LABEL[attachment.fileCategory]} · {attachment.mimeType}
             </p>
@@ -71,7 +71,7 @@ export function AttachmentViewerModal({
             <div className="rounded-lg bg-white p-6 text-sm text-slate-600">
               لا يمكن معاينة هذا النوع داخل المتصفح.
               <div className="mt-3">
-                <a href={url} target="_blank" rel="noreferrer" className="font-semibold text-[#0E79AA]">
+                <a href={url} target="_blank" rel="noreferrer" className="font-semibold text-[#0E78AA]">
                   فتح / تنزيل الملف
                 </a>
               </div>

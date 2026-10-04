@@ -11,7 +11,6 @@ export default function FinancialPapersPage() {
       fields={{
         dates: 'range',
         account: true,
-        costCenter: true,
         currency: true,
         branch: true,
         entity: true,

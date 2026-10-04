@@ -105,7 +105,33 @@ async function waitForFrameDocument(iframe: HTMLIFrameElement): Promise<Document
   return doc;
 }
 
-export async function printHtml(html: string): Promise<void> {
+const LANDSCAPE_PRINT_CSS = `
+@page { size: A4 landscape; margin: 8mm; }
+#report-print-root { position: static !important; width: 100% !important; overflow: visible !important; }
+.monthly-review-sheet,
+.monthly-review-sheet .overflow-hidden,
+.monthly-review-sheet .overflow-x-auto {
+  overflow: visible !important;
+  width: 100% !important;
+  max-width: 100% !important;
+}
+.monthly-review-sheet .monthly-review-screen-only { display: none !important; }
+.monthly-review-sheet table {
+  width: 100% !important;
+  min-width: 0 !important;
+  table-layout: fixed;
+  font-size: 6.5pt;
+}
+.monthly-review-sheet th,
+.monthly-review-sheet td {
+  position: static !important;
+  padding: 1px 2px !important;
+  white-space: normal !important;
+  overflow: visible !important;
+}
+`;
+
+export async function printHtml(html: string, options?: { landscape?: boolean }): Promise<void> {
   if (typeof document === 'undefined') return;
 
   const src = isFullDocument(html) ? html : wrapPrintHtml(html);
@@ -123,8 +149,8 @@ export async function printHtml(html: string): Promise<void> {
     'position:fixed',
     'left:-10000px',
     'top:0',
-    'width:210mm',
-    'height:297mm',
+    options?.landscape ? 'width:297mm' : 'width:210mm',
+    options?.landscape ? 'height:210mm' : 'height:297mm',
     'border:0',
     'margin:0',
     'padding:0',
@@ -161,17 +187,21 @@ export async function printHtml(html: string): Promise<void> {
 export async function printDom(element: Element, title?: string): Promise<void> {
   const clone = element.cloneNode(true) as HTMLElement;
   clone.querySelectorAll('.no-print, .print-hide-screen, [data-print-ignore]').forEach((node) => node.remove());
+  const landscape = Boolean(
+    element.querySelector('[data-print-layout="landscape"]') ||
+      element.getAttribute('data-print-layout') === 'landscape'
+  );
   const html = `<!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
 <meta charset="utf-8" />
 <title>${escapeHtml(title || document.title || 'طباعة')}</title>
 ${collectedPageStyles()}
-<style>${BASE_PRINT_CSS}</style>
+<style>${BASE_PRINT_CSS}${landscape ? LANDSCAPE_PRINT_CSS : ''}</style>
 </head>
 <body>${clone.outerHTML}</body>
 </html>`;
-  await printHtml(html);
+  await printHtml(html, { landscape });
 }
 
 export async function printPageContent(title?: string): Promise<void> {

@@ -3,6 +3,11 @@ import prisma from '../../../shared/database/prisma';
 import { AppError } from '../../../shared/middleware/error-handler';
 import { startOfDayUtc, endOfDayUtc } from '../../../shared/utils/report-date';
 import type { SelectableSourceType } from '../schemas/invoice-source.schema';
+import {
+  buildAnalyticalInvoiceMovement,
+  type AnalyticalLineDraft,
+  type AnalyticalSourceType,
+} from './analytical-invoice-movement';
 
 type Tx = Prisma.TransactionClient;
 
@@ -503,28 +508,103 @@ export async function getSourceDocumentForHydration(
   };
 }
 
-export type AnalyticalMovementRow = {
+const LINE_CAP = 2000;
+
+type HeaderInvoice = {
   id: string;
-  sourceType: SelectableSourceType;
-  sourceTypeLabel: string;
-  sourceId: string | null;
-  sourceNumber: string;
-  sourceDate: string | null;
-  invoiceId: string;
-  invoiceNumber: string;
-  invoiceDate: string | null;
+  invoiceNumber: string | null;
+  isCancelled: boolean;
   invoiceKind: string | null;
-  partyName: string;
-  sourceTotal: number;
-  invoiceTotal: number;
-  delta: number;
-  changePercent: number;
-  turnaroundDays: number | null;
-  status: 'كامل' | 'جزئي' | 'ملغي';
-  operatorName: string;
-  invoicePreviewPath: string;
-  sourcePreviewPath: string | null;
 };
+
+type IssuedHit = {
+  baseQty: number;
+  invoices: HeaderInvoice[];
+};
+
+function invoicePreviewPath(kind: string | null | undefined, id: string): string {
+  if (kind === 'PURCHASE' || kind === 'PURCHASE_RETURN') {
+    return `/inventory/operations/final-purchase-invoice?invoiceId=${id}`;
+  }
+  return `/inventory/operations/sales-invoice?invoiceId=${id}`;
+}
+
+function joinInvoices(invoices: HeaderInvoice[]): { number: string; id: string | null; path: string | null } {
+  const seen = new Set<string>();
+  const numbers: string[] = [];
+  let first: HeaderInvoice | null = null;
+  for (const invoice of invoices) {
+    if (!first) first = invoice;
+    if (seen.has(invoice.id)) continue;
+    seen.add(invoice.id);
+    const number = docNumber(invoice.invoiceNumber);
+    if (number) numbers.push(number);
+  }
+  return {
+    number: numbers.join('، '),
+    id: first?.id ?? null,
+    path: first ? invoicePreviewPath(first.invoiceKind, first.id) : null,
+  };
+}
+
+async function loadIssuedByLine(companyId: string, lineIds: string[]): Promise<Map<string, IssuedHit>> {
+  const map = new Map<string, IssuedHit>();
+  for (let offset = 0; offset < lineIds.length; offset += 500) {
+    const slice = lineIds.slice(offset, offset + 500);
+    const rows = await prisma.invoiceLineSource.findMany({
+      where: { companyId, sourceLineId: { in: slice } },
+      select: {
+        sourceLineId: true,
+        baseQuantity: true,
+        invoiceLine: {
+          select: {
+            invoice: {
+              select: { id: true, invoiceNumber: true, isCancelled: true, invoiceKind: true },
+            },
+          },
+        },
+      },
+    });
+    for (const row of rows) {
+      const invoice = row.invoiceLine.invoice;
+      if (invoice.isCancelled) continue;
+      const current = map.get(row.sourceLineId) ?? { baseQty: 0, invoices: [] };
+      current.baseQty += money(row.baseQuantity);
+      current.invoices.push(invoice);
+      map.set(row.sourceLineId, current);
+    }
+  }
+  return map;
+}
+
+function lineIssued(
+  lineId: string,
+  issued: Map<string, IssuedHit>,
+  header: HeaderInvoice | null
+): { baseQty: number; headerConverted: boolean; invoiceNumber: string; invoiceId: string | null; invoicePreviewPath: string | null } {
+  const hit = issued.get(lineId);
+  if (hit && hit.baseQty > 0) {
+    const linked = joinInvoices(hit.invoices);
+    return {
+      baseQty: hit.baseQty,
+      headerConverted: false,
+      invoiceNumber: linked.number,
+      invoiceId: linked.id,
+      invoicePreviewPath: linked.path,
+    };
+  }
+  if (header && !header.isCancelled) {
+    const linked = joinInvoices([header]);
+    return {
+      baseQty: 0,
+      headerConverted: true,
+      invoiceNumber: linked.number,
+      invoiceId: linked.id,
+      invoicePreviewPath: linked.path,
+    };
+  }
+  return { baseQty: 0, headerConverted: false, invoiceNumber: '', invoiceId: null, invoicePreviewPath: null };
+}
 
 export async function getAnalyticalInvoiceMovement(
   companyId: string,
@@ -532,8 +612,9 @@ export async function getAnalyticalInvoiceMovement(
     fromDate?: string;
     toDate?: string;
     sourceType?: SelectableSourceType;
+    profileId?: string;
     partyId?: string;
-    status?: 'كامل' | 'جزئي' | 'ملغي';
+    status?: 'كامل' | 'مكتمل' | 'جزئي' | 'مفتوح' | 'ملغي';
     search?: string;
     page: number;
     limit: number;
@@ -542,326 +623,462 @@ export async function getAnalyticalInvoiceMovement(
   const dateFilter: Prisma.DateTimeFilter = {};
   if (opts.fromDate) dateFilter.gte = startOfDayUtc(opts.fromDate, 'fromDate');
   if (opts.toDate) dateFilter.lte = endOfDayUtc(opts.toDate, 'toDate');
+  const dated = Object.keys(dateFilter).length ? { date: dateFilter } : {};
+  const partyId = opts.partyId;
+  const profileOnly = Boolean(opts.profileId);
+  const wants = (type: AnalyticalSourceType) =>
+    !profileOnly && (opts.sourceType ? opts.sourceType === type : type !== 'PURCHASE_INVOICE');
 
-  const where: Prisma.InvoiceWhereInput = {
-    companyId,
-    ...(Object.keys(dateFilter).length ? { date: dateFilter } : {}),
-    ...(opts.partyId
-      ? { OR: [{ customerId: opts.partyId }, { supplierId: opts.partyId }] }
-      : {}),
-    OR: [
-      { sourceType: { not: 'NONE' } },
-      { priceQuote: { isNot: null } },
-      { purchaseOrder: { isNot: null } },
-      { convertedFromInvoice: { isNot: null } },
-    ],
-  };
-
-  const invoices = await prisma.invoice.findMany({
-    where,
-    orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
-    take: 500,
-    include: {
-      customer: { select: { arabicName: true } },
-      supplier: { select: { arabicName: true } },
-      priceQuote: {
-        select: {
-          id: true,
-          quoteNumber: true,
-          serial: true,
-          date: true,
-          netAmount: true,
-          totalAmount: true,
-          isCancelled: true,
+  const quotes = wants('QUOTATION')
+    ? await prisma.priceQuote.findMany({
+        where: { companyId, ...dated, ...(partyId ? { customerId: partyId } : {}) },
+        orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
+        take: LINE_CAP,
+        include: {
+          customer: { select: { arabicName: true } },
+          invoice: { select: { id: true, invoiceNumber: true, isCancelled: true, invoiceKind: true } },
+          lines: {
+            include: {
+              item: { select: { arabicName: true } },
+              unit: { select: { arabicName: true } },
+            },
+          },
         },
-      },
-      purchaseOrder: {
-        select: {
-          id: true,
-          orderNumber: true,
-          serial: true,
-          date: true,
-          netAmount: true,
-          totalAmount: true,
-          isCancelled: true,
-        },
-      },
-      convertedFromInvoice: {
-        select: {
-          id: true,
-          invoiceNumber: true,
-          date: true,
-          netAmount: true,
-          totalAmount: true,
-          isCancelled: true,
-        },
-      },
-    },
-  });
-
-  const userIds = [...new Set(invoices.map((inv) => inv.createdBy).filter(Boolean))] as string[];
-  const users = userIds.length
-    ? await prisma.user.findMany({
-        where: { id: { in: userIds } },
-        select: { id: true, firstName: true, lastName: true, username: true },
       })
     : [];
-  const userName = new Map(
-    users.map((u) => [
-      u.id,
-      [u.firstName, u.lastName].filter(Boolean).join(' ') || u.username,
-    ])
-  );
 
-  const mapped = invoices
-    .map((inv): AnalyticalMovementRow | null => {
-      const inferred = inferSource(inv);
-      if (!inferred) return null;
-      if (opts.sourceType && inferred.sourceType !== opts.sourceType) return null;
-
-      const invoiceTotal = money(inv.netAmount ?? inv.totalAmount);
-      const sourceTotal = inferred.sourceTotal;
-      const delta = invoiceTotal - sourceTotal;
-      const changePercent = sourceTotal > 0 ? (delta / sourceTotal) * 100 : 0;
-      const status = conversionStatus(inv.isCancelled, inferred.sourceCancelled, invoiceTotal, sourceTotal);
-      const search = opts.search?.trim();
-      if (search) {
-        const hay = `${inferred.sourceNumber} ${inv.invoiceNumber ?? ''} ${inferred.partyName}`.toLowerCase();
-        if (!hay.includes(search.toLowerCase())) return null;
-      }
-      if (opts.status && status !== opts.status) return null;
-
-      return {
-        id: inv.id,
-        sourceType: inferred.sourceType,
-        sourceTypeLabel: SOURCE_LABEL[inferred.sourceType],
-        sourceId: inferred.sourceId,
-        sourceNumber: inferred.sourceNumber,
-        sourceDate: inferred.sourceDate,
-        invoiceId: inv.id,
-        invoiceNumber: docNumber(inv.invoiceNumber, inv.id.slice(0, 8)),
-        invoiceDate: inv.date.toISOString(),
-        invoiceKind: inv.invoiceKind,
-        partyName: inferred.partyName,
-        sourceTotal,
-        invoiceTotal,
-        delta,
-        changePercent,
-        turnaroundDays: inferred.sourceDate
-          ? Math.max(
-              0,
-              Math.round(
-                (inv.date.getTime() - new Date(inferred.sourceDate).getTime()) / 86_400_000
-              )
-            )
-          : null,
-        status,
-        operatorName: (inv.createdBy && userName.get(inv.createdBy)) || '—',
-        invoicePreviewPath:
-          inv.invoiceKind === 'PURCHASE' || inv.invoiceKind === 'PURCHASE_RETURN'
-            ? `/inventory/operations/final-purchase-invoice?invoiceId=${inv.id}`
-            : `/inventory/operations/sales-invoice?invoiceId=${inv.id}`,
-        sourcePreviewPath: inferred.sourcePreviewPath,
-      };
-    })
-    .filter((row): row is AnalyticalMovementRow => row != null);
-
-  const convertedCount = mapped.filter((row) => row.status !== 'ملغي').length;
-  const invoicedTotal = mapped.reduce((sum, row) => sum + row.invoiceTotal, 0);
-  const openSources = await countOpenSources(companyId, dateFilter, opts.sourceType);
-  const conversionRate =
-    convertedCount + openSources > 0
-      ? (convertedCount / (convertedCount + openSources)) * 100
-      : mapped.length
-        ? 100
-        : 0;
-
-  const start = (opts.page - 1) * opts.limit;
-  const pageRows = mapped.slice(start, start + opts.limit);
-
-  return {
-    rows: pageRows,
-    summary: {
-      convertedCount,
-      invoicedTotal,
-      openSourceCount: openSources,
-      conversionRate,
-    },
-    pagination: pageMeta(opts.page, opts.limit, mapped.length),
-  };
-}
-
-function inferSource(inv: {
-  sourceType: SourceDocumentType;
-  sourceId: string | null;
-  sourceNumber: string | null;
-  customer: { arabicName: string } | null;
-  supplier: { arabicName: string } | null;
-  priceQuote: {
-    id: string;
-    quoteNumber: string | null;
-    serial: string | null;
-    date: Date;
-    netAmount: unknown;
-    totalAmount: unknown;
-    isCancelled: boolean;
-  } | null;
-  purchaseOrder: {
-    id: string;
-    orderNumber: string | null;
-    serial: string | null;
-    date: Date;
-    netAmount: unknown;
-    totalAmount: unknown;
-    isCancelled: boolean;
-  } | null;
-  convertedFromInvoice: {
-    id: string;
-    invoiceNumber: string | null;
-    date: Date;
-    netAmount: unknown;
-    totalAmount: unknown;
-    isCancelled: boolean;
-  } | null;
-}): {
-  sourceType: SelectableSourceType;
-  sourceId: string | null;
-  sourceNumber: string;
-  sourceDate: string | null;
-  sourceTotal: number;
-  sourceCancelled: boolean;
-  partyName: string;
-  sourcePreviewPath: string | null;
-} | null {
-  const partyName = inv.customer?.arabicName ?? inv.supplier?.arabicName ?? '—';
-
-  if (inv.sourceType !== 'NONE' && inv.sourceType !== undefined) {
-    const type = inv.sourceType as SelectableSourceType;
-    const quote = inv.priceQuote;
-    const po = inv.purchaseOrder;
-    const so = inv.convertedFromInvoice;
-    const fallbackDate = quote?.date ?? po?.date ?? so?.date ?? null;
-    const fallbackTotal = quote
-      ? money(quote.netAmount ?? quote.totalAmount)
-      : po
-        ? money(po.netAmount ?? po.totalAmount)
-        : so
-          ? money(so.netAmount ?? so.totalAmount)
-          : 0;
-    return {
-      sourceType: type,
-      sourceId: inv.sourceId,
-      sourceNumber: docNumber(inv.sourceNumber, quote?.quoteNumber, po?.orderNumber, so?.invoiceNumber),
-      sourceDate: fallbackDate ? fallbackDate.toISOString() : null,
-      sourceTotal: fallbackTotal,
-      sourceCancelled: Boolean(quote?.isCancelled || po?.isCancelled || so?.isCancelled),
-      partyName,
-      sourcePreviewPath: sourcePath(type, inv.sourceId),
-    };
-  }
-
-  if (inv.priceQuote) {
-    const q = inv.priceQuote;
-    return {
-      sourceType: 'QUOTATION',
-      sourceId: q.id,
-      sourceNumber: docNumber(q.quoteNumber, q.serial, q.id.slice(0, 8)),
-      sourceDate: q.date.toISOString(),
-      sourceTotal: money(q.netAmount ?? q.totalAmount),
-      sourceCancelled: q.isCancelled,
-      partyName,
-      sourcePreviewPath: `/inventory/operations/price-quote?quoteId=${q.id}`,
-    };
-  }
-  if (inv.purchaseOrder) {
-    const po = inv.purchaseOrder;
-    return {
-      sourceType: 'PURCHASE_ORDER',
-      sourceId: po.id,
-      sourceNumber: docNumber(po.orderNumber, po.serial, po.id.slice(0, 8)),
-      sourceDate: po.date.toISOString(),
-      sourceTotal: money(po.netAmount ?? po.totalAmount),
-      sourceCancelled: po.isCancelled,
-      partyName,
-      sourcePreviewPath: `/inventory/operations/purchase-order?orderId=${po.id}`,
-    };
-  }
-  if (inv.convertedFromInvoice) {
-    const so = inv.convertedFromInvoice;
-    return {
-      sourceType: 'SALES_ORDER',
-      sourceId: so.id,
-      sourceNumber: docNumber(so.invoiceNumber, so.id.slice(0, 8)),
-      sourceDate: so.date.toISOString(),
-      sourceTotal: money(so.netAmount ?? so.totalAmount),
-      sourceCancelled: so.isCancelled,
-      partyName,
-      sourcePreviewPath: `/inventory/operations/sales-invoice?invoiceId=${so.id}`,
-    };
-  }
-  return null;
-}
-
-function sourcePath(type: SelectableSourceType, id: string | null): string | null {
-  if (!id) return null;
-  if (type === 'QUOTATION') return `/inventory/operations/price-quote?quoteId=${id}`;
-  if (type === 'PURCHASE_ORDER') return `/inventory/operations/purchase-order?orderId=${id}`;
-  if (type === 'PURCHASE_INVOICE') return `/inventory/operations/final-purchase-invoice?invoiceId=${id}`;
-  if (type === 'SALES_ORDER') return `/inventory/operations/sales-invoice?invoiceId=${id}`;
-  return `/inventory/operations/issue?id=${id}`;
-}
-
-function conversionStatus(
-  invoiceCancelled: boolean,
-  sourceCancelled: boolean,
-  invoiceTotal: number,
-  sourceTotal: number
-): 'كامل' | 'جزئي' | 'ملغي' {
-  if (invoiceCancelled || sourceCancelled) return 'ملغي';
-  if (sourceTotal <= 0) return 'كامل';
-  if (invoiceTotal + 0.01 >= sourceTotal) return 'كامل';
-  return 'جزئي';
-}
-
-async function countOpenSources(
-  companyId: string,
-  dateFilter: Prisma.DateTimeFilter,
-  sourceType?: SelectableSourceType
-) {
-  const hasDate = Object.keys(dateFilter).length > 0;
-  const dateWhere = hasDate ? { date: dateFilter } : {};
-  const tasks: Array<Promise<number>> = [];
-  if (!sourceType || sourceType === 'QUOTATION') {
-    tasks.push(
-      prisma.priceQuote.count({
-        where: { companyId, isCancelled: false, isConverted: false, ...dateWhere },
-      })
-    );
-  }
-  if (!sourceType || sourceType === 'SALES_ORDER') {
-    tasks.push(
-      prisma.invoice.count({
-        where: {
-          companyId,
-          invoiceKind: 'SALE',
-          isCancelled: false,
-          isPosted: false,
-          convertedInvoiceId: null,
-          ...dateWhere,
+  const purchaseOrders = wants('PURCHASE_ORDER')
+    ? await prisma.purchaseOrder.findMany({
+        where: { companyId, ...dated, ...(partyId ? { supplierId: partyId } : {}) },
+        orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
+        take: LINE_CAP,
+        include: {
+          supplier: { select: { arabicName: true } },
+          invoice: { select: { id: true, invoiceNumber: true, isCancelled: true, invoiceKind: true } },
+          lines: {
+            include: {
+              item: { select: { arabicName: true } },
+              unit: { select: { arabicName: true } },
+            },
+          },
         },
       })
-    );
-  }
-  if (!sourceType || sourceType === 'PURCHASE_ORDER') {
-    tasks.push(
-      prisma.purchaseOrder.count({
-        where: { companyId, isCancelled: false, invoiceId: null, ...dateWhere },
+    : [];
+
+  const salesOrders = wants('SALES_ORDER')
+    ? await prisma.invoice.findMany({
+        where: {
+          companyId,
+          ...dated,
+          AND: [
+            { OR: [{ invoiceKind: 'SALES_ORDER' }, { invoiceKind: 'SALE', isPosted: false }] },
+            partyId ? { OR: [{ customerId: partyId }, { supplierId: partyId }] } : {},
+          ],
+        },
+        orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
+        take: LINE_CAP,
+        include: {
+          customer: { select: { arabicName: true } },
+          supplier: { select: { arabicName: true } },
+          convertedInvoice: {
+            select: { id: true, invoiceNumber: true, isCancelled: true, invoiceKind: true },
+          },
+          lines: {
+            orderBy: { lineOrder: 'asc' },
+            include: {
+              item: { select: { arabicName: true } },
+              unit: { select: { arabicName: true } },
+            },
+          },
+        },
       })
-    );
+    : [];
+
+  const issues = wants('DELIVERY_NOTE') && !partyId
+    ? await prisma.issue.findMany({
+        where: { companyId, ...dated },
+        orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
+        take: LINE_CAP,
+        include: {
+          warehouse: { select: { arabicName: true } },
+          lines: { include: { item: { select: { arabicName: true } } } },
+        },
+      })
+    : [];
+
+  const purchaseInvoices = wants('PURCHASE_INVOICE')
+    ? await prisma.invoice.findMany({
+        where: {
+          companyId,
+          invoiceKind: 'PURCHASE',
+          ...dated,
+          ...(partyId ? { supplierId: partyId } : {}),
+        },
+        orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
+        take: LINE_CAP,
+        include: {
+          supplier: { select: { arabicName: true } },
+          lines: {
+            orderBy: { lineOrder: 'asc' },
+            include: {
+              item: { select: { arabicName: true } },
+              unit: { select: { arabicName: true } },
+            },
+          },
+        },
+      })
+    : [];
+
+  const sourceLineIds = [
+    ...quotes.flatMap((row) => row.lines.map((line) => line.id)),
+    ...purchaseOrders.flatMap((row) => row.lines.map((line) => line.id)),
+    ...salesOrders.flatMap((row) => row.lines.map((line) => line.id)),
+  ];
+  const issued = await loadIssuedByLine(companyId, sourceLineIds);
+
+  const purchaseChildren = purchaseInvoices.length
+    ? await prisma.invoice.findMany({
+        where: {
+          companyId,
+          sourceType: 'PURCHASE_INVOICE',
+          sourceId: { in: purchaseInvoices.map((row) => row.id) },
+          isCancelled: false,
+        },
+        select: {
+          id: true,
+          sourceId: true,
+          invoiceNumber: true,
+          invoiceKind: true,
+          lines: { select: { itemId: true, quantity: true } },
+        },
+      })
+    : [];
+  const purchasePool = new Map<string, Map<string, { qty: number; invoices: HeaderInvoice[] }>>();
+  for (const child of purchaseChildren) {
+    if (!child.sourceId) continue;
+    const pool = purchasePool.get(child.sourceId) ?? new Map();
+    const header: HeaderInvoice = {
+      id: child.id,
+      invoiceNumber: child.invoiceNumber,
+      isCancelled: false,
+      invoiceKind: child.invoiceKind,
+    };
+    for (const line of child.lines) {
+      const bucket = pool.get(line.itemId) ?? { qty: 0, invoices: [] };
+      bucket.qty += money(line.quantity);
+      bucket.invoices.push(header);
+      pool.set(line.itemId, bucket);
+    }
+    purchasePool.set(child.sourceId, pool);
   }
-  const counts = await Promise.all(tasks);
-  return counts.reduce((sum, n) => sum + n, 0);
+
+  const drafts: AnalyticalLineDraft[] = [];
+
+  for (const quote of quotes) {
+    const number = docNumber(quote.quoteNumber, quote.serial, quote.id.slice(0, 8));
+    for (const line of quote.lines) {
+      const linked = lineIssued(line.id, issued, quote.invoice);
+      const orderedQty = money(line.quantity);
+      drafts.push({
+        id: line.id,
+        sourceType: 'QUOTATION',
+        sourceTypeLabel: SOURCE_LABEL.QUOTATION,
+        sourceNumber: number,
+        sourceDate: quote.date.toISOString(),
+        partyName: quote.customer.arabicName,
+        itemName: line.item.arabicName,
+        unitName: line.unit.arabicName,
+        orderedQty,
+        orderedBaseQty: money(line.baseQuantity) || orderedQty,
+        unitPrice: money(line.unitPrice),
+        orderedTotal: money(line.total) || orderedQty * money(line.unitPrice),
+        issuedBaseQty: linked.baseQty,
+        headerConverted: linked.headerConverted,
+        invoiceNumber: linked.invoiceNumber,
+        invoiceId: linked.invoiceId,
+        cancelled: quote.isCancelled,
+        sourcePreviewPath: `/inventory/operations/price-quote?quoteId=${quote.id}`,
+        invoicePreviewPath: linked.invoicePreviewPath,
+      });
+    }
+  }
+
+  for (const order of purchaseOrders) {
+    const number = docNumber(order.orderNumber, order.serial, order.id.slice(0, 8));
+    for (const line of order.lines) {
+      const linked = lineIssued(line.id, issued, order.invoice);
+      const orderedQty = money(line.quantity);
+      drafts.push({
+        id: line.id,
+        sourceType: 'PURCHASE_ORDER',
+        sourceTypeLabel: SOURCE_LABEL.PURCHASE_ORDER,
+        sourceNumber: number,
+        sourceDate: order.date.toISOString(),
+        partyName: order.supplier.arabicName,
+        itemName: line.item.arabicName,
+        unitName: line.unit?.arabicName || '—',
+        orderedQty,
+        orderedBaseQty: money(line.baseQuantity) || orderedQty,
+        unitPrice: money(line.unitPrice),
+        orderedTotal: money(line.total) || orderedQty * money(line.unitPrice),
+        issuedBaseQty: linked.baseQty,
+        headerConverted: linked.headerConverted,
+        invoiceNumber: linked.invoiceNumber,
+        invoiceId: linked.invoiceId,
+        cancelled: order.isCancelled,
+        sourcePreviewPath: `/inventory/operations/purchase-order?orderId=${order.id}`,
+        invoicePreviewPath: linked.invoicePreviewPath,
+      });
+    }
+  }
+
+  for (const order of salesOrders) {
+    const number = docNumber(order.invoiceNumber, order.id.slice(0, 8));
+    for (const line of order.lines) {
+      const linked = lineIssued(line.id, issued, order.convertedInvoice);
+      const orderedQty = money(line.quantity);
+      drafts.push({
+        id: line.id,
+        sourceType: 'SALES_ORDER',
+        sourceTypeLabel: SOURCE_LABEL.SALES_ORDER,
+        sourceNumber: number,
+        sourceDate: order.date.toISOString(),
+        partyName: order.customer?.arabicName ?? order.supplier?.arabicName ?? '—',
+        itemName: line.item.arabicName,
+        unitName: line.unit.arabicName,
+        orderedQty,
+        orderedBaseQty: money(line.baseQuantity) || orderedQty,
+        unitPrice: money(line.price),
+        orderedTotal: money(line.total) || orderedQty * money(line.price),
+        issuedBaseQty: linked.baseQty,
+        headerConverted: linked.headerConverted,
+        invoiceNumber: linked.invoiceNumber,
+        invoiceId: linked.invoiceId,
+        cancelled: order.isCancelled,
+        sourcePreviewPath: `/inventory/operations/sales-invoice?invoiceId=${order.id}`,
+        invoicePreviewPath: linked.invoicePreviewPath,
+      });
+    }
+  }
+
+  for (const issue of issues) {
+    const number = docNumber(issue.serial, issue.id.slice(0, 8));
+    for (const line of issue.lines) {
+      const orderedQty = money(line.quantity);
+      drafts.push({
+        id: line.id,
+        sourceType: 'DELIVERY_NOTE',
+        sourceTypeLabel: 'إذن صرف مخزني',
+        sourceNumber: number,
+        sourceDate: issue.date.toISOString(),
+        partyName: issue.warehouse.arabicName,
+        itemName: line.item.arabicName,
+        unitName: '—',
+        orderedQty,
+        orderedBaseQty: orderedQty,
+        unitPrice: money(line.unitPrice),
+        orderedTotal: money(line.total) || orderedQty * money(line.unitPrice),
+        issuedBaseQty: orderedQty,
+        headerConverted: false,
+        invoiceNumber: '',
+        invoiceId: null,
+        cancelled: issue.isCancelled,
+        sourcePreviewPath: `/inventory/operations/issue?id=${issue.id}`,
+        invoicePreviewPath: null,
+      });
+    }
+  }
+
+  for (const invoice of purchaseInvoices) {
+    const number = docNumber(invoice.invoiceNumber, invoice.id.slice(0, 8));
+    const pool = purchasePool.get(invoice.id);
+    for (const line of invoice.lines) {
+      const orderedQty = money(line.quantity);
+      const bucket = pool?.get(line.itemId);
+      const taken = Math.min(bucket?.qty ?? 0, orderedQty);
+      if (bucket) bucket.qty = Math.max(bucket.qty - taken, 0);
+      const linked = bucket && taken > 0 ? joinInvoices(bucket.invoices) : { number: '', id: null, path: null };
+      drafts.push({
+        id: line.id,
+        sourceType: 'PURCHASE_INVOICE',
+        sourceTypeLabel: SOURCE_LABEL.PURCHASE_INVOICE,
+        sourceNumber: number,
+        sourceDate: invoice.date.toISOString(),
+        partyName: invoice.supplier?.arabicName ?? '—',
+        itemName: line.item.arabicName,
+        unitName: line.unit.arabicName,
+        orderedQty,
+        orderedBaseQty: orderedQty,
+        unitPrice: money(line.price),
+        orderedTotal: money(line.total) || orderedQty * money(line.price),
+        issuedBaseQty: taken,
+        headerConverted: false,
+        invoiceNumber: linked.number,
+        invoiceId: linked.id,
+        cancelled: invoice.isCancelled,
+        sourcePreviewPath: `/inventory/operations/final-purchase-invoice?invoiceId=${invoice.id}`,
+        invoicePreviewPath: linked.path,
+      });
+    }
+  }
+
+  if (opts.profileId) {
+    const profile = await prisma.documentProfile.findFirst({
+      where: { id: opts.profileId, companyId },
+      select: { nameAr: true, baseType: true },
+    });
+    const pushStockLines = (
+      docs: Array<{
+        id: string;
+        serial: string | null;
+        date: Date;
+        isCancelled: boolean;
+        warehouse: { arabicName: string };
+        lines: Array<{
+          id: string;
+          quantity: unknown;
+          unitPrice: unknown;
+          total: unknown;
+          item: { arabicName: string };
+        }>;
+      }>,
+      inbound: boolean,
+      label: string
+    ) => {
+      for (const doc of docs) {
+        const number = docNumber(doc.serial, doc.id.slice(0, 8));
+        for (const line of doc.lines) {
+          const orderedQty = money(line.quantity);
+          drafts.push({
+            id: line.id,
+            sourceType: inbound ? 'PURCHASE_INVOICE' : 'DELIVERY_NOTE',
+            sourceTypeLabel: label,
+            sourceNumber: number,
+            sourceDate: doc.date.toISOString(),
+            partyName: doc.warehouse.arabicName,
+            itemName: line.item.arabicName,
+            unitName: '—',
+            orderedQty,
+            orderedBaseQty: orderedQty,
+            unitPrice: money(line.unitPrice),
+            orderedTotal: money(line.total) || orderedQty * money(line.unitPrice),
+            issuedBaseQty: orderedQty,
+            headerConverted: false,
+            invoiceNumber: '',
+            invoiceId: null,
+            cancelled: doc.isCancelled,
+            sourcePreviewPath: inbound
+              ? `/inventory/operations/receipt?id=${doc.id}`
+              : `/inventory/operations/issue?id=${doc.id}`,
+            invoicePreviewPath: null,
+          });
+        }
+      }
+    };
+    if (profile?.baseType === 'STOCK_RECEIPT') {
+      const receipts = await prisma.receipt.findMany({
+        where: { companyId, ...dated },
+        orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
+        take: LINE_CAP,
+        include: {
+          warehouse: { select: { arabicName: true } },
+          lines: { include: { item: { select: { arabicName: true } } } },
+        },
+      });
+      pushStockLines(receipts, true, profile.nameAr);
+    } else if (profile?.baseType === 'STOCK_ISSUE') {
+      const issueDocs = await prisma.issue.findMany({
+        where: { companyId, ...dated },
+        orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
+        take: LINE_CAP,
+        include: {
+          warehouse: { select: { arabicName: true } },
+          lines: { include: { item: { select: { arabicName: true } } } },
+        },
+      });
+      pushStockLines(issueDocs, false, profile.nameAr);
+    }
+    const purchaseSide = profile?.baseType === 'PURCHASE_INVOICE' || profile?.baseType === 'PURCHASE_RETURN';
+    const sourceType: AnalyticalSourceType =
+      profile?.baseType === 'SALES_RETURN'
+        ? 'SALES_RETURN'
+        : profile?.baseType === 'PURCHASE_RETURN'
+          ? 'PURCHASE_RETURN'
+          : profile?.baseType === 'PURCHASE_INVOICE'
+            ? 'PURCHASE_INVOICE'
+            : 'SALES_INVOICE';
+    const stockProfile = profile?.baseType === 'STOCK_ISSUE' || profile?.baseType === 'STOCK_RECEIPT';
+    const profileInvoices = profile && !stockProfile
+      ? await prisma.invoice.findMany({
+          where: {
+            companyId,
+            documentProfileId: opts.profileId,
+            ...dated,
+            ...(partyId ? (purchaseSide ? { supplierId: partyId } : { customerId: partyId }) : {}),
+          },
+          orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
+          take: LINE_CAP,
+          include: {
+            customer: { select: { arabicName: true } },
+            supplier: { select: { arabicName: true } },
+            lines: {
+              orderBy: { lineOrder: 'asc' },
+              include: {
+                item: { select: { arabicName: true } },
+                unit: { select: { arabicName: true } },
+              },
+            },
+          },
+        })
+      : [];
+    for (const invoice of profileInvoices) {
+      const number = docNumber(invoice.invoiceNumber, invoice.id.slice(0, 8));
+      const path =
+        sourceType === 'SALES_RETURN'
+          ? `/inventory/operations/sales-returns?invoiceId=${invoice.id}`
+          : sourceType === 'PURCHASE_RETURN'
+            ? `/inventory/operations/purchase-returns?invoiceId=${invoice.id}`
+            : sourceType === 'PURCHASE_INVOICE'
+              ? `/inventory/operations/final-purchase-invoice?invoiceId=${invoice.id}`
+              : `/inventory/operations/sales-invoice?invoiceId=${invoice.id}`;
+      for (const line of invoice.lines) {
+        const orderedQty = money(line.quantity);
+        const issuedQty = invoice.isPosted && !invoice.isCancelled ? orderedQty : 0;
+        drafts.push({
+          id: line.id,
+          sourceType,
+          sourceTypeLabel: profile?.nameAr || 'فاتورة',
+          sourceNumber: number,
+          sourceDate: invoice.date.toISOString(),
+          partyName: purchaseSide
+            ? invoice.supplier?.arabicName ?? '—'
+            : invoice.customer?.arabicName ?? '—',
+          itemName: line.item.arabicName,
+          unitName: line.unit?.arabicName || '—',
+          orderedQty,
+          orderedBaseQty: money(line.baseQuantity) || orderedQty,
+          unitPrice: money(line.price),
+          orderedTotal: money(line.total) || orderedQty * money(line.price),
+          issuedBaseQty: issuedQty,
+          headerConverted: false,
+          invoiceNumber: number,
+          invoiceId: invoice.id,
+          cancelled: invoice.isCancelled,
+          sourcePreviewPath: path,
+          invoicePreviewPath: path,
+        });
+      }
+    }
+  }
+
+  return buildAnalyticalInvoiceMovement(drafts, {
+    status: opts.status,
+    search: opts.search,
+    page: opts.page,
+    limit: opts.limit,
+  });
 }
+
 
 function pageMeta(page: number, limit: number, total: number) {
   return {

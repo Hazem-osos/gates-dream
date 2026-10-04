@@ -135,7 +135,7 @@ export function buildKeysetWhere(input: {
 
   const cursorDate = new Date(input.cursor.date);
   if (Number.isNaN(cursorDate.getTime())) {
-    throw new AppError(400, 'Invalid pagination cursor date');
+    throw new AppError(400, 'تاريخ مؤشر الصفحات غير صالح');
   }
 
   return {

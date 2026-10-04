@@ -42,8 +42,8 @@ export const ACCOUNT_SLOT_LABELS: Array<{ key: AccountingAccountSlotKey; label: 
 ];
 
 export const TAX_SLOT_LABELS: Array<{ key: AccountingTaxAccountKey; label: string }> = [
-  { key: 'salesTaxAccountId', label: 'ضريبة المبيعات / ضريبة دائن' },
-  { key: 'vatInputAccountId', label: 'ضريبة مدين' },
+  { key: 'salesTaxAccountId', label: 'ضريبة القيمة المضافة (مبيعات ومشتريات)' },
+  { key: 'vatInputAccountId', label: 'ضريبة القيمة المضافة (نفس حساب المبيعات)' },
   { key: 'whtPayableAccountId', label: 'خصم المنبع دائن' },
   { key: 'whtReceivableAccountId', label: 'خصم المنبع مدين' },
 ];

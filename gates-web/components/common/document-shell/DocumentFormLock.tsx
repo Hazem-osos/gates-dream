@@ -9,7 +9,7 @@ export function DocumentFormLock({ children }: { children: ReactNode }) {
   return (
     <fieldset
       disabled={locked}
-      className={locked ? 'disabled:opacity-90 disabled:pointer-events-none' : undefined}
+      className={locked ? 'min-w-0 disabled:opacity-90' : 'min-w-0'}
     >
       {children}
     </fieldset>

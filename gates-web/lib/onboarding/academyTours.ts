@@ -178,7 +178,7 @@ export const FOUNDATION_8_STEPS: DriveStep[] = [
     popover: {
       title: 'وضع خصوصية المدير (Cmd + Shift + H 👁️)',
       description:
-        'أخِف أرقام السيولة والأرباح فوراً عند وجود زوار — اختصار أو أيقونة العين في الهيدر.',
+        'أخِف أرقام السيولة والأرباح من الإعدادات، أيقونة العين، أو باختصار Cmd + Shift + H.',
       side: 'bottom',
       align: 'end',
     },

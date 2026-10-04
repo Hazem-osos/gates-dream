@@ -1,16 +1,11 @@
-/** Arabic-locale money display; use instead of hard-coded demo amounts (e.g. 25,4456). */
+import { formatLocaleMoney } from '@/lib/i18n/format';
+import type { AppLocale } from '@/lib/i18n/types';
+
+/** Locale-aware money display. Does not assume EGP. */
 export function formatMoneyAr(
   value: number | string | null | undefined,
-  fallback = '—'
+  fallback = '—',
+  locale: AppLocale = 'ar'
 ): string {
-  if (value == null || value === '') return fallback;
-  const n =
-    typeof value === 'string'
-      ? Number(String(value).replace(/,/g, ''))
-      : value;
-  if (!Number.isFinite(n)) return fallback;
-  return n.toLocaleString('ar-EG', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
+  return formatLocaleMoney(value, locale, undefined, fallback);
 }

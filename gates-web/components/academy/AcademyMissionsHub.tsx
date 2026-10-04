@@ -29,7 +29,7 @@ export function AcademyMissionsHub() {
   return (
     <div className="mx-auto max-w-5xl space-y-6 p-6" dir="rtl">
       <header className="flex items-start gap-3">
-        <div className="rounded-xl bg-[#0E79AA]/10 p-2.5 text-[#0E79AA]">
+        <div className="rounded-xl bg-[#0E78AA]/10 p-2.5 text-[#0E78AA]">
           <GraduationCap className="h-6 w-6" />
         </div>
         <div>
@@ -64,7 +64,7 @@ export function AcademyMissionsHub() {
               <button
                 type="button"
                 onClick={() => router.push(academyLaunchHref(mission.slug))}
-                className="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-[#0E79AA] px-3 py-1.5 text-xs font-semibold text-white"
+                className="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-[#0E78AA] px-3 py-1.5 text-xs font-semibold text-white"
               >
                 <Play className="h-3.5 w-3.5" />
                 ابدأ المحاكاة

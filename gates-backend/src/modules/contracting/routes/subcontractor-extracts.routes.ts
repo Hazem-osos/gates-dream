@@ -14,7 +14,7 @@ router.use(setTenantContext);
 
 function postingContext(req: AuthRequest) {
   const companyId = req.companyId ?? req.tenantId;
-  if (!companyId) throw new AppError(400, 'Company ID required');
+  if (!companyId) throw new AppError(400, 'معرّف الشركة مطلوب');
   return journalEntryService.buildPostingContext(
     companyId,
     req.branchId,
@@ -30,7 +30,7 @@ router.post(
   async (req: AuthRequest, res: Response) => {
     const companyId = req.companyId ?? req.tenantId;
     if (!companyId) {
-      return void res.status(400).json({ status: 'error', message: 'Company ID required' });
+      return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     }
     try {
       const data = await subcontractorExtractService.createDraft(companyId, req.body);
@@ -51,7 +51,7 @@ router.get(
   async (req: AuthRequest, res: Response) => {
     const companyId = req.companyId ?? req.tenantId;
     if (!companyId) {
-      return void res.status(400).json({ status: 'error', message: 'Company ID required' });
+      return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     }
     try {
       const data = await subcontractorExtractService.list(

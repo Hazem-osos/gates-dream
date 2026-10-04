@@ -38,7 +38,7 @@ router.get(
   async (req: AuthRequest, res: Response) => {
     try {
       const companyId = req.companyId ?? req.tenantId;
-      if (!companyId) throw new AppError(400, 'Company ID is required');
+      if (!companyId) throw new AppError(400, 'معرّف الشركة مطلوب');
 
       const partyType = req.query.partyType as string;
       if (partyType !== 'CUSTOMER' && partyType !== 'SUPPLIER') {
@@ -72,7 +72,7 @@ router.get(
   async (req: AuthRequest, res: Response) => {
     try {
       const companyId = req.companyId ?? req.tenantId;
-      if (!companyId) throw new AppError(400, 'Company ID is required');
+      if (!companyId) throw new AppError(400, 'معرّف الشركة مطلوب');
 
       const months = req.query.months ? parseInt(String(req.query.months), 10) : undefined;
 
@@ -102,7 +102,7 @@ router.get(
   async (req: AuthRequest, res: Response) => {
     try {
       const companyId = req.companyId ?? req.tenantId;
-      if (!companyId) throw new AppError(400, 'Company ID is required');
+      if (!companyId) throw new AppError(400, 'معرّف الشركة مطلوب');
 
       const date =
         typeof req.query.date === 'string' && req.query.date
@@ -132,7 +132,7 @@ router.get(
   async (req: AuthRequest, res: Response) => {
     try {
       const companyId = req.companyId ?? req.tenantId;
-      if (!companyId) throw new AppError(400, 'Company ID is required');
+      if (!companyId) throw new AppError(400, 'معرّف الشركة مطلوب');
 
       const data = await sentinelAlertsService.getAlerts({
         companyId,

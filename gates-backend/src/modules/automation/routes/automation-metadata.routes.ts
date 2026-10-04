@@ -12,7 +12,7 @@ import { setTenantContext } from '../../../shared/middleware/tenant.middleware';
 import { AppError } from '../../../shared/middleware/error-handler';
 import { logger } from '../../../shared/logger';
 import { AuthRequest } from '../../../shared/auth/types';
-import { buildAutomationMetadata } from '../catalog/metadata.service';
+import { buildAutomationMetadataForCompany } from '../catalog/metadata.service';
 
 const router = Router();
 
@@ -25,9 +25,10 @@ router.use(setTenantContext);
 router.get(
   '/',
   authorize({ resource: 'automation-rule', action: 'view' }),
-  async (_req: AuthRequest, res: Response) => {
+  async (req: AuthRequest, res: Response) => {
     try {
-      return void res.json({ status: 'success', data: buildAutomationMetadata() });
+      const companyId = req.companyId || '';
+      return void res.json({ status: 'success', data: await buildAutomationMetadataForCompany(companyId) });
     } catch (error) {
       logger.error({ error }, 'Error building automation metadata');
       const status = error instanceof AppError ? error.statusCode : 500;

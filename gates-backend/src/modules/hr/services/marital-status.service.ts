@@ -1,4 +1,5 @@
 import prisma from '../../../shared/database/prisma';
+import { permanentDelete } from '../../../shared/database/permanent-delete.util';
 import { logger } from '../../../shared/logger';
 
 export interface CreateMaritalStatusData {
@@ -153,10 +154,7 @@ export class MaritalStatusService {
         throw new Error('Marital status not found');
       }
 
-      await prisma.maritalStatus.update({
-        where: { id: maritalStatusId },
-        data: { isActive: false },
-      });
+      await permanentDelete('السجل', () => prisma.maritalStatus.delete({ where: { id: maritalStatusId } }));
 
       logger.info({ companyId, maritalStatusId }, 'Marital status deleted');
       return { success: true };

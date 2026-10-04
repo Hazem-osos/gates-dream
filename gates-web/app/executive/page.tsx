@@ -130,7 +130,7 @@ export default function ExecutiveCockpitPage() {
           {
             id: 'gm',
             label: 'هامش إجمالي',
-            value: `${overview?.monthlyPerformance.grossMarginPct.toFixed(1) ?? '—'}٪`,
+            value: `${overview?.monthlyPerformance.grossMarginPct.toLocaleString() ?? '—'}٪`,
             hint: <SensitiveValue>{formatMoney(overview?.monthlyPerformance.grossProfit ?? 0)}</SensitiveValue>,
           },
           {
@@ -183,7 +183,7 @@ export default function ExecutiveCockpitPage() {
               id: 'u',
               header: 'ميزانية',
               numeric: true,
-              cell: (r) => (r.budgetUtilizationPct != null ? `${r.budgetUtilizationPct.toFixed(0)}٪` : '—'),
+              cell: (r) => (r.budgetUtilizationPct != null ? `${r.budgetUtilizationPct.toLocaleString()}٪` : '—'),
             },
           ]}
         />

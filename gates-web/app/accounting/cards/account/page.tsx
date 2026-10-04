@@ -2,7 +2,6 @@
 import * as React from "react";
 import { useEffect, useState } from "react";
 import { Landmark } from "lucide-react";
-import UserPermissionsBar from "@/components/UserPermissionsBar";
 import {
   CompactFormField,
   AdvancedFieldsSection,
@@ -318,7 +317,6 @@ function InputDesign() {
       favoriteHref="/accounting/cards/account"
     >
       <div className="mb-4">
-        <UserPermissionsBar resource="account" module="accounting" />
       </div>
       <form className="w-full text-base">
         {quickCreate.isQuickCreate ? (

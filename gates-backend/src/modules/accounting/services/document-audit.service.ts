@@ -2,7 +2,12 @@ import type { Prisma } from '@prisma/client';
 import prisma from '../../../shared/database/prisma';
 import { logger } from '../../../shared/logger';
 
-export type DocumentEntityType = 'INVOICE' | 'JOURNAL_ENTRY' | 'STOCK_MOVEMENT';
+export type DocumentEntityType =
+  | 'INVOICE'
+  | 'JOURNAL_ENTRY'
+  | 'STOCK_MOVEMENT'
+  | 'POS_ORDER'
+  | 'POS_SHIFT';
 
 export type DocumentAuditAction =
   | 'CREATED'
@@ -13,7 +18,15 @@ export type DocumentAuditAction =
   | 'POSTED'
   | 'UNPOSTED'
   | 'REVERSED'
-  | 'CANCELLED';
+  | 'CANCELLED'
+  | 'OPENED'
+  | 'HELD'
+  | 'RESUMED'
+  | 'CLOSED'
+  | 'REOPENED'
+  | 'REPRINTED'
+  | 'CASH_IN'
+  | 'CASH_OUT';
 
 const ACTION_LABELS_AR: Record<DocumentAuditAction, string> = {
   CREATED: 'أنشأ المسودة',
@@ -25,6 +38,14 @@ const ACTION_LABELS_AR: Record<DocumentAuditAction, string> = {
   UNPOSTED: 'فك ترحيل المستند',
   REVERSED: 'عكس القيد بقيد معكوس',
   CANCELLED: 'ألغى المستند',
+  OPENED: 'فتح الوردية',
+  HELD: 'علّق الطلب',
+  RESUMED: 'استأنف الطلب',
+  CLOSED: 'أقفل الوردية',
+  REOPENED: 'أعاد فتح الوردية',
+  REPRINTED: 'أعاد طباعة الإيصال',
+  CASH_IN: 'سجّل نقدية داخلة',
+  CASH_OUT: 'سجّل نقدية خارجة',
 };
 
 type Db = Prisma.TransactionClient | typeof prisma;

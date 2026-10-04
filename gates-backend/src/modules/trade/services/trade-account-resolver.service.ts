@@ -87,7 +87,7 @@ export class TradeAccountResolverService {
       select: { mainAccountId: true },
     });
     if (!supplier) {
-      throw new AppError(404, 'Supplier not found');
+      throw new AppError(404, 'المورد غير موجود');
     }
     if (supplier.mainAccountId) {
       return supplier.mainAccountId;

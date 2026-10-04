@@ -11,6 +11,7 @@ import { formatEgp, formatPercent, formatQty, toMoney } from '@/lib/subcontracts
 
 export function OwnerBoqTable({
   items,
+  scopeByItemId,
   loading,
   onAdd,
   onRateBreakdown,
@@ -18,6 +19,7 @@ export function OwnerBoqTable({
   onMeasurements,
 }: {
   items: OwnerBoqItem[];
+  scopeByItemId?: Map<string, import('@/lib/contracting/variation-types').ContractBoqScopeItem>;
   loading?: boolean;
   onAdd?: () => void;
   onRateBreakdown: (item: OwnerBoqItem) => void;
@@ -50,6 +52,12 @@ export function OwnerBoqTable({
             <th className="px-3 py-2">الوصف</th>
             <th className="px-3 py-2">الوحدة</th>
             <th className="px-3 py-2">كمية العقد</th>
+            {scopeByItemId ? (
+              <>
+                <th className="px-3 py-2">أوامر معتمدة</th>
+                <th className="px-3 py-2">الكمية الفعّالة</th>
+              </>
+            ) : null}
             <th className="px-3 py-2">التكلفة المباشرة</th>
             <th className="px-3 py-2">نسبة التحميل</th>
             <th className="px-3 py-2">سعر البيع</th>
@@ -60,12 +68,35 @@ export function OwnerBoqTable({
           </tr>
         </thead>
         <tbody>
-          {items.map((item) => (
+          {items.map((item) => {
+            const scope = scopeByItemId?.get(item.id);
+            return (
             <tr key={item.id} className="border-t border-slate-100 even:bg-[#F6FBFD]/50">
-              <td className="px-3 py-2 font-semibold text-[#094C6B]">{item.itemCode}</td>
+              <td className="px-3 py-2 font-semibold text-[#094C6B]">
+                {item.itemCode}
+                {scope?.origin === 'VARIATION_ORDER' && scope.sourceVariationOrderNumber ? (
+                  <p className="text-[10px] font-normal text-emerald-800">
+                    بند مضاف بأمر تغيير {scope.sourceVariationOrderNumber}
+                  </p>
+                ) : null}
+              </td>
               <td className="px-3 py-2 text-start">{item.descriptionAr}</td>
               <td className="px-3 py-2">{BOQ_UNIT_LABEL[item.unit] ?? item.unit}</td>
-              <td className="px-3 py-2 tabular-nums">{formatQty(item.contractQuantity)}</td>
+              <td className="px-3 py-2 tabular-nums">
+                {formatQty(scope?.originalQuantity ?? item.contractQuantity)}
+              </td>
+              {scopeByItemId ? (
+                <>
+                  <td className="px-3 py-2 tabular-nums">
+                    {scope && scope.approvedVariationQuantityDelta !== 0
+                      ? formatQty(scope.approvedVariationQuantityDelta)
+                      : '—'}
+                  </td>
+                  <td className="px-3 py-2 tabular-nums font-medium">
+                    {formatQty(scope?.effectiveQuantity ?? item.contractQuantity)}
+                  </td>
+                </>
+              ) : null}
               <td className="px-3 py-2 tabular-nums">{formatEgp(item.directCostEstimated)}</td>
               <td className="px-3 py-2 tabular-nums">{formatPercent(toMoney(item.indirectMarkupRate) * 100)}</td>
               <td className="px-3 py-2 tabular-nums">{formatEgp(item.unitSellingPrice)}</td>
@@ -88,7 +119,8 @@ export function OwnerBoqTable({
                 </div>
               </td>
             </tr>
-          ))}
+            );
+          })}
         </tbody>
       </table>
     </div>

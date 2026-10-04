@@ -11,7 +11,6 @@ import { breadcrumbsForReportModule } from '@/lib/reports/reportPageBreadcrumbs'
 import {
   type ElectronicInvoiceApiRow,
   type ElectronicInvoiceReportKind,
-  filterByInvoiceSelection,
   mapElectronicInvoiceTableRow,
 } from '@/lib/electronic-invoices/electronicInvoiceReportUtils';
 
@@ -36,12 +35,24 @@ export default function ElectronicInvoiceReportPreviewPage({ reportKind, title }
     isLoading,
     error: queryError,
   } = useApiQuery<ElectronicInvoiceApiRow[]>(
-    ['e-invoice-report-preview', reportKind, customerId, fromDate, toDate, String(page)],
+    ['e-invoice-report-preview', reportKind, customerId, fromDate, toDate, invoiceSelection, String(page)],
     `/electronic-invoices/reports/${reportKind}`,
     {
       customerId,
       fromDate,
       toDate,
+      invoiceSelection,
+      delegateId: searchParams.get('delegateId') || undefined,
+      warehouseId: searchParams.get('warehouseId') || undefined,
+      branchId: searchParams.get('branchId') || undefined,
+      itemId: searchParams.get('itemId') || undefined,
+      itemGroupId: searchParams.get('itemGroupId') || undefined,
+      costCenterId: searchParams.get('costCenterId') || undefined,
+      sentByUserId: searchParams.get('sentByUserId') || undefined,
+      submittedFrom: searchParams.get('submittedFrom') || undefined,
+      submittedTo: searchParams.get('submittedTo') || undefined,
+      invoiceNumber: searchParams.get('invoiceNumber') || undefined,
+      patternIds: searchParams.get('patternIds') || undefined,
       page,
       limit: 100,
     }
@@ -56,10 +67,8 @@ export default function ElectronicInvoiceReportPreviewPage({ reportKind, title }
   }, [queryError]);
 
   const rows = useMemo(() => {
-    const raw = apiResponse?.data ?? [];
-    const filtered = filterByInvoiceSelection(raw, invoiceSelection);
-    return filtered.map(mapElectronicInvoiceTableRow);
-  }, [apiResponse?.data, invoiceSelection]);
+    return (apiResponse?.data ?? []).map(mapElectronicInvoiceTableRow);
+  }, [apiResponse?.data]);
 
   const summaryTotal = apiResponse?.summary?.totalAmount;
 
@@ -88,27 +97,43 @@ export default function ElectronicInvoiceReportPreviewPage({ reportKind, title }
           <table className="w-full text-center border-separate border-spacing-0 text-sm">
             <thead>
               <tr>
-                <th className="bg-[#1787B8] text-white py-3 px-3">م</th>
-                <th className="bg-[#1787B8] text-white py-3 px-3">رقم الفاتورة</th>
-                <th className="bg-[#1787B8] text-white py-3 px-3">تاريخ الفاتورة</th>
-                <th className="bg-[#1787B8] text-white py-3 px-3">العميل</th>
-                <th className="bg-[#1787B8] text-white py-3 px-3">القيمة</th>
-                <th className="bg-[#1787B8] text-white py-3 px-3">الحالة</th>
-                <th className="bg-[#1787B8] text-white py-3 px-3">أرسل</th>
-                <th className="bg-[#1787B8] text-white py-3 px-3">تاريخ الإرسال</th>
+                {[
+                  'اسم النمط',
+                  'رقم الفاتورة',
+                  'تاريخ الفاتورة',
+                  'كود العميل',
+                  'اسم العميل',
+                  'القيمة',
+                  'الفرع',
+                  'العملة',
+                  'الحالة',
+                  'الأيام المتبقية',
+                  'UUID',
+                  'تاريخ الإرسال',
+                  'أرسل بواسطة',
+                ].map((header) => (
+                  <th key={header} className="whitespace-nowrap bg-[#1787B8] px-3 py-3 text-white">
+                    {header}
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody>
               {rows.map((row, idx) => (
                 <tr key={row.id} className={idx % 2 === 0 ? 'bg-[#F6FBFD]' : 'bg-white'}>
-                  <td className="py-2 px-3">{row.index}</td>
+                  <td className="py-2 px-3">{row.patternName}</td>
                   <td className="py-2 px-3">{row.invoiceNumber}</td>
                   <td className="py-2 px-3">{row.invoiceDate}</td>
+                  <td className="py-2 px-3">{row.clientCode}</td>
                   <td className="py-2 px-3">{row.clientName}</td>
                   <td className="py-2 px-3">{row.value}</td>
+                  <td className="py-2 px-3">{row.branch}</td>
+                  <td className="py-2 px-3">{row.currency}</td>
                   <td className="py-2 px-3">{row.status}</td>
+                  <td className="py-2 px-3">{row.remainingDays}</td>
                   <td className="py-2 px-3">{row.sent}</td>
                   <td className="py-2 px-3">{row.submissionDate}</td>
+                  <td className="py-2 px-3">{row.sentBy}</td>
                 </tr>
               ))}
             </tbody>

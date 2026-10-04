@@ -20,6 +20,7 @@ export interface AutomationConditionLike {
 function assertScalarType(field: EventFieldDefinition, value: unknown): void {
   switch (field.type) {
     case 'number':
+    case 'money':
       if (typeof value !== 'number' || !Number.isFinite(value)) {
         throw new AppError(400, `Condition field "${field.key}" requires a numeric value`);
       }
@@ -78,9 +79,11 @@ async function assertEntityOwnership(
 export async function validateAutomationConditions(
   companyId: string,
   eventType: string,
-  conditions: AutomationConditionLike[]
+  conditions: AutomationConditionLike[],
+  options?: { requireCreatable?: boolean }
 ): Promise<void> {
-  if (!isEventTypeCreatable(eventType)) {
+  const requireCreatable = options?.requireCreatable ?? true;
+  if (requireCreatable && !isEventTypeCreatable(eventType)) {
     throw new AppError(
       400,
       `Event "${eventType}" is not a supported automation trigger yet`

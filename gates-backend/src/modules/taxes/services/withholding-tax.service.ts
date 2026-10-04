@@ -58,7 +58,7 @@ export class WithholdingTaxService {
       where: { id: data.supplierId, companyId },
     });
     if (!supplier) {
-      throw new AppError(404, 'Supplier not found');
+      throw new AppError(404, 'المورد غير موجود');
     }
 
     if (data.invoiceId) {
@@ -71,7 +71,7 @@ export class WithholdingTaxService {
         },
       });
       if (!invoice) {
-        throw new AppError(404, 'Invoice not found or does not belong to supplier');
+        throw new AppError(404, 'الفاتورة غير موجودة or does not belong to supplier');
       }
     }
 
@@ -114,6 +114,7 @@ export class WithholdingTaxService {
       fiscalYearId,
       {
         transactionKind: 'PAYMENT',
+        serialGroup: 'WHT',
         date: data.paymentDate,
         description: `Withholding Tax Payment — ${supplier.arabicName}${
           data.invoiceId ? ` (Invoice: ${data.invoiceId})` : ''

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Coins } from 'lucide-react';
 import {
   FormSectionCard,
@@ -17,7 +18,7 @@ import { useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
 import { apiClient } from '@/lib/api/client';
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
-import { nextNumericSerial } from '@/lib/masters/nextNumericSerial';
+import { nextNumericSerial, preferForwardSerial } from '@/lib/masters/nextNumericSerial';
 import { confirmAction } from '@/lib/feedback/confirm';
 import { toast } from '@/lib/feedback/toast';
 import { isEgyptianPound } from '@/lib/accounting/fx-base';
@@ -52,6 +53,7 @@ const emptyForm = (serial = ''): FormState => ({
 function CurrenciesPageInner() {
   const { isReadOnly, unlockForEdit, lockToView, setMode } = useDocumentMode();
   const invalidateQuery = useInvalidateQuery();
+  const queryClient = useQueryClient();
   const rememberRate = useRememberCurrencyRate();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [form, setForm] = useState<FormState>(emptyForm);
@@ -64,7 +66,7 @@ function CurrenciesPageInner() {
     ['currencies', { page: 1, pageSize: 200 }],
     '/accounting/currencies',
     { page: 1, limit: 200 },
-    { staleTime: 15_000 }
+    { staleTime: 0, refetchOnMount: 'always' }
   );
   const currencies = useMemo(() => currenciesRes?.data ?? [], [currenciesRes?.data]);
   const definedCodes = useMemo(
@@ -77,7 +79,10 @@ function CurrenciesPageInner() {
 
   useEffect(() => {
     if (selectedId || currenciesRes == null) return;
-    setForm((prev) => (prev.serial === nextSerial ? prev : { ...prev, serial: nextSerial }));
+    setForm((prev) => {
+      const serial = preferForwardSerial(prev.serial, nextSerial);
+      return serial === prev.serial ? prev : { ...prev, serial };
+    });
   }, [currenciesRes, nextSerial, selectedId]);
 
   const resetNew = () => {
@@ -184,10 +189,24 @@ function CurrenciesPageInner() {
         if (res.data) hydrate(res.data);
         setSuccess('تم تحديث العملة');
       } else {
-        await apiClient.post<CurrencyRow>('/accounting/currencies', body);
+        const created = await apiClient.post<CurrencyRow>('/accounting/currencies', body);
+        const row = created.data;
+        if (row?.id) {
+          queryClient.setQueriesData({ queryKey: ['currencies'] }, (old) => {
+            if (!old || typeof old !== 'object' || !('data' in old) || !Array.isArray(old.data)) return old;
+            if (old.data.some((item) => item && typeof item === 'object' && 'id' in item && item.id === row.id)) {
+              return old;
+            }
+            return { ...old, data: [...old.data, row] };
+          });
+        }
         setSuccess('تم حفظ العملة');
         invalidateQuery(['currencies']);
-        resetNew();
+        const assigned = row?.serial != null ? String(row.serial) : form.serial;
+        setSelectedId(null);
+        setForm(emptyForm(nextNumericSerial([assigned])));
+        setError('');
+        setMode('create');
       }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'حدث خطأ أثناء الحفظ';
@@ -260,10 +279,10 @@ function CurrenciesPageInner() {
 
       <FormSectionCard
         title="بيانات العملة"
-        subtitle="المسلسل ورمز العملة والاسم"
+        subtitle="المسلسل ورمز العملة والكود العالمي والاسم"
         icon={Coins}
         className="mb-3 p-3 sm:p-4"
-        bodyClassName="!grid-cols-[6.5rem_minmax(13rem,1fr)_minmax(16rem,1.4fr)]"
+        bodyClassName="!grid-cols-1 sm:!grid-cols-2 lg:!grid-cols-[6.5rem_minmax(12rem,1.1fr)_7.5rem_minmax(14rem,1.3fr)]"
       >
         <CompactFormField
           label="المسلسل"
@@ -289,6 +308,13 @@ function CurrenciesPageInner() {
             })}
           </select>
         </CompactFormField>
+        <CompactFormField
+          label="الكود العالمي"
+          placeholder="USD"
+          value={form.code}
+          onChange={(e) => applyCatalog(e.target.value.toUpperCase())}
+          required
+        />
         <CompactFormField
           label="الإسم العربي"
           placeholder="إدخل الإسم بالعربي"

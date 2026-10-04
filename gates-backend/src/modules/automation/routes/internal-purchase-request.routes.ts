@@ -29,7 +29,7 @@
  *      existing row). A bounded retry can reasonably succeed because the
  *      concurrent request usually finishes first.
  *
- * 429  Rate limited by `apiRateLimiter` at the app-level mount.
+ * 429  Not used for general API traffic (auth login/register only).
  *
  * 5xx  Unexpected/infrastructure failure (unclassified domain error,
  *      unique-constraint race with no recoverable row, or the defensive

@@ -13,9 +13,18 @@ export type ReturnLineForm = {
   itemId: string;
   unitId?: string;
   quantity: number;
+  baseQuantity?: number;
+  conversionFactor?: number;
+  baseUnitId?: string;
   unitPrice: number;
   discount?: number;
+  discountValue?: number;
+  discountType?: string;
   taxRate?: number;
+  costCenterId?: string;
+  batchNumber?: string;
+  expiryDate?: string;
+  lineNotes?: string;
   /** H10 fix: the original sold/purchased line this return line reverses. */
   originalInvoiceLineId?: string;
   soldQty?: number;
@@ -57,8 +66,13 @@ export function ReturnInvoiceLinesGrid({
           itemId: l.itemId,
           unitId: l.unitId,
           quantity: l.quantity,
+          baseQuantity: l.baseQuantity,
+          conversionFactor: l.conversionFactor,
+          baseUnitId: l.baseUnitId,
           unitPrice: lockUnitPrice && prev?.originalInvoiceLineId ? prev.unitPrice : l.unitPrice,
           discount: l.discount,
+          discountValue: l.discountValue,
+          discountType: l.discountType,
           taxRate: l.tax ?? 0,
           costCenterId: l.costCenterId,
           batchNumber: l.batchNumber,
@@ -88,13 +102,14 @@ export function ReturnInvoiceLinesGrid({
         inputClassName={compactControlClass}
         lockUnitPrice={lockUnitPrice}
         hideAddLine={!allowAddLines}
+        showAverageCostOnQuantity
       />
       {lines.some((l) => l.originalInvoiceLineId) ? (
         <ul className="mt-3 space-y-1 text-xs">
           {lines.map((line, index) =>
             line.originalInvoiceLineId ? (
               <li key={`${line.originalInvoiceLineId}-${index}`} className="flex flex-wrap items-center gap-2">
-                <span className="rounded-full bg-[#E8F4FA] px-2 py-0.5 font-semibold text-[#0E79AA]">
+                <span className="rounded-full bg-[#E8F4FA] px-2 py-0.5 font-semibold text-[#0E78AA]">
                   المتاح للإرجاع: {line.returnableQty ?? '—'} من أصل {line.soldQty ?? '—'}
                 </span>
                 {line.returnableQty != null && line.quantity > line.returnableQty + 1e-6 ? (

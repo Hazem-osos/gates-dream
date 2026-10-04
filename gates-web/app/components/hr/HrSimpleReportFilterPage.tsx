@@ -1,9 +1,13 @@
 'use client';
 
+import { reportDefaultDateRange } from '@/lib/reports/reportDefaultDates';
+
 import { useBackendReachability } from '@/lib/hooks/useBackendReachability';
-import { useForm, type Resolver, Controller } from 'react-hook-form';
+import { useState } from 'react';
+import { useForm, type Resolver, type SubmitHandler, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { HrReportChrome } from '@/components/hr/HrReportChrome';
+import { InlineReportResults } from '@/components/report/InlineReportResults';
 import {
   ReportFilterDate,
   ReportFilterField,
@@ -15,8 +19,7 @@ const defaults: HrSimpleReportFilterInput = {
   hijriDate1: '',
   hijriDate2: '',
   employee: '',
-  fromDate: new Date().toISOString().split('T')[0],
-  toDate: new Date().toISOString().split('T')[0],
+  ...reportDefaultDateRange(),
 };
 
 const errCls = 'text-red-600 text-xs mt-1 block text-right';
@@ -33,13 +36,16 @@ export function HrSimpleReportFilterPage({
   title,
   emptyStateAr,
   emptyStateEn,
+  catalogUrlPath,
 }: HrSimpleReportFilterPageProps) {
   useBackendReachability();
+  const [previewQuery, setPreviewQuery] = useState<Record<string, string> | null>(null);
 
   const {
     register,
     reset,
     control,
+    handleSubmit,
     formState: { errors },
   } = useForm<HrSimpleReportFilterInput>({
     resolver: zodResolver(hrSimpleReportFilterSchema) as Resolver<HrSimpleReportFilterInput>,
@@ -47,13 +53,28 @@ export function HrSimpleReportFilterPage({
     mode: 'onTouched',
   });
 
+  const onPreview: SubmitHandler<HrSimpleReportFilterInput> = (values) => {
+    const params: Record<string, string> = {
+      fromDate: values.fromDate,
+      toDate: values.toDate,
+    };
+    if (values.employee.trim()) params.employee = values.employee.trim();
+    setPreviewQuery(params);
+  };
+
   return (
     <HrReportChrome
       title={title}
-      previewDisabled
-      previewLabel="قيد التفعيل"
-      onPreview={() => {}}
-      onReset={() => reset(defaults)}
+      onPreview={handleSubmit(onPreview)}
+      onReset={() => {
+        reset(defaults);
+        setPreviewQuery(null);
+      }}
+      below={
+        previewQuery ? (
+          <InlineReportResults urlPath={catalogUrlPath} query={previewQuery} />
+        ) : null
+      }
     >
       <ReportFilterField label="الموظف" className="sm:col-span-2">
         <input
@@ -80,8 +101,9 @@ export function HrSimpleReportFilterPage({
         )}
       />
 
-      <p className="col-span-full rounded-lg bg-slate-50 px-3 py-2 text-center text-[12px] text-slate-500">
-        {emptyStateAr} — هذا التقرير قيد التفعيل ولا يتوفر له مصدر بيانات في الخادم حالياً. {emptyStateEn}
+      <p className="col-span-full text-center text-[12px] text-slate-500">
+        {emptyStateAr}
+        <span className="sr-only">{emptyStateEn}</span>
       </p>
     </HrReportChrome>
   );

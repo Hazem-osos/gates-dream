@@ -12,6 +12,8 @@ import {
   recurringEntryQuerySchema,
 } from './schemas/recurring-entry.schema';
 import { recurringEntriesService } from './services/recurring-entries.service';
+import { journalPostingService } from './services/journal-posting.service';
+import prisma from '../../shared/database/prisma';
 
 const router = Router();
 
@@ -27,7 +29,7 @@ router.get(
     try {
       const companyId = req.companyId || req.tenantId;
       if (!companyId) {
-        return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+        return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
       }
       const data = await recurringEntriesService.list(companyId, {
         search: req.query.search as string | undefined,
@@ -55,7 +57,7 @@ router.post(
     try {
       const companyId = req.companyId || req.tenantId;
       if (!companyId) {
-        return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+        return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
       }
       const created = await recurringEntriesService.create(companyId, req.body);
       return void res.status(201).json({
@@ -71,6 +73,67 @@ router.post(
       return void res.status(500).json({
         status: 'error',
         message: 'تعذر حفظ القيد الدوري',
+      });
+    }
+  }
+);
+
+router.post(
+  '/:id/generate',
+  authorize({ resource: 'journal-entry', action: 'edit' }),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const companyId = req.companyId || req.tenantId;
+      const userId = req.user?.sub;
+      if (!companyId) {
+        return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
+      }
+      if (!userId) {
+        return void res.status(401).json({ status: 'error', message: 'User context is required' });
+      }
+      const template = await recurringEntriesService.getActive(companyId, req.params.id);
+      const settings = await prisma.companySettings.findFirst({
+        where: { companyId },
+        select: { defaultCurrency: true },
+      });
+      const entry = await journalPostingService.createJournalEntry(
+        {
+          companyId,
+          branchId: req.branchId,
+          fiscalYearId: req.fiscalYearId,
+          userId,
+        },
+        {
+          date: new Date(),
+          description: template.templateNameAr,
+          currencyCode: settings?.defaultCurrency || 'EGP',
+          sourceType: 'RECURRING_TEMPLATE',
+          sourceId: template.id,
+          isRecurring: false,
+          lines: template.lines.map((line, index) => ({
+            accountId: line.accountId,
+            costCenterId: line.costCenterId ?? undefined,
+            description: line.description ?? undefined,
+            debit: Number(line.debit),
+            credit: Number(line.credit),
+            lineOrder: index + 1,
+          })),
+        }
+      );
+      await recurringEntriesService.markGenerated(companyId, template.id);
+      return void res.status(201).json({
+        status: 'success',
+        message: 'تم توليد القيد من القالب',
+        data: entry,
+      });
+    } catch (error) {
+      logger.error({ err: error }, 'Error generating recurring journal entry');
+      if (error instanceof AppError) {
+        return void res.status(error.statusCode).json({ status: 'error', message: error.message });
+      }
+      return void res.status(500).json({
+        status: 'error',
+        message: 'تعذر توليد القيد الدوري',
       });
     }
   }

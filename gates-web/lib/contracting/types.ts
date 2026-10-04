@@ -17,7 +17,8 @@ export type ClientInvoiceStatus =
   | 'CLIENT_APPROVED'
   | 'FINANCE_POSTED'
   | 'REJECTED'
-  | 'PAID';
+  | 'PAID'
+  | 'REVERSED';
 export type SiteStockMaterialStatus = 'STORED_ON_SITE' | 'INSTALLED_AND_DEDUCTED' | 'REJECTED';
 
 export type ProjectLgType =
@@ -36,6 +37,7 @@ export type ContractingProject = {
   id: string;
   projectCode: string;
   projectName: string;
+  canonicalStack?: 'ENTERPRISE' | 'LEGACY_WAVE3';
   status?: string;
   contractValue?: Moneyish;
   startDate?: string | null;
@@ -143,6 +145,10 @@ export type ClientInvoice = {
   otherClientPenalties: Moneyish;
   netPayableByClient: Moneyish;
   journalEntryId?: string | null;
+  reversalJournalEntryId?: string | null;
+  reversedAt?: string | null;
+  reversedBy?: string | null;
+  reversalReason?: string | null;
   items?: ClientInvoiceItem[];
 };
 

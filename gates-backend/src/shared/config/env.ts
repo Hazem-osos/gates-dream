@@ -183,6 +183,14 @@ const envSchema = z.object({
    * Never commit a real value.
    */
   AUTOMATION_INTERNAL_API_KEY: optionalEnvString(),
+  /** Public Meta App ID. Safe to hand to the browser so Embedded Signup can launch. */
+  META_APP_ID: optionalEnvString(),
+  /** Server-only. Never return this from an API. */
+  META_APP_SECRET: optionalEnvString(),
+  /** Embedded Signup v4 configuration id from the Meta App Dashboard. Not a secret. */
+  META_EMBEDDED_SIGNUP_CONFIG_ID: optionalEnvString(),
+  META_WEBHOOK_VERIFY_TOKEN: optionalEnvString(),
+  META_GRAPH_VERSION: z.string().optional().default('v25.0'),
   /**
    * n8n "Universal Event Intake" webhook — where GATES pushes the standard
    * event envelope (companyId, eventId, eventType, timestamp, data) after a
@@ -197,6 +205,15 @@ const envSchema = z.object({
   OPENAI_BASE_URL: optionalEnvUrl(),
   /** Optional Postgres+pgvector sidecar for RAG. ERP data stays on MySQL. */
   VECTOR_DATABASE_URL: optionalEnvString(),
+
+  /** Public HTTPS/CDN URL for GatesESignSetup.exe. Prefer object storage, not Railway streaming. */
+  GATES_ESIGN_DOWNLOAD_URL: optionalEnvString(),
+  GATES_ESIGN_VERSION: optionalEnvString(),
+  GATES_ESIGN_SHA256: optionalEnvString(),
+  GATES_ESIGN_PUBLISHED_AT: optionalEnvString(),
+  GATES_ESIGN_MIN_VERSION: optionalEnvString(),
+  GATES_ESIGN_RELEASE_JSON_PATH: optionalEnvString(),
+  GATES_ESIGN_INSTALLER_PATH: optionalEnvString(),
 });
 
 /**

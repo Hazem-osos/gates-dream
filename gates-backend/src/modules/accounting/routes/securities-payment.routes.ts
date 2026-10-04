@@ -8,8 +8,10 @@ import {
   securitiesPaymentQuerySchema,
 } from '../schemas/securities-payment.schema';
 import { collectSecuritiesSchema } from '../schemas/securities-receipt.schema';
+import { createBatchReceiptPapersSchema } from '../schemas/batch-receipt-paper.schema';
 import { executeMultiCollectionSchema } from '../schemas/multi-collection.schema';
 import { securitiesPaymentService } from '../services/securities-payment.service';
+import { commercialPaperService } from '../services/commercial-paper.service';
 import { commercialPaperPostingService } from '../services/commercial-paper-posting.service';
 import { logger } from '../../../shared/logger';
 import { AppError } from '../../../shared/middleware/error-handler';
@@ -17,10 +19,54 @@ import { AuthRequest } from '../../../shared/auth/types';
 
 const router = Router();
 
+router.post(
+  '/batch',
+  authorize({ resource: 'securities-payment', action: 'edit' }),
+  validate({ body: createBatchReceiptPapersSchema }),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const companyId = req.companyId || req.tenantId;
+      if (!companyId) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
+      const result = await commercialPaperService.createBatchPaymentPapersInTx(
+        companyId,
+        req.body,
+        req.branchId
+      );
+      return void res.status(201).json({
+        status: 'success',
+        message: 'تم إنشاء أوراق الدفع بنجاح',
+        data: result,
+      });
+    } catch (error) {
+      logger.error({ error, body: req.body }, 'Error creating batch securities payments');
+      if (error instanceof AppError) {
+        return void res.status(error.statusCode).json({ status: 'error', message: error.message });
+      }
+      return void res.status(500).json({
+        status: 'error',
+        message: error instanceof Error ? error.message : 'Failed to create batch securities payments',
+      });
+    }
+  }
+);
+
+router.get('/next-number', authorize({ resource: 'securities-payment', action: 'view' }), async (req: AuthRequest, res: Response) => {
+  try {
+    const companyId = req.companyId || req.tenantId;
+    if (!companyId) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
+    const data = await commercialPaperService.peekNextPaperSerial(companyId, 'PAYMENT', req.branchId);
+    return void res.json({ status: 'success', data });
+  } catch (error) {
+    if (error instanceof AppError) return void res.status(error.statusCode).json({ status: 'error', message: error.message });
+    logger.error({ error }, 'Failed to preview securities payment number');
+    return void res.status(500).json({ status: 'error', message: 'فشل معاينة مسلسل ورقة الدفع' });
+  }
+});
+
 router.get('/defaults', authorize({ resource: 'securities-payment', action: 'view' }), async (req: AuthRequest, res: Response) => {
   try {
     const companyId = req.companyId || req.tenantId;
-    if (!companyId) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+    if (!companyId) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     const notesAccountId = await commercialPaperPostingService.resolveDefaultNotesAccount(companyId, 'PAYMENT');
     return void res.json({ status: 'success', data: { notesAccountId } });
   } catch (error) {
@@ -35,7 +81,7 @@ router.get('/defaults', authorize({ resource: 'securities-payment', action: 'vie
 router.get('/', authorize({ resource: 'securities-payment', action: 'view' }), validate({ query: securitiesPaymentQuerySchema }), async (req: AuthRequest, res: Response) => {
   try {
     const companyId = req.companyId || req.tenantId;
-    if (!companyId) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+    if (!companyId) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     const result = await securitiesPaymentService.getSecuritiesPayments(companyId, {
       startDate: req.query.startDate as Date | undefined,
       endDate: req.query.endDate as Date | undefined,
@@ -57,7 +103,7 @@ router.get('/', authorize({ resource: 'securities-payment', action: 'view' }), v
 router.get('/:id', authorize({ resource: 'securities-payment', action: 'view' }), async (req: AuthRequest, res: Response) => {
   try {
     const companyId = req.companyId || req.tenantId;
-    if (!companyId) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+    if (!companyId) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     const payment = await securitiesPaymentService.getSecuritiesPaymentById(companyId, req.params.id, {
       branchId: req.branchId,
       userId: req.user?.sub || '',
@@ -76,7 +122,7 @@ router.get('/:id', authorize({ resource: 'securities-payment', action: 'view' })
 router.post('/', authorize({ resource: 'securities-payment', action: 'edit' }), validate({ body: createSecuritiesPaymentSchema }), async (req: AuthRequest, res: Response) => {
   try {
     const companyId = req.companyId || req.tenantId;
-    if (!companyId) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+    if (!companyId) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     const payment = await securitiesPaymentService.createSecuritiesPayment(companyId, req.body, {
       branchId: req.branchId,
       userId: req.user?.sub || '',
@@ -101,7 +147,7 @@ router.post('/', authorize({ resource: 'securities-payment', action: 'edit' }), 
 router.put('/:id', authorize({ resource: 'securities-payment', action: 'edit' }), validate({ body: updateSecuritiesPaymentSchema }), async (req: AuthRequest, res: Response) => {
   try {
     const companyId = req.companyId || req.tenantId;
-    if (!companyId) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+    if (!companyId) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     const payment = await securitiesPaymentService.updateSecuritiesPayment(companyId, req.params.id, req.body, {
       branchId: req.branchId,
       userId: req.user?.sub || '',
@@ -117,7 +163,7 @@ router.put('/:id', authorize({ resource: 'securities-payment', action: 'edit' })
 router.post('/:id/post', authorize({ resource: 'securities-payment', action: 'post' }), async (req: AuthRequest, res: Response) => {
   try {
     const companyId = req.companyId || req.tenantId;
-    if (!companyId) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+    if (!companyId) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     const userId = req.user?.sub || '';
     const payment = await securitiesPaymentService.postSecuritiesPayment(companyId, req.params.id, {
       branchId: req.branchId,
@@ -134,7 +180,7 @@ router.post('/:id/post', authorize({ resource: 'securities-payment', action: 'po
 router.post('/:id/unpost', authorize({ resource: 'securities-payment', action: 'post' }), async (req: AuthRequest, res: Response) => {
   try {
     const companyId = req.companyId || req.tenantId;
-    if (!companyId) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+    if (!companyId) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     const userId = req.user?.sub || '';
     const payment = await securitiesPaymentService.unpostSecuritiesPayment(companyId, req.params.id, {
       branchId: req.branchId,
@@ -151,7 +197,7 @@ router.post('/:id/unpost', authorize({ resource: 'securities-payment', action: '
 router.post('/:id/multi-collect', authorize({ resource: 'securities-payment', action: 'post' }), validate({ body: executeMultiCollectionSchema }), async (req: AuthRequest, res: Response) => {
   try {
     const companyId = req.companyId || req.tenantId;
-    if (!companyId) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+    if (!companyId) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     const data = await commercialPaperPostingService.executeMultiCollection(
       { companyId, branchId: req.branchId, userId: req.user?.sub || '' },
       'PAYMENT',
@@ -166,10 +212,26 @@ router.post('/:id/multi-collect', authorize({ resource: 'securities-payment', ac
   }
 });
 
+router.post('/:id/uncollect', authorize({ resource: 'securities-payment', action: 'post' }), async (req: AuthRequest, res: Response) => {
+  try {
+    const companyId = req.companyId || req.tenantId;
+    if (!companyId) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
+    const payment = await securitiesPaymentService.uncollectSecuritiesPayment(companyId, req.params.id, {
+      branchId: req.branchId,
+      userId: req.user?.sub || '',
+    });
+    return void res.json({ status: 'success', message: 'تم فك تحصيل ورقة المدفوعات', data: payment });
+  } catch (error) {
+    logger.error({ error }, 'Error uncollecting securities payment');
+    const status = error instanceof AppError ? error.statusCode : 500;
+    return void res.status(status).json({ status: 'error', message: error instanceof Error ? error.message : 'Failed to uncollect securities payment' });
+  }
+});
+
 router.post('/:id/collect', authorize({ resource: 'securities-payment', action: 'post' }), validate({ body: collectSecuritiesSchema }), async (req: AuthRequest, res: Response) => {
   try {
     const companyId = req.companyId || req.tenantId;
-    if (!companyId) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+    if (!companyId) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     const userId = req.user?.sub || '';
     const payment = await securitiesPaymentService.collectSecuritiesPayment(
       companyId,
@@ -188,7 +250,7 @@ router.post('/:id/collect', authorize({ resource: 'securities-payment', action: 
 router.post('/:id/bounce', authorize({ resource: 'securities-payment', action: 'edit' }), validate({ body: bounceSecuritiesPaymentSchema }), async (req: AuthRequest, res: Response) => {
   try {
     const companyId = req.companyId || req.tenantId;
-    if (!companyId) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+    if (!companyId) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     const userId = req.user?.sub || '';
     const payment = await securitiesPaymentService.bounceSecuritiesPayment(companyId, req.params.id, {
       branchId: req.branchId,
@@ -205,7 +267,7 @@ router.post('/:id/bounce', authorize({ resource: 'securities-payment', action: '
 router.post('/:id/cancel', authorize({ resource: 'securities-payment', action: 'edit' }), async (req: AuthRequest, res: Response) => {
   try {
     const companyId = req.companyId || req.tenantId;
-    if (!companyId) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+    if (!companyId) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     const payment = await securitiesPaymentService.cancelSecuritiesPayment(companyId, req.params.id);
     return void res.json({ status: 'success', message: 'Securities payment cancelled successfully', data: payment });
   } catch (error) {
@@ -218,7 +280,7 @@ router.post('/:id/cancel', authorize({ resource: 'securities-payment', action: '
 router.post('/:id/restore', authorize({ resource: 'securities-payment', action: 'edit' }), async (req: AuthRequest, res: Response) => {
   try {
     const companyId = req.companyId || req.tenantId;
-    if (!companyId) return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+    if (!companyId) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     const payment = await securitiesPaymentService.restoreSecuritiesPayment(companyId, req.params.id, {
       branchId: req.branchId,
       userId: req.user?.sub || '',

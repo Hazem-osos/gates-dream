@@ -11,6 +11,13 @@ import type { PdcClearedGlPayload, RegisterPdcDto } from '../types/portfolio.typ
 import { money, moneyMin } from '../utils/money-decimal';
 import { enqueueChequeBouncedJob } from '../../automation/producers/domain-event.producer';
 import { lateFeeCalculationService } from './late-fee-calculation.service';
+import { AppError } from '../../../shared/middleware/error-handler';
+import {
+  acquireUniqueKey,
+  duplicateUniqueKeyMessage,
+  repeatedUniqueValue,
+  UNIQUE_KINDS,
+} from '../../../shared/database/company-unique-key';
 
 type Db = Prisma.TransactionClient | typeof prisma;
 
@@ -77,6 +84,10 @@ export class PdcPortfolioService {
       where: { id: unitContractId, companyId },
     });
     if (!contract) throw new UnitContractNotFoundError(companyId, unitContractId);
+    const repeated = repeatedUniqueValue(chequesDto.map((dto) => dto.chequeNumber));
+    if (repeated) {
+      throw new AppError(409, duplicateUniqueKeyMessage(UNIQUE_KINDS.chequeNumber, repeated));
+    }
 
     const created: PostDatedCheque[] = [];
     for (const dto of chequesDto) {
@@ -89,12 +100,19 @@ export class PdcPortfolioService {
         }
       }
 
+      const chequeNumber = await acquireUniqueKey(
+        db as Prisma.TransactionClient,
+        companyId,
+        UNIQUE_KINDS.chequeNumber,
+        dto.chequeNumber
+      );
+      if (!chequeNumber) throw new AppError(400, 'رقم الشيك مطلوب');
       const cheque = await db.postDatedCheque.create({
         data: {
           companyId,
           unitContractId: contract.id,
           unitInstallmentId: dto.unitInstallmentId ?? null,
-          chequeNumber: dto.chequeNumber,
+          chequeNumber,
           bankName: dto.bankName,
           drawerName: dto.drawerName,
           chequeDate: dto.chequeDate,

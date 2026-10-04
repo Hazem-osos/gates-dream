@@ -406,8 +406,8 @@ export const securitiesBulkCreateHeaderFormSchema = z.object({
   currencyId: z.string().min(1, 'اختر العملة'),
   exchangeRate: z.coerce.number().positive().optional(),
   partyName: z.string().optional(),
-  partyId: z.string().min(1, 'اختر الساحب / العميل'),
-  partyType: z.enum(['customer', 'supplier']),
+  partyId: z.string().min(1, 'اختر الساحب / العميل أو الحساب'),
+  partyType: z.enum(['customer', 'supplier', 'account']),
   issueDate: z.string().min(1, 'تاريخ التحرير مطلوب'),
   hijriIssueDate: z.string().optional(),
   entityName: z.string().optional(),
@@ -499,7 +499,7 @@ export const securitiesSinglePaymentFormSchema = z
 export type SecuritiesSinglePaymentFormInput = z.infer<typeof securitiesSinglePaymentFormSchema>;
 
 export const securitiesMultiCollectionFormSchema = z.object({
-  receiptIds: z.array(z.string()).min(1, 'يرجى اختيار أوراق للتحصيل'),
+  paperIds: z.array(z.string()).min(1, 'يرجى اختيار أوراق للتحصيل'),
   accountId: z.string().min(1, 'اختر حساب البنك'),
   date: z.string().min(1, 'أدخل تاريخ التحصيل'),
 });
@@ -554,24 +554,14 @@ export const costCenterCardFormSchema = z.object({
 
 export type CostCenterCardFormInput = z.infer<typeof costCenterCardFormSchema>;
 
-/** بطاقة عميل — الاسم مطلوب. الكود والهاتف اختياريان. */
-export const customerCardFormSchema = z
-  .object({
-    arabicName: z.string().trim().min(1, 'يرجى إدخال الإسم العربي'),
-    phone1: z.string().optional(),
-    mobile: z.string().optional(),
-    taxData: z.boolean().optional(),
-    taxAuthority: z.string().optional(),
-    taxAuthorityName: z.string().optional(),
-  })
-  .superRefine((value, ctx) => {
-    if (value.taxData && !value.taxAuthority?.trim() && !value.taxAuthorityName?.trim()) {
-      ctx.addIssue({
-        code: 'custom',
-        path: ['taxAuthority'],
-        message: 'بيانات الضرائب مطلوبة بعد تفعيل الرقم الضريبي.',
-      });
-    }
-  });
+/** بطاقة عميل — الاسم مطلوب. الكود والهاتف والبيانات الضريبية اختيارية. */
+export const customerCardFormSchema = z.object({
+  arabicName: z.string().trim().min(1, 'يرجى إدخال الإسم العربي'),
+  phone1: z.string().optional(),
+  mobile: z.string().optional(),
+  taxData: z.boolean().optional(),
+  taxAuthority: z.string().optional(),
+  taxAuthorityName: z.string().optional(),
+});
 
 export type CustomerCardFormInput = z.infer<typeof customerCardFormSchema>;

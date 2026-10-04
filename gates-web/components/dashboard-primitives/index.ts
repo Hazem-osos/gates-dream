@@ -11,6 +11,7 @@ export { StackingMatrix } from './StackingMatrix';
 export type { StackingBuilding, StackingUnit } from './StackingMatrix';
 export { Sparkline } from './Sparkline';
 export { SegmentedBar, GaugeBar } from './SegmentedBar';
+export { ModuleCharts } from './ModuleCharts';
 export { DashboardEmptyState } from './DashboardEmptyState';
 export { StatusDotPill } from './StatusDotPill';
 export type { StatusDotTone } from './StatusDotPill';

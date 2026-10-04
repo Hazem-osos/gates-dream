@@ -8,7 +8,7 @@ export type AppModuleSection = {
 };
 
 export const APP_MODULE_SECTIONS: AppModuleSection[] = [
-  { key: 'automation', icon: '⚡', label: 'أتمتة Gates', color: '#0E79AA' },
+  { key: 'automation', icon: '⚡', label: 'Gates Agent', color: '#0E79AA' },
   { key: 'electronic-invoices', icon: '🧾', label: 'الفواتير الإلكترونية', color: '#0E79AA' },
   { key: 'statements', icon: '📄', label: 'المستخلصات', color: '#CB5B53' },
   { key: 'hr', icon: '👨‍💼', label: 'الموارد البشرية', color: '#0E79AA' },

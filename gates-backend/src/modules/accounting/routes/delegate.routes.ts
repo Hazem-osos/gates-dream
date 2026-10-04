@@ -32,7 +32,7 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -202,7 +202,7 @@ router.put(
 
 /**
  * DELETE /api/v1/accounting/delegates/:id
- * Delete delegate (soft delete)
+ * Delete delegate (hard delete — frees the serial/code)
  */
 router.delete(
   '/:id',

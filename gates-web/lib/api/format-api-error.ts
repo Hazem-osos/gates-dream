@@ -36,7 +36,15 @@ function openingStockPathLabel(path?: string | Array<string | number>): string |
                 ? 'الخزينة'
                 : match[2] === 'bankAccountId'
                   ? 'الحساب البنكي'
-                  : match[2];
+                  : match[2] === 'accountId'
+                    ? 'الحساب'
+                    : match[2] === 'debit'
+                      ? 'مدين'
+                      : match[2] === 'credit'
+                        ? 'دائن'
+                        : match[2] === 'costCenterId'
+                          ? 'مركز التكلفة'
+                          : match[2];
   return `سطر ${row} — ${field}`;
 }
 
@@ -59,8 +67,27 @@ function firstValidationMessage(errors: unknown): string | null {
   return null;
 }
 
+export function formatEsignSubmitDiagnostic(error: Partial<ApiError> & { message?: string }): string | null {
+  const stage = String(error.stage ?? '');
+  const isEsign =
+    error.code === 'ETA_SUBMISSION_FAILED' ||
+    stage === 'canonical_rebuilt' ||
+    stage === 'eta_authenticate' ||
+    stage === 'eta_submit' ||
+    stage === 'eta_interpreted';
+  if (!isEsign) return null;
+  const parts = [error.message?.trim()].filter(Boolean) as string[];
+  if (stage) parts.push(`stage=${stage}`);
+  if (error.originalStatusCode) parts.push(`originalStatus=${error.originalStatusCode}`);
+  if (error.etaHttpStatus) parts.push(`etaHttp=${error.etaHttpStatus}`);
+  if (error.etaBodyPreview) parts.push(error.etaBodyPreview);
+  return parts.join(' | ');
+}
+
 /** Prefer field-level validation text over generic «Validation error». */
 export function formatApiErrorMessage(error: Error & Partial<ApiError>): string {
+  const esign = formatEsignSubmitDiagnostic(error);
+  if (esign) return esign;
   const base = error.message?.trim() || 'حدث خطأ';
   let formatted = base;
 
@@ -69,7 +96,8 @@ export function formatApiErrorMessage(error: Error & Partial<ApiError>): string 
     base === 'Validation Error' ||
     base.includes('راجع الحقول المعلّمة') ||
     base.includes('راجع الخانات المعلمة') ||
-    base.includes('بعض الحقول غير صحيحة');
+    base.includes('بعض الحقول غير صحيحة') ||
+    base === 'تحقق من البيانات';
   if (isGenericValidation) {
     const detail = firstValidationMessage(error.errors);
     if (!detail) formatted = 'يرجى التحقق من الحقول المدخلة';

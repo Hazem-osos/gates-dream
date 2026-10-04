@@ -21,6 +21,8 @@ import { apiClient } from '@/lib/api/client';
 import { queryKeys } from '@/lib/query/query-keys';
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
+import { finishDocumentSave } from '@/lib/documents/finish-save';
+import { invalidateStockViews } from '@/lib/invoices/invalidate-stock-views';
 
 type ContractType = 'نقدي' | 'آجل' | 'جزء نقدي وجزء آجل' | 'حسب الصنف';
 
@@ -218,14 +220,34 @@ export default function CustomerContractPage() {
     };
     setSaving(true);
     try {
-      if (selectedId) {
-        await apiClient.put<ApiDetail>(`/inventory/customer-contracts/${selectedId}`, body);
+      const wasUpdate = Boolean(selectedId);
+      let id = selectedId;
+      if (id) {
+        await apiClient.put<ApiDetail>(`/inventory/customer-contracts/${id}`, body);
       } else {
-        await apiClient.post<ApiDetail>('/inventory/customer-contracts', body);
+        const created = await apiClient.post<ApiDetail>('/inventory/customer-contracts', body);
+        id = created.data?.id ?? null;
       }
+      invalidateStockViews(invalidateQuery);
       invalidateQuery(['customer-contracts']);
-      handleNew();
-      setSuccess('تم حفظ التعاقد — تقدر تضيف التالي');
+      if (wasUpdate) {
+        finishDocumentSave({
+          label: 'تعاقد عميل',
+          number: form.code,
+          savedId: id,
+          onOpen: (saved) => void loadContract(saved),
+          cleared: false,
+          reset: () => undefined,
+        });
+      } else {
+        finishDocumentSave({
+          label: 'تعاقد عميل',
+          number: form.code,
+          savedId: id,
+          onOpen: (saved) => void loadContract(saved),
+          reset: handleNew,
+        });
+      }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'حدث خطأ أثناء الحفظ');
     } finally {

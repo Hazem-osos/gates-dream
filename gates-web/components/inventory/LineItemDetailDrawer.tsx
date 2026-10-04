@@ -58,7 +58,7 @@ export function LineItemDetailDrawer({
   const qty = Number(draft.quantity ?? 0);
   const price = Number(draft.unitPrice ?? 0);
   const margin =
-    price > 0 && unitCost > 0 ? (((price - unitCost) / price) * 100).toFixed(2) : '—';
+    price > 0 && unitCost > 0 ? (((price - unitCost) / price) * 100).toLocaleString() : '—';
 
   const patch = (key: keyof LineDetailDrawerLine, value: string | number | undefined) => {
     setDraft((d) => ({ ...d, [key]: value }));

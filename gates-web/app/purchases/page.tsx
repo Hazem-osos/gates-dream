@@ -90,7 +90,7 @@ export default function PurchasesCommand() {
           <p className="mb-2 text-xs font-semibold">دورة الشراء</p>
           <SegmentedBar
             segments={[
-              { label: 'أوامر', value: orders.length, color: '#0E79AA' },
+              { label: 'أوامر', value: orders.length, color: '#0E78AA' },
               { label: 'فواتير', value: inRange.length, color: '#D97706' },
               { label: 'مرحلة', value: inRange.filter((r) => r.isPosted).length, color: '#059669' },
             ]}

@@ -238,25 +238,42 @@ export function ReportFilterCheckbox({
   onChange: (checked: boolean) => void;
 }) {
   return (
-    <label htmlFor={id} className="inline-flex items-center gap-2 cursor-pointer text-sm text-slate-700 dark:text-slate-300">
+    <label
+      htmlFor={id}
+      className={`report-filter-option inline-flex h-9 cursor-pointer select-none items-center gap-2 rounded-lg border px-3 text-sm font-medium transition focus-within:ring-2 focus-within:ring-[#0E78AA]/25 ${
+        checked
+          ? 'border-[#B7D7E8] bg-[#F4FAFC] text-[#094C6B] dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-100'
+          : 'border-[#D6EAF3] bg-white text-slate-600 hover:bg-[#F6FBFD] dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300'
+      }`}
+    >
       <input
         id={id}
         type="checkbox"
         checked={checked}
         onChange={(e) => onChange(e.target.checked)}
-        className="w-4 h-4 rounded border-slate-300 text-sky-600 focus:ring-sky-500"
+        className="sr-only"
       />
+      <span
+        aria-hidden
+        className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border ${
+          checked
+            ? 'border-[#0E78AA] bg-[#0E78AA] text-white'
+            : 'border-slate-300 bg-white dark:border-slate-600 dark:bg-slate-900'
+        }`}
+      >
+        {checked ? (
+          <svg viewBox="0 0 16 16" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="2.4">
+            <path d="M3.5 8.2 6.4 11l6.1-6.2" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        ) : null}
+      </span>
       {label}
     </label>
   );
 }
 
 export function ReportFilterOptionsRow({ children }: { children: ReactNode }) {
-  return (
-    <div className="col-span-full flex flex-wrap items-center gap-6 mt-2 pt-2 border-t border-slate-100 dark:border-slate-800">
-      {children}
-    </div>
-  );
+  return <div className="col-span-full flex flex-wrap items-center gap-2">{children}</div>;
 }
 
 export function ReportFilterPartyGroupSelect({
@@ -300,12 +317,14 @@ export function ReportFilterPartySelect({
   value,
   onChange,
   emptyLabel,
+  includeAllAccounts = false,
 }: {
   label: string;
   kind: 'CUSTOMER' | 'SUPPLIER';
   value: string;
   onChange: (id: string) => void;
   emptyLabel?: string;
+  includeAllAccounts?: boolean;
 }) {
   return (
     <ReportFilterField label={label}>
@@ -316,6 +335,8 @@ export function ReportFilterPartySelect({
         className={reportFilterInputClass}
         emptyLabel={emptyLabel}
         enableQuickCreate={false}
+        includeAllAccounts={includeAllAccounts}
+        accountsLeafOnly
       />
     </ReportFilterField>
   );
@@ -326,11 +347,13 @@ export function ReportFilterWarehouseSelect({
   value,
   onChange,
   emptyLabel = 'كل المخازن',
+  leafOnly = true,
 }: {
   label: string;
   value: string;
   onChange: (id: string) => void;
   emptyLabel?: string;
+  leafOnly?: boolean;
 }) {
   return (
     <ReportFilterField label={label}>
@@ -339,6 +362,7 @@ export function ReportFilterWarehouseSelect({
         onChange={onChange}
         className={reportFilterInputClass}
         emptyLabel={emptyLabel}
+        leafOnly={leafOnly}
       />
     </ReportFilterField>
   );
@@ -364,6 +388,8 @@ export function ReportFilterItemSelect({
         emptyLabel={emptyLabel}
         enableQuickCreate={false}
         portaled
+        allowEmpty
+        menuPlacement="auto"
       />
     </ReportFilterField>
   );
@@ -400,11 +426,13 @@ export function ReportFilterCostCenterSelect({
   value,
   onChange,
   emptyLabel = 'كل مراكز التكلفة',
+  allowEmpty = true,
 }: {
   label: string;
   value: string;
   onChange: (id: string) => void;
   emptyLabel?: string;
+  allowEmpty?: boolean;
 }) {
   return (
     <ReportFilterField label={label}>
@@ -412,8 +440,9 @@ export function ReportFilterCostCenterSelect({
         value={value}
         onChange={onChange}
         className={reportFilterInputClass}
-        allowEmpty
+        allowEmpty={allowEmpty}
         emptyLabel={emptyLabel}
+        leafOnly={false}
       />
     </ReportFilterField>
   );
@@ -425,12 +454,15 @@ export function ReportFilterAccountSelect({
   onChange,
   emptyLabel = 'كل الحسابات',
   placeholder = 'ابحث عن حساب…',
+  leafOnly = true,
 }: {
   label: string;
   value: string;
   onChange: (id: string) => void;
   emptyLabel?: string;
   placeholder?: string;
+  /** When false, the list includes header and parent accounts, not only posting leaves. */
+  leafOnly?: boolean;
 }) {
   return (
     <ReportFilterField label={label}>
@@ -441,7 +473,7 @@ export function ReportFilterAccountSelect({
         emptyLabel={emptyLabel}
         placeholder={placeholder}
         enableQuickCreate
-        leafOnly={false}
+        leafOnly={leafOnly}
       />
     </ReportFilterField>
   );
@@ -452,6 +484,63 @@ type NamedCodeOption = { id: string; code?: string | null; arabicName?: string |
 function namedCodeLabel(row: NamedCodeOption) {
   const name = row.arabicName || row.name || '';
   return row.code ? `${row.code} — ${name}` : name;
+}
+
+export function ReportFilterFiscalYearSelect({
+  label = 'سنة المقارنة',
+  value,
+  onChange,
+}: {
+  label?: string;
+  value: string;
+  onChange: (id: string) => void;
+}) {
+  const { data } = useApiQuery<
+    Array<{ id: string; arabicName?: string | null; startDate: string; endDate: string }>
+  >(['company-fiscal-years', 'report-compare'], '/company/fiscal-years', { page: 1, limit: 100 });
+  const options = (data?.data ?? []).map((year) => ({
+    value: year.id,
+    label: year.arabicName?.trim() || year.startDate.slice(0, 4),
+  }));
+  return (
+    <ReportFilterSelect
+      label={label}
+      value={value}
+      onChange={onChange}
+      options={options}
+      placeholder="بدون مقارنة"
+    />
+  );
+}
+
+export function ReportFilterUserSelect({
+  label = 'المستخدم',
+  value,
+  onChange,
+  emptyLabel = 'كل المستخدمين',
+}: {
+  label?: string;
+  value: string;
+  onChange: (id: string) => void;
+  emptyLabel?: string;
+}) {
+  const { data } = useApiQuery<Array<{ id: string; firstName?: string | null; lastName?: string | null; username?: string | null }>>(
+    ['report-filter-users'],
+    '/users/report-options'
+  );
+  const options = (data?.data ?? []).map((user) => {
+    const name = [user.firstName, user.lastName].filter(Boolean).join(' ');
+    return { value: user.id, label: name || user.username || user.id };
+  });
+  return (
+    <ReportFilterSelect
+      label={label}
+      value={value}
+      onChange={onChange}
+      options={options}
+      placeholder={emptyLabel}
+    />
+  );
 }
 
 export function ReportFilterBranchSelect({
@@ -521,16 +610,18 @@ export function ReportFilterDelegateSelect({
   value,
   onChange,
   emptyLabel = 'كل المندوبين',
+  role,
 }: {
   label?: string;
   value: string;
   onChange: (id: string) => void;
   emptyLabel?: string;
+  role?: 'DELEGATE' | 'DRIVER' | 'DISTRIBUTOR';
 }) {
   const { data, isLoading } = useApiQuery<NamedCodeOption[]>(
-    ['report-filter-delegates'],
+    ['report-filter-delegates', role ?? 'any'],
     '/accounting/delegates',
-    { limit: 1000, isActive: true }
+    role ? { limit: 1000, isActive: true, role } : { limit: 1000, isActive: true }
   );
   const options = (data?.data ?? []).map((d) => ({
     value: d.id,

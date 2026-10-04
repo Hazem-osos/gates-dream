@@ -6,18 +6,17 @@
 |-----------|------|
 | **PosTerminal** | Branch warehouse, safe, bank account for card tenders |
 | **PosShift** | Open/close drawer; aggregates tenders, merch, VAT, COGS |
-| **PosOrder / PosOrderLine** | Ticket; stock posted per sale; GL deferred to Z-close |
-| **PosOrderPostingService** | Stock (M4), shift totals, credit customer balance |
-| **PosShiftService.closeShift** | Z-report + consolidated `POS-Z` journal entry |
+| **PosOrder / PosOrderLine** | Authoritative POS financial document. Each posted order has its own journal. It does not create a sales invoice. |
+| **PosOrderPostingService** | Claims DRAFT→POSTED in the posting transaction, then inventory costing (which writes the stock movement), COGS, and the journal |
+| **PosShiftService.closeShift** | Drawer reconciliation only. A `POS-VARIANCE` journal is written when counted cash differs. Revenue is not deferred to Z-close. |
+| **PosShift.openTerminalKey** | Set to the terminal id only while OPEN. Unique per company so a terminal has one open session. |
 
-## Shift close GL (Z-report)
+## Order post GL (immediate)
 
-- Dr Safe — net cash sales (excludes opening float)
-- Dr Bank — card sales
-- Dr AR — credit sales
-- Dr COGS / Cr Inventory
+- Dr Safe / Bank / AR — tender columns
+- Dr COGS / Cr Inventory — amount from `inventoryCostingService`, one movement per line
 - Cr Revenue + Cr Output VAT
-- Cash shortage/surplus accounts when declared ≠ system drawer
+- Shift close does not repeat those legs. It only posts cash shortage or surplus when declared cash differs from `openingCash + totalCashSales`.
 
 ## API
 

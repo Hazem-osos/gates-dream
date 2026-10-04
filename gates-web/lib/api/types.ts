@@ -39,6 +39,15 @@ export interface ApiError {
   message: string;
   errors?: Record<string, string[]>;
   code?: string;
+  stage?: string;
+  originalCode?: string;
+  originalStatusCode?: number;
+  etaHttpStatus?: number;
+  etaBodyPreview?: string;
+  signingSessionId?: string;
+  documentId?: string;
+  contentHash?: string;
+  localVerify?: string;
 }
 
 /**
@@ -53,6 +62,8 @@ export interface RequestConfig {
   timeout?: number;
   /** Skip If-None-Match and force a full 200 body (used after a cache-miss 304). */
   bypassConditionalGet?: boolean;
+  /** Internal: a catalog save landed while this GET was in flight; retry once. */
+  ignoreCatalogDrift?: boolean;
   /** Do not broadcast to the global error toast / AI explainer (used by diagnose-error). */
   skipErrorNotify?: boolean;
   /** Do not broadcast the global green save toast (background sync, last-rate, favorites). */

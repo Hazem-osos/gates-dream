@@ -63,7 +63,7 @@ export function RegisterClientContractModal({
   return (
     <div className="fixed inset-0 z-[140] flex items-center justify-center bg-black/40 p-4" dir="rtl">
       <div className="max-h-[90vh] w-full max-w-xl space-y-3 overflow-auto rounded-xl bg-white p-5 shadow-xl">
-        <h2 className="text-lg font-bold text-[#0E79AA]">تسجيل عقد المالك</h2>
+        <h2 className="text-lg font-bold text-[#0E78AA]">تسجيل عقد المالك</h2>
         <Input placeholder="رقم العقد" value={form.contractNumber} onChange={(e) => setForm((p) => ({ ...p, contractNumber: e.target.value }))} />
         <select
           className="h-9 w-full rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] px-3 text-sm"

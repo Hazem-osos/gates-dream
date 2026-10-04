@@ -4,9 +4,10 @@ import { automationActionRunService } from './automation-action-run.instance';
 import { AutomationActionDispatchService } from './automation-action-dispatch.service';
 import { notificationActionHandler } from './automation-notification-action.handler';
 import { emailActionHandler } from './automation-email-action.handler';
+import { whatsappActionHandler } from './automation-whatsapp-action.handler';
 
 export const automationActionDispatchService = new AutomationActionDispatchService(
-  [notificationActionHandler, emailActionHandler],
+  [notificationActionHandler, emailActionHandler, whatsappActionHandler],
   automationActionRunService,
   {
     async assertActive(companyId: string) {

@@ -1,16 +1,44 @@
 import { spawn } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(fileURLToPath(new URL('.', import.meta.url)), '..');
-const standalone = path.join(root, '.next/standalone');
-const server = path.join(standalone, 'server.js');
 
-if (!existsSync(server)) {
+function resolveStandaloneServer() {
+  const standaloneRoot = path.join(root, '.next/standalone');
+  const direct = path.join(standaloneRoot, 'server.js');
+  if (existsSync(direct)) {
+    return { serverPath: direct, cwd: standaloneRoot };
+  }
+  if (!existsSync(standaloneRoot)) return null;
+
+  const candidates = [];
+  const walk = (dir, depth) => {
+    if (depth > 8) return;
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (entry.name === 'node_modules') continue;
+        walk(full, depth + 1);
+      } else if (entry.name === 'server.js') {
+        candidates.push(full);
+      }
+    }
+  };
+  walk(standaloneRoot, 0);
+  if (!candidates.length) return null;
+  candidates.sort((a, b) => a.length - b.length);
+  const serverPath = candidates[0];
+  return { serverPath, cwd: path.dirname(serverPath) };
+}
+
+const resolved = resolveStandaloneServer();
+if (!resolved) {
   console.error('Missing .next/standalone/server.js. Build with output: "standalone".');
   process.exit(1);
 }
+const { serverPath: server, cwd: standalone } = resolved;
 
 function copyIfNeeded(from, to) {
   if (!existsSync(from) || existsSync(to)) return;

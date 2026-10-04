@@ -13,18 +13,12 @@ function readStored(): AppearanceMode {
   return 'system';
 }
 
-function systemPrefersDark(): boolean {
-  if (typeof window === 'undefined') return false;
-  return window.matchMedia('(prefers-color-scheme: dark)').matches;
-}
-
-export function applyAppearanceMode(mode: AppearanceMode) {
+export function applyAppearanceMode(_mode: AppearanceMode) {
   if (typeof document === 'undefined') return;
   const root = document.documentElement;
   root.removeAttribute('data-theme');
-  const dark =
-    mode === 'dark' ? true : mode === 'light' ? false : systemPrefersDark();
-  root.classList.toggle('dark', dark);
+  root.classList.remove('dark');
+  root.style.colorScheme = 'light';
 }
 
 export function useAppearanceMode() {
@@ -43,10 +37,10 @@ export function useAppearanceMode() {
     return () => mq.removeEventListener('change', onSystem);
   }, []);
 
-  const setMode = useCallback((next: AppearanceMode) => {
-    localStorage.setItem(STORAGE_KEY, next);
-    setModeState(next);
-    applyAppearanceMode(next);
+  const setMode = useCallback((_next: AppearanceMode) => {
+    localStorage.setItem(STORAGE_KEY, 'light');
+    setModeState('light');
+    applyAppearanceMode('light');
   }, []);
 
   return { mode, setMode };

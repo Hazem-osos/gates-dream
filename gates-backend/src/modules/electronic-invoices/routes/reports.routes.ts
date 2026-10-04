@@ -21,8 +21,49 @@ function parseRangeStart(value: unknown, field: string): Date {
 function parseRangeEnd(value: unknown, field: string): Date {
   return endOfDayUtc(value, field);
 }
-function todayEndOfDayUtc(): Date {
-  return endOfDayUtc(new Date().toISOString().split('T')[0], 'today');
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function optionalId(value: unknown): string | undefined {
+  const text = typeof value === 'string' ? value.trim() : '';
+  return UUID_RE.test(text) ? text : undefined;
+}
+
+function patternIds(value: unknown): string[] | undefined {
+  const raw = String(value ?? '')
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean);
+  const ids = raw.filter((id) => id === 'builtin:SALES_INVOICE' || UUID_RE.test(id));
+  return ids.length ? ids : undefined;
+}
+
+function submissionOf(value: unknown): 'sent' | 'unsent' | 'all' {
+  return value === 'unsent' || value === 'all' || value === 'sent' ? value : 'sent';
+}
+
+function reportFilters(req: AuthRequest, companyId: string) {
+  return {
+    companyId,
+    customerId: optionalId(req.query.customerId),
+    delegateId: optionalId(req.query.delegateId),
+    warehouseId: optionalId(req.query.warehouseId),
+    branchId: optionalId(req.query.branchId),
+    itemId: optionalId(req.query.itemId),
+    itemGroupId: optionalId(req.query.itemGroupId),
+    costCenterId: optionalId(req.query.costCenterId),
+    sentByUserId: optionalId(req.query.sentByUserId),
+    invoiceNumber: String(req.query.invoiceNumber ?? '').trim().slice(0, 50) || undefined,
+    patternIds: patternIds(req.query.patternIds),
+    submission: submissionOf(req.query.invoiceSelection),
+    fromDate: req.query.fromDate ? parseRangeStart(req.query.fromDate, 'fromDate') : undefined,
+    toDate: req.query.toDate ? parseRangeEnd(req.query.toDate, 'toDate') : undefined,
+    submittedFrom: req.query.submittedFrom
+      ? parseRangeStart(req.query.submittedFrom, 'submittedFrom')
+      : undefined,
+    submittedTo: req.query.submittedTo
+      ? parseRangeEnd(req.query.submittedTo, 'submittedTo')
+      : undefined,
+  };
 }
 
 /**
@@ -38,16 +79,11 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
-      const filters = {
-        companyId,
-        customerId: req.query.customerId as string | undefined,
-        fromDate: req.query.fromDate ? parseRangeStart(req.query.fromDate, 'fromDate') : undefined,
-        toDate: req.query.toDate ? parseRangeEnd(req.query.toDate, 'toDate') : undefined,
-      };
+      const filters = reportFilters(req, companyId);
 
       const options = {
         page: req.query.page ? parseInt(req.query.page as string, 10) : 1,
@@ -85,16 +121,11 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
-      const filters = {
-        companyId,
-        customerId: req.query.customerId as string | undefined,
-        fromDate: req.query.fromDate ? parseRangeStart(req.query.fromDate, 'fromDate') : undefined,
-        toDate: req.query.toDate ? parseRangeEnd(req.query.toDate, 'toDate') : undefined,
-      };
+      const filters = reportFilters(req, companyId);
 
       const options = {
         page: req.query.page ? parseInt(req.query.page as string, 10) : 1,
@@ -132,16 +163,11 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
-      const filters = {
-        companyId,
-        customerId: req.query.customerId as string | undefined,
-        fromDate: req.query.fromDate ? parseRangeStart(req.query.fromDate, 'fromDate') : undefined,
-        toDate: req.query.toDate ? parseRangeEnd(req.query.toDate, 'toDate') : undefined,
-      };
+      const filters = reportFilters(req, companyId);
 
       const options = {
         page: req.query.page ? parseInt(req.query.page as string, 10) : 1,

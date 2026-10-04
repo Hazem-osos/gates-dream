@@ -101,7 +101,7 @@ export class ConsistencyValidator {
       if (!invoice) {
         return {
           valid: false,
-          errors: ['Invoice not found'],
+          errors: ['الفاتورة غير موجودة'],
         };
       }
 

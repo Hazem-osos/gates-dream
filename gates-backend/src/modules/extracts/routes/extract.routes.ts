@@ -31,7 +31,7 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -74,7 +74,7 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -110,7 +110,7 @@ router.post(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -153,7 +153,7 @@ router.put(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -198,7 +198,7 @@ router.delete(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -234,7 +234,7 @@ router.post(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -247,13 +247,13 @@ router.post(
       });
     } catch (error) {
       logger.error({ error }, 'Error posting extract');
-      const status =
-        error instanceof Error && error.message === 'Extract not found'
-          ? 404
-          : error instanceof Error && (error.message.includes('already') || error.message.includes('cancelled'))
-          ? 400
-          : 500;
-      return void res.status(status).json({
+      const statusCode =
+        error && typeof error === 'object' && 'statusCode' in error
+          ? Number((error as { statusCode: number }).statusCode)
+          : error instanceof Error && error.message === 'Extract not found'
+            ? 404
+            : 500;
+      return void res.status(statusCode).json({
         status: 'error',
         message: error instanceof Error ? error.message : 'Failed to post extract',
       });
@@ -274,7 +274,7 @@ router.post(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -287,13 +287,13 @@ router.post(
       });
     } catch (error) {
       logger.error({ error }, 'Error unposting extract');
-      const status =
-        error instanceof Error && error.message === 'Extract not found'
-          ? 404
-          : error instanceof Error && error.message.includes('not posted')
-          ? 400
-          : 500;
-      return void res.status(status).json({
+      const statusCode =
+        error && typeof error === 'object' && 'statusCode' in error
+          ? Number((error as { statusCode: number }).statusCode)
+          : error instanceof Error && error.message === 'Extract not found'
+            ? 404
+            : 500;
+      return void res.status(statusCode).json({
         status: 'error',
         message: error instanceof Error ? error.message : 'Failed to unpost extract',
       });
@@ -314,7 +314,7 @@ router.post(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 

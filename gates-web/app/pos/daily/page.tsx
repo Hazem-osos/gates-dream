@@ -1,8 +1,8 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { UnifiedReportFilterCard } from '@/components/report/UnifiedReportFilterCard';
+import { InlineReportResults } from '@/components/report/InlineReportResults';
 import {
   ReportFilterDate,
   ReportFilterDelegateSelect,
@@ -21,8 +21,8 @@ function emptyPosDailyFilters() {
 }
 
 export default function DailyPOSPage() {
-  const router = useRouter();
   const [error, setError] = useState('');
+  const [previewQuery, setPreviewQuery] = useState<Record<string, string> | null>(null);
   const [filters, setFilters] = useState(emptyPosDailyFilters);
   const breadcrumbs = useMemo(
     () => breadcrumbsForReportModule('pos', 'يومية نقاط البيع'),
@@ -42,13 +42,13 @@ export default function DailyPOSPage() {
     qs.set('date', filters.date);
     if (filters.warehouseId) qs.set('warehouseId', filters.warehouseId);
     if (filters.sellerId) qs.set('sellerId', filters.sellerId);
-    router.push(`/pos/daily/preview?${qs.toString()}`);
+    setPreviewQuery(Object.fromEntries(qs));
   };
 
   return (
     <ReportFilterPageShell
       title="يومية نقاط البيع"
-      description="مراجعة مبيعات الوردية حسب التاريخ والمخزن والبائع."
+      description="أوامر نقطة البيع المرحلة حسب التاريخ والمخزن. فواتير المبيعات التاريخية غير مضمونة لأن مسار /pos/sales لم يترك علامة نقطة بيع."
       breadcrumbs={breadcrumbs}
       error={error}
       onClearError={() => setError('')}
@@ -61,6 +61,7 @@ export default function DailyPOSPage() {
         onReset={() => {
           setFilters(emptyPosDailyFilters());
           setError('');
+          setPreviewQuery(null);
         }}
       >
         <ReportFilterDate
@@ -80,6 +81,13 @@ export default function DailyPOSPage() {
           emptyLabel="كل البائعين"
         />
       </UnifiedReportFilterCard>
+      <InlineReportResults
+        urlPath="/pos/daily"
+        query={previewQuery}
+        registryPath="pos/daily"
+        reportKey="pos-daily"
+        title="يومية نقاط البيع"
+      />
     </ReportFilterPageShell>
   );
 }

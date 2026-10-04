@@ -19,7 +19,7 @@ interface ModuleWithChildren extends ModuleItem {
   children: (ModuleItem | ModuleWithChildren)[];
 }
 
-const C = '#0E79AA';
+const C = '#0E78AA';
 
 export const inventoryModules: ModuleWithChildren[] = [
   {
@@ -30,6 +30,7 @@ export const inventoryModules: ModuleWithChildren[] = [
     children: [
       { key: 'warehouse-guide', icon: '', label: 'دليل المخازن', color: C, href: '/inventory/guide' },
       { key: 'items-guide', icon: '', label: 'دليل الأصناف', color: C, href: '/inventory/guide/items' },
+      { key: 'locations-guide', icon: '', label: 'مواقع المخزن', color: C, href: '/inventory/guide/locations' },
     ],
   },
   {
@@ -75,13 +76,13 @@ export const inventoryModules: ModuleWithChildren[] = [
         label: 'المخازن',
         color: C,
         children: [
-          { key: 'receipt', icon: '', label: 'سند إضافة مخزنية', color: C, href: '/inventory/operations/receipt' },
-          { key: 'issue', icon: '', label: 'سند صرف مخزنية', color: C, href: '/inventory/operations/issue' },
+          { key: 'receipt', icon: '', label: 'إذن إضافة مخزني', color: C, href: '/inventory/operations/receipt' },
+          { key: 'issue', icon: '', label: 'إذن صرف مخزني', color: C, href: '/inventory/operations/issue' },
           { key: 'transfer', icon: '', label: 'نقل مخزني', color: C, href: '/inventory/operations/transfer' },
-          { key: 'adjustment', icon: '', label: 'تسوية مخزنية', color: C, href: '/inventory/operations/adjustment' },
           { key: 'assembly', icon: '', label: 'تجميع الأصناف', color: C, href: '/inventory/operations/assembly' },
           { key: 'disassembly', icon: '', label: 'تفكيك الأصناف', color: C, href: '/inventory/operations/disassembly' },
           { key: 'stocktaking', icon: '', label: 'جرد مخزني', color: C, href: '/inventory/operations/stocktaking' },
+          { key: 'item-reservation', icon: '', label: 'حجز الأصناف', color: C, href: '/inventory/operations/item-reservation' },
           { key: 'opening-stock', icon: '', label: 'بضاعة أول المدة', color: C, href: '/inventory/operations/opening-stock' },
         ],
       },
@@ -114,7 +115,20 @@ export const inventoryModules: ModuleWithChildren[] = [
         label: 'إضافات وعروض',
         color: C,
         children: [
-          { key: 'other-additions-discounts', icon: '', label: 'إضافات وخصومات أخرى', color: C, href: '/inventory/operations/other-additions-discounts' },
+          {
+            key: 'other-adjustment',
+            icon: '',
+            label: 'إضافات وخصومات أخرى',
+            color: C,
+            href: '/inventory/operations/other-adjustment',
+          },
+          {
+            key: 'other-additions-discounts',
+            icon: '',
+            label: 'تعريف إضافات وخصومات',
+            color: C,
+            href: '/inventory/operations/other-additions-discounts',
+          },
           { key: 'item-offers', icon: '', label: 'عروض أصناف', color: C, href: '/inventory/operations/item-offers' },
         ],
       },
@@ -132,6 +146,8 @@ export const inventoryModules: ModuleWithChildren[] = [
         label: 'المخزون',
         color: C,
         children: [
+          { key: 'warehouse-pulse', icon: '', label: 'نبض المخازن', color: C, href: '/inventory/reports/warehouse-pulse' },
+          { key: 'warehouse-compare', icon: '', label: 'مقارنة المخازن', color: C, href: '/inventory/reports/warehouse-compare' },
           { key: 'inventory-reports', icon: '', label: 'جرد الأصناف', color: C, href: '/inventory/reports/inventory-reports' },
           { key: 'item-movement-reports', icon: '', label: 'حركة الأصناف', color: C, href: '/inventory/reports/item-movement-reports' },
           { key: 'expiry-date-report', icon: '', label: 'انتهاء صلاحية الأصناف', color: C, href: '/inventory/reports/expiry-date-report' },
@@ -152,7 +168,8 @@ export const inventoryModules: ModuleWithChildren[] = [
           { key: 'sales-and-returns-reports', icon: '', label: 'المبيعات والمردودات', color: C, href: '/inventory/reports/sales-and-returns-reports' },
           { key: 'monthly-sales-for-items', icon: '', label: 'المبيعات الشهرية للأصناف', color: C, href: '/inventory/reports/monthly-sales-for-items' },
           { key: 'detailed-invoice-movement', icon: '', label: 'الحركة التفصيلية للفواتير', color: C, href: '/inventory/reports/detailed-invoice-movement' },
-          { key: 'analytical-invoices', icon: '', label: 'الحركة التحليلية للفواتير', color: C, href: '/inventory/reports/analytical-invoices' },
+          { key: 'analytical-invoices', icon: '', label: 'تقرير استخدام عروض الأسعار وأوامر الشراء', color: C, href: '/inventory/reports/analytical-invoices' },
+          { key: 'invoice-analytical', icon: '', label: 'التقرير التحليلي للفواتير', color: C, href: '/inventory/reports/invoice-analytical' },
           { key: 'sales-and-purchase-tax', icon: '', label: 'ضريبة المبيعات والمشتريات', color: C, href: '/inventory/reports/sales-and-purchase-tax' },
         ],
       },

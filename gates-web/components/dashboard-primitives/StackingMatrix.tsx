@@ -122,7 +122,7 @@ export function StackingMatrix({
                         type="button"
                         onClick={() => onUnitClick?.(u, building)}
                         className={cn(
-                          'rounded-sm border px-1.5 py-1 text-right transition hover:ring-1 hover:ring-[#0E79AA]',
+                          'rounded-sm border px-1.5 py-1 text-right transition hover:ring-1 hover:ring-[#0E78AA]',
                           STATUS_BG[u.status] ?? STATUS_BG.BLOCKED
                         )}
                       >

@@ -27,8 +27,8 @@ export function QuickActionBar({
             className={cn(
               'inline-flex h-9 items-center gap-2 rounded-lg px-3 text-xs font-semibold transition-colors',
               primary
-                ? 'bg-[#0E79AA] text-white shadow-[0_1px_2px_rgba(14,121,170,0.28)] hover:bg-[#0B6188]'
-                : 'border border-slate-200 bg-white text-slate-800 hover:border-[#0E79AA]/40 hover:text-[#0E79AA]'
+                ? 'bg-[#0E78AA] text-white shadow-[0_1px_2px_rgba(14,121,170,0.28)] hover:bg-[#0B6188]'
+                : 'border border-slate-200 bg-white text-slate-800 hover:border-[#0E78AA]/40 hover:text-[#0E78AA]'
             )}
           >
             {Icon ? <Icon className="h-3.5 w-3.5" aria-hidden /> : null}

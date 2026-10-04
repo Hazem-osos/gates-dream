@@ -92,7 +92,7 @@ export function IssueLgModal({
   return (
     <Overlay wide>
       <div className="p-5 pb-0">
-        <h2 className="mb-4 text-lg font-bold text-[#0E79AA]">إصدار خطاب ضمان</h2>
+        <h2 className="mb-4 text-lg font-bold text-[#0E78AA]">إصدار خطاب ضمان</h2>
         <FormSectionCard title="البيانات الأساسية" subtitle="رقم الخطاب والبنك والمستفيد والقيمة" icon={Shield}>
           <CompactFormField
             label="رقم الخطاب"
@@ -202,7 +202,6 @@ export function IssueLgModal({
         cancelText="إلغاء"
         saveLoading={save.isPending}
         saveDisabled={!form.lgNumber || !form.bankAccountId || !form.expiryDate}
-        respectPermissions={false}
         className="mt-0"
       />
     </Overlay>
@@ -244,7 +243,7 @@ export function ExtendLgModal({
   return (
     <Overlay>
       <div className="p-5 pb-0">
-        <h2 className="mb-4 text-lg font-bold text-[#0E79AA]">مد صلاحية {lg.lgNumber}</h2>
+        <h2 className="mb-4 text-lg font-bold text-[#0E78AA]">مد صلاحية {lg.lgNumber}</h2>
         <FormSectionCard title="البيانات الأساسية" subtitle="تاريخ الانتهاء الجديد" icon={Shield} className="mb-3">
           <CompactFormField
             label="تاريخ الانتهاء الجديد"
@@ -287,7 +286,6 @@ export function ExtendLgModal({
         cancelText="إلغاء"
         saveLoading={save.isPending}
         saveDisabled={!form.newExpiryDate}
-        respectPermissions={false}
         className="mt-0"
       />
     </Overlay>
@@ -334,7 +332,7 @@ export function AmendLgModal({
   return (
     <Overlay>
       <div className="p-5 pb-0">
-        <h2 className="mb-4 text-lg font-bold text-[#0E79AA]">تعديل قيمة {lg.lgNumber}</h2>
+        <h2 className="mb-4 text-lg font-bold text-[#0E78AA]">تعديل قيمة {lg.lgNumber}</h2>
         <p className="mb-3 text-sm text-slate-500">القيمة الحالية: {formatEgp(lg.currentAmount)}</p>
         <FormSectionCard title="البيانات الأساسية" subtitle="القيمة الجديدة للخطاب" icon={Shield} className="mb-3">
           <CompactFormField
@@ -367,7 +365,6 @@ export function AmendLgModal({
         saveText="تأكيد التعديل"
         cancelText="إلغاء"
         saveLoading={save.isPending}
-        respectPermissions={false}
         className="mt-0"
       />
     </Overlay>
@@ -402,7 +399,7 @@ export function ReleaseLgModal({
   return (
     <Overlay>
       <div className="p-5 pb-0">
-        <h2 className="mb-4 text-lg font-bold text-[#0E79AA]">إفراج ورد {lg.lgNumber}</h2>
+        <h2 className="mb-4 text-lg font-bold text-[#0E78AA]">إفراج ورد {lg.lgNumber}</h2>
         <p className="mb-3 text-sm">سيتم رد الغطاء النقدي {formatEgp(lg.cashMarginAmount)} إلى حساب البنك.</p>
         <FormSectionCard title="البيانات الأساسية" subtitle="تاريخ الإفراج" icon={Shield} className="mb-3">
           <CompactFormField
@@ -435,7 +432,6 @@ export function ReleaseLgModal({
         saveText="تأكيد الإفراج"
         cancelText="إلغاء"
         saveLoading={save.isPending}
-        respectPermissions={false}
         className="mt-0"
       />
     </Overlay>
@@ -509,7 +505,6 @@ export function LiquidateLgModal({
         cancelText="إلغاء"
         saveLoading={save.isPending}
         saveDisabled={!form.liquidationReason}
-        respectPermissions={false}
         className="mt-0"
       />
     </Overlay>

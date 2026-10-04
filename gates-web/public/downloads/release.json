@@ -1,0 +1,12 @@
+{
+  "product": "Gates E-Sign Agent",
+  "version": "1.1.5",
+  "protocolVersion": 2,
+  "platform": "windows-x64",
+  "fileName": "GatesESignSetup.exe",
+  "sha256": "fd5f48550b0d6c7eb36531e30943d8f65dc0ad24fb9f7c810cbd154c34f69c83",
+  "publishedAt": "2026-10-01T10:44:34Z",
+  "minCompatibleVersion": "1.1.5",
+  "codeSigning": "WINDOWS_CODE_SIGNING_CERTIFICATE_REQUIRED",
+  "downloadUrl": ""
+}

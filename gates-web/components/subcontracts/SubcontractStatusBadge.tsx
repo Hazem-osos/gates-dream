@@ -27,6 +27,7 @@ const INVOICE_LABEL: Record<SubcontractInvoiceStatus, string> = {
   FINANCE_POSTED: 'مرحل حسابات',
   REJECTED: 'مرفوض',
   PAID: 'مدفوع',
+  REVERSED: 'معكوس',
 };
 
 const INVOICE_TONE: Record<SubcontractInvoiceStatus, StatusTone> = {
@@ -37,6 +38,7 @@ const INVOICE_TONE: Record<SubcontractInvoiceStatus, StatusTone> = {
   FINANCE_POSTED: 'success',
   REJECTED: 'danger',
   PAID: 'success',
+  REVERSED: 'neutral',
 };
 
 export function SubcontractStatusBadge({ status }: { status: SubcontractStatus }) {

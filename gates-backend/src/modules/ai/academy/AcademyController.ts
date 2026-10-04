@@ -8,7 +8,7 @@ function requireActor(req: AuthRequest): { userId: string; companyId: string; ro
   const userId = req.user?.sub;
   const companyId = req.companyId ?? req.tenantId;
   if (!userId) throw new AppError(401, 'Authentication required');
-  if (!companyId) throw new AppError(400, 'Company ID is required');
+  if (!companyId) throw new AppError(400, 'معرّف الشركة مطلوب');
   const role = req.user?.role || req.user?.realm_access?.roles?.[0];
   return { userId, companyId, role };
 }

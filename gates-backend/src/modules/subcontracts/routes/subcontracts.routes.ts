@@ -29,6 +29,31 @@ import { taxForm41ExportService } from '../services/tax-form-41-export.service';
 import { subcontractDashboardService } from '../services/subcontract-dashboard.service';
 import { enqueueAcceptedJob } from '../../../shared/jobs/accept-job';
 import { ASYNC_QUEUE_NAMES } from '../../../workers/queue-manager';
+import {
+  allocateExistingCashToCertificateSchema,
+  contractingCertificateCollectionSchema,
+} from '../../contracting/settlement/contracting-certificate-settlement.schema';
+import { contractingPartyReconciliationService } from '../../contracting/reconciliation/contracting-party-reconciliation.service';
+import { reverseContractingCertificateSchema } from '../../contracting/reversal/contracting-certificate-reversal.schema';
+import { contractingCertificateReversalService } from '../../contracting/reversal/contracting-certificate-reversal.service';
+import { getSubcontractorPartyStatement } from '../../contracting/reconciliation/contracting-party-statement.service';
+import { contractingCertificateSettlementService } from '../../contracting/settlement/contracting-certificate-settlement.service';
+import { subcontractPreliminaryCertificateCommandService } from '../../contracting/preliminary/subcontract-preliminary-certificate-command.service';
+import { preliminaryCertificateIntegrityService } from '../../contracting/preliminary/preliminary-certificate-integrity.service';
+import {
+  approveSubPreliminarySchema,
+  convertPreliminarySchema,
+  rejectPreliminarySchema,
+  saveSubPreliminarySchema,
+  subPrelimParamsSchema,
+} from '../../contracting/preliminary/preliminary-certificate.schema';
+import { subcontractVariationCommandService } from '../../contracting/variation/subcontract-variation-command.service';
+import {
+  cancelApprovedVariationOrderSchema,
+  rejectVariationOrderSchema,
+  saveSubcontractVariationOrderSchema,
+  subcontractVariationParamsSchema,
+} from '../../contracting/variation/contract-variation.schema';
 
 const router = Router();
 router.use(authenticate);
@@ -36,7 +61,7 @@ router.use(setTenantContext);
 
 function requireCompanyId(req: AuthRequest): string {
   const companyId = req.companyId ?? req.tenantId;
-  if (!companyId) throw new AppError(400, 'Company ID is required');
+  if (!companyId) throw new AppError(400, 'معرّف الشركة مطلوب');
   return companyId;
 }
 
@@ -291,6 +316,94 @@ router.post(
   })
 );
 
+router.get(
+  '/:id/invoices/:invoiceId/settlement',
+  authorize({ resource: 'extract', action: 'view' }),
+  validateParams(invoiceParamsSchema),
+  asyncHandler(async (req, res) => {
+    const data = await contractingCertificateSettlementService.getSubcontractInvoiceSettlement(
+      requireCompanyId(req as AuthRequest),
+      req.params.invoiceId
+    );
+    res.json({ status: 'success', data });
+  })
+);
+
+router.post(
+  '/:id/invoices/:invoiceId/payments',
+  authorize({ resource: 'treasury', action: 'post' }),
+  validateParams(invoiceParamsSchema),
+  validateBody(contractingCertificateCollectionSchema),
+  asyncHandler(async (req, res) => {
+    const ctx = postingContext(req as AuthRequest);
+    const data = await contractingCertificateSettlementService.paySubcontractInvoice(
+      ctx,
+      req.params.invoiceId,
+      req.body
+    );
+    res.status(201).json({ status: 'success', data });
+  })
+);
+
+router.post(
+  '/:id/invoices/:invoiceId/payments/allocate',
+  authorize({ resource: 'treasury', action: 'post' }),
+  validateParams(invoiceParamsSchema),
+  validateBody(allocateExistingCashToCertificateSchema),
+  asyncHandler(async (req, res) => {
+    const ctx = postingContext(req as AuthRequest);
+    const data =
+      await contractingCertificateSettlementService.allocateExistingPaymentToSubcontractInvoice(
+        ctx,
+        req.params.invoiceId,
+        req.body
+      );
+    res.status(201).json({ status: 'success', data });
+  })
+);
+
+router.post(
+  '/:id/invoices/:invoiceId/reverse-finance',
+  authorize({ resource: 'extract', action: 'post' }),
+  validateParams(invoiceParamsSchema),
+  validateBody(reverseContractingCertificateSchema),
+  asyncHandler(async (req, res) => {
+    const ctx = postingContext(req as AuthRequest);
+    const data = await contractingCertificateReversalService.reverseSubcontractInvoice(
+      ctx,
+      req.params.invoiceId,
+      req.body
+    );
+    res.json({ status: 'success', data });
+  })
+);
+
+router.get(
+  '/:id/invoices/:invoiceId/party-reconciliation',
+  authorize({ resource: 'extract', action: 'view' }),
+  validateParams(invoiceParamsSchema),
+  asyncHandler(async (req, res) => {
+    const data = await contractingPartyReconciliationService.reconcileSubcontractInvoicePartyAccounting(
+      requireCompanyId(req as AuthRequest),
+      req.params.invoiceId
+    );
+    res.json({ status: 'success', data });
+  })
+);
+
+router.get(
+  '/subcontractors/:subcontractorId/party-statement',
+  authorize({ resource: 'extract', action: 'view' }),
+  validateParams(idParamSchema),
+  asyncHandler(async (req, res) => {
+    const data = await getSubcontractorPartyStatement(
+      requireCompanyId(req as AuthRequest),
+      req.params.subcontractorId
+    );
+    res.json({ status: 'success', data });
+  })
+);
+
 router.post(
   '/:id/penalties',
   authorize({ resource: 'extract', action: 'edit' }),
@@ -328,6 +441,268 @@ router.post(
       actualIssuedQty: body.actualIssuedQty,
       marketPricePerUnit: body.marketPricePerUnit,
     });
+    res.status(201).json({ status: 'success', data });
+  })
+);
+
+router.get(
+  '/:id/variation-orders',
+  authorize({ resource: 'extract', action: 'view' }),
+  validateParams(idParamSchema),
+  asyncHandler(async (req, res) => {
+    const data = await subcontractVariationCommandService.listBySubcontract(
+      requireCompanyId(req as AuthRequest),
+      req.params.id
+    );
+    res.json({ status: 'success', data });
+  })
+);
+
+router.get(
+  '/:id/variation-orders/:variationOrderId',
+  authorize({ resource: 'extract', action: 'view' }),
+  validateParams(subcontractVariationParamsSchema),
+  asyncHandler(async (req, res) => {
+    const data = await subcontractVariationCommandService.get(
+      requireCompanyId(req as AuthRequest),
+      req.params.variationOrderId
+    );
+    res.json({ status: 'success', data });
+  })
+);
+
+router.post(
+  '/:id/variation-orders',
+  authorize({ resource: 'extract', action: 'edit' }),
+  validateParams(idParamSchema),
+  validateBody(saveSubcontractVariationOrderSchema),
+  asyncHandler(async (req, res) => {
+    const auth = req as AuthRequest;
+    const data = await subcontractVariationCommandService.saveDraft(
+      requireCompanyId(auth),
+      req.params.id,
+      auth.user?.sub ?? 'system',
+      req.body
+    );
+    res.status(201).json({ status: 'success', data });
+  })
+);
+
+router.patch(
+  '/:id/variation-orders/:variationOrderId/submit',
+  authorize({ resource: 'extract', action: 'edit' }),
+  validateParams(subcontractVariationParamsSchema),
+  asyncHandler(async (req, res) => {
+    const auth = req as AuthRequest;
+    const data = await subcontractVariationCommandService.submit(
+      requireCompanyId(auth),
+      req.params.variationOrderId,
+      auth.user?.sub ?? 'system'
+    );
+    res.json({ status: 'success', data });
+  })
+);
+
+router.patch(
+  '/:id/variation-orders/:variationOrderId/begin-review',
+  authorize({ resource: 'extract', action: 'approve' }),
+  validateParams(subcontractVariationParamsSchema),
+  asyncHandler(async (req, res) => {
+    const data = await subcontractVariationCommandService.beginReview(
+      requireCompanyId(req as AuthRequest),
+      req.params.variationOrderId
+    );
+    res.json({ status: 'success', data });
+  })
+);
+
+router.patch(
+  '/:id/variation-orders/:variationOrderId/approve',
+  authorize({ resource: 'extract', action: 'approve' }),
+  validateParams(subcontractVariationParamsSchema),
+  asyncHandler(async (req, res) => {
+    const auth = req as AuthRequest;
+    const data = await subcontractVariationCommandService.approve(
+      requireCompanyId(auth),
+      req.params.variationOrderId,
+      auth.user?.sub ?? 'system'
+    );
+    res.json({ status: 'success', data });
+  })
+);
+
+router.patch(
+  '/:id/variation-orders/:variationOrderId/reject',
+  authorize({ resource: 'extract', action: 'approve' }),
+  validateParams(subcontractVariationParamsSchema),
+  validateBody(rejectVariationOrderSchema),
+  asyncHandler(async (req, res) => {
+    const auth = req as AuthRequest;
+    const body = req.body as { reason: string };
+    const data = await subcontractVariationCommandService.reject(
+      requireCompanyId(auth),
+      req.params.variationOrderId,
+      auth.user?.sub ?? 'system',
+      body.reason
+    );
+    res.json({ status: 'success', data });
+  })
+);
+
+router.patch(
+  '/:id/variation-orders/:variationOrderId/cancel',
+  authorize({ resource: 'extract', action: 'approve' }),
+  validateParams(subcontractVariationParamsSchema),
+  validateBody(cancelApprovedVariationOrderSchema),
+  asyncHandler(async (req, res) => {
+    const auth = req as AuthRequest;
+    const body = req.body as { reason: string };
+    const data = await subcontractVariationCommandService.cancelApproved(
+      requireCompanyId(auth),
+      req.params.variationOrderId,
+      auth.user?.sub ?? 'system',
+      body.reason
+    );
+    res.json({ status: 'success', data });
+  })
+);
+
+router.get(
+  '/:id/preliminary-certificates',
+  authorize({ resource: 'extract', action: 'view' }),
+  validateParams(idParamSchema),
+  asyncHandler(async (req, res) => {
+    const data = await subcontractPreliminaryCertificateCommandService.listBySubcontract(
+      requireCompanyId(req as AuthRequest),
+      req.params.id
+    );
+    res.json({ status: 'success', data });
+  })
+);
+
+router.get(
+  '/:id/preliminary-certificates/:certificateId',
+  authorize({ resource: 'extract', action: 'view' }),
+  validateParams(subPrelimParamsSchema),
+  asyncHandler(async (req, res) => {
+    const data = await subcontractPreliminaryCertificateCommandService.get(
+      requireCompanyId(req as AuthRequest),
+      req.params.certificateId
+    );
+    res.json({ status: 'success', data });
+  })
+);
+
+router.get(
+  '/:id/preliminary-certificates/:certificateId/integrity',
+  authorize({ resource: 'extract', action: 'view' }),
+  validateParams(subPrelimParamsSchema),
+  asyncHandler(async (req, res) => {
+    const data = await preliminaryCertificateIntegrityService.checkSubcontract(
+      requireCompanyId(req as AuthRequest),
+      req.params.certificateId
+    );
+    res.json({ status: 'success', data });
+  })
+);
+
+router.post(
+  '/:id/preliminary-certificates',
+  authorize({ resource: 'extract', action: 'edit' }),
+  validateParams(idParamSchema),
+  validateBody(saveSubPreliminarySchema),
+  asyncHandler(async (req, res) => {
+    const auth = req as AuthRequest;
+    const data = await subcontractPreliminaryCertificateCommandService.saveDraft(
+      requireCompanyId(auth),
+      req.params.id,
+      auth.user?.sub ?? 'system',
+      req.body
+    );
+    res.status(201).json({ status: 'success', data });
+  })
+);
+
+router.patch(
+  '/:id/preliminary-certificates/:certificateId/submit',
+  authorize({ resource: 'extract', action: 'edit' }),
+  validateParams(subPrelimParamsSchema),
+  asyncHandler(async (req, res) => {
+    const auth = req as AuthRequest;
+    const data = await subcontractPreliminaryCertificateCommandService.submit(
+      requireCompanyId(auth),
+      req.params.certificateId,
+      auth.user?.sub ?? 'system'
+    );
+    res.json({ status: 'success', data });
+  })
+);
+
+router.patch(
+  '/:id/preliminary-certificates/:certificateId/begin-review',
+  authorize({ resource: 'extract', action: 'approve' }),
+  validateParams(subPrelimParamsSchema),
+  asyncHandler(async (req, res) => {
+    const data = await subcontractPreliminaryCertificateCommandService.beginReview(
+      requireCompanyId(req as AuthRequest),
+      req.params.certificateId
+    );
+    res.json({ status: 'success', data });
+  })
+);
+
+router.patch(
+  '/:id/preliminary-certificates/:certificateId/approve',
+  authorize({ resource: 'extract', action: 'approve' }),
+  validateParams(subPrelimParamsSchema),
+  validateBody(approveSubPreliminarySchema),
+  asyncHandler(async (req, res) => {
+    const auth = req as AuthRequest;
+    const body = req.body as {
+      lines: Array<{ subcontractBOQItemId: string; approvedCurrentQuantity: number }>;
+    };
+    const data = await subcontractPreliminaryCertificateCommandService.approve(
+      requireCompanyId(auth),
+      req.params.certificateId,
+      auth.user?.sub ?? 'system',
+      body.lines
+    );
+    res.json({ status: 'success', data });
+  })
+);
+
+router.patch(
+  '/:id/preliminary-certificates/:certificateId/reject',
+  authorize({ resource: 'extract', action: 'approve' }),
+  validateParams(subPrelimParamsSchema),
+  validateBody(rejectPreliminarySchema),
+  asyncHandler(async (req, res) => {
+    const auth = req as AuthRequest;
+    const body = req.body as { reason: string };
+    const data = await subcontractPreliminaryCertificateCommandService.reject(
+      requireCompanyId(auth),
+      req.params.certificateId,
+      auth.user?.sub ?? 'system',
+      body.reason
+    );
+    res.json({ status: 'success', data });
+  })
+);
+
+router.post(
+  '/:id/preliminary-certificates/:certificateId/convert',
+  authorize({ resource: 'extract', action: 'edit' }),
+  validateParams(subPrelimParamsSchema),
+  validateBody(convertPreliminarySchema),
+  asyncHandler(async (req, res) => {
+    const auth = req as AuthRequest;
+    const body = req.body as { idempotencyKey: string };
+    const data = await subcontractPreliminaryCertificateCommandService.convertToSubcontractInvoice(
+      requireCompanyId(auth),
+      req.params.certificateId,
+      auth.user?.sub ?? 'system',
+      body.idempotencyKey
+    );
     res.status(201).json({ status: 'success', data });
   })
 );

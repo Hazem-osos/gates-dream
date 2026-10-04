@@ -1,8 +1,10 @@
 import {
-  INVOICE_DELETE_SETTLEMENT_LOCK_MESSAGE,
+  INVOICE_CANCEL_COLLECTIONS_FIRST_MESSAGE,
   INVOICE_UNPOST_BLOCKED_CHEQUE_MESSAGE,
   invoiceHasLinkedSettlementRecords,
   invoiceHasUnclearedSettlementHistory,
+  invoiceNetCoversCollections,
+  invoiceValueBelowCollectionsMessage,
   isChequeStatusBlockingInvoiceUnpost,
   shouldSkipInvoiceAutoSettle,
 } from '../../modules/invoices/services/invoice-settlement-policy';
@@ -55,6 +57,15 @@ describe('invoice settlement policy', () => {
     ).toBe(true);
   });
 
+  it('allows a save when the invoice value is not below linked collections', () => {
+    expect(invoiceNetCoversCollections(1000, 1000)).toBe(true);
+    expect(invoiceNetCoversCollections(1000, 400)).toBe(true);
+    expect(invoiceNetCoversCollections(1000, 1000.005)).toBe(true);
+    expect(invoiceNetCoversCollections(400, 1000)).toBe(false);
+    expect(invoiceValueBelowCollectionsMessage(400, 1000)).toMatch(/أقل من التحصيلات/);
+    expect(INVOICE_CANCEL_COLLECTIONS_FIRST_MESSAGE).toMatch(/ألغِ التحصيلات أولاً/);
+  });
+
   it('blocks hard delete when any settlement row is still linked', () => {
     expect(
       invoiceHasLinkedSettlementRecords({
@@ -84,6 +95,5 @@ describe('invoice settlement policy', () => {
         cheques: 1,
       })
     ).toBe(true);
-    expect(INVOICE_DELETE_SETTLEMENT_LOCK_MESSAGE).toMatch(/settlements/);
   });
 });

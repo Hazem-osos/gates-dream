@@ -10,6 +10,7 @@ import {
 } from '@/lib/keyboard/gridLineFocus';
 import {
   formatBaseAmount,
+  headerLocksLineCurrency,
   isFxRateLocked,
   lineFxRate,
   rateForCurrency,
@@ -17,6 +18,7 @@ import {
 } from '@/lib/accounting/fx-base';
 import { useCompanyBaseCurrency } from '@/lib/hooks/useCompanyBaseCurrency';
 import { ExchangeRateInput } from '@/components/accounting/ExchangeRateInput';
+import { EditableAmountInput } from '@/components/grid/EditableAmountInput';
 import { VoucherAccountCombobox } from './VoucherAccountCombobox';
 import { costCenterRuleFromAccount } from '@/lib/accounting/cost-center-rule';
 import { ACCOUNT_PICKER_PAGE_SIZE, useAccountsQuery } from '@/lib/hooks/useMasterDataQueries';
@@ -57,14 +59,6 @@ type Props = {
   showFx?: boolean;
   headerDescription?: string;
 };
-
-function formatAmountInput(value: number) {
-  if (!value) return '';
-  return value.toLocaleString('en-US', {
-    minimumFractionDigits: value % 1 === 0 ? 0 : 2,
-    maximumFractionDigits: 2,
-  });
-}
 
 export function VoucherLinesGrid({
   lines,
@@ -154,7 +148,7 @@ export function VoucherLinesGrid({
     <UniversalDataGrid
       columns={[
         { id: '#', label: '#', className: 'w-10 text-center', align: 'center' },
-        { id: 'account', label: 'الحساب / العميل / المورد', className: 'min-w-[240px]' },
+        { id: 'account', label: 'الحساب', className: 'min-w-[240px]' },
         { id: 'description', label: 'البيان / ملاحظات السطر', className: 'min-w-[180px]' },
         { id: 'amount', label: 'المبلغ', className: 'w-36 min-w-[8rem]', align: 'center' },
         ...(showFx
@@ -225,11 +219,12 @@ export function VoucherLinesGrid({
           );
         }
         if (columnId === 'currency') {
+          const currencyLocked = headerLocksLineCurrency(headerCode);
           return (
             <select
               className={dataEntryGridInputClass}
-              disabled={disabled}
-              value={line.currencyCode || headerCode}
+              disabled={disabled || currencyLocked}
+              value={currencyLocked ? headerCode : line.currencyCode || headerCode}
               onChange={(e) => {
                 const next = currencies.find((c) => c.code === e.target.value);
                 updateLine(index, {
@@ -270,20 +265,10 @@ export function VoucherLinesGrid({
         if (columnId === 'amount') {
           const attrs = keyHandlers(index, 'amount');
           return (
-            <input
-              type="text"
-              inputMode="decimal"
+            <EditableAmountInput
               disabled={disabled}
-              value={formatAmountInput(line.amount)}
-              onChange={(e) => {
-                const raw = e.target.value.replace(/,/g, '');
-                if (raw === '' || raw === '.') {
-                  updateLine(index, { amount: 0 });
-                  return;
-                }
-                const parsed = Number(raw);
-                if (!Number.isNaN(parsed)) updateLine(index, { amount: parsed });
-              }}
+              value={line.amount}
+              onValueChange={(amount) => updateLine(index, { amount })}
               className={`${dataEntryGridInputClass} text-end font-mono font-medium`}
               placeholder="0.00"
               {...attrs}

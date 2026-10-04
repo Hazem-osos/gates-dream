@@ -1,11 +1,11 @@
 import prisma from '../../../shared/database/prisma';
+import { AppError } from '../../../shared/middleware/error-handler';
 import { logger } from '../../../shared/logger';
 import type { BootstrapInput } from '../schemas/onboarding.schema';
 import { companyOnboardingService } from '../../company/services/company-onboarding.service';
 import type { OnboardingSetupInput } from '../../company/schemas/company-onboarding.schema';
 import { demoCatalogService } from '../../inventory/services/demo-catalog.service';
 import { retireWelcomeTourNotification } from '../../notifications/services/onboarding-welcome-notification.service';
-import { refuseProductionSeed } from '../../../shared/config/prod-seed';
 
 const VERTICAL_TO_INDUSTRY: Record<BootstrapInput['vertical'], OnboardingSetupInput['industryTemplate']> = {
   TRADING: 'TRADE',
@@ -14,6 +14,21 @@ const VERTICAL_TO_INDUSTRY: Record<BootstrapInput['vertical'], OnboardingSetupIn
   REAL_ESTATE: 'TRADE',
   SERVICES: 'SERVICES',
 };
+
+function fiscalBounds(startDate: string, endDate: string) {
+  const startDay = startDate.slice(0, 10);
+  const endDay = endDate.slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(startDay) || !/^\d{4}-\d{2}-\d{2}$/.test(endDay)) {
+    throw new AppError(422, 'تاريخ الفترة المالية غير صالح');
+  }
+  if (endDay < startDay) {
+    throw new AppError(422, 'تاريخ نهاية الفترة يجب أن يكون بعد تاريخ البداية');
+  }
+  return {
+    startDate: `${startDay}T00:00:00.000Z`,
+    endDate: `${endDay}T23:59:59.000Z`,
+  };
+}
 
 const DEFAULT_LAUNCH_CHECKLIST = {
   createdFirstInvoice: false,
@@ -38,9 +53,8 @@ export class CompanyBootstrapService {
         activityCode: input.vertical === 'REAL_ESTATE' ? '6810' : undefined,
       },
       fiscalYear: {
-        name: String(new Date().getFullYear()),
-        startDate: `${new Date().getFullYear()}-01-01T00:00:00.000Z`,
-        endDate: `${new Date().getFullYear()}-12-31T23:59:59.000Z`,
+        name: input.fiscalYear.name.trim(),
+        ...fiscalBounds(input.fiscalYear.startDate, input.fiscalYear.endDate),
       },
       branch: {
         arabicName: input.branch.arabicName,
@@ -55,7 +69,7 @@ export class CompanyBootstrapService {
         arabicName: input.branch.warehouseName,
         code: input.branch.warehouseCode ?? 'WH-01',
       },
-      seedStandardCoa: !refuseProductionSeed(),
+      seedStandardCoa: true,
     };
 
     const result = await companyOnboardingService.runSetup(companyId, setupBody);

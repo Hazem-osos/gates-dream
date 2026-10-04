@@ -1,0 +1,27 @@
+---
+description: Gates frontend data rules - TanStack Query via useApiQuery, stable keys and invalidation, apiClient, server-side search for large lists, report memory, permissions as UX
+globs: gates-web/app/**,gates-web/components/**,gates-web/lib/**,gates-web/hooks/**,gates-web/middleware.ts
+alwaysApply: false
+---
+
+# Gates frontend
+
+## Data access
+- Server state goes through TanStack Query: `useApiQuery`, `useApiMutation`, `useInvalidateQuery` (`lib/hooks/useApi.ts`) and `apiClient` (`lib/api/client.ts`, which adds auth, tenant headers and CSRF). Do not add another fetching or global state layer; do not copy server data into zustand.
+- Use stable keys from `queryKeys` and stale times from `staleTimes` (`lib/query/query-keys.ts`). The same resource uses the same key and URL everywhere, including prefetch (`lib/navigation/route-prefetch-registry.ts`).
+- Invalidate the affected queries after every mutation.
+- Start independent requests together; avoid waterfalls and duplicate requests for the same data. There is no fixed request-count limit per page.
+
+## Large lists
+- The backend caps GET `limit` at 1000 (missing = 50). Asking for 20,000 rows returns 1,000 silently (audit M-01).
+- New pickers must work with more than 1,000 records: server-side search with a small page, like `ItemSelect` (`app/components/form/ItemSelect.tsx`) using `useItemsQuery(PICKER_PAGE_SIZE, search)` and fetching the selected record by id.
+- Do not load full master lists only to filter them in the browser.
+
+## Reports
+- `UniversalReportView` filters and sorts all rows in memory. Do not extend that to reports that can grow without bound; prefer server-side filtering, aggregation or pagination.
+- Never change a report's numbers or accounting meaning in the UI; keep footer and total rows (`rowKind`) from the backend intact.
+
+## Permissions and UX
+- `useResourcePermissions` hides or disables actions; it is not security. The backend enforces permissions.
+- A disabled submit button is not duplicate protection; the backend must be duplicate-safe.
+- Keep the RTL Arabic UI conventions, existing components (`AppTable`, report filters, toasts) and brand tokens (`bg-brand`, `text-brand`) instead of hex colors.

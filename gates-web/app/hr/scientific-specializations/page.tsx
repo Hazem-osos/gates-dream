@@ -3,5 +3,5 @@
 import { HrMasterLocalFormPage } from '@/components/hr/HrMasterLocalFormPage';
 
 export default function ScientificSpecializationsPage() {
-  return <HrMasterLocalFormPage title="التخصصات العلمية" />;
+  return <HrMasterLocalFormPage title="التخصصات العلمية" kind="specialization" />;
 }

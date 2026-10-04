@@ -11,6 +11,7 @@ import { disassemblyService } from '../services/disassembly.service';
 import { logger } from '../../../shared/logger';
 import { AuthRequest } from '../../../shared/auth/types';
 import { buildStockGlPostingContext } from '../services/stock-gl-posting-context';
+import { stockPostJson } from '../utils/stock-post-route-response';
 
 const router = Router();
 
@@ -31,7 +32,7 @@ router.post(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -92,7 +93,7 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -144,7 +145,7 @@ router.put(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
       const disassembly = await disassemblyService.updateDisassembly(companyId, req.params.id, {
@@ -194,7 +195,7 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -237,18 +238,19 @@ router.post(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
-      await disassemblyService.postDisassembly(companyId, req.params.id, buildStockGlPostingContext(req, companyId));
+      const result = await disassemblyService.postDisassembly(
+        companyId,
+        req.params.id,
+        buildStockGlPostingContext(req, companyId)
+      );
 
       logger.info({ companyId, disassemblyId: req.params.id }, 'Disassembly posted');
 
-      return void res.json({
-        status: 'success',
-        message: 'Disassembly posted successfully',
-      });
+      return void res.json(stockPostJson(result, 'تم ترحيل التفكيك بنجاح'));
     } catch (error) {
       logger.error({ error }, 'Error posting disassembly');
       const status =
@@ -283,7 +285,7 @@ router.post(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -329,7 +331,7 @@ router.post(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -378,7 +380,7 @@ router.post(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 

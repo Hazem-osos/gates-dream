@@ -47,7 +47,7 @@ export default function NotificationSidebar({
           <button
             type="button"
             disabled={unreadCount === 0}
-            className="text-sm font-semibold text-[#0E79AA] disabled:text-gray-400 disabled:cursor-not-allowed hover:underline"
+            className="text-sm font-semibold text-[#0E78AA] disabled:text-gray-400 disabled:cursor-not-allowed hover:underline"
             onClick={() => onMarkAllRead?.()}
           >
             تحديد الكل كمقروء
@@ -84,7 +84,7 @@ export default function NotificationSidebar({
                   >
                     <span
                       className={`mt-1.5 w-2 h-2 shrink-0 rounded-full ${
-                        n.urgent ? 'bg-rose-500' : !n.checked ? 'bg-[#0E79AA]' : 'bg-gray-300'
+                        n.urgent ? 'bg-rose-500' : !n.checked ? 'bg-[#0E78AA]' : 'bg-gray-300'
                       }`}
                     />
                     <div className="flex-1 min-w-0">
@@ -95,7 +95,7 @@ export default function NotificationSidebar({
                           {n.title}
                         </span>
                         {!n.checked && (
-                          <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide text-[#0E79AA] bg-[#DEEFF6] px-1.5 py-0.5 rounded">
+                          <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide text-[#0E78AA] bg-[#DEEFF6] px-1.5 py-0.5 rounded">
                             جديد
                           </span>
                         )}

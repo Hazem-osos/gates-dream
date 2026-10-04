@@ -68,7 +68,7 @@ export class ReceivablesRiskDetector implements AnomalyDetector {
             creditLimit: row.creditLimit == null ? null : money(row.creditLimit),
           })),
         },
-        actionLink: '/inventory/reports/overdue-payments',
+        actionLink: '/inventory/reports/customer-receivables',
         fingerprint: 'OVERDUE_RECEIVABLES:45d',
       },
     ];

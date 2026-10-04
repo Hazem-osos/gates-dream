@@ -53,7 +53,7 @@ export class GeospatialService {
   ): Promise<Property[]> {
     try {
       if (!query.companyId) {
-        throw new Error('Company ID is required for tenant isolation');
+        throw new Error('معرّف الشركة مطلوب for tenant isolation');
       }
 
       // Haversine formula SQL for MySQL

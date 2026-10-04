@@ -7,10 +7,11 @@ export default function ReceivablesAgingPage() {
     <InventoryReportFilterPage
       urlPath="/inventory/reports/receivables-aging"
       icon="⏳"
-      subtitle="أعمار ديون العملاء."
+      subtitle="أعمار ديون العملاء والموردين حتى التاريخ، مع فلتر من/إلى لعمر الدين بالنسبة للفاتورة ولآخر سداد."
       fields={{
         dates: 'to',
         customer: true,
+        supplier: true,
         delegate: true,
         warehouse: true,
         itemGroup: true,
@@ -19,6 +20,7 @@ export default function ReceivablesAgingPage() {
         currency: true,
         branch: true,
         minValue: true,
+        debtAgeRanges: true,
         allAccounts: true,
       }}
     />

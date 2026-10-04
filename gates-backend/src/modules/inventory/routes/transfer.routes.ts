@@ -11,8 +11,50 @@ import { transferService } from '../services/transfer.service';
 import { logger } from '../../../shared/logger';
 import { AuthRequest } from '../../../shared/auth/types';
 import { buildStockGlPostingContext } from '../services/stock-gl-posting-context';
+import { stockPostJson } from '../utils/stock-post-route-response';
 import { resolveStockListPaging } from '../utils/stock-list-query';
+import { Prisma } from '@prisma/client';
 import { AppError } from '../../../shared/middleware/error-handler';
+
+function transferPostErrorMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message.trim() : '';
+  if (/not permitted to post store transfers/i.test(message)) {
+    return 'لا تملك صلاحية ترحيل النقل المخزني. فعّل صلاحية «التحويل المخزني» لمجموعة المستخدم.';
+  }
+  if (/not permitted to unpost store transfers/i.test(message)) {
+    return 'لا تملك صلاحية فك ترحيل النقل المخزني.';
+  }
+  if (error instanceof AppError) return error.message;
+  if (error instanceof Prisma.PrismaClientKnownRequestError) {
+    if (error.code === 'P2003') {
+      return 'تعذّر الترحيل لأن الفرع أو الصنف أو المخزن غير مرتبط بشكل صحيح';
+    }
+    if (error.code === 'P2002') {
+      return 'يوجد حركة بنفس البيانات مسبقاً. حدّث الصفحة ثم أعد المحاولة.';
+    }
+    return 'تعذر ترحيل النقل';
+  }
+  if (message) return message;
+  return 'تعذر ترحيل النقل';
+}
+
+async function tryPostTransfer(
+  companyId: string,
+  transferId: string,
+  req: AuthRequest
+): Promise<string | null> {
+  try {
+    await transferService.postTransfer(
+      companyId,
+      transferId,
+      buildStockGlPostingContext(req, companyId)
+    );
+    return null;
+  } catch (error) {
+    logger.warn({ error, companyId, transferId }, 'Transfer saved; post skipped');
+    return transferPostErrorMessage(error);
+  }
+}
 
 function transferErrorStatus(error: unknown): number {
   if (error instanceof AppError) return error.statusCode;
@@ -64,6 +106,7 @@ router.post(
         description: req.body.description,
         serial: req.body.serial,
         date: req.body.date,
+        hijriDate: req.body.hijriDate,
         fromWarehouseId: req.body.fromWarehouseId,
         toWarehouseId: req.body.toWarehouseId,
         fromCostCenterId: req.body.fromCostCenterId || undefined,
@@ -71,27 +114,17 @@ router.post(
         lines: req.body.lines,
       });
 
-      try {
-        await transferService.postTransfer(
-          companyId,
-          created.id,
-          buildStockGlPostingContext(req, companyId)
-        );
-      } catch (error) {
-        await transferService.deleteTransfer(companyId, created.id).catch(() => undefined);
-        throw error;
-      }
-
+      const postError = await tryPostTransfer(companyId, created.id, req);
       const transfer = await transferService.getTransferById(companyId, created.id);
 
       logger.info(
-        { companyId, transferId: transfer.id },
-        'Transfer created and posted'
+        { companyId, transferId: transfer.id, posted: transfer.isPosted },
+        'Transfer created'
       );
 
       return void res.status(201).json({
         status: 'success',
-        message: 'تم حفظ وترحيل النقل',
+        message: postError ? `تم الحفظ. ${postError}` : 'تم حفظ وترحيل النقل',
         data: transfer,
       });
     } catch (error) {
@@ -239,6 +272,7 @@ router.put(
         description: req.body.description,
         serial: req.body.serial,
         date: req.body.date,
+        hijriDate: req.body.hijriDate,
         fromWarehouseId: req.body.fromWarehouseId,
         toWarehouseId: req.body.toWarehouseId,
         fromCostCenterId: req.body.fromCostCenterId || undefined,
@@ -246,17 +280,12 @@ router.put(
         lines: req.body.lines,
       });
 
-      await transferService.postTransfer(
-        companyId,
-        updated.id,
-        buildStockGlPostingContext(req, companyId)
-      );
-
+      const postError = await tryPostTransfer(companyId, updated.id, req);
       const transfer = await transferService.getTransferById(companyId, updated.id);
 
       return void res.json({
         status: 'success',
-        message: 'تم حفظ وترحيل النقل',
+        message: postError ? `تم الحفظ. ${postError}` : 'تم حفظ وترحيل النقل',
         data: transfer,
       });
     } catch (error) {
@@ -315,40 +344,34 @@ router.delete(
 router.post(
   '/:id/post',
   authorize({ resource: 'invoice', action: 'post' }),
-  async (req: AuthRequest, res: Response) => {
+  async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const companyId = req.companyId || req.tenantId;
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
-      await transferService.postTransfer(companyId, req.params.id, buildStockGlPostingContext(req, companyId));
+      const result = await transferService.postTransfer(
+        companyId,
+        req.params.id,
+        buildStockGlPostingContext(req, companyId)
+      );
 
       logger.info({ companyId, transferId: req.params.id }, 'Transfer posted');
 
-      return void res.json({
-        status: 'success',
-        message: 'Transfer posted successfully',
-      });
+      return void res.json(stockPostJson(result, 'تم ترحيل النقل المخزني بنجاح'));
     } catch (error) {
       logger.error({ error }, 'Error posting transfer');
-      const status =
-        error instanceof Error &&
-        (error.message === 'Transfer not found' ||
-          error.message.includes('already') ||
-          error.message.includes('Cannot') ||
-          error.message.includes('Insufficient'))
-          ? 400
-          : 500;
+      if (error instanceof AppError || error instanceof Prisma.PrismaClientKnownRequestError) {
+        return next(error);
+      }
+      const status = transferErrorStatus(error);
       return void res.status(status).json({
         status: 'error',
-        message:
-          error instanceof Error
-            ? error.message
-            : 'Failed to post transfer',
+        message: transferPostErrorMessage(error),
       });
     }
   }
@@ -361,13 +384,13 @@ router.post(
 router.post(
   '/:id/unpost',
   authorize({ resource: 'invoice', action: 'post' }),
-  async (req: AuthRequest, res: Response) => {
+  async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const companyId = req.companyId || req.tenantId;
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -377,24 +400,17 @@ router.post(
 
       return void res.json({
         status: 'success',
-        message: 'Transfer unposted successfully',
+        message: 'تم فك ترحيل النقل المخزني',
       });
     } catch (error) {
       logger.error({ error }, 'Error unposting transfer');
-      const status =
-        error instanceof Error &&
-        (error.message === 'Transfer not found' ||
-          error.message.includes('not posted') ||
-          error.message.includes('Cannot unpost') ||
-          error.message.includes('Insufficient'))
-          ? 400
-          : 500;
+      if (error instanceof AppError || error instanceof Prisma.PrismaClientKnownRequestError) {
+        return next(error);
+      }
+      const status = transferErrorStatus(error);
       return void res.status(status).json({
         status: 'error',
-        message:
-          error instanceof Error
-            ? error.message
-            : 'Failed to unpost transfer',
+        message: transferPostErrorMessage(error),
       });
     }
   }

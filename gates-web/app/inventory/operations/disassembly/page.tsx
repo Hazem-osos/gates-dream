@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useEffect, useMemo, useState } from 'react';
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useOwnTabSearchParams } from '@/lib/navigation/tab-route-lock';
 import { ErpDocumentLayout } from '@/components/erp/ErpDocumentLayout';
 import { DocumentBrowseDrawer } from '@/components/erp/DocumentBrowseDrawer';
@@ -17,6 +17,7 @@ import {
   type DisassemblyComponentLine,
 } from '@/components/inventory/disassembly/disassembly-line-types';
 import { useApiMutation, useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
+import { resolvePostedFlag } from '@/lib/documents/posting-trust';
 import { apiClient } from '@/lib/api/client';
 import { confirmAction } from '@/lib/feedback/confirm';
 import { toHijriDate } from '@/lib/hijri-date';
@@ -25,7 +26,14 @@ import {
   postNamedDocumentAfterSave,
   useRepostAfterUnpost,
 } from '@/lib/accounting/ensure-posted-after-save';
+import { finishDocumentSave } from '@/lib/documents/finish-save';
+import {
+  postSuccessMessage,
+  useDocumentPostMutation,
+} from '@/lib/inventory/use-document-post-mutation';
+import { invalidateStockViews } from '@/lib/invoices/invalidate-stock-views';
 import { printPageContent } from '@/lib/print/printHtml';
+import { useStoreDocumentSerial } from '@/lib/inventory/use-store-document-serial';
 
 type ParentItem = {
   id: string;
@@ -92,6 +100,7 @@ function DisassemblyPageInner() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [explodePending, setExplodePending] = useState(false);
+  const postAfterSaveRef = useRef(false);
 
   const [serial, setSerial] = useState('');
   const [description, setDescription] = useState('');
@@ -106,13 +115,20 @@ function DisassemblyPageInner() {
   const [journalEntryId, setJournalEntryId] = useState<string | null>(null);
   const [parentUnitCost, setParentUnitCost] = useState(0);
   const [lines, setLines] = useState<DisassemblyComponentLine[]>([emptyDisassemblyComponentLine()]);
+  const [viewLocked, setViewLocked] = useState(false);
+
+  const { serialAutomatic, invalidateNextSerial } = useStoreDocumentSerial({
+    kind: 'disassembly',
+    enabled: !selectedId,
+    setSerial,
+  });
 
   const { data: itemsResponse } = useApiQuery<ParentItem[]>(
     ['items', 'disassembly-parents'],
     '/inventory/items',
-    { limit: 200, isActive: true }
+    { limit: 200, isActive: true, isAssembly: true }
   );
-  const items = itemsResponse?.data ?? [];
+  const items = Array.isArray(itemsResponse?.data) ? itemsResponse.data : [];
 
   const { data: loadedResponse } = useApiQuery<DisassemblyRecord>(
     ['disassembly', selectedId ?? ''],
@@ -138,7 +154,7 @@ function DisassemblyPageInner() {
     setSourceWarehouseId(loaded.warehouseId || '');
     setTargetWarehouseId(loaded.toWarehouseId || loaded.warehouseId || '');
     setCostCenterId(loaded.costCenterId || '');
-    setIsPosted(Boolean(loaded.isPosted));
+    setIsPosted(resolvePostedFlag(loaded));
     setIsCancelled(Boolean(loaded.isCancelled));
     setJournalEntryId(loaded.journalEntryId || null);
     setParentUnitCost(Number(first?.disassembledUnitPrice) || 0);
@@ -155,6 +171,7 @@ function DisassemblyPageInner() {
         notes: '',
       }))
     );
+    setViewLocked(true);
   }, [loaded, selectedId]);
 
   const entered = useMemo(() => lines.filter(isEnteredDisassemblyLine), [lines]);
@@ -163,19 +180,74 @@ function DisassemblyPageInner() {
     [entered]
   );
   const parentTotal = parentUnitCost * (disassemblyQuantity || 1);
-  const readOnly = isPosted || isCancelled;
+  const readOnly = isPosted || isCancelled || viewLocked;
+
+  const stayOnDisassembly = (id?: string | null, serialNumber?: string | null) => {
+    if (!id) return;
+    setSelectedId(id);
+    if (serialNumber) setSerial(serialNumber);
+    window.history.replaceState(null, '', `?id=${id}`);
+    invalidateStockViews(invalidateQuery);
+  };
+
+  const openDisassembly = (id: string) => {
+    setSelectedId(id);
+    window.history.replaceState(null, '', `?id=${id}`);
+  };
+
+  const postDisassemblyAfterSave = (id: string, number?: string | null) => {
+    void apiClient
+      .post(`/inventory/disassemblies/${id}/post`)
+      .then((res) => {
+        setIsPosted(true);
+        setSuccess(postSuccessMessage(res));
+        stayOnDisassembly(id, number);
+        invalidateStockViews(invalidateQuery);
+      })
+      .catch((err: unknown) => {
+        stayOnDisassembly(id, number);
+        setError(err instanceof Error ? err.message : 'تم الحفظ وتعذر ترحيل التفكيك');
+        invalidateStockViews(invalidateQuery);
+      });
+  };
 
   const createMutation = useApiMutation<DisassemblyRecord, Record<string, unknown>>(
     '/inventory/disassemblies',
     'POST',
     {
       showSuccessToast: false,
-      onSuccess: () => {
-        invalidateQuery(['disassemblies']);
-        resetNew();
-        setSuccess('تم حفظ أمر التفكيك');
+      onSuccess: (res) => {
+        invalidateStockViews(invalidateQuery);
+        invalidateNextSerial();
+        const id = res.data?.id;
+        const shouldPost = postAfterSaveRef.current;
+        postAfterSaveRef.current = false;
+        if (id) invalidateQuery(['disassembly', id]);
+        if (shouldPost && id) {
+          postDisassemblyAfterSave(id, res.data?.serial);
+          return;
+        }
+        finishDocumentSave({
+          label: 'تفكيك',
+          number: res.data?.serial,
+          savedId: id,
+          cleared: false,
+          onOpen: openDisassembly,
+          onSavedOpen: (saved) => invalidateQuery(['disassembly', saved]),
+          reset: () => {
+            if (id) {
+              openDisassembly(id);
+              setViewLocked(true);
+            } else {
+              resetNew();
+            }
+          },
+        });
       },
-      onError: (err: ApiError) => setError(err.message || 'تعذر حفظ أمر التفكيك'),
+      onError: (err: ApiError) => {
+        postAfterSaveRef.current = false;
+        setError(err.message || 'تعذر حفظ أمر التفكيك');
+      },
     }
   );
 
@@ -184,58 +256,59 @@ function DisassemblyPageInner() {
     'PUT',
     {
       showSuccessToast: false,
-      onSuccess: () => {
-        invalidateQuery(['disassemblies']);
-        const id = selectedId;
+      onSuccess: (res) => {
+        const id = res.data?.id || selectedId;
+        const number = res.data?.serial || serial;
+        const shouldPost = postAfterSaveRef.current;
+        postAfterSaveRef.current = false;
+        invalidateStockViews(invalidateQuery);
         if (consumeShouldRepost() && id) {
           void postNamedDocumentAfterSave(`/inventory/disassemblies/${id}/post`)
             .then(() => {
-              resetNew();
-              setSuccess('تم حفظ التعديلات وترحيل أمر التفكيك');
+              finishDocumentSave({
+                label: 'تفكيك',
+                number,
+                posted: true,
+                savedId: id,
+                cleared: false,
+                onOpen: openDisassembly,
+                reset: () => {
+                  stayOnDisassembly(id, number);
+                  setViewLocked(true);
+                },
+              });
             })
             .catch((err: ApiError) => {
-              resetNew();
+              stayOnDisassembly(id, res.data?.serial);
               setError(err.message || 'تم الحفظ لكن تعذر ترحيل التفكيك');
             });
           return;
         }
-        resetNew();
-        setSuccess('تم تحديث أمر التفكيك');
+        if (shouldPost && id) {
+          postDisassemblyAfterSave(id, number);
+          return;
+        }
+        finishDocumentSave({
+          label: 'تفكيك',
+          number,
+          savedId: id,
+          cleared: false,
+          onOpen: openDisassembly,
+          onSavedOpen: (saved) => invalidateQuery(['disassembly', saved]),
+          reset: () => {
+            stayOnDisassembly(id, number);
+            setViewLocked(true);
+          },
+        });
       },
-      onError: (err: ApiError) => setError(err.message || 'تعذر تحديث أمر التفكيك'),
+      onError: (err: ApiError) => {
+        postAfterSaveRef.current = false;
+        setError(err.message || 'تعذر تحديث أمر التفكيك');
+      },
     }
   );
 
-  const postMutation = useApiMutation<unknown, Record<string, never>>(
-    selectedId ? `/inventory/disassemblies/${selectedId}/post` : '/inventory/disassemblies',
-    'POST',
-    {
-      showSuccessToast: false,
-      onSuccess: () => {
-        setIsPosted(true);
-        setSuccess('تم ترحيل أمر التفكيك');
-        invalidateQuery(['disassemblies']);
-        invalidateQuery(['disassembly', selectedId ?? '']);
-      },
-      onError: (err: ApiError) => setError(err.message || 'فشل ترحيل التفكيك'),
-    }
-  );
-
-  const unpostMutation = useApiMutation<unknown, Record<string, never>>(
-    selectedId ? `/inventory/disassemblies/${selectedId}/unpost` : '/inventory/disassemblies',
-    'POST',
-    {
-      showSuccessToast: false,
-      onSuccess: () => {
-        setIsPosted(false);
-        markUnpostedForEdit();
-        setSuccess('تم فك ترحيل التفكيك');
-        invalidateQuery(['disassemblies']);
-        invalidateQuery(['disassembly', selectedId ?? '']);
-      },
-      onError: (err: ApiError) => setError(err.message || 'فشل فك الترحيل'),
-    }
-  );
+  const unpostMutation = useDocumentPostMutation('/inventory/disassemblies', selectedId, 'unpost');
 
   const cancelMutation = useApiMutation<unknown, Record<string, never>>(
     selectedId ? `/inventory/disassemblies/${selectedId}/cancel` : '/inventory/disassemblies',
@@ -254,7 +327,7 @@ function DisassemblyPageInner() {
   const buildPayload = () => {
     if (!parentItemId) throw new Error('يرجى اختيار الصنف المراد تفكيكه');
     if (!sourceWarehouseId) throw new Error('يرجى اختيار مخزن صرف الصنف المفكك');
-    if (entered.length === 0) throw new Error('أضف مكوناً ناتجاً واحداً على الأقل أو اضغط تحليل');
+    if (entered.length === 0) throw new Error('أضف مكوناً ناتجاً واحداً على الأقل أو اضغط تحميل');
     return {
       serial: serial || undefined,
       description: description || undefined,
@@ -262,7 +335,7 @@ function DisassemblyPageInner() {
       hijriDate: toHijriDate(date),
       warehouseId: sourceWarehouseId,
       toWarehouseId: targetWarehouseId || sourceWarehouseId,
-      costCenterId: costCenterId || undefined,
+      costCenterId: costCenterId.trim() ? costCenterId.trim() : undefined,
       lines: [
         {
           disassembledItemId: parentItemId,
@@ -281,15 +354,22 @@ function DisassemblyPageInner() {
   };
 
   const handleSave = () => {
-    if (readOnly) return;
+    if (readOnly && !postAfterSaveRef.current) return;
     setError('');
     try {
       const body = buildPayload();
       if (selectedId) updateMutation.mutate(body);
       else createMutation.mutate(body);
     } catch (err) {
+      postAfterSaveRef.current = false;
       setError(err instanceof Error ? err.message : 'تحقق من البيانات');
     }
+  };
+
+  const handleSaveAndPost = () => {
+    if (isPosted || isCancelled) return;
+    postAfterSaveRef.current = true;
+    handleSave();
   };
 
   const handleExplodeBOM = async () => {
@@ -299,7 +379,7 @@ function DisassemblyPageInner() {
     }
     if (entered.length > 0) {
       const ok = await confirmAction(
-        'سيتم إعادة احتساب وتعبئة المكونات الناتجة وفقاً لشجرة المنتجات والكمية المحددة، متابعة؟'
+        'سيتم تحميل مكونات الصنف من بطاقة الصنف وتوزيع تكلفة التفكيك عليها حسب الكمية، متابعة؟'
       );
       if (!ok) return;
     }
@@ -316,7 +396,7 @@ function DisassemblyPageInner() {
       );
       const components = res.data?.components ?? [];
       if (!components.length) {
-        setError('لا توجد مكونات في شجرة هذا الصنف');
+        setError('لا توجد مكونات في بطاقة هذا الصنف');
         return;
       }
       if (res.data?.parentItemUnitCost != null) {
@@ -335,9 +415,9 @@ function DisassemblyPageInner() {
           notes: '',
         }))
       );
-      setSuccess('تم تحليل شجرة المكونات وتعبئة الجدول');
+      setSuccess('تم تحميل مكونات الصنف من البطاقة');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'تعذر تحليل شجرة المكونات');
+      setError(err instanceof Error ? err.message : 'تعذر تحميل مكونات الصنف');
     } finally {
       setExplodePending(false);
     }
@@ -345,8 +425,10 @@ function DisassemblyPageInner() {
 
   const resetNew = () => {
     resetKeepPosted();
+    setViewLocked(false);
     setSelectedId(null);
     setSerial('');
+    void invalidateNextSerial();
     setDescription('');
     setDate(todayIso());
     setParentItemId('');
@@ -365,8 +447,10 @@ function DisassemblyPageInner() {
   };
 
   const handleDuplicate = () => {
+    setViewLocked(false);
     setSelectedId(null);
     setSerial('');
+    void invalidateNextSerial();
     setIsPosted(false);
     setIsCancelled(false);
     setJournalEntryId(null);
@@ -384,6 +468,9 @@ function DisassemblyPageInner() {
 
         <ItemDisassemblyHeader
           docNumber={serial}
+          serialReadOnly={serialAutomatic || readOnly}
+          serialPlaceholder={serialAutomatic ? 'يُولَّد تلقائياً' : 'أدخل رقم المسلسل'}
+          onSerialChange={setSerial}
           isPosted={isPosted}
           isCancelled={isCancelled}
           parentItemId={parentItemId}
@@ -396,7 +483,10 @@ function DisassemblyPageInner() {
           date={date}
           onDate={setDate}
           sourceWarehouseId={sourceWarehouseId}
-          onSourceWarehouseId={setSourceWarehouseId}
+          onSourceWarehouseId={(id) => {
+            setSourceWarehouseId(id);
+            if (!targetWarehouseId) setTargetWarehouseId(id);
+          }}
           targetWarehouseId={targetWarehouseId}
           onTargetWarehouseId={setTargetWarehouseId}
           costCenterId={costCenterId}
@@ -405,7 +495,7 @@ function DisassemblyPageInner() {
           explodePending={explodePending}
           canExplode={Boolean(parentItemId) && disassemblyQuantity > 0 && !readOnly}
           onExplode={() => void handleExplodeBOM()}
-          onSaveDraft={handleSave}
+          onSaveDraft={handleSaveAndPost}
           onCancel={resetNew}
           savePending={savePending}
           canSave={!readOnly && !savePending}
@@ -414,26 +504,44 @@ function DisassemblyPageInner() {
             {
               id: 'edit',
               label: 'تعديل',
-              disabled: !selectedId || isPosted || isCancelled,
+              disabled: !selectedId || isPosted || isCancelled || !viewLocked,
               onClick: () => {
-                if (isPosted) setError('يجب فك الترحيل أولاً للتعديل');
+                if (isPosted) {
+                  setError('يجب فك الترحيل أولاً للتعديل');
+                  return;
+                }
+                setViewLocked(false);
+                setSuccess('');
               },
             },
             {
               id: 'post',
               label: 'ترحيل أمر التفكيك',
-              disabled: !selectedId || isPosted || isCancelled || savePending,
-              onClick: () => {
-                if (!selectedId) setError('احفظ أمر التفكيك أولاً');
-                else postMutation.mutate({});
-              },
+              disabled: isPosted || isCancelled || savePending,
+              onClick: () => handleSaveAndPost(),
             },
             {
               id: 'unpost',
               label: 'فك ترحيل التفكيك',
-              disabled: !selectedId || !isPosted,
+              disabled: !selectedId || !isPosted || unpostMutation.isPending,
               onClick: () => {
-                if (selectedId) unpostMutation.mutate({});
+                if (!selectedId) return;
+                void confirmAction('فك ترحيل أمر التفكيك؟ سيتم إرجاع الكميات للمخزن.').then((ok) => {
+                  if (ok)
+                    unpostMutation.mutate(
+                      {},
+                      {
+                        onSuccess: () => {
+                          setIsPosted(false);
+                          setViewLocked(false);
+                          markUnpostedForEdit();
+                          setSuccess('تم فك ترحيل التفكيك');
+                          stayOnDisassembly(selectedId);
+                        },
+                        onError: (err: ApiError) => setError(err.message || 'فشل فك الترحيل'),
+                      }
+                    );
+                });
               },
             },
             { id: 'print', label: 'طباعة أمر التفكيك', onClick: () => void printPageContent('أمر التفكيك') },
@@ -467,7 +575,7 @@ function DisassemblyPageInner() {
           isPosted={isPosted}
           savePending={savePending}
           canSave={!readOnly && !savePending}
-          onSave={handleSave}
+          onSave={handleSaveAndPost}
           onCancel={resetNew}
         />
 
@@ -495,10 +603,11 @@ function DisassemblyPageInner() {
                 ? { variant: 'danger', label: 'ملغي' }
                 : r.isPosted
                   ? { variant: 'success', label: 'مرحّل' }
-                  : { variant: 'warning', label: 'مسودة' }
+                  : { variant: 'warning', label: selectedId ? 'غير مرحّل' : 'جديد' }
             }
             onSelect={(id) => {
               setSelectedId(id);
+              setViewLocked(true);
               setBrowseOpen(false);
               window.history.replaceState(null, '', `?id=${id}`);
             }}

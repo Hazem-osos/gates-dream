@@ -1,7 +1,6 @@
 // @ts-nocheck — strict cleanup pending; tracked for incremental typing.
 import prisma from '../../../shared/database/prisma';
 import { logger } from '../../../shared/logger';
-import { Decimal } from '@prisma/client/runtime/library';
 
 export interface ManufacturingReportFilters {
   companyId: string;
@@ -31,7 +30,66 @@ export interface ManufacturingReportResult {
   };
 }
 
+type BomStandard = {
+  finishedItemId: string;
+  baseQuantity: number;
+  standardLaborCost: number;
+  standardOverheadCost: number;
+  /** Standard batch material cost (qty × scrap × averageCost of raw items). */
+  materialBatchCost: number;
+};
+
+function num(value: unknown): number {
+  return Number(value ?? 0) || 0;
+}
+
 export class ManufacturingReportsService {
+  /**
+   * Load active BOMs keyed by finishedItemId. When multiple BOMs exist for one
+   * finished item, the most recently updated wins.
+   */
+  private async loadBomStandardsByFinishedItem(
+    companyId: string
+  ): Promise<Map<string, BomStandard>> {
+    const boms = await prisma.billOfMaterials.findMany({
+      where: { companyId, isActive: true },
+      include: {
+        lines: {
+          include: {
+            rawItem: { select: { id: true, averageCost: true } },
+          },
+        },
+      },
+      orderBy: { updatedAt: 'desc' },
+    });
+
+    const map = new Map<string, BomStandard>();
+    for (const bom of boms) {
+      if (map.has(bom.finishedItemId)) continue;
+      const materialBatchCost = bom.lines.reduce((sum, line) => {
+        const qty = num(line.quantity);
+        const scrap = num(line.scrapPercentage);
+        const unitCost = num(line.rawItem?.averageCost);
+        return sum + qty * (1 + scrap / 100) * unitCost;
+      }, 0);
+      map.set(bom.finishedItemId, {
+        finishedItemId: bom.finishedItemId,
+        baseQuantity: num(bom.baseQuantity) || 1,
+        standardLaborCost: num(bom.standardLaborCost),
+        standardOverheadCost: num(bom.standardOverheadCost),
+        materialBatchCost,
+      });
+    }
+    return map;
+  }
+
+  /** Standard unit cost for one finished unit from BOM (materials + labor + OH). */
+  private standardUnitCost(bom: BomStandard): number {
+    const batch =
+      bom.materialBatchCost + bom.standardLaborCost + bom.standardOverheadCost;
+    return bom.baseQuantity > 0 ? batch / bom.baseQuantity : batch;
+  }
+
   /**
    * Get Invoice Variance Report
    * Compares actual manufacturing invoices with expected/planned invoices
@@ -48,7 +106,6 @@ export class ManufacturingReportsService {
         throw new Error('From date and to date are required');
       }
 
-      // Get manufacturing-related invoices (sales invoices for manufactured items)
       const invoiceWhere: any = {
         companyId,
         invoiceType: 'sales',
@@ -72,7 +129,7 @@ export class ManufacturingReportsService {
               item: {
                 select: {
                   id: true,
-                  code: true,
+                  serial: true,
                   arabicName: true,
                 },
               },
@@ -82,11 +139,23 @@ export class ManufacturingReportsService {
         orderBy: { date: 'desc' },
       });
 
-      // Calculate variance (actual vs expected)
+      const bomByItem = await this.loadBomStandardsByFinishedItem(companyId);
+
       const varianceData = invoices.map((invoice) => {
         const actualAmount = Number(invoice.netAmount || 0);
-        // Expected amount would come from production planning - using placeholder
-        const expectedAmount = actualAmount * 0.95; // 5% variance assumption
+        let expectedFromBom = 0;
+        let hasBomLine = false;
+
+        for (const line of invoice.lines) {
+          if (itemId && line.itemId !== itemId) continue;
+          const bom = bomByItem.get(line.itemId);
+          if (!bom) continue;
+          hasBomLine = true;
+          expectedFromBom += this.standardUnitCost(bom) * num(line.quantity);
+        }
+
+        // No BOM for invoice lines → expected = actual (variance 0)
+        const expectedAmount = hasBomLine ? expectedFromBom : actualAmount;
         const variance = actualAmount - expectedAmount;
         const variancePercent = expectedAmount > 0 ? (variance / expectedAmount) * 100 : 0;
 
@@ -150,7 +219,6 @@ export class ManufacturingReportsService {
         throw new Error('From date and to date are required');
       }
 
-      // Get purchase invoices (raw materials) and assembly operations
       const purchaseInvoices = await prisma.invoice.findMany({
         where: {
           companyId,
@@ -169,7 +237,7 @@ export class ManufacturingReportsService {
               item: {
                 select: {
                   id: true,
-                  code: true,
+                  serial: true,
                   arabicName: true,
                 },
               },
@@ -178,7 +246,6 @@ export class ManufacturingReportsService {
         },
       });
 
-      // Get assembly operations (manufacturing operations)
       const assemblies = await prisma.assembly.findMany({
         where: {
           companyId,
@@ -193,10 +260,10 @@ export class ManufacturingReportsService {
         include: {
           lines: {
             include: {
-              item: {
+              assembledItem: {
                 select: {
                   id: true,
-                  code: true,
+                  serial: true,
                   arabicName: true,
                 },
               },
@@ -205,25 +272,36 @@ export class ManufacturingReportsService {
         },
       });
 
-      // Calculate cost variance
-      const costData = [...purchaseInvoices, ...assemblies].map((operation) => {
+      const bomByItem = await this.loadBomStandardsByFinishedItem(companyId);
+
+      const purchaseCostData = purchaseInvoices.map((operation) => {
         const actualCost = Number(operation.netAmount || 0);
-        // Standard cost would come from cost standards - using placeholder
-        const standardCost = actualCost * 0.92; // 8% variance assumption
+        let standardFromBom = 0;
+        let hasBomLine = false;
+
+        for (const line of operation.lines) {
+          if (itemId && line.itemId !== itemId) continue;
+          const bom = bomByItem.get(line.itemId);
+          if (!bom) continue;
+          hasBomLine = true;
+          standardFromBom += this.standardUnitCost(bom) * num(line.quantity);
+        }
+
+        const standardCost = hasBomLine ? standardFromBom : actualCost;
         const variance = actualCost - standardCost;
         const variancePercent = standardCost > 0 ? (variance / standardCost) * 100 : 0;
 
         return {
           operationId: operation.id,
-          operationNumber: (operation as any).voucherNumber || (operation as any).invoiceNumber,
+          operationNumber: operation.invoiceNumber,
           date: operation.date,
-          operationType: 'invoice' in operation ? 'purchase' : 'assembly',
+          operationType: 'purchase',
           actualCost,
           standardCost,
           variance,
           variancePercent,
           status: Math.abs(variancePercent) < 8 ? 'within-tolerance' : variance > 0 ? 'over-cost' : 'under-cost',
-          items: operation.lines.map((line: any) => ({
+          items: operation.lines.map((line) => ({
             itemId: line.itemId,
             itemName: line.item?.arabicName,
             quantity: Number(line.quantity || 0),
@@ -232,6 +310,46 @@ export class ManufacturingReportsService {
           })),
         };
       });
+
+      const assemblyCostData = assemblies.map((operation) => {
+        const actualCost = Number(operation.totalAmount || 0);
+        let standardFromBom = 0;
+        let hasBomLine = false;
+
+        for (const line of operation.lines) {
+          const finishedId = line.assembledItemId;
+          if (itemId && finishedId !== itemId) continue;
+          const bom = bomByItem.get(finishedId);
+          if (!bom) continue;
+          hasBomLine = true;
+          standardFromBom += this.standardUnitCost(bom) * num(line.assembledQuantity);
+        }
+
+        const standardCost = hasBomLine ? standardFromBom : actualCost;
+        const variance = actualCost - standardCost;
+        const variancePercent = standardCost > 0 ? (variance / standardCost) * 100 : 0;
+
+        return {
+          operationId: operation.id,
+          operationNumber: operation.serial,
+          date: operation.date,
+          operationType: 'assembly',
+          actualCost,
+          standardCost,
+          variance,
+          variancePercent,
+          status: Math.abs(variancePercent) < 8 ? 'within-tolerance' : variance > 0 ? 'over-cost' : 'under-cost',
+          items: operation.lines.map((line) => ({
+            itemId: line.assembledItemId,
+            itemName: line.assembledItem?.arabicName,
+            quantity: Number(line.assembledQuantity || 0),
+            unitCost: Number(line.assembledUnitPrice || 0),
+            totalCost: Number(line.assembledTotal || 0),
+          })),
+        };
+      });
+
+      const costData = [...purchaseCostData, ...assemblyCostData];
 
       const skip = (page - 1) * limit;
       const paginatedData = costData.slice(skip, skip + limit);
@@ -279,7 +397,6 @@ export class ManufacturingReportsService {
         lte: toDate,
       };
 
-      // Get all manufacturing-related operations
       const [assemblies, disassemblies, receipts, issues] = await Promise.all([
         prisma.assembly.findMany({
           where: {
@@ -295,7 +412,7 @@ export class ManufacturingReportsService {
                 item: {
                   select: {
                     id: true,
-                    code: true,
+                    serial: true,
                     arabicName: true,
                   },
                 },
@@ -318,7 +435,7 @@ export class ManufacturingReportsService {
                 item: {
                   select: {
                     id: true,
-                    code: true,
+                    serial: true,
                     arabicName: true,
                   },
                 },
@@ -341,7 +458,7 @@ export class ManufacturingReportsService {
                 item: {
                   select: {
                     id: true,
-                    code: true,
+                    serial: true,
                     arabicName: true,
                   },
                 },
@@ -364,7 +481,7 @@ export class ManufacturingReportsService {
                 item: {
                   select: {
                     id: true,
-                    code: true,
+                    serial: true,
                     arabicName: true,
                   },
                 },
@@ -375,7 +492,6 @@ export class ManufacturingReportsService {
         }),
       ]);
 
-      // Combine all movements
       const movements = [
         ...assemblies.map((a) => ({
           movementId: a.id,
@@ -468,7 +584,6 @@ export class ManufacturingReportsService {
       const { companyId, warehouseId } = filters;
       const { page = 1, limit = 100 } = options;
 
-      // Get all items that can be manufactured (have assembly operations)
       const assemblies = await prisma.assembly.findMany({
         where: {
           companyId,
@@ -479,10 +594,10 @@ export class ManufacturingReportsService {
         include: {
           lines: {
             include: {
-              item: {
+              assembledItem: {
                 select: {
                   id: true,
-                  code: true,
+                  serial: true,
                   arabicName: true,
                 },
               },
@@ -491,17 +606,18 @@ export class ManufacturingReportsService {
         },
       });
 
-      // Group by item and calculate capability
+      const bomByItem = await this.loadBomStandardsByFinishedItem(companyId);
+
       const itemCapability = new Map<string, any>();
 
       assemblies.forEach((assembly) => {
-        assembly.lines.forEach((line: any) => {
-          const itemId = line.itemId;
-          if (!itemCapability.has(itemId)) {
-            itemCapability.set(itemId, {
-              itemId,
-              itemName: line.item?.arabicName,
-              itemCode: line.item?.code,
+        assembly.lines.forEach((line) => {
+          const lineItemId = line.assembledItemId;
+          if (!itemCapability.has(lineItemId)) {
+            itemCapability.set(lineItemId, {
+              itemId: lineItemId,
+              itemName: line.assembledItem?.arabicName,
+              itemCode: line.assembledItem?.serial,
               totalProduced: 0,
               productionCount: 0,
               averageProduction: 0,
@@ -509,21 +625,43 @@ export class ManufacturingReportsService {
             });
           }
 
-          const capability = itemCapability.get(itemId);
-          capability.totalProduced += Number(line.quantity || 0);
+          const capability = itemCapability.get(lineItemId);
+          capability.totalProduced += Number(line.assembledQuantity || 0);
           capability.productionCount += 1;
         });
       });
 
-      // Calculate theoretical capacity (would come from machine/sensor data)
-      const capabilityData = Array.from(itemCapability.values()).map((cap) => {
-        cap.averageProduction = cap.productionCount > 0 ? cap.totalProduced / cap.productionCount : 0;
-        // Theoretical capacity would be based on machine specs - using placeholder
-        cap.theoreticalCapacity = cap.averageProduction * 1.2; // 20% above average
-        cap.utilizationPercent = cap.theoreticalCapacity > 0 
-          ? (cap.averageProduction / cap.theoreticalCapacity) * 100 
-          : 0;
+      // Also surface finished items that have a BOM but no assembly history yet
+      const missingBomItemIds = [...bomByItem.keys()].filter((id) => !itemCapability.has(id));
+      if (missingBomItemIds.length > 0) {
+        const items = await prisma.item.findMany({
+          where: { companyId, id: { in: missingBomItemIds } },
+          select: { id: true, serial: true, arabicName: true },
+        });
+        for (const item of items) {
+          const bom = bomByItem.get(item.id);
+          itemCapability.set(item.id, {
+            itemId: item.id,
+            itemName: item.arabicName,
+            itemCode: item.serial,
+            totalProduced: 0,
+            productionCount: 0,
+            averageProduction: 0,
+            theoreticalCapacity: bom?.baseQuantity ?? 0,
+          });
+        }
+      }
 
+      const capabilityData = Array.from(itemCapability.values()).map((cap) => {
+        cap.averageProduction =
+          cap.productionCount > 0 ? cap.totalProduced / cap.productionCount : 0;
+        const bom = bomByItem.get(cap.itemId);
+        // BOM base quantity = theoretical capacity; otherwise actual average (variance 0)
+        cap.theoreticalCapacity = bom ? bom.baseQuantity : cap.averageProduction;
+        cap.utilizationPercent =
+          cap.theoreticalCapacity > 0
+            ? (cap.averageProduction / cap.theoreticalCapacity) * 100
+            : 0;
         return cap;
       });
 
@@ -554,4 +692,3 @@ export class ManufacturingReportsService {
 }
 
 export const manufacturingReportsService = new ManufacturingReportsService();
-

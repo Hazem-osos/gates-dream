@@ -71,12 +71,31 @@ export class AutoGlPostingService {
     });
 
     if (existing?.isPosted) {
-      return existing;
+      const reversed = await tx.journalEntry.findFirst({
+        where: { reversalOfJournalEntryId: existing.id, deletedAt: null, isCancelled: false },
+        select: { id: true },
+      });
+      if (!reversed) return existing;
     }
 
-    if (existing && !existing.isPosted) {
-      await tx.journalEntryLine.deleteMany({ where: { journalEntryId: existing.id } });
-      await tx.journalEntry.delete({ where: { id: existing.id } });
+    if (existing) {
+      const reused = await journalPostingService.reuseSourceJournalInTx(tx, ctx, existing.id, {
+        date: input.date,
+        hijriDate: input.hijriDate,
+        description: input.description,
+        currencyCode: input.currencyCode,
+        exchangeRate: input.exchangeRate,
+        sourceNumber: input.sourceNumber ?? input.sourceId.slice(0, 30),
+        lines,
+        activeSourceKey: journalPostingService.buildActiveSourceKey(
+          ctx.companyId,
+          sourceType,
+          input.sourceNumber ?? input.sourceId.slice(0, 30),
+          input.sourceYearId
+        ),
+      });
+      input.onJournalCreated?.(existing.id);
+      return reused;
     }
 
     const fiscalYearId =
@@ -91,7 +110,7 @@ export class AutoGlPostingService {
         fiscalYearId,
       }));
 
-    return journalPostingService.createAndPostInTx(tx, ctx, {
+    const created = await journalPostingService.createAndPostInTx(tx, ctx, {
       date: input.date,
       hijriDate: input.hijriDate,
       description: input.description,
@@ -105,7 +124,10 @@ export class AutoGlPostingService {
       sourceYearId: input.sourceYearId,
       sourceId: input.sourceId,
       lines,
+      skipCardColumns: input.skipCardColumns,
     });
+    input.onJournalCreated?.(created.id);
+    return created;
   }
 
   /**
@@ -187,9 +209,11 @@ export class AutoGlPostingService {
     const invoice = await tx.invoice.findFirst({
       where: { id: invoiceId, companyId },
     });
-    if (!invoice) throw new AppError(404, 'Invoice not found');
+    if (!invoice) throw new AppError(404, 'الفاتورة غير موجودة');
     if (invoice.journalEntryId) {
-      const existing = await tx.journalEntry.findFirst({ where: { id: invoice.journalEntryId } });
+      const existing = await tx.journalEntry.findFirst({
+        where: { id: invoice.journalEntryId, companyId },
+      });
       if (existing) return null;
     }
 
@@ -392,7 +416,7 @@ export class AutoGlPostingService {
     const cheque = await tx.cheque.findFirst({
       where: { id: chequeId, companyId },
     });
-    if (!cheque) throw new AppError(404, 'Cheque not found');
+    if (!cheque) throw new AppError(404, 'الشيك غير موجود');
 
     const chequeAccounts = await (await import('../../treasury/services/treasury-account-resolver.service'))
       .treasuryAccountResolverService.resolveChequeAccounts(companyId);

@@ -31,7 +31,7 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -78,7 +78,7 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -119,7 +119,7 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -150,6 +150,32 @@ router.get(
 );
 
 /**
+ * POST /api/v1/inventory/item-prices/upsert
+ * Create or update the price of one item unit on a price list.
+ */
+router.post(
+  '/upsert',
+  authorize({ resource: 'item-price', action: 'edit' }),
+  validate({ body: createItemPriceSchema }),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const companyId = req.companyId || req.tenantId;
+      if (!companyId) {
+        return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
+      }
+      const itemPrice = await itemPriceService.upsertItemUnitPrice(companyId, req.body);
+      return void res.json({ status: 'success', data: itemPrice });
+    } catch (error) {
+      logger.error({ error }, 'Error upserting item price');
+      return void res.status(400).json({
+        status: 'error',
+        message: error instanceof Error ? error.message : 'تعذر حفظ سعر الوحدة',
+      });
+    }
+  }
+);
+
+/**
  * POST /api/v1/inventory/item-prices
  * Create item price
  */
@@ -163,7 +189,7 @@ router.post(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -204,7 +230,7 @@ router.put(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -247,7 +273,7 @@ router.delete(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 

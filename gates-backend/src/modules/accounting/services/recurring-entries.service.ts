@@ -100,6 +100,15 @@ export class RecurringEntriesService {
     return created;
   }
 
+  async getActive(companyId: string, templateId: string) {
+    const row = await prisma.recurringJournalEntry.findFirst({
+      where: { id: templateId, companyId, isActive: true },
+      include: { lines: { orderBy: { id: 'asc' } } },
+    });
+    if (!row) throw new AppError(404, 'القيد الدوري غير موجود');
+    return row;
+  }
+
   async markGenerated(companyId: string, templateId: string) {
     await prisma.recurringJournalEntry.updateMany({
       where: { id: templateId, companyId },
@@ -151,9 +160,7 @@ export class RecurringEntriesService {
     }
 
     const baseName = (
-      journal.description?.trim() ||
-      journal.voucherNumber?.trim() ||
-      `قيد دوري ${journal.date.toISOString().slice(0, 10)}`
+      journal.description?.trim() || `قيد دوري ${journal.date.toISOString().slice(0, 10)}`
     ).slice(0, 180);
 
     const existing = journal.sourceId

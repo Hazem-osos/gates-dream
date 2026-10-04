@@ -1,7 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useParams } from 'next/navigation';
+import { useQuery } from '@tanstack/react-query';
 import { Download, FileSpreadsheet, Plus, Ruler } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { lazyNamedModal } from '@/components/ui/lazyModal';
@@ -11,6 +12,9 @@ import { useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
 import { queryKeys, staleTimes } from '@/lib/query/query-keys';
 import { downloadBoqExport } from '@/lib/contracting/excel-transfer';
 import type { OwnerBoqItem } from '@/lib/contracting/types';
+import type { ClientContractDetail } from '@/lib/contracting/types';
+import type { ContractBoqScope } from '@/lib/contracting/variation-types';
+import { apiClient } from '@/lib/api/client';
 
 const RateAnalysisDrawer = lazyNamedModal(
   () => import('@/components/contracting/RateAnalysisDrawer'),
@@ -58,6 +62,28 @@ export default function TechnicalOfficePage() {
   );
   const items = boqQ.data?.data ?? [];
 
+  const contractQ = useApiQuery<ClientContractDetail | null>(
+    queryKeys.contracting.clientContract(projectId),
+    `/contracting/client-billing/projects/${projectId}/contract`,
+    undefined,
+    { staleTime: staleTimes.transactionalMs, enabled: Boolean(projectId) }
+  );
+  const contractId = contractQ.data?.data?.id;
+  const scopeQ = useQuery({
+    queryKey: ['contract-boq-scope', contractId],
+    enabled: Boolean(contractId),
+    queryFn: async () => {
+      const res = await apiClient.get<ContractBoqScope>(
+        `/contracting/client-billing/contracts/${contractId}/boq-scope`
+      );
+      return res.data!;
+    },
+  });
+  const scopeByItemId = useMemo(() => {
+    if (!scopeQ.data?.items) return undefined;
+    return new Map(scopeQ.data.items.map((row) => [row.projectBOQItemId, row]));
+  }, [scopeQ.data?.items]);
+
   const refresh = () => {
     invalidate(queryKeys.contracting.ownerBoq(projectId));
     invalidate(queryKeys.contracting.evm(projectId));
@@ -86,6 +112,7 @@ export default function TechnicalOfficePage() {
     >
       <OwnerBoqTable
         items={items}
+        scopeByItemId={scopeByItemId}
         loading={boqQ.isLoading}
         onAdd={() => setCreateOpen(true)}
         onRateBreakdown={(item) => {

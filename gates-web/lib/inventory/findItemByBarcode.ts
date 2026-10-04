@@ -4,6 +4,8 @@ import { resolvePriceListSalePrice } from '@/lib/inventory/pricing-engine';
 
 export type BarcodeItemHit = ItemOption & {
   barcode?: string | null;
+  color?: string | null;
+  size?: string | null;
 };
 
 function normalizeBarcode(value: string): string {

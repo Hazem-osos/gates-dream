@@ -10,9 +10,10 @@ import {
 import { receiptService } from '../services/receipt.service';
 import { logger } from '../../../shared/logger';
 import { AuthRequest } from '../../../shared/auth/types';
-import { isAdminRequest } from '../../../shared/auth/roles.util';
 import { buildStockGlPostingContext } from '../services/stock-gl-posting-context';
+import { stockPostJson } from '../utils/stock-post-route-response';
 import { resolveStockListPaging } from '../utils/stock-list-query';
+import { stockMutationMessage, stockMutationStatus } from '../utils/stock-route-error';
 
 const router = Router();
 
@@ -33,7 +34,7 @@ router.post(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -46,12 +47,9 @@ router.post(
         hijriDate: req.body.hijriDate,
         record: req.body.record,
         warehouseId: req.body.warehouseId,
+        supplierId: req.body.supplierId || undefined,
         lines: req.body.lines,
       });
-
-      if (isAdminRequest(req)) {
-        await receiptService.postReceipt(companyId, receipt.id, buildStockGlPostingContext(req, companyId));
-      }
 
       logger.info(
         { companyId, receiptId: receipt.id },
@@ -60,23 +58,14 @@ router.post(
 
       return void res.status(201).json({
         status: 'success',
-        message: isAdminRequest(req) ? 'تم حفظ وترحيل الإضافة تلقائياً' : 'Receipt created successfully',
+        message: 'تم حفظ إذن الإضافة',
         data: receipt,
       });
     } catch (error) {
       logger.error({ error }, 'Error creating receipt');
-      const status =
-        error instanceof Error &&
-        (error.message.includes('not found') ||
-          error.message.includes('do not belong'))
-          ? 400
-          : 500;
-      return void res.status(status).json({
+      return void res.status(stockMutationStatus(error)).json({
         status: 'error',
-        message:
-          error instanceof Error
-            ? error.message
-            : 'Failed to create receipt',
+        message: stockMutationMessage(error, 'تعذّر حفظ إذن الإضافة'),
       });
     }
   }
@@ -96,7 +85,7 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -157,7 +146,7 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -187,6 +176,56 @@ router.get(
   }
 );
 
+router.put(
+  '/:id',
+  authorize({ resource: 'invoice', action: 'edit' }),
+  validate({ body: createReceiptSchema }),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const companyId = req.companyId || req.tenantId;
+      if (!companyId) {
+        return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
+      }
+      const receipt = await receiptService.updateReceipt(companyId, req.params.id, {
+        companyId,
+        branchId: req.body.branchId || req.branchId || undefined,
+        description: req.body.description,
+        serial: req.body.serial,
+        date: req.body.date,
+        hijriDate: req.body.hijriDate,
+        record: req.body.record,
+        warehouseId: req.body.warehouseId,
+        supplierId: req.body.supplierId || undefined,
+        lines: req.body.lines,
+      });
+      return void res.json({ status: 'success', message: 'تم حفظ السند', data: receipt });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'تعذر تعديل السند';
+      const status = message.includes('not found') || message.includes('غير') ? 400 : message.includes('لا يمكن') ? 400 : 500;
+      return void res.status(status).json({ status: 'error', message });
+    }
+  }
+);
+
+router.delete(
+  '/:id',
+  authorize({ resource: 'invoice', action: 'edit' }),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const companyId = req.companyId || req.tenantId;
+      if (!companyId) {
+        return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
+      }
+      await receiptService.deleteReceipt(companyId, req.params.id);
+      return void res.json({ status: 'success', message: 'تم حذف السند' });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'تعذر حذف السند';
+      const status = message.includes('not found') || message.includes('لا يمكن') ? 400 : 500;
+      return void res.status(status).json({ status: 'error', message });
+    }
+  }
+);
+
 /**
  * POST /api/v1/inventory/receipts/:id/post
  * Post receipt (add quantities to warehouse)
@@ -200,34 +239,34 @@ router.post(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
-      await receiptService.postReceipt(companyId, req.params.id, buildStockGlPostingContext(req, companyId));
+      const result = await receiptService.postReceipt(
+        companyId,
+        req.params.id,
+        buildStockGlPostingContext(req, companyId)
+      );
 
       logger.info({ companyId, receiptId: req.params.id }, 'Receipt posted');
 
-      return void res.json({
-        status: 'success',
-        message: 'Receipt posted successfully',
-      });
+      return void res.json(stockPostJson(result, 'تم ترحيل الإضافة بنجاح'));
     } catch (error) {
-      logger.error({ error }, 'Error posting receipt');
-      const status =
-        error instanceof Error &&
-        (error.message === 'Receipt not found' ||
-          error.message.includes('already') ||
-          error.message.includes('Cannot') ||
-          error.message.includes('Insufficient'))
-          ? 400
-          : 500;
-      return void res.status(status).json({
+      logger.error(
+        {
+          errMessage: error instanceof Error ? error.message : String(error),
+          errName: error instanceof Error ? error.name : typeof error,
+          prismaCode:
+            error && typeof error === 'object' && 'code' in error
+              ? String((error as { code: unknown }).code)
+              : undefined,
+        },
+        'Error posting receipt'
+      );
+      return void res.status(stockMutationStatus(error)).json({
         status: 'error',
-        message:
-          error instanceof Error
-            ? error.message
-            : 'Failed to post receipt',
+        message: stockMutationMessage(error, 'تعذّر ترحيل إذن الإضافة'),
       });
     }
   }
@@ -246,7 +285,7 @@ router.post(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -292,7 +331,7 @@ router.post(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -341,7 +380,7 @@ router.post(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 

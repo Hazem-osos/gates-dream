@@ -25,7 +25,7 @@ router.get(
     try {
       const companyId = req.companyId || req.tenantId;
       if (!companyId) {
-        return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+        return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
       }
 
       const result = await otherAdditionDiscountTypeService.listOtherAdditionDiscountTypes(companyId, {
@@ -58,7 +58,7 @@ router.get(
     try {
       const companyId = req.companyId || req.tenantId;
       if (!companyId) {
-        return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+        return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
       }
 
       const row = await otherAdditionDiscountTypeService.getOtherAdditionDiscountTypeById(
@@ -84,7 +84,7 @@ router.post(
     try {
       const companyId = req.companyId || req.tenantId;
       if (!companyId) {
-        return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+        return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
       }
 
       const row = await otherAdditionDiscountTypeService.createOtherAdditionDiscountType(
@@ -110,7 +110,7 @@ router.put(
     try {
       const companyId = req.companyId || req.tenantId;
       if (!companyId) {
-        return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+        return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
       }
 
       const row = await otherAdditionDiscountTypeService.updateOtherAdditionDiscountType(
@@ -136,7 +136,7 @@ router.delete(
     try {
       const companyId = req.companyId || req.tenantId;
       if (!companyId) {
-        return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+        return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
       }
 
       await otherAdditionDiscountTypeService.deleteOtherAdditionDiscountType(companyId, req.params.id);

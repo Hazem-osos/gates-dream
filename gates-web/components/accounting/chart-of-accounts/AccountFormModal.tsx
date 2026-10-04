@@ -59,6 +59,9 @@ export function AccountFormModal({
   lockAsRoot = false,
   pickerMode = false,
   lockParent = false,
+  lockParentHint = 'الخزنة الجديدة بتنزل تحت حسابات الخزنة فقط.',
+  lockParentMissingMessage = 'حسابات الخزنة غير جاهزة. حدّث الصفحة ثم أعد المحاولة.',
+  lockParentEmptyLabel = 'حسابات الخزنة',
   initialArabicName = '',
   onClose,
   onSaved,
@@ -73,8 +76,11 @@ export function AccountFormModal({
   lockAsRoot?: boolean;
   /** Same بطاقة حساب fields, used from any account picker. Closes after save. */
   pickerMode?: boolean;
-  /** Keep the parent as given — used when creating a cash-safe account. */
+  /** Keep the parent as given — used when creating a cash-safe or bank account. */
   lockParent?: boolean;
+  lockParentHint?: string;
+  lockParentMissingMessage?: string;
+  lockParentEmptyLabel?: string;
   initialArabicName?: string;
   onClose: () => void;
   onSaved: (accountId?: string) => void;
@@ -188,7 +194,7 @@ export function AccountFormModal({
     if ((pickerMode || lockParent) && !form.parentId) {
       onError(
         lockParent
-          ? 'حسابات الخزنة غير جاهزة. حدّث الصفحة ثم أعد المحاولة.'
+          ? lockParentMissingMessage
           : 'اختَر الحساب الرئيسي. الإضافة من الاختيار بتنشئ حساب حركة تحت أب.'
       );
       return;
@@ -276,7 +282,7 @@ export function AccountFormModal({
     <CenteredOverlay open={open} onClose={onClose} width="lg" labelledBy="account-form-title">
       <div className="erp-field-wide flex min-h-0 w-full min-w-0 flex-1 flex-col" dir="rtl">
         <div className="min-w-0 flex-1 overflow-y-auto p-6 pb-2">
-          <h2 id="account-form-title" className="mb-1 text-xl font-bold text-[#0E79AA]">
+          <h2 id="account-form-title" className="mb-1 text-xl font-bold text-[#0E78AA]">
             {pickerMode
               ? 'بطاقة حساب'
               : mode === 'create'
@@ -297,7 +303,7 @@ export function AccountFormModal({
                 }`}
           </p>
           {mode === 'create' && !pickerMode ? (
-            <p className="mb-4 text-xs text-[#0E79AA]">بعد الحفظ النموذج يفضل مفتوح عشان تضيف التالي تحت نفس الأب. إغلاق من إلغاء.</p>
+            <p className="mb-4 text-xs text-[#0E78AA]">بعد الحفظ النموذج يفضل مفتوح عشان تضيف التالي تحت نفس الأب. إغلاق من إلغاء.</p>
           ) : (
             <div className="mb-3" />
           )}
@@ -360,11 +366,11 @@ export function AccountFormModal({
             ) : lockParent ? (
               <CompactFormField
                 label="الحساب الأب"
-                hint="الخزنة الجديدة بتنزل تحت حسابات الخزنة فقط."
+                hint={lockParentHint}
               >
                 <input
                   className={compactControlClass}
-                  value={parentAccount ? `${parentAccount.code} — ${parentAccount.arabicName ?? parentAccount.nameAr}` : 'حسابات الخزنة'}
+                  value={parentAccount ? `${parentAccount.code} — ${parentAccount.arabicName ?? parentAccount.nameAr}` : lockParentEmptyLabel}
                   readOnly
                 />
               </CompactFormField>
@@ -512,7 +518,6 @@ export function AccountFormModal({
           saveLoading={pending}
           cancelText="إلغاء"
           saveText={pickerMode ? 'حفظ' : mode === 'create' ? 'حفظ وإضافة آخر' : 'حفظ'}
-          respectPermissions={false}
           className="mt-0"
         />
       </div>

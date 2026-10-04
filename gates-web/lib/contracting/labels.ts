@@ -68,6 +68,7 @@ export const CLIENT_INVOICE_LABEL: Record<ClientInvoiceStatus, string> = {
   FINANCE_POSTED: 'مرحل حسابات',
   REJECTED: 'مرفوض',
   PAID: 'مدفوع',
+  REVERSED: 'معكوس',
 };
 
 export const CLIENT_INVOICE_TONE: Record<ClientInvoiceStatus, StatusTone> = {
@@ -77,6 +78,7 @@ export const CLIENT_INVOICE_TONE: Record<ClientInvoiceStatus, StatusTone> = {
   FINANCE_POSTED: 'success',
   REJECTED: 'danger',
   PAID: 'success',
+  REVERSED: 'neutral',
 };
 
 export const SITE_STOCK_LABEL: Record<SiteStockMaterialStatus, string> = {

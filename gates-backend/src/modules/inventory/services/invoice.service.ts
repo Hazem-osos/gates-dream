@@ -446,7 +446,7 @@ export class InvoiceService {
       });
 
       if (!invoice) {
-        throw new Error('Invoice not found');
+        throw new Error('الفاتورة غير موجودة');
       }
 
       return invoice;
@@ -606,7 +606,7 @@ export class InvoiceService {
       });
 
       if (!existing) {
-        throw new Error('Invoice not found');
+        throw new Error('الفاتورة غير موجودة');
       }
 
       if (existing.isPosted) {
@@ -686,6 +686,10 @@ export class InvoiceService {
             id: invoiceId,
             companyId,
             version: data.expectedVersion ?? existing.version,
+            // Posting does not bump `version`; a draft edit must not land on a
+            // row that was posted or cancelled after it was validated.
+            isPosted: false,
+            isCancelled: false,
           },
           data: {
             ...updateData,
@@ -869,7 +873,7 @@ export class InvoiceService {
     });
 
     if (!invoice) {
-      throw new Error('Invoice not found');
+      throw new Error('الفاتورة غير موجودة');
     }
 
     if (invoice.isApproved) {
@@ -907,7 +911,7 @@ async unapproveInvoice(companyId: string, invoiceId: string) {
     });
 
     if (!invoice) {
-      throw new Error('Invoice not found');
+      throw new Error('الفاتورة غير موجودة');
     }
 
     if (!invoice.isApproved) {
@@ -937,7 +941,7 @@ async cancelInvoice(companyId: string, invoiceId: string) {
     });
 
     if (!invoice) {
-      throw new Error('Invoice not found');
+      throw new Error('الفاتورة غير موجودة');
     }
 
     if (invoice.isCancelled) {
@@ -951,6 +955,17 @@ async cancelInvoice(companyId: string, invoiceId: string) {
     }
 
     const updated = await prisma.$transaction(async (tx) => {
+      // Claim before the cascade: it looks journals up by source and would
+      // otherwise reverse the journal of a post that committed meanwhile.
+      const claimCancel = await tx.invoice.updateMany({
+        where: { id: invoiceId, companyId, isPosted: false },
+        data: { isCancelled: true },
+      });
+      if (claimCancel.count === 0) {
+        throw new Error(
+          'Cannot cancel a posted invoice. Unpost it first, or create a return invoice.'
+        );
+      }
       await journalPostingService.cascadeSourceJournalInTx(
         tx,
         companyId,
@@ -959,10 +974,7 @@ async cancelInvoice(companyId: string, invoiceId: string) {
         undefined,
         { sourceId: invoice.id, sourceNumber: invoice.invoiceNumber ?? undefined }
       );
-      return tx.invoice.update({
-        where: { id: invoiceId },
-        data: { isCancelled: true },
-      });
+      return tx.invoice.findUniqueOrThrow({ where: { id: invoiceId } });
     });
 
     logger.info({ companyId, invoiceId }, 'Invoice cancelled');
@@ -983,7 +995,7 @@ async restoreInvoice(companyId: string, invoiceId: string) {
     });
 
     if (!invoice) {
-      throw new Error('Invoice not found');
+      throw new Error('الفاتورة غير موجودة');
     }
 
     if (!invoice.isCancelled) {
@@ -1017,7 +1029,7 @@ async collectPayment(
     });
 
     if (!invoice) {
-      throw new Error('Invoice not found');
+      throw new Error('الفاتورة غير موجودة');
     }
 
     if (!invoice.isPosted) {
@@ -1061,7 +1073,7 @@ async collectPayment(
 }
 
 /**
- * Delete invoice (soft delete - cancel if not posted)
+ * Delete draft invoice permanently (posted invoices cannot be deleted).
  */
 async deleteInvoice(companyId: string, invoiceId: string) {
   try {
@@ -1070,7 +1082,7 @@ async deleteInvoice(companyId: string, invoiceId: string) {
     });
 
     if (!invoice) {
-      throw new Error('Invoice not found');
+      throw new Error('الفاتورة غير موجودة');
     }
 
     if (invoice.isPosted) {
@@ -1078,18 +1090,23 @@ async deleteInvoice(companyId: string, invoiceId: string) {
     }
 
     await prisma.$transaction(async (tx) => {
+      const draft = await tx.invoice.findFirst({
+        where: { id: invoiceId, companyId, isPosted: false, isCancelled: false },
+        select: { id: true, invoiceNumber: true, journalEntryId: true, costJournalEntryId: true },
+      });
+      if (!draft) {
+        throw new Error('Cannot delete a posted invoice');
+      }
       await journalPostingService.cascadeSourceJournalInTx(
         tx,
         companyId,
-        [invoice.journalEntryId, invoice.costJournalEntryId],
+        [draft.journalEntryId, draft.costJournalEntryId],
         'cancel',
         undefined,
-        { sourceId: invoice.id, sourceNumber: invoice.invoiceNumber ?? undefined }
+        { sourceId: draft.id, sourceNumber: draft.invoiceNumber ?? undefined }
       );
-      await tx.invoice.update({
-        where: { id: invoiceId },
-        data: { isCancelled: true },
-      });
+      await tx.invoiceLine.deleteMany({ where: { invoiceId } });
+      await tx.invoice.delete({ where: { id: invoiceId } });
     });
 
     logger.info({ companyId, invoiceId }, 'Invoice deleted');

@@ -7,9 +7,9 @@ export default function AccountBalancesPage() {
     <AccountReportFilterPage
       urlPath="/accounting/account-reports/credit/account-balances"
       icon="💳"
-      subtitle="أرصدة الحسابات حتى تاريخ محدد."
+      subtitle="شجرة الحسابات مع الرصيد السابق وحركة الفترة والرصيد الحالي."
       fields={{
-        dates: 'to',
+        dates: 'range',
         account: true,
         costCenter: true,
         currency: true,

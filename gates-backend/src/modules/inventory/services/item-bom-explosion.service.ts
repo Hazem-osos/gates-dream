@@ -13,6 +13,35 @@ export type BomExplosionComponent = {
   totalCost: number;
 };
 
+type CardComponentRow = {
+  itemId: string;
+  itemName?: string;
+  unitId?: string;
+  unitName?: string;
+  quantity: number;
+  cost: number;
+};
+
+function parseCardAssemblyComponents(value: unknown): CardComponentRow[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((row) => {
+      const rec = row as Record<string, unknown>;
+      const itemId = String(rec.itemId ?? '').trim();
+      const quantity = Number(rec.quantity);
+      const cost = Number(rec.cost);
+      return {
+        itemId,
+        itemName: rec.itemName ? String(rec.itemName) : undefined,
+        unitId: rec.unitId ? String(rec.unitId) : undefined,
+        unitName: rec.unitName ? String(rec.unitName) : undefined,
+        quantity: Number.isFinite(quantity) && quantity > 0 ? quantity : 0,
+        cost: Number.isFinite(cost) && cost >= 0 ? cost : 0,
+      };
+    })
+    .filter((row) => row.itemId && row.quantity > 0);
+}
+
 export class ItemBomExplosionService {
   async explode(
     companyId: string,
@@ -33,9 +62,14 @@ export class ItemBomExplosionService {
 
     const finished = await prisma.item.findFirst({
       where: { id: finishedItemId, companyId },
-      select: { id: true },
+      select: { id: true, arabicName: true, assemblyComponents: true },
     });
-    if (!finished) throw new AppError(404, 'Item not found');
+    if (!finished) throw new AppError(404, 'الصنف غير موجود');
+
+    const cardComponents = parseCardAssemblyComponents(finished.assemblyComponents);
+    if (cardComponents.length) {
+      return this.explodeFromItemCard(companyId, finished, quantity, warehouseId, cardComponents);
+    }
 
     const bom = await prisma.billOfMaterials.findFirst({
       where: { companyId, finishedItemId, isActive: true },
@@ -62,7 +96,7 @@ export class ItemBomExplosionService {
     });
 
     if (!bom || bom.lines.length === 0) {
-      throw new AppError(422, 'لا توجد شجرة مكونات نشطة لهذا الصنف');
+      throw new AppError(422, 'لا توجد مكونات في بطاقة هذا الصنف');
     }
 
     const scale = bomService.computeScaleFactor(Number(bom.baseQuantity), quantity);
@@ -128,6 +162,99 @@ export class ItemBomExplosionService {
       bomId: bom.id,
       bomName: bom.name,
       baseQuantity: Number(bom.baseQuantity),
+      quantity,
+      components,
+    };
+  }
+
+  private async explodeFromItemCard(
+    companyId: string,
+    finished: { id: string; arabicName: string | null },
+    quantity: number,
+    warehouseId: string | undefined,
+    cardComponents: CardComponentRow[]
+  ) {
+    const rawIds = [...new Set(cardComponents.map((row) => row.itemId))];
+    const items = await prisma.item.findMany({
+      where: { companyId, id: { in: rawIds } },
+      select: {
+        id: true,
+        serial: true,
+        barcode: true,
+        arabicName: true,
+        averageCost: true,
+        units: {
+          include: { unit: { select: { id: true, arabicName: true, englishName: true } } },
+        },
+      },
+    });
+    const itemById = new Map(items.map((item) => [item.id, item]));
+
+    const [balances, quantities] = await Promise.all([
+      warehouseId
+        ? prisma.itemWarehouseBalance.findMany({
+            where: { companyId, warehouseId, itemId: { in: rawIds } },
+          })
+        : Promise.resolve([]),
+      warehouseId
+        ? prisma.itemQuantity.findMany({
+            where: { warehouseId, itemId: { in: rawIds } },
+          })
+        : Promise.resolve([]),
+    ]);
+
+    const availableByItem = new Map<string, number>();
+    const costByItem = new Map<string, number>();
+    for (const row of balances) {
+      availableByItem.set(row.itemId, Number(row.quantityOnHand) || 0);
+      costByItem.set(row.itemId, Number(row.averageCost) || 0);
+    }
+    for (const row of quantities) {
+      if (!availableByItem.has(row.itemId)) {
+        availableByItem.set(
+          row.itemId,
+          (availableByItem.get(row.itemId) || 0) + (Number(row.quantity) || 0)
+        );
+      }
+    }
+
+    const components = cardComponents
+      .map((row) => {
+        const item = itemById.get(row.itemId);
+        if (!item) return null;
+        const requiredQuantity = row.quantity * quantity;
+        const baseUnit = item.units.find((u) => u.isBaseUnit) ?? item.units[0] ?? null;
+        const unitCost =
+          row.cost || costByItem.get(item.id) || Number(item.averageCost) || 0;
+        return {
+          itemId: item.id,
+          itemCode: item.serial || item.barcode || '',
+          itemNameAr: row.itemName || item.arabicName,
+          unit: row.unitId
+            ? { id: row.unitId, name: row.unitName || baseUnit?.unit.arabicName || '' }
+            : baseUnit
+              ? {
+                  id: baseUnit.unitId || baseUnit.unit.id,
+                  name: baseUnit.unit.arabicName || baseUnit.unit.englishName || '',
+                }
+              : null,
+          availableQuantity: availableByItem.get(item.id) || 0,
+          requiredQuantity,
+          unitCost,
+          totalCost: requiredQuantity * unitCost,
+        };
+      })
+      .filter((row): row is BomExplosionComponent => row != null);
+
+    if (!components.length) {
+      throw new AppError(422, 'لا توجد مكونات في بطاقة هذا الصنف');
+    }
+
+    return {
+      finishedItemId: finished.id,
+      bomId: finished.id,
+      bomName: finished.arabicName || 'بطاقة الصنف',
+      baseQuantity: 1,
       quantity,
       components,
     };

@@ -105,7 +105,7 @@ export function RateAnalysisDrawer({
     <CenteredOverlay open={open} onClose={onClose} width="xl">
         <header className="flex items-center justify-between border-b border-[#E6F0F7] px-5 py-4">
           <div>
-            <h2 className="text-lg font-bold text-[#0E79AA]">تحليل السعر — {item.itemCode}</h2>
+            <h2 className="text-lg font-bold text-[#0E78AA]">تحليل السعر — {item.itemCode}</h2>
             <p className="text-sm text-slate-500">{item.descriptionAr}</p>
           </div>
           <button type="button" onClick={onClose} className="rounded-lg p-2 hover:bg-slate-100" aria-label="إغلاق">
@@ -199,7 +199,7 @@ export function RateAnalysisDrawer({
             </Button>
             <div className="rounded-xl bg-[#F0F7FB] px-4 py-3 text-sm">
               <span className="text-slate-500">إجمالي التكلفة المباشرة للوحدة = </span>
-              <span className="font-bold tabular-nums text-[#0E79AA]">{formatEgp(totalDirect)}</span>
+              <span className="font-bold tabular-nums text-[#0E78AA]">{formatEgp(totalDirect)}</span>
               <p className="mt-1 text-xs text-slate-500">Σ (معدل الاستهلاك × (1 + الهالك) × تكلفة الوحدة)</p>
             </div>
           </div>
@@ -211,7 +211,6 @@ export function RateAnalysisDrawer({
           cancelText="إلغاء"
           saveLoading={save.isPending}
           saveDisabled={lines.length === 0}
-          respectPermissions={false}
           className="mt-0"
         />
     </CenteredOverlay>

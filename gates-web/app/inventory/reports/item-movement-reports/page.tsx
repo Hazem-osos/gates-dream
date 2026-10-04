@@ -7,20 +7,23 @@ export default function ItemMovementReportsPage() {
     <InventoryReportFilterPage
       urlPath="/inventory/reports/item-movement-reports"
       icon="📦"
-      subtitle="حركة مخزنية تفصيلية للأصناف ضمن الفترة."
+      subtitle="حركة الأصناف خلال الفترة: الوارد والصادر والرصيد، باسم الصنف والمخزن."
       fields={{
         dates: 'range',
         warehouse: true,
+        warehouseScope: 'all',
         item: true,
+        itemGroup: true,
         customer: true,
         supplier: true,
         delegate: true,
         costCenter: true,
-        serial: true,
         currency: true,
         branch: true,
+        invoiceRange: true,
         allAccounts: true,
-        totalReport: true,
+        reportOptions: true,
+        groupByLayout: true,
       }}
     />
   );

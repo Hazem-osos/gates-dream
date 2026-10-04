@@ -13,7 +13,7 @@ import {
 } from '@/lib/validation/hr.schema';
 
 const absenceOvertimeDefaults: EmployeeAbsenceOvertimeHeaderInput = {
-  serialNumber: '1212378971212',
+  serialNumber: '',
   department: '',
   section: '',
   jobCadre: '',
@@ -168,7 +168,7 @@ export default function EmployeeAbsenceOvertimePage() {
 
   const inputCls = "h-9 w-full rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] px-3 text-xs font-medium text-[#094C6B] placeholder:text-slate-400 transition-colors focus:border-[#0E78AA] focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#0E78AA]/15 disabled:cursor-not-allowed disabled:opacity-50 sm:text-sm";
   const flexInputCls =
-    'flex-1 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg';
+    'flex-1 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg';
 
   return (
     <HrPageChrome title="غياب الموظفين والإضافي"
@@ -264,10 +264,10 @@ export default function EmployeeAbsenceOvertimePage() {
                       <input
                         type="text"
                         className={`${flexInputCls} ${errors.costCenter ? 'border-red-400' : ''}`}
-                        placeholder="1212378971212"
+                        placeholder=""
                         {...register('costCenter')}
                       />
-                      <svg className="w-5 h-5 text-[#0E79AA]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg className="w-5 h-5 text-[#0E78AA]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                       </svg>
                     </div>
@@ -285,10 +285,10 @@ export default function EmployeeAbsenceOvertimePage() {
                           <input
                             type="text"
                             className={`${flexInputCls} ${errors.department ? 'border-red-400' : ''}`}
-                            placeholder="1212378971212"
+                            placeholder=""
                             {...register('department')}
                           />
-                          <svg className="w-5 h-5 text-[#0E79AA]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <svg className="w-5 h-5 text-[#0E78AA]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                           </svg>
                         </div>
@@ -302,10 +302,10 @@ export default function EmployeeAbsenceOvertimePage() {
                           <input
                             type="text"
                             className={`${flexInputCls} ${errors.section ? 'border-red-400' : ''}`}
-                            placeholder="1212378971212"
+                            placeholder=""
                             {...register('section')}
                           />
-                          <svg className="w-5 h-5 text-[#0E79AA]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <svg className="w-5 h-5 text-[#0E78AA]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                           </svg>
                         </div>
@@ -319,10 +319,10 @@ export default function EmployeeAbsenceOvertimePage() {
                           <input
                             type="text"
                             className={`${flexInputCls} ${errors.jobCadre ? 'border-red-400' : ''}`}
-                            placeholder="1212378971212"
+                            placeholder=""
                             {...register('jobCadre')}
                           />
-                          <svg className="w-5 h-5 text-[#0E79AA]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <svg className="w-5 h-5 text-[#0E78AA]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                           </svg>
                         </div>
@@ -336,10 +336,10 @@ export default function EmployeeAbsenceOvertimePage() {
                           <input
                             type="text"
                             className={`${flexInputCls} ${errors.jobTitle ? 'border-red-400' : ''}`}
-                            placeholder="1212378971212"
+                            placeholder=""
                             {...register('jobTitle')}
                           />
-                          <svg className="w-5 h-5 text-[#0E79AA]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <svg className="w-5 h-5 text-[#0E78AA]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                           </svg>
                         </div>
@@ -353,10 +353,10 @@ export default function EmployeeAbsenceOvertimePage() {
                           <input
                             type="text"
                             className={`${flexInputCls} ${errors.city ? 'border-red-400' : ''}`}
-                            placeholder="1212378971212"
+                            placeholder=""
                             {...register('city')}
                           />
-                          <svg className="w-5 h-5 text-[#0E79AA]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <svg className="w-5 h-5 text-[#0E78AA]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                           </svg>
                         </div>
@@ -370,10 +370,10 @@ export default function EmployeeAbsenceOvertimePage() {
                           <input
                             type="text"
                             className={`${flexInputCls} ${errors.wagePolicy ? 'border-red-400' : ''}`}
-                            placeholder="1212378971212"
+                            placeholder=""
                             {...register('wagePolicy')}
                           />
-                          <svg className="w-5 h-5 text-[#0E79AA]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <svg className="w-5 h-5 text-[#0E78AA]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                           </svg>
                         </div>
@@ -387,10 +387,10 @@ export default function EmployeeAbsenceOvertimePage() {
                           <input
                             type="text"
                             className={`${flexInputCls} ${errors.salaryBranch ? 'border-red-400' : ''}`}
-                            placeholder="1212378971212"
+                            placeholder=""
                             {...register('salaryBranch')}
                           />
-                          <svg className="w-5 h-5 text-[#0E79AA]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <svg className="w-5 h-5 text-[#0E78AA]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                           </svg>
                         </div>
@@ -399,14 +399,14 @@ export default function EmployeeAbsenceOvertimePage() {
 
                       {/* Import from Attendance Sheet Button */}
                       <div className="text-center pt-4">
-                        <button className="px-6 py-3 bg-[#0E79AA] text-white rounded-lg hover:bg-[#094C6B] transition-colors">
+                        <button className="px-6 py-3 bg-[#0E78AA] text-white rounded-lg hover:bg-[#094C6B] transition-colors">
                           إستيراد من شيت الحضور
                         </button>
                       </div>
 
                       {/* Load All Employees Button */}
                       <div className="text-center">
-                        <button className="px-8 py-3 bg-[#0E79AA] text-white rounded-lg hover:bg-[#094C6B] transition-colors">
+                        <button className="px-8 py-3 bg-[#0E78AA] text-white rounded-lg hover:bg-[#094C6B] transition-colors">
                           تحميل كل الموظفين
                         </button>
                       </div>

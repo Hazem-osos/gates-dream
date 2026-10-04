@@ -9,7 +9,7 @@ export const HISTORICAL_CLIENT_INVOICE_STATUSES = [
   'PAID',
 ] as const;
 
-export const IMMUTABLE_CLIENT_INVOICE_STATUSES = ['FINANCE_POSTED', 'PAID'] as const;
+export const IMMUTABLE_CLIENT_INVOICE_STATUSES = ['FINANCE_POSTED', 'PAID', 'REVERSED'] as const;
 
 export interface DraftClientInvoiceLineInput {
   projectBOQItemId: string;
@@ -27,6 +27,8 @@ export interface CalculateDraftClientInvoiceDto {
   allowVariationOrder?: boolean;
   /** When recalculating an existing draft, exclude it from the historical baseline. */
   excludeInvoiceId?: string;
+  /** Exclude this operational preliminary cert from qty baseline (conversion). */
+  excludePreliminaryCertificateId?: string;
 }
 
 export interface CalculatedClientInvoiceLine {
@@ -81,6 +83,7 @@ export interface CreateOrUpdateDraftClientInvoiceDto {
   claimSiteStockMaterialIds?: string[];
   installSiteStockMaterialIds?: string[];
   allowVariationOrder?: boolean;
+  excludePreliminaryCertificateId?: string;
 }
 
 export interface ClientInvoiceGlPayload {

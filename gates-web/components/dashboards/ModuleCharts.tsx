@@ -3,9 +3,9 @@
 import { useEffect, useState } from 'react';
 import { formatEgp } from '@/lib/subcontracts/money';
 
-const BRAND = '#0E79AA';
+const BRAND = '#0E78AA';
 const ACCENT = '#CB5B53';
-const SLICE = ['#0E79AA', '#0A5F8A', '#CB5B53', '#D4A017', '#5B8C5A', '#6B7280'];
+const SLICE = ['#0E78AA', '#0A5F8A', '#CB5B53', '#D4A017', '#5B8C5A', '#6B7280'];
 
 type RechartsModule = typeof import('recharts');
 
@@ -91,7 +91,7 @@ export function HorizontalBars({
   data: { name: string; value: number }[];
 }) {
   const max = Math.max(1, ...data.map((d) => d.value));
-  const bars = ['#0E79AA', '#059669', '#D97706', '#7C3AED', '#E11D48'];
+  const bars = ['#0E78AA', '#059669', '#D97706', '#7C3AED', '#E11D48'];
   return (
     <div className="space-y-3">
       {data.length === 0 ? <p className="text-sm text-slate-500">لا توجد بيانات بعد</p> : null}

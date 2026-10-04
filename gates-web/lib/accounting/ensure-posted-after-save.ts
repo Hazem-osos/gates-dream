@@ -12,7 +12,11 @@ function errorMessage(error: unknown): string {
 
 export function isAlreadyPostedError(error: unknown): boolean {
   const message = errorMessage(error);
-  return message.includes('مرحّل مسبقاً') || /already posted/i.test(message);
+  return (
+    message.includes('مرحّل مسبقاً') ||
+    message.includes('مرحّلة مسبقاً') ||
+    /already posted/i.test(message)
+  );
 }
 
 function isJournalAutoPostNoop(error: unknown): boolean {
@@ -36,7 +40,7 @@ export async function postJournalAfterSave(journalEntryId: string): Promise<'pos
 
 export async function postInvoiceAfterSave(invoiceId: string): Promise<'posted' | 'kept'> {
   try {
-    await apiClient.post(`/invoices/${invoiceId}/post`, {});
+    await apiClient.post(`/invoices/${invoiceId}/post`, {}, { skipErrorNotify: true });
     return 'posted';
   } catch (error) {
     if (isAlreadyPostedError(error)) return 'kept';

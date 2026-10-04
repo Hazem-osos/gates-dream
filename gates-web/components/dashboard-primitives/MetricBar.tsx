@@ -32,7 +32,7 @@ const TONE = {
   },
   neutral: {
     value: 'text-slate-900 dark:text-slate-100',
-    bar: 'border-t-[#0E79AA]',
+    bar: 'border-t-[#0E78AA]',
     chip: 'bg-slate-50 text-slate-600 border-slate-200/60',
   },
 };

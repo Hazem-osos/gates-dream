@@ -1,4 +1,5 @@
 import prisma from '../../../shared/database/prisma';
+import { permanentDelete } from '../../../shared/database/permanent-delete.util';
 import { logger } from '../../../shared/logger';
 
 export interface CreateNationalityData {
@@ -153,7 +154,7 @@ export class NationalityService {
   }
 
   /**
-   * Delete nationality (soft delete)
+   * Delete permanently (blocked if referenced)
    */
   async deleteNationality(companyId: string, nationalityId: string) {
     try {
@@ -165,10 +166,7 @@ export class NationalityService {
         throw new Error('Nationality not found');
       }
 
-      await prisma.nationality.update({
-        where: { id: nationalityId },
-        data: { isActive: false },
-      });
+      await permanentDelete('السجل', () => prisma.nationality.delete({ where: { id: nationalityId } }));
 
       logger.info({ companyId, nationalityId }, 'Nationality deleted');
       return { success: true };

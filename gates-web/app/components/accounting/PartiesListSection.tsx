@@ -102,7 +102,7 @@ export function PartiesListSection({ endpoint, queryKeyPrefix, emptyTitle, onSel
           { id: 'name', header: 'الاسم', cell: (r) => (
             <button
               type="button"
-              className={`text-right w-full hover:text-[#0E79AA] ${selectedRowId === r.id ? 'font-bold text-[#0E79AA]' : ''}`}
+              className={`text-right w-full hover:text-[#0E78AA] ${selectedRowId === r.id ? 'font-bold text-[#0E78AA]' : ''}`}
               onClick={() => {
                 onRowActivate?.(r);
                 onSelect?.(r.id);

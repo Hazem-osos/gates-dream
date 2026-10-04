@@ -15,6 +15,7 @@ import { JournalEntryBottomSplit } from '@/components/accounting/journal/Journal
 import { JournalEntryStickyFooter } from '@/components/accounting/journal/JournalEntryStickyFooter';
 import { JournalLinesTable } from '@/components/accounting/journal/JournalLinesTable';
 import { Button } from '@/components/ui';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useOwnTabSearchParams } from '@/lib/navigation/tab-route-lock';
 import { PageDraftRestoreBanner } from '@/components/erp/PageDraftRestoreBanner';
@@ -52,8 +53,14 @@ import { RecurringEntryPickerModal, type RecurringTemplate } from '@/components/
 import { toHijriDate } from '@/lib/hijri-date';
 import { useDraftAutosave } from '@/lib/hooks/useDraftAutosave';
 import { onFieldErrors } from '@/lib/forms/on-field-errors';
-import { resolveJournalSourceKind, type JournalSourceType } from '@/lib/accounting/journal-source';
 import {
+  isDailyJournalVoucherMutable,
+  journalDocumentHref,
+  resolveJournalSourceKind,
+  type JournalSourceType,
+} from '@/lib/accounting/journal-source';
+import {
+  headerLocksLineCurrency,
   isCompanyBaseCurrency,
   isEgyptianPound,
   impliedJournalLineRate,
@@ -68,6 +75,7 @@ import {
   postJournalAfterSave,
   useRepostAfterUnpost,
 } from '@/lib/accounting/ensure-posted-after-save';
+import { resolvePostedFlag } from '@/lib/documents/posting-trust';
 import { DocumentCurrencyRateFields } from '@/components/accounting/DocumentCurrencyRateFields';
 import { ShowFxColumnsField } from '@/components/accounting/ShowFxColumnsField';
 import { useShowFxColumns } from '@/lib/transaction-settings/useShowFxColumns';
@@ -134,6 +142,8 @@ type JournalEntryDetail = {
   sourceKind?: string | null;
   sourceId?: string | null;
   sourceNumber?: string | null;
+  entryType?: string | null;
+  voucherFund?: 'bank' | 'cash' | null;
   lines?: Array<{
     accountId: string;
     description?: string | null;
@@ -194,8 +204,11 @@ function CreateJournalEntryFormInner() {
     'JOURNAL_ENTRY'
   );
   const [sourceKind, setSourceKind] = useState<JournalSourceType>('MANUAL');
+  const [sourceTypeRaw, setSourceTypeRaw] = useState<string | null>(null);
   const [sourceId, setSourceId] = useState<string | null>(null);
   const [sourceNumber, setSourceNumber] = useState<string | null>(null);
+  const [voucherFund, setVoucherFund] = useState<'bank' | 'cash' | null>(null);
+  const [entryType, setEntryType] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [savedJournalEntryId, setSavedJournalEntryId] = useState<string | null>(
@@ -203,7 +216,6 @@ function CreateJournalEntryFormInner() {
   );
   const [loadedVersion, setLoadedVersion] = useState<number | undefined>(undefined);
   const skipUrlHydrateRef = useRef(false);
-  const unpostedHoldoffRef = useRef<{ id: string; until: number } | null>(null);
   const skipHeaderFxSyncRef = useRef(false);
   const prevHeaderCurrencyIdRef = useRef<string>('');
   const lastHydratedKeyRef = useRef<string | null>(null);
@@ -221,14 +233,28 @@ function CreateJournalEntryFormInner() {
     }
   }, [journalEntryIdFromUrl, savedJournalEntryId]);
 
+  const sourceLocked = !isDailyJournalVoucherMutable({
+    sourceType: sourceTypeRaw,
+    sourceKind,
+    sourceId,
+    entryType,
+    isCyclic,
+  });
+  const sourceHref = journalDocumentHref({
+    sourceType: sourceTypeRaw,
+    sourceKind,
+    sourceId,
+    entryType,
+  });
+
   useEffect(() => {
     if (!savedJournalEntryId) {
       setMode('create');
       return;
     }
-    if (isPosted || isCancelled) lockToView();
+    if (isPosted || isCancelled || sourceLocked) lockToView();
     else if (savedJournalEntryId && mode === 'create') setMode('edit');
-  }, [isCancelled, isPosted, lockToView, mode, savedJournalEntryId, setMode]);
+  }, [isCancelled, isPosted, lockToView, mode, savedJournalEntryId, setMode, sourceLocked]);
 
   const openJournal = useCallback(
     (id: string | null) => {
@@ -305,22 +331,7 @@ function CreateJournalEntryFormInner() {
 
   useEffect(() => {
     if (!loadedJournalEntry || currencies.length === 0) return;
-    const posted =
-      Boolean(loadedJournalEntry.isPosted) || loadedJournalEntry.postingStatus === 'Post';
-    const holdoff = unpostedHoldoffRef.current;
-    if (
-      posted &&
-      holdoff &&
-      holdoff.id === loadedJournalEntry.id &&
-      Date.now() < holdoff.until
-    ) {
-      setIsPosted(false);
-      setVoucherStatus('غير مرحل');
-      return;
-    }
-    if (!posted && holdoff?.id === loadedJournalEntry.id) {
-      unpostedHoldoffRef.current = null;
-    }
+    const posted = resolvePostedFlag(loadedJournalEntry);
     const hydrateKey = `${loadedJournalEntry.id}:${loadedJournalEntry.version ?? 0}:${posted ? 1 : 0}`;
     if (lastHydratedKeyRef.current === hydrateKey) return;
     lastHydratedKeyRef.current = hydrateKey;
@@ -337,20 +348,32 @@ function CreateJournalEntryFormInner() {
       currencyId: currency?.id || '',
       lines: (loadedJournalEntry.lines ?? []).map((line) => {
         const lineRate = impliedJournalLineRate(line);
+        const resolvedCurrencyId = resolveJournalLineCurrencyId(
+          line,
+          currency,
+          currencies,
+          companyBaseCurrency
+        );
+        const lockToHeader = headerLocksLineCurrency(currency?.code);
+        const savedHeaderRate = Number(loadedJournalEntry.exchangeRate);
+        const headerRate =
+          savedHeaderRate > 0
+            ? savedHeaderRate
+            : rateForCurrency(currency?.code, companyBaseCurrency, currency?.exchangeRate);
         return {
           accountId: line.accountId,
           description: line.description || '',
           debit: Number(line.debit) || 0,
           credit: Number(line.credit) || 0,
-          currencyId: resolveJournalLineCurrencyId(line, currency, currencies, companyBaseCurrency),
-          exchangeRate: lineRate,
+          currencyId: lockToHeader ? currency?.id || resolvedCurrencyId : resolvedCurrencyId,
+          exchangeRate: lockToHeader && resolvedCurrencyId !== currency?.id ? headerRate : lineRate,
           costCenterId: line.costCenterId || '',
           partnerId: line.partnerId || undefined,
           partnerType:
             line.partnerType === 'CUSTOMER' || line.partnerType === 'SUPPLIER'
               ? line.partnerType
               : undefined,
-          isTiedToInvoice: Boolean(line.isTiedToInvoice && line.invoiceId),
+          isTiedToInvoice: Boolean(line.isTiedToInvoice),
           invoiceId: line.invoiceId ?? null,
           invoiceNumber: line.invoiceNumber ?? null,
         };
@@ -373,8 +396,15 @@ function CreateJournalEntryFormInner() {
     setSourceKind(
       resolveJournalSourceKind(loadedJournalEntry.sourceType, loadedJournalEntry.sourceKind)
     );
+    setSourceTypeRaw(loadedJournalEntry.sourceType ?? null);
     setSourceId(loadedJournalEntry.sourceId ?? null);
     setSourceNumber(loadedJournalEntry.sourceNumber ?? null);
+    setEntryType(loadedJournalEntry.entryType ?? null);
+    setVoucherFund(
+      loadedJournalEntry.voucherFund === 'bank' || loadedJournalEntry.voucherFund === 'cash'
+        ? loadedJournalEntry.voucherFund
+        : null
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadedJournalEntry, currencies.length]);
 
@@ -390,13 +420,15 @@ function CreateJournalEntryFormInner() {
         invalidateQuery(['recurring-journal-entries']);
         invalidateQuery(['journal-entry-next-number']);
         if (created?.id) {
+          const posted = Boolean(created.isPosted);
           lastHydratedKeyRef.current = `${created.id}:${created.version ?? 0}:0`;
           skipUrlHydrateRef.current = true;
           setSavedJournalEntryId(created.id);
           setLoadedVersion(created.version);
-          setIsPosted(false);
-          setVoucherStatus('غير مرحل');
-          setMode('edit');
+          setIsPosted(posted);
+          setVoucherStatus(posted ? 'مرحل' : 'غير مرحل');
+          if (posted) lockToView();
+          else setMode('edit');
           router.replace(`/accounting/operations/journal-entry?id=${created.id}`, { scroll: false });
         }
         setSuccess(message);
@@ -424,7 +456,6 @@ function CreateJournalEntryFormInner() {
               invalidateQuery(['journal-entry', id]);
               invalidateTreasuryFundBalances(invalidateQuery);
               if (result === 'posted') {
-                unpostedHoldoffRef.current = null;
                 setIsPosted(true);
                 setVoucherStatus('مرحل');
                 lockToView();
@@ -488,7 +519,6 @@ function CreateJournalEntryFormInner() {
         setVoucherStatus('غير مرحل');
         if (row?.version != null) setLoadedVersion(row.version);
         if (id) {
-          unpostedHoldoffRef.current = { id, until: Date.now() + 15_000 };
           lastHydratedKeyRef.current = `${id}:${row?.version ?? (loadedVersion ?? 0)}:0`;
         }
         markUnpostedForEdit();
@@ -613,13 +643,17 @@ function CreateJournalEntryFormInner() {
     prevHeaderCurrencyIdRef.current = headerCurrencyId;
     const lines = getValues('lines') ?? [];
     if (!lines.length) return;
+    const lockAll = headerLocksLineCurrency(header?.code);
     replace(
       lines.map((line) => {
         const lineRate = Number(line.exchangeRate) || 1;
         const followsHeader =
+          lockAll ||
           !line.currencyId ||
           (line.currencyId === prevId && Math.abs(lineRate - prevRate) < 0.0001);
         if (!followsHeader) return line;
+        const alreadyOnHeader = line.currencyId === headerCurrencyId;
+        if (alreadyOnHeader && prevId !== headerCurrencyId) return line;
         return { ...line, currencyId: headerCurrencyId, exchangeRate: headerRate };
       })
     );
@@ -782,6 +816,10 @@ function CreateJournalEntryFormInner() {
   };
 
   const submitJournal = () => {
+    if (sourceLocked) {
+      setError('هذا القيد مربوط بمستند مصدر. التعديل يتم من المستند الأصلي فقط.');
+      return;
+    }
     const lines = getValues('lines') ?? [];
     if (!assertLinesReadyToSave(lines)) return;
     void handleSubmit(onValidSubmit, onFieldErrors(setError))();
@@ -806,7 +844,11 @@ function CreateJournalEntryFormInner() {
     }
     const headerCurrency = currencies.find((c) => c.id === data.currencyId);
     const currencyCode = headerCurrency?.code ?? companyBaseCurrency;
+    const payloadLines = data.lines.filter(
+      (line) => line.accountId?.trim() && (Number(line.debit) > 0 || Number(line.credit) > 0)
+    );
     const requestBody: JournalEntryApiBody = {
+      voucherNumber: data.referenceNumber?.trim() || undefined,
       date: new Date(data.date).toISOString(),
       hijriDate: data.hijriDate || toHijriDate(data.date) || undefined,
       description: data.description.trim(),
@@ -819,11 +861,11 @@ function CreateJournalEntryFormInner() {
       exchangeRate:
         headerRateOverride ??
         rateForCurrency(headerCurrency?.code, companyBaseCurrency, headerCurrency?.exchangeRate),
-      lines: data.lines.map((line, index) => {
+      lines: payloadLines.map((line, index) => {
         const rate = line.exchangeRate || 1;
         const debit = line.debit || 0;
         const credit = line.credit || 0;
-        const tied = Boolean(line.isTiedToInvoice && line.invoiceId);
+        const tied = Boolean(line.isTiedToInvoice);
         const lineCurrency = currencies.find((c) => c.id === line.currencyId);
         return {
           accountId: line.accountId,
@@ -881,6 +923,17 @@ function CreateJournalEntryFormInner() {
   }, [append, companyBaseCurrency, currencies, getValues]);
 
   const applyRecurringTemplate = (template: RecurringTemplate) => {
+    const today = new Date().toISOString().split('T')[0];
+    lastHydratedKeyRef.current = null;
+    setSavedJournalEntryId(null);
+    setLoadedVersion(undefined);
+    setIsPosted(false);
+    setIsCancelled(false);
+    setMode('create');
+    setValue('date', today, { shouldDirty: true });
+    setValue('hijriDate', toHijriDate(today), { shouldDirty: true });
+    setValue('referenceNumber', '', { shouldDirty: false, shouldValidate: false });
+    invalidateQuery(['journal-entry-next-number']);
     const cur = getValues('currencyId');
     const header = currencies.find((c) => c.id === cur);
     const headerRate = rateForCurrency(header?.code, companyBaseCurrency, header?.exchangeRate);
@@ -901,16 +954,18 @@ function CreateJournalEntryFormInner() {
     if (template.notes) {
       setValue('description', template.notes, { shouldDirty: true });
     }
-    setSourceKind('RECURRING_TEMPLATE');
-    setSourceId(template.id);
-    setSourceNumber(template.templateNameAr);
-    setIsCyclic(true);
+    setSourceKind('MANUAL');
+    setSourceTypeRaw(null);
+    setVoucherFund(null);
+    setSourceId(null);
+    setSourceNumber(null);
+    setEntryType(null);
+    setIsCyclic(false);
     setSuccess(`تم استدعاء القيد الدوري: ${template.templateNameAr}`);
   };
 
   const startNewEntry = () => {
     lastHydratedKeyRef.current = null;
-    unpostedHoldoffRef.current = null;
     const today = new Date().toISOString().split('T')[0];
     const cur = getValues('currencyId');
     reset({
@@ -922,8 +977,11 @@ function CreateJournalEntryFormInner() {
       lines: [],
     });
     setSourceKind('MANUAL');
+    setSourceTypeRaw(null);
+    setVoucherFund(null);
     setSourceId(null);
     setSourceNumber(null);
+    setEntryType(null);
     setIsCyclic(false);
     setSavedJournalEntryId(null);
     setLoadedVersion(undefined);
@@ -951,6 +1009,10 @@ function CreateJournalEntryFormInner() {
   };
 
   const handlePost = () => {
+    if (sourceLocked) {
+      setError('هذا القيد مربوط بمستند مصدر. الترحيل يتم من المستند الأصلي فقط.');
+      return;
+    }
     if (financialBusy) return;
     setError('');
     setSuccess('');
@@ -995,8 +1057,8 @@ function CreateJournalEntryFormInner() {
         onPost={handlePost}
         savePending={financialBusy}
         postPending={postJournalMutation.isPending}
-        canSave={!isReadOnly && !isPosted && !isCancelled && !financialBusy}
-        canPost={!!savedJournalEntryId && !isPosted && !isCancelled && !financialBusy}
+        canSave={!sourceLocked && !isReadOnly && !isPosted && !isCancelled && !financialBusy}
+        canPost={!sourceLocked && !!savedJournalEntryId && !isPosted && !isCancelled && !financialBusy}
         printTrigger={
           <PrintDocumentButton
             label="طباعة"
@@ -1031,33 +1093,37 @@ function CreateJournalEntryFormInner() {
           hasDocument: Boolean(savedJournalEntryId) || Boolean(watchedLines?.length),
           isPosted,
           isCancelled,
-          onPost: handlePost,
+          hidePostActions: sourceLocked,
+          onPost: sourceLocked ? undefined : handlePost,
           postPending: postJournalMutation.isPending,
           onNew: startNewEntry,
           newLabel: 'جديد',
-          onEdit: () => {
-            if (isCancelled) {
-              setError('القيد ملغي ولا يمكن تعديله');
-              return;
-            }
-            if (isPosted) {
-              setError('فك الترحيل أولاً من قائمة (...) حتى يمكن التعديل');
-              return;
-            }
-            unlockForEdit();
-          },
+          onEdit: sourceLocked
+            ? undefined
+            : () => {
+                if (isCancelled) {
+                  setError('القيد ملغي ولا يمكن تعديله');
+                  return;
+                }
+                if (isPosted) {
+                  setError('فك الترحيل أولاً من قائمة (...) حتى يمكن التعديل');
+                  return;
+                }
+                unlockForEdit();
+              },
           isApproved,
-          onUnapprove: isApproved
-            ? () => unapproveJournalMutation.mutate({})
-            : undefined,
-          onUnpost: () => unpostJournalMutation.mutate({}),
+          onUnapprove:
+            !sourceLocked && isApproved
+              ? () => unapproveJournalMutation.mutate({})
+              : undefined,
+          onUnpost: sourceLocked ? undefined : () => unpostJournalMutation.mutate({}),
           unpostPending: unpostJournalMutation.isPending,
           onPrint: triggerPrint,
           printLabel: 'طباعة قيد اليومية',
-          onVoid: () => cancelJournalMutation.mutate({}),
+          onVoid: sourceLocked ? undefined : () => cancelJournalMutation.mutate({}),
           voidLabel: 'إلغاء القيد',
           voidPending: cancelJournalMutation.isPending,
-          onRestore: () => restoreJournalMutation.mutate({}),
+          onRestore: sourceLocked ? undefined : () => restoreJournalMutation.mutate({}),
           restoreLabel: 'استعادة القيد',
           restorePending: restoreJournalMutation.isPending,
         }}
@@ -1076,15 +1142,28 @@ function CreateJournalEntryFormInner() {
 
       <DocumentReadOnlyBanner />
 
-      <DocumentApprovalBar
-        entityType="JOURNAL_ENTRY"
-        entityId={savedJournalEntryId}
-        isPosted={isPosted}
-        onError={setError}
-        onSuccess={setSuccess}
-        postPending={postJournalMutation.isPending}
-        onPost={handlePost}
-      />
+      {sourceLocked ? (
+        <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          هذا القيد مربوط بمستند مصدر. لا يمكن تعديله أو فك ترحيله من قيد اليومية — أي إجراء يتم من المستند الأصلي فقط.
+          {sourceHref ? (
+            <Link href={sourceHref} className="mr-2 font-semibold text-[#0E78AA] hover:underline">
+              فتح المستند المصدر
+            </Link>
+          ) : null}
+        </div>
+      ) : null}
+
+      {sourceLocked ? null : (
+        <DocumentApprovalBar
+          entityType="JOURNAL_ENTRY"
+          entityId={savedJournalEntryId}
+          isPosted={isPosted}
+          onError={setError}
+          onSuccess={setSuccess}
+          postPending={postJournalMutation.isPending}
+          onPost={handlePost}
+        />
+      )}
 
       <DocumentFormLock>
       <div data-tour-id="journal-entry-header-fields">
@@ -1154,10 +1233,13 @@ function CreateJournalEntryFormInner() {
                 setValue('currencyId', id, { shouldDirty: true, shouldValidate: true });
                 const lines = getValues('lines') ?? [];
                 if (!lines.length) return;
+                const nextCode = currencies.find((c) => c.id === id)?.code;
+                const lockAll = headerLocksLineCurrency(nextCode);
                 replace(
                   lines.map((line) => {
-                    const followsHeader = !line.currencyId || line.currencyId === prevId;
+                    const followsHeader = lockAll || !line.currencyId || line.currencyId === prevId;
                     if (!followsHeader) return line;
+                    if (line.currencyId === id && prevId !== id) return line;
                     return { ...line, currencyId: id, exchangeRate: nextRate };
                   })
                 );
@@ -1165,12 +1247,14 @@ function CreateJournalEntryFormInner() {
               onExchangeRateChange={(rate) => {
                 setHeaderRateOverride(rate);
                 const headerId = getValues('currencyId');
+                const headerCode = currencies.find((c) => c.id === headerId)?.code;
+                const lockAll = headerLocksLineCurrency(headerCode);
                 const lines = getValues('lines') ?? [];
                 if (!lines.length) return;
                 replace(
                   lines.map((line) => {
-                    if (line.currencyId && line.currencyId !== headerId) return line;
-                    return { ...line, exchangeRate: rate };
+                    if (!lockAll && line.currencyId && line.currencyId !== headerId) return line;
+                    return { ...line, currencyId: lockAll ? headerId : line.currencyId, exchangeRate: rate };
                   })
                 );
               }}
@@ -1210,8 +1294,12 @@ function CreateJournalEntryFormInner() {
       {linesRootMessage ? (
         <p className="text-red-600 text-sm text-right font-medium mt-2 px-1">{linesRootMessage}</p>
       ) : null}
+      </DocumentFormLock>
 
-      <div data-tour-id="journal-entry-lines-table" className="mt-3">
+      <div
+        data-tour-id="journal-entry-lines-table"
+        className="mt-3 min-h-0 min-w-0 max-h-[min(62vh,40rem)] overflow-auto overscroll-contain"
+      >
         <JournalLinesTable
           lines={watchedLines ?? []}
           onChange={(next) => replace(next)}
@@ -1227,7 +1315,6 @@ function CreateJournalEntryFormInner() {
           }}
         />
       </div>
-      </DocumentFormLock>
 
       <JournalEntryBottomSplit
         debitTotal={debitTotal}
@@ -1241,15 +1328,18 @@ function CreateJournalEntryFormInner() {
         creditTotal={creditTotal}
         currencyCode={companyBaseCurrency}
         sourceType={sourceKind}
+        sourceTypeRaw={sourceTypeRaw}
         sourceId={sourceId}
         sourceNumber={sourceNumber}
+        entryType={entryType}
+        voucherFund={voucherFund}
         onSaveDraft={submitJournal}
         onPost={handlePost}
         onCancel={startNewEntry}
         savePending={financialBusy}
         postPending={postJournalMutation.isPending}
-        canSave={!isReadOnly && !isPosted && !isCancelled && !financialBusy}
-        canPost={!isPosted && !isCancelled && !financialBusy}
+        canSave={!sourceLocked && !isReadOnly && !isPosted && !isCancelled && !financialBusy}
+        canPost={!sourceLocked && !isPosted && !isCancelled && !financialBusy}
         postRequiresSave={!savedJournalEntryId}
       />
 

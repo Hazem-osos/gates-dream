@@ -13,6 +13,13 @@ import { AuthRequest } from '../../../shared/auth/types';
 import { buildStockGlPostingContext } from '../services/stock-gl-posting-context';
 import { tenantAndFiscalContextMiddleware } from '../../../shared/middleware/tenant-fiscal-context.middleware';
 
+function branchIdFromRequest(req: AuthRequest): string | undefined {
+  const raw = req.headers['x-branch-id'];
+  const header = typeof raw === 'string' ? raw.trim() : Array.isArray(raw) ? raw[0]?.trim() : '';
+  const body = typeof req.body?.branchId === 'string' ? req.body.branchId.trim() : '';
+  return header || body || req.branchId || undefined;
+}
+
 const router = Router();
 
 router.use(authenticate);
@@ -40,7 +47,7 @@ router.post(
         companyId,
         {
           companyId,
-          branchId: req.body.branchId || req.branchId || undefined,
+          branchId: branchIdFromRequest(req),
           description: req.body.description,
           serial: req.body.serial,
           date: req.body.date,
@@ -135,7 +142,7 @@ router.get(
 
 /**
  * GET /api/v1/inventory/opening-stock/total-valuation
- * Σ (qty × unit cost) of opening-stock lines for the active fiscal year.
+ * Σ (qty × unit cost) of every warehouse opening stock, each warehouse once.
  * Registered before `/:id` so "total-valuation" is not parsed as an id.
  */
 router.get(
@@ -240,7 +247,7 @@ router.put(
         req.params.id,
         {
           companyId,
-          branchId: req.body.branchId || req.branchId || undefined,
+          branchId: branchIdFromRequest(req),
           description: req.body.description,
           serial: req.body.serial,
           date: req.body.date,

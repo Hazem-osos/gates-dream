@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Upload } from 'lucide-react';
 import {
   Button,
@@ -17,8 +17,11 @@ import {
 } from '@/components/ui';
 import { MasterCardShell } from '@/components/erp';
 import { GuideEntityModal } from '@/components/accounting/guide/GuideEntityModal';
+import { removeDraft } from '@/lib/drafts/page-drafts';
+import { useDraftAutosave } from '@/lib/hooks/useDraftAutosave';
 import { useBackendReachability } from '@/lib/hooks/useBackendReachability';
 import { useApiMutation, useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
+import { fetchAllPages } from '@/lib/api/fetch-all-pages';
 import { apiClient } from '@/lib/api/client';
 import { exportRowsToExcel } from '@/lib/export/export-utils';
 import SuccessToast from '@/components/SuccessToast';
@@ -90,6 +93,14 @@ function parseItemImportMatrix(matrix: unknown[][]): Record<string, string | num
     .filter((row) => cellOf(row, ['arabicName', 'name']));
 }
 
+type ImportRow = Record<string, string | number | null> & { matchKind?: ItemImportMatchKind | null };
+
+type ItemImportDraft = {
+  fileName: string;
+  categoryId: string;
+  rows: ImportRow[];
+};
+
 function cellOf(row: Record<string, string | number | null>, keys: string[]): string {
   for (const key of keys) {
     const value = row[key];
@@ -112,9 +123,25 @@ export default function ImportItemsPage() {
   const [showGroupModal, setShowGroupModal] = useState(false);
   const [newGroupName, setNewGroupName] = useState('');
   const [savingGroup, setSavingGroup] = useState(false);
-  type ImportRow = Record<string, string | number | null> & { matchKind?: ItemImportMatchKind | null };
   const [previewRows, setPreviewRows] = useState<ImportRow[]>([]);
   const [importRows, setImportRows] = useState<ImportRow[]>([]);
+  const draftValue = useMemo<ItemImportDraft>(
+    () => ({ fileName, categoryId, rows: importRows }),
+    [categoryId, fileName, importRows]
+  );
+  const { storageKey } = useDraftAutosave<ItemImportDraft>({
+    documentType: 'item-import',
+    value: draftValue,
+    enabled: true,
+    isEmpty: (payload) => !payload.rows?.length,
+    applyRestore: (payload) => {
+      setFileName(payload.fileName || '');
+      setCategoryId(payload.categoryId || '');
+      const rows = Array.isArray(payload.rows) ? payload.rows : [];
+      setImportRows(rows);
+      setPreviewRows(rows);
+    },
+  });
 
   const { data: groupsRes } = useApiQuery<ItemGroupRow[]>(
     ['item-categories', 'import'],
@@ -175,11 +202,7 @@ export default function ImportItemsPage() {
       }
       let existing: ExistingItemKeys[] = [];
       try {
-        const catalogRes = await apiClient.get<ExistingItemKeys[]>('/inventory/items', {
-          limit: 5000,
-          isActive: true,
-        });
-        existing = Array.isArray(catalogRes.data) ? catalogRes.data : [];
+        existing = await fetchAllPages<ExistingItemKeys>('/inventory/items', { isActive: true });
       } catch {
         existing = [];
       }
@@ -196,7 +219,7 @@ export default function ImportItemsPage() {
       const existingCount = tagged.length - newCount;
       setFileName(file.name);
       setImportRows(tagged);
-      setPreviewRows(tagged.slice(0, 20));
+      setPreviewRows(tagged);
       setImportSuccess(
         existingCount
           ? `تم تحميل ${tagged.length} صف: ${newCount} جديد و${existingCount} موجود أو مكرر ولن يُضاف. راجع ثم احفظ.`
@@ -244,6 +267,10 @@ export default function ImportItemsPage() {
           );
           invalidate(['items']);
           invalidate(['item-categories']);
+          removeDraft(storageKey);
+          setFileName('');
+          setImportRows([]);
+          setPreviewRows([]);
         },
         onError: (err) => {
           setImportError(err.message || 'فشل استيراد الأصناف');
@@ -352,7 +379,12 @@ export default function ImportItemsPage() {
       </FormSectionCard>
 
       <section className="mb-4">
-        <div className={denseTableWrapClass}>
+        {previewRows.length ? (
+          <p className="mb-2 text-sm font-semibold text-[#094C6B]">
+            القائمة كاملة: {previewRows.length} صنف
+          </p>
+        ) : null}
+        <div className={`${denseTableWrapClass} max-h-[32rem] overflow-auto`}>
           <table className={denseTableClass}>
             <thead className={denseTheadClass}>
               <tr>

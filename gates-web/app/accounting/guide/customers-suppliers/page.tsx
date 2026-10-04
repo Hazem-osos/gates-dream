@@ -231,7 +231,7 @@ export default function CustomersSuppliersGuidePage() {
                 onClick={() => setPartyKind(f.id)}
                 className={`rounded-full border px-3 py-1.5 text-xs transition-colors ${
                   partyKind === f.id
-                    ? 'border-[#0E79AA] bg-[#0E79AA] text-white'
+                    ? 'border-[#0E78AA] bg-[#0E78AA] text-white'
                     : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 hover:bg-slate-50'
                 }`}
               >

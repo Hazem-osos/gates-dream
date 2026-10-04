@@ -38,6 +38,7 @@ export function TableNumberInput({
       {...rest}
       type="text"
       inputMode="decimal"
+      data-math-number=""
       autoComplete="off"
       className={className}
       value={math.display}

@@ -18,6 +18,11 @@ export const bootstrapSchema = z.object({
   }),
   vertical: businessVerticalSchema,
   currencyCode: z.string().min(3).max(10).default('EGP'),
+  fiscalYear: z.object({
+    name: z.string().min(1).max(100),
+    startDate: z.string().min(10).max(40),
+    endDate: z.string().min(10).max(40),
+  }),
   branch: z.object({
     arabicName: z.string().min(1).max(255),
     warehouseName: z.string().min(1).max(255),
@@ -30,7 +35,7 @@ export const bootstrapSchema = z.object({
 
 export const importExcelSchema = z.object({
   entity: z.enum(['ITEMS', 'CUSTOMERS', 'SUPPLIERS']),
-  rows: z.array(z.record(z.union([z.string(), z.number(), z.null()]))).min(1).max(500),
+  rows: z.array(z.record(z.union([z.string(), z.number(), z.null()]))).min(1).max(10000),
   openingStock: z.boolean().optional(),
   warehouseId: z.string().uuid().optional(),
   categoryId: z.string().uuid().optional(),

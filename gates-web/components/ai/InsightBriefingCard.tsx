@@ -47,7 +47,7 @@ export function InsightBriefingCard({
                 {insight.actionLink ? (
                   <Link
                     href={insight.actionLink}
-                    className="mt-1 inline-block text-[11px] font-semibold text-[#0E79AA] hover:underline"
+                    className="mt-1 inline-block text-[11px] font-semibold text-[#0E78AA] hover:underline"
                   >
                     عرض التفاصيل
                   </Link>

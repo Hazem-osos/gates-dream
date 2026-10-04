@@ -20,7 +20,7 @@ export function BankDebitLinesTable(props: Props) {
   return (
     <PaymentLinesTable
       {...props}
-      accountColumnLabel="الحساب / المستفيد"
+      accountColumnLabel="الحساب"
       invoiceKind="PURCHASE"
       partyEmptyHint="اختر المورد أولاً"
     />

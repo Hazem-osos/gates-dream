@@ -17,6 +17,16 @@ import { runPhaseC } from './phases/phase-c-transactions';
 import { runPhaseD } from './phases/phase-d-parties-cheques';
 
 async function main() {
+  if (process.env.MIGRATION_ENGINE_ENABLED === 'true') {
+    const { assertSafeTargetDatabaseUrl, assertMigrationEngineEnabled } = await import(
+      '../../src/modules/migration-engine/target-safety'
+    );
+    assertMigrationEngineEnabled();
+    assertSafeTargetDatabaseUrl(process.env.DATABASE_URL ?? '');
+    console.warn(
+      'MIGRATION_ENGINE_ENABLED=true — prefer `npm run migration:engine` for cutover-safe jobs. Legacy phase CLI is not production-cutover gated.'
+    );
+  }
   const options = parseMigrationArgs(process.argv.slice(2));
   console.log('Legacy migration CLI');
   console.log(JSON.stringify(options, null, 2));

@@ -13,6 +13,7 @@ export default function GeneralLedgerPage() {
         account: { placeholder: 'كل الحسابات' },
         branch: true,
         includeDetails: true,
+        reportOptions: ['showUnposted'],
       }}
     />
   );

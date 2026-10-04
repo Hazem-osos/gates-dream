@@ -9,7 +9,7 @@ import { setTenantContext } from '../../../shared/middleware/tenant.middleware';
 import { AppError } from '../../../shared/middleware/error-handler';
 import { logger } from '../../../shared/logger';
 import { AuthRequest } from '../../../shared/auth/types';
-import { AUTOMATION_TEMPLATES } from '../catalog/templates';
+import { listAutomationTemplateViews } from '../catalog/templates';
 
 const router = Router();
 
@@ -24,7 +24,7 @@ router.get(
   authorize({ resource: 'automation-rule', action: 'view' }),
   async (_req: AuthRequest, res: Response) => {
     try {
-      return void res.json({ status: 'success', data: AUTOMATION_TEMPLATES });
+      return void res.json({ status: 'success', data: listAutomationTemplateViews() });
     } catch (error) {
       logger.error({ error }, 'Error listing automation templates');
       const status = error instanceof AppError ? error.statusCode : 500;

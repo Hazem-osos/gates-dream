@@ -55,10 +55,10 @@ export function InvoiceFinancialBreakdown({
     <aside
       className={cn(
         'rounded-2xl border bg-white p-4 shadow-sm transition-shadow',
-        highlight ? 'border-[#0E79AA] ring-2 ring-[#0E79AA]/30' : 'border-[#D6EAF3]'
+        highlight ? 'border-[#0E78AA] ring-2 ring-[#0E78AA]/30' : 'border-[#D6EAF3]'
       )}
     >
-      <h3 className="mb-3 text-sm font-bold text-[#0E79AA]">التسوية المالية الحية</h3>
+      <h3 className="mb-3 text-sm font-bold text-[#0E78AA]">التسوية المالية الحية</h3>
       <ul className="space-y-2 text-sm">
         {rows.map((row) => {
           const isNet = row.sign === '=';

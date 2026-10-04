@@ -33,7 +33,7 @@ export function CostRollupCard({
     >
       <div className="mb-3 flex items-center justify-between gap-3">
         <h3 className="text-sm font-bold text-slate-900">{title}</h3>
-        <p className="text-sm font-bold tabular-nums text-[#0E79AA]">{formatMoneyAr(total)}</p>
+        <p className="text-sm font-bold tabular-nums text-[#0E78AA]">{formatMoneyAr(total)}</p>
       </div>
       <div className="mb-3 flex h-3 overflow-hidden rounded-full bg-slate-100">
         {slices.map((slice) => {
@@ -44,7 +44,7 @@ export function CostRollupCard({
               key={slice.id}
               className="h-full"
               style={{ width: `${pct}%`, backgroundColor: slice.color }}
-              title={`${slice.label} ${pct.toFixed(1)}٪`}
+              title={`${slice.label} ${pct.toLocaleString()}٪`}
             />
           );
         })}
@@ -60,7 +60,7 @@ export function CostRollupCard({
               </span>
               <span className="tabular-nums font-semibold text-slate-900">
                 {formatMoneyAr(slice.value)}
-                <span className="ms-2 text-slate-400">{pct.toFixed(0)}٪</span>
+                <span className="ms-2 text-slate-400">{pct.toLocaleString()}٪</span>
               </span>
             </li>
           );

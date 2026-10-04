@@ -112,13 +112,13 @@ export function InvoiceApprovalStepper({
             <li
               key={step}
               className={`rounded-xl border px-3 py-3 text-sm ${
-                done || active ? 'border-[#0E79AA] bg-[#F0F7FB]' : 'border-slate-200 bg-white'
+                done || active ? 'border-[#0E78AA] bg-[#F0F7FB]' : 'border-slate-200 bg-white'
               }`}
             >
               <div className="mb-1 flex items-center gap-2 font-bold text-[#094C6B]">
                 <span
                   className={`flex h-6 w-6 items-center justify-center rounded-full text-xs ${
-                    done || active ? 'bg-[#0E79AA] text-white' : 'bg-slate-200 text-slate-600'
+                    done || active ? 'bg-[#0E78AA] text-white' : 'bg-slate-200 text-slate-600'
                   }`}
                 >
                   {done ? <Check className="h-3.5 w-3.5" /> : index + 1}
@@ -163,7 +163,7 @@ export function InvoiceApprovalStepper({
       {consultantOpen ? (
         <div className="fixed inset-0 z-[140] flex items-center justify-center bg-black/40 p-4" dir="rtl">
           <div className="w-full max-w-2xl space-y-4 rounded-xl bg-white p-5 shadow-xl">
-            <h2 className="text-lg font-bold text-[#0E79AA]">مراجعة الاستشاري</h2>
+            <h2 className="text-lg font-bold text-[#0E78AA]">مراجعة الاستشاري</h2>
             <ReviewLists penalties={linkedPenalties} materialsCount={linkedMaterials.length} />
             <div className="flex justify-end gap-2">
               <Button variant="secondary" onClick={() => setConsultantOpen(false)}>
@@ -180,7 +180,7 @@ export function InvoiceApprovalStepper({
       {financeOpen ? (
         <div className="fixed inset-0 z-[140] flex items-center justify-center bg-black/40 p-4" dir="rtl">
           <div className="w-full max-w-xl space-y-4 rounded-xl bg-white p-5 shadow-xl">
-            <h2 className="text-lg font-bold text-[#0E79AA]">معاينة قيد اليومية قبل الترحيل</h2>
+            <h2 className="text-lg font-bold text-[#0E78AA]">معاينة قيد اليومية قبل الترحيل</h2>
             <ul className="space-y-2 text-sm">
               {glLines.map((line) => (
                 <li key={line.label} className="flex justify-between gap-3 rounded-lg bg-[#F6FBFD] px-3 py-2">

@@ -75,7 +75,7 @@ export default function CostControlPage() {
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <ProjectCard title="مؤشر أداء التكلفة CPI">
-          <p className="text-4xl font-black tabular-nums text-[#094C6B]">{cpi == null ? '—' : cpi.toFixed(2)}</p>
+          <p className="text-4xl font-black tabular-nums text-[#094C6B]">{cpi == null ? '—' : cpi.toLocaleString()}</p>
           <p className="mt-2 text-sm text-slate-600">{cpiMeta.hint}</p>
           <div className="mt-3">
             <StatusBadge
@@ -93,7 +93,7 @@ export default function CostControlPage() {
           ) : null}
         </ProjectCard>
         <ProjectCard title="مؤشر أداء الجدول SPI">
-          <p className="text-4xl font-black tabular-nums text-[#094C6B]">{spi == null ? '—' : spi.toFixed(2)}</p>
+          <p className="text-4xl font-black tabular-nums text-[#094C6B]">{spi == null ? '—' : spi.toLocaleString()}</p>
           <p className="mt-2 text-sm text-slate-600">{spiMeta.hint}</p>
           <div className="mt-3">
             <StatusBadge

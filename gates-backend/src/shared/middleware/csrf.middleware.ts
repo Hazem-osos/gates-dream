@@ -48,7 +48,7 @@ async function verifyToken(token: string, userId: string): Promise<boolean> {
     return exists === 1;
   } catch (error) {
     logger.error({ error }, 'Failed to verify CSRF token');
-    return true;
+    return false;
   }
 }
 

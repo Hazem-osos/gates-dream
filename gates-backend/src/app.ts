@@ -1,3 +1,4 @@
+import './shared/format/english-digits';
 import express, { Express, Request, Response, NextFunction } from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
@@ -6,7 +7,7 @@ import cookieParser from 'cookie-parser';
 import { errorHandler } from './shared/middleware/error-handler';
 import { requestLogger } from './shared/middleware/request-logger';
 import { cache } from './shared/cache/cache.middleware';
-import { apiRateLimiter } from './shared/middleware/rate-limit.middleware';
+import { bumpHttpCacheGeneration } from './shared/cache/http-cache-generation';
 import { sanitize, preventSQLInjection, preventXSS } from './shared/middleware/sanitize.middleware';
 import { apiAuthGate } from './shared/middleware/api-auth-mode.middleware';
 import { setTenantContext } from './shared/middleware/tenant.middleware';
@@ -45,10 +46,12 @@ import representativeCommissionQuantityRoutes from './modules/inventory/routes/r
 import representativeCommissionValueRoutes from './modules/inventory/routes/representative-commission-value.routes';
 import representativeCommissionPolicyRoutes from './modules/inventory/routes/representative-commission-policy.routes';
 import itemOrderLimitRoutes from './modules/inventory/routes/item-order-limit.routes';
+import itemReservationRoutes from './modules/inventory/routes/item-reservation.routes';
 import customerContractRoutes from './modules/inventory/routes/customer-contract.routes';
 import clothingMatrixRoutes from './modules/inventory/routes/clothing-matrix.routes';
 import inventoryReportsRoutes from './modules/inventory/routes/reports.routes';
 import inventoryWave0Routes from './modules/inventory/routes/inventory-wave0.routes';
+import storeDocumentNumberRoutes from './modules/inventory/routes/store-document-number.routes';
 import demoRoutes from './modules/demo/routes/demo.routes';
 import accountRoutes, {
   chartOfAccountsAliasRouter,
@@ -94,6 +97,15 @@ import allowanceRoutes from './modules/hr/routes/allowance.routes';
 import deductionRoutes from './modules/hr/routes/deduction.routes';
 import employeeContractRoutes from './modules/hr/routes/employee-contract.routes';
 import employeeProcedureRoutes from './modules/hr/routes/employee-procedure.routes';
+import procedureCatalogRoutes from './modules/hr/routes/procedure-catalog.routes';
+import hrLookupRoutes from './modules/hr/routes/hr-lookup.routes';
+import attendanceRoutes from './modules/hr/routes/attendance.routes';
+import {
+  annualLeaveDisbursementRoutes,
+  eosDisbursementRoutes,
+  housingAllowanceDisbursementRoutes,
+  monthlySalariesDisbursementRoutes,
+} from './modules/hr/routes/entitlement-disbursement.routes';
 import employeeAdvanceRoutes from './modules/hr/routes/employee-advance.routes';
 import monthlySalaryRoutes from './modules/hr/routes/monthly-salary.routes';
 import hrReportsRoutes from './modules/hr/routes/reports.routes';
@@ -137,9 +149,15 @@ import reservationRoutes from './modules/real-estate/routes/reservation.routes';
 import closureRoutes from './modules/real-estate/routes/closure.routes';
 import realEstateReportsRoutes from './modules/real-estate/routes/reports.routes';
 import posRoutes from './modules/pos/routes/pos.routes';
+import posPaymentMethodRoutes from './modules/pos/routes/pos-payment-method.routes';
+import posReportRoutes from './modules/pos/routes/pos-report.routes';
+import posAdminRoutes from './modules/pos/routes/pos-admin.routes';
 import jobStatusRoutes from './shared/jobs/job-status.routes';
 import { graphqlMiddleware } from './shared/graphql/handler';
 import companyRoutes from './modules/company/routes/company.routes';
+import companyEmailRoutes from './modules/company/routes/company-email.routes';
+import companyWhatsappRoutes from './modules/whatsapp/company-whatsapp.routes';
+import metaWhatsappWebhookRoutes from './modules/whatsapp/meta-webhook.routes';
 import companyTenantRoutes, {
   settingsBranchesAliasRouter,
 } from './modules/company/routes/company-tenant.routes';
@@ -163,6 +181,7 @@ import manpowerLogRoutes from './modules/extracts/routes/manpower-log.routes';
 import extractsReportsRoutes from './modules/extracts/routes/reports.routes';
 import extractsDashboardRoutes from './modules/extracts/routes/dashboard.routes';
 import realEstateInvestmentDashboardRoutes from './modules/real-estate/routes/investment-dashboard.routes';
+import realEstateSettingsRoutes from './modules/real-estate/routes/settings.routes';
 import electronicInvoiceDashboardRoutes from './modules/electronic-invoices/routes/dashboard.routes';
 import m5InvoiceRoutes from './modules/invoices/routes/invoice.routes';
 import analyticalInvoiceReportRoutes from './modules/invoices/routes/analytical-invoice-report.routes';
@@ -180,11 +199,16 @@ import bankBoxRightsRoutes from './modules/treasury/routes/bank-box-rights.route
 import posTerminalRoutes from './modules/pos/routes/pos-terminal.routes';
 import posShiftRoutes from './modules/pos/routes/pos-shift.routes';
 import posOrderRoutes from './modules/pos/routes/pos-order.routes';
+import posCommercialRoutes from './modules/pos/routes/pos-commercial.routes';
+import posPublicReceiptRoutes from './modules/pos/routes/pos-public-receipt.routes';
+import ereceiptRoutes from './modules/ereceipt/routes';
+import posCatalogRoutes from './modules/pos/routes/pos-catalog.routes';
 import electronicInvoiceItemRoutes from './modules/electronic-invoices/routes/item-card.routes';
 import electronicInvoiceCustomerRoutes from './modules/electronic-invoices/routes/customer-card.routes';
 import electronicInvoiceRoutes from './modules/electronic-invoices/routes/invoice.routes';
 import electronicInvoiceImportRoutes from './modules/electronic-invoices/routes/import.routes';
 import electronicInvoiceSettingsRoutes from './modules/electronic-invoices/routes/settings.routes';
+import esignAgentRoutes from './modules/electronic-invoices/routes/esign-agent.routes';
 import electronicInvoiceReportsRoutes from './modules/electronic-invoices/routes/reports.routes';
 import etaSubmissionRoutes from './modules/electronic-invoices/routes/eta-submission.routes';
 import etaDocumentsRoutes from './modules/electronic-invoices/routes/eta-documents.routes';
@@ -270,10 +294,6 @@ app.use(compressionMiddleware);
 import { defaultRequestTimeout, reportRequestTimeout, aiRequestTimeout } from './shared/middleware/request-timeout.middleware';
 app.use(defaultRequestTimeout);
 
-// IP blocking middleware (blocks IPs after repeated violations)
-import { ipBlockingMiddleware } from './shared/middleware/ip-blocking.middleware';
-app.use('/api/v1', ipBlockingMiddleware);
-
 // Security headers validation (production only)
 import { securityHeadersValidation } from './shared/middleware/security-headers.middleware';
 app.use(securityHeadersValidation);
@@ -283,7 +303,14 @@ import { defaultQueryLimits } from './shared/middleware/query-limits.middleware'
 app.use('/api/v1', defaultQueryLimits);
 
 // Body parsing middleware with size limits (security: prevent DoS via large payloads)
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({
+  limit: '10mb',
+  verify: (req, _res, buf) => {
+    if (req.url?.startsWith('/webhooks/meta/whatsapp')) {
+      (req as { rawBody?: Buffer }).rawBody = buf;
+    }
+  },
+}));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Security audit middleware (apply early, before sanitization)
@@ -310,28 +337,6 @@ app.use(graphqlDepthLimitMiddleware);
 // Metrics collection middleware
 import { metricsMiddleware } from './shared/monitoring/metrics';
 app.use(metricsMiddleware);
-
-// Rate limiting middleware (apply before routes)
-app.use('/api/v1', apiRateLimiter);
-
-const distributedRateMax =
-  Number.parseInt(process.env.API_RATE_LIMIT_MAX ?? '', 10) || 5000;
-
-// Distributed rate limiting (Redis-backed, for horizontal scaling)
-import { distributedRateLimit } from './shared/middleware/distributed-rate-limit.middleware';
-app.use('/api/v1', distributedRateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  maxRequests: distributedRateMax,
-  standardHeaders: true,
-  legacyHeaders: true,
-}));
-
-// Per-user/tenant rate limiting for sensitive endpoints
-import { perUserRateLimiter } from './shared/middleware/rate-limit-per-user.middleware';
-app.use('/api/v1/accounting/journal-entries', perUserRateLimiter);
-app.use('/api/v1/accounting/recurring-entries', perUserRateLimiter);
-app.use('/api/v1/inventory/invoices', perUserRateLimiter);
-app.use('/api/v1/hr/payroll', perUserRateLimiter);
 
 // CSRF Protection (attach token to GET requests, validate on state-changing requests)
 import { attachCSRFToken, csrfProtection } from './shared/middleware/csrf.middleware';
@@ -381,13 +386,16 @@ app.get('/health/ready', async (_req: Request, res: Response) => {
 // Auth routes (login/register carry their own limiter; /me and /verify must not)
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/public/share', publicShareRouter);
+app.use('/api/v1/public/pos/receipts', posPublicReceiptRoutes);
 
 // n8n / S2S automation lookup — isolated from JWT + tenant + CSRF.
 // authenticateInternalAutomation rejects missing/invalid keys (no anonymous path).
-app.use('/internal/v1/automation', apiRateLimiter, internalAutomationRuleRoutes);
-app.use('/internal/v1/automation', apiRateLimiter, internalPurchaseRequestRoutes);
-app.use('/internal/v1/automation', apiRateLimiter, internalActionRunRoutes);
-app.use('/internal/v1/automation', apiRateLimiter, internalAutomationActionRoutes);
+app.use('/internal/v1/automation', internalAutomationRuleRoutes);
+app.use('/internal/v1/automation', internalPurchaseRequestRoutes);
+app.use('/internal/v1/automation', internalActionRunRoutes);
+app.use('/internal/v1/automation', internalAutomationActionRoutes);
+// Meta calls this with no JWT. It must stay outside /api/v1 auth, CSRF, and tenant gates.
+app.use('/webhooks/meta/whatsapp', metaWhatsappWebhookRoutes);
 
 // API versioning middleware
 import { apiVersionMiddleware } from './shared/middleware/api-version.middleware';
@@ -400,6 +408,24 @@ app.use('/api', apiVersionMiddleware);
 app.use('/api/v1', apiAuthGate() as express.RequestHandler);
 // SECURITY: Set tenant context for Row-Level Security (RLS)
 app.use('/api/v1', setTenantContext as express.RequestHandler);
+// A saved customer, supplier, item, or any other write must show up without a new login.
+// List GETs are cached per token; bumping the company generation drops that copy.
+app.use('/api/v1', ((req, res, next) => {
+  if (req.method !== 'GET' && req.method !== 'HEAD' && req.method !== 'OPTIONS') {
+    res.on('finish', () => {
+      if (res.statusCode < 200 || res.statusCode >= 400) return;
+      const auth = req as express.Request & {
+        companyId?: string;
+        tenantId?: string;
+        user?: { company_id?: string; tenant_id?: string };
+      };
+      const companyId =
+        auth.companyId || auth.tenantId || auth.user?.company_id || auth.user?.tenant_id;
+      if (companyId) void bumpHttpCacheGeneration(companyId);
+    });
+  }
+  next();
+}) as express.RequestHandler);
 // Legacy `UserBranches`: a restricted user may not request another branch via
 // the `branchId` query filter (~100 list/report endpoints accept one) or body.
 app.use('/api/v1', enforceBranchScope as express.RequestHandler);
@@ -419,6 +445,8 @@ for (const verticalPrefix of [
 
 // Company routes (requires admin privileges)
 app.use('/api/v1/companies', cache({ ttl: 300 }), companyRoutes);
+app.use('/api/v1/company-email', companyEmailRoutes);
+app.use('/api/v1/company-whatsapp', companyWhatsappRoutes);
 // Tenant-scoped company shortcuts (e.g. branches for JWT company — matches frontend /company/branches)
 app.use('/api/v1/company', cache({ ttl: 300 }), companyTenantRoutes);
 app.use('/api/v1/tenant', tenantBackupController);
@@ -451,11 +479,17 @@ app.use('/api/v1/taxes/reports', taxReportsRouter);
 app.use('/api/v1/taxes/invoices', taxInvoiceRouter);
 app.use('/api/v1/treasury/bank-box-rights', bankBoxRightsRoutes);
 app.use('/api/v1/pos/terminals', posTerminalRoutes);
+app.use('/api/v1/pos/payment-methods', posPaymentMethodRoutes);
+app.use('/api/v1/pos/reports', posReportRoutes);
+app.use('/api/v1/pos/admin', posAdminRoutes);
 app.use('/api/v1/pos/shifts', posShiftRoutes);
 app.use('/api/v1/pos/orders', posOrderRoutes);
+app.use('/api/v1/pos/commercial', posCommercialRoutes);
+app.use('/api/v1/pos/catalog', posCatalogRoutes);
 app.use('/api/v1/inventory/item-quantities', cache({ ttl: 300 }), itemQuantityRoutes);
 app.use('/api/v1/inventory/locations', cache({ ttl: 300 }), locationRoutes);
 app.use('/api/v1/inventory/opening-stock', openingStockRoutes);
+app.use('/api/v1/inventory/store-documents', storeDocumentNumberRoutes);
 app.use('/api/v1/inventory/stocktaking', stocktakingRoutes);
 app.use('/api/v1/inventory/transfers', transferRoutes);
 app.use('/api/v1/inventory/assemblies', assemblyRoutes);
@@ -478,6 +512,7 @@ app.use('/api/v1/inventory/representatives-commissions-quantities', representati
 app.use('/api/v1/inventory/representatives-commissions-values', representativeCommissionValueRoutes);
 app.use('/api/v1/inventory/representatives-commissions-policy', representativeCommissionPolicyRoutes);
 app.use('/api/v1/inventory/item-order-limits', itemOrderLimitRoutes);
+app.use('/api/v1/inventory/item-reservations', itemReservationRoutes);
 app.use('/api/v1/inventory/customer-contracts', customerContractRoutes);
 app.use('/api/v1/inventory/clothing-matrix', clothingMatrixRoutes);
 app.use('/api/v1/inventory/reports', inventoryReportsRoutes);
@@ -530,6 +565,13 @@ app.use('/api/v1/hr/allowances', cache({ ttl: 300 }), allowanceRoutes);
 app.use('/api/v1/hr/deductions', cache({ ttl: 300 }), deductionRoutes);
 app.use('/api/v1/hr/employee-contracts', employeeContractRoutes);
 app.use('/api/v1/hr/employee-procedures', employeeProcedureRoutes);
+app.use('/api/v1/hr/procedures', procedureCatalogRoutes);
+app.use('/api/v1/hr/lookups', hrLookupRoutes);
+app.use('/api/v1/hr/attendance', attendanceRoutes);
+app.use('/api/v1/hr/annual-leave-disbursements', annualLeaveDisbursementRoutes);
+app.use('/api/v1/hr/eos-disbursements', eosDisbursementRoutes);
+app.use('/api/v1/hr/housing-allowance-disbursements', housingAllowanceDisbursementRoutes);
+app.use('/api/v1/hr/monthly-salary-disbursements', monthlySalariesDisbursementRoutes);
 app.use('/api/v1/hr/employee-advances', employeeAdvanceRoutes);
 app.use('/api/v1/hr/monthly-salaries', monthlySalaryRoutes);
 app.use('/api/v1/hr/reports', reportRequestTimeout, hrReportsRoutes);
@@ -574,6 +616,7 @@ app.use('/api/v1/manufacturing/reports', reportRequestTimeout, manufacturingRepo
 
 // Real Estate routes
 app.use('/api/v1/real-estate/investment-dashboard', cache({ ttl: 60 }), realEstateInvestmentDashboardRoutes);
+app.use('/api/v1/real-estate/settings', realEstateSettingsRoutes);
 app.use('/api/v1/real-estate', realEstateWave3Routes);
 app.use('/api/v1/real-estate/properties', propertyRoutes);
 app.use('/api/v1/real-estate/customer-followup', customerFollowupRoutes);
@@ -602,6 +645,7 @@ app.use('/api/v1/extracts/manpower-logs', cache({ ttl: 300 }), manpowerLogRoutes
 app.use('/api/v1/extracts/reports', reportRequestTimeout, extractsReportsRoutes);
 
 // Electronic Invoices routes
+app.use('/api/v1/electronic-receipts', ereceiptRoutes);
 app.use('/api/v1/electronic-invoices/dashboard', cache({ ttl: 60 }), electronicInvoiceDashboardRoutes);
 app.use('/api/v1/electronic-invoices', etaSubmissionRoutes);
 app.use('/api/v1/eta/documents', etaDocumentsRoutes);
@@ -609,6 +653,7 @@ app.use('/api/v1/electronic-invoices/items', cache({ ttl: 300 }), electronicInvo
 app.use('/api/v1/electronic-invoices/customers', cache({ ttl: 300 }), electronicInvoiceCustomerRoutes);
 app.use('/api/v1/electronic-invoices/invoices', electronicInvoiceRoutes);
 app.use('/api/v1/electronic-invoices/import', electronicInvoiceImportRoutes);
+app.use('/api/v1/electronic-invoices/esign-agent', esignAgentRoutes);
 app.use('/api/v1/electronic-invoices/settings', electronicInvoiceSettingsRoutes);
 app.use('/api/v1/electronic-invoices/reports', reportRequestTimeout, electronicInvoiceReportsRoutes);
 

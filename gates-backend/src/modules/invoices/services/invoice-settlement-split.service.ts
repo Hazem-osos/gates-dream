@@ -53,7 +53,7 @@ export class InvoiceSettlementSplitService {
       customerId: string | null;
       supplierId: string | null;
       netAmount: Decimal | number;
-      paymentSplits: unknown;
+      paymentSplits?: unknown;
     }
   ) {
     const grandTotal = roundTo4(Number(invoice.netAmount));
@@ -64,13 +64,13 @@ export class InvoiceSettlementSplitService {
     if (tendered > grandTotal + 0.0001) {
       throw new AppError(
         422,
-        `توزيع التحصيل أكبر من إجمالي الفاتورة (${grandTotal.toFixed(2)})`
+        `توزيع التحصيل أكبر من إجمالي الفاتورة (${grandTotal.toLocaleString()})`
       );
     }
     if (!validatePaymentSplitsTotal(splits, grandTotal)) {
       throw new AppError(
         422,
-        `توزيع التحصيل يجب أن يساوي إجمالي الفاتورة (${grandTotal.toFixed(2)})`
+        `توزيع التحصيل يجب أن يساوي إجمالي الفاتورة (${grandTotal.toLocaleString()})`
       );
     }
 
@@ -141,7 +141,9 @@ export class InvoiceSettlementSplitService {
                 ? kind === 'RECEIPT'
                   ? `إشعار إضافة بنكي — فاتورة ${label}${line.referenceNumber ? ` (${line.referenceNumber})` : ''}`
                   : `إشعار خصم بنكي — فاتورة ${label}${line.referenceNumber ? ` (${line.referenceNumber})` : ''}`
-                : `نقدية — فاتورة ${label}`,
+                : invoice.invoiceKind === 'SALE_RETURN' || invoice.invoiceKind === 'PURCHASE_RETURN'
+                  ? `نقدية — مردود ${label}`
+                  : `نقدية — فاتورة ${label}`,
             amount,
             currencyCode: invoice.currencyCode,
             customerId: invoice.customerId ?? undefined,
@@ -230,21 +232,19 @@ export class InvoiceSettlementSplitService {
         isCancelled: true,
       },
     });
-    if (!invoice) throw new AppError(404, 'Invoice not found');
-    if (invoice.isCancelled) throw new AppError(422, 'Cancelled invoices cannot be settled');
-    if (!invoice.isPosted) {
-      throw new AppError(422, 'Post the invoice before recording a settlement');
-    }
+    if (!invoice) throw new AppError(404, 'الفاتورة غير موجودة');
+    if (invoice.isCancelled) throw new AppError(422, 'لا يمكن تسوية فاتورة ملغاة');
 
     const outstanding = roundTo4(Number(invoice.netAmount) - Number(invoice.paidAmount));
     if (outstanding <= 0) throw new AppError(422, 'Invoice is already fully settled');
 
-    const tenders = input.paymentSplits.filter((line) => line.type !== 'ON_ACCOUNT');
+    const splits = withNormalizedOnAccount(input.paymentSplits ?? [], outstanding);
+    const tenders = splits.filter((line) => line.type !== 'ON_ACCOUNT');
     const tenderTotal = roundTo4(tenders.reduce((sum, line) => sum + Number(line.amount || 0), 0));
     if (tenderTotal <= 0) {
       throw new AppError(422, 'حدد مبلغ نقدي أو بنكي أو شيك');
     }
-    if (tenderTotal > outstanding + 0.0001) {
+    if (tenderTotal > outstanding + 0.01) {
       throw new AppError(
         422,
         `Settlement amount exceeds the outstanding balance (${outstanding.toFixed(2)})`
@@ -258,7 +258,7 @@ export class InvoiceSettlementSplitService {
     return prisma.$transaction(async (tx) => {
       await this.applySplitLinesInTx(tx, ctx, {
         invoice,
-        splits: input.paymentSplits,
+        splits,
         kind,
         label,
         date,

@@ -1,5 +1,6 @@
 import prisma from '../../../shared/database/prisma';
 import { partyCreditService } from './party-credit.service';
+import { sumPartnerNetOriginal } from './party-ledger-balance.service';
 
 export type PartyQuickSummaryKind = 'CUSTOMER' | 'SUPPLIER';
 
@@ -116,7 +117,7 @@ export class PartyQuickSummaryService {
     });
     if (!supplier) throw new Error('Party not found');
 
-    const balance = supplier.balance?.toNumber?.() ?? Number(supplier.balance ?? 0);
+    const balance = await sumPartnerNetOriginal(prisma, companyId, supplierId, 'SUPPLIER');
 
     const openInvoicesCount = await prisma.invoice.count({
       where: {

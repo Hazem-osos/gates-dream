@@ -4,7 +4,7 @@ export default function AccountingSettingsLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className="min-h-screen bg-white" dir="rtl">
+    <div className="min-h-full bg-white" dir="rtl">
       {children}
     </div>
   );

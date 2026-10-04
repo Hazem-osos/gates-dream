@@ -1,4 +1,5 @@
-import { computeInvoiceFinancialSummary } from './computeInvoiceFinancialSummary';
+import { computeInvoiceFinancialSummary, computeLineSubtotalAfterDiscount } from './computeInvoiceFinancialSummary';
+import { lineWithholdingAmount } from './itemTracking';
 import { mapDiscountToM5Payload, type DiscountType } from './discount-type';
 import { parsePricingCalculationBasis, syncLineUnitFields } from './unit-conversion';
 
@@ -38,9 +39,13 @@ export type SalesInvoiceLineForm = {
   lineNotes?: string;
   taxExemptionReason?: string;
   warehouseId?: string;
+  itemReservationId?: string;
+  reservationFulfillQuantity?: number;
+  reservationLabel?: string;
   costCenterId?: string;
   withholdingTaxRate?: number;
   withholdingTaxAmount?: number;
+  withholdingAmountManual?: boolean;
   batchAllocations?: Array<{
     batchId?: string;
     batchNumber: string;
@@ -58,6 +63,11 @@ function optionalUuid(value?: string | null): string | undefined {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)
     ? id
     : undefined;
+}
+
+function optionalInvoiceNumber(value?: string | null): string | undefined {
+  const trimmed = String(value ?? '').trim();
+  return trimmed || undefined;
 }
 
 export function resolveItemUnitId(
@@ -122,7 +132,7 @@ type M5FormData = {
 export function mapSalesFormToM5CreateBody(
   data: M5FormData,
   opts: {
-    invoiceKind: 'SALE' | 'PURCHASE' | 'SALE_RETURN' | 'PURCHASE_RETURN';
+    invoiceKind: 'SALE' | 'PURCHASE' | 'SALE_RETURN' | 'PURCHASE_RETURN' | 'SALES_ORDER';
     currencies: CurrencyLike[];
     items: ItemLike[];
     applyTax?: boolean;
@@ -158,6 +168,16 @@ export function mapSalesFormToM5CreateBody(
       { quantity: line.quantity || 1, baseQuantity: line.baseQuantity }
     );
     const qty = Number(synced.quantity) || 1;
+    const lineAfterDiscount = computeLineSubtotalAfterDiscount(
+      { ...line, quantity: qty, baseQuantity: Number(synced.baseQuantity) || qty },
+      pricingCalculationBasis
+    );
+    const withholdingTaxAmount = lineWithholdingAmount({
+      lineAfterDiscount,
+      withholdingTaxRate: line.withholdingTaxRate,
+      withholdingTaxAmount: line.withholdingTaxAmount,
+      withholdingAmountManual: line.withholdingAmountManual,
+    });
     return {
       itemId: line.itemId,
       ...(optionalUuid(unitId) ? { unitId: optionalUuid(unitId) } : {}),
@@ -177,9 +197,14 @@ export function mapSalesFormToM5CreateBody(
       lineNotes: line.lineNotes || undefined,
       taxExemptionReason: line.taxExemptionReason || undefined,
       warehouseId: optionalUuid(line.warehouseId) || optionalUuid(data.warehouseId),
+      itemReservationId: optionalUuid(line.itemReservationId),
+      reservationFulfillQuantity:
+        line.itemReservationId && line.reservationFulfillQuantity != null
+          ? Number(line.reservationFulfillQuantity)
+          : undefined,
       costCenterId: optionalUuid(line.costCenterId),
       withholdingTaxRate: line.withholdingTaxRate || undefined,
-      withholdingTaxAmount: line.withholdingTaxAmount || undefined,
+      withholdingTaxAmount: withholdingTaxAmount > 0 ? withholdingTaxAmount : undefined,
       batchAllocations: line.batchAllocations?.length ? line.batchAllocations : undefined,
       color: line.color || undefined,
       size: line.size || undefined,
@@ -189,7 +214,7 @@ export function mapSalesFormToM5CreateBody(
 
   return {
     invoiceKind: opts.invoiceKind,
-    invoiceNumber: data.invoiceNumber || undefined,
+    invoiceNumber: optionalInvoiceNumber(data.invoiceNumber),
     description: data.description || undefined,
     date: data.date ? new Date(data.date).toISOString() : new Date().toISOString(),
     dueDate: data.dueDate ? new Date(data.dueDate).toISOString() : undefined,
@@ -242,7 +267,7 @@ export function mapSalesFormToM5CreateBody(
 export function mapSalesFormToM5UpdateBody(
   data: M5FormData,
   opts: {
-    invoiceKind: 'SALE' | 'PURCHASE' | 'SALE_RETURN' | 'PURCHASE_RETURN';
+    invoiceKind: 'SALE' | 'PURCHASE' | 'SALE_RETURN' | 'PURCHASE_RETURN' | 'SALES_ORDER';
     currencies: CurrencyLike[];
     items: ItemLike[];
     applyTax?: boolean;
@@ -262,6 +287,9 @@ export function mapSalesFormToM5UpdateBody(
 ): Record<string, unknown> {
   const body = mapSalesFormToM5CreateBody(data, opts);
   delete body.invoiceKind;
+  if (!optionalInvoiceNumber(data.invoiceNumber)) {
+    delete body.invoiceNumber;
+  }
   if (typeof opts.expectedVersion === 'number') {
     body.expectedVersion = opts.expectedVersion;
   }

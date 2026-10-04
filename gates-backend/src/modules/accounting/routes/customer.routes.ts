@@ -43,7 +43,7 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -84,7 +84,7 @@ router.get(
     try {
       const companyId = req.companyId || req.tenantId;
       if (!companyId) {
-        return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+        return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
       }
       const serial = await customerService.nextCustomerCode(companyId);
       return void res.json({ status: 'success', data: { serial } });
@@ -110,7 +110,7 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
       const additional = req.query.additionalAmount
@@ -124,7 +124,7 @@ router.get(
       return void res.json({ status: 'success', data });
     } catch (error) {
       const status =
-        error instanceof Error && error.message === 'Customer not found'
+        error instanceof Error && error.message === 'العميل غير موجود'
           ? 404
           : 500;
       return void res.status(status).json({
@@ -149,7 +149,7 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -189,7 +189,7 @@ router.post(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -234,7 +234,7 @@ router.put(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -258,7 +258,7 @@ router.put(
       }
       logger.error({ error }, 'Error updating customer');
       const status =
-        error instanceof Error && error.message === 'Customer not found'
+        error instanceof Error && error.message === 'العميل غير موجود'
           ? 404
           : 500;
       return void res.status(status).json({
@@ -283,7 +283,7 @@ router.delete(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -299,7 +299,7 @@ router.delete(
       }
       logger.error({ error }, 'Error deleting customer');
       const status =
-        error instanceof Error && error.message === 'Customer not found'
+        error instanceof Error && error.message === 'العميل غير موجود'
           ? 404
           : 500;
       return void res.status(status).json({
@@ -325,7 +325,7 @@ router.post(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -366,7 +366,7 @@ router.put(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -407,7 +407,7 @@ router.delete(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -453,7 +453,7 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 

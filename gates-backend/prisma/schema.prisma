@@ -164,6 +164,8 @@ model Company {
   maritalStatuses                           MaritalStatus[]
   jobTitles                                 JobTitle[]
   departments                               Department[]
+  hrLookups                                 HrLookup[]
+  hrAttendanceRecords                       HrAttendanceRecord[]
   jobCadres                                 JobCadre[]
   cities                                    City[]
   wagePolicies                              WagePolicy[]
@@ -184,6 +186,8 @@ model Company {
   cashTransactionLines                      CashTransactionLine[]
   exchangeRateHistories                     ExchangeRateHistory[]
   paymentAllocations                        PaymentAllocation[]
+  contractingCertificateAllocations         ContractingCertificateAllocation[]
+  contractingSettlementIdempotencies        ContractingSettlementIdempotency[]
   counterpartyOffsets                       CounterpartyOffset[]
   cheques                                   Cheque[]
   bankBoxRights                             BankBoxRight[]
@@ -218,6 +222,7 @@ model Company {
   representativeCommissionValues            RepresentativeCommissionValue[]
   representativeCommissionPolicies          RepresentativeCommissionPolicy[]
   itemOrderLimitLists                       ItemOrderLimitList[]
+  itemReservations                          ItemReservation[]
   clothingColors                            ClothingColor[]
   clothingSizes                             ClothingSize[]
   clothingCombos                            ClothingCombo[]
@@ -246,8 +251,29 @@ model Company {
   posTerminals                              PosTerminal[]
   posShifts                                 PosShift[]
   posOrders                                 PosOrder[]
+  posPayments                               PosPayment[]
+  posPaymentMethods                         PosPaymentMethod[]
+  posCashMovements                          PosCashMovement[]
+  posShiftCloses                            PosShiftClose[]
+  posSettings                               PosSettings?
+  posCoupons                                PosCoupon[]
+  posGiftCards                              PosGiftCard[]
+  posWallets                                PosWallet[]
+  posCashierEvents                          PosCashierEvent[]
+  posApprovals                              PosApproval[]
+  posCreditCollections                      PosCreditCollection[]
+  posShiftTemplates                         PosShiftTemplate[]
+  posBarcodeRules                           PosBarcodeRule[]
+  itemBarcodes                              ItemBarcode[]
   eInvoiceSettings                          EInvoiceSetting[]
   eInvoiceDocuments                         EInvoiceDocument[]
+  etaReceiptDevices                         EtaReceiptDevice[]
+  etaReceipts                               EtaReceipt[]
+  etaReceiptSubmissions                     EtaReceiptSubmission[]
+  etaReceiptSettings                        EtaReceiptSetting[]
+  esignPairedDevices                        EsignPairedDevice[]
+  esignPairingChallenges                    EsignPairingChallenge[]
+  etaSigningSessions                        EtaSigningSession[]
   tradeSettings                             TradeSettings?
   lettersOfCredit                           LetterOfCredit[]
   guaranteeLetters                          GuaranteeLetter[]
@@ -266,6 +292,29 @@ model Company {
   clientContracts                           ClientContract[]
   clientInvoices                            ClientInvoice[]
   clientInvoiceItems                        ClientInvoiceItem[]
+  ownerPreliminaryCertificates              OwnerPreliminaryCertificate[]
+  ownerPreliminaryCertificateLines          OwnerPreliminaryCertificateLine[]
+  ownerPreliminaryCertificateMeasurements   OwnerPreliminaryCertificateMeasurement[]
+  contractVariationOrders                   ContractVariationOrder[]
+  contractVariationOrderLines               ContractVariationOrderLine[]
+  subcontractVariationOrders                SubcontractVariationOrder[]
+  subcontractVariationOrderLines            SubcontractVariationOrderLine[]
+  subcontractPreliminaryCertificates        SubcontractPreliminaryCertificate[]
+  subcontractPreliminaryCertificateLines    SubcontractPreliminaryCertificateLine[]
+  projectCostAllocations                    ProjectCostAllocation[]
+  projectCostForecastSnapshots              ProjectCostForecastSnapshot[]
+  projectBoqForecastOverrides               ProjectBoqForecastOverride[]
+  projectExecutionPlans                     ProjectExecutionPlan[]
+  projectExecutionActivities                ProjectExecutionActivity[]
+  executionActivityBoqAllocations           ExecutionActivityBoqAllocation[]
+  projectExecutionMilestones                ProjectExecutionMilestone[]
+  projectExecutionPerformanceSnapshots      ProjectExecutionPerformanceSnapshot[]
+  contractTenders                           ContractTender[]
+  contractTenderBoqItems                    ContractTenderBoqItem[]
+  contractTenderRateAnalysisItems           ContractTenderRateAnalysisItem[]
+  contractQuotations                        ContractQuotation[]
+  contractQuotationLines                    ContractQuotationLine[]
+  contractTenderAwards                      ContractTenderAward[]
   siteStockMaterials                        SiteStockMaterial[]
   projectLettersOfGuarantee                 ProjectLetterOfGuarantee[]
   lgActionHistories                         LgActionHistory[]
@@ -296,6 +345,8 @@ model Company {
   growthAttributions                        GrowthAttribution[]
   userTourProgress                          UserTourProgress[]
   whatsappConfig                            CompanyWhatsappConfig?
+  whatsappOutboundMessages                  WhatsappOutboundMessage[]
+  emailConfig                               CompanyEmailConfig?
   whatsappAuthorizedUsers                   WhatsappAuthorizedUser[]
   automationRules                           AutomationRule[]
   automationActionRuns                      AutomationActionRun[]
@@ -324,6 +375,8 @@ model Branch {
   buildingNumber     String?
   postalCode         String?
   address            String?
+  /// ETA taxpayerActivityCode for this branch.
+  activityCode       String?
   deletedAt          DateTime?
   defaultWarehouseId String?
   defaultSafeId      String?
@@ -345,6 +398,7 @@ model Branch {
   cashTransactions      CashTransaction[]
   taxPeriods            TaxPeriod[]
   posTerminals          PosTerminal[]
+  posPaymentMethods     PosPaymentMethod[]
   posShifts             PosShift[]
   lettersOfCredit       LetterOfCredit[]
   guaranteeLetters      GuaranteeLetter[]
@@ -401,7 +455,7 @@ model CompanySettings {
   documentaryCredits            Boolean? @default(false)
   // Advanced settings (stored as JSON)
   advancedSettings              Json? // For flexible advanced settings
-  logoUrl                       String?
+  logoUrl                       String?  @db.LongText
   // Account definitions (stored as JSON for flexibility)
   accountDefinitions            Json?
   /// M22 — default retained earnings account for year-end close
@@ -1122,6 +1176,8 @@ model JournalEntry {
   counterpartyOffsets       CounterpartyOffset[]
   subcontractInvoices       SubcontractInvoice[]
   clientInvoices            ClientInvoice[]
+  clientInvoiceReversals    ClientInvoice[]            @relation("ClientInvoiceReversalJe")
+  subcontractInvoiceReversals SubcontractInvoice[]     @relation("SubcontractInvoiceReversalJe")
   projectLettersOfGuarantee ProjectLetterOfGuarantee[]
   postDatedCheques          PostDatedCheque[]
   adjustmentNotesPosted     FinancialAdjustmentNote[]  @relation("AdjustmentNoteJournal")
@@ -1363,6 +1419,8 @@ model Customer {
   employeeId         String? // الموظف المسؤول
   followUpDate       DateTime?
   followUpDateHijri  String?
+  /// ETA receiver profile used by electronic invoices (type, tax id, address).
+  etaProfile         Json?
   isActive           Boolean   @default(true)
   deletedAt          DateTime?
   createdAt          DateTime  @default(now())
@@ -1387,12 +1445,14 @@ model Customer {
   customerContracts          CustomerContract[]
   contractingProjects        ContractingProject[]
   clientContracts            ClientContract[]
+  contractTenders            ContractTender[]
   unitContracts              UnitContract[]
   realEstateReservations     RealEstateReservation[]
   unitResalesAsSeller        UnitResaleTransfer[]        @relation("ResaleSeller")
   unitResalesAsBuyer         UnitResaleTransfer[]        @relation("ResaleBuyer")
   rentalPoolAgreements       RentalPoolAgreement[]
   schoolStudents             SchoolStudent[]
+  stockIssues                Issue[]
 
   linkedBySupplier    Supplier?            @relation("SupplierToLinkedCustomer")
   counterpartyOffsets CounterpartyOffset[]
@@ -1538,6 +1598,7 @@ model Supplier {
   paymentTermsDays   Int?
   currencyCode       String?
   supplierCategoryId String?
+  priceListId        String?
   balance            Decimal  @default(0) @db.Decimal(15, 2)
   isActive           Boolean  @default(true)
   createdAt          DateTime @default(now())
@@ -1545,6 +1606,7 @@ model Supplier {
 
   company                    Company                     @relation(fields: [companyId], references: [id], onDelete: Cascade)
   mainAccount                Account?                    @relation("SupplierMainAccount", fields: [mainAccountId], references: [id])
+  priceList                  PriceList?                  @relation(fields: [priceListId], references: [id], onDelete: SetNull)
   supplierCategory           SupplierCategory?           @relation(fields: [supplierCategoryId], references: [id], onDelete: SetNull)
   linkedCustomer             Customer?                   @relation("SupplierToLinkedCustomer", fields: [linkedCustomerId], references: [id], onDelete: SetNull)
   invoices                   Invoice[]
@@ -1557,9 +1619,11 @@ model Supplier {
   cheques                    Cheque[]
   endorsedCheques            Cheque[]                    @relation("ChequeEndorsedSupplier")
   securitiesReceipts         SecuritiesReceipt[]
+  endorsedReceipts           SecuritiesReceipt[]         @relation("ReceiptEndorseeSupplier")
   securitiesPayments         SecuritiesPayment[]
   electronicInvoiceCustomers ElectronicInvoiceCustomer[]
   lettersOfCredit            LetterOfCredit[]
+  stockReceipts              Receipt[]
 
   linkedByCustomer    Customer?            @relation("CustomerToLinkedSupplier")
   counterpartyOffsets CounterpartyOffset[]
@@ -1720,6 +1784,8 @@ model BankAccount {
   bankBoxRights             BankBoxRight[]
   cashTransactions          CashTransaction[]
   posTerminals              PosTerminal[]
+  posPayments               PosPayment[]
+  posPaymentMethods         PosPaymentMethod[]
   lettersOfCredit           LetterOfCredit[]
   guaranteeLetters          GuaranteeLetter[]
   projectLettersOfGuarantee ProjectLetterOfGuarantee[]
@@ -1750,6 +1816,9 @@ model Safe {
   bankBoxRights      BankBoxRight[]
   cashTransactions   CashTransaction[]
   posTerminals       PosTerminal[]
+  posPayments        PosPayment[]
+  posPaymentMethods  PosPaymentMethod[]
+  posCashMovements   PosCashMovement[]
   branchesDefaultFor Branch[]          @relation("BranchDefaultSafe")
   documentProfiles   DocumentProfile[] @relation("DocumentProfileTreasury")
 
@@ -1806,8 +1875,10 @@ model TreasuryReceipt {
   cashTransaction CashTransaction?
   Bank            Bank?            @relation(fields: [bankId], references: [id])
   bankId          String?
+  /// CASH = سند قبض نقدية، BANK = إشعار إضافة بنكي. كل نوع له مسلسله.
+  voucherFamily   String    @default("CASH") @db.VarChar(10)
 
-  @@unique([companyId, voucherNumber])
+  @@unique([companyId, voucherFamily, voucherNumber])
   @@index([companyId, date])
   @@index([voucherNumber])
   @@index([receiptType])
@@ -1863,8 +1934,10 @@ model TreasuryPayment {
   cashTransaction CashTransaction?
   Bank            Bank?            @relation(fields: [bankId], references: [id])
   bankId          String?
+  /// CASH = سند صرف نقدية، BANK = إشعار خصم بنكي. كل نوع له مسلسله.
+  voucherFamily   String    @default("CASH") @db.VarChar(10)
 
-  @@unique([companyId, voucherNumber])
+  @@unique([companyId, voucherFamily, voucherNumber])
   @@index([companyId, date])
   @@index([voucherNumber])
   @@index([paymentType])
@@ -1894,6 +1967,7 @@ model CashTransaction {
   currencyCode      String
   customerId        String?
   supplierId        String?
+  subcontractorId   String?
   offsetAccountId   String?
   safeId            String?
   bankAccountId     String?
@@ -1939,6 +2013,7 @@ model CashTransaction {
   fiscalYear            FiscalYear?             @relation(fields: [fiscalYearId], references: [id], onDelete: SetNull)
   customer              Customer?               @relation(fields: [customerId], references: [id], onDelete: SetNull)
   supplier              Supplier?               @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  subcontractor         Subcontractor?          @relation(fields: [subcontractorId], references: [id], onDelete: SetNull)
   offsetAccount         Account?                @relation(fields: [offsetAccountId], references: [id], onDelete: SetNull)
   safe                  Safe?                   @relation(fields: [safeId], references: [id], onDelete: SetNull)
   bankAccount           BankAccount?            @relation(fields: [bankAccountId], references: [id], onDelete: SetNull)
@@ -1949,7 +2024,8 @@ model CashTransaction {
   treasuryPayment       TreasuryPayment?        @relation(fields: [treasuryPaymentId], references: [id], onDelete: SetNull)
   unitInstallments      UnitInstallment[]
   schoolFeeInstallments StudentFeeInstallment[]
-  paymentAllocations    PaymentAllocation[]
+  paymentAllocations              PaymentAllocation[]
+  contractingCertificateAllocations ContractingCertificateAllocation[]
   lines                 CashTransactionLine[]
   department            Department?           @relation(fields: [departmentId], references: [id], onDelete: SetNull)
   sourceOrder           CashTransaction?      @relation("CashOrderVoucher", fields: [sourceOrderId], references: [id], onDelete: SetNull)
@@ -1964,6 +2040,7 @@ model CashTransaction {
   @@index([companyId, documentRole, transactionKind])
   @@index([companyId, documentRole, executionStatus])
   @@index([companyId, isRecurring])
+  @@index([companyId, subcontractorId], map: "cash_tx_co_subcontractor_idx")
   @@map("cash_transactions")
 }
 
@@ -2039,6 +2116,68 @@ model PaymentAllocation {
   @@index([cashTransactionId])
   @@index([counterpartyOffsetId])
   @@map("payment_allocations")
+}
+
+/// Open-item allocation: links a posted treasury receipt/payment to enterprise contracting certificates.
+model ContractingCertificateAllocation {
+  id                   String   @id @default(uuid())
+  companyId            String
+  cashTransactionId    String
+  clientInvoiceId      String?
+  subcontractInvoiceId String?
+  allocatedAmount      Decimal  @db.Decimal(18, 4)
+  currencyCode         String   @default("EGP") @db.VarChar(10)
+  allocatedAt          DateTime @default(now())
+  createdBy            String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  company            Company             @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  cashTransaction    CashTransaction     @relation(fields: [cashTransactionId], references: [id], onDelete: Restrict)
+  clientInvoice      ClientInvoice?      @relation(fields: [clientInvoiceId], references: [id], onDelete: Restrict)
+  subcontractInvoice SubcontractInvoice? @relation(fields: [subcontractInvoiceId], references: [id], onDelete: Restrict)
+
+  @@index([companyId, clientInvoiceId], map: "cca_co_client_inv_idx")
+  @@index([companyId, subcontractInvoiceId], map: "cca_co_sub_inv_idx")
+  @@index([cashTransactionId], map: "cca_cash_tx_idx")
+  @@map("contracting_certificate_allocations")
+}
+
+enum ContractingSettlementIdempotencyOperation {
+  CLIENT_INVOICE_COLLECT
+  SUBCONTRACT_INVOICE_PAY
+  CLIENT_INVOICE_ALLOCATE
+  SUBCONTRACT_INVOICE_ALLOCATE
+  CLIENT_INVOICE_REVERSE
+  SUBCONTRACT_INVOICE_REVERSE
+  OWNER_PRELIMINARY_CONVERT
+  SUBCONTRACT_PRELIMINARY_CONVERT
+}
+
+enum ContractingSettlementIdempotencyStatus {
+  PENDING
+  COMPLETED
+}
+
+/// Durable idempotency for enterprise contracting treasury settlement mutations.
+model ContractingSettlementIdempotency {
+  id                   String                                   @id @default(uuid())
+  companyId            String
+  operation            ContractingSettlementIdempotencyOperation
+  idempotencyKey       String                                   @db.VarChar(128)
+  requestFingerprint   String                                   @db.VarChar(64)
+  status               ContractingSettlementIdempotencyStatus   @default(PENDING)
+  cashTransactionId    String?
+  allocationId         String?
+  resultJson           Json?
+  createdAt            DateTime                                 @default(now())
+  updatedAt            DateTime                                 @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
+
+  @@unique([companyId, operation, idempotencyKey], map: "csi_co_op_key_uniq")
+  @@index([companyId, operation], map: "csi_co_op_idx")
+  @@map("contracting_settlement_idempotencies")
 }
 
 /// AR/AP netting between linked customer and supplier (مقاصة)
@@ -2200,6 +2339,8 @@ model SecuritiesReceipt {
   entityName             String?
   entityId               String?
   destinationAccountId   String?
+  /// حركة الطرف المقابل لو الورقة مش مربوطة بكارت عميل/مورد
+  partyAccountId         String?
   depositAccountId       String?
   depositDate            DateTime?
   commissionAmount       Decimal?  @db.Decimal(15, 2)
@@ -2212,17 +2353,24 @@ model SecuritiesReceipt {
   approvedAt     DateTime?
   isCancelled    Boolean   @default(false)
   cancelledAt    DateTime?
+  /// شيكات كانت موجودة قبل بداية النظام. تُحفظ مرحّلة بدون قيد تحرير، وقيمتها تتحمّل في قيد الرصيد الافتتاحي.
+  isOpening      Boolean   @default(false)
   /// ISSUED | COLLECTED | BOUNCED | ENDORSED | MULTI_COLLECTED
   paperCase String @default("ISSUED") @db.VarChar(24)
+  /// توزيع السداد على الفواتير — نفس شكل سند القبض/الصرف النقدي
+  invoiceAllocations Json?
   // H11: real GL posting on post/unpost, mirroring the Cheque lifecycle instead
   // of a phantom isPosted flag with no accounting effect.
   journalEntryId String?
+  /// المورد المظهَّر إليه. يُحدَّث رصيده مع قيد التظهير ويُعكس عند فك التظهير.
+  endorseeSupplierId String?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
   company  Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
   customer Customer?         @relation(fields: [customerId], references: [id], onDelete: SetNull)
   supplier Supplier?         @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  endorseeSupplier Supplier? @relation("ReceiptEndorseeSupplier", fields: [endorseeSupplierId], references: [id], onDelete: SetNull)
   entity   SecuritiesEntity? @relation(fields: [entityId], references: [id], onDelete: SetNull)
 
   @@unique([companyId, receiptNumber])
@@ -2230,6 +2378,7 @@ model SecuritiesReceipt {
   @@index([receiptNumber])
   @@index([securityType])
   @@index([entityId])
+  @@index([endorseeSupplierId])
   @@map("securities_receipts")
 }
 
@@ -2258,6 +2407,8 @@ model SecuritiesPayment {
   entityName             String?
   entityId               String?
   destinationAccountId   String?
+  /// حركة الطرف المقابل لو الورقة مش مربوطة بكارت عميل/مورد
+  partyAccountId         String?
   commissionAmount       Decimal?  @db.Decimal(15, 2)
   commissionAccountId    String?
   // Status
@@ -2268,8 +2419,12 @@ model SecuritiesPayment {
   approvedAt     DateTime?
   isCancelled    Boolean   @default(false)
   cancelledAt    DateTime?
+  /// شيكات كانت موجودة قبل بداية النظام. تُحفظ بدون قيد تحرير، وقيمتها تتحمّل في قيد الرصيد الافتتاحي.
+  isOpening      Boolean   @default(false)
   /// ISSUED | COLLECTED | MULTI_COLLECTED | ENDORSED | BOUNCED — one case at a time
   paperCase      String    @default("ISSUED") @db.VarChar(24)
+  /// توزيع السداد على الفواتير — نفس شكل سند القبض/الصرف النقدي
+  invoiceAllocations Json?
   // H11: real GL posting on post/unpost, mirroring the Cheque lifecycle instead
   // of a phantom isPosted flag with no accounting effect.
   journalEntryId String?
@@ -2305,6 +2460,18 @@ model SecuritiesEntity {
   @@unique([companyId, arabicName])
   @@index([companyId, isActive])
   @@map("securities_entities")
+}
+
+/// Company-scoped lock for values that must never be saved twice.
+/// ITEM_NAME covers item names. CHEQUE_NUMBER covers paper numbers and cheque numbers.
+model CompanyUniqueKey {
+  companyId String
+  kind      String   @db.VarChar(32)
+  value     String   @db.VarChar(255)
+  createdAt DateTime @default(now())
+
+  @@id([companyId, kind, value])
+  @@map("company_unique_keys")
 }
 
 /// سجلات التحصيل المتعدد لأوراق القبض / الصرف
@@ -2383,6 +2550,7 @@ model Unit {
 
   company                Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
   itemUnits              ItemUnit[]
+  itemBarcodes           ItemBarcode[]
   itemPrices             ItemPrice[]
   invoiceLines           InvoiceLine[]
   invoiceLineBaseUnits   InvoiceLine[]      @relation("InvoiceLineBaseUnit")
@@ -2510,6 +2678,8 @@ model Item {
   imageUrl             String?  @db.LongText
   defaultWarehouseId   String?
   priceSource          String? // price_list | item_card
+  /// ETA item profile: GS1/EGS code, unitType, tax type.
+  etaProfile           Json?
   isActive             Boolean  @default(true)
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
@@ -2517,8 +2687,12 @@ model Item {
   company                    Company                       @relation(fields: [companyId], references: [id], onDelete: Cascade)
   category                   ItemCategory?                 @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   units                      ItemUnit[]
+  barcodes                   ItemBarcode[]
+  inventoryLots              InventoryItemLot[]
+  inventorySerials           InventoryItemSerial[]
   prices                     ItemPrice[]
   quantities                 ItemQuantity[]
+  clothingCombos             ClothingCombo[]
   warehouseBalances          ItemWarehouseBalance[]
   invoiceLines               InvoiceLine[]
   electronicInvoiceItems     ElectronicInvoiceItem[]
@@ -2551,6 +2725,7 @@ model Item {
   materialReconciliationLogs MaterialReconciliationLog[]
   commissionQuantityLines    RepresentativeCommissionQuantity[]
   orderLimitLines            ItemOrderLimitLine[]
+  itemReservations           ItemReservation[]
 
   @@index([companyId])
   @@index([serial])
@@ -2599,6 +2774,7 @@ model PriceList {
 
   company    Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
   prices     ItemPrice[]
+  suppliers  Supplier[]
   newModules NewModule[]
 
   @@unique([companyId, code])
@@ -2687,6 +2863,7 @@ model Warehouse {
   documentProfiles         DocumentProfile[] @relation("DocumentProfileWarehouse")
   transactionSettings      TransactionSettings[]
   itemOrderLimitLists      ItemOrderLimitList[]
+  itemReservations         ItemReservation[]
 
   @@index([companyId])
   @@index([companyId, warehouseKind])
@@ -2731,7 +2908,7 @@ model ItemQuantity {
   itemId      String
   warehouseId String
   locationId  String?
-  quantity    Decimal @default(0) @db.Decimal(15, 3)
+  quantity    Decimal @default(0) @db.Decimal(18, 4)
 
   item      Item      @relation(fields: [itemId], references: [id], onDelete: Cascade)
   warehouse Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
@@ -2776,6 +2953,32 @@ model ItemOrderLimitLine {
   @@map("item_order_limit_lines")
 }
 
+/// Manual stock hold. Increases ItemWarehouseBalance.reservedQuantity only;
+/// on-hand quantity and the movement ledger stay unchanged.
+model ItemReservation {
+  id          String    @id @default(uuid())
+  companyId   String
+  warehouseId String
+  itemId      String
+  quantity    Decimal   @db.Decimal(18, 4)
+  /// Cumulative qty issued against this hold (issue voucher / sales invoice).
+  fulfilledQuantity Decimal @default(0) @db.Decimal(18, 4)
+  reason      String    @db.VarChar(500)
+  /// ACTIVE | PARTIALLY_FULFILLED | FULFILLED | RELEASED
+  status      String    @default("ACTIVE") @db.VarChar(24)
+  releasedAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  company   Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  warehouse Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  item      Item      @relation(fields: [itemId], references: [id], onDelete: Restrict)
+
+  @@index([companyId, warehouseId])
+  @@index([itemId])
+  @@map("item_reservations")
+}
+
 model ClothingColor {
   id          String   @id @default(uuid())
   companyId   String
@@ -2815,6 +3018,7 @@ model ClothingSize {
 model ClothingCombo {
   id        String   @id @default(uuid())
   companyId String
+  itemId    String?
   colorId   String
   sizeId    String
   barcode   String?
@@ -2823,11 +3027,13 @@ model ClothingCombo {
   updatedAt DateTime @updatedAt
 
   company Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  item    Item?         @relation(fields: [itemId], references: [id], onDelete: Cascade)
   color   ClothingColor @relation(fields: [colorId], references: [id], onDelete: Cascade)
   size    ClothingSize  @relation(fields: [sizeId], references: [id], onDelete: Cascade)
 
-  @@unique([companyId, colorId, sizeId])
+  @@unique([companyId, itemId, colorId, sizeId])
   @@index([companyId])
+  @@index([itemId])
   @@map("clothing_combos")
 }
 
@@ -2896,6 +3102,8 @@ model OpeningStockLine {
   quantity       Decimal  @db.Decimal(15, 3)
   unitPrice      Decimal  @db.Decimal(15, 2)
   total          Decimal  @db.Decimal(15, 2)
+  batchNumber    String?
+  expiryDate     DateTime?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -2907,6 +3115,7 @@ model OpeningStockLine {
   @@index([openingStockId])
   @@index([itemId])
   @@index([warehouseId])
+  @@index([expiryDate])
   @@map("opening_stock_lines")
 }
 
@@ -3191,6 +3400,7 @@ model Receipt {
   date        DateTime
   hijriDate   String?
   warehouseId String
+  supplierId  String?
   totalAmount    Decimal   @default(0) @db.Decimal(15, 2)
   record         String?
   journalEntryId String?
@@ -3207,12 +3417,14 @@ model Receipt {
 
   company      Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
   warehouse    Warehouse     @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+  supplier     Supplier?     @relation(fields: [supplierId], references: [id], onDelete: SetNull)
   journalEntry JournalEntry? @relation("ReceiptJournalEntry", fields: [journalEntryId], references: [id], onDelete: SetNull)
   lines        ReceiptLine[]
 
   @@index([companyId])
   @@index([branchId])
   @@index([warehouseId])
+  @@index([supplierId])
   @@index([date])
   @@index([journalEntryId])
   @@map("receipts")
@@ -3248,6 +3460,7 @@ model Issue {
   date        DateTime
   hijriDate   String?
   warehouseId String
+  customerId  String?
   totalAmount    Decimal   @default(0) @db.Decimal(15, 2)
   record         String?
   journalEntryId String?
@@ -3264,12 +3477,14 @@ model Issue {
 
   company      Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
   warehouse    Warehouse   @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+  customer     Customer?   @relation(fields: [customerId], references: [id], onDelete: SetNull)
   journalEntry JournalEntry? @relation("IssueJournalEntry", fields: [journalEntryId], references: [id], onDelete: SetNull)
   lines        IssueLine[]
 
   @@index([companyId])
   @@index([branchId])
   @@index([warehouseId])
+  @@index([customerId])
   @@index([date])
   @@index([journalEntryId])
   @@map("issues")
@@ -3279,19 +3494,28 @@ model IssueLine {
   id         String   @id @default(uuid())
   issueId    String
   itemId     String
+  itemReservationId String?
+  /// Qty drawn from the linked reservation when this line posts (≤ line quantity).
+  reservationFulfillQuantity Decimal? @db.Decimal(18, 4)
   locationId String?
   quantity   Decimal  @db.Decimal(15, 3)
   unitPrice  Decimal? @db.Decimal(15, 2)
   total      Decimal? @db.Decimal(15, 2)
+  contractingProjectId String?
+  projectBOQItemId     String?
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
   issue    Issue     @relation(fields: [issueId], references: [id], onDelete: Cascade)
   item     Item      @relation(fields: [itemId], references: [id], onDelete: Cascade)
   location Location? @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  contractingProject ContractingProject? @relation(fields: [contractingProjectId], references: [id], onDelete: SetNull)
+  projectBOQItem     ProjectBOQItem?     @relation(fields: [projectBOQItemId], references: [id], onDelete: SetNull)
 
   @@index([issueId])
   @@index([itemId])
+  @@index([contractingProjectId])
+  @@index([projectBOQItemId])
   @@map("issue_lines")
 }
 
@@ -4239,6 +4463,8 @@ model InvoiceLine {
   id                      String    @id @default(uuid())
   invoiceId               String
   itemId                  String
+  itemReservationId       String?
+  reservationFulfillQuantity Decimal? @db.Decimal(18, 4)
   unitId                  String
   quantity                Decimal   @db.Decimal(18, 4)
   baseQuantity            Decimal   @db.Decimal(18, 4)
@@ -4296,6 +4522,7 @@ model InvoiceLine {
   landedCostAllocationLines LandedCostAllocationLine[]
   originalInvoiceLine       InvoiceLine?               @relation("InvoiceLineReturns", fields: [originalInvoiceLineId], references: [id], onDelete: SetNull)
   returnLines               InvoiceLine[]              @relation("InvoiceLineReturns")
+  lineSources               InvoiceLineSource[]
 
   @@index([invoiceId])
   @@index([itemId])
@@ -4306,6 +4533,23 @@ model InvoiceLine {
   @@index([costCenterId])
   @@index([customRevenueAccountId])
   @@map("invoice_lines")
+}
+
+// Partial conversion from a purchase order, sales order, or price quote line.
+model InvoiceLineSource {
+  id            String   @id @default(uuid())
+  companyId     String
+  invoiceLineId String
+  sourceKind    String
+  sourceLineId  String
+  baseQuantity  Decimal  @db.Decimal(18, 4)
+  createdAt     DateTime @default(now())
+
+  invoiceLine InvoiceLine @relation(fields: [invoiceLineId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, sourceKind, sourceLineId])
+  @@index([invoiceLineId])
+  @@map("invoice_line_sources")
 }
 
 // Invoice Conditions
@@ -4755,11 +4999,20 @@ model ContractingSettings {
   @@map("contracting_settings")
 }
 
+enum ContractingProjectStackPolicy {
+  /// Greenfield: owner BOQ + ClientInvoice; Subcontract + SubcontractInvoice.
+  ENTERPRISE
+  /// Historical Wave3: ProjectBoqItem, ContractExtract, header extracts, ProjectSubcontract.
+  LEGACY_WAVE3
+}
+
 model ContractingProject {
   id                      String    @id @default(uuid())
   companyId               String
   projectCode             String
   projectName             String
+  /// Canonical document stack for new work on this project (P0-1).
+  canonicalStack          ContractingProjectStackPolicy @default(ENTERPRISE)
   customerId              String?
   contractValue           Decimal   @default(0) @db.Decimal(15, 2)
   advancePaymentAmount    Decimal   @default(0) @db.Decimal(15, 2)
@@ -4769,6 +5022,7 @@ model ContractingProject {
   costCenterId            String?
   startDate               DateTime?
   endDate                 DateTime?
+  sourceTenderId          String?
   /// ACTIVE | COMPLETED | SUSPENDED
   status                  String    @default("ACTIVE") @db.VarChar(20)
   createdAt               DateTime  @default(now())
@@ -4787,8 +5041,20 @@ model ContractingProject {
   boqMarkupStructures        BOQMarkupStructure[]
   executiveMeasurementSheets ExecutiveMeasurementSheet[]
   clientContract             ClientContract?
+  ownerPreliminaryCertificates OwnerPreliminaryCertificate[]
+  contractVariationOrders      ContractVariationOrder[]
   siteStockMaterials         SiteStockMaterial[]
   projectLettersOfGuarantee  ProjectLetterOfGuarantee[]
+  projectCostAllocations     ProjectCostAllocation[]
+  costForecastSnapshots      ProjectCostForecastSnapshot[]
+  boqForecastOverrides       ProjectBoqForecastOverride[]
+  executionPlans             ProjectExecutionPlan[]
+  executionActivities        ProjectExecutionActivity[]
+  executionMilestones        ProjectExecutionMilestone[]
+  executionPerformanceSnapshots ProjectExecutionPerformanceSnapshot[]
+  issueLines                 IssueLine[]
+  sourceTender               ContractTender? @relation("ProjectSourceTender", fields: [sourceTenderId], references: [id], onDelete: SetNull)
+  tenderAward                ContractTenderAward?
 
   @@unique([companyId, projectCode])
   @@index([companyId, status])
@@ -5044,6 +5310,7 @@ model Subcontractor {
 
   company      Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
   subcontracts Subcontract[]
+  cashTransactions CashTransaction[]
 
   @@unique([companyId, taxRegistrationNumber])
   @@index([companyId, status])
@@ -5079,6 +5346,8 @@ model Subcontract {
   project                  ContractingProject          @relation(fields: [projectId], references: [id], onDelete: Restrict)
   boqItems                 SubcontractBOQItem[]
   invoices                 SubcontractInvoice[]
+  preliminaryCertificates  SubcontractPreliminaryCertificate[]
+  variationOrders          SubcontractVariationOrder[]
   materialReconciliations  MaterialReconciliationLog[]
   sitePenalties            SitePenaltyAndSnag[]
   directExecutionCharges   DirectExecutionCharge[]
@@ -5104,15 +5373,21 @@ model SubcontractBOQItem {
   totalPrice            Decimal  @db.Decimal(18, 4)
   maxAllowedQuantity    Decimal  @db.Decimal(18, 4)
   cumulativeExecutedQty Decimal  @default(0) @db.Decimal(18, 4)
+  origin                SubcontractBOQItemOrigin @default(BASE_CONTRACT)
+  sourceVariationOrderId String?
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
 
   subcontract     Subcontract                   @relation(fields: [subcontractId], references: [id], onDelete: Cascade)
+  sourceVariationOrder SubcontractVariationOrder? @relation("SubVariationCreatedBoqItems", fields: [sourceVariationOrderId], references: [id], onDelete: SetNull)
   invoiceItems    SubcontractInvoiceItem[]
+  preliminaryCertificateLines SubcontractPreliminaryCertificateLine[]
+  subcontractVariationOrderLines SubcontractVariationOrderLine[]
   adjustmentLines FinancialAdjustmentLineItem[]
 
   @@unique([subcontractId, itemCode])
   @@index([subcontractId])
+  @@index([sourceVariationOrderId])
   @@map("subcontract_boq_items")
 }
 
@@ -5139,8 +5414,16 @@ model SubcontractInvoice {
   directExecutionDeduction      Decimal @default(0) @db.Decimal(18, 4)
   earlyPaymentDiscountDeduction Decimal @default(0) @db.Decimal(18, 4)
   netPayableAmount              Decimal @default(0) @db.Decimal(18, 4)
+  /// Cache derived from posted treasury allocations (not financial source of truth).
+  paidSettlementAmount          Decimal @default(0) @db.Decimal(18, 4)
+  remainingSettlementAmount     Decimal @default(0) @db.Decimal(18, 4)
+  settlementStatus              ContractingSettlementStatus @default(UNPAID)
 
   journalEntryId String?
+  reversalJournalEntryId String? @unique
+  reversedAt             DateTime?
+  reversedBy             String?
+  reversalReason         String?  @db.Text
   attachments    Json?
   notes          String?  @db.Text
   createdAt      DateTime @default(now())
@@ -5149,11 +5432,14 @@ model SubcontractInvoice {
   company                 Company                     @relation(fields: [companyId], references: [id], onDelete: Cascade)
   subcontract             Subcontract                 @relation(fields: [subcontractId], references: [id], onDelete: Restrict)
   journalEntry            JournalEntry?               @relation(fields: [journalEntryId], references: [id], onDelete: Restrict)
+  reversalJournalEntry    JournalEntry?               @relation("SubcontractInvoiceReversalJe", fields: [reversalJournalEntryId], references: [id], onDelete: Restrict)
   items                   SubcontractInvoiceItem[]
   materialReconciliations MaterialReconciliationLog[]
   sitePenalties           SitePenaltyAndSnag[]
   directExecutionCharges  DirectExecutionCharge[]
   documentAttachments     DocumentAttachment[]
+  certificateAllocations  ContractingCertificateAllocation[]
+  subcontractPreliminaryCertificate SubcontractPreliminaryCertificate?
 
   @@unique([companyId, invoiceNumber])
   @@unique([subcontractId, sequenceNumber])
@@ -5315,6 +5601,72 @@ enum ClientInvoiceStatus {
   REVERSED
 }
 
+enum PreliminaryCertificateStatus {
+  DRAFT
+  SUBMITTED
+  UNDER_REVIEW
+  APPROVED
+  CONVERTED
+  REJECTED
+  CANCELLED
+}
+
+enum ContractVariationOrderStatus {
+  DRAFT
+  SUBMITTED
+  UNDER_REVIEW
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum ContractVariationChangeType {
+  QUANTITY_CHANGE
+  RATE_CHANGE
+  NEW_ITEM
+  OMIT
+}
+
+enum ProjectBOQItemOrigin {
+  BASE_CONTRACT
+  VARIATION_ORDER
+}
+
+enum SubcontractBOQItemOrigin {
+  BASE_CONTRACT
+  VARIATION_ORDER
+}
+
+enum ProjectCostCategory {
+  MATERIAL
+  LABOR
+  SUBCONTRACTOR
+  EQUIPMENT
+  DIRECT_EXPENSE
+  PURCHASE
+  OVERHEAD
+  OTHER
+}
+
+enum ProjectCostSourceType {
+  INVENTORY_ISSUE_LINE
+  SUBCONTRACT_INVOICE_ITEM
+  CASH_TRANSACTION_LINE
+  JOURNAL_ENTRY_LINE
+  MANUAL_COST_SPLIT
+}
+
+enum ProjectCostAllocationStatus {
+  ACTIVE
+  REVERSED
+}
+
+enum ContractingSettlementStatus {
+  UNPAID
+  PARTIALLY_SETTLED
+  SETTLED
+}
+
 enum SiteStockMaterialStatus {
   STORED_ON_SITE
   INSTALLED_AND_DEDUCTED
@@ -5360,22 +5712,37 @@ model ProjectBOQItem {
   unitSellingPrice      Decimal              @default(0) @db.Decimal(18, 4)
   totalSellingPrice     Decimal              @default(0) @db.Decimal(18, 4)
   cumulativeExecutedQty Decimal              @default(0) @db.Decimal(18, 4)
+  origin                ProjectBOQItemOrigin   @default(BASE_CONTRACT)
+  sourceVariationOrderId String?
+  sourceTenderBoqItemId String?
+  sourceQuotationLineId String?
   status                ProjectBOQItemStatus @default(PENDING_PRICING)
   createdAt             DateTime             @default(now())
   updatedAt             DateTime             @updatedAt
 
   company            Company                       @relation(fields: [companyId], references: [id], onDelete: Cascade)
   project            ContractingProject            @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  sourceVariationOrder ContractVariationOrder?       @relation("VariationCreatedBoqItems", fields: [sourceVariationOrderId], references: [id], onDelete: SetNull)
   rateAnalysisItems  BOQRateAnalysisItem[]
   markupStructures   BOQMarkupStructure[]
   measurementSheets  ExecutiveMeasurementSheet[]
   clientInvoiceItems ClientInvoiceItem[]
+  ownerPreliminaryCertificateLines OwnerPreliminaryCertificateLine[]
+  contractVariationOrderLines ContractVariationOrderLine[]
   adjustmentLines    FinancialAdjustmentLineItem[]
+  projectCostAllocations ProjectCostAllocation[]
+  boqForecastOverrides   ProjectBoqForecastOverride[]
+  executionBoqAllocations ExecutionActivityBoqAllocation[]
+  issueLines         IssueLine[]
+  sourceTenderBoqItem ContractTenderBoqItem? @relation("ProjectBoqFromTender", fields: [sourceTenderBoqItemId], references: [id], onDelete: SetNull)
+  sourceQuotationLine ContractQuotationLine? @relation("ProjectBoqFromQuotationLine", fields: [sourceQuotationLineId], references: [id], onDelete: SetNull)
 
   @@unique([companyId, projectId, itemCode])
   @@index([companyId])
   @@index([projectId])
   @@index([status])
+  @@index([sourceVariationOrderId])
+  @@index([sourceTenderBoqItemId])
   @@map("project_owner_boq_items")
 }
 
@@ -5458,6 +5825,7 @@ model ExecutiveMeasurementSheet {
   project             ContractingProject   @relation(fields: [projectId], references: [id], onDelete: Restrict)
   projectBOQItem      ProjectBOQItem       @relation(fields: [projectBOQItemId], references: [id], onDelete: Restrict)
   clientInvoice       ClientInvoice?       @relation(fields: [clientInvoiceId], references: [id], onDelete: SetNull)
+  preliminaryMeasurementLinks OwnerPreliminaryCertificateMeasurement[]
   documentAttachments DocumentAttachment[]
 
   @@unique([companyId, projectId, sheetNumber])
@@ -5582,6 +5950,8 @@ model ClientContract {
   advanceRecoveryRate   Decimal              @default(0) @db.Decimal(8, 6)
   retentionRate         Decimal              @default(0.05) @db.Decimal(8, 6)
   engineeringStampsRate Decimal              @default(0.005) @db.Decimal(8, 6)
+  sourceTenderId        String?
+  sourceQuotationId     String?
   status                ClientContractStatus @default(ACTIVE)
   createdAt             DateTime             @default(now())
   updatedAt             DateTime             @updatedAt
@@ -5590,8 +5960,13 @@ model ClientContract {
   project                  ContractingProject        @relation(fields: [projectId], references: [id], onDelete: Restrict)
   client                   Customer                  @relation(fields: [clientCustomerId], references: [id], onDelete: Restrict)
   invoices                 ClientInvoice[]
+  ownerPreliminaryCertificates OwnerPreliminaryCertificate[]
+  contractVariationOrders      ContractVariationOrder[]
   financialAdjustmentNotes FinancialAdjustmentNote[]
   documentAttachments      DocumentAttachment[]
+  sourceTender             ContractTender?           @relation("ContractSourceTender", fields: [sourceTenderId], references: [id], onDelete: SetNull)
+  sourceQuotation          ContractQuotation?        @relation("ContractSourceQuotation", fields: [sourceQuotationId], references: [id], onDelete: SetNull)
+  tenderAward              ContractTenderAward?
 
   @@unique([companyId, contractNumber])
   @@index([companyId])
@@ -5621,17 +5996,28 @@ model ClientInvoice {
   engineeringStampsDeduction Decimal             @default(0) @db.Decimal(18, 4)
   otherClientPenalties       Decimal             @default(0) @db.Decimal(18, 4)
   netPayableByClient         Decimal             @default(0) @db.Decimal(18, 4)
+  /// Cache derived from posted treasury allocations (not financial source of truth).
+  collectedAmount            Decimal             @default(0) @db.Decimal(18, 4)
+  remainingSettlementAmount  Decimal             @default(0) @db.Decimal(18, 4)
+  settlementStatus           ContractingSettlementStatus @default(UNPAID)
   journalEntryId             String?
+  reversalJournalEntryId     String?             @unique
+  reversedAt                 DateTime?
+  reversedBy                 String?
+  reversalReason             String?             @db.Text
   createdAt                  DateTime            @default(now())
   updatedAt                  DateTime            @updatedAt
 
   company             Company                     @relation(fields: [companyId], references: [id], onDelete: Cascade)
   clientContract      ClientContract              @relation(fields: [clientContractId], references: [id], onDelete: Restrict)
   journalEntry        JournalEntry?               @relation(fields: [journalEntryId], references: [id], onDelete: Restrict)
+  reversalJournalEntry JournalEntry?              @relation("ClientInvoiceReversalJe", fields: [reversalJournalEntryId], references: [id], onDelete: Restrict)
+  ownerPreliminaryCertificate OwnerPreliminaryCertificate?
   items               ClientInvoiceItem[]
   measurementSheets   ExecutiveMeasurementSheet[]
   siteStockMaterials  SiteStockMaterial[]
   documentAttachments DocumentAttachment[]
+  certificateAllocations ContractingCertificateAllocation[]
 
   @@unique([companyId, invoiceNumber])
   @@unique([clientContractId, sequenceNumber])
@@ -5664,6 +6050,789 @@ model ClientInvoiceItem {
   @@index([clientInvoiceId])
   @@index([projectBOQItemId])
   @@map("client_invoice_items")
+}
+
+/// مستخلص مالك ابتدائي (تشغيلي — بلا قيود).
+model OwnerPreliminaryCertificate {
+  id                         String                       @id @default(uuid())
+  companyId                  String
+  clientContractId           String
+  projectId                  String
+  certificateNumber          String
+  sequenceNumber             Int
+  periodStartDate            DateTime
+  periodEndDate              DateTime
+  status                     PreliminaryCertificateStatus @default(DRAFT)
+  grossCurrentWorks          Decimal                      @default(0) @db.Decimal(18, 4)
+  previousGrossWorks         Decimal                      @default(0) @db.Decimal(18, 4)
+  cumulativeGrossWorks       Decimal                      @default(0) @db.Decimal(18, 4)
+  materialsOnSiteCurrent     Decimal                      @default(0) @db.Decimal(18, 4)
+  materialsOnSiteDeduction   Decimal                      @default(0) @db.Decimal(18, 4)
+  advancePaymentRecovery     Decimal                      @default(0) @db.Decimal(18, 4)
+  retentionDeduction         Decimal                      @default(0) @db.Decimal(18, 4)
+  engineeringStampsDeduction Decimal                      @default(0) @db.Decimal(18, 4)
+  otherClientPenalties       Decimal                      @default(0) @db.Decimal(18, 4)
+  netPayablePreview          Decimal                      @default(0) @db.Decimal(18, 4)
+  clientInvoiceId            String?                      @unique
+  createdBy                  String?
+  submittedAt                DateTime?
+  submittedBy                String?
+  approvedAt                 DateTime?
+  approvedBy                 String?
+  rejectedAt                 DateTime?
+  rejectedBy                 String?
+  rejectionReason            String?                      @db.Text
+  convertedAt                DateTime?
+  convertedBy                String?
+  createdAt                  DateTime                     @default(now())
+  updatedAt                  DateTime                     @updatedAt
+
+  company       Company                               @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  clientContract ClientContract                       @relation(fields: [clientContractId], references: [id], onDelete: Restrict)
+  project       ContractingProject                    @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  clientInvoice ClientInvoice?                        @relation(fields: [clientInvoiceId], references: [id], onDelete: SetNull)
+  lines         OwnerPreliminaryCertificateLine[]
+  measurements  OwnerPreliminaryCertificateMeasurement[]
+
+  @@unique([companyId, certificateNumber])
+  @@unique([clientContractId, sequenceNumber])
+  @@index([companyId])
+  @@index([clientContractId])
+  @@index([projectId])
+  @@index([status])
+  @@map("owner_preliminary_certificates")
+}
+
+model OwnerPreliminaryCertificateLine {
+  id                            String   @id @default(uuid())
+  companyId                     String
+  ownerPreliminaryCertificateId String
+  projectBOQItemId              String
+  lineOrder                     Int      @default(1)
+  itemCodeSnapshot              String
+  descriptionArSnapshot         String
+  unitSnapshot                  String   @db.VarChar(20)
+  contractQuantitySnapshot      Decimal  @db.Decimal(18, 4)
+  unitRateSnapshot              Decimal  @db.Decimal(18, 4)
+  previousCertifiedQuantity     Decimal  @default(0) @db.Decimal(18, 4)
+  requestedCurrentQuantity      Decimal  @default(0) @db.Decimal(18, 4)
+  approvedCurrentQuantity       Decimal? @db.Decimal(18, 4)
+  cumulativeApprovedQuantity    Decimal  @default(0) @db.Decimal(18, 4)
+  remainingQuantity             Decimal  @default(0) @db.Decimal(18, 4)
+  currentAmount                 Decimal  @default(0) @db.Decimal(18, 4)
+  cumulativeAmount              Decimal  @default(0) @db.Decimal(18, 4)
+  createdAt                     DateTime @default(now())
+  updatedAt                     DateTime @updatedAt
+
+  company                     Company                     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  ownerPreliminaryCertificate OwnerPreliminaryCertificate @relation(fields: [ownerPreliminaryCertificateId], references: [id], onDelete: Cascade)
+  projectBOQItem              ProjectBOQItem              @relation(fields: [projectBOQItemId], references: [id], onDelete: Restrict)
+
+  @@unique([ownerPreliminaryCertificateId, projectBOQItemId])
+  @@index([companyId])
+  @@index([projectBOQItemId])
+  @@map("owner_preliminary_certificate_lines")
+}
+
+model OwnerPreliminaryCertificateMeasurement {
+  id                            String   @id @default(uuid())
+  companyId                     String
+  ownerPreliminaryCertificateId String
+  executiveMeasurementSheetId   String   @unique
+  consumedQuantity              Decimal  @db.Decimal(18, 4)
+  createdAt                     DateTime @default(now())
+
+  company                     Company                     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  ownerPreliminaryCertificate OwnerPreliminaryCertificate @relation(fields: [ownerPreliminaryCertificateId], references: [id], onDelete: Cascade)
+  executiveMeasurementSheet   ExecutiveMeasurementSheet   @relation(fields: [executiveMeasurementSheetId], references: [id], onDelete: Restrict)
+
+  @@index([ownerPreliminaryCertificateId])
+  @@index([companyId])
+  @@map("owner_preliminary_certificate_measurements")
+}
+
+/// أمر تغيير عقد المالك (P1-2) — يعدّل النطاق التعاقدي دون مسح BOQ الأصلي.
+model ContractVariationOrder {
+  id                            String                       @id @default(uuid())
+  companyId                     String
+  projectId                     String
+  clientContractId              String
+  orderNumber                   String
+  sequenceNumber                Int
+  orderDate                     DateTime
+  reason                        String                       @db.Text
+  status                        ContractVariationOrderStatus @default(DRAFT)
+  increaseValue                 Decimal                      @default(0) @db.Decimal(18, 4)
+  decreaseValue                 Decimal                      @default(0) @db.Decimal(18, 4)
+  netImpact                     Decimal                      @default(0) @db.Decimal(18, 4)
+  originalContractValueSnapshot Decimal                      @default(0) @db.Decimal(18, 4)
+  revisedContractValueSnapshot  Decimal                      @default(0) @db.Decimal(18, 4)
+  createdBy                     String?
+  submittedAt                   DateTime?
+  submittedBy                   String?
+  approvedAt                    DateTime?
+  approvedBy                    String?
+  rejectedAt                    DateTime?
+  rejectedBy                    String?
+  rejectionReason               String?                      @db.Text
+  cancelledAt                   DateTime?
+  cancelledBy                   String?
+  cancellationReason            String?                      @db.Text
+  reversesVariationOrderId      String?
+  createdAt                     DateTime                     @default(now())
+  updatedAt                     DateTime                     @updatedAt
+
+  company          Company                    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  project          ContractingProject         @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  clientContract   ClientContract             @relation(fields: [clientContractId], references: [id], onDelete: Restrict)
+  reversesOrder    ContractVariationOrder?    @relation("VariationOrderReversal", fields: [reversesVariationOrderId], references: [id], onDelete: SetNull)
+  reversedByOrders ContractVariationOrder[]   @relation("VariationOrderReversal")
+  lines            ContractVariationOrderLine[]
+  createdBoqItems  ProjectBOQItem[]           @relation("VariationCreatedBoqItems")
+
+  @@unique([companyId, orderNumber])
+  @@unique([clientContractId, sequenceNumber])
+  @@index([companyId])
+  @@index([clientContractId])
+  @@index([projectId])
+  @@index([status])
+  @@map("contract_variation_orders")
+}
+
+model ContractVariationOrderLine {
+  id                       String                      @id @default(uuid())
+  companyId                String
+  contractVariationOrderId String
+  lineOrder                Int                         @default(1)
+  changeType               ContractVariationChangeType
+  projectBOQItemId         String?
+  itemCodeSnapshot         String
+  descriptionArSnapshot    String
+  unitSnapshot             String                      @db.VarChar(20)
+  originalQuantity         Decimal                     @default(0) @db.Decimal(18, 4)
+  quantityDelta            Decimal                     @default(0) @db.Decimal(18, 4)
+  effectiveQuantityAfter   Decimal?                    @db.Decimal(18, 4)
+  originalRate             Decimal                     @default(0) @db.Decimal(18, 4)
+  approvedRate             Decimal?                    @db.Decimal(18, 4)
+  rateDelta                Decimal?                    @db.Decimal(18, 4)
+  amountImpact             Decimal                     @default(0) @db.Decimal(18, 4)
+  notes                    String?                     @db.Text
+  createdProjectBOQItemId  String?
+  createdAt                DateTime                    @default(now())
+  updatedAt                DateTime                    @updatedAt
+
+  company                Company                 @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  contractVariationOrder ContractVariationOrder  @relation(fields: [contractVariationOrderId], references: [id], onDelete: Cascade)
+  projectBOQItem         ProjectBOQItem?         @relation(fields: [projectBOQItemId], references: [id], onDelete: Restrict)
+
+  @@index([companyId])
+  @@index([contractVariationOrderId])
+  @@index([projectBOQItemId])
+  @@map("contract_variation_order_lines")
+}
+
+/// أمر تغيير عقد مقاول باطن.
+model SubcontractVariationOrder {
+  id                            String                       @id @default(uuid())
+  companyId                     String
+  subcontractId                 String
+  orderNumber                   String
+  sequenceNumber                Int
+  orderDate                     DateTime
+  reason                        String                       @db.Text
+  status                        ContractVariationOrderStatus @default(DRAFT)
+  increaseValue                 Decimal                      @default(0) @db.Decimal(18, 4)
+  decreaseValue                 Decimal                      @default(0) @db.Decimal(18, 4)
+  netImpact                     Decimal                      @default(0) @db.Decimal(18, 4)
+  originalContractValueSnapshot Decimal                      @default(0) @db.Decimal(18, 4)
+  revisedContractValueSnapshot  Decimal                      @default(0) @db.Decimal(18, 4)
+  createdBy                     String?
+  submittedAt                   DateTime?
+  submittedBy                   String?
+  approvedAt                    DateTime?
+  approvedBy                    String?
+  rejectedAt                    DateTime?
+  rejectedBy                    String?
+  rejectionReason               String?                      @db.Text
+  cancelledAt                   DateTime?
+  cancelledBy                   String?
+  cancellationReason            String?                      @db.Text
+  createdAt                     DateTime                     @default(now())
+  updatedAt                     DateTime                     @updatedAt
+
+  company         Company                       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  subcontract     Subcontract                   @relation(fields: [subcontractId], references: [id], onDelete: Restrict)
+  lines           SubcontractVariationOrderLine[]
+  createdBoqItems SubcontractBOQItem[]          @relation("SubVariationCreatedBoqItems")
+
+  @@unique([companyId, orderNumber])
+  @@unique([subcontractId, sequenceNumber])
+  @@index([companyId])
+  @@index([subcontractId])
+  @@index([status])
+  @@map("subcontract_variation_orders")
+}
+
+model SubcontractVariationOrderLine {
+  id                          String                      @id @default(uuid())
+  companyId                   String
+  subcontractVariationOrderId String
+  lineOrder                   Int                         @default(1)
+  changeType                  ContractVariationChangeType
+  subcontractBOQItemId        String?
+  itemCodeSnapshot            String
+  descriptionArSnapshot       String
+  unitSnapshot                String                      @db.VarChar(20)
+  originalQuantity            Decimal                     @default(0) @db.Decimal(18, 4)
+  quantityDelta               Decimal                     @default(0) @db.Decimal(18, 4)
+  effectiveQuantityAfter      Decimal?                    @db.Decimal(18, 4)
+  originalRate                Decimal                     @default(0) @db.Decimal(18, 4)
+  approvedRate                Decimal?                    @db.Decimal(18, 4)
+  rateDelta                   Decimal?                    @db.Decimal(18, 4)
+  amountImpact                Decimal                     @default(0) @db.Decimal(18, 4)
+  notes                       String?                     @db.Text
+  createdSubcontractBOQItemId String?
+  createdAt                   DateTime                    @default(now())
+  updatedAt                   DateTime                    @updatedAt
+
+  company                   Company                   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  subcontractVariationOrder SubcontractVariationOrder @relation(fields: [subcontractVariationOrderId], references: [id], onDelete: Cascade)
+  subcontractBOQItem        SubcontractBOQItem?       @relation(fields: [subcontractBOQItemId], references: [id], onDelete: Restrict)
+
+  @@index([companyId])
+  @@index([subcontractVariationOrderId])
+  @@index([subcontractBOQItemId])
+  @@map("subcontract_variation_order_lines")
+}
+
+/// Analytical project actual cost layer — one row per durable source slice (idempotent upsert key).
+model ProjectCostAllocation {
+  id               String                      @id @default(uuid())
+  companyId        String
+  projectId        String
+  projectBOQItemId String?
+  costCategory     ProjectCostCategory
+  sourceType       ProjectCostSourceType
+  sourceId         String
+  sourceLineId     String?
+  allocationKey    String
+  quantity         Decimal?                    @db.Decimal(18, 4)
+  amountBase       Decimal                     @db.Decimal(18, 4)
+  sourceCurrencyCode String?                   @db.VarChar(8)
+  exchangeRate     Decimal?                    @db.Decimal(18, 6)
+  transactionDate  DateTime
+  status           ProjectCostAllocationStatus @default(ACTIVE)
+  description      String?                     @db.Text
+  metadata         Json?
+  createdAt        DateTime                    @default(now())
+  updatedAt        DateTime                    @updatedAt
+
+  company        Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  project        ContractingProject @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  projectBOQItem ProjectBOQItem?    @relation(fields: [projectBOQItemId], references: [id], onDelete: SetNull)
+
+  @@unique([companyId, allocationKey], map: "pc_alloc_company_key_uq")
+  @@index([companyId, projectId])
+  @@index([companyId, projectBOQItemId])
+  @@index([companyId, sourceType, sourceId])
+  @@index([status])
+  @@map("project_cost_allocations")
+}
+
+enum ProjectForecastMethod {
+  PLANNED_REMAINING
+  MANUAL_FORECAST
+  PERFORMANCE_TREND
+}
+
+enum ProjectProfitabilitySignal {
+  COST_OVERRUN
+  NEGATIVE_MARGIN
+  MARGIN_EROSION
+  BOQ_OVER_BUDGET
+  MISSING_BUDGET
+  HIGH_UNALLOCATED_COST
+}
+
+model ProjectCostForecastSnapshot {
+  id                        String   @id @default(uuid())
+  companyId                 String
+  projectId                 String
+  snapshotDate              DateTime
+  label                     String?  @db.VarChar(255)
+  revisedContractValue      Decimal  @db.Decimal(18, 4)
+  actualCost                Decimal  @db.Decimal(18, 4)
+  remainingCommitment       Decimal  @db.Decimal(18, 4)
+  uncommittedCostToComplete Decimal  @db.Decimal(18, 4)
+  estimateAtCompletion      Decimal  @db.Decimal(18, 4)
+  forecastProfit            Decimal  @db.Decimal(18, 4)
+  forecastMarginPercent     Decimal  @db.Decimal(18, 6)
+  progressPercent           Decimal  @db.Decimal(18, 6)
+  payload                   Json?
+  createdBy                 String?
+  createdAt                 DateTime @default(now())
+
+  company Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  project ContractingProject @relation(fields: [projectId], references: [id], onDelete: Restrict)
+
+  @@index([companyId, projectId])
+  @@index([snapshotDate])
+  @@map("project_cost_forecast_snapshots")
+}
+
+model ProjectBoqForecastOverride {
+  id                    String                @id @default(uuid())
+  companyId             String
+  projectId             String
+  projectBOQItemId      String?
+  forecastRemainingCost Decimal               @db.Decimal(18, 4)
+  forecastMethod        ProjectForecastMethod @default(MANUAL_FORECAST)
+  reason                String                @db.Text
+  effectiveFrom         DateTime
+  createdBy             String
+  createdAt             DateTime              @default(now())
+
+  company        Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  project        ContractingProject @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  projectBOQItem ProjectBOQItem?    @relation(fields: [projectBOQItemId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, projectId])
+  @@index([projectBOQItemId])
+  @@map("project_boq_forecast_overrides")
+}
+
+enum ProjectExecutionPlanStatus {
+  DRAFT
+  APPROVED
+  ACTIVE
+  COMPLETED
+  SUPERSEDED
+}
+
+enum ProjectExecutionPlanBaselineKind {
+  ORIGINAL_BASELINE
+  CURRENT_APPROVED
+  DRAFT_REVISION
+}
+
+enum ProjectExecutionActivityStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETED
+  DELAYED
+}
+
+enum ProjectExecutionMilestoneStatus {
+  PENDING
+  COMPLETED
+  DELAYED
+}
+
+model ProjectExecutionPlan {
+  id               String                           @id @default(uuid())
+  companyId        String
+  projectId        String
+  planName         String                           @db.VarChar(255)
+  versionNumber    Int                              @default(1)
+  revisionOfPlanId String?
+  baselineKind     ProjectExecutionPlanBaselineKind @default(DRAFT_REVISION)
+  plannedStart     DateTime
+  plannedFinish    DateTime
+  status           ProjectExecutionPlanStatus       @default(DRAFT)
+  baselineSnapshot Json?
+  approvedAt       DateTime?
+  approvedBy       String?
+  activatedAt      DateTime?
+  createdBy        String?
+  createdAt        DateTime                         @default(now())
+  updatedAt        DateTime                         @updatedAt
+
+  company        Company                    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  project        ContractingProject         @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  revisionOfPlan ProjectExecutionPlan?      @relation("PlanRevision", fields: [revisionOfPlanId], references: [id], onDelete: SetNull)
+  childRevisions ProjectExecutionPlan[]     @relation("PlanRevision")
+  activities     ProjectExecutionActivity[]
+  boqAllocations ExecutionActivityBoqAllocation[]
+  milestones     ProjectExecutionMilestone[]
+
+  @@index([companyId, projectId])
+  @@index([status])
+  @@map("project_execution_plans")
+}
+
+model ProjectExecutionActivity {
+  id               String                         @id @default(uuid())
+  companyId        String
+  projectId        String
+  executionPlanId  String
+  parentActivityId String?
+  code             String                         @db.VarChar(64)
+  nameAr           String                         @db.VarChar(255)
+  description      String?                        @db.Text
+  plannedStart     DateTime
+  plannedFinish    DateTime
+  weight           Decimal?                       @db.Decimal(18, 6)
+  status           ProjectExecutionActivityStatus @default(NOT_STARTED)
+  sortOrder        Int                            @default(0)
+  createdAt        DateTime                       @default(now())
+  updatedAt        DateTime                       @updatedAt
+
+  company        Company                          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  project        ContractingProject               @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  executionPlan  ProjectExecutionPlan             @relation(fields: [executionPlanId], references: [id], onDelete: Cascade)
+  parentActivity ProjectExecutionActivity?        @relation("ActivityTree", fields: [parentActivityId], references: [id], onDelete: SetNull)
+  childActivities ProjectExecutionActivity[]      @relation("ActivityTree")
+  boqAllocations ExecutionActivityBoqAllocation[]
+
+  @@unique([executionPlanId, code])
+  @@index([companyId, projectId])
+  @@map("project_execution_activities")
+}
+
+model ExecutionActivityBoqAllocation {
+  id                  String   @id @default(uuid())
+  companyId           String
+  executionPlanId     String
+  executionActivityId String
+  projectBOQItemId    String
+  plannedQuantity     Decimal  @db.Decimal(18, 4)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  company           Company                  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  executionPlan     ProjectExecutionPlan     @relation(fields: [executionPlanId], references: [id], onDelete: Cascade)
+  executionActivity ProjectExecutionActivity @relation(fields: [executionActivityId], references: [id], onDelete: Cascade)
+  projectBOQItem    ProjectBOQItem           @relation(fields: [projectBOQItemId], references: [id], onDelete: Restrict)
+
+  @@unique([executionActivityId, projectBOQItemId])
+  @@index([executionPlanId, projectBOQItemId])
+  @@map("execution_activity_boq_allocations")
+}
+
+model ProjectExecutionMilestone {
+  id              String                          @id @default(uuid())
+  companyId       String
+  projectId       String
+  executionPlanId String?
+  nameAr          String                          @db.VarChar(255)
+  plannedDate     DateTime
+  actualDate      DateTime?
+  status          ProjectExecutionMilestoneStatus @default(PENDING)
+  createdAt       DateTime                        @default(now())
+  updatedAt       DateTime                        @updatedAt
+
+  company       Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  project       ContractingProject    @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  executionPlan ProjectExecutionPlan? @relation(fields: [executionPlanId], references: [id], onDelete: SetNull)
+
+  @@index([companyId, projectId])
+  @@map("project_execution_milestones")
+}
+
+model ProjectExecutionPerformanceSnapshot {
+  id                     String   @id @default(uuid())
+  companyId              String
+  projectId              String
+  snapshotDate           DateTime
+  label                  String?  @db.VarChar(255)
+  plannedProgressPercent Decimal  @db.Decimal(18, 6)
+  actualProgressPercent  Decimal  @db.Decimal(18, 6)
+  pv                     Decimal  @db.Decimal(18, 4)
+  ev                     Decimal  @db.Decimal(18, 4)
+  ac                     Decimal  @db.Decimal(18, 4)
+  cpi                    Decimal? @db.Decimal(18, 6)
+  spi                    Decimal? @db.Decimal(18, 6)
+  payload                Json?
+  createdBy              String?
+  createdAt              DateTime @default(now())
+
+  company Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  project ContractingProject @relation(fields: [projectId], references: [id], onDelete: Restrict)
+
+  @@index([companyId, projectId])
+  @@index([snapshotDate])
+  @@map("project_execution_performance_snapshots")
+}
+
+enum ContractTenderStatus {
+  DRAFT
+  UNDER_STUDY
+  PRICING
+  READY_TO_SUBMIT
+  SUBMITTED
+  UNDER_NEGOTIATION
+  AWARDED
+  LOST
+  CANCELLED
+}
+
+enum ContractTenderPricingMethod {
+  MANUAL_SELLING
+  COST_PLUS_MARKUP
+  TARGET_MARGIN
+}
+
+enum ContractQuotationStatus {
+  DRAFT
+  SUBMITTED
+  ACCEPTED
+  REJECTED
+  EXPIRED
+  CANCELLED
+}
+
+model ContractTender {
+  id                   String              @id @default(uuid())
+  companyId            String
+  tenderNumber         String              @db.VarChar(32)
+  sequenceNumber       Int
+  customerId           String
+  nameAr               String              @db.VarChar(255)
+  description          String?             @db.Text
+  currencyCode         String              @default("EGP") @db.VarChar(8)
+  exchangeRate         Decimal?            @db.Decimal(18, 6)
+  submissionDeadline   DateTime?
+  expectedStart        DateTime?
+  expectedEnd          DateTime?
+  location             String?             @db.VarChar(255)
+  status               ContractTenderStatus @default(DRAFT)
+  lostReason           String?             @db.VarChar(255)
+  competitorName       String?             @db.VarChar(255)
+  lostNotes            String?             @db.Text
+  generalOverheadRate  Decimal             @default(0.08) @db.Decimal(8, 6)
+  siteOverheadRate     Decimal             @default(0.05) @db.Decimal(8, 6)
+  contingencyRiskRate  Decimal             @default(0.03) @db.Decimal(8, 6)
+  defaultMarkupRate    Decimal             @default(0.20) @db.Decimal(8, 6)
+  createdBy            String?
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+
+  company     Company                  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  customer    Customer                 @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  boqItems    ContractTenderBoqItem[]
+  quotations  ContractQuotation[]
+  award       ContractTenderAward?
+  projects    ContractingProject[]     @relation("ProjectSourceTender")
+  contracts   ClientContract[]         @relation("ContractSourceTender")
+
+  @@unique([companyId, tenderNumber])
+  @@index([companyId, status])
+  @@map("contract_tenders")
+}
+
+model ContractTenderBoqItem {
+  id                 String                      @id @default(uuid())
+  companyId          String
+  tenderId           String
+  itemCode           String                      @db.VarChar(64)
+  descriptionAr      String                      @db.VarChar(500)
+  unit               BOQItemUnit
+  quantity           Decimal                     @db.Decimal(18, 4)
+  sectionName        String?                     @db.VarChar(255)
+  clientSuppliedRate Decimal?                    @db.Decimal(18, 4)
+  notes              String?                     @db.Text
+  sortOrder          Int                         @default(0)
+  directUnitCost     Decimal                     @default(0) @db.Decimal(18, 4)
+  markupRate         Decimal                     @default(0.20) @db.Decimal(8, 6)
+  sellingUnitRate    Decimal                     @default(0) @db.Decimal(18, 4)
+  pricingMethod      ContractTenderPricingMethod @default(COST_PLUS_MARKUP)
+  targetMarginRate   Decimal?                    @db.Decimal(8, 6)
+  createdAt          DateTime                    @default(now())
+  updatedAt          DateTime                    @updatedAt
+
+  company           Company                         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  tender            ContractTender                  @relation(fields: [tenderId], references: [id], onDelete: Cascade)
+  rateAnalysisItems ContractTenderRateAnalysisItem[]
+  quotationLines    ContractQuotationLine[]
+  projectBoqItems   ProjectBOQItem[]                @relation("ProjectBoqFromTender")
+
+  @@unique([tenderId, itemCode])
+  @@index([companyId])
+  @@map("contract_tender_boq_items")
+}
+
+model ContractTenderRateAnalysisItem {
+  id                      String             @id @default(uuid())
+  companyId               String
+  tenderBoqItemId         String
+  costElementType         BOQCostElementType
+  resourceCode            String?
+  descriptionAr           String             @db.VarChar(255)
+  unit                    String             @db.VarChar(20)
+  consumptionQuotaPerUnit Decimal            @db.Decimal(18, 4)
+  unitCost                Decimal            @db.Decimal(18, 4)
+  wasteFactorRate         Decimal            @default(0) @db.Decimal(8, 6)
+  totalCostPerUnit        Decimal            @db.Decimal(18, 4)
+  notes                   String?            @db.Text
+  createdAt               DateTime           @default(now())
+  updatedAt               DateTime           @updatedAt
+
+  company       Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  tenderBoqItem ContractTenderBoqItem @relation(fields: [tenderBoqItemId], references: [id], onDelete: Cascade)
+
+  @@index([tenderBoqItemId])
+  @@map("contract_tender_rate_analysis_items")
+}
+
+model ContractQuotation {
+  id                    String                  @id @default(uuid())
+  companyId             String
+  tenderId              String
+  quotationNumber       String                  @db.VarChar(32)
+  revisionNumber        Int
+  status                ContractQuotationStatus @default(DRAFT)
+  validUntil            DateTime?
+  paymentTerms          String?                 @db.Text
+  deliveryTerms         String?                 @db.Text
+  notes                 String?                 @db.Text
+  currencyCode          String                  @db.VarChar(8)
+  subtotalSelling       Decimal                 @default(0) @db.Decimal(18, 4)
+  discountAmount        Decimal                 @default(0) @db.Decimal(18, 4)
+  taxAmount             Decimal                 @default(0) @db.Decimal(18, 4)
+  grandTotal            Decimal                 @default(0) @db.Decimal(18, 4)
+  totalDirectCost       Decimal                 @default(0) @db.Decimal(18, 4)
+  expectedProfit        Decimal                 @default(0) @db.Decimal(18, 4)
+  expectedMarginPercent Decimal?                @db.Decimal(18, 6)
+  submittedAt           DateTime?
+  acceptedAt            DateTime?
+  createdBy             String?
+  createdAt             DateTime                @default(now())
+  updatedAt             DateTime                @updatedAt
+
+  company        Company                 @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  tender         ContractTender          @relation(fields: [tenderId], references: [id], onDelete: Restrict)
+  lines          ContractQuotationLine[]
+  award          ContractTenderAward?
+  sourceContracts ClientContract[]       @relation("ContractSourceQuotation")
+
+  @@unique([tenderId, revisionNumber])
+  @@unique([companyId, quotationNumber, revisionNumber])
+  @@index([companyId, status])
+  @@map("contract_quotations")
+}
+
+model ContractQuotationLine {
+  id                       String      @id @default(uuid())
+  companyId                String
+  quotationId              String
+  tenderBoqItemId          String
+  itemCodeSnapshot         String      @db.VarChar(64)
+  descriptionArSnapshot    String      @db.VarChar(500)
+  unitSnapshot             BOQItemUnit
+  quantitySnapshot         Decimal     @db.Decimal(18, 4)
+  directUnitCostSnapshot   Decimal     @db.Decimal(18, 4)
+  sellingUnitRateSnapshot  Decimal     @db.Decimal(18, 4)
+  lineAmountSnapshot       Decimal     @db.Decimal(18, 4)
+  sortOrder                Int         @default(0)
+
+  company       Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  quotation     ContractQuotation     @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+  tenderBoqItem ContractTenderBoqItem @relation(fields: [tenderBoqItemId], references: [id], onDelete: Restrict)
+  projectBoqItems ProjectBOQItem[]    @relation("ProjectBoqFromQuotationLine")
+
+  @@index([quotationId])
+  @@map("contract_quotation_lines")
+}
+
+model ContractTenderAward {
+  id               String   @id @default(uuid())
+  companyId        String
+  tenderId         String   @unique
+  quotationId      String   @unique
+  clientContractId String   @unique
+  projectId        String   @unique
+  idempotencyKey   String?  @unique @db.VarChar(128)
+  awardedAt        DateTime @default(now())
+  awardedBy        String?
+
+  company        Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  tender         ContractTender    @relation(fields: [tenderId], references: [id], onDelete: Restrict)
+  quotation      ContractQuotation @relation(fields: [quotationId], references: [id], onDelete: Restrict)
+  clientContract ClientContract    @relation(fields: [clientContractId], references: [id], onDelete: Restrict)
+  project        ContractingProject @relation(fields: [projectId], references: [id], onDelete: Restrict)
+
+  @@map("contract_tender_awards")
+}
+
+/// مستخلص مقاول باطن ابتدائي (تشغيلي — بلا قيود).
+model SubcontractPreliminaryCertificate {
+  id                            String                       @id @default(uuid())
+  companyId                     String
+  subcontractId                 String
+  certificateNumber             String
+  sequenceNumber                Int
+  periodStartDate               DateTime
+  periodEndDate                 DateTime
+  status                        PreliminaryCertificateStatus @default(DRAFT)
+  grossCurrentAmount            Decimal                      @default(0) @db.Decimal(18, 4)
+  previousGrossAmount           Decimal                      @default(0) @db.Decimal(18, 4)
+  grossCumulativeAmount         Decimal                      @default(0) @db.Decimal(18, 4)
+  advancePaymentDeduction       Decimal                      @default(0) @db.Decimal(18, 4)
+  retentionDeduction            Decimal                      @default(0) @db.Decimal(18, 4)
+  taxWithholdingDeduction       Decimal                      @default(0) @db.Decimal(18, 4)
+  socialInsuranceDeduction      Decimal                      @default(0) @db.Decimal(18, 4)
+  materialOveruseDeduction      Decimal                      @default(0) @db.Decimal(18, 4)
+  sitePenaltiesDeduction        Decimal                      @default(0) @db.Decimal(18, 4)
+  directExecutionDeduction      Decimal                      @default(0) @db.Decimal(18, 4)
+  earlyPaymentDiscountDeduction Decimal                      @default(0) @db.Decimal(18, 4)
+  netPayablePreview             Decimal                      @default(0) @db.Decimal(18, 4)
+  subcontractInvoiceId          String?                      @unique
+  createdBy                     String?
+  submittedAt                   DateTime?
+  submittedBy                   String?
+  approvedAt                    DateTime?
+  approvedBy                    String?
+  rejectedAt                    DateTime?
+  rejectedBy                    String?
+  rejectionReason               String?                      @db.Text
+  convertedAt                   DateTime?
+  convertedBy                   String?
+  createdAt                     DateTime                     @default(now())
+  updatedAt                     DateTime                     @updatedAt
+
+  company            Company                               @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  subcontract        Subcontract                           @relation(fields: [subcontractId], references: [id], onDelete: Restrict)
+  subcontractInvoice SubcontractInvoice?                   @relation(fields: [subcontractInvoiceId], references: [id], onDelete: SetNull)
+  lines              SubcontractPreliminaryCertificateLine[]
+
+  @@unique([companyId, certificateNumber])
+  @@unique([subcontractId, sequenceNumber])
+  @@index([companyId])
+  @@index([subcontractId])
+  @@index([status])
+  @@map("subcontract_preliminary_certificates")
+}
+
+model SubcontractPreliminaryCertificateLine {
+  id                                  String   @id @default(uuid())
+  companyId                           String
+  subcontractPreliminaryCertificateId String
+  subcontractBOQItemId                String
+  lineOrder                           Int      @default(1)
+  itemCodeSnapshot                    String
+  descriptionArSnapshot               String
+  unitSnapshot                        String   @db.VarChar(20)
+  contractQuantitySnapshot            Decimal  @db.Decimal(18, 4)
+  maxAllowedQuantitySnapshot          Decimal  @db.Decimal(18, 4)
+  unitRateSnapshot                    Decimal  @db.Decimal(18, 4)
+  previousCertifiedQuantity           Decimal  @default(0) @db.Decimal(18, 4)
+  requestedCurrentQuantity            Decimal  @default(0) @db.Decimal(18, 4)
+  approvedCurrentQuantity             Decimal? @db.Decimal(18, 4)
+  cumulativeApprovedQuantity          Decimal  @default(0) @db.Decimal(18, 4)
+  remainingQuantity                   Decimal  @default(0) @db.Decimal(18, 4)
+  currentAmount                       Decimal  @default(0) @db.Decimal(18, 4)
+  cumulativeAmount                    Decimal  @default(0) @db.Decimal(18, 4)
+  createdAt                           DateTime @default(now())
+  updatedAt                           DateTime @updatedAt
+
+  company                           Company                           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  subcontractPreliminaryCertificate SubcontractPreliminaryCertificate @relation(fields: [subcontractPreliminaryCertificateId], references: [id], onDelete: Cascade)
+  subcontractBOQItem                SubcontractBOQItem                @relation(fields: [subcontractBOQItemId], references: [id], onDelete: Restrict)
+
+  @@unique([subcontractPreliminaryCertificateId, subcontractBOQItemId])
+  @@index([companyId])
+  @@index([subcontractBOQItemId])
+  @@map("subcontract_preliminary_certificate_lines")
 }
 
 /// تشوينات الموقع المعتمدة لحساب مستخلص المالك.
@@ -6669,6 +7838,46 @@ model Department {
   @@map("departments")
 }
 
+/// Company-scoped HR catalogs that used to live only in the browser:
+/// qualification, document_type, ticket, specialization, procedure.
+model HrLookup {
+  id          String   @id @default(uuid())
+  companyId   String
+  kind        String   @db.VarChar(40)
+  code        String?
+  arabicName  String
+  englishName String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, kind])
+  @@map("hr_lookups")
+}
+
+/// Attendance MVP: shifts, holidays, absence/delay permissions, and manual sheet rows.
+model HrAttendanceRecord {
+  id         String    @id @default(uuid())
+  companyId  String
+  kind       String    @db.VarChar(40)
+  employeeId String?
+  title      String?
+  date       DateTime?
+  fromTime   String?
+  toTime     String?
+  notes      String?   @db.Text
+  payload    Json?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, kind])
+  @@map("hr_attendance_records")
+}
+
 model City {
   id          String   @id @default(uuid())
   companyId   String
@@ -6692,6 +7901,7 @@ model WagePolicy {
   code        String?
   arabicName  String
   englishName String?
+  rules       Json?
   isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -6704,12 +7914,13 @@ model WagePolicy {
 }
 
 model Allowance {
-  id          String   @id @default(uuid())
-  companyId   String
-  code        String?
-  arabicName  String
-  englishName String?
-  isActive    Boolean  @default(true)
+  id            String   @id @default(uuid())
+  companyId     String
+  code          String?
+  arabicName    String
+  englishName   String?
+  defaultAmount Decimal? @db.Decimal(15, 2)
+  isActive      Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -6720,12 +7931,13 @@ model Allowance {
 }
 
 model Deduction {
-  id          String   @id @default(uuid())
-  companyId   String
-  code        String?
-  arabicName  String
-  englishName String?
-  isActive    Boolean  @default(true)
+  id            String   @id @default(uuid())
+  companyId     String
+  code          String?
+  arabicName    String
+  englishName   String?
+  defaultAmount Decimal? @db.Decimal(15, 2)
+  isActive      Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -7737,6 +8949,10 @@ model PosTerminal {
   name              String
   deviceCode        String?
   isActive          Boolean  @default(true)
+  receiptFooter     String?  @db.VarChar(191)
+  offlineEnabled    Boolean  @default(false)
+  lockedAt          DateTime?
+  lockedBy          String?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
 
@@ -7747,6 +8963,11 @@ model PosTerminal {
   bankAccount     BankAccount? @relation(fields: [bankAccountId], references: [id], onDelete: SetNull)
   defaultCustomer Customer?    @relation(fields: [defaultCustomerId], references: [id], onDelete: SetNull)
   shifts          PosShift[]
+  cashMovements   PosCashMovement[]
+  paymentMethods  PosPaymentMethod[]
+  etaReceiptDevices EtaReceiptDevice[]
+  etaReceipts     EtaReceipt[]
+  etaReceiptSubmissions EtaReceiptSubmission[]
 
   @@unique([companyId, deviceCode])
   @@index([companyId, branchId])
@@ -7762,6 +8983,10 @@ model PosShift {
   userId                 String
   shiftNumber            String?
   status                 String    @default("OPEN") @db.VarChar(10)
+  /// terminalId while OPEN, null when CLOSED. Unique with companyId so a
+  /// terminal cannot have two open operational sessions. MySQL unique indexes
+  /// allow many NULLs, so closed sessions do not collide.
+  openTerminalKey        String?
   openedAt               DateTime  @default(now())
   closedAt               DateTime?
   openingCash            Decimal   @default(0) @db.Decimal(15, 2)
@@ -7775,6 +9000,8 @@ model PosShift {
   totalTaxAmount         Decimal   @default(0) @db.Decimal(15, 2)
   totalCogs              Decimal   @default(0) @db.Decimal(15, 2)
   endOfDayJournalEntryId String?
+  /// Cashier currently at the drawer. The opener stays on userId.
+  currentUserId          String?
   createdAt              DateTime  @default(now())
   updatedAt              DateTime  @updatedAt
 
@@ -7784,7 +9011,11 @@ model PosShift {
   terminal             PosTerminal   @relation(fields: [terminalId], references: [id], onDelete: Restrict)
   endOfDayJournalEntry JournalEntry? @relation("PosShiftEndJe", fields: [endOfDayJournalEntryId], references: [id], onDelete: SetNull)
   orders               PosOrder[]
+  cashMovements        PosCashMovement[]
+  closes               PosShiftClose[]
+  etaReceipts          EtaReceipt[]
 
+  @@unique([companyId, openTerminalKey], map: "pos_shifts_one_open_per_terminal")
   @@index([companyId, terminalId, status])
   @@map("pos_shifts")
 }
@@ -7808,6 +9039,26 @@ model PosOrder {
   creditAmount    Decimal   @default(0) @db.Decimal(15, 2)
   paymentMethod   String    @db.VarChar(20)
   currencyCode    String    @default("EGP")
+  notes           String?   @db.Text
+  /// Order-level discount percent. Tax stays on the line net unless company cascading is used later.
+  headerDiscountPercent Decimal? @db.Decimal(5, 2)
+  /// Offline sync idempotency. Null on register sales created online.
+  clientRequestId   String?   @db.VarChar(64)
+  voidedAt          DateTime?
+  voidedBy          String?
+  voidReason        String?   @db.Text
+  voidJournalEntryId String?
+  quoteName          String?   @db.VarChar(80)
+  expiresAt          DateTime?
+  convertedToOrderId String?   @unique
+  exchangeGroupId    String?   @db.VarChar(64)
+  couponId           String?
+  depositBalance     Decimal   @default(0) @db.Decimal(15, 2)
+  depositJournalId   String?
+  receiptToken       String?   @unique @db.VarChar(64)
+  /// Set while a draft is parked. Cleared on resume or post. Not a financial state.
+  heldAt          DateTime?
+  heldBy          String?
   /// C10/H12 fix: each order now posts its own balanced journal at `postOrder`
   /// time instead of waiting for the shift to close, so revenue/VAT/COGS are
   /// in the GL immediately and a trial balance mid-shift is correct.
@@ -7824,10 +9075,15 @@ model PosOrder {
   returns           PosOrder[]         @relation("PosReturnLink")
   journalEntry      JournalEntry?      @relation("PosOrderJournalEntry", fields: [journalEntryId], references: [id], onDelete: SetNull)
   lines             PosOrderLine[]
+  payments          PosPayment[]
   eInvoiceDocuments EInvoiceDocument[]
+  etaReceipts       EtaReceipt[]
 
   @@unique([companyId, orderNumber])
+  @@unique([companyId, clientRequestId])
   @@index([shiftId, status])
+  @@index([companyId, status, heldAt])
+  @@index([companyId, exchangeGroupId])
   @@map("pos_orders")
 }
 
@@ -7841,18 +9097,440 @@ model PosOrderLine {
   /// H12 fix: POS lines previously only accepted a flat discountAmount.
   discountPercent Decimal? @db.Decimal(5, 2)
   discountAmount  Decimal  @default(0) @db.Decimal(15, 2)
+  /// Server price before a permitted override. Null when the sold price is the resolved price.
+  listPrice       Decimal? @db.Decimal(15, 4)
   taxPercent      Decimal  @default(0) @db.Decimal(8, 4)
   taxAmount       Decimal  @default(0) @db.Decimal(15, 2)
   lineTotal       Decimal  @default(0) @db.Decimal(15, 2)
   unitCost        Decimal  @default(0) @db.Decimal(15, 4)
   lineOrder       Int
+  notes           String?  @db.VarChar(191)
+  /// Posted sale line this return line reverses. Null on a sale.
+  originalLineId  String?
+  isGift          Boolean  @default(false)
+  offerId         String?
+  batchNumber     String?  @db.VarChar(64)
+  expiryDate      DateTime?
+  serialNo        String?  @db.VarChar(64)
 
-  order PosOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  item  Item     @relation(fields: [itemId], references: [id], onDelete: Restrict)
-  unit  Unit     @relation(fields: [unitId], references: [id], onDelete: Restrict)
+  order        PosOrder      @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  item         Item          @relation(fields: [itemId], references: [id], onDelete: Restrict)
+  unit         Unit          @relation(fields: [unitId], references: [id], onDelete: Restrict)
+  originalLine PosOrderLine? @relation("PosReturnLine", fields: [originalLineId], references: [id], onDelete: Restrict)
+  returnLines  PosOrderLine[] @relation("PosReturnLine")
 
   @@index([orderId])
+  @@index([originalLineId])
   @@map("pos_order_lines")
+}
+
+/// Subledger for a POS order. `amount` is what hits the journal (net cash kept
+/// in the drawer). `tenderedAmount` and `changeAmount` are audit only.
+/// Change is not revenue and is not added to drawer cash.
+model PosPayment {
+  id               String   @id @default(uuid())
+  companyId        String
+  orderId          String
+  /// Configured method code. Historical rows keep CASH, CARD, BANK, WALLET, or CREDIT.
+  method           String   @db.VarChar(20)
+  /// CASH, BANK, or CREDIT. Null on rows posted before payment methods were configurable.
+  settlementType   String?  @db.VarChar(20)
+  /// Display name at posting time. A later rename does not change this snapshot.
+  methodLabel      String?  @db.VarChar(80)
+  paymentMethodId  String?
+  amount           Decimal  @db.Decimal(15, 2)
+  tenderedAmount   Decimal? @db.Decimal(15, 2)
+  changeAmount     Decimal? @db.Decimal(15, 2)
+  safeId           String?
+  bankAccountId    String?
+  currencyCode     String   @default("EGP")
+  /// Company rate at posting. 1 for EGP. The journal amount is always EGP.
+  exchangeRate     Decimal  @default(1) @db.Decimal(18, 6)
+  /// Face value when currencyCode is not EGP.
+  foreignAmount    Decimal? @db.Decimal(15, 2)
+  referenceNumber  String?  @db.VarChar(120)
+  /// MANUAL until a provider reports APPROVED. Selecting CARD is not approval.
+  captureStatus    String   @default("MANUAL") @db.VarChar(20)
+  provider         String?  @db.VarChar(40)
+  providerRef      String?  @db.VarChar(120)
+  createdAt        DateTime @default(now())
+
+  company       Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  order         PosOrder          @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  safe          Safe?             @relation(fields: [safeId], references: [id], onDelete: SetNull)
+  bankAccount   BankAccount?      @relation(fields: [bankAccountId], references: [id], onDelete: SetNull)
+  paymentMethod PosPaymentMethod? @relation(fields: [paymentMethodId], references: [id], onDelete: SetNull)
+
+  @@index([orderId])
+  @@index([companyId])
+  @@map("pos_payments")
+}
+
+/// Company payment method. `code` is what PosPayment.method stores.
+/// `settlementType` is the financial behavior and does not change after create.
+/// CREDIT stays a customer receivable. Historical payments keep methodLabel.
+model PosPaymentMethod {
+  id             String   @id @default(uuid())
+  companyId      String
+  code           String   @db.VarChar(20)
+  displayName    String   @db.VarChar(80)
+  settlementType String   @db.VarChar(20)
+  isActive       Boolean  @default(true)
+  safeId         String?
+  bankAccountId  String?
+  branchId       String?
+  terminalId     String?
+  sortOrder      Int      @default(0)
+  /// MANUAL posts from the cashier. TERMINAL stays unpaid until a provider approval exists.
+  captureMode    String   @default("MANUAL") @db.VarChar(20)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  company     Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  safe        Safe?        @relation(fields: [safeId], references: [id], onDelete: SetNull)
+  bankAccount BankAccount? @relation(fields: [bankAccountId], references: [id], onDelete: SetNull)
+  branch      Branch?      @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  terminal    PosTerminal? @relation(fields: [terminalId], references: [id], onDelete: SetNull)
+  payments    PosPayment[]
+
+  @@unique([companyId, code])
+  @@index([companyId, isActive])
+  @@map("pos_payment_methods")
+}
+
+/// Drawer cash that is not a sale or a refund. `amount` is always positive.
+/// CASH_IN debits the terminal safe. CASH_OUT credits it. The contra account
+/// is an existing company account chosen for the movement.
+model PosCashMovement {
+  id              String   @id @default(uuid())
+  companyId       String
+  shiftId         String
+  terminalId      String
+  type            String   @db.VarChar(20)
+  amount          Decimal  @db.Decimal(15, 2)
+  reason          String   @db.VarChar(191)
+  userId          String
+  contraAccountId String
+  safeId          String
+  journalEntryId  String?
+  createdAt       DateTime @default(now())
+
+  company  Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  shift    PosShift    @relation(fields: [shiftId], references: [id], onDelete: Cascade)
+  terminal PosTerminal @relation(fields: [terminalId], references: [id], onDelete: Restrict)
+  safe     Safe        @relation(fields: [safeId], references: [id], onDelete: Restrict)
+
+  @@index([companyId, shiftId])
+  @@map("pos_cash_movements")
+}
+
+/// Numbers used to close a session. Not recomputed from later master data.
+/// A reopen marks the row; it does not delete it or post a second variance.
+model PosShiftClose {
+  id                String    @id @default(uuid())
+  companyId         String
+  shiftId           String
+  terminalId        String
+  terminalName      String
+  cashierId         String?
+  openedAt          DateTime
+  closedAt          DateTime
+  openingCash       Decimal   @db.Decimal(15, 2)
+  grossSales        Decimal   @db.Decimal(15, 2)
+  netSales          Decimal   @db.Decimal(15, 2)
+  returnsNet        Decimal   @db.Decimal(15, 2)
+  cashSales         Decimal   @db.Decimal(15, 2)
+  cashRefunds       Decimal   @db.Decimal(15, 2)
+  cashIn            Decimal   @db.Decimal(15, 2)
+  cashOut           Decimal   @db.Decimal(15, 2)
+  expectedCash      Decimal   @db.Decimal(15, 2)
+  countedCash       Decimal   @db.Decimal(15, 2)
+  variance          Decimal   @db.Decimal(15, 2)
+  orderCount        Int
+  returnCount       Int
+  paymentBreakdown  Json
+  denominations     Json?
+  journalEntryId    String?
+  reopenedAt        DateTime?
+  createdAt         DateTime  @default(now())
+
+  company Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  shift   PosShift @relation(fields: [shiftId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, shiftId])
+  @@map("pos_shift_closes")
+}
+
+model PosSettings {
+  id                            String   @id @default(uuid())
+  companyId                     String   @unique
+  varianceTolerance             Decimal  @default(0) @db.Decimal(15, 2)
+  varianceRequiresApproval      Boolean  @default(false)
+  discountApprovalPercent       Decimal? @db.Decimal(5, 2)
+  priceOverrideRequiresApproval Boolean  @default(false)
+  returnRequiresApproval        Boolean  @default(false)
+  receiptFooter                 String?  @db.VarChar(191)
+  offlineEnabled                Boolean  @default(false)
+  blindClose                    Boolean  @default(false)
+  /// Points earned per 1 EGP of posted sale net. Null disables earning.
+  pointsPerAmount               Decimal? @db.Decimal(15, 4)
+  exchangeClearingAccountId     String?
+  storeCreditAccountId          String?
+  giftCardAccountId             String?
+  depositAccountId              String?
+  pointsAccountId               String?
+  createdAt                     DateTime @default(now())
+  updatedAt                     DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@map("pos_settings")
+}
+
+model PosCoupon {
+  id                   String   @id @default(uuid())
+  companyId            String
+  code                 String   @db.VarChar(40)
+  kind                 String   @db.VarChar(10)
+  percent              Decimal? @db.Decimal(5, 2)
+  amount               Decimal? @db.Decimal(15, 2)
+  minSpend             Decimal  @default(0) @db.Decimal(15, 2)
+  maxUses              Int?
+  usedCount            Int      @default(0)
+  singleUsePerCustomer Boolean  @default(false)
+  customerId           String?
+  validFrom            DateTime
+  validTo              DateTime
+  isActive             Boolean  @default(true)
+  createdAt            DateTime @default(now())
+
+  company     Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  redemptions PosCouponRedemption[]
+
+  @@unique([companyId, code])
+  @@map("pos_coupons")
+}
+
+model PosCouponRedemption {
+  id         String   @id @default(uuid())
+  companyId  String
+  couponId   String
+  orderId    String
+  customerId String?
+  amount     Decimal  @db.Decimal(15, 2)
+  createdAt  DateTime @default(now())
+
+  coupon PosCoupon @relation(fields: [couponId], references: [id], onDelete: Cascade)
+
+  @@unique([couponId, orderId])
+  @@map("pos_coupon_redemptions")
+}
+
+model PosGiftCard {
+  id             String    @id @default(uuid())
+  companyId      String
+  code           String    @db.VarChar(40)
+  initialAmount  Decimal   @db.Decimal(15, 2)
+  balance        Decimal   @db.Decimal(15, 2)
+  expiresAt      DateTime?
+  status         String    @default("ACTIVE") @db.VarChar(20)
+  journalEntryId String?
+  createdAt      DateTime  @default(now())
+
+  company   Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  movements PosGiftCardMovement[]
+
+  @@unique([companyId, code])
+  @@map("pos_gift_cards")
+}
+
+model PosGiftCardMovement {
+  id         String   @id @default(uuid())
+  companyId  String
+  giftCardId String
+  kind       String   @db.VarChar(20)
+  amount     Decimal  @db.Decimal(15, 2)
+  sourceKey  String   @db.VarChar(80)
+  orderId    String?
+  createdAt  DateTime @default(now())
+
+  giftCard PosGiftCard @relation(fields: [giftCardId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, sourceKey])
+  @@map("pos_gift_card_movements")
+}
+
+model PosWallet {
+  id         String  @id @default(uuid())
+  companyId  String
+  customerId String
+  kind       String  @db.VarChar(20)
+  balance    Decimal @default(0) @db.Decimal(15, 2)
+
+  company   Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  movements PosWalletMovement[]
+
+  @@unique([companyId, customerId, kind])
+  @@map("pos_wallets")
+}
+
+model PosWalletMovement {
+  id        String   @id @default(uuid())
+  companyId String
+  walletId  String
+  kind      String   @db.VarChar(20)
+  amount    Decimal  @db.Decimal(15, 2)
+  sourceKey String   @db.VarChar(80)
+  orderId   String?
+  createdAt DateTime @default(now())
+
+  wallet PosWallet @relation(fields: [walletId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, sourceKey])
+  @@map("pos_wallet_movements")
+}
+
+model PosCashierEvent {
+  id         String   @id @default(uuid())
+  companyId  String
+  terminalId String
+  shiftId    String?
+  kind       String   @db.VarChar(20)
+  userId     String
+  reason     String   @db.VarChar(191)
+  metadata   Json?
+  createdAt  DateTime @default(now())
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, terminalId, createdAt])
+  @@map("pos_cashier_events")
+}
+
+model PosBarcodeRule {
+  id          String  @id @default(uuid())
+  companyId   String
+  name        String  @db.VarChar(80)
+  prefix      String  @db.VarChar(8)
+  itemStart   Int
+  itemLength  Int
+  valueStart  Int
+  valueLength Int
+  /// WEIGHT, QTY, or PRICE. PRICE must match the server price.
+  valueKind   String  @db.VarChar(10)
+  decimals    Int     @default(3)
+  isActive    Boolean @default(true)
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, isActive])
+  @@map("pos_barcode_rules")
+}
+
+model PosApproval {
+  id          String    @id @default(uuid())
+  companyId   String
+  action      String    @db.VarChar(20)
+  status      String    @default("PENDING") @db.VarChar(20)
+  requesterId String
+  approverId  String?
+  reason      String    @db.VarChar(191)
+  shiftId     String?
+  orderId     String?
+  payload     Json?
+  /// Set when a return post consumes this approval. Unique so it cannot authorize a second order.
+  consumedByOrderId String? @unique
+  createdAt   DateTime  @default(now())
+  decidedAt   DateTime?
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, status, action])
+  @@map("pos_approvals")
+}
+
+model PosCreditCollection {
+  id             String   @id @default(uuid())
+  companyId      String
+  customerId     String
+  shiftId        String?
+  amount         Decimal  @db.Decimal(15, 2)
+  safeId         String?
+  journalEntryId String?
+  collectedBy    String
+  notes          String?  @db.VarChar(191)
+  /// Retry key. Null only for rows created before the key existed.
+  clientRequestId String? @db.VarChar(64)
+  createdAt      DateTime @default(now())
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, clientRequestId])
+  @@index([companyId, customerId])
+  @@map("pos_credit_collections")
+}
+
+model PosShiftTemplate {
+  id        String  @id @default(uuid())
+  companyId String
+  name      String  @db.VarChar(80)
+  isActive  Boolean @default(true)
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, name])
+  @@map("pos_shift_templates")
+}
+
+/// Extra barcodes. Item.barcode remains the primary code.
+model ItemBarcode {
+  id        String @id @default(uuid())
+  companyId String
+  itemId    String
+  unitId    String
+  barcode   String @db.VarChar(64)
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  item    Item    @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  unit    Unit    @relation(fields: [unitId], references: [id], onDelete: Restrict)
+
+  @@unique([companyId, barcode])
+  @@index([itemId])
+  @@map("item_barcodes")
+}
+
+/// Shared lot balance. POS updates it only when a line names a batch.
+model InventoryItemLot {
+  id          String    @id @default(uuid())
+  companyId   String
+  itemId      String
+  warehouseId String
+  batchNumber String    @db.VarChar(64)
+  expiryDate  DateTime?
+  quantity    Decimal   @default(0) @db.Decimal(18, 4)
+
+  item Item @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, itemId, warehouseId, batchNumber])
+  @@index([companyId, expiryDate])
+  @@map("inventory_item_lots")
+}
+
+/// Shared item serial. Distinct from document numbering in serial_numbers.
+model InventoryItemSerial {
+  id             String  @id @default(uuid())
+  companyId      String
+  itemId         String
+  warehouseId    String?
+  serial         String  @db.VarChar(64)
+  status         String  @default("AVAILABLE") @db.VarChar(20)
+  posOrderLineId String?
+
+  item Item @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, itemId, serial])
+  @@index([companyId, status])
+  @@map("inventory_item_serials")
 }
 
 // ============================================
@@ -7864,11 +9542,15 @@ model EInvoiceSetting {
   companyId    String   @unique
   clientId     String?
   clientSecret String?  @db.Text
-  tokenPin     String?
+  tokenPin     String?  @db.Text
   environment  String   @default("PRE_PRODUCTION") @db.VarChar(20)
   issuerTaxId  String?
   issuerName   String?
   activityCode String?
+  /// Issuer address for ETA JSON (governate, street, buildingNumber, …).
+  issuerAddress Json?
+  /// Sales invoice document-profile ids shown on the send screen.
+  enabledSalesProfileIds Json?
   apiBaseUrl   String?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
@@ -7898,6 +9580,8 @@ model EInvoiceDocument {
   dateTimeIssued       DateTime?
   dateTimeReceived     DateTime?
   submittedAt          DateTime?
+  submittedByUserId    String?   @db.Char(36)
+  submittedByName      String?   @db.VarChar(191)
   cancelledAt          DateTime?
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
@@ -7911,6 +9595,261 @@ model EInvoiceDocument {
   @@index([invoiceId])
   @@index([posOrderId])
   @@map("e_invoice_documents")
+}
+
+model EsignPairedDevice {
+  id            String    @id @default(uuid())
+  companyId     String
+  userId        String
+  deviceId      String
+  credentialEnc String    @db.Text
+  status        String    @default("ACTIVE") @db.VarChar(20)
+  pairedAt      DateTime  @default(now())
+  revokedAt     DateTime?
+  lastUsedAt    DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, deviceId])
+  @@index([companyId, status])
+  @@map("esign_paired_devices")
+}
+
+model EsignPairingChallenge {
+  id            String    @id @default(uuid())
+  companyId     String
+  userId        String
+  deviceId      String?
+  challenge     String    @db.VarChar(128)
+  credentialEnc String    @db.Text
+  expiresAt     DateTime
+  consumedAt    DateTime?
+  createdAt     DateTime  @default(now())
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, expiresAt])
+  @@map("esign_pairing_challenges")
+}
+
+model EtaSigningSession {
+  id                    String    @id @default(uuid())
+  companyId             String
+  userId                String
+  invoiceId             String
+  eInvoiceDocumentId    String
+  deviceId              String
+  documentType          String    @db.VarChar(5)
+  unsignedPayload       Json
+  canonicalPayload      String    @db.LongText
+  contentHash           String    @db.VarChar(64)
+  nonce                 String    @db.VarChar(64)
+  requestId             String    @db.VarChar(64)
+  authorization         String    @db.Text
+  expiresAt             DateTime
+  consumedAt            DateTime?
+  submittedAt           DateTime?
+  status                String    @db.VarChar(20)
+  cadesBase64           String?   @db.LongText
+  certificateThumbprint String?
+  etaStatus             String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, nonce])
+  @@index([companyId, status, expiresAt])
+  @@index([eInvoiceDocumentId])
+  @@map("eta_signing_sessions")
+}
+
+/// ETA eReceipt POS device. Secrets stay encrypted. One row per terminal and environment.
+model EtaReceiptDevice {
+  id                     String   @id @default(uuid())
+  companyId              String
+  terminalId             String
+  environment            String   @db.VarChar(20)
+  deviceSerialNumber     String   @db.VarChar(100)
+  branchCode             String   @db.VarChar(50)
+  posOsVersion           String   @db.VarChar(50)
+  posModelFramework      String   @db.VarChar(50)
+  presharedKeyEnc        String   @db.Text
+  clientId               String   @db.VarChar(200)
+  clientSecretEnc        String   @db.Text
+  activityCode           String?  @db.VarChar(10)
+  syndicateLicenseNumber String?  @db.VarChar(30)
+  active                 Boolean  @default(false)
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  company  Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  terminal PosTerminal @relation(fields: [terminalId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, terminalId, environment])
+  @@index([companyId, active])
+  @@map("eta_receipt_devices")
+}
+
+/// Company eReceipt policy. Separate from eInvoice settings.
+model EtaReceiptSetting {
+  id                        String   @id @default(uuid())
+  companyId                 String
+  environment               String   @default("PREPRODUCTION") @db.VarChar(20)
+  /// ETA-configured buyer identity threshold. Official receipt v1.2 documents 150000 EGP.
+  buyerIdentityThreshold    Decimal  @default(150000) @db.Decimal(15, 2)
+  /// Receipt type codes this company may issue. Retail default is s and r.
+  enabledReceiptTypes       Json
+  /// Optional override of Gates tender code -> ETA payment code. Unknown codes are rejected.
+  paymentMap                Json?
+  /// Official RWR reason codes loaded for this company. Empty disables RWR.
+  rwrReasonCodes            Json?
+  /// Official order delivery mode for industry receipts that require it. Omitted on generic s and r.
+  orderDeliveryMode         String?  @db.VarChar(30)
+  /// DISABLED until the target ETA environment requires batch CAdES. REQUIRED refuses unsigned submit.
+  signingMode               String   @default("DISABLED") @db.VarChar(20)
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, environment])
+  @@map("eta_receipt_settings")
+}
+
+/// previousUUID chain for one ETA POS device. Locked with SELECT FOR UPDATE.
+model EtaReceiptChain {
+  id          String   @id @default(uuid())
+  companyId   String
+  terminalId  String
+  environment String   @db.VarChar(20)
+  lastUuid    String   @default("") @db.VarChar(64)
+  updatedAt   DateTime @updatedAt
+
+  @@unique([companyId, terminalId, environment])
+  @@map("eta_receipt_chains")
+}
+
+/// receiptNumber counter per branch and environment, not per terminal.
+model EtaReceiptNumber {
+  id          String   @id @default(uuid())
+  companyId   String
+  environment String   @db.VarChar(20)
+  branchCode  String   @db.VarChar(50)
+  nextNumber  Int      @default(1)
+  updatedAt   DateTime @updatedAt
+
+  @@unique([companyId, environment, branchCode])
+  @@map("eta_receipt_numbers")
+}
+
+model EtaReceiptSubmission {
+  id             String    @id @default(uuid())
+  companyId      String
+  terminalId     String
+  environment    String    @db.VarChar(20)
+  submissionUuid String?   @db.VarChar(64)
+  status         String    @db.VarChar(32)
+  receiptCount   Int
+  payloadBytes   Int
+  acceptedCount  Int       @default(0)
+  rejectedCount  Int       @default(0)
+  response       Json?
+  createdAt      DateTime  @default(now())
+  submittedAt    DateTime?
+  updatedAt      DateTime  @updatedAt
+
+  company  Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  terminal PosTerminal  @relation(fields: [terminalId], references: [id], onDelete: Restrict)
+  receipts EtaReceipt[]
+
+  @@index([companyId, status])
+  @@index([submissionUuid])
+  @@map("eta_receipt_submissions")
+}
+
+/// Frozen fiscal receipt. PosOrder stays the financial document when issueSource is POS. ETA status lives here.
+model EtaReceipt {
+  id                String    @id @default(uuid())
+  companyId         String
+  /// Null for PREPRODUCTION_TEST receipts (no POS sale).
+  posOrderId        String?
+  terminalId        String
+  shiftId           String?
+  environment       String    @db.VarChar(20)
+  /// POS = normal posted sale. PREPRODUCTION_TEST = manual integration test (never in production).
+  issueSource       String    @default("POS") @db.VarChar(32)
+  /// Idempotency key for manual test issuance.
+  testClientKey     String?   @db.VarChar(64)
+  receiptNumber     String    @db.VarChar(50)
+  branchCode        String    @db.VarChar(50)
+  receiptType       String    @db.VarChar(20)
+  typeVersion       String    @default("1.2") @db.VarChar(10)
+  generation        Int       @default(1)
+  uuid              String?   @unique @db.VarChar(64)
+  previousUUID      String?   @db.VarChar(64)
+  referenceUUID     String?   @db.VarChar(64)
+  referenceOldUUID  String?   @db.VarChar(64)
+  frozenJson        Json?
+  /// Exact receipt JSON element submitted to ETA. Retry sends this text.
+  submitText        String?   @db.LongText
+  status            String    @db.VarChar(32)
+  submissionId      String?
+  etaSubmissionUuid String?   @db.VarChar(64)
+  etaLongId         String?   @db.VarChar(100)
+  qrUrl             String?   @db.Text
+  validationErrors  Json?
+  etaErrors         Json?
+  attemptCount      Int       @default(0)
+  lastError         String?   @db.Text
+  lastErrorClass    String?   @db.VarChar(32)
+  dateTimeIssued    DateTime?
+  dateTimeSubmitted DateTime?
+  dateTimeValidated DateTime?
+  nextAttemptAt     DateTime?
+  lateReason        String?   @db.Text
+  lateRequestRef    String?   @db.VarChar(100)
+  correctedFromId   String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  company       Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  posOrder      PosOrder?             @relation(fields: [posOrderId], references: [id], onDelete: Restrict)
+  terminal      PosTerminal           @relation(fields: [terminalId], references: [id], onDelete: Restrict)
+  shift         PosShift?             @relation(fields: [shiftId], references: [id], onDelete: SetNull)
+  submission    EtaReceiptSubmission? @relation(fields: [submissionId], references: [id], onDelete: SetNull)
+  correctedFrom EtaReceipt?           @relation("EtaReceiptCorrection", fields: [correctedFromId], references: [id], onDelete: Restrict)
+  corrections   EtaReceipt[]          @relation("EtaReceiptCorrection")
+  attempts      EtaReceiptAttempt[]
+
+  @@unique([companyId, posOrderId, generation])
+  @@unique([companyId, testClientKey])
+  @@unique([companyId, environment, branchCode, receiptNumber])
+  @@index([companyId, status, nextAttemptAt])
+  @@index([terminalId, environment])
+  @@index([referenceUUID])
+  @@index([referenceOldUUID])
+  @@map("eta_receipts")
+}
+
+model EtaReceiptAttempt {
+  id           String   @id @default(uuid())
+  companyId    String
+  receiptId    String
+  submissionId String?
+  attempt      Int
+  status       String   @db.VarChar(32)
+  httpStatus   Int?
+  errorClass   String?  @db.VarChar(32)
+  message      String?  @db.Text
+  createdAt    DateTime @default(now())
+
+  receipt EtaReceipt @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, receiptId])
+  @@map("eta_receipt_attempts")
 }
 
 // ============================================
@@ -8972,21 +10911,74 @@ model AiSentinelSnapshot {
 }
 
 /// @deprecated Decommissioned WhatsApp Cloud API config. Table kept; no runtime readers.
-model CompanyWhatsappConfig {
-  id                 String   @id @default(uuid())
-  companyId          String   @unique
-  phoneNumberId      String
-  wabaId             String?
-  accessToken        String   @db.Text
-  webhookVerifyToken String
-  isActive           Boolean  @default(true)
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+/// Per-company SMTP. Password is AES-256-GCM ciphertext (secrets-manager), never returned by APIs.
+model CompanyEmailConfig {
+  id                String   @id @default(uuid())
+  companyId         String   @unique
+  host              String   @db.VarChar(255)
+  port              Int      @default(587)
+  secure            Boolean  @default(false)
+  username          String?  @db.VarChar(255)
+  passwordEncrypted String?  @db.Text
+  fromEmail         String   @db.VarChar(255)
+  fromName          String?  @db.VarChar(255)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
   company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
+  @@index([companyId])
+  @@map("company_email_configs")
+}
+
+model CompanyWhatsappConfig {
+  id                   String    @id @default(uuid())
+  companyId            String    @unique
+  phoneNumberId        String?
+  wabaId               String?
+  /// Legacy plaintext column. New connections write a marker only; the real token is accessTokenEncrypted.
+  accessToken          String    @default("") @db.Text
+  accessTokenEncrypted String?   @db.Text
+  webhookVerifyToken   String    @default("managed-by-platform")
+  displayPhoneNumber   String?   @db.VarChar(32)
+  connectionStatus     String    @default("disconnected") @db.VarChar(32)
+  connectedAt          DateTime?
+  disconnectedAt       DateTime?
+  isActive             Boolean   @default(false)
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  messages WhatsappOutboundMessage[]
+
   @@index([phoneNumberId])
+  @@index([wabaId])
   @@map("company_whatsapp_configs")
+}
+
+model WhatsappOutboundMessage {
+  id                String    @id @default(uuid())
+  companyId         String
+  configId          String?
+  metaMessageId     String?   @db.VarChar(191)
+  recipientMasked   String    @db.VarChar(32)
+  templateName      String    @db.VarChar(191)
+  templateLanguage  String    @db.VarChar(16)
+  status            String    @default("ACCEPTED") @db.VarChar(32)
+  acceptedAt        DateTime  @default(now())
+  deliveredAt       DateTime?
+  readAt            DateTime?
+  failedAt          DateTime?
+  errorCode         String?   @db.VarChar(64)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  config  CompanyWhatsappConfig? @relation(fields: [configId], references: [id], onDelete: SetNull)
+
+  @@unique([companyId, metaMessageId])
+  @@index([companyId, createdAt])
+  @@map("whatsapp_outbound_messages")
 }
 
 /// @deprecated Decommissioned WhatsApp phone bindings. Table kept; no runtime readers.
@@ -9120,4 +11112,117 @@ model GrowthAttribution {
   @@unique([companyId, opportunityId, entityType, entityId], map: "growth_attr_uniq")
   @@index([companyId, opportunityId])
   @@map("growth_attributions")
+}
+
+// ============================================
+// LEGACY MIGRATION ENGINE (Phase 1)
+// ============================================
+
+model MigrationJob {
+  id                   String    @id @default(uuid())
+  targetCompanyId      String
+  legacyCompanyCode    String    @db.VarChar(20)
+  sourceType           String    @db.VarChar(40)
+  sourceFingerprint    String    @db.VarChar(128)
+  sourceDatabaseName   String?   @db.VarChar(128)
+  status               String    @db.VarChar(32)
+  currentStage         String?   @db.VarChar(64)
+  dryRun               Boolean   @default(false)
+  /// Env var name holding legacy connection (never store password)
+  legacyConnectionRef  String?   @db.VarChar(64)
+  reconciliationBaseline Json?
+  progress             Json?
+  lockToken            String?   @db.VarChar(64)
+  lockExpiresAt        DateTime?
+  startedAt            DateTime?
+  completedAt          DateTime?
+  failedAt             DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  idMaps       MigrationIdMap[]
+  checkpoints  MigrationCheckpoint[]
+  issues       MigrationIssue[]
+
+  @@index([targetCompanyId])
+  @@index([status])
+  @@index([sourceFingerprint])
+  @@map("migration_jobs")
+}
+
+model MigrationIdMap {
+  id             String   @id @default(uuid())
+  migrationJobId String
+  sourceEntity   String   @db.VarChar(64)
+  sourceKey      String   @db.Text
+  sourceKeyHash  String   @db.VarChar(64)
+  targetModel    String   @db.VarChar(64)
+  targetId       String   @db.VarChar(36)
+  outcome        String   @db.VarChar(32)
+  readOnly       Boolean  @default(false)
+  createdAt      DateTime @default(now())
+
+  job MigrationJob @relation(fields: [migrationJobId], references: [id], onDelete: Cascade)
+
+  @@unique([migrationJobId, sourceEntity, sourceKeyHash])
+  @@index([migrationJobId, targetModel, targetId])
+  @@map("migration_id_maps")
+}
+
+model MigrationCheckpoint {
+  id              String   @id @default(uuid())
+  migrationJobId  String
+  stage           String   @db.VarChar(64)
+  entity          String   @db.VarChar(64)
+  cursorKey       String?  @db.VarChar(255)
+  processedCount  BigInt   @default(0)
+  successCount    BigInt   @default(0)
+  warningCount    BigInt   @default(0)
+  errorCount      BigInt   @default(0)
+  updatedAt       DateTime @updatedAt
+
+  job MigrationJob @relation(fields: [migrationJobId], references: [id], onDelete: Cascade)
+
+  @@unique([migrationJobId, stage, entity])
+  @@map("migration_checkpoints")
+}
+
+model MigrationIssue {
+  id              String   @id @default(uuid())
+  migrationJobId  String
+  stage           String?  @db.VarChar(64)
+  severity        String   @db.VarChar(16)
+  category        String   @db.VarChar(64)
+  sourceEntity    String?  @db.VarChar(64)
+  sourceKey       String?  @db.Text
+  description     String   @db.Text
+  resolutionState String   @default("OPEN") @db.VarChar(32)
+  createdAt       DateTime @default(now())
+
+  job MigrationJob @relation(fields: [migrationJobId], references: [id], onDelete: Cascade)
+
+  @@index([migrationJobId, severity])
+  @@map("migration_issues")
+}
+
+/// Owner-approved legacy GL code → migrated COA posting account (never auto-inferred).
+model LegacyAccountOverride {
+  id                      String   @id @default(uuid())
+  targetCompanyId         String
+  sourceCompanyCode       String   @db.VarChar(20)
+  legacyAccountCode       String   @db.VarChar(32)
+  targetLegacyAccountCode String   @db.VarChar(32)
+  targetAccountId         String?  @db.VarChar(36)
+  decisionType            String   @db.VarChar(64)
+  mappingClassification   String   @db.VarChar(64)
+  reason                  String   @db.Text
+  approvedBy              String   @db.VarChar(128)
+  approvedAt              DateTime
+  evidenceReference       String   @db.VarChar(512)
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  @@unique([targetCompanyId, sourceCompanyCode, legacyAccountCode], map: "legacy_account_overrides_scope_key")
+  @@index([targetCompanyId])
+  @@map("legacy_account_overrides")
 }

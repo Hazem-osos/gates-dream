@@ -13,6 +13,9 @@
 import { Response, NextFunction, RequestHandler } from 'express';
 import { authService } from '../services/auth.service';
 import { tokenRefreshService } from '../../../shared/auth/token-refresh.service';
+import { jwtVerificationService } from '../../../shared/auth/jwt.verify';
+import { revokeSession } from '../../../shared/auth/session-manager';
+import { env } from '../../../shared/config/env';
 import { logger } from '../../../shared/logger';
 import { AppError } from '../../../shared/middleware/error-handler';
 import type { AuthRequest } from '../../../shared/auth/types';
@@ -141,8 +144,21 @@ export const logoutHandler: RequestHandler = async (
   next: NextFunction
 ): Promise<void> => {
   try {
-    const { refreshToken } = req.body as { refreshToken: string };
-    await tokenRefreshService.logout(refreshToken);
+    const { refreshToken } = req.body as { refreshToken?: string };
+    const accessToken = jwtVerificationService.extractTokenFromHeader(req.headers.authorization);
+    if (accessToken) {
+      try {
+        const payload = await jwtVerificationService.verifyToken(accessToken);
+        if (payload.sub && payload.jti) {
+          await revokeSession(payload.sub, payload.jti);
+        }
+      } catch (error) {
+        logger.warn({ error }, '[Controller] Access token was not revoked on logout');
+      }
+    }
+    if (refreshToken && env.KEYCLOAK_ENABLED) {
+      await tokenRefreshService.logout(refreshToken);
+    }
 
     logger.info('[Controller] User logged out');
 
@@ -228,6 +244,29 @@ export const verifyHandler: RequestHandler = async (
       authenticated: true,
       data: result,
     });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const forgotPasswordHandler: RequestHandler = async (req, res, next): Promise<void> => {
+  try {
+    const { email } = req.body as { email: string };
+    await authService.requestPasswordReset(email);
+    res.json({
+      status: 'success',
+      message: 'إذا كان البريد مسجلاً ستصلك رسالة برابط الاستعادة',
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+export const resetPasswordHandler: RequestHandler = async (req, res, next): Promise<void> => {
+  try {
+    const { token, password } = req.body as { token: string; password: string };
+    await authService.resetPassword(token, password);
+    res.json({ status: 'success', message: 'تم تغيير كلمة المرور' });
   } catch (err) {
     next(err);
   }

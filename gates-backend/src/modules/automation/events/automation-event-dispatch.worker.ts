@@ -62,6 +62,18 @@ export function createAutomationEventDispatchWorker(): Worker<DispatchAutomation
     processDispatchDomainEventJob,
     { connection: workerRedisConnection }
   );
+  worker.on('ready', () => {
+    logger.info(
+      { queue: AUTOMATION_QUEUE_NAMES.domainEvents },
+      'Automation domain-event dispatch worker ready'
+    );
+  });
+  worker.on('error', (err) => {
+    logger.error(
+      { err, queue: AUTOMATION_QUEUE_NAMES.domainEvents },
+      'Automation domain-event dispatch worker error'
+    );
+  });
   worker.on('failed', (job, err) => {
     logger.error(
       { jobId: job?.id, eventId: job?.data?.eventId, error: err },

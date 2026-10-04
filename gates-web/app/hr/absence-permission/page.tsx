@@ -1,6 +1,8 @@
 'use client';
 
 import { useBackendReachability } from '@/lib/hooks/useBackendReachability';
+import { apiClient } from '@/lib/api/client';
+import { toast } from '@/lib/feedback/toast';
 import { useForm, type Resolver, type SubmitHandler } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { HrPageChrome } from '@/components/hr/HrPageChrome';
@@ -11,7 +13,7 @@ const defaults: AbsencePermissionFormInput = {
   code: '',
   englishName: '',
   arabicName: '',
-  employee: '1212378971212',
+  employee: '',
   date: '2025-11-26',
   hijriDate: '2025-11-26',
   reason: '',
@@ -36,7 +38,7 @@ export default function AbsencePermissionPage() {
   });
 
   const onSave: SubmitHandler<AbsencePermissionFormInput> = (values) => {
-    console.info('[absence-permission]', values);
+    void apiClient.post('/hr/attendance', { kind: 'absence', title: values.arabicName, employeeId: /^[0-9a-f-]{36}$/i.test(values.employee) ? values.employee : undefined, notes: values.reason, payload: values }).then(() => toast.success('تم الحفظ')).catch((err: unknown) => toast.error(err instanceof Error ? err.message : 'تعذر الحفظ'));
   };
 
   return (
@@ -62,18 +64,18 @@ export default function AbsencePermissionPage() {
                     <div className="flex flex-col gap-1">
                       <div className="flex items-center gap-2">
                         <select
-                          className="w-50 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg"
+                          className="w-50 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg"
                           {...register('employee')}
                         >
                           <option value="">اختر...</option>
-                          <option value="1212378971212">1212378971212</option>
+                          <option value=""></option>
                           <option value="employee1">موظف 1</option>
                           <option value="employee2">موظف 2</option>
                           <option value="employee3">موظف 3</option>
                         </select>
                         <input
                           type="text"
-                          className="w-50 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg"
+                          className="w-50 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg"
                           placeholder="إدخل اسم الموظف"
                         />
                       </div>

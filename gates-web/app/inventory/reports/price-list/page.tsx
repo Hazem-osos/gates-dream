@@ -7,8 +7,18 @@ export default function PriceListPage() {
     <InventoryReportFilterPage
       urlPath="/inventory/reports/price-list"
       icon="💲"
-      subtitle="أسعار الأصناف حسب المجموعة."
-      fields={{ dates: 'none', itemGroup: true, item: true, branch: true }}
+      subtitle="سعر شراء وبيع الصنف مقارنة بسعر شراء وبيع قائمة الأسعار."
+      fields={{
+        dates: 'none',
+        priceList: true,
+        warehouse: true,
+        itemGroup: true,
+        item: true,
+        branch: true,
+        showUnposted: false,
+        reportOptions: ['showEmpty', 'inactiveOnly', 'activeOnly'],
+        groupByLayout: true,
+      }}
     />
   );
 }

@@ -80,7 +80,7 @@ export class PurchaseReturnService {
       });
 
       if (!supplier) {
-        throw new Error('Supplier not found or does not belong to company');
+        throw new Error('المورد غير موجود أو لا يتبع الشركة');
       }
 
       // Validate warehouse belongs to company
@@ -89,7 +89,7 @@ export class PurchaseReturnService {
       });
 
       if (!warehouse) {
-        throw new Error('Warehouse not found or does not belong to company');
+        throw new Error('المخزن غير موجود أو لا يتبع الشركة');
       }
 
       // Validate original invoice if provided
@@ -116,7 +116,7 @@ export class PurchaseReturnService {
         });
 
         if (!currency) {
-          throw new Error('Currency not found or does not belong to company');
+          throw new Error('العملة غير موجودة أو لا تتبع الشركة');
         }
       }
 
@@ -130,7 +130,7 @@ export class PurchaseReturnService {
       });
 
       if (items.length !== itemIds.length) {
-        throw new Error('One or more items not found or do not belong to company');
+        throw new Error('أحد الأصناف غير موجود أو لا يتبع الشركة');
       }
 
       // Get current quantities to validate returns
@@ -598,7 +598,7 @@ export class PurchaseReturnService {
             warehouseId: purchaseReturn.warehouseId,
             itemId: line.itemId,
             locationId: line.locationId ?? null,
-            quantityDelta: Number(line.quantity),
+            quantityDelta: Number(line.baseQuantity),
             movementType: `${sourceType}-UNPOST`,
             sourceType: `${sourceType}-UNPOST`,
             sourceNumber,

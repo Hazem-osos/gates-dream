@@ -11,6 +11,7 @@ import { stocktakingService } from '../services/stocktaking.service';
 import { logger } from '../../../shared/logger';
 import { AuthRequest } from '../../../shared/auth/types';
 import { buildStockGlPostingContext } from '../services/stock-gl-posting-context';
+import { stockPostJson } from '../utils/stock-post-route-response';
 
 const router = Router();
 
@@ -31,7 +32,7 @@ router.post(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -74,6 +75,34 @@ router.post(
   }
 );
 
+router.put(
+  '/:id',
+  authorize({ resource: 'invoice', action: 'edit' }),
+  validate({ body: createStocktakingSchema }),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const companyId = req.companyId || req.tenantId;
+      if (!companyId) {
+        return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
+      }
+      const stocktaking = await stocktakingService.updateStocktaking(companyId, req.params.id, {
+        companyId,
+        branchId: req.body.branchId || req.branchId || undefined,
+        description: req.body.description,
+        serial: req.body.serial,
+        date: req.body.date,
+        warehouseId: req.body.warehouseId,
+        lines: req.body.lines,
+      });
+      return void res.json({ status: 'success', message: 'تم تحديث الجرد', data: stocktaking });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'تعذر تحديث الجرد';
+      const status = message.includes('غير موجود') ? 404 : message.includes('لا يمكن') ? 422 : 500;
+      return void res.status(status).json({ status: 'error', message });
+    }
+  }
+);
+
 /**
  * GET /api/v1/inventory/stocktaking
  * List stocktaking entries
@@ -88,7 +117,7 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -139,7 +168,7 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -155,7 +184,7 @@ router.get(
     } catch (error) {
       logger.error({ error }, 'Error getting stocktaking');
       const status =
-        error instanceof Error && error.message === 'Stocktaking not found'
+        error instanceof Error && error.message === 'الجرد غير موجود'
           ? 404
           : 500;
       return void res.status(status).json({
@@ -182,23 +211,24 @@ router.post(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
-      await stocktakingService.postStocktaking(companyId, req.params.id, buildStockGlPostingContext(req, companyId));
+      const result = await stocktakingService.postStocktaking(
+        companyId,
+        req.params.id,
+        buildStockGlPostingContext(req, companyId)
+      );
 
       logger.info({ companyId, stocktakingId: req.params.id }, 'Stocktaking posted');
 
-      return void res.json({
-        status: 'success',
-        message: 'Stocktaking posted successfully',
-      });
+      return void res.json(stockPostJson(result, 'تم ترحيل الجرد بنجاح'));
     } catch (error) {
       logger.error({ error }, 'Error posting stocktaking');
       const status =
         error instanceof Error &&
-        (error.message === 'Stocktaking not found' ||
+        (error.message === 'الجرد غير موجود' ||
           error.message.includes('already') ||
           error.message.includes('Cannot'))
           ? 400
@@ -227,7 +257,7 @@ router.post(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -243,7 +273,7 @@ router.post(
       logger.error({ error }, 'Error unposting stocktaking');
       const status =
         error instanceof Error &&
-        (error.message === 'Stocktaking not found' ||
+        (error.message === 'الجرد غير موجود' ||
           error.message.includes('not posted'))
           ? 400
           : 500;
@@ -271,7 +301,7 @@ router.post(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -291,7 +321,7 @@ router.post(
       logger.error({ error }, 'Error cancelling stocktaking');
       const status =
         error instanceof Error &&
-        (error.message === 'Stocktaking not found' ||
+        (error.message === 'الجرد غير موجود' ||
           error.message.includes('already') ||
           error.message.includes('Cannot'))
           ? 400
@@ -320,7 +350,7 @@ router.post(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -340,7 +370,7 @@ router.post(
       logger.error({ error }, 'Error restoring stocktaking');
       const status =
         error instanceof Error &&
-        (error.message === 'Stocktaking not found' ||
+        (error.message === 'الجرد غير موجود' ||
           error.message.includes('not cancelled'))
           ? 400
           : 500;

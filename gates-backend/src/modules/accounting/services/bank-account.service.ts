@@ -1,4 +1,5 @@
 import prisma from '../../../shared/database/prisma';
+import { permanentDelete } from '../../../shared/database/permanent-delete.util';
 import { logger } from '../../../shared/logger';
 import { overlayFundBalanceFromLedger, overlayFundBalancesFromLedger } from '../../treasury/services/fund-ledger-balance';
 import {
@@ -164,15 +165,12 @@ export class BankAccountService {
   }
 
   /**
-   * Delete a bank account (soft delete by setting isActive to false)
+   * Delete a bank account (permanent delete by setting isActive to false)
    */
   async deleteBankAccount(companyId: string, bankAccountId: string) {
     await this.getBankAccountById(companyId, bankAccountId);
 
-    return prisma.bankAccount.update({
-      where: { id: bankAccountId },
-      data: { isActive: false },
-    });
+    return permanentDelete('حساب البنك', () => prisma.bankAccount.delete({ where: { id: bankAccountId } }));
   }
 }
 

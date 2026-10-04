@@ -110,7 +110,7 @@ export default function ProfilePage() {
 
   return (
     <div className="p-6 max-w-4xl mx-auto" dir="rtl">
-      <h1 className="text-2xl font-bold text-[#0E79AA] mb-6">الملف الشخصي والأمان</h1>
+      <h1 className="text-2xl font-bold text-[#0E78AA] mb-6">الملف الشخصي والأمان</h1>
       {error && <ErrorToast message={error} onClose={() => setError('')} />}
       {success && <SuccessToast message={success} onClose={() => setSuccess('')} />}
 
@@ -138,7 +138,7 @@ export default function ProfilePage() {
                   />
                   <button
                     type="button"
-                    className="px-4 py-2 text-sm border border-[#0E79AA] text-[#0E79AA] rounded-lg hover:bg-[#0E79AA]/5"
+                    className="px-4 py-2 text-sm border border-[#0E78AA] text-[#0E78AA] rounded-lg hover:bg-[#0E78AA]/5"
                     onClick={() => fileInputRef.current?.click()}
                   >
                     رفع صورة
@@ -160,7 +160,7 @@ export default function ProfilePage() {
                 {profile.roles.map((r) => (
                   <span
                     key={r}
-                    className="px-3 py-1 rounded-full bg-[#0E79AA]/10 text-[#0E79AA] text-sm font-medium"
+                    className="px-3 py-1 rounded-full bg-[#0E78AA]/10 text-[#0E78AA] text-sm font-medium"
                   >
                     {r}
                   </span>
@@ -207,7 +207,7 @@ export default function ProfilePage() {
             </div>
             <button
               type="button"
-              className="mt-6 px-6 py-2 bg-[#0E79AA] text-white rounded-lg hover:bg-[#095a80]"
+              className="mt-6 px-6 py-2 bg-[#0E78AA] text-white rounded-lg hover:bg-[#095a80]"
               disabled={saveProfile.isPending}
               onClick={() => {
                 const trimmedEmail = email.trim();
@@ -252,7 +252,7 @@ export default function ProfilePage() {
             </div>
             <button
               type="button"
-              className="mt-4 px-6 py-2 border border-[#0E79AA] text-[#0E79AA] rounded-lg hover:bg-[#0E79AA]/5"
+              className="mt-4 px-6 py-2 border border-[#0E78AA] text-[#0E78AA] rounded-lg hover:bg-[#0E78AA]/5"
               disabled={changePwd.isPending || !oldPassword || !newPassword}
               onClick={() => changePwd.mutate({ oldPassword, newPassword })}
             >

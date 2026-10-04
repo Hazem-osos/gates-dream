@@ -1,3 +1,5 @@
+import { isRouteUnavailable } from '@/lib/navigation/route-visibility';
+
 /** Quick navigation matrix for the workspace hub (no module sidebar active). */
 
 export type WorkspaceHubLink = {
@@ -11,12 +13,12 @@ export type WorkspaceHubGroup = {
   links: WorkspaceHubLink[];
 };
 
-export const WORKSPACE_HUB_GROUPS: WorkspaceHubGroup[] = [
+const WORKSPACE_HUB_GROUPS_RAW: WorkspaceHubGroup[] = [
   {
     id: 'automation',
-    title: 'أتمتة Gates',
+    title: 'Gates Agent',
     links: [
-      { label: 'أتمتة Gates', href: '/automation' },
+      { label: 'Gates Agent', href: '/automation' },
       { label: 'إنشاء أتمتة جديدة', href: '/automation/new' },
     ],
   },
@@ -46,8 +48,8 @@ export const WORKSPACE_HUB_GROUPS: WorkspaceHubGroup[] = [
     links: [
       { label: 'دليل المخازن', href: '/inventory/guide' },
       { label: 'دليل الأصناف', href: '/inventory/guide/items' },
-      { label: 'أذون الإضافة', href: '/inventory/operations/receipt' },
-      { label: 'أذون الصرف', href: '/inventory/operations/issue' },
+      { label: 'إذن إضافة مخزني', href: '/inventory/operations/receipt' },
+      { label: 'إذن صرف مخزني', href: '/inventory/operations/issue' },
       { label: 'التحويلات المخزنية', href: '/inventory/operations/transfer' },
       { label: 'الجرد المخزني', href: '/inventory/operations/stocktaking' },
     ],
@@ -67,11 +69,11 @@ export const WORKSPACE_HUB_GROUPS: WorkspaceHubGroup[] = [
     title: 'المقاولات والمستخلصات',
     links: [
       { label: 'لوحة المقاولات', href: '/contracting' },
-      { label: 'مساحة المشروع التنفيذية', href: '/contracting/projects' },
-      { label: 'المشاريع والمستخلصات', href: '/contracting/extracts' },
-      { label: 'لوحة مقاولي الباطن', href: '/subcontracts' },
-      { label: 'سجل عقود الباطن', href: '/subcontracts/contracts' },
-      { label: 'مقايسات الأعمال', href: '/contracting/extracts' },
+      { label: 'العطاءات', href: '/contracting/tenders' },
+      { label: 'المشاريع', href: '/contracting/projects' },
+      { label: 'مقاولو الباطن', href: '/subcontracts/contracts' },
+      { label: 'أرشيف Wave3', href: '/contracting/extracts' },
+      { label: 'مستخلصات قديمة', href: '/extracts/operations/projects' },
     ],
   },
   {
@@ -100,7 +102,12 @@ export const WORKSPACE_HUB_GROUPS: WorkspaceHubGroup[] = [
     links: [
       { label: 'بيانات الموظفين', href: '/hr/employee-data' },
       { label: 'مسيرات الرواتب', href: '/hr/monthly-salaries' },
-      { label: 'السلف والعهد', href: '/hr/transaction-tracking' },
+      { label: 'السلف والعهد', href: '/hr/employee-advance' },
     ],
   },
 ];
+
+export const WORKSPACE_HUB_GROUPS: WorkspaceHubGroup[] = WORKSPACE_HUB_GROUPS_RAW.map((group) => ({
+  ...group,
+  links: group.links.filter((link) => !isRouteUnavailable(link.href)),
+})).filter((group) => group.links.length > 0);

@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { useOwnTabSearchParams } from '@/lib/navigation/tab-route-lock';
 import { useForm, type Resolver, type SubmitHandler, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -9,28 +10,32 @@ import { ErpDocumentLayout } from '@/components/erp/ErpDocumentLayout';
 import { ErpDocumentPageHeader } from '@/components/erp/ErpDocumentPageHeader';
 import { DocumentBrowseDrawer } from '@/components/erp/DocumentBrowseDrawer';
 import { StockMovementBottomSplit } from '@/components/inventory/stock/StockMovementBottomSplit';
-import { Plus, Trash2 } from 'lucide-react';
+import {
+  StockVoucherLinesGrid,
+  blankStockVoucherLine,
+  seedStockVoucherLines,
+  type StockVoucherLine,
+} from '@/components/inventory/stock/StockVoucherLinesGrid';
 import {
   FormSectionCard,
   CompactFormField,
   AdvancedFieldsSection,
   FormStickyFooter,
-  Button,
-  IconButton,
   compactControlClass,
-  compactLabelClass,
 } from '@/components/ui';
 import { StockDocumentsListSection } from '@/components/inventory/StockDocumentsListSection';
 import { WarehouseSelect } from '@/components/form/WarehouseSelect';
-import { InvoiceLineStockBalanceCell } from '@/components/invoices/InvoiceLineStockBalanceCell';
-import { TableNumberInput } from '@/components/grid/TableNumberInput';
+import { SupplierSelect } from '@/app/components/form/PartySelect';
 import { useApiQuery, useApiMutation, useInvalidateQuery } from '@/lib/hooks/useApi';
+import { apiClient } from '@/lib/api/client';
+import { getTenantContext } from '@/lib/tenant/tenant-context-storage';
+import { STORE_SAVE_AND_POST_LABEL } from '@/lib/inventory/store-document-save-post';
+import { resolvePostedFlag } from '@/lib/documents/posting-trust';
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
 import {
   inventoryWarehouseDocHeaderFormSchema,
   inventoryReceiptLineSchema,
-  type InventoryWarehouseDocHeaderFormInput,
 } from '@/lib/validation/inventory.schema';
 import type { ApiError } from '@/lib/api/types';
 import {
@@ -38,6 +43,17 @@ import {
   useRepostAfterUnpost,
 } from '@/lib/accounting/ensure-posted-after-save';
 import { onFieldErrors } from '@/lib/forms/on-field-errors';
+import { finishDocumentSave } from '@/lib/documents/finish-save';
+import {
+  postSuccessMessage,
+  useDocumentPostMutation,
+} from '@/lib/inventory/use-document-post-mutation';
+import { printStockDocument } from '@/lib/print/printStockDocument';
+import { invalidateStockViews } from '@/lib/invoices/invalidate-stock-views';
+import {
+  useStoreDocumentSerial,
+  STORE_DOCUMENT_UNPOSTED_LABEL,
+} from '@/lib/inventory/use-store-document-serial';
 
 
 interface Item {
@@ -47,20 +63,13 @@ interface Item {
   englishName?: string;
 }
 
-interface ReceiptLine {
-  itemId: string;
-  locationId?: string;
-  quantity: number;
-  unitPrice?: number;
-  total?: number;
-}
-
 interface ReceiptDocumentDetail extends Record<string, unknown> {
   serialNumber?: string;
   description?: string;
   date?: string;
   hijriDate?: string;
   warehouseId?: string;
+  supplierId?: string;
   record?: string;
   isPosted?: boolean;
   isApproved?: boolean;
@@ -69,7 +78,12 @@ interface ReceiptDocumentDetail extends Record<string, unknown> {
   lines?: Record<string, unknown>[];
 }
 
-function emptyReceiptFormDefaults(): InventoryWarehouseDocHeaderFormInput {
+const receiptHeaderSchema = inventoryWarehouseDocHeaderFormSchema.extend({
+  supplierId: z.string().optional(),
+});
+type ReceiptHeaderForm = z.infer<typeof receiptHeaderSchema>;
+
+function emptyReceiptFormDefaults(): ReceiptHeaderForm {
   const t = new Date().toISOString().split('T')[0];
   return {
     serialNumber: '',
@@ -77,20 +91,21 @@ function emptyReceiptFormDefaults(): InventoryWarehouseDocHeaderFormInput {
     date: t,
     hijriDate: '',
     warehouseId: '',
+    supplierId: '',
     record: '',
     isPosted: false,
     isApproved: false,
     useBarcode: true,
-    hideExistingQty: true,
+    hideExistingQty: false,
   };
 }
 
 export default function ReceiptPage() {
+  const searchParams = useOwnTabSearchParams();
   const invalidateQuery = useInvalidateQuery();
   const { markUnpostedForEdit, consumeShouldRepost, resetKeepPosted } = useRepostAfterUnpost();
 
   const inputCls = compactControlClass;
-  const labelCls = compactLabelClass;
 
   const {
     register,
@@ -100,8 +115,8 @@ export default function ReceiptPage() {
     setValue,
     control,
     formState: { errors },
-  } = useForm<InventoryWarehouseDocHeaderFormInput>({
-    resolver: zodResolver(inventoryWarehouseDocHeaderFormSchema) as Resolver<InventoryWarehouseDocHeaderFormInput>,
+  } = useForm<ReceiptHeaderForm>({
+    resolver: zodResolver(receiptHeaderSchema) as Resolver<ReceiptHeaderForm>,
     defaultValues: emptyReceiptFormDefaults(),
     mode: 'onTouched',
   });
@@ -110,20 +125,38 @@ export default function ReceiptPage() {
   const warehouseId = watch('warehouseId');
   const hideExistingQty = watch('hideExistingQty');
 
-  const [receiptLines, setReceiptLines] = useState<ReceiptLine[]>([]);
+  const [receiptLines, setReceiptLines] = useState<StockVoucherLine[]>(() => seedStockVoucherLines());
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  const [selectedReceiptId, setSelectedReceiptId] = useState<string | null>(null);
+  const [selectedReceiptId, setSelectedReceiptId] = useState<string | null>(
+    () => searchParams.get('id')?.trim() || null
+  );
+  const openReceipt = (id: string | null) => {
+    setSelectedReceiptId(id);
+    if (typeof window === 'undefined') return;
+    if (id) window.history.replaceState(null, '', `?id=${id}`);
+    else window.history.replaceState(null, '', window.location.pathname);
+  };
   const [showList, setShowList] = useState(false);
 
+  const setSerialNumber = useCallback(
+    (value: string) =>
+      setValue('serialNumber', value, { shouldDirty: false, shouldValidate: false }),
+    [setValue]
+  );
+  const { serialAutomatic, invalidateNextSerial } = useStoreDocumentSerial({
+    kind: 'receipt',
+    enabled: !selectedReceiptId,
+    setSerial: setSerialNumber,
+  });
+  const postAfterSaveRef = useRef(false);
+
   // Fetch items
-  const { data: itemsResponse, isLoading: itemsLoading } = useApiQuery<Item[]>(
+  const { isLoading: itemsLoading } = useApiQuery<Item[]>(
     ['items'],
     '/inventory/items',
     { limit: 1000, isActive: true }
   );
-  const items = itemsResponse?.data || [];
-
   // Fetch single receipt for editing
   const { data: receiptResponse } = useApiQuery<ReceiptDocumentDetail>(
     ['receipt', selectedReceiptId],
@@ -137,46 +170,83 @@ export default function ReceiptPage() {
   useEffect(() => {
     if (selectedReceipt) {
       reset({
-        serialNumber: selectedReceipt.serialNumber || '',
+        serialNumber: String(selectedReceipt.serialNumber || selectedReceipt.serial || ''),
         description: selectedReceipt.description || '',
         date: selectedReceipt.date
           ? new Date(selectedReceipt.date).toISOString().split('T')[0]
           : new Date().toISOString().split('T')[0],
         hijriDate: selectedReceipt.hijriDate || '',
         warehouseId: selectedReceipt.warehouseId || '',
+        supplierId: String(selectedReceipt.supplierId || ''),
         record: selectedReceipt.record || '',
-        isPosted: selectedReceipt.isPosted || false,
+        isPosted: resolvePostedFlag(selectedReceipt),
         isApproved: selectedReceipt.isApproved || false,
         useBarcode: selectedReceipt.useBarcode ?? true,
-        hideExistingQty: selectedReceipt.hideExistingQty ?? true,
+        hideExistingQty: selectedReceipt.hideExistingQty ?? false,
       });
-      if (selectedReceipt.lines) {
-        setReceiptLines(
-          selectedReceipt.lines.map((line: Record<string, unknown>) => ({
-            itemId: String(line.itemId ?? ''),
-            locationId: String(line.locationId ?? ''),
-            quantity: Number(line.quantity || 0),
-            unitPrice: Number(line.unitPrice || 0),
-            total: Number(line.total || 0),
-          }))
-        );
-      } else {
-        setReceiptLines([]);
-      }
+      const loadedLines = (selectedReceipt.lines ?? []).map((line: Record<string, unknown>) => ({
+        itemId: String(line.itemId ?? ''),
+        locationId: String(line.locationId ?? ''),
+        quantity: Number(line.quantity || 0),
+        unitPrice: Number(line.unitPrice || 0),
+        total: Number(line.total || 0),
+      }));
+      setReceiptLines(
+        resolvePostedFlag(selectedReceipt) ? loadedLines : [...loadedLines, blankStockVoucherLine()]
+      );
     }
   }, [selectedReceipt, reset]);
 
   // Receipt create mutation
-  const receiptMutation = useApiMutation<unknown, Record<string, unknown>>(
+  const clearReceiptForNext = () => {
+    openReceipt(null);
+    setReceiptLines(seedStockVoucherLines());
+    reset(emptyReceiptFormDefaults());
+  };
+
+  const receiptMutation = useApiMutation<{ id?: string; serial?: string; serialNumber?: string }, Record<string, unknown>>(
     '/inventory/receipts',
     'POST',
     {
-      onSuccess: () => {
-        invalidateQuery(['receipts']);
-        handleNew();
-        setSuccess('تم حفظ الإضافة بنجاح');
+      showSuccessToast: false,
+      onSuccess: (res) => {
+        invalidateStockViews(invalidateQuery);
+        invalidateNextSerial();
+        const id = res.data?.id;
+        const number = res.data?.serialNumber || res.data?.serial;
+        const shouldPost = postAfterSaveRef.current;
+        postAfterSaveRef.current = false;
+        const finish = (posted: boolean) => {
+          finishDocumentSave({
+            label: 'إذن إضافة مخزني',
+            number,
+            posted,
+            savedId: id,
+            onOpen: (saved) => openReceipt(saved),
+            onSavedOpen: (saved) => invalidateQuery(['receipt', saved]),
+            reset: clearReceiptForNext,
+          });
+        };
+        if (shouldPost && id) {
+          void apiClient
+            .post(`/inventory/receipts/${id}/post`)
+            .then((postRes) => {
+              setSuccess(postSuccessMessage(postRes));
+              setValue('isPosted', true);
+              invalidateStockViews(invalidateQuery);
+              finish(true);
+            })
+            .catch((err: unknown) => {
+              setError(err instanceof Error ? err.message : 'تم الحفظ وتعذر الترحيل');
+              if (id) openReceipt(id);
+              invalidateStockViews(invalidateQuery);
+            });
+          return;
+        }
+        finish(false);
       },
       onError: (error: ApiError) => {
+        postAfterSaveRef.current = false;
         setError(error.message || 'حدث خطأ أثناء الحفظ');
       },
     }
@@ -187,25 +257,53 @@ export default function ReceiptPage() {
     selectedReceiptId ? `/inventory/receipts/${selectedReceiptId}` : '/inventory/receipts',
     'PUT',
     {
+      showSuccessToast: false,
       onSuccess: () => {
-        invalidateQuery(['receipts']);
+        invalidateStockViews(invalidateQuery);
         const id = selectedReceiptId;
+        const number = String(selectedReceipt?.serialNumber || selectedReceipt?.serial || '');
+        const shouldPost = postAfterSaveRef.current;
+        postAfterSaveRef.current = false;
+        const finishSaved = (posted: boolean) => {
+          finishDocumentSave({
+            label: 'إذن إضافة مخزني',
+            number,
+            posted,
+            savedId: id,
+            onOpen: (saved) => openReceipt(saved),
+            onSavedOpen: (saved) => invalidateQuery(['receipt', saved]),
+            reset: clearReceiptForNext,
+          });
+        };
         if (consumeShouldRepost() && id) {
           void postNamedDocumentAfterSave(`/inventory/receipts/${id}/post`)
             .then(() => {
-              handleNew();
-              setSuccess('تم حفظ التعديلات وترحيل الإضافة');
+              finishSaved(true);
             })
             .catch((error: ApiError) => {
-              handleNew();
               setError(error.message || 'تم الحفظ لكن تعذر ترحيل الإضافة');
             });
           return;
         }
-        handleNew();
-        setSuccess('تم تحديث الإضافة بنجاح');
+        if (shouldPost && id) {
+          void apiClient
+            .post(`/inventory/receipts/${id}/post`)
+            .then((postRes) => {
+              setSuccess(postSuccessMessage(postRes));
+              setValue('isPosted', true);
+              invalidateStockViews(invalidateQuery);
+              finishSaved(true);
+            })
+            .catch((err: unknown) => {
+              setError(err instanceof Error ? err.message : 'تم الحفظ وتعذر الترحيل');
+              invalidateStockViews(invalidateQuery);
+            });
+          return;
+        }
+        finishSaved(false);
       },
       onError: (error: ApiError) => {
+        postAfterSaveRef.current = false;
         setError(error.message || 'حدث خطأ أثناء التحديث');
       },
     }
@@ -216,12 +314,11 @@ export default function ReceiptPage() {
     selectedReceiptId ? `/inventory/receipts/${selectedReceiptId}` : '/inventory/receipts',
     'DELETE',
     {
+      showSuccessToast: false,
       onSuccess: () => {
         setSuccess('تم حذف الإضافة بنجاح');
-        invalidateQuery(['receipts']);
-        setSelectedReceiptId(null);
-        setReceiptLines([]);
-        reset(emptyReceiptFormDefaults());
+        invalidateStockViews(invalidateQuery);
+        clearReceiptForNext();
       },
       onError: (error: ApiError) => {
         setError(error.message || 'حدث خطأ أثناء الحذف');
@@ -229,56 +326,14 @@ export default function ReceiptPage() {
     }
   );
 
-  // Post receipt mutation
-  const postReceiptMutation = useApiMutation<unknown, Record<string, unknown>>(
-    selectedReceiptId ? `/inventory/receipts/${selectedReceiptId}/post` : '/inventory/receipts',
-    'POST',
-    {
-      onSuccess: () => {
-        setSuccess('تم ترحيل الإضافة بنجاح');
-        setValue('isPosted', true);
-        invalidateQuery(['receipts']);
-        invalidateQuery(['receipt', selectedReceiptId]);
-      },
-      onError: (error: ApiError) => {
-        setError(error.message || 'حدث خطأ أثناء الترحيل');
-      },
-    }
+  const unpostReceiptMutation = useDocumentPostMutation(
+    '/inventory/receipts',
+    selectedReceiptId,
+    'unpost'
   );
 
-  // Unpost receipt mutation
-  const unpostReceiptMutation = useApiMutation<unknown, Record<string, unknown>>(
-    selectedReceiptId ? `/inventory/receipts/${selectedReceiptId}/unpost` : '/inventory/receipts',
-    'POST',
-    {
-      onSuccess: () => {
-        setSuccess('تم فك ترحيل الإضافة بنجاح');
-        setValue('isPosted', false);
-        markUnpostedForEdit();
-        invalidateQuery(['receipts']);
-        invalidateQuery(['receipt', selectedReceiptId]);
-      },
-      onError: (error: ApiError) => {
-        setError(error.message || 'حدث خطأ أثناء فك الترحيل');
-      },
-    }
-  );
-
-  const loading = receiptMutation.isPending || receiptUpdateMutation.isPending || receiptDeleteMutation.isPending || itemsLoading;
-
-  // Handle post/unpost
-  const handlePostUnpost = async (post: boolean) => {
-    if (!selectedReceiptId) {
-      setError('يرجى اختيار إضافة أولاً');
-      return;
-    }
-
-    if (post) {
-      postReceiptMutation.mutate({});
-    } else {
-      unpostReceiptMutation.mutate({});
-    }
-  };
+  const loading =
+    receiptMutation.isPending || receiptUpdateMutation.isPending || receiptDeleteMutation.isPending || itemsLoading;
 
   // Handle delete
   const handleDelete = async () => {
@@ -295,37 +350,44 @@ export default function ReceiptPage() {
   // Handle new receipt
   const handleNew = () => {
     resetKeepPosted();
-    setSelectedReceiptId(null);
-    setReceiptLines([]);
+    openReceipt(null);
+    setReceiptLines(seedStockVoucherLines());
     setError('');
     setSuccess('');
     reset(emptyReceiptFormDefaults());
   };
 
-  const onSaveValid: SubmitHandler<InventoryWarehouseDocHeaderFormInput> = (values) => {
+  const onSaveValid: SubmitHandler<ReceiptHeaderForm> = (values) => {
     setError('');
     setSuccess('');
+    const filledLines = receiptLines.filter(
+      (line) => line.itemId || line.quantity > 0 || (line.unitPrice ?? 0) > 0
+    );
     const linesParsed = z
       .array(inventoryReceiptLineSchema)
-      .min(1, 'يرجى إضافة أصناف للإضافة')
-      .safeParse(receiptLines);
+      .min(1, 'أدخل صنفاً وكمية في سطر واحد على الأقل')
+      .safeParse(filledLines);
     if (!linesParsed.success) {
+      postAfterSaveRef.current = false;
       const msg = linesParsed.error.issues[0]?.message;
       setError(msg || 'تحقق من بنود الأصناف');
       return;
     }
+    const activeBranchId = getTenantContext().branchId;
     const requestBody = {
+      ...(activeBranchId ? { branchId: activeBranchId } : {}),
       serial: values.serialNumber || undefined,
       description: values.description || undefined,
       date: new Date(values.date).toISOString(),
       hijriDate: values.hijriDate || undefined,
       warehouseId: values.warehouseId,
+      supplierId: values.supplierId?.trim() ? values.supplierId.trim() : null,
       record: values.record || undefined,
       isPosted: values.isPosted || false,
       isApproved: values.isApproved || false,
-      lines: receiptLines.map((line) => ({
+      lines: filledLines.map((line) => ({
         itemId: line.itemId,
-        locationId: line.locationId || undefined,
+        locationId: line.locationId?.trim() ? line.locationId.trim() : undefined,
         quantity: line.quantity,
         unitPrice: line.unitPrice || undefined,
         total: line.total || undefined,
@@ -338,24 +400,50 @@ export default function ReceiptPage() {
     }
   };
 
+  const requestPostAfterSave = () => {
+    if (isPosted) return;
+    postAfterSaveRef.current = true;
+    void handleSubmit(onSaveValid, onFieldErrors(setError))();
+  };
+
+  const handlePostUnpost = async (post: boolean) => {
+    if (post) {
+      requestPostAfterSave();
+      return;
+    }
+    if (!selectedReceiptId) {
+      setError('احفظ الإذن أولاً');
+      return;
+    }
+    unpostReceiptMutation.mutate(
+      {},
+      {
+        onSuccess: () => {
+          setSuccess('تم فك ترحيل الإضافة بنجاح');
+          setValue('isPosted', false);
+          markUnpostedForEdit();
+          invalidateStockViews(invalidateQuery);
+        },
+        onError: (error: ApiError) => {
+          setError(error.message || 'حدث خطأ أثناء فك الترحيل');
+        },
+      }
+    );
+  };
+
   // Add receipt line
   const addReceiptLine = () => {
-    setReceiptLines([...receiptLines, {
-      itemId: '',
-      locationId: '',
-      quantity: 0,
-      unitPrice: 0,
-      total: 0,
-    }]);
+    setReceiptLines([...receiptLines, blankStockVoucherLine()]);
   };
 
   // Remove receipt line
   const removeReceiptLine = (index: number) => {
-    setReceiptLines(receiptLines.filter((_, i) => i !== index));
+    const next = receiptLines.filter((_, i) => i !== index);
+    setReceiptLines(next.length ? next : [blankStockVoucherLine()]);
   };
 
   // Update receipt line
-  const updateReceiptLine = (index: number, field: keyof ReceiptLine, value: string | number) => {
+  const updateReceiptLine = (index: number, field: keyof StockVoucherLine, value: string | number) => {
     const updatedLines = [...receiptLines];
     updatedLines[index] = { ...updatedLines[index], [field]: value };
     
@@ -381,24 +469,26 @@ export default function ReceiptPage() {
         breadcrumbs={[
           { href: '/inventory', label: 'المخزون' },
           { label: 'العمليات' },
-          { label: 'إذن إضافة' },
+          { label: 'إذن إضافة مخزني' },
         ]}
         title="إذن إضافة مخزني"
         docNumber={watch('serialNumber') || ''}
         statusTone={isPosted ? 'success' : 'warning'}
-        statusLabel={isPosted ? 'مرحّل' : 'مسودة'}
-        saveLabel="حفظ"
-        onSaveDraft={() => void handleSubmit(onSaveValid, onFieldErrors(setError))()}
+        statusLabel={isPosted ? 'مرحّل' : STORE_DOCUMENT_UNPOSTED_LABEL}
+        saveLabel={STORE_SAVE_AND_POST_LABEL}
+        onSaveDraft={requestPostAfterSave}
         onCancel={handleNew}
         cancelLabel="تراجع"
         hideStandalonePost
         savePending={loading}
-        postPending={postReceiptMutation.isPending}
-        canPost={!!selectedReceiptId && !isPosted}
+        postPending={loading}
+        canPost={!isPosted}
+        onPost={() => handlePostUnpost(true)}
+        canSave={!isPosted}
         onBrowseList={() => setShowList(true)}
         browseListLabel="السابق"
         standardActions={{
-          hasDocument: Boolean(selectedReceiptId),
+          hasDocument: Boolean(selectedReceiptId) || receiptLines.some((l) => l.itemId),
           isPosted,
           onEdit: () => {
             if (!selectedReceiptId) return;
@@ -411,12 +501,32 @@ export default function ReceiptPage() {
           onVoid: handleDelete,
           onNew: handleNew,
           newLabel: 'جديد',
-          postPending: postReceiptMutation.isPending,
+          postPending: loading,
           unpostPending: unpostReceiptMutation.isPending,
         }}
+        extraActions={
+          <button
+            type="button"
+            className="rounded-lg border border-[#D6EAF3] px-3 py-2 text-sm text-[#0A3D5E]"
+            onClick={() =>
+              printStockDocument({
+                title: 'إذن إضافة مخزني',
+                number: watch('serialNumber'),
+                date: watch('date'),
+                rows: receiptLines.map((line) => ({
+                  item: line.itemId,
+                  quantity: line.quantity,
+                  price: line.unitPrice,
+                })),
+              })
+            }
+          >
+            طباعة
+          </button>
+        }
       />
 
-      <DocumentBrowseDrawer open={showList} onClose={() => setShowList(false)} title="أذون الإضافة السابقة">
+      <DocumentBrowseDrawer open={showList} onClose={() => setShowList(false)} title="أذون الإضافة المخزنية السابقة">
         <StockDocumentsListSection
           title=""
           apiPath="/inventory/receipts"
@@ -424,14 +534,19 @@ export default function ReceiptPage() {
           variant="receipt"
           selectedId={selectedReceiptId}
           onSelect={(id) => {
-            setSelectedReceiptId(id);
+            openReceipt(id);
             setShowList(false);
           }}
         />
       </DocumentBrowseDrawer>
 
-      <FormSectionCard title="بيانات الإذن" subtitle="المخزن والتاريخ والمرجع">
-          <CompactFormField label="المسلسل" placeholder="إدخل رقم المسلسل" {...register('serialNumber')} />
+      <FormSectionCard title="بيانات الإذن" subtitle="المخزن والمورد والتاريخ">
+          <CompactFormField
+            label="المسلسل"
+            placeholder={serialAutomatic ? 'يُولَّد تلقائياً' : 'أدخل رقم المسلسل'}
+            readOnly={serialAutomatic}
+            {...register('serialNumber')}
+          />
           <CompactFormField
             label="التاريخ"
             type="date"
@@ -454,6 +569,20 @@ export default function ReceiptPage() {
               />
             </CompactFormField>
           </div>
+          <CompactFormField label="المورد" error={errors.supplierId?.message}>
+            <Controller
+              name="supplierId"
+              control={control}
+              render={({ field }) => (
+                <SupplierSelect
+                  value={field.value || ''}
+                  onChange={field.onChange}
+                  className={`${inputCls} ${errors.supplierId ? 'border-red-400' : ''}`}
+                  emptyLabel="اختر المورد"
+                />
+              )}
+            />
+          </CompactFormField>
           <CompactFormField label="الشرح" placeholder="إدخل الشرح" {...register('description')} />
       </FormSectionCard>
       <AdvancedFieldsSection title="الحقول والإعدادات المتقدمة">
@@ -486,7 +615,7 @@ export default function ReceiptPage() {
                     onChange={(e) => onChange(e.target.checked)}
                     className="h-4 w-4 rounded border-[#0E78AA]/50"
                   />
-                  عدم إظهار الكمية الموجودة
+                  عدم إظهار الكمية المتاحة
                 </label>
               )}
             />
@@ -495,76 +624,17 @@ export default function ReceiptPage() {
       </AdvancedFieldsSection>
 
       <div data-tour-id="receipt-lines-card">
-      <FormSectionCard title="بنود الإضافة" subtitle="الصنف والكمية والتكلفة" bodyClassName="space-y-3">
-          <div className="flex items-center justify-end">
-            <Button type="button" variant="primary" className="gap-2" onClick={addReceiptLine}>
-              <Plus className="h-4 w-4" aria-hidden />
-              إضافة صنف
-            </Button>
-          </div>
-          {receiptLines.length === 0 ? (
-            <p className="py-6 text-center text-sm text-slate-500">لا توجد أصناف. اضغط «إضافة صنف».</p>
-          ) : (
-            receiptLines.map((line, index) => (
-              <div
-                key={`receipt-line-${index}`}
-                className="grid min-w-0 grid-cols-1 gap-3 rounded-xl border border-[#E6F0F7] bg-[#F6FBFD] p-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4"
-              >
-                <div>
-                  <label className={labelCls}>الصنف</label>
-                  <select
-                    className={inputCls}
-                    value={line.itemId}
-                    onChange={(e) => updateReceiptLine(index, 'itemId', e.target.value)}
-                    disabled={itemsLoading}
-                  >
-                    <option value="">اختر الصنف</option>
-                    {items.map((item) => (
-                      <option key={item.id} value={item.id}>
-                        {item.arabicName} ({item.code})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                {hideExistingQty ? null : (
-                <div>
-                  <label className={labelCls}>الكمية الموجودة</label>
-                  <span className={`${inputCls} flex items-center`}>
-                    {warehouseId ? (
-                      <InvoiceLineStockBalanceCell itemId={line.itemId} warehouseId={warehouseId} />
-                    ) : (
-                      <span className="text-xs text-slate-400">اختر المخزن</span>
-                    )}
-                  </span>
-                </div>
-                )}
-                <div>
-                  <label className={labelCls}>الكمية</label>
-                  <TableNumberInput
-                    className={inputCls}
-                    value={line.quantity}
-                    onValueCommit={(n) => updateReceiptLine(index, 'quantity', n)}
-                  />
-                </div>
-                <div>
-                  <label className={labelCls}>تكلفة الوحدة</label>
-                  <TableNumberInput
-                    className={inputCls}
-                    value={line.unitPrice}
-                    onValueCommit={(n) => updateReceiptLine(index, 'unitPrice', n)}
-                  />
-                </div>
-                <div className="flex items-end justify-end">
-                  <IconButton
-                    icon={Trash2}
-                    label="حذف السطر"
-                    variant="danger"
-                    onClick={() => removeReceiptLine(index)}
-                  />
-                </div>
-              </div>
-            ))
-          )}
+      <FormSectionCard title="بنود الإضافة" subtitle="الصنف والكمية والتكلفة والإجمالي" bodyClassName="space-y-3">
+          <StockVoucherLinesGrid
+            lines={receiptLines}
+            warehouseId={warehouseId}
+            hideExistingQty={hideExistingQty}
+            priceLabel="تكلفة الوحدة"
+            itemsLoading={itemsLoading}
+            onAdd={addReceiptLine}
+            onRemove={removeReceiptLine}
+            onChange={updateReceiptLine}
+          />
       </FormSectionCard>
       </div>
 

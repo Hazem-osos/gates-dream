@@ -28,10 +28,40 @@ export class PosTerminalService {
     });
   }
 
-  async list(companyId: string) {
+  async list(companyId: string, options?: { includeInactive?: boolean }) {
     return prisma.posTerminal.findMany({
-      where: { companyId, isActive: true },
+      where: { companyId, ...(options?.includeInactive ? {} : { isActive: true }) },
+      include: {
+        shifts: { where: { status: 'OPEN' }, select: { id: true, openedAt: true, userId: true }, take: 1 },
+      },
       orderBy: { name: 'asc' },
+    });
+  }
+
+  async update(
+    companyId: string,
+    id: string,
+    input: Partial<CreatePosTerminalInput> & { isActive?: boolean; receiptFooter?: string | null; offlineEnabled?: boolean }
+  ) {
+    const existing = await this.getById(companyId, id);
+    if (input.isActive === false) {
+      const open = await prisma.posShift.findFirst({ where: { companyId, terminalId: id, status: 'OPEN' } });
+      if (open) throw new AppError(422, 'Cannot disable a terminal with an open session');
+    }
+    return prisma.posTerminal.update({
+      where: { id: existing.id },
+      data: {
+        name: input.name,
+        deviceCode: input.deviceCode,
+        branchId: input.branchId,
+        warehouseId: input.warehouseId,
+        safeId: input.safeId,
+        bankAccountId: input.bankAccountId,
+        defaultCustomerId: input.defaultCustomerId,
+        isActive: input.isActive,
+        receiptFooter: input.receiptFooter,
+        offlineEnabled: input.offlineEnabled,
+      },
     });
   }
 

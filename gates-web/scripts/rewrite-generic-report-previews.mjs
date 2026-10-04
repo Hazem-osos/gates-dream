@@ -22,7 +22,6 @@ const SKIP = new Set([
   'inventory/reports/purchase-reports',
   'inventory/reports/sales-and-purchase-tax',
   'inventory/reports/items-profit-reports',
-  'inventory/reports/overdue-payments',
   'inventory/reports/item-movement-reports',
   'inventory/reports/inventory-reports',
   'inventory/reports/customer-receivables',

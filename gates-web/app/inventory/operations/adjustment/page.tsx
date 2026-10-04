@@ -9,7 +9,6 @@ import { GenericRecordsList } from '@/components/erp/GenericRecordsList';
 import {
   FormSectionCard,
   CompactFormField,
-  AdvancedFieldsSection,
   FormStickyFooter,
   Button,
   compactControlClass,
@@ -21,6 +20,7 @@ import {
   denseTrClass,
 } from '@/components/ui';
 import { useApiQuery, useApiMutation, useInvalidateQuery } from '@/lib/hooks/useApi';
+import { resolvePostedFlag } from '@/lib/documents/posting-trust';
 import { confirmAction } from '@/lib/feedback/confirm';
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
@@ -31,10 +31,22 @@ import {
 } from '@/lib/validation/inventory.schema';
 import type { ApiError } from '@/lib/api/types';
 import { onFieldErrors } from '@/lib/forms/on-field-errors';
+import { finishDocumentSave } from '@/lib/documents/finish-save';
+import { useDocumentPostMutation } from '@/lib/inventory/use-document-post-mutation';
+import { printStockDocument } from '@/lib/print/printStockDocument';
+import { invalidateStockViews } from '@/lib/invoices/invalidate-stock-views';
+import {
+  useStoreDocumentSerial,
+  STORE_DOCUMENT_UNPOSTED_LABEL,
+} from '@/lib/inventory/use-store-document-serial';
+import { STORE_SAVE_AND_POST_LABEL } from '@/lib/inventory/store-document-save-post';
 import { StockMovementBottomSplit } from '@/components/inventory/stock/StockMovementBottomSplit';
 import { TableNumberInput } from '@/components/grid/TableNumberInput';
 import { WarehouseSelect } from '@/components/form/WarehouseSelect';
+import { DatePickerWithHijri } from '@/components/ui/DatePickerWithHijri';
+import { InvoiceLineStockBalanceCell } from '@/components/invoices/InvoiceLineStockBalanceCell';
 import { apiClient } from '@/lib/api/client';
+import { postStoreDocumentAfterSave } from '@/lib/inventory/post-store-document-after-save';
 
 
 interface Item {
@@ -55,6 +67,7 @@ interface AdjustmentLine {
 }
 
 type AdjustmentDetail = Record<string, unknown> & {
+  serial?: string;
   serialNumber?: string;
   description?: string;
   date?: string;
@@ -80,8 +93,8 @@ function emptyAdjustmentFormDefaults(): InventoryWarehouseDocHeaderFormInput {
     record: '',
     isPosted: false,
     isApproved: false,
-    useBarcode: true,
-    hideExistingQty: true,
+    useBarcode: false,
+    hideExistingQty: false,
   };
 }
 
@@ -106,13 +119,24 @@ export default function AdjustmentPage() {
 
   const isPosted = watch('isPosted');
   const warehouseId = watch('warehouseId');
-  const hideExistingQty = watch('hideExistingQty');
 
   const [adjustmentLines, setAdjustmentLines] = useState<AdjustmentLine[]>([]);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [showList, setShowList] = useState(false);
   const [selectedAdjustmentId, setSelectedAdjustmentId] = useState<string | null>(null);
+
+  const setSerialNumber = useCallback(
+    (value: string) =>
+      setValue('serialNumber', value, { shouldDirty: false, shouldValidate: false }),
+    [setValue]
+  );
+  const { serialAutomatic, invalidateNextSerial } = useStoreDocumentSerial({
+    kind: 'adjustment',
+    enabled: !selectedAdjustmentId,
+    setSerial: setSerialNumber,
+  });
+  const postAfterSaveRef = useRef(false);
 
   // Fetch items
   const { data: itemsResponse, isLoading: itemsLoading } = useApiQuery<Item[]>(
@@ -143,10 +167,10 @@ export default function AdjustmentPage() {
         hijriDate: selectedAdjustment.hijriDate || '',
         warehouseId: selectedAdjustment.warehouseId || '',
         record: selectedAdjustment.record || '',
-        isPosted: selectedAdjustment.isPosted || false,
+        isPosted: resolvePostedFlag(selectedAdjustment),
         isApproved: selectedAdjustment.isApproved || false,
-        useBarcode: selectedAdjustment.useBarcode ?? true,
-        hideExistingQty: selectedAdjustment.hideExistingQty ?? true,
+        useBarcode: false,
+        hideExistingQty: false,
       });
       if (selectedAdjustment.lines) {
         setAdjustmentLines(
@@ -166,49 +190,114 @@ export default function AdjustmentPage() {
     }
   }, [selectedAdjustment, reset]);
 
-  // Adjustment create mutation
-  const adjustmentMutation = useApiMutation<unknown, Record<string, unknown>>(
-    '/inventory/adjustments',
-    'POST',
-    {
-      onSuccess: () => {
-        invalidateQuery(['adjustments']);
-        handleNew();
-        setSuccess('تم حفظ التسوية بنجاح');
-      },
-      onError: (error: ApiError) => {
-        setError(error.message || 'حدث خطأ أثناء الحفظ');
-      },
-    }
-  );
+  const clearAdjustmentForNext = () => {
+    setSelectedAdjustmentId(null);
+    setAdjustmentLines([]);
+    reset(emptyAdjustmentFormDefaults());
+  };
 
-  // Adjustment update mutation
+  const adjustmentMutation = useApiMutation<
+    { id?: string; serial?: string; serialNumber?: string },
+    Record<string, unknown>
+  >('/inventory/adjustments', 'POST', {
+    showSuccessToast: false,
+    onSuccess: (res) => {
+      invalidateStockViews(invalidateQuery);
+      invalidateNextSerial();
+      const id = res.data?.id;
+      const number = res.data?.serialNumber || res.data?.serial;
+      const shouldPost = postAfterSaveRef.current;
+      postAfterSaveRef.current = false;
+      const finish = (posted: boolean) => {
+        finishDocumentSave({
+          label: 'تسوية',
+          number,
+          posted,
+          savedId: id,
+          onOpen: (saved) => setSelectedAdjustmentId(saved),
+          onSavedOpen: (saved) => invalidateQuery(['adjustment', saved]),
+          reset: clearAdjustmentForNext,
+        });
+      };
+      if (shouldPost && id) {
+        void postStoreDocumentAfterSave({
+          postPath: `/inventory/adjustments/${id}/post`,
+          onPosted: () => {
+            setValue('isPosted', true);
+            invalidateStockViews(invalidateQuery);
+            finish(true);
+          },
+          onPostFailed: (message) => {
+            setError(message);
+            setSelectedAdjustmentId(id);
+            invalidateQuery(['adjustment', id]);
+          },
+        });
+        return;
+      }
+      finish(false);
+    },
+    onError: (error: ApiError) => {
+      postAfterSaveRef.current = false;
+      setError(error.message || 'حدث خطأ أثناء الحفظ');
+    },
+  });
+
   const adjustmentUpdateMutation = useApiMutation<unknown, Record<string, unknown>>(
     selectedAdjustmentId ? `/inventory/adjustments/${selectedAdjustmentId}` : '/inventory/adjustments',
     'PUT',
     {
+      showSuccessToast: false,
       onSuccess: () => {
-        invalidateQuery(['adjustments']);
-        handleNew();
-        setSuccess('تم تحديث التسوية بنجاح');
+        invalidateStockViews(invalidateQuery);
+        const id = selectedAdjustmentId;
+        const number = selectedAdjustment?.serialNumber || selectedAdjustment?.serial;
+        const shouldPost = postAfterSaveRef.current;
+        postAfterSaveRef.current = false;
+        const finish = (posted: boolean) => {
+          finishDocumentSave({
+            label: 'تسوية',
+            number,
+            posted,
+            savedId: id,
+            onOpen: (saved) => setSelectedAdjustmentId(saved),
+            onSavedOpen: (saved) => invalidateQuery(['adjustment', saved]),
+            reset: clearAdjustmentForNext,
+          });
+        };
+        if (shouldPost && id) {
+          void postStoreDocumentAfterSave({
+            postPath: `/inventory/adjustments/${id}/post`,
+            onPosted: () => {
+              setValue('isPosted', true);
+              invalidateStockViews(invalidateQuery);
+              finish(true);
+            },
+            onPostFailed: (message) => {
+              setError(message);
+              if (id) invalidateQuery(['adjustment', id]);
+            },
+          });
+          return;
+        }
+        finish(false);
       },
       onError: (error: ApiError) => {
+        postAfterSaveRef.current = false;
         setError(error.message || 'حدث خطأ أثناء التحديث');
       },
     }
   );
 
-  // Adjustment delete mutation
   const adjustmentDeleteMutation = useApiMutation<unknown, Record<string, unknown>>(
     selectedAdjustmentId ? `/inventory/adjustments/${selectedAdjustmentId}` : '/inventory/adjustments',
     'DELETE',
     {
+      showSuccessToast: false,
       onSuccess: () => {
         setSuccess('تم حذف التسوية بنجاح');
-        invalidateQuery(['adjustments']);
-        setSelectedAdjustmentId(null);
-        setAdjustmentLines([]);
-        reset(emptyAdjustmentFormDefaults());
+        invalidateStockViews(invalidateQuery);
+        clearAdjustmentForNext();
       },
       onError: (error: ApiError) => {
         setError(error.message || 'حدث خطأ أثناء الحذف');
@@ -216,54 +305,44 @@ export default function AdjustmentPage() {
     }
   );
 
-  // Post adjustment mutation
-  const postAdjustmentMutation = useApiMutation<unknown, Record<string, unknown>>(
-    selectedAdjustmentId ? `/inventory/adjustments/${selectedAdjustmentId}/post` : '/inventory/adjustments',
-    'POST',
-    {
-      onSuccess: () => {
-        setSuccess('تم ترحيل التسوية بنجاح');
-        setValue('isPosted', true);
-        invalidateQuery(['adjustments']);
-        invalidateQuery(['adjustment', selectedAdjustmentId]);
-      },
-      onError: (error: ApiError) => {
-        setError(error.message || 'حدث خطأ أثناء الترحيل');
-      },
-    }
-  );
-
-  // Unpost adjustment mutation
-  const unpostAdjustmentMutation = useApiMutation<unknown, Record<string, unknown>>(
-    selectedAdjustmentId ? `/inventory/adjustments/${selectedAdjustmentId}/unpost` : '/inventory/adjustments',
-    'POST',
-    {
-      onSuccess: () => {
-        setSuccess('تم فك ترحيل التسوية بنجاح');
-        setValue('isPosted', false);
-        invalidateQuery(['adjustments']);
-        invalidateQuery(['adjustment', selectedAdjustmentId]);
-      },
-      onError: (error: ApiError) => {
-        setError(error.message || 'حدث خطأ أثناء فك الترحيل');
-      },
-    }
+  const unpostAdjustmentMutation = useDocumentPostMutation(
+    '/inventory/adjustments',
+    selectedAdjustmentId,
+    'unpost'
   );
 
   const loading = adjustmentMutation.isPending || adjustmentUpdateMutation.isPending || adjustmentDeleteMutation.isPending || itemsLoading;
 
+  const requestPostAfterSave = () => {
+    if (isPosted) return;
+    postAfterSaveRef.current = true;
+    void handleSubmit(onSaveValid, onFieldErrors(setError))();
+  };
+
   // Handle post/unpost
   const handlePostUnpost = async (post: boolean) => {
+    if (post) {
+      requestPostAfterSave();
+      return;
+    }
     if (!selectedAdjustmentId) {
-      setError('يرجى اختيار تسوية أولاً');
+      setError('احفظ التسوية أولاً');
       return;
     }
 
-    if (post) {
-      postAdjustmentMutation.mutate({});
-    } else {
-      unpostAdjustmentMutation.mutate({});
-    }
+    unpostAdjustmentMutation.mutate(
+      {},
+      {
+        onSuccess: () => {
+          setSuccess('تم فك ترحيل التسوية بنجاح');
+          setValue('isPosted', false);
+          invalidateStockViews(invalidateQuery);
+        },
+        onError: (error: ApiError) => {
+          setError(error.message || 'حدث خطأ أثناء فك الترحيل');
+        },
+      }
+    );
   };
 
   // Handle delete
@@ -280,21 +359,21 @@ export default function AdjustmentPage() {
 
   // Handle new adjustment
   const handleNew = () => {
-    setSelectedAdjustmentId(null);
-    setAdjustmentLines([]);
     setError('');
     setSuccess('');
-    reset(emptyAdjustmentFormDefaults());
+    clearAdjustmentForNext();
   };
 
   const onSaveValid: SubmitHandler<InventoryWarehouseDocHeaderFormInput> = (values) => {
     setError('');
     setSuccess('');
+    const filledLines = adjustmentLines.filter((line) => String(line.itemId ?? '').trim());
     const linesParsed = z
       .array(inventoryAdjustmentLineSchema)
       .min(1, 'يرجى إضافة أصناف للتسوية')
-      .safeParse(adjustmentLines);
+      .safeParse(filledLines);
     if (!linesParsed.success) {
+      postAfterSaveRef.current = false;
       const msg = linesParsed.error.issues[0]?.message;
       setError(msg || 'تحقق من بنود الأصناف');
       return;
@@ -305,10 +384,9 @@ export default function AdjustmentPage() {
       date: new Date(values.date).toISOString(),
       hijriDate: values.hijriDate || undefined,
       warehouseId: values.warehouseId,
-      record: values.record || undefined,
       isPosted: values.isPosted || false,
       isApproved: values.isApproved || false,
-      lines: adjustmentLines.map((line) => ({
+      lines: filledLines.map((line) => ({
         itemId: line.itemId,
         locationId: line.locationId || undefined,
         bookQuantity: line.bookQuantity || undefined,
@@ -422,9 +500,9 @@ export default function AdjustmentPage() {
         title="تسوية مخزنية"
         docNumber={watch('serialNumber') || ''}
         statusTone={isPosted ? 'success' : 'warning'}
-        statusLabel={isPosted ? 'مرحّل' : 'مسودة'}
-        saveLabel="حفظ"
-        onSaveDraft={() => void handleSubmit(onSaveValid, onFieldErrors(setError))()}
+        statusLabel={isPosted ? 'مرحّل' : STORE_DOCUMENT_UNPOSTED_LABEL}
+        saveLabel={STORE_SAVE_AND_POST_LABEL}
+        onSaveDraft={requestPostAfterSave}
         savePending={loading}
         canSave={!isPosted}
         hideStandalonePost
@@ -443,9 +521,29 @@ export default function AdjustmentPage() {
           onVoid: handleDelete,
           onNew: handleNew,
           newLabel: 'جديد',
-          postPending: postAdjustmentMutation.isPending,
+          postPending: loading,
           unpostPending: unpostAdjustmentMutation.isPending,
         }}
+        extraActions={
+          <button
+            type="button"
+            className="rounded-lg border border-[#D6EAF3] px-3 py-2 text-sm text-[#0A3D5E]"
+            onClick={() =>
+              printStockDocument({
+                title: 'تسوية مخزنية',
+                number: watch('serialNumber'),
+                date: watch('date'),
+                rows: adjustmentLines.map((line) => ({
+                  item: line.itemId,
+                  quantity: line.actualQuantity,
+                  price: line.unitPrice,
+                })),
+              })
+            }
+          >
+            طباعة
+          </button>
+        }
       />
 
       <DocumentBrowseDrawer open={showList} onClose={() => setShowList(false)} title="التسويات المخزنية السابقة">
@@ -471,7 +569,7 @@ export default function AdjustmentPage() {
             {
               id: 'posted',
               header: 'الحالة',
-              getValue: (r) => (r.isPosted ? 'مرحّل' : 'مسودة'),
+              getValue: (r) => (r.isPosted ? 'مرحّل' : STORE_DOCUMENT_UNPOSTED_LABEL),
             },
           ]}
           onSelect={(id) => {
@@ -482,13 +580,29 @@ export default function AdjustmentPage() {
       </DocumentBrowseDrawer>
 
       <FormSectionCard title="بيانات التسوية" subtitle="المخزن والتاريخ والمرجع">
-          <CompactFormField label="المسلسل" placeholder="إدخل رقم المسلسل" {...register('serialNumber')} />
           <CompactFormField
-            label="التاريخ"
-            type="date"
-            error={errors.date?.message}
-            {...register('date')}
+            label="المسلسل"
+            placeholder={serialAutomatic ? 'يُولَّد تلقائياً' : 'أدخل رقم المسلسل'}
+            readOnly={serialAutomatic}
+            {...register('serialNumber')}
           />
+          <div className="min-w-[13rem] max-w-[16rem]">
+            <Controller
+              name="date"
+              control={control}
+              render={({ field }) => (
+                <DatePickerWithHijri
+                  label="التاريخ"
+                  value={field.value}
+                  onChange={field.onChange}
+                  error={Boolean(errors.date)}
+                />
+              )}
+            />
+            {errors.date?.message ? (
+              <p className="mt-1 text-right text-xs text-red-600">{errors.date.message}</p>
+            ) : null}
+          </div>
           <CompactFormField label="المخزن" error={errors.warehouseId?.message}>
             <Controller
               name="warehouseId"
@@ -505,43 +619,6 @@ export default function AdjustmentPage() {
           </CompactFormField>
           <CompactFormField label="الشرح" placeholder="إدخل الشرح" {...register('description')} />
       </FormSectionCard>
-      <AdvancedFieldsSection title="الحقول والإعدادات المتقدمة">
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-          <CompactFormField label="رقم القيد" placeholder="إدخل رقم القيد" {...register('record')} />
-          <div className="flex flex-col justify-end gap-2">
-            <Controller
-              name="useBarcode"
-              control={control}
-              render={({ field: { value, onChange } }) => (
-                <label className="inline-flex items-center gap-2 text-xs font-semibold text-[#094C6B]">
-                  <input
-                    type="checkbox"
-                    checked={value}
-                    onChange={(e) => onChange(e.target.checked)}
-                    className="h-4 w-4 rounded border-[#0E78AA]/50"
-                  />
-                  استخدام الباركود
-                </label>
-              )}
-            />
-            <Controller
-              name="hideExistingQty"
-              control={control}
-              render={({ field: { value, onChange } }) => (
-                <label className="inline-flex items-center gap-2 text-xs font-semibold text-[#094C6B]">
-                  <input
-                    type="checkbox"
-                    checked={value}
-                    onChange={(e) => onChange(e.target.checked)}
-                    className="h-4 w-4 rounded border-[#0E78AA]/50"
-                  />
-                  عدم إظهار الكمية الموجودة
-                </label>
-              )}
-            />
-          </div>
-        </div>
-      </AdvancedFieldsSection>
 
       <FormSectionCard title="بنود التسوية" subtitle="الصنف والكميات والتكلفة" bodyClassName="space-y-3">
           <div className="flex items-center justify-end">
@@ -555,7 +632,8 @@ export default function AdjustmentPage() {
                 <tr>
                   <th className={denseThClass}>م</th>
                   <th className={denseThClass}>الصنف</th>
-                  {hideExistingQty ? null : <th className={denseThClass}>الكمية الدفترية</th>}
+                  <th className={denseThClass}>الكمية المتاحة</th>
+                  <th className={denseThClass}>الكمية الدفترية</th>
                   <th className={denseThClass}>الكمية الفعلية</th>
                   <th className={denseThClass}>كمية التسوية</th>
                   <th className={denseThClass}>السعر</th>
@@ -566,7 +644,7 @@ export default function AdjustmentPage() {
               <tbody>
                 {adjustmentLines.length === 0 ? (
                   <tr className={denseTrClass}>
-                    <td colSpan={hideExistingQty ? 7 : 8} className={`${denseTdClass} py-8 text-center text-slate-500`}>
+                    <td colSpan={9} className={`${denseTdClass} py-8 text-center text-slate-500`}>
                       لا توجد أصناف. اضغط على &quot;إضافة صنف&quot; لإضافة صنف جديد.
                     </td>
                   </tr>
@@ -589,7 +667,9 @@ export default function AdjustmentPage() {
                           ))}
                         </select>
                       </td>
-                      {hideExistingQty ? null : (
+                      <td className={`${denseTdClass} text-center`}>
+                        <InvoiceLineStockBalanceCell itemId={line.itemId} warehouseId={warehouseId} />
+                      </td>
                       <td className={denseTdClass}>
                         <TableNumberInput
                           className={inputCls}
@@ -597,7 +677,6 @@ export default function AdjustmentPage() {
                           onValueCommit={(n) => updateAdjustmentLine(index, 'bookQuantity', n)}
                         />
                       </td>
-                      )}
                       <td className={denseTdClass}>
                         <TableNumberInput
                           className={inputCls}
@@ -642,7 +721,7 @@ export default function AdjustmentPage() {
       </FormSectionCard>
 
       <FormSectionCard title="الإجمالي" bodyClassName="grid grid-cols-1 gap-3 md:grid-cols-3">
-        <CompactFormField label="إجمالي التسوية" value={totalAdjustment.toFixed(2)} readOnly />
+        <CompactFormField label="إجمالي التسوية" value={totalAdjustment.toLocaleString()} readOnly />
       </FormSectionCard>
 
       <FormStickyFooter

@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { redisClient } from '../cache/redis';
 import { logger } from '../logger';
 import { env } from '../config/env';
+import { resolveClientIp } from '../http/client-ip';
 
 /**
  * IP Blocking Middleware
@@ -36,6 +37,9 @@ function getBlockKey(ip: string): string {
  * Record a rate limit violation
  */
 export async function recordViolation(ip: string): Promise<void> {
+  if (!ip || ip === 'unknown' || ip === '::') {
+    return;
+  }
   if (!redisClient.isReady()) {
     return;
   }
@@ -119,7 +123,15 @@ export const ipBlockingMiddleware = async (
   res: Response,
   next: NextFunction
 ): Promise<void> => {
-  const ip = req.ip || req.socket.remoteAddress || 'unknown';
+  const url = `${req.originalUrl || ''} ${req.path || ''}`;
+  if (/\/auth\/(login|register|logout|refresh|me|verify)(\/|\?|$)/i.test(url)) {
+    return next();
+  }
+
+  const { ip, sharedProxy } = resolveClientIp(req);
+  if (sharedProxy) {
+    return next();
+  }
 
   // Skip blocking for localhost in development (incl. IPv4-mapped ::ffff:127.0.0.1)
   const isLocalhost =

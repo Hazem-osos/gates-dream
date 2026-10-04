@@ -1,28 +1,69 @@
 import { AppError } from '../../../shared/middleware/error-handler';
+import { resolveEtaEndpoints, type EtaEndpoints } from '../utils/eta-endpoints';
+import { attachEtaHttpMeta } from '../utils/esign-submit-diagnostics';
 import type { EtaClient, EtaSubmissionResponse, EtaTokenResponse } from './eta-api.client';
 
 /**
  * HTTP client for ETA Identity + Document APIs (production / pre-production).
  * Activated when ETA_USE_LIVE_CLIENT=true and credentials are present.
  */
+type EtaSubmitBody = {
+  submissionId?: string;
+  acceptedDocuments?: Array<{ uuid?: string; longId?: string; status?: string }>;
+  rejectedDocuments?: Array<{
+    error?: { message?: string; details?: Array<{ message?: string }> };
+  }>;
+};
+
+export function interpretEtaSubmission(body: unknown, shareBaseUrl: string): EtaSubmissionResponse {
+  const json = (body ?? {}) as EtaSubmitBody;
+  const accepted = json.acceptedDocuments?.[0];
+  if (!accepted?.uuid) {
+    const rejected = json.rejectedDocuments?.[0];
+    const details = rejected?.error?.details?.map((row) => row.message).filter(Boolean) ?? [];
+    const message =
+      details.join(' — ') ||
+      rejected?.error?.message ||
+      'مصلحة الضرائب رفضت الفاتورة';
+    return {
+      submissionUuid: json.submissionId ?? '',
+      documentUuid: '',
+      longId: '',
+      publicUrl: '',
+      dateTimeReceived: new Date().toISOString(),
+      status: 'INVALID',
+      validationErrors: [{ property: 'document', message }],
+    };
+  }
+
+  const raw = String(accepted.status ?? '').toLowerCase();
+  const status = raw === 'valid' ? 'VALID' : raw === 'invalid' ? 'INVALID' : 'SUBMITTED';
+  const longId = accepted.longId ?? '';
+  return {
+    submissionUuid: json.submissionId ?? accepted.uuid,
+    documentUuid: accepted.uuid,
+    longId,
+    publicUrl: longId ? `${shareBaseUrl}/documents/${accepted.uuid}/share/${longId}` : '',
+    dateTimeReceived: new Date().toISOString(),
+    status,
+  };
+}
+
 export class LiveEtaClient implements EtaClient {
   private tokenCache = new Map<string, { token: string; exp: number }>();
 
-  private baseUrl(): string {
-    const url = process.env.ETA_API_BASE_URL?.trim();
-    if (!url) throw new AppError(501, 'ETA_API_BASE_URL is required for live ETA client');
-    return url.replace(/\/$/, '');
+  private endpoints(override?: EtaEndpoints): EtaEndpoints {
+    return override ?? resolveEtaEndpoints({});
   }
 
-  private identityUrl(): string {
-    return (process.env.ETA_IDENTITY_URL?.trim() || `${this.baseUrl()}/connect/token`).replace(
-      /\/$/,
-      ''
-    );
-  }
-
-  async authenticate(clientId: string, clientSecret: string): Promise<EtaTokenResponse> {
-    const cached = this.tokenCache.get(clientId);
+  async authenticate(
+    clientId: string,
+    clientSecret: string,
+    endpoints?: EtaEndpoints
+  ): Promise<EtaTokenResponse> {
+    const target = this.endpoints(endpoints);
+    const cacheKey = `${target.identityUrl}:${clientId}`;
+    const cached = this.tokenCache.get(cacheKey);
     if (cached && cached.exp > Date.now()) {
       return { access_token: cached.token, expires_in: Math.floor((cached.exp - Date.now()) / 1000) };
     }
@@ -34,7 +75,7 @@ export class LiveEtaClient implements EtaClient {
       scope: 'InvoicingAPI',
     });
 
-    const response = await fetch(this.identityUrl(), {
+    const response = await fetch(target.identityUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body,
@@ -42,11 +83,13 @@ export class LiveEtaClient implements EtaClient {
 
     if (!response.ok) {
       const text = await response.text();
-      throw new AppError(502, `ETA authentication failed (${response.status}): ${text.slice(0, 200)}`);
+      const error = new AppError(502, `ETA authentication failed (${response.status}): ${text.slice(0, 200)}`);
+      attachEtaHttpMeta(error, response.status, text);
+      throw error;
     }
 
     const json = (await response.json()) as EtaTokenResponse;
-    this.tokenCache.set(clientId, {
+    this.tokenCache.set(cacheKey, {
       token: json.access_token,
       exp: Date.now() + (json.expires_in - 60) * 1000,
     });
@@ -55,9 +98,11 @@ export class LiveEtaClient implements EtaClient {
 
   async submitDocument(
     token: string,
-    payload: Record<string, unknown>
+    payload: Record<string, unknown>,
+    endpoints?: EtaEndpoints
   ): Promise<EtaSubmissionResponse> {
-    const response = await fetch(`${this.baseUrl()}/api/v1/documentsubmissions`, {
+    const target = this.endpoints(endpoints);
+    const response = await fetch(`${target.apiBaseUrl}/api/v1/documentsubmissions`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
@@ -68,30 +113,22 @@ export class LiveEtaClient implements EtaClient {
 
     const text = await response.text();
     if (!response.ok) {
-      throw new AppError(502, `ETA submit failed (${response.status}): ${text.slice(0, 300)}`);
+      const error = new AppError(502, `ETA submit failed (${response.status}): ${text.slice(0, 300)}`);
+      attachEtaHttpMeta(error, response.status, text);
+      throw error;
     }
 
-    const json = JSON.parse(text) as {
-      submissionId?: string;
-      acceptedDocuments?: Array<{ uuid: string; longId: string; status: string }>;
-    };
-    const doc = json.acceptedDocuments?.[0];
-    if (!doc) {
-      throw new AppError(502, 'ETA submit returned no accepted documents');
-    }
-
-    return {
-      submissionUuid: json.submissionId ?? doc.uuid,
-      documentUuid: doc.uuid,
-      longId: doc.longId,
-      publicUrl: '',
-      dateTimeReceived: new Date().toISOString(),
-      status: doc.status === 'Valid' ? 'VALID' : 'INVALID',
-    };
+    return interpretEtaSubmission(JSON.parse(text) as unknown, target.shareBaseUrl);
   }
 
-  async cancelDocument(token: string, documentUuid: string, reason: string) {
-    const response = await fetch(`${this.baseUrl()}/api/v1/documents/state/${documentUuid}/state`, {
+  async cancelDocument(
+    token: string,
+    documentUuid: string,
+    reason: string,
+    endpoints?: EtaEndpoints
+  ) {
+    const target = this.endpoints(endpoints);
+    const response = await fetch(`${target.apiBaseUrl}/api/v1/documents/state/${documentUuid}/state`, {
       method: 'PUT',
       headers: {
         Authorization: `Bearer ${token}`,
@@ -102,21 +139,30 @@ export class LiveEtaClient implements EtaClient {
     return { accepted: response.ok };
   }
 
-  async getDocumentStatus(token: string, documentUuid: string): Promise<EtaSubmissionResponse> {
-    const response = await fetch(`${this.baseUrl()}/api/v1/documents/${documentUuid}/raw`, {
+  async getDocumentStatus(
+    token: string,
+    documentUuid: string,
+    endpoints?: EtaEndpoints
+  ): Promise<EtaSubmissionResponse> {
+    const target = this.endpoints(endpoints);
+    const response = await fetch(`${target.apiBaseUrl}/api/v1/documents/${documentUuid}/raw`, {
       headers: { Authorization: `Bearer ${token}` },
     });
     if (!response.ok) {
       throw new AppError(502, `ETA status failed (${response.status})`);
     }
     const json = (await response.json()) as { uuid: string; longId: string; status: string };
+    const raw = String(json.status ?? '').toLowerCase();
+    const status = raw === 'valid' ? 'VALID' : raw === 'invalid' ? 'INVALID' : 'SUBMITTED';
     return {
       submissionUuid: documentUuid,
       documentUuid: json.uuid,
       longId: json.longId,
-      publicUrl: '',
+      publicUrl: json.longId
+        ? `${target.shareBaseUrl}/documents/${json.uuid}/share/${json.longId}`
+        : '',
       dateTimeReceived: new Date().toISOString(),
-      status: json.status === 'Valid' ? 'VALID' : 'INVALID',
+      status,
     };
   }
 }

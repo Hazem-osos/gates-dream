@@ -37,6 +37,12 @@ export type ItemOption = {
   englishName?: string | null;
   salesPrice?: number | null;
   averageCost?: number | string | null;
+  /** Physical on-hand (sum of warehouse balances). */
+  quantityOnHand?: number | null;
+  reservedQuantity?: number | null;
+  /** Saleable qty = quantityOnHand − reservedQuantity. */
+  availableQuantity?: number | null;
+  /** Picker alias — same as availableQuantity when listItems attaches stock. */
   onHandQuantity?: number | null;
   itemPrices?: {
     price?: number;
@@ -288,7 +294,7 @@ export function useCurrenciesQuery(limit = 100) {
     queryKeys.currencies,
     '/accounting/currencies',
     { limit, isActive: true },
-    { staleTime: staleTimes.masterMs, gcTime: staleTimes.masterGcMs }
+    { staleTime: 0, gcTime: staleTimes.masterGcMs, refetchOnMount: 'always' }
   );
 }
 

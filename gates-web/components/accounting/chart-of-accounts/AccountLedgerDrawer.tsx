@@ -12,6 +12,8 @@ import {
   Loader2,
 } from 'lucide-react';
 import { CenteredOverlay } from '@/components/erp/CenteredOverlay';
+import Link from 'next/link';
+import { journalDocumentHref } from '@/lib/accounting/journal-source';
 import { useApiQuery } from '@/lib/hooks/useApi';
 import { formatMoney } from '@/lib/hooks/useExecutiveDashboard';
 import { Button } from '@/app/components/ui';
@@ -28,9 +30,13 @@ type StatementData = {
     debitBase: number;
     creditBase: number;
     runningBalance?: number;
+    journalEntryId?: string | null;
     legacyGlNum?: string | null;
+    sourceId?: string | null;
     sourceType?: string | null;
+    sourceKind?: string | null;
     sourceNumber?: string | null;
+    rowKind?: string;
   }>;
 };
 
@@ -83,7 +89,7 @@ function SummaryCard({
     neutral: 'bg-slate-50 border-slate-200 text-slate-800',
     debit: 'bg-emerald-50/80 border-emerald-200/80 text-emerald-900',
     credit: 'bg-rose-50/80 border-rose-200/80 text-rose-900',
-    balance: 'bg-[#0E79AA]/10 border-[#0E79AA]/25 text-[#094C6B]',
+    balance: 'bg-[#0E78AA]/10 border-[#0E78AA]/25 text-[#094C6B]',
   };
   return (
     <div className={cn('rounded-xl border p-3 min-w-0', tones[tone])}>
@@ -123,7 +129,13 @@ export function AccountLedgerDrawer({
   );
 
   const payload = data?.data;
-  const lines = useMemo(() => payload?.transactions ?? [], [payload?.transactions]);
+  const lines = useMemo(
+    () =>
+      (payload?.transactions ?? []).filter(
+        (line) => line.rowKind !== 'total' && line.rowKind !== 'opening'
+      ),
+    [payload?.transactions]
+  );
   const opening = payload?.openingBalance ?? 0;
   const closing = payload?.closingBalance ?? opening;
 
@@ -148,7 +160,7 @@ export function AccountLedgerDrawer({
     <CenteredOverlay open={open} onClose={onClose} width="xl" labelledBy="ledger-drawer-title">
       <div className="flex min-h-0 flex-1 flex-col bg-slate-50" style={{ colorScheme: 'light' }}>
         {/* Header */}
-        <div className="shrink-0 bg-gradient-to-l from-[#0E79AA] to-[#094C6B] text-white px-5 pt-5 pb-4">
+        <div className="shrink-0 bg-gradient-to-l from-[#0E78AA] to-[#094C6B] text-white px-5 pt-5 pb-4">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0 flex-1">
               <p className="text-xs font-medium text-white/80 mb-2 flex items-center gap-1.5">
@@ -286,21 +298,42 @@ export function AccountLedgerDrawer({
                       {formatMoney(opening)}
                     </td>
                   </tr>
-                  {lines.map((line, i) => (
+                  {lines.map((line, i) => {
+                    const journalHref = line.journalEntryId
+                      ? `/accounting/operations/journal-entry?id=${encodeURIComponent(line.journalEntryId)}`
+                      : null;
+                    const sourceHref = journalDocumentHref({
+                      sourceType: line.sourceType,
+                      sourceKind: line.sourceKind,
+                      sourceId: line.sourceId,
+                    });
+                    return (
                     <tr
                       key={line.lineId ?? `${line.entryDate}-${i}`}
-                      className="border-b border-slate-50 hover:bg-[#0E79AA]/[0.03] transition-colors"
+                      className="border-b border-slate-50 hover:bg-[#0E78AA]/[0.03] transition-colors"
                     >
                       <td className="py-2.5 px-3 align-top whitespace-nowrap text-slate-600 text-xs">
                         {formatDateAr(String(line.entryDate))}
                         {line.legacyGlNum ? (
-                          <span className="block text-[10px] text-slate-400 mt-0.5">#{line.legacyGlNum}</span>
+                          journalHref ? (
+                            <Link href={journalHref} className="block text-[10px] mt-0.5 font-medium text-[#0E78AA] underline">
+                              #{line.legacyGlNum}
+                            </Link>
+                          ) : (
+                            <span className="block text-[10px] text-slate-400 mt-0.5">#{line.legacyGlNum}</span>
+                          )
                         ) : null}
                       </td>
                       <td className="py-2.5 px-3 align-top text-slate-800 max-w-[200px]">
                         <span className="line-clamp-2">{line.description || '—'}</span>
                         {line.sourceNumber ? (
-                          <span className="text-[10px] text-slate-400 block mt-0.5">{line.sourceNumber}</span>
+                          sourceHref ? (
+                            <Link href={sourceHref} className="text-[10px] block mt-0.5 font-medium text-[#0E78AA] underline">
+                              {line.sourceNumber}
+                            </Link>
+                          ) : (
+                            <span className="text-[10px] text-slate-400 block mt-0.5">{line.sourceNumber}</span>
+                          )
                         ) : null}
                       </td>
                       <td className="py-2.5 px-3 text-end tabular-nums text-emerald-700 font-medium whitespace-nowrap">
@@ -313,7 +346,8 @@ export function AccountLedgerDrawer({
                         {formatMoney(line.runningBalance ?? 0)}
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
                 <tfoot className="bg-slate-50 border-t border-slate-200 text-xs font-semibold">
                   <tr>

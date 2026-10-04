@@ -19,6 +19,19 @@ function isGroupRole(role?: string | null) {
   return Boolean(role && role.startsWith('GROUP'));
 }
 
+/** Exact value plus numeric twins (`1` / `00001`) so a deleted serial can be reused. */
+function codeVariants(value: string | null | undefined): string[] {
+  const trimmed = String(value ?? '').trim();
+  if (!trimmed) return [];
+  const out = new Set<string>([trimmed]);
+  if (/^\d+$/.test(trimmed)) {
+    const plain = String(parseInt(trimmed, 10));
+    out.add(plain);
+    out.add(plain.padStart(5, '0'));
+  }
+  return [...out];
+}
+
 function optionalDecimal(value?: number | null) {
   if (value == null) return null;
   return new Decimal(value);
@@ -57,10 +70,63 @@ export class DelegateService {
 
   async nextDelegateCode(companyId: string): Promise<string> {
     const rows = await prisma.delegate.findMany({
-      where: { companyId },
+      where: { companyId, isActive: true },
       select: { serial: true, code: true },
     });
     return nextNumericCode(rows.flatMap((row) => [row.serial, row.code]));
+  }
+
+  /** Drop inactive rows that still hold this serial/code so a new مندوب can reuse it. */
+  private async releaseInactiveCodeHolders(
+    companyId: string,
+    values: Array<string | null | undefined>,
+    exceptId?: string
+  ) {
+    const keys = [...new Set(values.flatMap((value) => codeVariants(value)))];
+    if (!keys.length) return;
+    const holders = await prisma.delegate.findMany({
+      where: {
+        companyId,
+        isActive: false,
+        ...(exceptId ? { id: { not: exceptId } } : {}),
+        OR: [{ code: { in: keys } }, { serial: { in: keys } }],
+      },
+      select: { id: true },
+    });
+    for (const holder of holders) {
+      await this.removeDelegateRow(holder.id);
+    }
+  }
+
+  /** Hard delete. Invoice / quote / return links are cleared first (those FKs are SET NULL). */
+  private async removeDelegateRow(delegateId: string) {
+    await prisma.$transaction([
+      prisma.invoice.updateMany({
+        where: { representativeId: delegateId },
+        data: { representativeId: null },
+      }),
+      prisma.invoice.updateMany({
+        where: { driverId: delegateId },
+        data: { driverId: null },
+      }),
+      prisma.invoice.updateMany({
+        where: { distributorId: delegateId },
+        data: { distributorId: null },
+      }),
+      prisma.purchaseReturn.updateMany({
+        where: { delegateId },
+        data: { delegateId: null },
+      }),
+      prisma.priceQuote.updateMany({
+        where: { delegateId },
+        data: { delegateId: null },
+      }),
+      prisma.delegate.updateMany({
+        where: { groupId: delegateId },
+        data: { groupId: null },
+      }),
+      prisma.delegate.delete({ where: { id: delegateId } }),
+    ]);
   }
 
   async createDelegate(companyId: string, data: CreateDelegateInput) {
@@ -70,6 +136,7 @@ export class DelegateService {
       const serial =
         requestedSerial || requestedCode || (await this.nextDelegateCode(companyId));
       const code = requestedCode || requestedSerial || serial;
+      await this.releaseInactiveCodeHolders(companyId, [serial, code]);
       await this.assertUniqueDelegateCode(companyId, serial);
       if (code !== serial) {
         await this.assertUniqueDelegateCode(companyId, code);
@@ -190,6 +257,11 @@ export class DelegateService {
     if (!existing) {
       throw new AppError(404, 'المندوب غير موجود. الحل: حدّث الدليل ثم أعد المحاولة.');
     }
+    await this.releaseInactiveCodeHolders(
+      companyId,
+      [data.code, data.serial],
+      delegateId
+    );
     await this.assertUniqueDelegateCode(companyId, data.code ?? data.serial, delegateId);
 
     const { role, ...rest } = data;
@@ -258,10 +330,7 @@ export class DelegateService {
       }
     }
 
-    await prisma.delegate.update({
-      where: { id: delegateId },
-      data: { isActive: false },
-    });
+    await this.removeDelegateRow(delegateId);
 
     logger.info({ companyId, delegateId }, 'Delegate deleted');
     return { success: true };

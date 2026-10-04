@@ -145,7 +145,7 @@ export const authorize = (options: AuthorizeOptions) => {
       const companyId = req.companyId || req.tenantId || req.user.company_id;
 
       if (!companyId) {
-        throw new AppError(400, 'Company ID is required');
+        throw new AppError(400, 'معرّف الشركة مطلوب');
       }
 
       // Get user roles from token (for fallback)

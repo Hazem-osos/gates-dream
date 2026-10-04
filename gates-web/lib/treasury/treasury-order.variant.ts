@@ -22,7 +22,7 @@ export const TREASURY_ORDER_VARIANTS: Record<TreasuryOrderVariantId, TreasuryOrd
     id: 'PAYMENT_ORDER',
     orderType: 'PAYMENT_ORDER',
     transactionKind: 'PAYMENT',
-    title: 'أمر صرف نقدية',
+    title: 'أمر صرف نقدية (بدون قيد محاسبي)',
     breadcrumbs: [
       { label: 'المحاسبة', href: '/accounting' },
       { label: 'الخزينة' },
@@ -40,7 +40,7 @@ export const TREASURY_ORDER_VARIANTS: Record<TreasuryOrderVariantId, TreasuryOrd
     id: 'RECEIPT_ORDER',
     orderType: 'RECEIPT_ORDER',
     transactionKind: 'RECEIPT',
-    title: 'أمر توريد نقدية',
+    title: 'أمر توريد نقدية (بدون قيد محاسبي)',
     breadcrumbs: [
       { label: 'المحاسبة', href: '/accounting' },
       { label: 'الخزينة' },

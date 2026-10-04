@@ -25,7 +25,7 @@ export function injectDocumentProfiles(
       key: `profile-${p.slug}`,
       icon: '',
       label: p.nameAr,
-      color: '#0E79AA',
+      color: '#0E78AA',
       href: profileEntryHref(p),
     })),
   ];

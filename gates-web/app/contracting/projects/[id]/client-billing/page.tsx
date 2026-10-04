@@ -1,7 +1,8 @@
 'use client';
 
-import { useMemo, useState } from 'react';
-import { useParams } from 'next/navigation';
+import { useEffect, useMemo, useState } from 'react';
+import { useParams, useSearchParams } from 'next/navigation';
+import Link from 'next/link';
 import { useMutation } from '@tanstack/react-query';
 import { FilePlus2, Warehouse } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -40,6 +41,7 @@ const RecordSiteStockModal = lazyNamedModal(
 
 export default function ClientBillingPage() {
   const params = useParams<{ id: string }>();
+  const searchParams = useSearchParams();
   const projectId = params.id;
   const invalidate = useInvalidateQuery();
   const [contractOpen, setContractOpen] = useState(false);
@@ -51,6 +53,12 @@ export default function ClientBillingPage() {
   const [installIds, setInstallIds] = useState<string[]>([]);
   const [penalties, setPenalties] = useState('0');
   const [activeInvoiceId, setActiveInvoiceId] = useState<string | null>(null);
+
+  const invoiceFromQuery = searchParams.get('invoiceId');
+
+  useEffect(() => {
+    if (invoiceFromQuery) setActiveInvoiceId(invoiceFromQuery);
+  }, [invoiceFromQuery]);
 
   const projectQ = useApiQuery<ContractingProject>(
     queryKeys.contracting.project(projectId),
@@ -131,7 +139,28 @@ export default function ClientBillingPage() {
         </ProjectCard>
       ) : (
         <>
-          <ProjectCard title="ملخص عقد المالك">
+          <ProjectCard
+            title="ملخص عقد المالك"
+            actions={
+              <div className="flex flex-wrap gap-2">
+                <Link href={`/contracting/projects/${projectId}/preliminary-certificates`}>
+                  <Button size="sm" variant="secondary">
+                    المستخلصات الابتدائية
+                  </Button>
+                </Link>
+                <Link href={`/contracting/projects/${projectId}/variation-orders`}>
+                  <Button size="sm" variant="secondary">
+                    أوامر التغيير
+                  </Button>
+                </Link>
+                <Link href={`/contracting/projects/${projectId}/actual-cost`}>
+                  <Button size="sm" variant="secondary">
+                    تكاليف المشروع
+                  </Button>
+                </Link>
+              </div>
+            }
+          >
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
               <MetricTile label="رقم العقد" value={contract.contractNumber} />
               <MetricTile label="العميل" value={contract.client?.arabicName ?? '—'} />
@@ -249,7 +278,7 @@ export default function ClientBillingPage() {
                       type="button"
                       onClick={() => setActiveInvoiceId(invoice.id)}
                       className={`rounded-lg border px-3 py-1.5 text-sm ${
-                        activeInvoice?.id === invoice.id ? 'border-[#0E79AA] bg-[#F0F7FB]' : 'border-slate-200'
+                        activeInvoice?.id === invoice.id ? 'border-[#0E78AA] bg-[#F0F7FB]' : 'border-slate-200'
                       }`}
                     >
                       {invoice.invoiceNumber} <ClientInvoiceStatusBadge status={invoice.status} />

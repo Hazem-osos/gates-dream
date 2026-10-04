@@ -9,7 +9,6 @@ import {
   useQueryClient,
   UseQueryOptions,
   UseMutationOptions,
-  keepPreviousData,
 } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
 import { isSoftQueryFailure } from '../api/isAbortError';
@@ -21,6 +20,7 @@ import {
   isMasterCatalogApiPath,
   isMutationTenantReady,
 } from '../tenant/tenant-context-storage';
+import { sealDocumentPostingCache } from '@/lib/documents/posting-trust';
 import { bumpMasterCatalog, isMasterCatalogKey } from '@/lib/query/master-catalog-sync';
 
 export type UseApiMutationExtraOptions = {
@@ -28,6 +28,8 @@ export type UseApiMutationExtraOptions = {
   showSuccessToast?: boolean;
   /** Custom success message; defaults to «تم الحفظ». */
   successMessage?: string;
+  /** Override the client request timeout (ms). */
+  timeout?: number;
 };
 
 // Wave 5 fix: `apiClient`'s `handleResponse` already calls `notifyApiError`
@@ -77,9 +79,19 @@ export function useApiQuery<T>(
 
   const queryOptions = pickQueryOptions(options);
 
+  const isolatesDocument = key.some(
+    (part) => typeof part === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(part)
+  );
+
+  const masterList = isMasterCatalogApiPath(url) && !isolatesDocument;
+
   return useQuery<ApiResponse<T>, ApiError>({
-    placeholderData: keepPreviousData,
     ...queryOptions,
+    // A saved customer, item, invoice or voucher must not stay hidden behind
+    // the previous list. Open document forms keep their own query.
+    placeholderData: undefined,
+    staleTime: masterList ? 0 : queryOptions.staleTime,
+    refetchOnMount: queryOptions.refetchOnMount ?? 'always',
     queryKey: [...key, params],
     queryFn: async ({ signal }) =>
       fetchApiQuery<T>(url, params, signal, {
@@ -121,12 +133,15 @@ export function useApiMutation<TData = unknown, TVariables = unknown>(
     onSuccess: userOnSuccess,
     showSuccessToast,
     successMessage,
+    timeout,
     ...restOptions
   } = options ?? {};
+  const queryClient = useQueryClient();
 
   const mutationNotify = {
     skipSuccessNotify: showSuccessToast === false,
     successMessage,
+    ...(timeout != null ? { timeout } : {}),
   };
 
   return useMutation<ApiResponse<TData>, ApiError, TVariables>({
@@ -154,7 +169,8 @@ export function useApiMutation<TData = unknown, TVariables = unknown>(
       }
     },
     ...restOptions,
-    onSuccess: (data, variables, onMutateResult, context) => {
+    onSuccess: async (data, variables, onMutateResult, context) => {
+      await sealDocumentPostingCache(queryClient, url, data);
       userOnSuccess?.(data, variables, onMutateResult, context);
     },
     onError: (error, variables, onMutateResult, context) => {

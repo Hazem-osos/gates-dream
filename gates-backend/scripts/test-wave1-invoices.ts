@@ -636,19 +636,16 @@ async function main() {
   const custAfterUnSi = await prisma.customer.findUnique({ where: { id: CUSTOMER_ID } });
   assertClose(Number(custAfterUnSi!.balance), 0, 'Customer balance after SI unpost');
 
-  // C11: unpost no longer flag-flips the original revenue JE back to
-  // "unposted" — it stays posted forever (immutable fact) and gets
-  // neutralized by a dated contra entry linked via reversalOfJournalEntryId.
+  // In-place unpost: same revenue JE, caches inverted, no contra child.
   const revJe = await prisma.journalEntry.findUnique({
     where: { id: siPost.invoice.journalEntryId! },
   });
-  assert(revJe!.isPosted === true, 'Original revenue JE remains posted (immutable)');
-  assert(revJe!.activeSourceKey === null, 'Original revenue JE released its activeSourceKey on reversal');
-  const revJeReversal = await prisma.journalEntry.findFirst({
+  assert(revJe!.isPosted === false, 'Original revenue JE unposted in place');
+  assert(revJe!.activeSourceKey === null, 'Original revenue JE released activeSourceKey');
+  const revJeReversal = await prisma.journalEntry.count({
     where: { reversalOfJournalEntryId: revJe!.id },
   });
-  assert(!!revJeReversal, 'Revenue JE has a contra reversal entry');
-  assert(revJeReversal!.isPosted === true, 'Reversal entry is posted');
+  assert(revJeReversal === 0, 'No contra reversal journal for invoice unpost');
 
   let doubleUnpostFailed = false;
   try {

@@ -3,6 +3,7 @@ import prisma from '../../../shared/database/prisma';
 import { AppError } from '../../../shared/middleware/error-handler';
 import { roundTo4 } from '../../../shared/utils/decimal-round';
 import { contractingProjectService } from './contracting-project.service';
+import { requireLegacyWave3Stack } from './contracting-canonical-stack.service';
 
 export interface BoqItemInput {
   itemNumber: string;
@@ -23,6 +24,7 @@ export class ProjectBoqService {
   }
 
   async replaceAll(companyId: string, projectId: string, items: BoqItemInput[]) {
+    await requireLegacyWave3Stack(companyId, projectId);
     await contractingProjectService.getById(companyId, projectId);
     if (items.length === 0) throw new AppError(422, 'BOQ requires at least one item');
 

@@ -207,20 +207,42 @@ function AccountingPeriodsPageInner() {
   const handleClose = async () => {
     if (!selectedId) return;
     setError('');
+    setSuccess('');
+    setClosing(true);
+    try {
+      await apiClient.post(`/accounting/periods/${selectedId}/close-preview`);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'تعذر إغلاق السنة');
+      setClosing(false);
+      return;
+    }
+    setClosing(false);
+
+    const confirmed = await confirmAction({
+      title: 'إغلاق السنة المالية',
+      message: 'صلح متوسط التكلفة. هل صلّحت؟ أكمل ولا لسه؟',
+      confirmLabel: 'أكمل الإغلاق',
+      cancelLabel: 'إلغاء',
+      tone: 'warning',
+    });
+    if (!confirmed) return;
+
     setClosing(true);
     try {
       const res = await apiClient.post<PeriodRow & { closingJournalEntryId?: string | null }>(
         `/accounting/periods/${selectedId}/close`
       );
       if (res.data) hydrate(res.data);
-      setSuccess(
-        res.data?.closingJournalEntryId
-          ? 'تم إغلاق الفترة وإنشاء قيد الإقفال التلقائي (إيرادات ومصروفات عكس نوعها على الأرباح والخسائر)'
-          : res.message || 'تم إغلاق الفترة المالية'
-      );
+        if (res.data?.closingJournalEntryId) {
+          setSuccess(
+            'تم إغلاق السنة وإنشاء قيد الإقفال. حسابات قائمة الدخل أُقفلت بعكس جهتها، والفرق على حساب الأرباح والخسائر.'
+          );
+        } else {
+          setSuccess('تم إغلاق السنة المالية (لا توجد أرصدة قائمة دخل للإقفال).');
+        }
       await refetchPeriods();
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'تعذر إغلاق الفترة');
+      setError(err instanceof Error ? err.message : 'تعذر إغلاق السنة');
     } finally {
       setClosing(false);
     }
@@ -325,7 +347,7 @@ function AccountingPeriodsPageInner() {
               className="inline-flex items-center gap-1.5 rounded-lg border border-red-300 bg-white px-2.5 py-1 text-xs font-semibold text-red-800 disabled:cursor-not-allowed disabled:opacity-40"
             >
               <Lock className="h-3.5 w-3.5" />
-              {closing ? 'جاري الإغلاق…' : 'إغلاق الفترة المالية'}
+              {closing ? 'جاري الإغلاق…' : 'إغلاق السنة المالية'}
             </button>
           </div>
         </div>

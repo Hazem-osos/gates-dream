@@ -3,6 +3,7 @@ import { z } from 'zod';
 const optionalMoney = z.number().nonnegative().nullable().optional();
 
 const priceTierFields = {
+  purchasePrice: optionalMoney,
   discount: optionalMoney,
   wholesale: optionalMoney,
   semiWholesale: optionalMoney,

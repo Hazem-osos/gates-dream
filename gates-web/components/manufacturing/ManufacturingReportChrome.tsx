@@ -9,19 +9,19 @@ export function ManufacturingReportChrome({
   children,
   onPreview,
   onReset,
-  onDesign,
   error,
   onClearError,
   previewDisabled,
+  below,
 }: {
   title: string;
   children: ReactNode;
   onPreview: () => void;
   onReset?: () => void;
-  onDesign?: () => void;
   error?: string;
   onClearError?: () => void;
   previewDisabled?: boolean;
+  below?: ReactNode;
 }) {
   return (
     <ReportFilterPageShell
@@ -39,11 +39,11 @@ export function ManufacturingReportChrome({
         showTitle={false}
         onPreview={onPreview}
         onReset={onReset}
-        onDesign={onDesign}
         previewDisabled={previewDisabled}
       >
         {children}
       </UnifiedReportFilterCard>
+      {below}
     </ReportFilterPageShell>
   );
 }

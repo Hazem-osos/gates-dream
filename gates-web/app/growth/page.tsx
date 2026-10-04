@@ -15,6 +15,7 @@ import { GrowthOpportunityDrawer } from '@/components/growth/GrowthOpportunityDr
 import {
   CommandCenter,
   MetricBar,
+  SegmentedBar,
   TriageQueue,
   DASH_PANEL,
   HUD_SEGMENT,
@@ -146,6 +147,18 @@ export default function GrowthPage() {
           },
         ]}
       />
+
+      <section className={`${DASH_PANEL} p-4`}>
+        <p className="mb-2 text-xs font-semibold">توزيع القيمة المحتملة</p>
+        <SegmentedBar
+          segments={[
+            { label: 'إيراد', value: overview?.breakdown.revenue ?? 0, color: '#0E78AA' },
+            { label: 'تحصيل', value: overview?.breakdown.cashRecovery ?? 0, color: '#059669' },
+            { label: 'مخزون', value: overview?.breakdown.inventory ?? 0, color: '#E3A008' },
+            { label: 'توفير', value: overview?.breakdown.savings ?? 0, color: '#7C6BB5' },
+          ]}
+        />
+      </section>
 
       {overview?.empty ? (
         <section className={`${DASH_PANEL} p-6`}>

@@ -37,13 +37,13 @@ export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
 
 const variantClasses: Record<'primary' | 'secondary' | 'danger' | 'ghost', string> = {
   primary:
-    'bg-[#0E78AA] text-white shadow-sm hover:bg-[#094C6B] border border-transparent',
+    'bg-primary text-primary-foreground shadow-sm hover:bg-primary-hover border border-transparent',
   secondary:
-    'bg-white text-[#094C6B] border border-[#0A5F8A] shadow-sm hover:bg-[#F0F7FB]',
+    'bg-surface-1 text-foreground border border-border shadow-sm hover:bg-surface-hover',
   danger:
-    'bg-red-600 text-white border border-transparent hover:bg-red-700 shadow-sm',
+    'bg-danger text-white border border-transparent hover:opacity-90 shadow-sm',
   ghost:
-    'bg-transparent text-[#094C6B] border border-transparent hover:bg-[#F0F7FB]',
+    'bg-transparent text-foreground border border-transparent hover:bg-surface-hover',
 };
 
 const sizeClasses: Record<'sm' | 'md' | 'lg', string> = {

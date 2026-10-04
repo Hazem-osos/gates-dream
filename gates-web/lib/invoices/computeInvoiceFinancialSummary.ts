@@ -17,6 +17,7 @@ export type InvoiceSummaryLine = {
   taxRate?: number;
   withholdingTaxRate?: number;
   withholdingTaxAmount?: number;
+  withholdingAmountManual?: boolean;
 };
 
 export type InvoiceFinancialSummary = {
@@ -173,6 +174,7 @@ export function computeInvoiceFinancialSummary(
         lineAfterDiscount,
         withholdingTaxRate: line.withholdingTaxRate,
         withholdingTaxAmount: line.withholdingTaxAmount,
+        withholdingAmountManual: line.withholdingAmountManual,
       })
     );
   }, 0);

@@ -26,6 +26,8 @@ export const invoiceLineSchema = z.object({
   taxExemptionReason: z.string().max(191).optional().nullable(),
   /** Per-line warehouse; falls back to the invoice header warehouse. */
   warehouseId: z.string().uuid().optional().nullable(),
+  itemReservationId: z.string().uuid().optional().nullable(),
+  reservationFulfillQuantity: z.number().positive().optional().nullable(),
   costCenterId: z.string().uuid().optional().nullable(),
   withholdingTaxRate: z.number().min(0).max(100).optional().nullable(),
   withholdingTaxAmount: z.number().nonnegative().optional().nullable(),
@@ -42,6 +44,8 @@ export const invoiceLineSchema = z.object({
     .nullable(),
   color: z.string().max(64).optional().nullable(),
   size: z.string().max(64).optional().nullable(),
+  sourceKind: z.enum(['PURCHASE_ORDER', 'SALES_ORDER', 'PRICE_QUOTE']).optional().nullable(),
+  sourceLineId: z.string().uuid().optional().nullable(),
   customRevenueAccountId: z.string().uuid().optional().nullable(),
 });
 

@@ -20,6 +20,7 @@ export interface CreateJournalEntryData {
   sourceNumber?: string;
   sourceKind?: string;
   exchangeRate?: number;
+  saveAsDraft?: boolean;
   lines: JournalEntryLineData[];
 }
 
@@ -37,6 +38,7 @@ export interface UpdateJournalEntryData {
   sourceNumber?: string;
   sourceKind?: string;
   exchangeRate?: number;
+  saveAsDraft?: boolean;
   lines?: JournalEntryLineData[];
   /**
    * M14 fix (Item 40): optional optimistic-locking token — echo back the

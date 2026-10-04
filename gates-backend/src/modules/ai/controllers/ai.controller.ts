@@ -17,7 +17,7 @@ function requireActor(req: AuthRequest): ConversationActor {
   const userId = req.user?.sub;
   const companyId = req.companyId ?? req.tenantId;
   if (!userId) throw new AppError(401, 'Authentication required');
-  if (!companyId) throw new AppError(400, 'Company ID is required');
+  if (!companyId) throw new AppError(400, 'معرّف الشركة مطلوب');
   return { userId, companyId, ipAddress: clientIp(req) };
 }
 
@@ -54,7 +54,7 @@ export class AiController {
 
   quota = async (req: AuthRequest, res: Response) => {
     const companyId = req.companyId ?? req.tenantId;
-    if (!companyId) throw new AppError(400, 'Company ID is required');
+    if (!companyId) throw new AppError(400, 'معرّف الشركة مطلوب');
     const data = await readAiQuota(companyId);
     return void res.json({
       status: 'success',

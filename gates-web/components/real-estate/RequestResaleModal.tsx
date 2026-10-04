@@ -59,7 +59,7 @@ export function RequestResaleModal({
     <div className="fixed inset-0 z-[140] flex items-center justify-center bg-black/40 p-4" dir="rtl">
       <div className="w-full max-w-lg overflow-hidden rounded-xl bg-white shadow-xl">
         <div className="p-5 pb-0">
-          <h2 className="mb-4 text-lg font-bold text-[#0E79AA]">طلب إعادة بيع / تنازل</h2>
+          <h2 className="mb-4 text-lg font-bold text-[#0E78AA]">طلب إعادة بيع / تنازل</h2>
           <FormSectionCard title="البيانات الأساسية" subtitle="العقد الحالي والمشتري والتقييم" icon={ArrowLeftRight} className="mb-3">
             <CompactFormField label="العقد الحالي" className="sm:col-span-2 lg:col-span-3">
               <select className={compactControlClass} value={contractId} onChange={(e) => setContractId(e.target.value)}>
@@ -101,7 +101,7 @@ export function RequestResaleModal({
               />
             </div>
           </AdvancedFieldsSection>
-          <p className="mb-3 rounded-lg bg-[#F6FBFD] px-3 py-2 text-sm font-bold text-[#0E79AA]">رسوم التنازل المحسوبة: {formatEgp(fee)}</p>
+          <p className="mb-3 rounded-lg bg-[#F6FBFD] px-3 py-2 text-sm font-bold text-[#0E78AA]">رسوم التنازل المحسوبة: {formatEgp(fee)}</p>
         </div>
         <FormStickyFooter
           onCancel={onClose}
@@ -110,7 +110,6 @@ export function RequestResaleModal({
           cancelText="إلغاء"
           saveLoading={mutation.isPending}
           saveDisabled={!contractId || !buyerId || !marketValue}
-          respectPermissions={false}
           className="mt-0"
         />
       </div>

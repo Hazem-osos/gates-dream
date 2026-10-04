@@ -209,14 +209,14 @@ export default function OtherAdditionsDiscountsPage() {
       if (selectedId) {
         await apiClient.put(`/inventory/other-addition-discount-types/${selectedId}`, body);
       } else {
-        await apiClient.post<OtherAdditionRow>(
+        const created = await apiClient.post<OtherAdditionRow>(
           '/inventory/other-addition-discount-types',
           body
         );
+        if (created.data?.id) setSelectedId(created.data.id);
       }
       invalidateQuery(['other-addition-discount-types']);
-      handleNew();
-      setSuccess('تم حفظ الإضافة / الخصم — تقدر تضيف التالي');
+      setSuccess('تم حفظ الإضافة / الخصم');
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'حدث خطأ أثناء الحفظ');
     } finally {
@@ -244,7 +244,7 @@ export default function OtherAdditionsDiscountsPage() {
 
   return (
     <MasterCardShell
-      title="إضافات وخصومات أخرى"
+      title="تعريف إضافات وخصومات"
       breadcrumbs={[
         { label: 'المخازن', href: '/inventory' },
         { label: 'العمليات' },

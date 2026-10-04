@@ -13,7 +13,9 @@ let shutdownHookInstalled = false;
 
 export function registerAutomationWorkers(): Worker[] {
   if (!env.REDIS_ENABLED) {
-    logger.warn('Redis disabled — automation workers were not started');
+    logger.warn(
+      'Redis disabled — automation workers were not started. ERP operations still succeed; domain events are not queued.'
+    );
     return [];
   }
   if (registeredWorkers.length > 0) return registeredWorkers;

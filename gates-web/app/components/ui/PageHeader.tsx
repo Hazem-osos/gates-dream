@@ -2,10 +2,11 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { createPortal } from 'react-dom';
 import { ChevronLeft, Star } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { usePageFavorites } from '@/lib/hooks/usePageFavorites';
-import { useRegisterScreenChrome } from '@/components/erp/AppScreenChromeContext';
+import { useDocumentToolbarSlot, useRegisterScreenChrome } from '@/components/erp/AppScreenChromeContext';
 import { ScreenHelpButton } from '@/components/ai/ScreenHelpButton';
 import { CrudButtons, type CrudMenuItem } from '@/components/ui/CrudButtons';
 
@@ -48,11 +49,13 @@ export function PageHeader({
   const { isFavorite, toggleFavorite } = usePageFavorites();
   const starred = favHref ? isFavorite(favHref) : false;
   useRegisterScreenChrome();
+  const toolbarSlot = useDocumentToolbarSlot();
 
-  return (
+  const header = (
     <header
       className={cn(
-        'sticky top-0 z-40 mb-4 w-full border-b border-[#E6F0F7] bg-white/95 py-2.5 backdrop-blur-md',
+        'erp-sticky-toolbar sticky top-0 z-40 w-full border-b border-[#E6F0F7] bg-white/95 py-2.5 backdrop-blur-md',
+        toolbarSlot ? 'px-3 xl:px-5' : 'mb-4',
         className
       )}
       dir="rtl"
@@ -120,4 +123,6 @@ export function PageHeader({
       </div>
     </header>
   );
+  if (toolbarSlot) return createPortal(header, toolbarSlot);
+  return header;
 }

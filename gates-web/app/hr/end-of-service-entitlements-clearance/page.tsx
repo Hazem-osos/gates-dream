@@ -13,7 +13,7 @@ import {
 
 const defaults: EndOfServiceEntitlementsClearanceFormInput = {
   serialNumber: '',
-  employee: '1212378971212',
+  employee: '',
   date: '2025-11-26',
   hijriDate: '2025-11-26',
   workDays: '',
@@ -53,7 +53,7 @@ export default function EndOfServiceEntitlementsClearancePage() {
   };
 
   const inputCls = 'h-9 w-full rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] px-3 text-xs font-medium text-[#094C6B] placeholder:text-slate-400 transition-colors focus:border-[#0E78AA] focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#0E78AA]/15 disabled:cursor-not-allowed disabled:opacity-50 sm:text-sm';
-  const flex1 = 'flex-1 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg';
+  const flex1 = 'flex-1 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg';
 
   return (
     <HrPageChrome title="تصفية مستحقات نهاية الخدمة"
@@ -77,7 +77,7 @@ export default function EndOfServiceEntitlementsClearancePage() {
                         placeholder="إدخل رقم المسلسل"
                         {...register('serialNumber')}
                       />
-                      <svg className="w-5 h-5 text-[#0E79AA]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg className="w-5 h-5 text-[#0E78AA]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                       </svg>
                     </div>
@@ -91,17 +91,17 @@ export default function EndOfServiceEntitlementsClearancePage() {
                         value={watch('employee')}
                         onChange={(e) => setValue('employee', e.target.value, { shouldValidate: true })}
                       >
-                        <option value="1212378971212">الموظفين</option>
+                        <option value="">الموظفين</option>
                         <option value="employee1">موظف 1</option>
                         <option value="employee2">موظف 2</option>
                       </select>
                       <input
                         type="text"
                         className={`flex-1 py-2 border border-[#D6EAF3] bg-[#F6FBFD] rounded-lg text-sm ${errors.employee ? 'border-red-400' : ''}`}
-                        placeholder="1212378971212"
+                        placeholder=""
                         {...register('employee')}
                       />
-                      <svg className="w-5 h-5 text-[#0E79AA]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg className="w-5 h-5 text-[#0E78AA]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                       </svg>
                     </div>
@@ -173,7 +173,7 @@ export default function EndOfServiceEntitlementsClearancePage() {
 
               <div className="border-t border-[#D6EAF3] pt-6">
                 <div className="mb-6 flex justify-start items-center gap-5">
-                  <button type="button" className="px-6 py-2 bg-[#0E79AA] text-white rounded-lg hover:bg-[#094C6B] transition-colors flex items-center gap-2">
+                  <button type="button" className="px-6 py-2 bg-[#0E78AA] text-white rounded-lg hover:bg-[#094C6B] transition-colors flex items-center gap-2">
                     القيد
                   </button>
                   <span className="px-4 py-2 border border-[#D6EAF3] bg-[#F6FBFD] rounded-lg text-[#094C6B]">{watch('record')}</span>
@@ -181,7 +181,7 @@ export default function EndOfServiceEntitlementsClearancePage() {
 
                 <div className="flex justify-between items-center">
                   <div className="flex gap-3 items-center">
-                    <button type="button" className="px-6 py-2 bg-[#0E79AA] text-white rounded-lg hover:bg-[#094C6B] transition-colors" onClick={() => void printPageContent('تصفية مستحقات نهاية الخدمة')}>
+                    <button type="button" className="px-6 py-2 bg-[#0E78AA] text-white rounded-lg hover:bg-[#094C6B] transition-colors" onClick={() => void printPageContent('تصفية مستحقات نهاية الخدمة')}>
                       طباعة
                     </button>
                   </div>

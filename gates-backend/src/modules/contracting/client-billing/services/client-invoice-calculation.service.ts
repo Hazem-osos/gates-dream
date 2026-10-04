@@ -14,6 +14,11 @@ import type {
   CalculatedMaterialsOnSite,
 } from '../types/client-invoice.types';
 import { HISTORICAL_CLIENT_INVOICE_STATUSES } from '../types/client-invoice.types';
+import { sumPreviousOwnerCertifiedQuantityInTx } from '../../preliminary/preliminary-quantity-baseline.service';
+import {
+  resolveEffectiveOwnerBoqQuantityInTx,
+  resolveEffectiveOwnerBoqRateInTx,
+} from '../../variation/contract-variation-effective.service';
 
 type Db = Prisma.TransactionClient | typeof prisma;
 
@@ -83,18 +88,29 @@ export class ClientInvoiceCalculationService {
         throw new AppError(400, `Owner BOQ item ${input.projectBOQItemId} is not on this project`);
       }
 
-      const previousQuantity = previousQtyByBoq.get(boq.id) ?? moneyZero();
+      const previousQuantity = await sumPreviousOwnerCertifiedQuantityInTx(
+        db,
+        companyId,
+        clientContractId,
+        boq.id,
+        dto.excludePreliminaryCertificateId,
+        dto.excludeInvoiceId
+      );
       const currentQuantity = money(input.currentQuantity);
       if (currentQuantity.lt(0)) {
         throw new AppError(400, `Current quantity cannot be negative for ${boq.itemCode}`);
       }
 
       const cumulativeQuantity = money(previousQuantity.plus(currentQuantity));
-      const contractQuantity = money(boq.contractQuantity);
-      const unitSellingPrice = money(boq.unitSellingPrice);
+      const contractQuantity = dto.allowVariationOrder
+        ? money(boq.contractQuantity)
+        : await resolveEffectiveOwnerBoqQuantityInTx(db, companyId, clientContractId, boq.id);
+      const unitSellingPrice = dto.allowVariationOrder
+        ? money(boq.unitSellingPrice)
+        : await resolveEffectiveOwnerBoqRateInTx(db, companyId, clientContractId, boq.id);
       const currentAmount = money(currentQuantity.mul(unitSellingPrice));
 
-      if (!dto.allowVariationOrder && cumulativeQuantity.gt(contractQuantity)) {
+      if (cumulativeQuantity.gt(contractQuantity)) {
         breaches.push({
           projectBOQItemId: boq.id,
           itemCode: boq.itemCode,

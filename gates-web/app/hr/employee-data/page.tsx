@@ -235,8 +235,8 @@ export default function EmployeeDataPage() {
                 className={cn(
                   'flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold transition-colors sm:text-sm',
                   activeTab === key
-                    ? 'bg-[#0E79AA] text-white shadow-sm'
-                    : 'text-[#094C6B] hover:bg-[#0E79AA0D]'
+                    ? 'bg-[#0E78AA] text-white shadow-sm'
+                    : 'text-[#094C6B] hover:bg-[#0E78AA0D]'
                 )}
               >
                 <Icon className="h-4 w-4 shrink-0" aria-hidden />

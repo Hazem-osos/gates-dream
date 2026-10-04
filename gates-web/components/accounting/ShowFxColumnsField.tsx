@@ -12,7 +12,7 @@ export function ShowFxColumnsField({ checked, onChange, disabled, compact }: Pro
     <label className={`flex items-center gap-2 text-sm text-[#094C6B] ${compact ? 'h-9' : ''}`}>
       <input
         type="checkbox"
-        className="h-4 w-4 accent-[#0E79AA]"
+        className="h-4 w-4 accent-[#0E78AA]"
         checked={checked}
         disabled={disabled}
         onChange={(e) => onChange(e.target.checked)}

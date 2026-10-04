@@ -12,6 +12,7 @@ import { useFirstCompany } from '@/lib/hooks/useFirstCompany';
 import { apiClient } from '@/lib/api/client';
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
+import { AccountSelect } from '@/app/components/form/AccountSelect';
 
 type Pair = { code: string; name: string };
 
@@ -116,10 +117,10 @@ export default function IncomeStatementSettingsPage() {
         </div>
         {rows[section].map((pair, i) => (
           <div key={i} className="grid grid-cols-2 gap-2">
-            <input
+            <AccountSelect
               value={pair.code}
-              onChange={(e) => setPair(section, i, 'code', e.target.value)}
-              className="h-9 rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] px-2 text-center text-[#094C6B]"
+              onChange={(accountId) => setPair(section, i, 'code', accountId)}
+              placeholder="رقم الحساب"
             />
             <input
               value={pair.name}

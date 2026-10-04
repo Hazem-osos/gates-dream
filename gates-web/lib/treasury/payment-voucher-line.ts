@@ -74,7 +74,7 @@ export function toCashPayloadLine(line: PaymentVoucherLine, headerCurrency: stri
     baseAmount: amount * exchangeRate,
     costCenterId: line.costCenterId || undefined,
     entrySide: line.entrySide ?? 'DEBIT',
-    isTiedToInvoice: Boolean(line.isTiedToInvoice && line.invoiceId),
+    isTiedToInvoice: Boolean(line.isTiedToInvoice),
     invoiceId: line.invoiceId || undefined,
   };
 }

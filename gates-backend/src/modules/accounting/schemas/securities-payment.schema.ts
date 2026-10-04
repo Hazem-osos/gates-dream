@@ -1,4 +1,10 @@
 import { z } from 'zod';
+import { paperDueBeforeIssue } from '../utils/paper-due-date';
+
+const invoiceAllocationSchema = z.object({
+  invoiceId: z.string().uuid(),
+  allocatedAmount: z.number().positive(),
+});
 
 const securitiesPaymentFieldsSchema = z.object({
   branchId: z.string().uuid().optional().nullable(),
@@ -11,6 +17,7 @@ const securitiesPaymentFieldsSchema = z.object({
   customerId: z.string().uuid().optional().nullable(),
   supplierId: z.string().uuid().optional().nullable(),
   destinationAccountId: z.string().uuid().optional().nullable(),
+  partyAccountId: z.string().uuid().optional().nullable(),
   payeeName: z.string().optional(),
   payeeBank: z.string().optional(),
   securityNumber: z.string().optional(),
@@ -19,15 +26,18 @@ const securitiesPaymentFieldsSchema = z.object({
   currencyCode: z.string().min(1, 'Currency code is required'),
   entityName: z.string().max(191).optional().nullable(),
   entityId: z.string().uuid().optional().nullable(),
+  allocations: z.array(invoiceAllocationSchema).optional(),
 });
 
-export const createSecuritiesPaymentSchema = securitiesPaymentFieldsSchema.refine(
-  (data) => data.customerId || data.supplierId || data.destinationAccountId,
-  {
-    message: 'اختر العميل أو حساباً آخر',
-    path: ['destinationAccountId'],
-  }
-);
+export const createSecuritiesPaymentSchema = securitiesPaymentFieldsSchema
+  .refine((data) => data.customerId || data.supplierId || data.partyAccountId, {
+    message: 'اختر المورد أو حساب حركة',
+    path: ['partyAccountId'],
+  })
+  .refine((data) => !paperDueBeforeIssue(data.date, data.dueDate), {
+    message: 'تاريخ الاستحقاق لا يمكن أن يكون قبل تاريخ التحرير',
+    path: ['dueDate'],
+  });
 
 export const updateSecuritiesPaymentSchema = securitiesPaymentFieldsSchema.partial();
 
@@ -49,7 +59,10 @@ export const securitiesPaymentQuerySchema = z.object({
   customerId: z.string().uuid().optional(),
   supplierId: z.string().uuid().optional(),
   entityId: z.string().uuid().optional(),
-  isPosted: z.string().optional().transform((val) => val === 'true'),
+  isPosted: z
+    .enum(['true', 'false'])
+    .optional()
+    .transform((val) => (val == null ? undefined : val === 'true')),
 });
 
 export type CreateSecuritiesPaymentInput = z.infer<typeof createSecuritiesPaymentSchema>;

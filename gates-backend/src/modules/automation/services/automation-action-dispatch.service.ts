@@ -14,6 +14,8 @@ import {
 
 export interface DispatchActionInput extends ActionExecutionContext {
   actionType: string;
+  /** Position in the rule's action list. Omitted or 0 keeps the historical claim key. */
+  actionIndex?: number;
 }
 
 export interface DispatchActionResult {
@@ -25,6 +27,19 @@ export interface DispatchActionResult {
 
 export interface CompanyGate {
   assertActive(companyId: string): Promise<void>;
+}
+
+/**
+ * Index 0 and a missing index share the historical claim key so a
+ * single-action rule keeps working. Any later position is part of the key,
+ * so two email.send actions in one rule cannot collapse into one send.
+ * The index is the saved rule position, never the retry attempt.
+ */
+export function claimActionType(actionType: string, actionIndex?: number): string {
+  if (typeof actionIndex === 'number' && actionIndex > 0) {
+    return `${actionType}#${actionIndex}`;
+  }
+  return actionType;
 }
 
 export class AutomationActionDispatchService {
@@ -50,11 +65,13 @@ export class AutomationActionDispatchService {
 
     await this.companyGate.assertActive(input.companyId);
 
+    const claimType = claimActionType(handler.actionType, input.actionIndex);
+
     const claim = await this.runs.claim({
       companyId: input.companyId,
       eventId: input.eventId,
       ruleId: input.ruleId,
-      actionType: handler.actionType,
+      actionType: claimType,
       correlationId: input.correlationId,
       eventType: input.eventType,
     });
@@ -85,10 +102,10 @@ export class AutomationActionDispatchService {
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Action execution failed';
-      const statusCode = error instanceof AutomationActionDispatchError ? error.statusCode : 500;
+      const code = error instanceof AutomationActionDispatchError ? error.code : 'INTERNAL_ERROR';
       await this.runs.markFailed(input.companyId, claim.run.id, {
         errorMessage: message,
-        lastErrorCode: statusCode < 500 ? 'DOMAIN_ERROR' : 'INTERNAL_ERROR',
+        lastErrorCode: code,
       });
       if (error instanceof AutomationActionDispatchError) throw error;
       throw new AutomationActionDispatchError(500, message);

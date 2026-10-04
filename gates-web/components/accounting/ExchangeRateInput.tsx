@@ -50,12 +50,10 @@ export function ExchangeRateInput({
         const next = persistableTypedRate(raw) ?? normalizeFxRate(raw);
         onChange(next);
         persist(raw, false);
-        rest.onChange?.(event);
       }}
       onBlur={(event) => {
         persist(event.target.value, true);
         onBlur?.(event);
-        rest.onBlur?.(event);
       }}
     />
   );

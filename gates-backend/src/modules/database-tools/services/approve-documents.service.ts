@@ -1,5 +1,6 @@
 import { logger } from '../../../shared/logger';
 import prisma from '../../../shared/database/prisma';
+import { AppError } from '../../../shared/middleware/error-handler';
 
 export interface ApproveDocumentsOptions {
   documentIds: string[];
@@ -14,74 +15,68 @@ export class ApproveDocumentsService {
    */
   async approveDocuments(options: ApproveDocumentsOptions): Promise<{ approved: number; failed: number }> {
     try {
+      const companyId = options.companyId?.trim();
+      if (!companyId) {
+        throw new AppError(400, 'Company ID is required');
+      }
+
       let approved = 0;
       let failed = 0;
 
       if (options.approveAll) {
-        // Approve all unapproved documents of the specified type
         if (options.documentType === 'journal-entry') {
           const result = await prisma.journalEntry.updateMany({
             where: {
-              companyId: options.companyId,
+              companyId,
               isApproved: false,
               isCancelled: false,
             },
-            data: {
-              isApproved: true,
-            },
+            data: { isApproved: true },
           });
           approved = result.count;
         } else if (options.documentType === 'invoice') {
           const result = await prisma.invoice.updateMany({
             where: {
-              companyId: options.companyId,
+              companyId,
               isApproved: false,
               isCancelled: false,
             },
-            data: {
-              isApproved: true,
-            },
+            data: { isApproved: true },
           });
           approved = result.count;
+        } else {
+          throw new AppError(422, 'documentType must be journal-entry or invoice when approveAll is true');
         }
       } else {
-        // Approve specific documents
+        const docType = options.documentType ?? 'journal-entry';
         for (const documentId of options.documentIds) {
           try {
-            if (options.documentType === 'journal-entry' || !options.documentType) {
-              const journalEntry = await prisma.journalEntry.findFirst({
+            if (docType === 'journal-entry') {
+              const result = await prisma.journalEntry.updateMany({
                 where: {
                   id: documentId,
-                  companyId: options.companyId,
+                  companyId,
+                  isApproved: false,
+                  isCancelled: false,
                 },
+                data: { isApproved: true },
               });
-
-              if (journalEntry && !journalEntry.isApproved && !journalEntry.isCancelled) {
-                await prisma.journalEntry.update({
-                  where: { id: documentId },
-                  data: { isApproved: true },
-                });
-                approved++;
-              } else {
-                failed++;
-              }
-            } else if (options.documentType === 'invoice') {
-              const invoice = await prisma.invoice.findFirst({
+              if (result.count === 1) approved++;
+              else failed++;
+            } else if (docType === 'invoice') {
+              const result = await prisma.invoice.updateMany({
                 where: {
                   id: documentId,
-                  companyId: options.companyId,
+                  companyId,
+                  isApproved: false,
+                  isCancelled: false,
                 },
+                data: { isApproved: true },
               });
-
-              if (invoice && !invoice.isApproved && !invoice.isCancelled) {
-                await prisma.invoice.update({
-                  where: { id: documentId },
-                  data: { isApproved: true },
-                });
-                approved++;
-              } else {
-                failed++;
-              }
+              if (result.count === 1) approved++;
+              else failed++;
+            } else {
+              failed++;
             }
           } catch (error) {
             logger.warn({ error, documentId }, 'Failed to approve document');
@@ -90,7 +85,7 @@ export class ApproveDocumentsService {
         }
       }
 
-      logger.info({ approved, failed, companyId: options.companyId }, 'Documents approved');
+      logger.info({ approved, failed, companyId }, 'Documents approved');
 
       return { approved, failed };
     } catch (error) {

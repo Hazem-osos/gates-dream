@@ -32,20 +32,60 @@ export function resolveJournalSourceKind(
   sourceKind?: string | null
 ): JournalSourceType {
   if (sourceType && AUTO_GL_TO_KIND[sourceType]) return AUTO_GL_TO_KIND[sourceType];
+  const sourcePrefix = String(sourceType ?? '').split('-')[0];
+  if (sourcePrefix && AUTO_GL_TO_KIND[sourcePrefix]) return AUTO_GL_TO_KIND[sourcePrefix];
   if (isJournalSourceKind(sourceKind) && sourceKind !== JournalSourceType.MANUAL) return sourceKind;
   if (isJournalSourceKind(sourceType)) return sourceType;
   return JournalSourceType.MANUAL;
+}
+
+export const SOURCED_JOURNAL_MUTATION_MESSAGE =
+  'هذا القيد مربوط بمستند مصدر. أي تعديل أو فك ترحيل يتم من المستند الأصلي فقط، وليس من قيد اليومية.';
+
+const JOURNAL_OWNED_KINDS = new Set<JournalSourceType>([
+  JournalSourceType.MANUAL,
+  JournalSourceType.RECURRING_TEMPLATE,
+]);
+
+export function isSourcedJournalEntry(row: {
+  sourceType?: string | null;
+  sourceKind?: string | null;
+  sourceId?: string | null;
+  entryType?: string | null;
+  isCyclic?: boolean | null;
+  isRecurring?: boolean | null;
+}): boolean {
+  const kind = resolveJournalSourceKind(row.sourceType, row.sourceKind);
+  if (kind === JournalSourceType.RECURRING_TEMPLATE) return false;
+  // «سند دوري» stores the template id on sourceId. That link is not a source document.
+  if ((row.isCyclic || row.isRecurring) && JOURNAL_OWNED_KINDS.has(kind)) return false;
+  if (!JOURNAL_OWNED_KINDS.has(kind)) return true;
+  if (String(row.sourceId ?? '').trim()) return true;
+  const sourceType = String(row.sourceType ?? '').trim();
+  if (sourceType && sourceType !== 'MANUAL' && !JOURNAL_OWNED_KINDS.has(sourceType as JournalSourceType)) {
+    return true;
+  }
+  const entryType = String(row.entryType ?? '').trim().toUpperCase();
+  if (!entryType || entryType === 'MANUAL' || entryType === 'OPENING_BALANCE') return false;
+  if (entryType === 'REVERSAL' || entryType === 'YEARCLOSE') return true;
+  if (entryType.includes('COGS') || entryType.includes('RETURN')) return true;
+  return entryType === 'SALE' || entryType === 'PURCHASE';
 }
 
 /**
  * Persist Auto-GL short codes unchanged. Long enum names (except MANUAL)
  * are stored so listings can still map legacy rows without `sourceKind`.
  */
+const STOCK_GL_SOURCE = new Set(['GI', 'GR', 'STK', 'ADJ', 'OADJ', 'TRF', 'OB']);
+const POS_GL_SOURCE = new Set(['POS', 'POS-SALE', 'POS-RETURN', 'POS-VOID', 'POS-CASH', 'POS-VARIANCE', 'POS-COLLECTION', 'POS-DEPOSIT', 'POS-GIFT', 'POS-POINTS']);
+
 export function persistJournalSourceType(
   sourceType?: string | null,
   sourceKind?: JournalSourceType
 ): string | undefined {
   if (sourceType && AUTO_GL_TO_KIND[sourceType]) return sourceType;
+  if (sourceType && STOCK_GL_SOURCE.has(sourceType)) return sourceType;
+  if (sourceType && POS_GL_SOURCE.has(sourceType)) return sourceType;
   if (isJournalSourceKind(sourceType) && sourceType !== JournalSourceType.MANUAL) {
     return sourceType;
   }

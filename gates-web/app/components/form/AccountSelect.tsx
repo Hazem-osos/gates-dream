@@ -64,8 +64,17 @@ function AccountSelectInner({
     statementType,
   });
   const { data: banksRes } = useApiQuery<
-    Array<{ glAccountId?: string | null; glAccount?: { id?: string | null } | null }>
-  >(['bank-accounts', 'picker'], '/accounting/bank-accounts', { isActive: true }, { enabled: bankOnly });
+    Array<{
+      arabicName?: string | null;
+      glAccountId?: string | null;
+      glAccount?: { id?: string | null; code?: string | null; arabicName?: string | null } | null;
+    }>
+  >(
+    ['bank-accounts', 'picker'],
+    '/accounting/bank-accounts',
+    { isActive: true },
+    { enabled: bankOnly, staleTime: 0, refetchOnMount: 'always' }
+  );
   const bankGlIds = useMemo(() => {
     const ids = new Set<string>();
     for (const bank of banksRes?.data ?? []) {
@@ -74,9 +83,33 @@ function AccountSelectInner({
     }
     return ids;
   }, [banksRes?.data]);
+  const bankGlOptions = useMemo(() => {
+    if (!bankOnly) return [];
+    const seen = new Set<string>();
+    const options: { value: string; label: string; searchText: string }[] = [];
+    for (const bank of banksRes?.data ?? []) {
+      const gl = bank.glAccount;
+      const id = gl?.id || bank.glAccountId;
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      const code = gl?.code ?? '';
+      const arabicName = gl?.arabicName || bank.arabicName || '';
+      const label = code ? formatAccountLabel({ code, arabicName }) : arabicName;
+      options.push({ value: id, label, searchText: `${code} ${arabicName}` });
+    }
+    return options;
+  }, [bankOnly, banksRes?.data]);
   const accounts = data?.data ?? [];
 
   const options = useMemo(() => {
+    if (bankOnly && bankGlOptions.length) {
+      const blocked = new Set(excludeIds ?? []);
+      const list = bankGlOptions.filter((option) => option.value && !blocked.has(option.value));
+      if (allowEmpty) {
+        return [{ value: '', label: emptyLabel || placeholder, searchText: '' }, ...list];
+      }
+      return list;
+    }
     const merged =
       pinnedAccount && !accounts.some((a) => a.id === pinnedAccount.id)
         ? [pinnedAccount as AccountOption, ...accounts]
@@ -99,10 +132,12 @@ function AccountSelectInner({
       return [{ value: '', label: emptyLabel || placeholder, searchText: '' }, ...list];
     }
     return list;
-  }, [accounts, allowEmpty, bankGlIds, bankOnly, emptyLabel, excludeIds, headerOnly, leafOnly, placeholder, pinnedAccount]);
+  }, [accounts, allowEmpty, bankGlIds, bankGlOptions, bankOnly, emptyLabel, excludeIds, headerOnly, leafOnly, placeholder, pinnedAccount]);
 
   const valueLabel = useMemo(() => {
     if (!value) return undefined;
+    const bankHit = bankGlOptions.find((option) => option.value === value);
+    if (bankHit) return bankHit.label;
     const hit = accounts.find((a) => a.id === value);
     if (hit) return formatAccountLabel(hit);
     if (pinnedAccount && pinnedAccount.id === value) {
@@ -112,7 +147,7 @@ function AccountSelectInner({
       return formatAccountLabel(selectedAccount);
     }
     return undefined;
-  }, [accounts, pinnedAccount, selectedAccount, value]);
+  }, [accounts, bankGlOptions, pinnedAccount, selectedAccount, value]);
 
   const handleQueryChange = useCallback((q: string) => {
     setSearch(q);

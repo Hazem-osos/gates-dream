@@ -12,6 +12,7 @@ export function ExtractsReportChrome({
   error,
   onClearError,
   previewDisabled,
+  below,
 }: {
   title: string;
   children: ReactNode;
@@ -21,6 +22,7 @@ export function ExtractsReportChrome({
   onClearError?: () => void;
   previewDisabled?: boolean;
   previewLabel?: string;
+  below?: ReactNode;
 }) {
   return (
     <ReportFilterPageShell
@@ -42,6 +44,7 @@ export function ExtractsReportChrome({
       >
         {children}
       </UnifiedReportFilterCard>
+      {below}
     </ReportFilterPageShell>
   );
 }

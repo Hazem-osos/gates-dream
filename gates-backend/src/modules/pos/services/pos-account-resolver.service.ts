@@ -83,6 +83,35 @@ export class PosAccountResolverService {
       cashSurplusAccountId,
     };
   }
+
+  /** Non-throwing check so a cashier sees missing variance accounts before close. */
+  async varianceAccountReadiness(companyId: string): Promise<{
+    shortageConfigured: boolean;
+    surplusConfigured: boolean;
+  }> {
+    const settings = await prisma.companySettings.findUnique({
+      where: { companyId },
+      select: { accountDefinitions: true },
+    });
+    const defs = (settings?.accountDefinitions ?? {}) as AccountDefs;
+    const shortageRaw = this.pick(defs, ['cashShortageAccount', 'cashOverShortExpenseAccount']);
+    const surplusRaw = this.pick(defs, ['cashSurplusAccount', 'miscellaneousIncomeAccount']);
+    const [shortageConfigured, surplusConfigured] = await Promise.all([
+      this.accountResolves(companyId, shortageRaw),
+      this.accountResolves(companyId, surplusRaw),
+    ]);
+    return { shortageConfigured, surplusConfigured };
+  }
+
+  private async accountResolves(companyId: string, raw: string | undefined): Promise<boolean> {
+    if (!raw) return false;
+    try {
+      await invoiceAccountResolverService.resolveAccountId(companyId, raw);
+      return true;
+    } catch {
+      return false;
+    }
+  }
 }
 
 export const posAccountResolverService = new PosAccountResolverService();

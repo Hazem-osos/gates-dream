@@ -1,4 +1,5 @@
 import prisma from '../../../shared/database/prisma';
+import { permanentDelete } from '../../../shared/database/permanent-delete.util';
 import { logger } from '../../../shared/logger';
 
 export interface CreateJobTitleData {
@@ -150,10 +151,7 @@ export class JobTitleService {
         throw new Error('Job title not found');
       }
 
-      await prisma.jobTitle.update({
-        where: { id: jobTitleId },
-        data: { isActive: false },
-      });
+      await permanentDelete('السجل', () => prisma.jobTitle.delete({ where: { id: jobTitleId } }));
 
       logger.info({ companyId, jobTitleId }, 'Job title deleted');
       return { success: true };

@@ -46,6 +46,15 @@ describe('buildHttpCacheKey', () => {
     );
     expect(a).not.toBe(b);
   });
+
+  it('produces a new key after a write bumps the company cache generation', () => {
+    const req = mockReq({
+      companyId: 'company-a',
+      user: { sub: 'u1', email: 'a@x.com', username: 'a' },
+      headers: { authorization: 'Bearer same-token' },
+    });
+    expect(buildHttpCacheKey(req, '1')).not.toBe(buildHttpCacheKey(req, '2'));
+  });
 });
 
 describe('shouldCacheHttpGet', () => {

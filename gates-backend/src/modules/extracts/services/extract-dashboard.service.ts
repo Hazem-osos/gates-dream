@@ -206,7 +206,7 @@ export class ExtractDashboardService {
         detail: ex.contractor?.arabicName
           ? `مقاول: ${ex.contractor.arabicName} · بانتظار الترحيل`
           : 'مسودة بانتظار الترحيل',
-        href: `/extracts/operations/projects/make-extract?projectId=${ex.projectId}`,
+        href: '/contracting/extracts',
         amount: n(ex.netWorkValue ?? ex.totalValue),
         at: ex.updatedAt.toISOString(),
       })),
@@ -231,7 +231,7 @@ export class ExtractDashboardService {
         title: `مستخلص ${ex.extractNumber ?? '—'}`,
         detail: ex.project.arabicName,
         status: ex.isPosted ? 'FINANCE_POSTED' : 'DRAFT',
-        href: `/extracts/operations/projects/make-extract?projectId=${ex.projectId}`,
+        href: '/contracting/extracts',
         at: ex.updatedAt.toISOString(),
       })),
       ...recentPayments.map((pay) => ({

@@ -35,7 +35,7 @@ export function ItemQuickPeekDrawer({
     <CenteredOverlay open={open} onClose={onClose} width="lg" labelledBy="item-peek-title">
         <header className="px-4 py-3 border-b border-[#D6EAF3] flex items-center justify-between bg-[#F6FBFD]">
           <div>
-            <h2 id="item-peek-title" className="text-lg font-bold text-[#0E79AA]">فحص الصنف 360°</h2>
+            <h2 id="item-peek-title" className="text-lg font-bold text-[#0E78AA]">فحص الصنف 360°</h2>
             <p className="text-sm text-gray-600">{itemLabel ?? peek?.itemName ?? '—'}</p>
           </div>
           <button type="button" onClick={onClose} className="text-gray-500 hover:text-gray-800 px-2">
@@ -98,14 +98,14 @@ export function ItemQuickPeekDrawer({
               )}
 
               <section className="flex flex-wrap gap-2">
-                <span className="rounded-full bg-[#E8F4FA] px-3 py-1 text-[#0E79AA]">
+                <span className="rounded-full bg-[#E8F4FA] px-3 py-1 text-[#0E78AA]">
                   التكلفة ({peek.cost.costMethodLabel}): {fmt(peek.cost.unitCost)} ج.م
                 </span>
                 {peek.margin.sellingPrice > 0 && (
                   <span className="rounded-full bg-emerald-50 px-3 py-1 text-emerald-800">
                     هامش الربح: {peek.margin.marginAmount >= 0 ? '+' : ''}
                     {fmt(peek.margin.marginAmount)} ج.م
-                    {peek.margin.marginPct != null ? ` (${peek.margin.marginPct.toFixed(0)}%)` : ''}
+                    {peek.margin.marginPct != null ? ` (${peek.margin.marginPct.toLocaleString()}%)` : ''}
                   </span>
                 )}
               </section>

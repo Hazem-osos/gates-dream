@@ -1,7 +1,6 @@
 'use client';
 
 import { useMemo, useState, type ForwardedRef } from 'react';
-import Link from 'next/link';
 import {
   AlertOctagon,
   Banknote,
@@ -13,6 +12,7 @@ import {
   Receipt,
 } from 'lucide-react';
 import { NavbarQuickPanel } from '@/app/components/NavbarQuickPanel';
+import { notificationDestination } from '@/lib/notifications/notification-href';
 import type { SystemNotification } from '@/lib/hooks/useNotifications';
 
 type TabId = 'all' | 'finance' | 'ops';
@@ -95,7 +95,7 @@ export function AiNotificationDrawer({
 
   return (
     <NavbarQuickPanel
-      title="تنبيهات Gates Intelligence"
+      title="تنبيهات الذكاء المالي"
       subtitle={unreadCount > 0 ? `${unreadCount} غير مقروء` : 'لا توجد إشعارات جديدة'}
       onClose={onClose}
       panelRef={notificationRef}
@@ -145,7 +145,7 @@ export function AiNotificationDrawer({
         <ul className="divide-y divide-[#E6F0F7] mt-2">
           {filtered.map((n) => {
             const meta = severityMeta(n);
-            const href = n.actionUrl || n.linkUrl;
+            const href = notificationDestination(n.actionUrl || n.linkUrl, n.category);
             const title = n.titleAr || n.title;
             const body = n.messageAr || n.message;
             return (
@@ -172,8 +172,8 @@ export function AiNotificationDrawer({
                       <p className="mt-1 text-[11px] text-gray-400">{relativeTime(n.createdAt)}</p>
                       <div className="mt-2 flex flex-wrap items-center gap-2">
                         {href ? (
-                          <Link
-                            href={href}
+                          <button
+                            type="button"
                             className="inline-flex min-h-8 items-center rounded-lg border border-[#0A5F8A] bg-white px-3 py-1.5 text-xs font-semibold text-[#094C6B] hover:bg-[#F0F7FB]"
                             onClick={() => {
                               onOpenItem?.(n.id, href);
@@ -181,7 +181,7 @@ export function AiNotificationDrawer({
                             }}
                           >
                             {n.actionLabelAr || 'فتح'}
-                          </Link>
+                          </button>
                         ) : null}
                         {!n.isRead ? (
                           <button

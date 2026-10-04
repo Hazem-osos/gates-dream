@@ -38,7 +38,7 @@ async function handleSeedDefaults(req: AuthRequest, res: Response) {
     if (!companyId) {
       return void res.status(400).json({
         status: 'error',
-        message: 'Company ID is required',
+        message: 'معرّف الشركة مطلوب',
       });
     }
 
@@ -108,7 +108,7 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
       const data = await tenantProvisioningService.getGlDefaults(companyId);
@@ -137,7 +137,7 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -192,7 +192,7 @@ async function handleCoaTree(req: AuthRequest, res: Response) {
     if (!companyId) {
       return void res.status(400).json({
         status: 'error',
-        message: 'Company ID is required',
+        message: 'معرّف الشركة مطلوب',
       });
     }
 
@@ -224,7 +224,7 @@ async function handleSuggestCode(req: AuthRequest, res: Response) {
     if (!companyId) {
       return void res.status(400).json({
         status: 'error',
-        message: 'Company ID is required',
+        message: 'معرّف الشركة مطلوب',
       });
     }
     const parentId = (req.query.parentId as string) || null;
@@ -270,7 +270,7 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 

@@ -10,7 +10,6 @@ export default function TempReceiptsReportPage() {
       subtitle="الإيصالات المؤقتة خلال الفترة."
       fields={{
         dates: 'range',
-        costCenter: true,
         branch: true,
       }}
     />

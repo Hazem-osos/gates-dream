@@ -1,5 +1,7 @@
 'use client';
 import { useBackendReachability } from '@/lib/hooks/useBackendReachability';
+import { apiClient } from '@/lib/api/client';
+import { toast } from '@/lib/feedback/toast';
 
 import { useState } from 'react';
 import { useForm, type Resolver, type SubmitHandler } from 'react-hook-form';
@@ -52,7 +54,16 @@ export default function MonthlySalariesDisbursementPage() {
   });
 
   const onSave: SubmitHandler<MonthlySalariesDisbursementFormInput> = (values) => {
-    console.info('[monthly-salaries-disbursement]', values);
+    void apiClient
+      .post('/hr/monthly-salary-disbursements', {
+        serial: values.serialNumber || undefined,
+        month: values.month,
+        year: values.year,
+        notes: values.notes || undefined,
+        record: values.record || undefined,
+      })
+      .then(() => toast.success('تم الحفظ'))
+      .catch((err: unknown) => toast.error(err instanceof Error ? err.message : 'تعذر الحفظ'));
   };
 
   const input = 'h-9 w-full rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] px-3 text-xs font-medium text-[#094C6B] placeholder:text-slate-400 transition-colors focus:border-[#0E78AA] focus:bg-white focus:outline-none focus:ring-2 focus:ring-[#0E78AA]/15 disabled:cursor-not-allowed disabled:opacity-50 sm:text-sm';
@@ -121,7 +132,7 @@ export default function MonthlySalariesDisbursementPage() {
                     <label className="block text-sm text-[#094C6B] mb-2">القيد</label>
                     <button
                       type="button"
-                      className="px-4 py-2 bg-[#0E79AA] text-white rounded-lg hover:bg-[#094C6B] focus:ring-2 focus:ring-[#0E79AA] focus:ring-opacity-50 transition-all duration-200 shadow-sm hover:shadow-md"
+                      className="px-4 py-2 bg-[#0E78AA] text-white rounded-lg hover:bg-[#094C6B] focus:ring-2 focus:ring-[#0E78AA] focus:ring-opacity-50 transition-all duration-200 shadow-sm hover:shadow-md"
                     >
                       القيد
                     </button>

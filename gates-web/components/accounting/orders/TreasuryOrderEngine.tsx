@@ -63,11 +63,11 @@ import {
 import { useCompanyPrintProfile } from '@/lib/hooks/useCompanyPrintProfile';
 import { useAccountingSettingsQuery } from '@/lib/hooks/useAccountingSettings';
 import {
+  applyDocumentCurrencyToLine,
+  lockedLineFx,
   pickCurrencyByCode,
   rateForCurrency,
-  sameCurrencyCode,
   treasuryBalanceInCurrency,
-  withHeaderCurrency,
 } from '@/lib/accounting/fx-base';
 import { costCenterRuleFromAccount } from '@/lib/accounting/cost-center-rule';
 import { useCompanyBaseCurrency } from '@/lib/hooks/useCompanyBaseCurrency';
@@ -135,6 +135,7 @@ type CashTxRow = {
   description?: string | null;
   amount: number | string;
   currencyCode: string;
+  exchangeRate?: number | string | null;
   safeId?: string | null;
   bankAccountId?: string | null;
   customerId?: string | null;
@@ -413,11 +414,14 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
         const row = res?.data;
         const message = `تم حفظ ${variant.title} بنجاح`;
         invalidateQuery(['treasury-cash-transactions']);
+        invalidateQuery([`order-browse-${variant.id}`]);
+        invalidateQuery(['cash-orders']);
+        invalidateQuery(['voucher-source-orders']);
         invalidateQuery(['cash-order-detail']);
         invalidateTreasuryFundBalances(invalidateQuery);
         if (row?.id) {
           lastHydratedIdRef.current = null;
-          setSavedOrderId(row.id);
+          openOrder(row.id);
         }
         setSuccess(message);
       },
@@ -441,6 +445,9 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
       onSuccess: () => {
         const message = `تم حفظ تعديلات ${variant.title}`;
         invalidateQuery(['treasury-cash-transactions']);
+        invalidateQuery([`order-browse-${variant.id}`]);
+        invalidateQuery(['cash-orders']);
+        invalidateQuery(['voucher-source-orders']);
         invalidateQuery(['cash-order-detail']);
         invalidateTreasuryFundBalances(invalidateQuery);
         lastHydratedIdRef.current = null;
@@ -469,6 +476,9 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
         setSuccess('تم إلغاء الأمر');
         lastHydratedIdRef.current = null;
         invalidateQuery(['treasury-cash-transactions']);
+        invalidateQuery([`order-browse-${variant.id}`]);
+        invalidateQuery(['cash-orders']);
+        invalidateQuery(['voucher-source-orders']);
         invalidateQuery(['cash-order-detail']);
         invalidateTreasuryFundBalances(invalidateQuery);
         lockToView();
@@ -486,6 +496,9 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
         if (row) applyCashRow(row);
         setSuccess(res.message || variant.confirmLabel);
         invalidateQuery(['treasury-cash-transactions']);
+        invalidateQuery([`order-browse-${variant.id}`]);
+        invalidateQuery(['cash-orders']);
+        invalidateQuery(['voucher-source-orders']);
         invalidateQuery(['cash-order-detail']);
         invalidateTreasuryFundBalances(invalidateQuery);
         lockToView();
@@ -547,10 +560,14 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
             accountId: line.accountId,
             description: line.description ?? '',
             amount: Number(line.amount),
-            currencyCode: line.currencyCode,
-            exchangeRate: Number(line.exchangeRate ?? 1),
+            ...lockedLineFx(
+              line.currencyCode,
+              row.currencyCode,
+              Number(line.exchangeRate ?? 1),
+              savedRate
+            ),
             costCenterId: line.costCenterId ?? '',
-            isTiedToInvoice: Boolean(line.isTiedToInvoice && line.invoiceId),
+            isTiedToInvoice: Boolean(line.isTiedToInvoice),
             invoiceId: line.invoiceId ?? null,
             partyId: index === 0 && headerPartyId ? headerPartyId : undefined,
             partyKind: index === 0 ? headerPartyKind : undefined,
@@ -579,8 +596,9 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
   useEffect(() => {
     const row = selectedOrderResponse?.data;
     if (!row?.id || row.id !== savedOrderId) return;
-    if (lastHydratedIdRef.current === row.id) return;
-    lastHydratedIdRef.current = row.id;
+    const stamp = `${row.id}:${row.version ?? ''}:${row.amount ?? ''}:${row.executionStatus ?? ''}`;
+    if (lastHydratedIdRef.current === stamp) return;
+    lastHydratedIdRef.current = stamp;
     applyCashRow(row);
   }, [applyCashRow, savedOrderId, selectedOrderResponse]);
 
@@ -595,13 +613,9 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
       if (!code) return;
       const prevCode = prevHeaderCurrencyCodeRef.current;
       setVoucherLines((prev) =>
-        prev.map((line) => {
-          const follows =
-            !line.currencyCode ||
-            sameCurrencyCode(line.currencyCode, prevCode) ||
-            sameCurrencyCode(line.currencyCode, code);
-          return follows ? withHeaderCurrency(line, code, catalogRate, companyBaseCurrency) : line;
-        })
+        prev.map((line) =>
+          applyDocumentCurrencyToLine(line, code, catalogRate, companyBaseCurrency, prevCode)
+        )
       );
       prevHeaderCurrencyCodeRef.current = code;
     },
@@ -1255,7 +1269,6 @@ function TreasuryOrderEngineInner({ variantId }: { variantId: TreasuryOrderVaria
           onSelect={(_id, row) => {
             lastHydratedIdRef.current = null;
             applyCashRow(row as unknown as CashTxRow);
-            lastHydratedIdRef.current = (row as { id?: string }).id ?? null;
             openOrder(String((row as { id?: string }).id ?? ''));
             setShowBrowseList(false);
           }}

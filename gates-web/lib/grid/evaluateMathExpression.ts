@@ -8,6 +8,7 @@ export function normalizeNumericDigits(raw: string): string {
     .replace(/[٠-٩]/g, (digit) => String(ARABIC_INDIC.indexOf(digit)))
     .replace(/[۰-۹]/g, (digit) => String(EXTENDED_ARABIC.indexOf(digit)))
     .replace(/[٫]/g, '.')
+    .replace(/,(?=\d{3}(?:,|\.|$))/g, '')
     .replace(/,/g, '.');
 }
 
@@ -39,10 +40,21 @@ export function sanitizeMathInput(raw: string): string {
   return normalizeNumericDigits(raw).replace(/[^\d+\-*/().\s]/g, '');
 }
 
-export function formatGridNumber(value: number, fractionDigits = 2): string {
+export function formatGridNumber(value: number, fractionDigits = 4): string {
   return value.toLocaleString('en-US', {
-    minimumFractionDigits: fractionDigits,
+    minimumFractionDigits: 0,
     maximumFractionDigits: fractionDigits,
-    useGrouping: false,
+    useGrouping: true,
   });
+}
+
+/** What the user edits: no thousands commas and no padded zeros. */
+export function plainGridNumber(value: number): string {
+  if (!Number.isFinite(value)) return '';
+  return value.toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
+}
+
+/** True when the field is only a zero (0, 0.00, 0,000). Empty is not zero. */
+export function isZeroNumberDisplay(raw: string): boolean {
+  return evaluateMathExpression(raw) === 0;
 }

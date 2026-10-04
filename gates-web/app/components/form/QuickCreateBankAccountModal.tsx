@@ -1,20 +1,18 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
-import { CompactFormField, FormSectionCard, compactControlClass } from '@/components/ui';
-import { useApiMutation, useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
+import { useMemo } from 'react';
+import { AccountFormModal } from '@/components/accounting/chart-of-accounts/AccountFormModal';
 import { apiClient } from '@/lib/api/client';
-import type { ApiError } from '@/lib/api/types';
-import { QuickCreateDialog } from '@/app/components/form/QuickCreateDialog';
-import { useCompanyBaseCurrency } from '@/lib/hooks/useCompanyBaseCurrency';
+import { toast } from '@/lib/feedback/toast';
+import { useInvalidateQuery } from '@/lib/hooks/useApi';
+import { useAccountsQuery, type BankAccountOption } from '@/lib/hooks/useMasterDataQueries';
+import type { CoaHierarchyAccount } from '@/lib/accounting/mapCoaToTreeNodes';
 
 export type QuickCreatedBankAccount = {
   id: string;
   arabicName: string;
   code?: string | null;
 };
-
-type BankRow = { id: string; arabicName: string; code?: string | null };
 
 type Props = {
   open: boolean;
@@ -24,141 +22,75 @@ type Props = {
   onCreated: (bankAccount: QuickCreatedBankAccount) => void;
 };
 
+const BANKS_PARENT_CODE = '1112';
+
+function isBanksParent(row: { code?: string | null; arabicName?: string | null }) {
+  const code = String(row.code ?? '').trim();
+  const name = String(row.arabicName ?? '').trim();
+  return code === BANKS_PARENT_CODE || name === 'البنوك والحسابات الجارية' || name === 'البنوك';
+}
+
 export function QuickCreateBankAccountModal({
   open,
   initialName = '',
-  currencyCode,
   onClose,
   onCreated,
 }: Props) {
   const invalidate = useInvalidateQuery();
-  const { code: companyBaseCurrency } = useCompanyBaseCurrency();
-  const resolvedCurrency = currencyCode || companyBaseCurrency;
-  const [name, setName] = useState(initialName);
-  const [bankId, setBankId] = useState('');
-  const [newBankName, setNewBankName] = useState('');
-  const [error, setError] = useState('');
-  const [saving, setSaving] = useState(false);
+  const { data: byCode } = useAccountsQuery(BANKS_PARENT_CODE, 50, { enabled: open });
+  const { data: byName } = useAccountsQuery('البنوك', 50, { enabled: open });
 
-  const { data: banksRes } = useApiQuery<BankRow[]>(
-    ['banks', { limit: 100 }],
-    '/accounting/banks',
-    { limit: 100, isActive: true },
-    { enabled: open }
-  );
-  const banks = banksRes?.data ?? [];
+  const parentAccount = useMemo<CoaHierarchyAccount | null>(() => {
+    const rows = [...(byCode?.data ?? []), ...(byName?.data ?? [])];
+    const row = rows.find(isBanksParent);
+    if (!row) return null;
+    return {
+      id: row.id,
+      code: row.code,
+      arabicName: row.arabicName,
+      accountKind: 'HEADER',
+      accountType: row.accountType ?? 'asset',
+      nature: 'DEBIT',
+    };
+  }, [byCode?.data, byName?.data]);
 
-  useEffect(() => {
-    if (!open) return;
-    setName(initialName);
-    setBankId('');
-    setNewBankName('');
-    setError('');
-    setSaving(false);
-  }, [open, initialName]);
-
-  const accountMutation = useApiMutation<QuickCreatedBankAccount, Record<string, unknown>>(
-    '/accounting/bank-accounts',
-    'POST',
-    { showSuccessToast: false }
-  );
-
-  const submit = async () => {
-    setError('');
-    if (!name.trim()) {
-      setError('اسم الحساب البنكي مطلوب');
-      return;
-    }
-    setSaving(true);
+  const attachCreatedBank = async (account: { id: string; code: string; arabicName: string }) => {
+    invalidate(['bank-accounts']);
     try {
-      let resolvedBankId = bankId;
-      if (!resolvedBankId) {
-        if (!newBankName.trim()) {
-          setError(banks.length ? 'اختر البنك أو اكتب اسم بنك جديد' : 'اسم البنك مطلوب');
-          setSaving(false);
-          return;
-        }
-        const created = await apiClient.post<BankRow>('/accounting/banks', {
-          arabicName: newBankName.trim(),
-        });
-        resolvedBankId = created.data?.id || '';
-        if (!resolvedBankId) {
-          setError('تعذر إنشاء البنك');
-          setSaving(false);
-          return;
-        }
-      }
-      const res = await accountMutation.mutateAsync({
-        bankId: resolvedBankId,
-        arabicName: name.trim(),
-        currencyCode: resolvedCurrency,
-      });
-      const row = res.data;
-      if (!row?.id) {
-        setError('تعذر إنشاء الحساب البنكي');
-        setSaving(false);
+      const res = await apiClient.get<BankAccountOption[]>('/accounting/bank-accounts', { isActive: true });
+      const match = (res.data ?? []).find((bank) => bank.glAccount?.id === account.id);
+      if (!match?.id) {
+        toast.error('تم حفظ الحساب لكن تعذر ربطه بالبنك. حدّث القائمة ثم اختر الحساب البنكي.');
         return;
       }
-      invalidate(['bank-accounts']);
-      invalidate(['banks']);
       onCreated({
-        id: row.id,
-        arabicName: row.arabicName || name.trim(),
-        code: row.code ?? null,
+        id: match.id,
+        arabicName: match.arabicName || account.arabicName,
+        code: match.glAccount?.code || match.code || account.code,
       });
-      onClose();
-    } catch (err) {
-      const apiErr = err as ApiError;
-      setError(apiErr.message || 'تعذر الحفظ');
-    } finally {
-      setSaving(false);
+    } catch {
+      toast.error('تم حفظ الحساب لكن تعذر تحديث قائمة البنوك.');
     }
   };
 
   return (
-    <QuickCreateDialog
+    <AccountFormModal
       open={open}
-      title="إضافة حساب بنكي جديد"
-      titleId="quick-bank-account-title"
-      error={error}
-      saving={saving}
+      mode="create"
+      pickerMode
+      lockParent
+      parentAccount={parentAccount}
+      initialArabicName={initialName}
+      createKind="POSTING"
+      lockParentHint="الحساب البنكي الجديد بينزل تحت البنوك."
+      lockParentMissingMessage="حساب البنوك غير جاهز. حدّث الصفحة ثم أعد المحاولة."
+      lockParentEmptyLabel="البنوك"
       onClose={onClose}
-      onSave={() => void submit()}
-    >
-      <FormSectionCard title="البيانات الأساسية" bodyClassName="sm:grid-cols-1 lg:grid-cols-1">
-        <CompactFormField
-          label="اسم الحساب البنكي"
-          required
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          autoFocus
-        />
-        {banks.length > 0 ? (
-          <label className="block space-y-1">
-            <span className="text-xs font-medium text-slate-600">البنك</span>
-            <select
-              className={compactControlClass}
-              value={bankId}
-              onChange={(e) => setBankId(e.target.value)}
-            >
-              <option value="">بنك جديد…</option>
-              {banks.map((bank) => (
-                <option key={bank.id} value={bank.id}>
-                  {bank.arabicName}
-                </option>
-              ))}
-            </select>
-          </label>
-        ) : null}
-        {!bankId ? (
-          <CompactFormField
-            label={banks.length ? 'اسم البنك الجديد' : 'اسم البنك'}
-            required
-            value={newBankName}
-            onChange={(e) => setNewBankName(e.target.value)}
-          />
-        ) : null}
-      </FormSectionCard>
-    </QuickCreateDialog>
+      onSaved={() => undefined}
+      onCreatedAccount={(account) => {
+        void attachCreatedBank(account);
+      }}
+      onError={(msg) => toast.error('تعذّر حفظ الحساب', { description: msg })}
+    />
   );
 }

@@ -1,4 +1,5 @@
 import prisma from '../../../shared/database/prisma';
+import { permanentDelete } from '../../../shared/database/permanent-delete.util';
 import { logger } from '../../../shared/logger';
 
 export interface CreateReligionData {
@@ -150,10 +151,7 @@ export class ReligionService {
         throw new Error('Religion not found');
       }
 
-      await prisma.religion.update({
-        where: { id: religionId },
-        data: { isActive: false },
-      });
+      await permanentDelete('السجل', () => prisma.religion.delete({ where: { id: religionId } }));
 
       logger.info({ companyId, religionId }, 'Religion deleted');
       return { success: true };

@@ -1,5 +1,22 @@
 import prisma from '../../shared/database/prisma';
-import { emailService } from '../../shared/services/email.service';
+import { CompanyEmailError, sendCompanyEmail } from '../../modules/company/services/company-email.service';
+
+jest.mock('../../modules/company/services/company-email.service', () => {
+  class CompanyEmailError extends Error {
+    constructor(
+      public code: string,
+      message: string,
+      public transient: boolean
+    ) {
+      super(message);
+    }
+  }
+  return {
+    sendCompanyEmail: jest.fn(),
+    isCompanyEmailConfigured: jest.fn(),
+    CompanyEmailError,
+  };
+});
 
 jest.mock('../../shared/database/prisma', () => ({
   __esModule: true,
@@ -9,16 +26,8 @@ jest.mock('../../shared/database/prisma', () => ({
   },
 }));
 
-jest.mock('../../shared/services/email.service', () => ({
-  __esModule: true,
-  emailService: {
-    isEmailConfigured: jest.fn(),
-    sendEmail: jest.fn(),
-  },
-}));
-
 import { AutomationActionRunService } from '../../modules/automation/services/automation-action-run.service';
-import { AutomationActionDispatchService } from '../../modules/automation/services/automation-action-dispatch.service';
+import { AutomationActionDispatchService, claimActionType } from '../../modules/automation/services/automation-action-dispatch.service';
 import { AutomationActionDispatchError } from '../../modules/automation/services/automation-action-dispatch.types';
 import { notificationActionHandler } from '../../modules/automation/services/automation-notification-action.handler';
 import { emailActionHandler } from '../../modules/automation/services/automation-email-action.handler';
@@ -131,7 +140,9 @@ describe('gates.createNotification handler', () => {
 
 describe('email.send handler', () => {
   it('rejects when SMTP is not configured (permanent, not transient)', async () => {
-    (emailService.isEmailConfigured as jest.Mock).mockReturnValue(false);
+    (sendCompanyEmail as jest.Mock).mockRejectedValue(
+      new CompanyEmailError('EMAIL_NOT_CONFIGURED', 'Company email is not configured', false)
+    );
 
     await expect(
       emailActionHandler.execute({
@@ -142,11 +153,10 @@ describe('email.send handler', () => {
         eventType: 'sales.invoice.created',
         config: { to: 'ops@example.com', subject: 'Hi', body: 'Body' },
       })
-    ).rejects.toMatchObject({ statusCode: 400 });
+    ).rejects.toMatchObject({ statusCode: 400, code: 'EMAIL_NOT_CONFIGURED' });
   });
 
   it('rejects a malformed recipient address', async () => {
-    (emailService.isEmailConfigured as jest.Mock).mockReturnValue(true);
     await expect(
       emailActionHandler.execute({
         companyId: COMPANY_A,
@@ -156,12 +166,16 @@ describe('email.send handler', () => {
         eventType: 'sales.invoice.created',
         config: { to: 'not-an-email', subject: 'Hi', body: 'Body' },
       })
-    ).rejects.toMatchObject({ statusCode: 400 });
+    ).rejects.toMatchObject({ statusCode: 400, code: 'EMAIL_RECIPIENT_INVALID' });
+    expect(sendCompanyEmail).not.toHaveBeenCalled();
   });
 
-  it('sends via the shared emailService when configured', async () => {
-    (emailService.isEmailConfigured as jest.Mock).mockReturnValue(true);
-    (emailService.sendEmail as jest.Mock).mockResolvedValue(undefined);
+  it('sends through the company SMTP service and renders declared variables', async () => {
+    (sendCompanyEmail as jest.Mock).mockResolvedValue({
+      provider: 'smtp',
+      messageId: 'msg-1',
+      recipient: 'ops@example.com',
+    });
 
     const result = await emailActionHandler.execute({
       companyId: COMPANY_A,
@@ -169,12 +183,31 @@ describe('email.send handler', () => {
       ruleId: 'rule-1',
       correlationId: 'corr-5',
       eventType: 'sales.invoice.created',
-      config: { to: 'ops@example.com', subject: 'Hi', body: 'Body' },
+      config: { to: 'ops@example.com', subject: 'Invoice {{invoiceNumber}}', body: 'Amount {{totalAmount}}' },
+      eventData: { invoiceNumber: 'INV-9', totalAmount: 50000 },
     });
     expect(result.resultEntityType).toBe('EmailSend');
-    expect(emailService.sendEmail).toHaveBeenCalledWith(
-      expect.objectContaining({ to: 'ops@example.com', subject: 'Hi' })
+    expect(result.resultMetadata).toEqual(
+      expect.objectContaining({ recipient: 'ops@example.com', subject: 'Invoice INV-9' })
     );
+    expect(JSON.stringify(result.resultMetadata)).not.toMatch(/password|authorization/i);
+    expect(sendCompanyEmail).toHaveBeenCalledWith(
+      COMPANY_A,
+      expect.objectContaining({ to: 'ops@example.com', subject: 'Invoice INV-9', text: 'Amount 50000' })
+    );
+  });
+
+  it('rejects a template variable that is not on the event', async () => {
+    await expect(
+      emailActionHandler.execute({
+        companyId: COMPANY_A,
+        eventId: 'evt-6',
+        ruleId: 'rule-1',
+        correlationId: 'corr-6',
+        eventType: 'sales.invoice.created',
+        config: { to: 'ops@example.com', subject: 'Hi', body: '{{password}}' },
+      })
+    ).rejects.toMatchObject({ statusCode: 400, code: 'EMAIL_TEMPLATE_INVALID' });
   });
 });
 
@@ -222,7 +255,9 @@ describe('AutomationActionDispatchService', () => {
   it('marks the run FAILED and rethrows on a permanent handler error', async () => {
     const runs = new AutomationActionRunService(createRunStore());
     const dispatch = new AutomationActionDispatchService([emailActionHandler], runs, alwaysActiveGate);
-    (emailService.isEmailConfigured as jest.Mock).mockReturnValue(false);
+    (sendCompanyEmail as jest.Mock).mockRejectedValue(
+      new CompanyEmailError('EMAIL_NOT_CONFIGURED', 'Company email is not configured', false)
+    );
 
     await expect(
       dispatch.execute({
@@ -238,6 +273,100 @@ describe('AutomationActionDispatchService', () => {
 
     const run = await runs.findByUnique({ companyId: COMPANY_A, eventId: 'evt-9', ruleId: 'rule-1', actionType: 'email.send' });
     expect(run?.status).toBe('FAILED');
+    expect(run?.lastErrorCode).toBe('EMAIL_NOT_CONFIGURED');
+  });
+
+  it('keeps a second email action on the same rule from reusing the first claim', async () => {
+    (sendCompanyEmail as jest.Mock).mockResolvedValue({
+      provider: 'smtp',
+      messageId: 'msg-2',
+      recipient: 'ops@example.com',
+    });
+    const runs = new AutomationActionRunService(createRunStore());
+    const dispatch = new AutomationActionDispatchService([emailActionHandler], runs, alwaysActiveGate);
+    const base = {
+      companyId: COMPANY_A,
+      eventId: 'evt-mail',
+      ruleId: 'rule-1',
+      actionType: 'email.send',
+      correlationId: 'corr-mail',
+      eventType: 'sales.invoice.created',
+      config: { to: 'ops@example.com', subject: 'Hi', body: 'Body' },
+    };
+    await dispatch.execute({ ...base, actionIndex: 0 });
+    await dispatch.execute({ ...base, actionIndex: 1 });
+    expect(sendCompanyEmail).toHaveBeenCalledTimes(2);
+    const first = await runs.findByUnique({
+      companyId: COMPANY_A,
+      eventId: 'evt-mail',
+      ruleId: 'rule-1',
+      actionType: 'email.send',
+    });
+    const second = await runs.findByUnique({
+      companyId: COMPANY_A,
+      eventId: 'evt-mail',
+      ruleId: 'rule-1',
+      actionType: 'email.send#1',
+    });
+    expect(first?.status).toBe('SUCCEEDED');
+    expect(second?.status).toBe('SUCCEEDED');
+
+    (sendCompanyEmail as jest.Mock).mockClear();
+    const replayFirst = await dispatch.execute({ ...base, actionIndex: 0 });
+    const replaySecond = await dispatch.execute({ ...base, actionIndex: 1 });
+    expect(replayFirst.duplicate).toBe(true);
+    expect(replaySecond.duplicate).toBe(true);
+    expect(sendCompanyEmail).not.toHaveBeenCalled();
+  });
+
+  it('runs four ordered actions once and keeps a retry on the same index', async () => {
+    (sendCompanyEmail as jest.Mock).mockResolvedValue({
+      provider: 'smtp',
+      messageId: 'msg-3',
+      recipient: 'ops@example.com',
+    });
+    (prisma.systemNotification.create as jest.Mock).mockResolvedValue({ id: 'notif-4' });
+    const runs = new AutomationActionRunService(createRunStore());
+    const dispatch = new AutomationActionDispatchService(
+      [emailActionHandler, notificationActionHandler],
+      runs,
+      alwaysActiveGate
+    );
+    const email = {
+      companyId: COMPANY_A,
+      eventId: 'evt-four',
+      ruleId: 'rule-1',
+      actionType: 'email.send',
+      correlationId: 'corr-four',
+      eventType: 'sales.invoice.created',
+      config: { to: 'ops@example.com', subject: 'Hi', body: 'Body' },
+    };
+    const note = {
+      ...email,
+      actionType: 'gates.createNotification',
+      config: { title: 'Hi', message: 'Body' },
+    };
+    await dispatch.execute({ ...email, actionIndex: 0 });
+    await dispatch.execute({ ...email, actionIndex: 1 });
+    await dispatch.execute({ ...note, actionIndex: 2 });
+    await dispatch.execute({ ...email, actionIndex: 3 });
+    expect(sendCompanyEmail).toHaveBeenCalledTimes(3);
+    expect(claimActionType('email.send', 0)).toBe('email.send');
+    expect(claimActionType('email.send')).toBe('email.send');
+    expect(claimActionType('email.send', 1)).toBe('email.send#1');
+    expect(claimActionType('email.send', 3)).toBe('email.send#3');
+
+    (sendCompanyEmail as jest.Mock).mockClear();
+    const retry = await dispatch.execute({ ...email, actionIndex: 1 });
+    expect(retry.duplicate).toBe(true);
+    expect(sendCompanyEmail).not.toHaveBeenCalled();
+    const still = await runs.findByUnique({
+      companyId: COMPANY_A,
+      eventId: 'evt-four',
+      ruleId: 'rule-1',
+      actionType: 'email.send#1',
+    });
+    expect(still?.status).toBe('SUCCEEDED');
   });
 
   it('rejects an actionType with no registered handler', async () => {

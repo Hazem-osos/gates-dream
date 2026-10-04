@@ -75,7 +75,7 @@ export class ApprovalWorkflowService {
         createdBy: true,
       },
     });
-    if (!invoice) throw new AppError(404, 'Invoice not found');
+    if (!invoice) throw new AppError(404, 'الفاتورة غير موجودة');
 
     const workflowStatus = this.normalizeStatus(invoice.workflowStatus, invoice.isPosted);
     const requirements: ApprovalRequirement[] = [];
@@ -134,18 +134,43 @@ export class ApprovalWorkflowService {
         workflowStatus: true,
         isPosted: true,
         isCancelled: true,
+        lines: { select: { debit: true } },
       },
     });
-    if (!entry) throw new AppError(404, 'Journal entry not found');
+    if (!entry) throw new AppError(404, 'القيد غير موجود');
 
     const workflowStatus = this.normalizeStatus(entry.workflowStatus, entry.isPosted);
+    const requirements: ApprovalRequirement[] = [];
+    const threshold = await this.getHighValueThreshold(companyId);
+    const totalDebit = entry.lines.reduce((sum, line) => sum + Number(line.debit || 0), 0);
+    if (threshold != null && totalDebit > threshold) requirements.push('HIGH_VALUE');
+
     return this.buildEvaluation(
       'JOURNAL_ENTRY',
       entry.id,
       workflowStatus,
-      false,
+      requirements.length > 0,
       entry.isCancelled
     );
+  }
+
+  private async updateScoped(
+    entityType: DocumentEntityType,
+    companyId: string,
+    entityId: string,
+    data: Record<string, unknown>
+  ) {
+    if (entityType === 'INVOICE') {
+      const result = await prisma.invoice.updateMany({ where: { id: entityId, companyId }, data });
+      if (result.count === 0) throw new AppError(404, 'الفاتورة غير موجودة');
+      return;
+    }
+    if (entityType === 'JOURNAL_ENTRY') {
+      const result = await prisma.journalEntry.updateMany({ where: { id: entityId, companyId }, data });
+      if (result.count === 0) throw new AppError(404, 'القيد غير موجود');
+      return;
+    }
+    throw new AppError(422, 'Unsupported entity type');
   }
 
   private buildEvaluation(
@@ -247,14 +272,20 @@ export class ApprovalWorkflowService {
   async assertCanPostInvoice(companyId: string, invoiceId: string) {
     const ev = await this.evaluateInvoice(companyId, invoiceId);
     if (!ev.canPost) {
-      throw new AppError(422, ev.blockReason ?? 'Invoice cannot be posted in current workflow state');
+      throw new AppError(
+        422,
+        ev.blockReason ?? 'لا يمكن ترحيل الفاتورة في حالتها الحالية — راجع الاعتماد أو حالة المستند.'
+      );
     }
   }
 
   async assertCanPostJournal(companyId: string, journalEntryId: string, _actorUserId?: string) {
     const ev = await this.evaluateJournal(companyId, journalEntryId);
     if (!ev.canPost) {
-      throw new AppError(422, ev.blockReason ?? 'Journal entry cannot be posted in current workflow state');
+      throw new AppError(
+        422,
+        ev.blockReason ?? 'لا يمكن ترحيل القيد في حالته الحالية — راجع الاعتماد أو حالة المستند.'
+      );
     }
   }
 
@@ -277,33 +308,17 @@ export class ApprovalWorkflowService {
     }
 
     const now = new Date();
-    if (entityType === 'INVOICE') {
-      await prisma.invoice.update({
-        where: { id: entityId },
-        data: {
-          workflowStatus: 'PENDING_APPROVAL',
-          workflowSubmittedAt: now,
-          workflowSubmittedBy: userId,
-          workflowRejectedAt: null,
-          workflowRejectedBy: null,
-          workflowRejectionReason: null,
-        },
-      });
-    } else if (entityType === 'JOURNAL_ENTRY') {
-      await prisma.journalEntry.update({
-        where: { id: entityId },
-        data: {
-          workflowStatus: 'PENDING_APPROVAL',
-          workflowSubmittedAt: now,
-          workflowSubmittedBy: userId,
-          workflowRejectedAt: null,
-          workflowRejectedBy: null,
-          workflowRejectionReason: null,
-        },
-      });
-    } else {
+    if (entityType !== 'INVOICE' && entityType !== 'JOURNAL_ENTRY') {
       throw new AppError(422, 'Stock movements use invoice/journal approval paths');
     }
+    await this.updateScoped(entityType, companyId, entityId, {
+      workflowStatus: 'PENDING_APPROVAL',
+      workflowSubmittedAt: now,
+      workflowSubmittedBy: userId,
+      workflowRejectedAt: null,
+      workflowRejectedBy: null,
+      workflowRejectionReason: null,
+    });
 
     await documentAuditService.record({
       companyId,
@@ -336,11 +351,7 @@ export class ApprovalWorkflowService {
       isApproved: true,
     };
 
-    if (entityType === 'INVOICE') {
-      await prisma.invoice.update({ where: { id: entityId }, data });
-    } else {
-      await prisma.journalEntry.update({ where: { id: entityId }, data });
-    }
+    await this.updateScoped(entityType, companyId, entityId, data);
 
     await documentAuditService.record({
       companyId,
@@ -375,11 +386,7 @@ export class ApprovalWorkflowService {
       isApproved: false,
     };
 
-    if (entityType === 'INVOICE') {
-      await prisma.invoice.update({ where: { id: entityId }, data });
-    } else {
-      await prisma.journalEntry.update({ where: { id: entityId }, data });
-    }
+    await this.updateScoped(entityType, companyId, entityId, data);
 
     await documentAuditService.record({
       companyId,
@@ -394,16 +401,8 @@ export class ApprovalWorkflowService {
   }
 
   async markPosted(companyId: string, entityType: DocumentEntityType, entityId: string, userId: string) {
-    if (entityType === 'INVOICE') {
-      await prisma.invoice.update({
-        where: { id: entityId },
-        data: { workflowStatus: 'POSTED' },
-      });
-    } else if (entityType === 'JOURNAL_ENTRY') {
-      await prisma.journalEntry.update({
-        where: { id: entityId },
-        data: { workflowStatus: 'POSTED' },
-      });
+    if (entityType === 'INVOICE' || entityType === 'JOURNAL_ENTRY') {
+      await this.updateScoped(entityType, companyId, entityId, { workflowStatus: 'POSTED' });
     }
     await documentAuditService.record({
       companyId,
@@ -416,16 +415,8 @@ export class ApprovalWorkflowService {
 
   async markUnposted(companyId: string, entityType: DocumentEntityType, entityId: string, userId: string) {
     const status: WorkflowStatus = 'DRAFT';
-    if (entityType === 'INVOICE') {
-      await prisma.invoice.update({
-        where: { id: entityId },
-        data: { workflowStatus: status, isApproved: false },
-      });
-    } else if (entityType === 'JOURNAL_ENTRY') {
-      await prisma.journalEntry.update({
-        where: { id: entityId },
-        data: { workflowStatus: status, isApproved: false },
-      });
+    if (entityType === 'INVOICE' || entityType === 'JOURNAL_ENTRY') {
+      await this.updateScoped(entityType, companyId, entityId, { workflowStatus: status, isApproved: false });
     }
     await documentAuditService.record({
       companyId,

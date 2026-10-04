@@ -6,6 +6,7 @@ import { useApiQuery } from '@/lib/hooks/useApi';
 import { staleTimes } from '@/lib/query/query-keys';
 import { formatMoney } from '@/lib/hooks/useExecutiveDashboard';
 import { toFiniteNumber } from '@/components/dashboard';
+import { isAtOrderLimit, REORDER_PURCHASE_ORDER_HREF } from '@/lib/inventory/reorder-items';
 import {
   CommandCenter,
   MetricBar,
@@ -41,11 +42,7 @@ export default function InventoryCommand() {
 
   const items = useMemo(() => itemsQ.data?.data ?? [], [itemsQ.data?.data]);
   const stockValue = items.reduce((s, it) => s + toFiniteNumber(it.onHandQuantity) * toFiniteNumber(it.salesPrice), 0);
-  const reorder = items.filter((it) => {
-    const qty = toFiniteNumber(it.onHandQuantity);
-    const limit = toFiniteNumber(it.orderLimit || it.lowerLimit || it.reorderPoint);
-    return limit > 0 && qty <= limit;
-  });
+  const reorder = items.filter(isAtOrderLimit);
   const zero = items.filter((it) => toFiniteNumber(it.onHandQuantity) <= 0);
   const dead = items.filter((it) => toFiniteNumber(it.onHandQuantity) > 0 && toFiniteNumber(it.salesPrice) <= 0);
   const expiryWatch = items.filter((it) => it.useExpirationDate);
@@ -91,7 +88,7 @@ export default function InventoryCommand() {
             title: it.arabicName ?? it.code ?? it.id,
             meta: `رصيد ${toFiniteNumber(it.onHandQuantity)} · حد ${toFiniteNumber(it.orderLimit || it.lowerLimit)}`,
             tone: toFiniteNumber(it.onHandQuantity) <= 0 ? 'bad' : 'warn',
-            actions: [{ label: 'إنشاء أمر شراء', href: '/inventory/operations/purchase-order' }],
+            actions: [{ label: 'إنشاء أمر شراء', href: REORDER_PURCHASE_ORDER_HREF }],
           }))}
         />
         <DataGridDense
@@ -112,7 +109,7 @@ export default function InventoryCommand() {
             segments={slices.map((s, i) => ({
               label: s[0],
               value: s[1],
-              color: ['#0E79AA', '#059669', '#D97706', '#0284C7', '#64748B'][i] ?? '#94A3B8',
+              color: ['#0E78AA', '#059669', '#D97706', '#0284C7', '#64748B'][i] ?? '#94A3B8',
             }))}
           />
           <p className="mt-3 text-[10px] text-slate-500">

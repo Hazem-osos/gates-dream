@@ -8,6 +8,7 @@ import {
 } from '../../inventory/utils/item-import-match';
 import { ensureDefaultUngroupedCategory } from '../../inventory/services/ensure-default-item-category';
 import { nextNumericCode } from '../../../shared/utils/next-numeric-code';
+import { acquireUniqueKey, UNIQUE_KINDS } from '../../../shared/database/company-unique-key';
 
 type ImportUnitHint = {
   code: string;
@@ -114,10 +115,11 @@ export class OnboardingImportService {
     rows: Array<{ arabicName: string; mobile?: string; code?: string }>
   ) {
     if (!rows.length) throw new AppError(400, 'No rows to import');
+    if (rows.length > 500) throw new AppError(422, 'استيراد العملاء حدّه 500 صف في المرة');
 
     return prisma.$transaction(async (tx) => {
       let created = 0;
-      for (const row of rows.slice(0, 500)) {
+      for (const row of rows) {
         if (!row.arabicName?.trim()) continue;
         await tx.customer.create({
           data: {
@@ -149,100 +151,133 @@ export class OnboardingImportService {
   ) {
     if (!rows.length) throw new AppError(400, 'No rows to import');
 
-    return prisma.$transaction(async (tx) => {
-      const existing = await tx.item.findMany({
-        where: { companyId },
-        select: { id: true, arabicName: true, englishName: true, barcode: true, serial: true },
-      });
-      const catalog = indexExistingItems(existing);
-      const seen = { barcodes: new Set<string>(), serials: new Set<string>(), names: new Set<string>() };
-      const unitCache = new Map<string, string>();
-      const serialPool = existing.map((item) => item.serial);
-      const fallbackCategory = await ensureDefaultUngroupedCategory(companyId, tx);
-      let created = 0;
-      let skippedExisting = 0;
-      let skippedInSheet = 0;
-      for (const row of rows.slice(0, 500)) {
-        if (!row.arabicName?.trim()) continue;
-        const barcode = row.barcode?.trim() || null;
-        const explicitSerial = row.serial?.trim() || null;
-        const incoming = { arabicName: row.arabicName.trim(), barcode, serial: explicitSerial };
-        const match = matchImportedItem(
-          incoming,
-          catalog.existingByBarcode,
-          catalog.existingBySerial,
-          catalog.existingByName,
-          seen
-        );
-        rememberImportedItemKeys(incoming, seen);
-        if (match) {
-          if (match.kind.startsWith('sheet-')) skippedInSheet += 1;
-          else skippedExisting += 1;
-          continue;
-        }
-        const unitKey = (row.unitId || row.unitName || 'قطعة').trim();
-        let unitId = row.unitId || unitCache.get(unitKey);
-        if (!unitId) {
-          unitId = await resolveImportUnitId(tx, companyId, row.unitName);
-          unitCache.set(unitKey, unitId);
-        }
-        const salesPrice =
-          row.salesPrice != null && Number.isFinite(row.salesPrice) ? row.salesPrice : null;
-        const purchasePrice =
-          row.purchasePrice != null && Number.isFinite(row.purchasePrice) ? row.purchasePrice : null;
-        const serial = explicitSerial || nextNumericCode(serialPool);
-        serialPool.push(serial);
-        const item = await tx.item.create({
-          data: {
-            companyId,
-            arabicName: row.arabicName.trim(),
-            serial,
-            barcode,
-            categoryId: row.categoryId || fallbackCategory.id,
-            isActive: true,
-            beginningCostPrice: purchasePrice != null ? new Decimal(purchasePrice) : undefined,
-            lastPurchasePrice: purchasePrice != null ? new Decimal(purchasePrice) : undefined,
-            priceRetail: salesPrice != null ? new Decimal(salesPrice) : undefined,
-            retailPrice: salesPrice != null ? new Decimal(salesPrice) : undefined,
-            consumerPrice: salesPrice != null ? new Decimal(salesPrice) : undefined,
-          },
-        });
-        await tx.itemUnit.create({
-          data: {
-            itemId: item.id,
-            unitId,
-            isBaseUnit: true,
-            conversionFactor: new Decimal(1),
-          },
-        });
-        if (salesPrice != null && salesPrice > 0) {
-          const priceList = await tx.priceList.findFirst({
-            where: { companyId, isActive: true },
-            select: { id: true },
-            orderBy: { createdAt: 'asc' },
-          });
-          if (priceList) {
-            await tx.itemPrice.create({
+    const existing = await prisma.item.findMany({
+      where: { companyId },
+      select: { id: true, arabicName: true, englishName: true, barcode: true, serial: true },
+    });
+    const catalog = indexExistingItems(existing);
+    const seen = { barcodes: new Set<string>(), serials: new Set<string>(), names: new Set<string>() };
+    const unitCache = new Map<string, string>();
+    let serialPool = existing.map((item) => item.serial);
+    const fallbackCategory = await prisma.$transaction((tx) =>
+      ensureDefaultUngroupedCategory(companyId, tx)
+    );
+    const priceList = await prisma.priceList.findFirst({
+      where: { companyId, isActive: true },
+      select: { id: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    let created = 0;
+    let skippedExisting = 0;
+    let skippedInSheet = 0;
+    const chunkSize = 100;
+
+    for (let offset = 0; offset < rows.length; offset += chunkSize) {
+      const chunk = rows.slice(offset, offset + chunkSize);
+      const committed = await prisma.$transaction(
+        async (tx) => {
+          const localSeen = {
+            barcodes: new Set(seen.barcodes),
+            serials: new Set(seen.serials),
+            names: new Set(seen.names),
+          };
+          const localPool = [...serialPool];
+          let chunkCreated = 0;
+          let chunkSkippedExisting = 0;
+          let chunkSkippedInSheet = 0;
+          for (const row of chunk) {
+            if (!row.arabicName?.trim()) continue;
+            const barcode = row.barcode?.trim() || null;
+            const explicitSerial = row.serial?.trim() || null;
+            const incoming = { arabicName: row.arabicName.trim(), barcode, serial: explicitSerial };
+            const match = matchImportedItem(
+              incoming,
+              catalog.existingByBarcode,
+              catalog.existingBySerial,
+              catalog.existingByName,
+              localSeen
+            );
+            rememberImportedItemKeys(incoming, localSeen);
+            if (match) {
+              if (match.kind.startsWith('sheet-')) chunkSkippedInSheet += 1;
+              else chunkSkippedExisting += 1;
+              continue;
+            }
+            const unitKey = (row.unitId || row.unitName || 'قطعة').trim();
+            let unitId = row.unitId || unitCache.get(unitKey);
+            if (!unitId) {
+              unitId = await resolveImportUnitId(tx, companyId, row.unitName);
+              unitCache.set(unitKey, unitId);
+            }
+            const salesPrice =
+              row.salesPrice != null && Number.isFinite(row.salesPrice) ? row.salesPrice : null;
+            const purchasePrice =
+              row.purchasePrice != null && Number.isFinite(row.purchasePrice) ? row.purchasePrice : null;
+            const serial = explicitSerial || nextNumericCode(localPool);
+            localPool.push(serial);
+            await acquireUniqueKey(tx, companyId, UNIQUE_KINDS.itemName, incoming.arabicName);
+            const item = await tx.item.create({
               data: {
-                itemId: item.id,
-                priceListId: priceList.id,
-                unitId,
-                price: new Decimal(salesPrice),
-                retailPrice: new Decimal(salesPrice),
+                companyId,
+                arabicName: row.arabicName.trim(),
+                serial,
+                barcode,
+                categoryId: row.categoryId || fallbackCategory.id,
+                isActive: true,
+                beginningCostPrice: purchasePrice != null ? new Decimal(purchasePrice) : undefined,
+                lastPurchasePrice: purchasePrice != null ? new Decimal(purchasePrice) : undefined,
+                priceRetail: salesPrice != null ? new Decimal(salesPrice) : undefined,
+                retailPrice: salesPrice != null ? new Decimal(salesPrice) : undefined,
+                consumerPrice: salesPrice != null ? new Decimal(salesPrice) : undefined,
               },
             });
+            await tx.itemUnit.create({
+              data: {
+                itemId: item.id,
+                unitId,
+                isBaseUnit: true,
+                conversionFactor: new Decimal(1),
+              },
+            });
+            if (salesPrice != null && salesPrice > 0 && priceList) {
+              await tx.itemPrice.create({
+                data: {
+                  itemId: item.id,
+                  priceListId: priceList.id,
+                  unitId,
+                  price: new Decimal(salesPrice),
+                  retailPrice: new Decimal(salesPrice),
+                },
+              });
+            }
+            chunkCreated++;
           }
-        }
-        created++;
-      }
-      return {
-        created,
-        skipped: skippedExisting + skippedInSheet,
-        skippedExisting,
-        skippedInSheet,
-        total: rows.length,
-      };
-    });
+          return {
+            chunkCreated,
+            chunkSkippedExisting,
+            chunkSkippedInSheet,
+            localSeen,
+            localPool,
+          };
+        },
+        { timeout: 30_000 }
+      );
+      created += committed.chunkCreated;
+      skippedExisting += committed.chunkSkippedExisting;
+      skippedInSheet += committed.chunkSkippedInSheet;
+      seen.barcodes = committed.localSeen.barcodes;
+      seen.serials = committed.localSeen.serials;
+      seen.names = committed.localSeen.names;
+      serialPool = committed.localPool;
+    }
+
+    return {
+      created,
+      skipped: skippedExisting + skippedInSheet,
+      skippedExisting,
+      skippedInSheet,
+      total: rows.length,
+    };
   }
 }
 

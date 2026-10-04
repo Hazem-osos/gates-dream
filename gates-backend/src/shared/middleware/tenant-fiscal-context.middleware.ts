@@ -14,6 +14,16 @@ const HEADER_FISCAL_YEAR = 'x-fiscal-year-id';
 
 const MUTATING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
+function isClosedYearAdministration(req: AuthRequest): boolean {
+  if (req.method.toUpperCase() !== 'POST') return false;
+  const url = req.originalUrl || req.path || '';
+  return (
+    /\/periods\/[^/]+\/reopen(?:\?|$)/.test(url) ||
+    /\/fiscal-years\/[^/]+\/reopen(?:\?|$)/.test(url) ||
+    /\/periods(?:\?|$)/.test(url)
+  );
+}
+
 function headerString(req: AuthRequest, name: string): string | undefined {
   const raw = req.headers[name];
   if (typeof raw === 'string' && raw.trim()) return raw.trim();
@@ -74,7 +84,7 @@ export async function tenantAndFiscalContextMiddleware(
         if (!fallback) {
           throw new AppError(
             422,
-            'No branch configured for this company. Add a branch in company settings or run tenant seed.'
+            'لا يوجد فرع لهذه الشركة. أضف فرعاً من إعدادات الشركة ثم أعد المحاولة.'
           );
         }
         resolvedBranchId = fallback.id;
@@ -99,7 +109,7 @@ export async function tenantAndFiscalContextMiddleware(
       if (userId && !isAdminRequest(req)) {
         const permitted = await resolvePermittedBranchIds(userId, companyId);
         if (permitted && !permitted.includes(resolvedBranchId)) {
-          throw new AppError(403, 'User does not have access to this branch');
+          throw new AppError(403, 'ليس لديك صلاحية على هذا الفرع');
         }
       }
 
@@ -108,31 +118,34 @@ export async function tenantAndFiscalContextMiddleware(
 
     const headerFiscalYearId = headerString(req, HEADER_FISCAL_YEAR);
     if (headerFiscalYearId) {
-      let fiscalYearId = headerFiscalYearId;
+      let fiscalYearId: string | null = headerFiscalYearId;
       try {
         await fiscalYearService.getById(companyId, fiscalYearId);
       } catch (err) {
         if (err instanceof AppError && err.statusCode === 404) {
-          const fallback = await fiscalYearService.resolveDefaultFiscalYearId(companyId);
-          if (!fallback) {
-            throw new AppError(
-              422,
-              'No fiscal year configured for this company. Create a fiscal year or run tenant seed.'
+          fiscalYearId = await fiscalYearService.resolveDefaultFiscalYearId(companyId);
+          if (fiscalYearId) {
+            logger.warn(
+              { companyId, requestedFiscalYearId: headerFiscalYearId, resolvedFiscalYearId: fiscalYearId },
+              'Invalid fiscal year context; resolved to company default fiscal year'
+            );
+          } else {
+            // First-time setup: the request is what creates the year. A stale
+            // header must not block that, or defining the year is impossible.
+            logger.warn(
+              { companyId, requestedFiscalYearId: headerFiscalYearId },
+              'Fiscal year header does not belong to this company and none exists yet'
             );
           }
-          fiscalYearId = fallback;
-          logger.warn(
-            { companyId, requestedFiscalYearId: headerFiscalYearId, resolvedFiscalYearId: fallback },
-            'Invalid fiscal year context; resolved to company default fiscal year'
-          );
         } else {
           throw err;
         }
       }
-      req.fiscalYearId = fiscalYearId;
-
-      if (MUTATING_METHODS.has(req.method.toUpperCase())) {
-        await fiscalYearService.assertOpenById(companyId, fiscalYearId);
+      if (fiscalYearId) {
+        req.fiscalYearId = fiscalYearId;
+        if (MUTATING_METHODS.has(req.method.toUpperCase()) && !isClosedYearAdministration(req)) {
+          await fiscalYearService.assertOpenById(companyId, fiscalYearId);
+        }
       }
     }
 

@@ -56,7 +56,7 @@ export class ElectronicInvoiceImportService {
           }
 
           if (!customer) {
-            throw new Error(`Customer not found: ${invoiceData.customerTaxNumber}`);
+            throw new Error(`العميل غير موجود: ${invoiceData.customerTaxNumber}`);
           }
 
           // Prepare invoice lines

@@ -129,7 +129,7 @@ export function PaymentInstallmentsModal({
   };
 
   return (
-    <CenteredOverlay open={open} onClose={handleDone} width="lg" labelledBy="payment-installments-title">
+    <CenteredOverlay open={open} onClose={handleDone} width="lg" zClass="z-[10060]" labelledBy="payment-installments-title">
       <div className="relative shrink-0 bg-gradient-to-l from-[#0E78AA] to-[#1E88E5] px-5 py-4">
         <h2 id="payment-installments-title" className="text-center text-lg font-bold text-white">
           توزيع الدفعات

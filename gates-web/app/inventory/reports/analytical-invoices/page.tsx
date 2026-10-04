@@ -1,18 +1,24 @@
 'use client';
 
+import { reportDefaultDateRange } from '@/lib/reports/reportDefaultDates';
+
 import { useMemo, useState } from 'react';
-import Link from 'next/link';
 import {
+  ReportFilterCheckbox,
   ReportFilterDate,
   ReportFilterField,
+  ReportFilterOptionsRow,
   ReportFilterPartySelect,
   ReportFilterSelect,
   ReportFilterPageShell,
   reportFilterInputClass,
 } from '@/components/report/reportFilterFields';
 import { UnifiedReportFilterCard } from '@/components/report/UnifiedReportFilterCard';
+import { UniversalReportView } from '@/components/report/UniversalReportView';
 import { useApiQuery } from '@/lib/hooks/useApi';
 import { SOURCE_TYPE_OPTIONS } from '@/lib/invoices/sourceDocument';
+import { useDocumentProfiles } from '@/lib/hooks/useDocumentProfiles';
+import { DOCUMENT_BASE_TYPE_LABELS, type DocumentBaseType } from '@/lib/document-profiles/types';
 
 type MovementRow = {
   id: string;
@@ -20,56 +26,73 @@ type MovementRow = {
   sourceTypeLabel: string;
   sourceNumber: string;
   sourceDate: string | null;
-  invoiceId: string;
-  invoiceNumber: string;
-  invoiceDate: string | null;
   partyName: string;
-  sourceTotal: number;
-  invoiceTotal: number;
-  delta: number;
-  changePercent: number;
-  turnaroundDays: number | null;
-  status: 'كامل' | 'جزئي' | 'ملغي';
-  operatorName: string;
-  invoicePreviewPath: string;
-  sourcePreviewPath: string | null;
+  itemName: string;
+  unitName: string;
+  orderedQty: number;
+  unitPrice: number;
+  orderedTotal: number;
+  issuedQty: number;
+  remainingQty: number;
+  invoiceNumber: string;
+  status: 'مفتوح' | 'جزئي' | 'مكتمل' | 'ملغي';
 };
 
 type MovementSummary = {
-  convertedCount: number;
-  invoicedTotal: number;
-  openSourceCount: number;
-  conversionRate: number;
+  lineCount: number;
+  orderedQty: number;
+  issuedQty: number;
+  remainingQty: number;
+  issueQty: number;
 };
 
+const REPORT_TITLE = 'تقرير استخدام عروض الأسعار وأوامر الشراء';
+
+const WAREHOUSE_ENTRY_TYPES = new Set<DocumentBaseType>([
+  'SALES_INVOICE',
+  'SALES_RETURN',
+  'PURCHASE_INVOICE',
+  'PURCHASE_RETURN',
+  'STOCK_ISSUE',
+  'STOCK_RECEIPT',
+]);
+
 const defaultFilters = () => ({
-  fromDate: new Date(new Date().getFullYear(), 0, 1).toISOString().split('T')[0],
-  toDate: new Date().toISOString().split('T')[0],
+  ...reportDefaultDateRange(),
   sourceType: '',
   customerId: '',
   supplierId: '',
   status: '',
   search: '',
+  allAccounts: true,
 });
 
-function money(n: number) {
-  return n.toLocaleString('ar-EG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+function qty(n: number) {
+  return n.toLocaleString('ar-EG', { maximumFractionDigits: 2 });
 }
-
-function formatDate(value: string | null) {
-  if (!value) return '—';
-  return new Date(value).toLocaleDateString('ar-EG');
-}
-
-const statusClass: Record<MovementRow['status'], string> = {
-  كامل: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-  جزئي: 'bg-amber-50 text-amber-700 border-amber-200',
-  ملغي: 'bg-rose-50 text-rose-700 border-rose-200',
-};
 
 export default function AnalyticalInvoicesPage() {
   const [filters, setFilters] = useState(defaultFilters);
   const [applied, setApplied] = useState(defaultFilters);
+  const profilesQuery = useDocumentProfiles();
+  const sectionOptions = useMemo(() => {
+    const profiles = (profilesQuery.data?.data ?? []).filter(
+      (profile) => profile.isActive && WAREHOUSE_ENTRY_TYPES.has(profile.baseType)
+    );
+    const patternOptions = profiles.map((profile) => ({
+      value: `profile:${profile.id}`,
+      label: `${DOCUMENT_BASE_TYPE_LABELS[profile.baseType]} — ${profile.nameAr}`,
+    }));
+    return [
+      { value: '', label: 'كل الأقسام' },
+      ...SOURCE_TYPE_OPTIONS.map((opt) => ({
+        value: opt.value,
+        label: `${opt.icon} ${opt.label}`,
+      })),
+      { value: 'DELIVERY_NOTE', label: '📤 إذن صرف مخزني' },
+      ...patternOptions,
+    ];
+  }, [profilesQuery.data?.data]);
 
   const patch = (p: Partial<ReturnType<typeof defaultFilters>>) =>
     setFilters((prev) => ({ ...prev, ...p }));
@@ -78,12 +101,13 @@ export default function AnalyticalInvoicesPage() {
     () => ({
       fromDate: applied.fromDate || undefined,
       toDate: applied.toDate || undefined,
-      sourceType: applied.sourceType || undefined,
+      sourceType: applied.sourceType.startsWith('profile:') ? undefined : applied.sourceType || undefined,
+      profileId: applied.sourceType.startsWith('profile:') ? applied.sourceType.slice('profile:'.length) : undefined,
       partyId: applied.customerId || applied.supplierId || undefined,
       status: applied.status || undefined,
       search: applied.search || undefined,
       page: 1,
-      limit: 100,
+      limit: 2000,
     }),
     [applied]
   );
@@ -96,24 +120,26 @@ export default function AnalyticalInvoicesPage() {
 
   const rows = data?.data ?? [];
   const summary = (data?.summary ?? {}) as Partial<MovementSummary>;
-  const convertedCount = Number(summary.convertedCount ?? 0);
-  const invoicedTotal = Number(summary.invoicedTotal ?? 0);
-  const conversionRate = Number(summary.conversionRate ?? 0);
+  const lineCount = Number(summary.lineCount ?? rows.length);
+  const orderedQty = Number(summary.orderedQty ?? 0);
+  const issuedQty = Number(summary.issuedQty ?? 0);
+  const remainingQty = Number(summary.remainingQty ?? 0);
+  const issueQty = Number(summary.issueQty ?? 0);
 
   return (
     <ReportFilterPageShell
-      title="تقرير الحركة التحليلية للفواتير"
-      description="تتبع تحويل عروض الأسعار وأوامر البيع والشراء إلى فواتير، مع مقارنة القيم وحالة التحويل."
+      title={REPORT_TITLE}
+      description="استخدام عروض الأسعار وأوامر الشراء: الكمية والسعر وما صُرف وما تبقى."
       breadcrumbs={[
         { label: 'المخزون', href: '/inventory' },
         { label: 'التقارير', href: '/inventory/reports' },
-        { label: 'الحركة التحليلية للفواتير' },
+        { label: REPORT_TITLE },
       ]}
       error={error?.message}
     >
       <UnifiedReportFilterCard
         icon="📑"
-        title="الحركة التحليلية للفواتير"
+        title={REPORT_TITLE}
         showTitle={false}
         onPreview={() => setApplied(filters)}
         onReset={() => {
@@ -136,13 +162,7 @@ export default function AnalyticalInvoicesPage() {
           label="القسم"
           value={filters.sourceType}
           onChange={(sourceType) => patch({ sourceType })}
-          options={[
-            { value: '', label: 'كل الأقسام' },
-            ...SOURCE_TYPE_OPTIONS.map((opt) => ({
-              value: opt.value,
-              label: `${opt.icon} ${opt.label}`,
-            })),
-          ]}
+          options={sectionOptions}
           placeholder="كل الأقسام"
         />
         <ReportFilterPartySelect
@@ -151,6 +171,7 @@ export default function AnalyticalInvoicesPage() {
           value={filters.customerId}
           onChange={(customerId) => patch({ customerId, supplierId: customerId ? '' : filters.supplierId })}
           emptyLabel="كل العملاء"
+          includeAllAccounts={filters.allAccounts}
         />
         <ReportFilterPartySelect
           label="المورد"
@@ -158,6 +179,7 @@ export default function AnalyticalInvoicesPage() {
           value={filters.supplierId}
           onChange={(supplierId) => patch({ supplierId, customerId: supplierId ? '' : filters.customerId })}
           emptyLabel="كل الموردين"
+          includeAllAccounts={filters.allAccounts}
         />
         <ReportFilterSelect
           label="حالة التحويل"
@@ -165,8 +187,9 @@ export default function AnalyticalInvoicesPage() {
           onChange={(status) => patch({ status })}
           options={[
             { value: '', label: 'كل الحالات' },
-            { value: 'كامل', label: 'كامل' },
+            { value: 'مفتوح', label: 'مفتوح' },
             { value: 'جزئي', label: 'جزئي' },
+            { value: 'مكتمل', label: 'مكتمل' },
             { value: 'ملغي', label: 'ملغي' },
           ]}
         />
@@ -175,92 +198,37 @@ export default function AnalyticalInvoicesPage() {
             className={reportFilterInputClass}
             value={filters.search}
             onChange={(e) => patch({ search: e.target.value })}
-            placeholder="رقم المستند أو الفاتورة أو الجهة"
+            placeholder="رقم المستند أو الصنف أو الجهة"
           />
         </ReportFilterField>
+        <ReportFilterOptionsRow>
+          <ReportFilterCheckbox
+            id="analytical-all-accounts"
+            label="كل الحسابات"
+            checked={filters.allAccounts}
+            onChange={(allAccounts) => patch({ allAccounts })}
+          />
+        </ReportFilterOptionsRow>
       </UnifiedReportFilterCard>
 
-      <div className="mt-5 grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <SummaryCard title="إجمالي المستندات المحولة" value={convertedCount.toLocaleString('ar-EG')} />
-        <SummaryCard title="إجمالي قيمة الفواتير الناتجة" value={`${money(invoicedTotal)} ج.م`} />
-        <SummaryCard title="نسبة التحويل" value={`${conversionRate.toFixed(1)}٪`} />
+      <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-5">
+        <SummaryCard title="البنود" value={lineCount.toLocaleString('ar-EG')} />
+        <SummaryCard title="الكمية" value={qty(orderedQty)} />
+        <SummaryCard title="المصروف من العروض والأوامر" value={qty(issuedQty)} />
+        <SummaryCard title="المتبقي" value={qty(remainingQty)} />
+        <SummaryCard title="إذن صرف مخزني" value={qty(issueQty)} />
       </div>
 
-      <div className="mt-5 overflow-x-auto rounded-2xl border border-[#D6EAF3] bg-white shadow-sm">
-        <table className="min-w-full text-sm">
-          <thead className="bg-[#F6FBFD] text-[#0A3D5E]">
-            <tr>
-              <th className="px-3 py-3 text-right font-semibold">نوع المستند الأصلي</th>
-              <th className="px-3 py-3 text-right font-semibold">رقم وتاريخ المستند</th>
-              <th className="px-3 py-3 text-right font-semibold">رقم وتاريخ الفاتورة</th>
-              <th className="px-3 py-3 text-right font-semibold">العميل / الجهة</th>
-              <th className="px-3 py-3 text-right font-semibold">قيمة المستند</th>
-              <th className="px-3 py-3 text-right font-semibold">قيمة الفاتورة</th>
-              <th className="px-3 py-3 text-right font-semibold">الفارق / النسبة</th>
-              <th className="px-3 py-3 text-right font-semibold">المسؤول</th>
-              <th className="px-3 py-3 text-right font-semibold">الحالة</th>
-              <th className="px-3 py-3 text-right font-semibold">معاينة</th>
-            </tr>
-          </thead>
-          <tbody>
-            {isFetching ? (
-              <tr>
-                <td colSpan={10} className="px-3 py-8 text-center text-slate-500">
-                  جاري تحميل الحركة التحليلية…
-                </td>
-              </tr>
-            ) : rows.length === 0 ? (
-              <tr>
-                <td colSpan={10} className="px-3 py-8 text-center text-slate-500">
-                  لا توجد تحويلات مطابقة للفلاتر الحالية
-                </td>
-              </tr>
-            ) : (
-              rows.map((row) => (
-                <tr key={row.id} className="border-t border-slate-100 hover:bg-slate-50/70">
-                  <td className="px-3 py-3 whitespace-nowrap">{row.sourceTypeLabel}</td>
-                  <td className="px-3 py-3">
-                    <div className="font-medium">{row.sourceNumber || '—'}</div>
-                    <div className="text-xs text-slate-400">{formatDate(row.sourceDate)}</div>
-                  </td>
-                  <td className="px-3 py-3">
-                    <div className="font-medium">{row.invoiceNumber}</div>
-                    <div className="text-xs text-slate-400">
-                      {formatDate(row.invoiceDate)}
-                      {row.turnaroundDays != null ? ` · ${row.turnaroundDays} يوم` : ''}
-                    </div>
-                  </td>
-                  <td className="px-3 py-3">{row.partyName}</td>
-                  <td className="px-3 py-3 whitespace-nowrap">{money(row.sourceTotal)}</td>
-                  <td className="px-3 py-3 whitespace-nowrap">{money(row.invoiceTotal)}</td>
-                  <td className="px-3 py-3 whitespace-nowrap">
-                    {money(row.delta)}{' '}
-                    <span className="text-xs text-slate-400">({row.changePercent.toFixed(1)}٪)</span>
-                  </td>
-                  <td className="px-3 py-3">{row.operatorName}</td>
-                  <td className="px-3 py-3">
-                    <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold ${statusClass[row.status]}`}>
-                      {row.status}
-                    </span>
-                  </td>
-                  <td className="px-3 py-3 whitespace-nowrap">
-                    <div className="flex flex-col items-start gap-1">
-                      <Link href={row.invoicePreviewPath} className="text-[#0E79AA] font-semibold hover:underline">
-                        معاينة الفاتورة
-                      </Link>
-                      {row.sourcePreviewPath ? (
-                        <Link href={row.sourcePreviewPath} className="text-slate-500 hover:underline">
-                          معاينة المستند الأصلي
-                        </Link>
-                      ) : null}
-                    </div>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
+      <UniversalReportView
+        embedded
+        title={REPORT_TITLE}
+        reportKey="analytical-invoices"
+        registryPath="inventory/reports/analytical-invoices"
+        rows={rows as unknown as Record<string, unknown>[]}
+        summary={summary}
+        isLoading={isFetching}
+        dataKey={JSON.stringify(applied)}
+      />
     </ReportFilterPageShell>
   );
 }

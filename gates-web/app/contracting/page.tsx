@@ -49,9 +49,10 @@ export default function ContractingCommand() {
       refreshing={isFetching}
       onRefresh={() => void refetch()}
       shortcuts={[
-        { key: 'F2', label: 'مستخلص', href: '/contracting/extracts' },
-        { key: 'F4', label: 'مشروع', href: '/contracting/projects' },
-        { key: 'F6', label: 'باطن', href: '/subcontracts/contracts' },
+        { key: 'F2', label: 'المشاريع', href: '/contracting/projects' },
+        { key: 'F3', label: 'العطاءات', href: '/contracting/tenders' },
+        { key: 'F4', label: 'باطن', href: '/subcontracts/contracts' },
+        { key: 'F6', label: 'أرشيف Wave3', href: '/contracting/extracts' },
       ]}
     >
       <MetricBar
@@ -60,8 +61,8 @@ export default function ContractingCommand() {
           { id: 'val', label: 'عقود جارية', value: <SensitiveValue>{formatEgp(k?.activeContractValue)}</SensitiveValue>, hint: `${k?.activeProjects ?? 0} مشروع`, spark: billing.map((b) => b.billed) },
           { id: 'pend', label: 'مستخلصات معلّقة', value: s?.actionQueue.pendingClientExtracts ?? 0, hint: `${s?.actionQueue.unapprovedMeasurementSheets ?? 0} حصر`, tone: (s?.actionQueue.pendingClientExtracts ?? 0) > 0 ? 'warn' : 'ok' },
           { id: 'lg', label: 'ضمان محتجز', value: <SensitiveValue>{formatEgp(k?.lgFrozenMargin)}</SensitiveValue>, hint: `${k?.lgActiveCount ?? 0} خطاب` },
-          { id: 'cpi', label: 'CPI', value: k?.portfolioCpi?.toFixed(2) ?? '—', tone: (k?.portfolioCpi ?? 1) < 1 ? 'bad' : 'ok' },
-          { id: 'spi', label: 'SPI', value: k?.portfolioSpi?.toFixed(2) ?? '—', tone: (k?.portfolioSpi ?? 1) < 1 ? 'warn' : 'ok' },
+          { id: 'cpi', label: 'CPI', value: k?.portfolioCpi?.toLocaleString() ?? '—', tone: (k?.portfolioCpi ?? 1) < 1 ? 'bad' : 'ok' },
+          { id: 'spi', label: 'SPI', value: k?.portfolioSpi?.toLocaleString() ?? '—', tone: (k?.portfolioSpi ?? 1) < 1 ? 'warn' : 'ok' },
           { id: 'ev', label: 'إنجاز مالي', value: `${completion}٪`, hint: <SensitiveValue>{formatEgp(k?.earnedValue)}</SensitiveValue> },
         ]}
       />
@@ -75,7 +76,7 @@ export default function ContractingCommand() {
               segments={(s?.extractPipeline ?? []).slice(0, 5).map((p, i) => ({
                 label: EXTRACT_AR[p.status] ?? p.status,
                 value: p.count,
-                color: ['#94A3B8', '#D97706', '#0E79AA', '#0284C7', '#059669'][i] ?? '#64748B',
+                color: ['#94A3B8', '#D97706', '#0E78AA', '#0284C7', '#059669'][i] ?? '#64748B',
               }))}
             />
           </div>

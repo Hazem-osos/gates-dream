@@ -183,7 +183,7 @@ export class FiscalYearService {
       where: { id: fiscalYearId, companyId },
     });
     if (!year) {
-      throw new AppError(404, 'Fiscal year not found');
+      throw new AppError(404, 'السنة المالية غير موجودة. اختر سنة مفتوحة من أعلى الشاشة.');
     }
     if (year.status === 'Close') {
       // A closed *year* is legacy message 1124, not the monthly period lock —
@@ -197,7 +197,7 @@ export class FiscalYearService {
       where: { id: fiscalYearId, companyId },
     });
     if (!year) {
-      throw new AppError(404, 'Fiscal year not found');
+      throw new AppError(404, 'السنة المالية غير موجودة. اختر سنة مفتوحة من أعلى الشاشة.');
     }
     return year;
   }

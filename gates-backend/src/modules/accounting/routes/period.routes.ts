@@ -169,6 +169,22 @@ router.put(
 );
 
 router.post(
+  '/:id/close-preview',
+  authorize({ resource: 'period', action: 'edit' }),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const data = await periodService.previewClose(companyIdOf(req), req.params.id);
+      return void res.json({
+        status: 'success',
+        data,
+      });
+    } catch (error) {
+      return sendError(res, error, 'تعذّر التحقق قبل إغلاق السنة');
+    }
+  }
+);
+
+router.post(
   '/:id/close',
   authorize({ resource: 'period', action: 'edit' }),
   async (req: AuthRequest, res: Response) => {
@@ -177,9 +193,7 @@ router.post(
       const period = await periodService.closePeriod(companyIdOf(req), req.params.id, ctx);
       return void res.json({
         status: 'success',
-        message: period.closingJournalEntryId
-          ? 'تم إغلاق الفترة وإنشاء قيد الإقفال التلقائي للإيرادات والمصروفات'
-          : 'تم إغلاق الفترة المالية',
+        message: 'تم إغلاق الفترة',
         data: period,
       });
     } catch (error) {

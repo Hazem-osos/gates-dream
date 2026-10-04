@@ -91,7 +91,7 @@ export default function SalesCommand() {
       <MetricBar
         loading={kpisQ.isLoading && !monthSales}
         items={[
-          { id: 'today', label: 'مبيعات اليوم', value: formatMoney(todaySales), hint: `×${velocity.toFixed(1)} مقابل متوسط 30ي`, tone: velocity < 0.7 ? 'warn' : 'ok', spark: Object.values(kpisQ.data?.data?.monthlyTrend.salesByMonth ?? {}) },
+          { id: 'today', label: 'مبيعات اليوم', value: formatMoney(todaySales), hint: `×${velocity.toLocaleString()} مقابل متوسط 30ي`, tone: velocity < 0.7 ? 'warn' : 'ok', spark: Object.values(kpisQ.data?.data?.monthlyTrend.salesByMonth ?? {}) },
           { id: 'mo', label: 'مبيعات الشهر', value: formatMoney(monthSales) },
           { id: 'ar', label: 'ذمم مدينة', value: formatMoney(arQ.data?.data?.summary.totalOutstanding ?? 0), hint: `${arQ.data?.data?.summary.partyCount ?? 0} عميل` },
           { id: '90', label: '90+', value: formatMoney(buckets.d90), tone: buckets.d90 > 0 ? 'bad' : 'ok' },

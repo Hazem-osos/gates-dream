@@ -80,14 +80,14 @@ function GuideTreeRow({
           ? cn('rounded-lg ring-1 ring-inset ring-black/[0.03]', !isLastSibling && 'mb-0.5')
           : 'mb-1 rounded-lg',
         isChild ? cn(tone.row, 'bg-opacity-80') : tone.row,
-        selected && 'ring-2 ring-[#0E79AA]/40'
+        selected && 'ring-2 ring-[#0E78AA]/40'
       )}
     >
       <div className="z-[1] flex min-w-0 flex-1 items-center gap-2.5">
         {selectable && !node.synthetic ? (
           <input
             type="checkbox"
-            className="h-4 w-4 shrink-0 rounded border-[#D6EAF3] text-[#0E79AA] focus:ring-[#0E79AA]/30"
+            className="h-4 w-4 shrink-0 rounded border-[#D6EAF3] text-[#0E78AA] focus:ring-[#0E78AA]/30"
             checked={Boolean(selected)}
             aria-label={`اختيار ${node.name}`}
             onChange={() => onToggleSelect?.(node)}
@@ -147,7 +147,7 @@ function GuideTreeRow({
             type="button"
             title="عرض البيانات"
             aria-label="عرض البيانات"
-            className="rounded-md p-1.5 text-[#0E79AA] hover:bg-[#0E79AA]/10"
+            className="rounded-md p-1.5 text-[#0E78AA] hover:bg-[#0E78AA]/10"
             onClick={() => onView(node)}
           >
             <Eye className="h-4 w-4" />
@@ -157,7 +157,7 @@ function GuideTreeRow({
           <button
             type="button"
             title={`إضافة ${addChildLabel ?? childNoun}`}
-            className="whitespace-nowrap rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-[#0E79AA] shadow-sm hover:bg-[#0E79AA]/10"
+            className="whitespace-nowrap rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-[#0E78AA] shadow-sm hover:bg-[#0E78AA]/10"
             onClick={() => onAddChild(node)}
           >
             + {addChildLabel ?? 'فرعي'}
@@ -337,6 +337,7 @@ function firstLevelIds(nodes: GuideTreeNode[]): Set<string> {
 export function MasterGuideTree({
   nodes,
   search,
+  revealId,
   expandAllToken,
   collapseAllToken,
   childNoun = 'فرعي',
@@ -353,6 +354,7 @@ export function MasterGuideTree({
 }: {
   nodes: GuideTreeNode[];
   search: string;
+  revealId?: string | null;
   expandAllToken?: number;
   collapseAllToken?: number;
   childNoun?: string;
@@ -371,6 +373,27 @@ export function MasterGuideTree({
   const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
   const [openedOnce, setOpenedOnce] = useState(false);
   const filtered = useMemo(() => filterGuideTree(nodes, q), [nodes, q]);
+
+  useEffect(() => {
+    if (!revealId) return;
+    const ancestors: string[] = [];
+    const walk = (list: GuideTreeNode[], trail: string[]): boolean => {
+      for (const node of list) {
+        if (node.id === revealId) {
+          ancestors.push(...trail);
+          return true;
+        }
+        if (node.children?.length && walk(node.children, [...trail, node.id])) return true;
+      }
+      return false;
+    };
+    if (!walk(nodes, [])) return;
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      for (const id of ancestors) next.add(id);
+      return next;
+    });
+  }, [revealId, nodes]);
 
   useEffect(() => {
     if (openedOnce || nodes.length === 0) return;

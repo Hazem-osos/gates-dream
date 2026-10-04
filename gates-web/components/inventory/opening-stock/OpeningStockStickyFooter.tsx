@@ -8,6 +8,7 @@ type Props = {
   totalQuantity: number;
   totalValue: number;
   lastSaved?: Date | null;
+  isPosted?: boolean;
   savePending?: boolean;
   canSave?: boolean;
   onSave: () => void;
@@ -23,6 +24,7 @@ export function OpeningStockStickyFooter({
   totalQuantity,
   totalValue,
   lastSaved,
+  isPosted = false,
   savePending,
   canSave = true,
   onSave,
@@ -32,7 +34,13 @@ export function OpeningStockStickyFooter({
     <div className="sticky bottom-0 z-30 mt-auto flex w-full flex-wrap items-center justify-between gap-3 border-t border-border/80 bg-background/95 px-6 py-3 shadow-lg backdrop-blur-md">
       <div className="flex items-center gap-1.5 text-xs text-muted-foreground" dir="rtl">
         <Check className="h-3.5 w-3.5 text-emerald-500" />
-        <span>{lastSaved ? `تم الحفظ كمسودة محلياً ${timeLabel(lastSaved)}` : 'المسودة متزامنة'}</span>
+        <span>
+          {isPosted
+            ? 'الكشف مرحّل ومثبت'
+            : lastSaved
+              ? `تعديلات لم تُحفظ بعد ${timeLabel(lastSaved)}`
+              : 'جاهز للحفظ والترحيل'}
+        </span>
       </div>
       <div className="flex flex-wrap items-center gap-4" dir="rtl">
         <div className="text-xs">

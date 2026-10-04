@@ -13,6 +13,7 @@ export default function BankMovementPage() {
         account: true,
         currency: true,
         branch: true,
+        reportOptions: ['showUnposted'],
       }}
     />
   );

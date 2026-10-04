@@ -6,17 +6,34 @@ import {
   type EtaInvoicePayload,
 } from './e-invoice-payload-builder.service';
 import { sha256HexCanonical } from '../utils/eta-canonical.util';
+import { collectEtaDocumentIssues, collectRawItemCodeIssue } from '../utils/eta-document-normalize';
 import {
   formatEgsItemCode,
   validateEgyptianNationalId,
   validateEgyptianRin,
-  validateEgsItemCode,
   validateGovernorate,
-  validateGs1ItemCode,
   normalizeDigits,
-  resolveItemCodification,
 } from '../utils/eta-egypt-validation';
 import { mapVatLineTax, mapWithholdingTax, type EtaTaxLine } from '../utils/eta-tax-table';
+import {
+  asEtaCustomerProfile,
+  asEtaIssuerProfile,
+  asEtaItemProfile,
+  missingCustomerEtaFields,
+  missingIssuerEtaFields,
+  missingItemEtaFields,
+} from '../utils/eta-profile';
+import { expandTreeIds } from '../../inventory/services/item-movement-report';
+import { parseEnabledSalesProfileIds } from '../utils/enabled-sales-profiles';
+import {
+  BUILTIN_SALES_INVOICE_PATTERN_ID,
+  buildEtaReadinessWhere,
+} from './eta-readiness-filters';
+import { salesBeforeVat } from '../utils/eta-amounts';
+import {
+  invoiceDiffersFromSubmittedPayload,
+  resolveEtaAmendmentMethod,
+} from '../utils/eta-amendment';
 
 export type EtaReadinessIssue = {
   code: string;
@@ -65,6 +82,18 @@ export class EtaInvoiceService {
     const issues: EtaReadinessIssue[] = [];
 
     const settings = await prisma.eInvoiceSetting.findUnique({ where: { companyId } });
+    const issuerProfile = asEtaIssuerProfile(settings?.issuerAddress);
+    issuerProfile.taxId = issuerProfile.taxId || settings?.issuerTaxId || '';
+    issuerProfile.name = issuerProfile.name || settings?.issuerName || '';
+    issuerProfile.activityCode = issuerProfile.activityCode || settings?.activityCode || '';
+    for (const message of missingIssuerEtaFields(issuerProfile)) {
+      issues.push({
+        code: 'MISSING_ISSUER_PROFILE',
+        field: 'eInvoiceSettings',
+        message,
+        severity: 'error',
+      });
+    }
     if (!settings?.issuerTaxId || !settings.issuerName) {
       issues.push({
         code: 'MISSING_ISSUER',
@@ -99,7 +128,7 @@ export class EtaInvoiceService {
     });
 
     if (!invoice) {
-      throw new AppError(404, 'Invoice not found');
+      throw new AppError(404, 'الفاتورة غير موجودة');
     }
 
     if (invoice.invoiceKind !== 'SALE' && invoice.invoiceKind !== 'SALE_RETURN') {
@@ -137,8 +166,17 @@ export class EtaInvoiceService {
       });
     }
 
-    let receiverId = invoice.customer?.taxAuthority ?? '';
-    if (invoice.customerId) {
+    const customerProfile = asEtaCustomerProfile(invoice.customer?.etaProfile);
+    for (const message of missingCustomerEtaFields(customerProfile, invoice.customer?.arabicName ?? '')) {
+      issues.push({
+        code: 'MISSING_CUSTOMER_PROFILE',
+        field: 'customer.etaProfile',
+        message,
+        severity: 'error',
+      });
+    }
+    let receiverId = customerProfile.taxId || invoice.customer?.taxAuthority || '';
+    if (invoice.customerId && !receiverId) {
       const mapped = await prisma.electronicInvoiceCustomer.findFirst({
         where: { companyId, customerId: invoice.customerId, isActive: true },
       });
@@ -174,40 +212,40 @@ export class EtaInvoiceService {
     }
 
     const issuerRin = settings?.issuerTaxId ?? '';
+    const canBuildDocument =
+      invoice.isPosted && Boolean(issuerRin) && validateEgyptianRin(issuerRin);
     for (const line of invoice.lines) {
-      const egsItem = line.item?.serial ?? line.itemId.slice(0, 8);
+      const itemProfile = asEtaItemProfile(line.item?.etaProfile);
+      for (const message of missingItemEtaFields(itemProfile, line.item?.arabicName ?? '')) {
+        issues.push({
+          code: 'MISSING_ITEM_PROFILE',
+          field: `line.${line.lineOrder}.etaProfile`,
+          message,
+          severity: 'error',
+        });
+      }
+      if (canBuildDocument) continue;
+      const egsItem = itemProfile.itemCode || line.item?.serial || line.itemId.slice(0, 8);
       const etaItem = await prisma.electronicInvoiceItem.findFirst({
         where: { companyId, OR: [{ itemId: line.itemId }, { itemCode: egsItem }] },
       });
-      const rawCode = etaItem?.itemCode ?? egsItem;
-      const codified = resolveItemCodification(rawCode, issuerRin);
-
-      if (codified.itemType === 'EGS' && issuerRin && !validateEgsItemCode(codified.itemCode, issuerRin)) {
-        issues.push({
-          code: 'INVALID_EGS_CODE',
-          field: `line.${line.lineOrder}.itemCode`,
-          message: `كود EGS غير صالح للصنف ${line.item?.arabicName ?? egsItem} (المطلوب EG-رقمضريبي-كود)`,
-          severity: 'error',
-        });
-      }
-      if (codified.itemType === 'GS1' && !validateGs1ItemCode(codified.itemCode)) {
-        issues.push({
-          code: 'INVALID_GS1',
-          field: `line.${line.lineOrder}.itemCode`,
-          message: `باركود GS1 غير صالح للصنف ${line.item?.arabicName ?? egsItem}`,
-          severity: 'error',
-        });
-      }
+      const rawCode = itemProfile.itemCode || etaItem?.itemCode || egsItem;
+      const codeIssue = collectRawItemCodeIssue({
+        itemType: itemProfile.itemType,
+        itemCode: rawCode,
+        issuerTaxId: issuerRin,
+        field: `line.${line.lineOrder}.itemCode`,
+        itemName: line.item?.arabicName ?? egsItem,
+      });
+      if (codeIssue) issues.push(codeIssue);
     }
 
     let payloadPreview: { contentHash: string } | undefined;
-    const blocking = issues.filter((i) => i.severity === 'error');
-    if (blocking.length === 0 && settings?.issuerTaxId) {
+    let normalizedPayload: EtaInvoicePayload | undefined;
+    if (canBuildDocument) {
       try {
-        const payload = await this.buildFromInvoice(companyId, invoiceId);
-        payloadPreview = {
-          contentHash: this.hashDocument(payload as unknown as Record<string, unknown>),
-        };
+        normalizedPayload = await this.buildFromInvoice(companyId, invoiceId);
+        issues.push(...collectEtaDocumentIssues(normalizedPayload, issuerRin));
       } catch (e) {
         issues.push({
           code: 'PAYLOAD_BUILD_FAILED',
@@ -216,11 +254,197 @@ export class EtaInvoiceService {
         });
       }
     }
+    if (normalizedPayload && issues.every((issue) => issue.severity !== 'error')) {
+      payloadPreview = {
+        contentHash: this.hashDocument(normalizedPayload as unknown as Record<string, unknown>),
+      };
+    }
 
     return {
       ready: issues.every((i) => i.severity !== 'error'),
       issues,
       payloadPreview,
+    };
+  }
+
+  async listInvoiceReadiness(
+    companyId: string,
+    options: {
+      fromDate?: Date;
+      toDate?: Date;
+      page?: number;
+      limit?: number;
+      invoiceKind?: 'SALE' | 'SALE_RETURN';
+      mode?: 'new' | 'amended';
+      customerId?: string;
+      delegateId?: string;
+      warehouseId?: string;
+      branchId?: string;
+      itemId?: string;
+      itemGroupId?: string;
+      costCenterId?: string;
+      invoiceNumber?: string;
+      profileId?: string;
+    } = {}
+  ) {
+    const page = options.page ?? 1;
+    const limit = Math.min(options.limit ?? 200, 500);
+    const skip = (page - 1) * limit;
+    let categoryIds: string[] | undefined;
+    if (options.itemGroupId) {
+      const categories = await prisma.itemCategory.findMany({
+        where: { companyId },
+        select: { id: true, parentCategoryId: true },
+      });
+      categoryIds = expandTreeIds(
+        options.itemGroupId,
+        categories.map((row) => ({ id: row.id, parentId: row.parentCategoryId }))
+      );
+    }
+    const settings = await prisma.eInvoiceSetting.findUnique({ where: { companyId } });
+    const enabledSalesProfileIds = parseEnabledSalesProfileIds(settings?.enabledSalesProfileIds);
+    const patternIds = [
+      ...enabledSalesProfileIds,
+      ...(options.profileId ? [options.profileId] : []),
+    ].filter((id) => id !== BUILTIN_SALES_INVOICE_PATTERN_ID);
+    const patternModules = patternIds.length
+      ? await prisma.newModule.findMany({
+          where: { companyId, id: { in: patternIds } },
+          select: { id: true, fullCode: true },
+        })
+      : [];
+    const enabledModuleCodes = Object.fromEntries(
+      patternModules.map((row) => [row.id, row.fullCode])
+    );
+    const issuerProfile = asEtaIssuerProfile(settings?.issuerAddress);
+    issuerProfile.taxId = issuerProfile.taxId || settings?.issuerTaxId || '';
+    issuerProfile.name = issuerProfile.name || settings?.issuerName || '';
+    issuerProfile.activityCode = issuerProfile.activityCode || settings?.activityCode || '';
+    const companyMissing = missingIssuerEtaFields(issuerProfile);
+    if (!settings?.clientId || !settings.clientSecret) {
+      companyMissing.push('بيانات ربط ETA (Client ID / Secret)');
+    }
+
+    const amendedMode = options.mode === 'amended';
+    const where = buildEtaReadinessWhere(companyId, {
+      fromDate: options.fromDate,
+      toDate: options.toDate,
+      invoiceKind: options.invoiceKind,
+      mode: options.mode,
+      customerId: options.customerId,
+      delegateId: options.delegateId,
+      warehouseId: options.warehouseId,
+      branchId: options.branchId,
+      itemId: options.itemId,
+      categoryIds,
+      costCenterId: options.costCenterId,
+      invoiceNumber: options.invoiceNumber,
+      profileId: options.profileId,
+      enabledSalesProfileIds,
+      enabledModuleCodes,
+    });
+
+    const invoices = await prisma.invoice.findMany({
+      where,
+      ...(amendedMode ? {} : { skip, take: limit }),
+      ...(amendedMode ? { take: 500 } : {}),
+      orderBy: [{ date: 'asc' }, { invoiceNumber: 'asc' }],
+      include: {
+        customer: { select: { arabicName: true, etaProfile: true, taxAuthority: true } },
+        delegate: { select: { arabicName: true } },
+        branch: { select: { arabicName: true } },
+        documentProfile: { select: { nameAr: true } },
+        newModule: { select: { nameAr: true, menuNameAr: true, fullCode: true } },
+        lines: { include: { item: { select: { arabicName: true, etaProfile: true, serial: true } } } },
+        eInvoiceDocuments: { orderBy: { createdAt: 'desc' }, take: 1 },
+      },
+    });
+
+    const mapped = invoices.map((invoice) => {
+      const missing = [...companyMissing];
+      missing.push(...missingCustomerEtaFields(asEtaCustomerProfile(invoice.customer?.etaProfile), invoice.customer?.arabicName ?? ''));
+      for (const line of invoice.lines) {
+        missing.push(...missingItemEtaFields(asEtaItemProfile(line.item?.etaProfile), line.item?.arabicName ?? ''));
+      }
+      const uniqueMissing = [...new Set(missing)];
+      const doc = invoice.eInvoiceDocuments[0];
+      const submitted =
+        Boolean(doc?.documentUuid) &&
+        (doc?.status === 'VALID' || doc?.status === 'SUBMITTED' || invoice.taxSubmitted);
+      const diverged =
+        submitted &&
+        invoiceDiffersFromSubmittedPayload({
+          netAmount: Number(invoice.netAmount),
+          taxAmount: Number(invoice.taxAmount),
+          date: invoice.date,
+          lines: invoice.lines,
+          payload: doc?.rawPayload,
+        });
+      const submittedNet = (() => {
+        const payload = doc?.rawPayload;
+        if (!payload || typeof payload !== 'object') return null;
+        const body = payload as { totalAmount?: unknown; netAmount?: unknown };
+        const value = Number(body.totalAmount ?? body.netAmount);
+        return Number.isFinite(value) ? roundTo4(value) : null;
+      })();
+      const issuedAt = doc?.dateTimeIssued ?? doc?.submittedAt ?? invoice.date;
+      const amendment =
+        submitted && diverged
+          ? resolveEtaAmendmentMethod({
+              issuedAt,
+              submittedNet: submittedNet ?? Number(invoice.netAmount),
+              currentNet: Number(invoice.netAmount),
+              structuralChange: invoice.lines.length !== ((doc?.rawPayload as { invoiceLines?: unknown[] } | null)?.invoiceLines?.length ?? invoice.lines.length),
+            })
+          : null;
+      const netAmount = roundTo4(Number(invoice.netAmount));
+      const taxAmount = roundTo4(Number(invoice.taxAmount));
+      const amountBeforeTax = salesBeforeVat(invoice);
+      return {
+        invoiceId: invoice.id,
+        invoiceNumber: invoice.invoiceNumber,
+        date: invoice.date.toISOString(),
+        customerName: invoice.customer?.arabicName ?? '',
+        delegateName: invoice.delegate?.arabicName ?? '',
+        branchName: invoice.branch?.arabicName ?? '',
+        profileName:
+          invoice.documentProfile?.nameAr ||
+          invoice.newModule?.menuNameAr ||
+          invoice.newModule?.nameAr ||
+          (invoice.invoiceKind === 'SALE' &&
+          !invoice.documentProfileId &&
+          !invoice.newModuleId &&
+          (!invoice.moduleCode || invoice.moduleCode === 'SI01')
+            ? 'فاتورة مبيعات'
+            : ''),
+        currencyCode: invoice.currencyCode || '',
+        amountBeforeTax,
+        taxAmount,
+        netAmount,
+        submittedNet,
+        submittedAt: doc?.submittedAt?.toISOString() ?? null,
+        documentUuid: doc?.documentUuid ?? null,
+        etaStatus: doc?.status || (invoice.taxSubmitted ? 'VALID' : 'NOT_SUBMITTED'),
+        ready: uniqueMissing.length === 0 && (!amendedMode || (diverged && amendment?.method !== 'unsupported')),
+        missing: uniqueMissing,
+        modifiedAfterSubmit: Boolean(diverged),
+        amendmentMethod: amendment?.method ?? null,
+      };
+    });
+
+    const rows = amendedMode ? mapped.filter((row) => row.modifiedAfterSubmit) : mapped;
+    const paged = amendedMode ? rows.slice(skip, skip + limit) : rows;
+    const total = amendedMode ? rows.length : await prisma.invoice.count({ where });
+
+    return {
+      rows: paged,
+      summary: {
+        total,
+        ready: paged.filter((row) => row.ready).length,
+        missing: paged.filter((row) => !row.ready).length,
+        amended: amendedMode ? total : paged.filter((row) => row.modifiedAfterSubmit).length,
+      },
+      pagination: { page, limit, total, totalPages: Math.ceil(total / limit) || 1 },
     };
   }
 
@@ -282,6 +506,71 @@ export class EtaInvoiceService {
     return {
       rows,
       pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+    };
+  }
+
+  async getInvoiceEtaStatus(companyId: string, invoiceId: string) {
+    const invoice = await prisma.invoice.findFirst({
+      where: { id: invoiceId, companyId },
+      select: {
+        id: true,
+        invoiceNumber: true,
+        invoiceKind: true,
+        netAmount: true,
+        taxSubmitted: true,
+        eInvoiceDocuments: {
+          orderBy: { createdAt: 'asc' },
+          select: {
+            id: true,
+            documentType: true,
+            status: true,
+            documentUuid: true,
+            submissionUuid: true,
+            longId: true,
+            publicUrl: true,
+            originalDocumentUuid: true,
+            submittedAt: true,
+            submittedByName: true,
+            dateTimeIssued: true,
+            dateTimeReceived: true,
+            cancelledAt: true,
+            validationErrors: true,
+            errorDetails: true,
+          },
+        },
+      },
+    });
+    if (!invoice) return null;
+    const typeAr: Record<string, string> = {
+      I: 'فاتورة',
+      C: 'إشعار دائن',
+      D: 'إشعار مدين',
+      R: 'إيصال',
+    };
+    return {
+      invoiceId: invoice.id,
+      invoiceNumber: invoice.invoiceNumber,
+      invoiceKind: invoice.invoiceKind,
+      netAmount: Number(invoice.netAmount),
+      taxSubmitted: invoice.taxSubmitted,
+      documents: invoice.eInvoiceDocuments.map((doc) => ({
+        id: doc.id,
+        documentType: doc.documentType,
+        documentTypeLabel: typeAr[doc.documentType] || doc.documentType,
+        status: doc.status,
+        documentUuid: doc.documentUuid,
+        submissionUuid: doc.submissionUuid,
+        longId: doc.longId,
+        publicUrl: doc.publicUrl,
+        originalDocumentUuid: doc.originalDocumentUuid,
+        submittedAt: doc.submittedAt?.toISOString() ?? null,
+        submittedByName: doc.submittedByName,
+        dateTimeIssued: doc.dateTimeIssued?.toISOString() ?? null,
+        dateTimeReceived: doc.dateTimeReceived?.toISOString() ?? null,
+        cancelledAt: doc.cancelledAt?.toISOString() ?? null,
+        validationErrors: doc.validationErrors,
+        isAmendment: Boolean(doc.originalDocumentUuid),
+      })),
     };
   }
 

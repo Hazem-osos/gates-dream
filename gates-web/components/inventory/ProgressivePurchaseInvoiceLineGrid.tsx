@@ -26,7 +26,7 @@ import { SmartBatchExpiryCell } from '@/components/invoices/SmartBatchExpiryCell
 import { LineWithholdingTaxCell } from '@/components/invoices/LineWithholdingTaxCell';
 import { ApparelVariantCell } from '@/components/invoices/ApparelVariantCells';
 import { InvoiceLineStockBalanceCell } from '@/components/invoices/InvoiceLineStockBalanceCell';
-import { itemHasApparelVariants, itemIsBatchTracked } from '@/lib/invoices/itemTracking';
+import { itemHasApparelVariants, itemIsBatchTracked, lineWithholdingAmount } from '@/lib/invoices/itemTracking';
 import { defaultUnitIdForItem, baseUnitLabelForItem, baseUnitLinkForItem } from '@/lib/inventory/item-units';
 import { syncLineUnitFields, type PricingCalculationBasis } from '@/lib/invoices/unit-conversion';
 import { findItemByBarcode, itemBarcodeValue } from '@/lib/inventory/findItemByBarcode';
@@ -43,6 +43,7 @@ import { computeLineSubtotalAfterDiscount } from '@/lib/invoices/computeInvoiceF
 import { VAT_LABEL_AR, type DiscountType } from '@/lib/invoices/discount-type';
 import { InvoiceLineDiscountInput } from '@/components/inventory/InvoiceLineDiscountInput';
 import { TableNumberInput } from '@/components/grid/TableNumberInput';
+import { AverageCostInspector } from '@/components/inventory/AverageCostInspector';
 import { LandedCostInspector } from '@/components/inventory/purchase-invoice/LandedCostInspector';
 import { buildLandedCostBreakdown } from '@/lib/invoices/landed-cost-breakdown';
 import { formatInvoiceMoney } from '@/lib/invoices/computeInvoiceFinancialSummary';
@@ -131,6 +132,14 @@ type Props = {
   hideAddLine?: boolean;
   allLinesForLandedCost?: PurchaseInvoiceLine[];
   headerDescription?: string;
+  /** 14 when the purchase invoice is VAT taxable, otherwise 0. */
+  defaultTaxPercent?: number;
+  /** Company خصم المنبع percent. Applied to new lines when the strike is on. */
+  defaultWithholdingRate?: number;
+  /** Returns: average-cost hint on the quantity cell. Purchase already has it on landed cost. */
+  showAverageCostOnQuantity?: boolean;
+  /** When set, overrides default item pick pricing (supplier price list + purchase price). */
+  applyPickedItemToLine?: (index: number, picked: Item | undefined) => void;
 };
 
 function patchLine(lines: PurchaseInvoiceLine[], index: number, patch: Partial<PurchaseInvoiceLine>) {
@@ -156,6 +165,7 @@ type PurchaseLineRowProps = {
   pricingCalculationBasis?: PricingCalculationBasis | string;
   lockUnitPrice?: boolean;
   allLines?: PurchaseInvoiceLine[];
+  showAverageCostOnQuantity?: boolean;
 };
 
 const PurchaseInvoiceLineRow = memo(function PurchaseInvoiceLineRow({
@@ -177,6 +187,7 @@ const PurchaseInvoiceLineRow = memo(function PurchaseInvoiceLineRow({
   pricingCalculationBasis = 'SELECTED_UNIT_QTY',
   lockUnitPrice = false,
   allLines,
+  showAverageCostOnQuantity = false,
 }: PurchaseLineRowProps) {
   const handlers = {
     gridId: PURCHASE_GRID_ID,
@@ -279,18 +290,34 @@ const PurchaseInvoiceLineRow = memo(function PurchaseInvoiceLineRow({
                 />
               </td>
             );
-          case 'quantity':
+          case 'quantity': {
+            const costItem = itemsForBaseUnit.find((row) => row.id === line.itemId);
+            const averageCost =
+              costItem?.averageCost != null && costItem.averageCost !== ''
+                ? Number(costItem.averageCost)
+                : undefined;
+            const onHand =
+              costItem?.onHandQuantity != null ? Number(costItem.onHandQuantity) : undefined;
             return (
               <td key={col.id} className={`py-2 px-2 border-x border-[#D6EAF3] ${ERP_PURCHASE_COLUMN_WIDTH.quantity ?? ''}`}>
-                <TableNumberInput
-                  className={`${lineInputCls} text-sm text-center`}
-                  value={line.quantity}
-                  onValueCommit={(n) => onPatch(index, { quantity: n })}
-                  {...lineGridDataAttrs(PURCHASE_GRID_ID, index, 'quantity')}
-                  onKeyDown={(e) => handleLineGridKeyDown(e, handlers)}
-                />
+                <div className="flex items-center justify-center gap-1">
+                  <TableNumberInput
+                    className={`${lineInputCls} text-sm text-center`}
+                    value={line.quantity}
+                    onValueCommit={(n) => onPatch(index, { quantity: n })}
+                    {...lineGridDataAttrs(PURCHASE_GRID_ID, index, 'quantity')}
+                    onKeyDown={(e) => handleLineGridKeyDown(e, handlers)}
+                  />
+                  {showAverageCostOnQuantity ? (
+                    <AverageCostInspector
+                      averageCost={Number.isFinite(averageCost) ? averageCost : undefined}
+                      onHandQuantity={Number.isFinite(onHand) ? onHand : undefined}
+                    />
+                  ) : null}
+                </div>
               </td>
             );
+          }
           case 'unitPrice':
             return (
               <td key={col.id} className={`py-2 px-2 border-x border-[#D6EAF3] ${ERP_PURCHASE_COLUMN_WIDTH.unitPrice ?? ''}`}>
@@ -344,12 +371,21 @@ const PurchaseInvoiceLineRow = memo(function PurchaseInvoiceLineRow({
                 />
               </td>
             );
-          case 'total':
+          case 'total': {
+            const taxPct = Number(line.tax) || 0;
+            const wht = lineWithholdingAmount({
+              lineAfterDiscount: sub,
+              withholdingTaxRate: line.withholdingTaxRate,
+              withholdingTaxAmount: line.withholdingTaxAmount,
+              withholdingAmountManual: line.withholdingAmountManual,
+            });
+            const lineTotal = sub + (sub * taxPct) / 100 - wht;
             return (
               <td key={col.id} className={`py-2 px-2 border-x border-[#D6EAF3] text-sm font-medium ${ERP_PURCHASE_COLUMN_WIDTH.total ?? ''}`}>
-                {sub.toLocaleString('ar-EG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                {lineTotal.toLocaleString('ar-EG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </td>
             );
+          }
           case 'barcode':
             return (
               <td key={col.id} className={`py-2 px-2 border-x border-[#D6EAF3] ${ERP_PURCHASE_COLUMN_WIDTH.barcode ?? ''}`}>
@@ -492,9 +528,27 @@ const PurchaseInvoiceLineRow = memo(function PurchaseInvoiceLineRow({
               <td key={col.id} className="py-2 px-2 border-x border-[#D6EAF3]">
                 <LineWithholdingTaxCell
                   rate={Number(line.withholdingTaxRate ?? 0)}
-                  amount={Number(line.withholdingTaxAmount ?? 0)}
                   lineAfterDiscount={sub}
-                  onChange={(patch) => onPatch(index, patch)}
+                  onChange={(patch) => onPatch(index, { ...patch, withholdingAmountManual: false })}
+                />
+              </td>
+            );
+          case 'withholdingAmount':
+            return (
+              <td key={col.id} className="py-2 px-2 border-x border-[#D6EAF3]">
+                <TableNumberInput
+                  className={`${lineInputCls} text-sm tabular-nums`}
+                  value={lineWithholdingAmount({
+                    lineAfterDiscount: sub,
+                    withholdingTaxRate: line.withholdingTaxRate,
+                    withholdingTaxAmount: line.withholdingTaxAmount,
+                    withholdingAmountManual: line.withholdingAmountManual,
+                  })}
+                  onValueCommit={(n) =>
+                    onPatch(index, { withholdingTaxAmount: n, withholdingAmountManual: true })
+                  }
+                  {...lineGridDataAttrs(PURCHASE_GRID_ID, index, 'withholdingAmount')}
+                  onKeyDown={(e) => handleLineGridKeyDown(e, handlers)}
                 />
               </td>
             );
@@ -672,6 +726,10 @@ export function ProgressivePurchaseInvoiceLineGrid({
   lockUnitPrice = false,
   hideAddLine = false,
   headerDescription = '',
+  defaultTaxPercent = 0,
+  defaultWithholdingRate = 0,
+  showAverageCostOnQuantity = false,
+  applyPickedItemToLine: applyPickedItemToLineProp,
 }: Props) {
   const gridContainerRef = useRef<HTMLDivElement>(null);
 
@@ -797,11 +855,12 @@ export function ProgressivePurchaseInvoiceLineGrid({
         discount: 0,
         discountValue: 0,
         discountType: 'PERCENTAGE',
-        tax: 0,
+        tax: defaultTaxPercent > 0 ? defaultTaxPercent : 0,
         warehouseId: warehouseId || '',
+        withholdingTaxRate: defaultWithholdingRate > 0 ? defaultWithholdingRate : undefined,
       },
     ]);
-  }, [warehouseId]);
+  }, [defaultTaxPercent, defaultWithholdingRate, warehouseId]);
 
   useEffect(() => {
     if (readOnly) return;
@@ -812,31 +871,49 @@ export function ProgressivePurchaseInvoiceLineGrid({
     onChangeRef.current(linesRef.current.filter((_, i) => i !== index));
   }, []);
 
-  const applyPickedItem = useCallback((index: number, picked: Item | undefined) => {
-    if (!picked) return;
-    const current = linesRef.current;
-    const existing = current[index];
-    onChangeRef.current(
-      patchLine(current, index, {
-        itemId: picked.id,
-        unitId: defaultUnitIdForItem(picked),
-        barcode: itemBarcodeValue(picked, existing?.barcode ?? ''),
-        warehouseId: existing?.warehouseId || warehouseId || '',
-        ...syncLineUnitFields(
-          { quantity: existing?.quantity || 1, unitId: defaultUnitIdForItem(picked) },
-          picked.units
-        ),
-        unitPrice:
-          picked.salesPrice != null && Number(picked.salesPrice) > 0
-            ? Number(picked.salesPrice)
-            : existing?.unitPrice ?? 0,
-        tax:
-          picked.defaultTaxPercent != null
-            ? Number(picked.defaultTaxPercent)
-            : existing?.tax ?? 0,
-      })
-    );
-  }, [warehouseId]);
+  const defaultApplyPickedItem = useCallback(
+    (index: number, picked: Item | undefined) => {
+      if (!picked) return;
+      const current = linesRef.current;
+      const existing = current[index];
+      const lastPurchase = Number((picked as { lastPurchasePrice?: number }).lastPurchasePrice ?? 0);
+      onChangeRef.current(
+        patchLine(current, index, {
+          itemId: picked.id,
+          unitId: defaultUnitIdForItem(picked),
+          barcode: itemBarcodeValue(picked, existing?.barcode ?? ''),
+          warehouseId: existing?.warehouseId || warehouseId || '',
+          ...syncLineUnitFields(
+            { quantity: existing?.quantity || 1, unitId: defaultUnitIdForItem(picked) },
+            picked.units
+          ),
+          unitPrice:
+            lastPurchase > 0
+              ? lastPurchase
+              : Number((picked as { averageCost?: number }).averageCost ?? 0) > 0
+                ? Number((picked as { averageCost?: number }).averageCost)
+                : existing?.unitPrice ?? 0,
+          tax:
+            picked.defaultTaxPercent != null
+              ? Number(picked.defaultTaxPercent)
+              : Number(existing?.tax) > 0
+                ? Number(existing?.tax)
+                : defaultTaxPercent > 0
+                  ? defaultTaxPercent
+                  : 0,
+          withholdingTaxRate:
+            Number(existing?.withholdingTaxRate) > 0
+              ? existing?.withholdingTaxRate
+              : defaultWithholdingRate > 0
+                ? defaultWithholdingRate
+                : existing?.withholdingTaxRate,
+        })
+      );
+    },
+    [defaultTaxPercent, defaultWithholdingRate, warehouseId]
+  );
+
+  const applyPickedItem = applyPickedItemToLineProp ?? defaultApplyPickedItem;
 
   const openPeek = useCallback((index: number) => setPeekIndex(index), []);
 
@@ -946,6 +1023,7 @@ export function ProgressivePurchaseInvoiceLineGrid({
                       pricingCalculationBasis={pricingCalculationBasis}
                       lockUnitPrice={lockUnitPrice}
                       allLines={lines}
+                      showAverageCostOnQuantity={showAverageCostOnQuantity}
                     />
                   );
                 })}

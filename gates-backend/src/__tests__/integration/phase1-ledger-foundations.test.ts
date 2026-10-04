@@ -86,7 +86,7 @@ describe('phase1-ledger-foundations', () => {
     }
   });
 
-  it('reverses a posted JE with a contra entry and leaves the original posted', async () => {
+  it('unposts a posted JE in place without booking a contra entry', async () => {
     if (!(await companyReady())) return;
 
     const cash = await ensureAccount('1100', 'Cash', 'asset');
@@ -119,40 +119,26 @@ describe('phase1-ledger-foundations', () => {
         ],
       });
 
-      const { original: stillPosted, reversal } =
+      const { original: next, reversal } =
         await journalPostingService.reverseJournalEntryInTx(tx, ctx, original.id, {
           reason: 'اختبار عكسي',
         });
 
-      return { originalId: stillPosted.id, reversalId: reversal.id };
+      return { originalId: next.id, reversalId: reversal.id };
     });
 
     const original = await prisma.journalEntry.findUnique({
       where: { id: originalId },
       include: { lines: { orderBy: { lineOrder: 'asc' } } },
     });
-    const reversal = await prisma.journalEntry.findUnique({
-      where: { id: reversalId },
-      include: { lines: { orderBy: { lineOrder: 'asc' } } },
+    const reversals = await prisma.journalEntry.findMany({
+      where: { companyId: COMPANY_ID, reversalOfJournalEntryId: originalId },
     });
 
-    expect(original!.isPosted).toBe(true);
-    expect(reversal!.isPosted).toBe(true);
-    expect(reversal!.reversalOfJournalEntryId).toBe(original!.id);
-    expect(reversal!.description).toMatch(/قيد عكسي/);
-
-    expect(reversal!.lines).toHaveLength(original!.lines.length);
-    for (let i = 0; i < original!.lines.length; i++) {
-      expect(Number(reversal!.lines[i].debit)).toBeCloseTo(Number(original!.lines[i].credit), 4);
-      expect(Number(reversal!.lines[i].credit)).toBeCloseTo(Number(original!.lines[i].debit), 4);
-    }
-
-    const netDebit =
-      [...original!.lines, ...reversal!.lines].reduce((s, l) => s + Number(l.debit), 0);
-    const netCredit =
-      [...original!.lines, ...reversal!.lines].reduce((s, l) => s + Number(l.credit), 0);
-    expect(netDebit).toBeCloseTo(netCredit, 4);
-    expect(netDebit).toBeCloseTo(10000, 4);
+    expect(original!.isPosted).toBe(false);
+    expect(reversalId).toBe(originalId);
+    expect(reversals).toHaveLength(0);
+    expect(original!.lines).toHaveLength(2);
   });
 
   it('throws 422 and writes no GL when VAT is unmapped on a taxed invoice', async () => {

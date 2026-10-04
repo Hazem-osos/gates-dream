@@ -40,7 +40,7 @@ export function PartyGuideAddDialog({ open, currentKind, onPick, onClose }: Prop
   return (
     <CenteredOverlay open={open} onClose={onClose} width="md" labelledBy="party-guide-add-title">
       <div className="p-6" dir="rtl">
-        <h2 id="party-guide-add-title" className="text-lg font-bold text-[#0E79AA]">
+        <h2 id="party-guide-add-title" className="text-lg font-bold text-[#0E78AA]">
           {step === 'group' ? 'نوع المجموعة' : 'إضافة في الدليل'}
         </h2>
         <p className="mt-1 text-sm text-slate-500">
@@ -55,7 +55,7 @@ export function PartyGuideAddDialog({ open, currentKind, onPick, onClose }: Prop
               <button
                 key={item.id}
                 type="button"
-                className="rounded-xl border border-[#D6EAF3] bg-[#F6FBFD] px-4 py-3 text-right hover:border-[#0E79AA] hover:bg-white"
+                className="rounded-xl border border-[#D6EAF3] bg-[#F6FBFD] px-4 py-3 text-right hover:border-[#0E78AA] hover:bg-white"
                 onClick={() => onPick(item.id)}
               >
                 <span className="block text-sm font-bold text-[#0A3D5E]">{item.title}</span>
@@ -64,7 +64,7 @@ export function PartyGuideAddDialog({ open, currentKind, onPick, onClose }: Prop
             ))}
             <button
               type="button"
-              className="rounded-xl border border-[#D6EAF3] bg-[#F6FBFD] px-4 py-3 text-right hover:border-[#0E79AA] hover:bg-white"
+              className="rounded-xl border border-[#D6EAF3] bg-[#F6FBFD] px-4 py-3 text-right hover:border-[#0E78AA] hover:bg-white"
               onClick={() => setStep('group')}
             >
               <span className="block text-sm font-bold text-[#0A3D5E]">مجموعة</span>
@@ -77,9 +77,9 @@ export function PartyGuideAddDialog({ open, currentKind, onPick, onClose }: Prop
           <div className="mt-5 grid gap-3">
             <button
               type="button"
-              className={`rounded-xl border px-4 py-3 text-right hover:border-[#0E79AA] hover:bg-white ${
+              className={`rounded-xl border px-4 py-3 text-right hover:border-[#0E78AA] hover:bg-white ${
                 currentKind === 'customers'
-                  ? 'border-[#0E79AA] bg-white'
+                  ? 'border-[#0E78AA] bg-white'
                   : 'border-[#D6EAF3] bg-[#F6FBFD]'
               }`}
               onClick={() => onPick('customer-group')}
@@ -92,9 +92,9 @@ export function PartyGuideAddDialog({ open, currentKind, onPick, onClose }: Prop
             </button>
             <button
               type="button"
-              className={`rounded-xl border px-4 py-3 text-right hover:border-[#0E79AA] hover:bg-white ${
+              className={`rounded-xl border px-4 py-3 text-right hover:border-[#0E78AA] hover:bg-white ${
                 currentKind === 'suppliers'
-                  ? 'border-[#0E79AA] bg-white'
+                  ? 'border-[#0E78AA] bg-white'
                   : 'border-[#D6EAF3] bg-[#F6FBFD]'
               }`}
               onClick={() => onPick('supplier-group')}
@@ -112,7 +112,7 @@ export function PartyGuideAddDialog({ open, currentKind, onPick, onClose }: Prop
           {step === 'group' ? (
             <button
               type="button"
-              className="text-sm text-[#0E79AA] hover:underline"
+              className="text-sm text-[#0E78AA] hover:underline"
               onClick={() => setStep('kind')}
             >
               رجوع

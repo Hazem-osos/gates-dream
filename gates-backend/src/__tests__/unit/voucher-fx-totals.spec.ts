@@ -6,6 +6,7 @@ import {
   cashOffsetInHeaderCurrency,
   postedCashFundAmount,
 } from '../../modules/treasury/services/cash-fund-amount';
+import { assertJournalBalanced } from '../../modules/accounting/services/auto-gl-balance';
 import { persistJournalLineFxRate } from '../../modules/accounting/utils/company-fx-rate';
 
 describe('voucher FX totals', () => {
@@ -58,6 +59,39 @@ describe('voucher FX totals', () => {
     expect(cashOffsetInHeaderCurrency(netCashBase, 1)).toBe(5000);
     expect(cashOffsetInHeaderCurrency(netCashBase, 1) * 1).toBe(netCashBase);
     expect(cashOffsetInHeaderCurrency(netCashBase, 50)).toBe(100);
+  });
+
+  it('EGP row plus USD row balance the cash journal in base currency', () => {
+    const headerRate = 1;
+    const party = [
+      { debit: 0, credit: 2500, exchangeRate: 1, currencyCode: 'EGP' },
+      { debit: 0, credit: 50, exchangeRate: 50, currencyCode: 'USD' },
+    ];
+    const netCashBase = party.reduce(
+      (sum, line) => sum + line.credit * line.exchangeRate - line.debit * line.exchangeRate,
+      0
+    );
+    const lines = [
+      {
+        debit: cashOffsetInHeaderCurrency(netCashBase, headerRate),
+        credit: 0,
+        exchangeRate: headerRate,
+        currencyCode: 'EGP',
+      },
+      ...party,
+    ];
+    const hydrated = lines.map((line) => ({
+      ...line,
+      exchangeRate: persistJournalLineFxRate({
+        headerCurrencyCode: 'EGP',
+        lineCurrencyCode: line.currencyCode,
+        lineRate: line.exchangeRate,
+        headerRate,
+      }),
+    }));
+    const totals = assertJournalBalanced(hydrated);
+    expect(totals.totalDebit).toBe(5000);
+    expect(totals.totalCredit).toBe(5000);
   });
 
   it('keeps a USD line rate when the journal header is EGP', () => {

@@ -83,6 +83,22 @@ export class AccountService {
    * Suggest the next account code under a parent (e.g. parent `11` → `111`, `112`, …).
    */
   async suggestNextAccountCode(companyId: string, parentId?: string | null): Promise<string> {
+    const firstFree = async (start: string, step: (code: string) => string): Promise<string> => {
+      let candidate = start;
+      for (let guard = 0; guard < 50; guard += 1) {
+        const taken = await prisma.account.findFirst({
+          where: { companyId, code: candidate, deletedAt: null },
+          select: { id: true },
+        });
+        if (!taken) return candidate;
+        candidate = step(candidate);
+      }
+      throw new AppError(
+        409,
+        'تعذّر اقتراح رقم حساب غير مستخدم. الحل: أدخل رقم الحساب يدوياً.'
+      );
+    };
+
     if (!parentId) {
       const roots = await prisma.account.findMany({
         where: { companyId, parentId: null },
@@ -91,10 +107,8 @@ export class AccountService {
       const nums = roots
         .map((r) => parseInt(r.code, 10))
         .filter((n) => !Number.isNaN(n));
-      let next = nums.length ? Math.max(...nums) + 1 : 1;
-      const used = new Set(roots.map((r) => r.code));
-      while (used.has(String(next))) next += 1;
-      return String(next);
+      const next = nums.length ? Math.max(...nums) + 1 : 1;
+      return firstFree(String(next), (code) => String(Number(code) + 1));
     }
 
     const parent = await prisma.account.findFirst({
@@ -112,12 +126,7 @@ export class AccountService {
       orderBy: { code: 'asc' },
     });
 
-    if (siblings.length === 0) {
-      return `${prefix}1`;
-    }
-
     let maxSuffix = 0;
-    const used = new Set(siblings.map((row) => row.code));
     for (const row of siblings) {
       if (!row.code.startsWith(prefix) || row.code.length <= prefix.length) continue;
       const suffix = row.code.slice(prefix.length);
@@ -128,15 +137,12 @@ export class AccountService {
       }
     }
 
-    let candidate = maxSuffix > 0 ? `${prefix}${maxSuffix + 1}` : `${prefix}1`;
-    let guard = 0;
-    while (used.has(candidate) && guard < 50) {
-      const suffix = candidate.slice(prefix.length);
+    const step = (code: string) => {
+      const suffix = code.startsWith(prefix) ? code.slice(prefix.length) : '';
       const n = parseInt(suffix, 10);
-      candidate = `${prefix}${Number.isNaN(n) ? maxSuffix + 1 + guard : n + 1}`;
-      guard += 1;
-    }
-    return candidate;
+      return `${prefix}${Number.isNaN(n) ? 1 : n + 1}`;
+    };
+    return firstFree(`${prefix}${maxSuffix + 1}`, step);
   }
 
   private async getPostedBalanceMap(companyId: string): Promise<Map<string, number>> {
@@ -451,14 +457,18 @@ export class AccountService {
     );
   }
 
-  async createAccount(companyId: string, data: CreateAccountData) {
+  async createAccount(
+    companyId: string,
+    data: CreateAccountData,
+    db: Prisma.TransactionClient | typeof prisma = prisma
+  ) {
     try {
       const accountKind = resolveCreateAccountKind({
         parentId: data.parentId,
         accountKind: data.accountKind,
       });
       if (data.allowParentWithMovements && data.parentId) {
-        const parent = await prisma.account.findFirst({
+        const parent = await db.account.findFirst({
           where: { id: data.parentId, companyId, deletedAt: null },
           select: { id: true, code: true, arabicName: true, accountKind: true },
         });
@@ -466,7 +476,7 @@ export class AccountService {
           throw new AppError(400, 'الحساب الأب غير موجود. الحل: حدّث دليل الحسابات ثم اختر الحساب الأب من جديد.');
         }
         if (parent.accountKind === 'POSTING') {
-          await prisma.account.update({
+          await db.account.update({
             where: { id: parent.id },
             data: { accountKind: 'HEADER' },
           });
@@ -479,7 +489,7 @@ export class AccountService {
       let inheritSide: string | undefined;
       let inheritStatement: 'BALANCE_SHEET' | 'INCOME_STATEMENT' | undefined;
       if (data.parentId && !data.accountNature && !data.accountSide) {
-        const parent = await prisma.account.findFirst({
+        const parent = await db.account.findFirst({
           where: { id: data.parentId, companyId, deletedAt: null },
           select: { accountNature: true, accountSide: true, statementType: true },
         });
@@ -511,9 +521,9 @@ export class AccountService {
       const arabicName = normalizeAccountName(data.arabicName);
       await assertUniqueAccountName(companyId, arabicName);
 
-      let defaultCostCenterId = data.defaultCostCenterId ?? null;
+      const defaultCostCenterId = data.defaultCostCenterId ?? null;
       if (defaultCostCenterId) {
-        const cc = await prisma.costCenter.findFirst({
+        const cc = await db.costCenter.findFirst({
           where: { id: defaultCostCenterId, companyId, isActive: true },
           select: { id: true, code: true, arabicName: true, costCenterKind: true },
         });
@@ -531,7 +541,7 @@ export class AccountService {
         }
       }
 
-      const account = await prisma.account.create({
+      const account = await db.account.create({
         data: {
           companyId,
           code,
@@ -824,6 +834,15 @@ export class AccountService {
         updateData.currencyCode = data.currencyCode;
       if (data.isActive !== undefined) updateData.isActive = data.isActive;
       if (data.accountKind !== undefined) {
+        if (data.accountKind === 'HEADER' && existing.accountKind === 'POSTING') {
+          const movementCount = await this.countAccountMovements(companyId, accountId);
+          if (movementCount > 0) {
+            throw new AppError(
+              409,
+              'لا يمكن تحويل الحساب إلى رئيسي لأن عليه حركات. أنشئ حساباً رئيسياً جديداً وانقل الحركات أولاً.'
+            );
+          }
+        }
         if (data.accountKind === 'POSTING') {
           const childCount = await prisma.account.count({
             where: { parentId: accountId, companyId, deletedAt: null },
@@ -947,13 +966,10 @@ export class AccountService {
       }
 
       if (anyLineCount > 0) {
-        await prisma.account.update({
-          where: { id: accountId },
-          data: { isActive: false },
-        });
-        logger.info({ companyId, accountId }, 'Account cancelled in chart');
-        await invalidateTenantCache(tenantCacheKeys.coaTree(companyId));
-        return { success: true, cancelled: true };
+        throw new AppError(
+          409,
+          `لا يمكن حذف ${accountLabel(account)} لأنه مرتبط بقيود (حتى الملغاة). الحل: احتفظ بالحساب أو راجع القيود المرتبطة.`
+        );
       }
 
       await prisma.accountPeriodBalance.deleteMany({
@@ -970,16 +986,13 @@ export class AccountService {
         const blocked =
           error instanceof Prisma.PrismaClientKnownRequestError &&
           (error.code === 'P2003' || error.code === 'P2014');
-        if (!blocked) {
-          throw error;
+        if (blocked) {
+          throw new AppError(
+            409,
+            `لا يمكن حذف ${accountLabel(account)} لأنه مرتبط ببيانات أخرى. أزل الارتباطات أولاً.`
+          );
         }
-        await prisma.account.update({
-          where: { id: accountId },
-          data: { isActive: false },
-        });
-        logger.info({ companyId, accountId }, 'Account cancelled because related rows remain');
-        await invalidateTenantCache(tenantCacheKeys.coaTree(companyId));
-        return { success: true, cancelled: true };
+        throw error;
       }
 
       logger.info({ companyId, accountId }, 'Account deleted');

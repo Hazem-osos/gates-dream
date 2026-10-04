@@ -13,7 +13,7 @@ const STRIPE: Record<StatusTone, string> = {
   danger: 'bg-rose-500',
   warning: 'bg-amber-500',
   success: 'bg-emerald-500',
-  info: 'bg-[#0E79AA]',
+  info: 'bg-[#0E78AA]',
   purple: 'bg-violet-500',
   neutral: 'bg-slate-300',
 };
@@ -69,7 +69,7 @@ export function AttentionQueueCard({
                     label={item.count != null ? String(item.count) : 'متابعة'}
                     tone={PILL[tone]}
                   />
-                  <span className="mt-0.5 inline-flex translate-x-1 items-center gap-0.5 text-[11px] font-semibold text-[#0E79AA] opacity-0 transition-all group-hover:translate-x-0 group-hover:opacity-100">
+                  <span className="mt-0.5 inline-flex translate-x-1 items-center gap-0.5 text-[11px] font-semibold text-[#0E78AA] opacity-0 transition-all group-hover:translate-x-0 group-hover:opacity-100">
                     عرض المستند
                     <ChevronLeft className="h-3.5 w-3.5" aria-hidden />
                   </span>

@@ -17,7 +17,7 @@ export interface SessionInfo {
   expiresAt: Date;
 }
 
-const SESSION_TTL = 24 * 60 * 60; // 24 hours
+const SESSION_TTL = 30 * 24 * 60 * 60; // temporarily 30 days, was 24 hours
 const MAX_CONCURRENT_SESSIONS = 5; // Maximum concurrent sessions per user
 
 /**

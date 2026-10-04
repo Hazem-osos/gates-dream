@@ -99,7 +99,7 @@ export class ReconciliationService {
         isCancelled: true,
       },
     });
-    if (!cashTx) throw new AppError(404, 'Cash transaction not found');
+    if (!cashTx) throw new AppError(404, 'السند غير موجود');
     if (!cashTx.isPosted || cashTx.isCancelled) {
       throw new AppError(422, 'Post the cash transaction before allocating to invoices');
     }
@@ -189,7 +189,7 @@ export class ReconciliationService {
         isCancelled: true,
       },
     });
-    if (!cashTx) throw new AppError(404, 'Cash transaction not found');
+    if (!cashTx) throw new AppError(404, 'السند غير موجود');
     if (!cashTx.isPosted || cashTx.isCancelled) {
       throw new AppError(422, 'Post the cash transaction before auto-allocation');
     }

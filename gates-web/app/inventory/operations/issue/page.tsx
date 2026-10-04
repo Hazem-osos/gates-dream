@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useOwnTabSearchParams } from '@/lib/navigation/tab-route-lock';
 import {
   DocumentFormLock,
@@ -16,28 +16,31 @@ import { ErpDocumentLayout } from '@/components/erp/ErpDocumentLayout';
 import { ErpDocumentPageHeader } from '@/components/erp/ErpDocumentPageHeader';
 import { DocumentBrowseDrawer } from '@/components/erp/DocumentBrowseDrawer';
 import { StockMovementBottomSplit } from '@/components/inventory/stock/StockMovementBottomSplit';
-import { Plus, Trash2 } from 'lucide-react';
+import {
+  StockVoucherLinesGrid,
+  blankStockVoucherLine,
+  seedStockVoucherLines,
+  type StockVoucherLine,
+} from '@/components/inventory/stock/StockVoucherLinesGrid';
 import {
   FormSectionCard,
   CompactFormField,
   AdvancedFieldsSection,
   FormStickyFooter,
-  Button,
-  IconButton,
   compactControlClass,
-  compactLabelClass,
 } from '@/components/ui';
 import { StockDocumentsListSection } from '@/components/inventory/StockDocumentsListSection';
 import { WarehouseSelect } from '@/components/form/WarehouseSelect';
-import { InvoiceLineStockBalanceCell } from '@/components/invoices/InvoiceLineStockBalanceCell';
-import { TableNumberInput } from '@/components/grid/TableNumberInput';
+import { CustomerSelect } from '@/app/components/form/PartySelect';
 import { useApiQuery, useApiMutation, useInvalidateQuery } from '@/lib/hooks/useApi';
+import { apiClient } from '@/lib/api/client';
+import { resolvePostedFlag } from '@/lib/documents/posting-trust';
+import { STORE_SAVE_AND_POST_LABEL } from '@/lib/inventory/store-document-save-post';
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
 import {
   inventoryWarehouseDocHeaderFormSchema,
   inventoryReceiptLineSchema,
-  type InventoryWarehouseDocHeaderFormInput,
 } from '@/lib/validation/inventory.schema';
 import type { ApiError } from '@/lib/api/types';
 import {
@@ -45,6 +48,21 @@ import {
   useRepostAfterUnpost,
 } from '@/lib/accounting/ensure-posted-after-save';
 import { onFieldErrors } from '@/lib/forms/on-field-errors';
+import { finishDocumentSave } from '@/lib/documents/finish-save';
+import {
+  postSuccessMessage,
+  useDocumentPostMutation,
+} from '@/lib/inventory/use-document-post-mutation';
+import { printStockDocument } from '@/lib/print/printStockDocument';
+import { invalidateStockViews } from '@/lib/invoices/invalidate-stock-views';
+import {
+  ItemReservationDocumentPanel,
+  type ApplyReservationPayload,
+} from '@/components/inventory/reservations/ItemReservationDocumentPanel';
+import {
+  useStoreDocumentSerial,
+  STORE_DOCUMENT_UNPOSTED_LABEL,
+} from '@/lib/inventory/use-store-document-serial';
 import { useIssueTourPrepare } from '@/lib/onboarding/useIssueTourPrepare';
 import { consumeAiTransactionDraft } from '@/lib/ai/ai-draft-storage';
 import { invoiceDateFromDraft, issueLinesFromAiDraft } from '@/lib/ai/hydrate-ai-draft';
@@ -57,20 +75,14 @@ interface Item {
   englishName?: string;
 }
 
-interface IssueLine {
-  itemId: string;
-  locationId?: string;
-  quantity: number;
-  unitPrice?: number;
-  total?: number;
-}
-
 interface IssueDocumentDetail extends Record<string, unknown> {
   serialNumber?: string;
+  serial?: string;
   description?: string;
   date?: string;
   hijriDate?: string;
   warehouseId?: string;
+  customerId?: string;
   record?: string;
   isPosted?: boolean;
   isApproved?: boolean;
@@ -79,7 +91,12 @@ interface IssueDocumentDetail extends Record<string, unknown> {
   lines?: Record<string, unknown>[];
 }
 
-function emptyIssueFormDefaults(): InventoryWarehouseDocHeaderFormInput {
+const issueHeaderSchema = inventoryWarehouseDocHeaderFormSchema.extend({
+  customerId: z.string().optional(),
+});
+type IssueHeaderForm = z.infer<typeof issueHeaderSchema>;
+
+function emptyIssueFormDefaults(): IssueHeaderForm {
   const t = new Date().toISOString().split('T')[0];
   return {
     serialNumber: '',
@@ -87,11 +104,12 @@ function emptyIssueFormDefaults(): InventoryWarehouseDocHeaderFormInput {
     date: t,
     hijriDate: '',
     warehouseId: '',
+    customerId: '',
     record: '',
     isPosted: false,
     isApproved: false,
     useBarcode: true,
-    hideExistingQty: true,
+    hideExistingQty: false,
   };
 }
 
@@ -111,7 +129,6 @@ function IssuePageInner() {
   const invalidateQuery = useInvalidateQuery();
 
   const inputCls = compactControlClass;
-  const labelCls = compactLabelClass;
 
   const {
     register,
@@ -121,8 +138,8 @@ function IssuePageInner() {
     setValue,
     control,
     formState: { errors },
-  } = useForm<InventoryWarehouseDocHeaderFormInput>({
-    resolver: zodResolver(inventoryWarehouseDocHeaderFormSchema) as Resolver<InventoryWarehouseDocHeaderFormInput>,
+  } = useForm<IssueHeaderForm>({
+    resolver: zodResolver(issueHeaderSchema) as Resolver<IssueHeaderForm>,
     defaultValues: emptyIssueFormDefaults(),
     mode: 'onTouched',
   });
@@ -131,14 +148,27 @@ function IssuePageInner() {
   const warehouseId = watch('warehouseId');
   const hideExistingQty = watch('hideExistingQty');
 
-  const [issueLines, setIssueLines] = useState<IssueLine[]>([]);
+  const [issueLines, setIssueLines] = useState<StockVoucherLine[]>(() => seedStockVoucherLines());
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [selectedIssueId, setSelectedIssueId] = useState<string | null>(
     () => searchParams.get('id')?.trim() || null
   );
+
+  const setSerialNumber = useCallback(
+    (value: string) =>
+      setValue('serialNumber', value, { shouldDirty: false, shouldValidate: false }),
+    [setValue]
+  );
+  const { serialAutomatic, invalidateNextSerial } = useStoreDocumentSerial({
+    kind: 'issue',
+    enabled: !selectedIssueId,
+    setSerial: setSerialNumber,
+  });
+
   const fromAiDraft = searchParams.get('fromAiDraft') === '1';
   const aiDraftAppliedRef = useRef(false);
+  const postAfterSaveRef = useRef(false);
 
   useEffect(() => {
     if (!selectedIssueId) {
@@ -173,13 +203,11 @@ function IssuePageInner() {
   const [showList, setShowList] = useState(false);
 
   // Fetch items
-  const { data: itemsResponse, isLoading: itemsLoading } = useApiQuery<Item[]>(
+  const { isLoading: itemsLoading } = useApiQuery<Item[]>(
     ['items'],
     '/inventory/items',
     { limit: 1000, isActive: true }
   );
-  const items = itemsResponse?.data || [];
-
   // Fetch single issue for editing
   const { data: issueResponse } = useApiQuery<IssueDocumentDetail>(
     ['issue', selectedIssueId],
@@ -193,91 +221,157 @@ function IssuePageInner() {
   useEffect(() => {
     if (selectedIssue) {
       reset({
-        serialNumber: selectedIssue.serialNumber || '',
+        serialNumber: selectedIssue.serialNumber || selectedIssue.serial || '',
         description: selectedIssue.description || '',
         date: selectedIssue.date
           ? new Date(selectedIssue.date).toISOString().split('T')[0]
           : new Date().toISOString().split('T')[0],
         hijriDate: selectedIssue.hijriDate || '',
         warehouseId: selectedIssue.warehouseId || '',
+        customerId: String(selectedIssue.customerId || ''),
         record: selectedIssue.record || '',
-        isPosted: selectedIssue.isPosted || false,
+        isPosted: resolvePostedFlag(selectedIssue),
         isApproved: selectedIssue.isApproved || false,
         useBarcode: selectedIssue.useBarcode ?? true,
-        hideExistingQty: selectedIssue.hideExistingQty ?? true,
+        hideExistingQty: selectedIssue.hideExistingQty ?? false,
       });
-      if (selectedIssue.lines) {
-        setIssueLines(
-          selectedIssue.lines.map((line: Record<string, unknown>) => ({
-            itemId: String(line.itemId ?? ''),
-            locationId: String(line.locationId ?? ''),
-            quantity: Number(line.quantity || 0),
-            unitPrice: Number(line.unitPrice || 0),
-            total: Number(line.total || 0),
-          }))
-        );
-      } else {
-        setIssueLines([]);
-      }
+      const loadedLines = (selectedIssue.lines ?? []).map((line: Record<string, unknown>) => ({
+        itemId: String(line.itemId ?? ''),
+        locationId: String(line.locationId ?? ''),
+        quantity: Number(line.quantity || 0),
+        unitPrice: Number(line.unitPrice || 0),
+        total: Number(line.total || 0),
+        itemReservationId: String(line.itemReservationId ?? ''),
+        reservationFulfillQuantity: Number(line.reservationFulfillQuantity ?? 0),
+        reservationLabel: line.itemReservationId
+          ? `حجز ${String(line.reservationFulfillQuantity ?? line.quantity ?? '')}`
+          : '',
+      }));
+      setIssueLines(
+        resolvePostedFlag(selectedIssue) ? loadedLines : [...loadedLines, blankStockVoucherLine()]
+      );
     }
   }, [selectedIssue, reset]);
 
-  // Receipt create mutation
-  const issueMutation = useApiMutation<unknown, Record<string, unknown>>(
+  const clearIssueForNext = () => {
+    openIssue(null);
+    setIssueLines(seedStockVoucherLines());
+    reset(emptyIssueFormDefaults());
+  };
+
+  const issueMutation = useApiMutation<{ id?: string; serial?: string; serialNumber?: string }, Record<string, unknown>>(
     '/inventory/issues',
     'POST',
     {
-      onSuccess: () => {
-        invalidateQuery(['issues']);
-        handleNew();
-        setSuccess('تم حفظ الصرف بنجاح');
+      showSuccessToast: false,
+      onSuccess: (res) => {
+        invalidateStockViews(invalidateQuery);
+        invalidateNextSerial();
+        const id = res.data?.id;
+        const number = res.data?.serialNumber || res.data?.serial;
+        const shouldPost = postAfterSaveRef.current;
+        postAfterSaveRef.current = false;
+        const finish = (posted: boolean) => {
+          finishDocumentSave({
+            label: 'إذن صرف مخزني',
+            number,
+            posted,
+            savedId: id,
+            onOpen: (saved) => openIssue(saved),
+            onSavedOpen: (saved) => invalidateQuery(['issue', saved]),
+            reset: clearIssueForNext,
+          });
+        };
+        if (shouldPost && id) {
+          void apiClient
+            .post(`/inventory/issues/${id}/post`)
+            .then((postRes) => {
+              setSuccess(postSuccessMessage(postRes));
+              setValue('isPosted', true);
+              invalidateStockViews(invalidateQuery);
+              finish(true);
+            })
+            .catch((err: unknown) => {
+              setError(err instanceof Error ? err.message : 'تم الحفظ وتعذر الترحيل');
+              if (id) openIssue(id);
+              invalidateStockViews(invalidateQuery);
+            });
+          return;
+        }
+        finish(false);
       },
       onError: (error: ApiError) => {
+        postAfterSaveRef.current = false;
         setError(error.message || 'حدث خطأ أثناء الحفظ');
       },
     }
   );
 
-  // Receipt update mutation
   const issueUpdateMutation = useApiMutation<unknown, Record<string, unknown>>(
     selectedIssueId ? `/inventory/issues/${selectedIssueId}` : '/inventory/issues',
     'PUT',
     {
+      showSuccessToast: false,
       onSuccess: () => {
-        invalidateQuery(['issues']);
+        invalidateStockViews(invalidateQuery);
         const id = selectedIssueId;
+        const number = selectedIssue?.serialNumber || selectedIssue?.serial;
+        const shouldPost = postAfterSaveRef.current;
+        postAfterSaveRef.current = false;
+        const finishSaved = (posted: boolean) => {
+          finishDocumentSave({
+            label: 'إذن صرف مخزني',
+            number,
+            posted,
+            savedId: id,
+            onOpen: (saved) => openIssue(saved),
+            onSavedOpen: (saved) => invalidateQuery(['issue', saved]),
+            reset: clearIssueForNext,
+          });
+        };
         if (consumeShouldRepost() && id) {
           void postNamedDocumentAfterSave(`/inventory/issues/${id}/post`)
             .then(() => {
-              handleNew();
-              setSuccess('تم حفظ التعديلات وترحيل الصرف');
+              finishSaved(true);
             })
             .catch((error: ApiError) => {
-              handleNew();
               setError(error.message || 'تم الحفظ لكن تعذر ترحيل الصرف');
             });
           return;
         }
-        handleNew();
-        setSuccess('تم تحديث الصرف بنجاح');
+        if (shouldPost && id) {
+          void apiClient
+            .post(`/inventory/issues/${id}/post`)
+            .then((postRes) => {
+              setSuccess(postSuccessMessage(postRes));
+              setValue('isPosted', true);
+              invalidateStockViews(invalidateQuery);
+              finishSaved(true);
+            })
+            .catch((err: unknown) => {
+              setError(err instanceof Error ? err.message : 'تم الحفظ وتعذر الترحيل');
+              invalidateStockViews(invalidateQuery);
+            });
+          return;
+        }
+        finishSaved(false);
       },
       onError: (error: ApiError) => {
+        postAfterSaveRef.current = false;
         setError(error.message || 'حدث خطأ أثناء التحديث');
       },
     }
   );
 
-  // Receipt delete mutation
   const issueDeleteMutation = useApiMutation<unknown, Record<string, unknown>>(
     selectedIssueId ? `/inventory/issues/${selectedIssueId}` : '/inventory/issues',
     'DELETE',
     {
+      showSuccessToast: false,
       onSuccess: () => {
         setSuccess('تم حذف الصرف بنجاح');
-        invalidateQuery(['issues']);
-        setSelectedIssueId(null);
-        setIssueLines([]);
-        reset(emptyIssueFormDefaults());
+        invalidateStockViews(invalidateQuery);
+        clearIssueForNext();
       },
       onError: (error: ApiError) => {
         setError(error.message || 'حدث خطأ أثناء الحذف');
@@ -285,55 +379,38 @@ function IssuePageInner() {
     }
   );
 
-  // Post receipt mutation
-  const postIssueMutation = useApiMutation<unknown, Record<string, unknown>>(
-    selectedIssueId ? `/inventory/issues/${selectedIssueId}/post` : '/inventory/issues',
-    'POST',
-    {
-      onSuccess: () => {
-        setSuccess('تم ترحيل الصرف بنجاح');
-        setValue('isPosted', true);
-        invalidateQuery(['issues']);
-        invalidateQuery(['issue', selectedIssueId]);
-      },
-      onError: (error: ApiError) => {
-        setError(error.message || 'حدث خطأ أثناء الترحيل');
-      },
-    }
-  );
+  const unpostIssueMutation = useDocumentPostMutation('/inventory/issues', selectedIssueId, 'unpost');
 
-  // Unpost receipt mutation
-  const unpostIssueMutation = useApiMutation<unknown, Record<string, unknown>>(
-    selectedIssueId ? `/inventory/issues/${selectedIssueId}/unpost` : '/inventory/issues',
-    'POST',
-    {
-      onSuccess: () => {
-        setSuccess('تم فك ترحيل الصرف بنجاح');
-        setValue('isPosted', false);
-        markUnpostedForEdit();
-        invalidateQuery(['issues']);
-        invalidateQuery(['issue', selectedIssueId]);
-      },
-      onError: (error: ApiError) => {
-        setError(error.message || 'حدث خطأ أثناء فك الترحيل');
-      },
-    }
-  );
-
-  const loading = issueMutation.isPending || issueUpdateMutation.isPending || issueDeleteMutation.isPending || itemsLoading;
+  const loading =
+    issueMutation.isPending ||
+    issueUpdateMutation.isPending ||
+    issueDeleteMutation.isPending ||
+    itemsLoading;
 
   // Handle post/unpost
   const handlePostUnpost = async (post: boolean) => {
-    if (!selectedIssueId) {
-      setError('يرجى اختيار صرف أولاً');
+    if (post) {
+      requestPostAfterSave();
       return;
     }
-
-    if (post) {
-      postIssueMutation.mutate({});
-    } else {
-      unpostIssueMutation.mutate({});
+    if (!selectedIssueId) {
+      setError('احفظ الإذن أولاً');
+      return;
     }
+    unpostIssueMutation.mutate(
+        {},
+        {
+          onSuccess: () => {
+            setSuccess('تم فك ترحيل الصرف بنجاح');
+            setValue('isPosted', false);
+            markUnpostedForEdit();
+            invalidateStockViews(invalidateQuery);
+          },
+          onError: (error: ApiError) => {
+            setError(error.message || 'حدث خطأ أثناء فك الترحيل');
+          },
+        }
+      );
   };
 
   // Handle delete
@@ -352,20 +429,24 @@ function IssuePageInner() {
   const handleNew = () => {
     resetKeepPosted();
     openIssue(null);
-    setIssueLines([]);
+    setIssueLines(seedStockVoucherLines());
     setError('');
     setSuccess('');
     reset(emptyIssueFormDefaults());
   };
 
-  const onSaveValid: SubmitHandler<InventoryWarehouseDocHeaderFormInput> = (values) => {
+  const onSaveValid: SubmitHandler<IssueHeaderForm> = (values) => {
     setError('');
     setSuccess('');
+    const filledLines = issueLines.filter(
+      (line) => line.itemId || line.quantity > 0 || (line.unitPrice ?? 0) > 0
+    );
     const linesParsed = z
       .array(inventoryReceiptLineSchema)
-      .min(1, 'يرجى إضافة أصناف للصرف')
-      .safeParse(issueLines);
+      .min(1, 'أدخل صنفاً وكمية في سطر واحد على الأقل')
+      .safeParse(filledLines);
     if (!linesParsed.success) {
+      postAfterSaveRef.current = false;
       const msg = linesParsed.error.issues[0]?.message;
       setError(msg || 'تحقق من بنود الأصناف');
       return;
@@ -376,15 +457,21 @@ function IssuePageInner() {
       date: new Date(values.date).toISOString(),
       hijriDate: values.hijriDate || undefined,
       warehouseId: values.warehouseId,
+      customerId: values.customerId?.trim() ? values.customerId.trim() : null,
       record: values.record || undefined,
       isPosted: values.isPosted || false,
       isApproved: values.isApproved || false,
-      lines: issueLines.map((line) => ({
+      lines: filledLines.map((line) => ({
         itemId: line.itemId,
-        locationId: line.locationId || undefined,
+        locationId: line.locationId?.trim() ? line.locationId.trim() : undefined,
         quantity: line.quantity,
         unitPrice: line.unitPrice || undefined,
         total: line.total || undefined,
+        itemReservationId: line.itemReservationId?.trim() ? line.itemReservationId.trim() : undefined,
+        reservationFulfillQuantity:
+          line.itemReservationId?.trim() && line.reservationFulfillQuantity
+            ? line.reservationFulfillQuantity
+            : undefined,
       })),
     };
     if (selectedIssueId) {
@@ -394,24 +481,23 @@ function IssuePageInner() {
     }
   };
 
+  const requestPostAfterSave = () => {
+    if (isPosted || isReadOnly) return;
+    postAfterSaveRef.current = true;
+    void handleSubmit(onSaveValid, onFieldErrors(setError))();
+  };
+
   // Add receipt line
   const addIssueLine = () => {
-    setIssueLines([...issueLines, {
-      itemId: '',
-      locationId: '',
-      quantity: 0,
-      unitPrice: 0,
-      total: 0,
-    }]);
+    setIssueLines([...issueLines, blankStockVoucherLine()]);
   };
 
-  // Remove receipt line
   const removeIssueLine = (index: number) => {
-    setIssueLines(issueLines.filter((_, i) => i !== index));
+    const next = issueLines.filter((_, i) => i !== index);
+    setIssueLines(next.length ? next : [blankStockVoucherLine()]);
   };
 
-  // Update receipt line
-  const updateIssueLine = (index: number, field: keyof IssueLine, value: string | number) => {
+  const updateIssueLine = (index: number, field: keyof StockVoucherLine, value: string | number) => {
     const updatedLines = [...issueLines];
     updatedLines[index] = { ...updatedLines[index], [field]: value };
     
@@ -421,8 +507,33 @@ function IssuePageInner() {
       const unitPrice = field === 'unitPrice' ? parseFloat(String(value)) || 0 : updatedLines[index].unitPrice || 0;
       updatedLines[index].total = quantity * unitPrice;
     }
+    if (field === 'quantity' && updatedLines[index].itemReservationId) {
+      const q = parseFloat(String(value)) || 0;
+      updatedLines[index].reservationFulfillQuantity = Math.min(
+        q,
+        updatedLines[index].reservationFulfillQuantity || q
+      );
+    }
     
     setIssueLines(updatedLines);
+  };
+
+  const applyReservationToIssue = ({ reservation, quantity }: ApplyReservationPayload) => {
+    const label = reservation.itemSerial
+      ? `${reservation.itemSerial} — ${reservation.itemName}`
+      : reservation.itemName;
+    const next = issueLines.filter((line) => line.itemId || line.quantity > 0);
+    next.push({
+      ...blankStockVoucherLine(),
+      itemId: reservation.itemId,
+      quantity,
+      reservationFulfillQuantity: quantity,
+      itemReservationId: reservation.id,
+      reservationLabel: `حجز: ${label} (${quantity})`,
+      unitPrice: 0,
+      total: 0,
+    });
+    setIssueLines([...next, blankStockVoucherLine()]);
   };
 
   // Calculate totals
@@ -437,20 +548,20 @@ function IssuePageInner() {
         breadcrumbs={[
           { href: '/inventory', label: 'المخزون' },
           { label: 'العمليات' },
-          { label: 'إذن صرف' },
+          { label: 'إذن صرف مخزني' },
         ]}
         title="إذن صرف مخزني"
         docNumber={watch('serialNumber') || ''}
         statusTone={isPosted ? 'success' : 'warning'}
-        statusLabel={isPosted ? 'مرحّل' : 'مسودة'}
-        saveLabel="حفظ"
-        onSaveDraft={() => void handleSubmit(onSaveValid, onFieldErrors(setError))()}
+        statusLabel={isPosted ? 'مرحّل' : STORE_DOCUMENT_UNPOSTED_LABEL}
+        saveLabel={STORE_SAVE_AND_POST_LABEL}
+        onSaveDraft={requestPostAfterSave}
         onCancel={handleNew}
         cancelLabel="تراجع"
         onPost={() => handlePostUnpost(true)}
         savePending={loading}
-        postPending={postIssueMutation.isPending}
-        canPost={!!selectedIssueId && !isPosted}
+        postPending={loading}
+        canPost={!isPosted && !isReadOnly}
         canSave={!isReadOnly && !isPosted}
         hideStandalonePost
         navEntity="issue"
@@ -459,7 +570,7 @@ function IssuePageInner() {
         onBrowseList={() => setShowList(true)}
         browseListLabel="السابق"
         standardActions={{
-          hasDocument: Boolean(selectedIssueId),
+          hasDocument: Boolean(selectedIssueId) || issueLines.some((l) => l.itemId),
           isPosted,
           onEdit: () => {
             if (isPosted) {
@@ -474,9 +585,29 @@ function IssuePageInner() {
           onNew: handleNew,
           newLabel: 'جديد',
         }}
+        extraActions={
+          <button
+            type="button"
+            className="rounded-lg border border-[#D6EAF3] px-3 py-2 text-sm text-[#0A3D5E]"
+            onClick={() =>
+              printStockDocument({
+                title: 'إذن صرف مخزني',
+                number: watch('serialNumber'),
+                date: watch('date'),
+                rows: issueLines.map((line) => ({
+                  item: line.itemId,
+                  quantity: line.quantity,
+                  price: line.unitPrice,
+                })),
+              })
+            }
+          >
+            طباعة
+          </button>
+        }
       />
 
-      <DocumentBrowseDrawer open={showList} onClose={() => setShowList(false)} title="أذون الصرف السابقة">
+      <DocumentBrowseDrawer open={showList} onClose={() => setShowList(false)} title="أذون الصرف المخزنية السابقة">
         <StockDocumentsListSection
           title=""
           apiPath="/inventory/issues"
@@ -492,9 +623,14 @@ function IssuePageInner() {
 
       <DocumentReadOnlyBanner />
       <DocumentFormLock>
-      <FormSectionCard title="بيانات الإذن" subtitle="المخزن والتاريخ والمرجع">
+      <FormSectionCard title="بيانات الإذن" subtitle="المخزن والعميل والتاريخ">
 
-          <CompactFormField label="المسلسل" placeholder="إدخل رقم المسلسل" {...register('serialNumber')} />
+          <CompactFormField
+            label="المسلسل"
+            placeholder={serialAutomatic ? 'يُولَّد تلقائياً' : 'أدخل رقم المسلسل'}
+            readOnly={serialAutomatic}
+            {...register('serialNumber')}
+          />
           <CompactFormField
             label="التاريخ"
             type="date"
@@ -511,6 +647,21 @@ function IssuePageInner() {
                   onChange={field.onChange}
                   className={`${inputCls} ${errors.warehouseId ? 'border-red-400' : ''}`}
                   emptyLabel="اختر المخزن"
+                />
+              )}
+            />
+          </CompactFormField>
+          <CompactFormField label="العميل" error={errors.customerId?.message}>
+            <Controller
+              name="customerId"
+              control={control}
+              render={({ field }) => (
+                <CustomerSelect
+                  value={field.value || ''}
+                  onChange={field.onChange}
+                  className={`${inputCls} ${errors.customerId ? 'border-red-400' : ''}`}
+                  emptyLabel="اختر العميل"
+                  disabled={isReadOnly}
                 />
               )}
             />
@@ -547,7 +698,7 @@ function IssuePageInner() {
                     onChange={(e) => onChange(e.target.checked)}
                     className="h-4 w-4 rounded border-[#0E78AA]/50"
                   />
-                  عدم إظهار الكمية الموجودة
+                  عدم إظهار الكمية المتاحة
                 </label>
               )}
             />
@@ -555,80 +706,24 @@ function IssuePageInner() {
         </div>
       </AdvancedFieldsSection>
 
-      <FormSectionCard title="بنود الصرف" subtitle="الصنف والكمية والسعر" bodyClassName="space-y-3">
-          {isReadOnly ? null : (
-          <div className="flex items-center justify-end">
-            <Button type="button" variant="primary" className="gap-2" onClick={addIssueLine}>
-              <Plus className="h-4 w-4" aria-hidden />
-              إضافة صنف
-            </Button>
-          </div>
-          )}
-          {issueLines.length === 0 ? (
-            <p className="py-6 text-center text-sm text-slate-500">لا توجد أصناف. اضغط «إضافة صنف».</p>
-          ) : (
-            issueLines.map((line, index) => (
-              <div
-                key={`issue-line-${index}`}
-                className="grid min-w-0 grid-cols-1 gap-3 rounded-xl border border-[#E6F0F7] bg-[#F6FBFD] p-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4"
-              >
-                <div>
-                  <label className={labelCls}>الصنف</label>
-                  <select
-                    className={inputCls}
-                    value={line.itemId}
-                    onChange={(e) => updateIssueLine(index, 'itemId', e.target.value)}
-                    disabled={itemsLoading}
-                  >
-                    <option value="">اختر الصنف</option>
-                    {items.map((item) => (
-                      <option key={item.id} value={item.id}>
-                        {item.arabicName} ({item.code})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                {hideExistingQty ? null : (
-                <div>
-                  <label className={labelCls}>الكمية الموجودة</label>
-                  <span className={`${inputCls} flex items-center`}>
-                    {warehouseId ? (
-                      <InvoiceLineStockBalanceCell itemId={line.itemId} warehouseId={warehouseId} />
-                    ) : (
-                      <span className="text-xs text-slate-400">اختر المخزن</span>
-                    )}
-                  </span>
-                </div>
-                )}
-                <div>
-                  <label className={labelCls}>الكمية</label>
-                  <TableNumberInput
-                    className={inputCls}
-                    value={line.quantity}
-                    onValueCommit={(n) => updateIssueLine(index, 'quantity', n)}
-                  />
-                </div>
-                <div>
-                  <label className={labelCls}>السعر</label>
-                  <TableNumberInput
-                    className={inputCls}
-                    value={line.unitPrice}
-                    onValueCommit={(n) => updateIssueLine(index, 'unitPrice', n)}
-                  />
-                </div>
-                {isReadOnly ? null : (
-                <div className="flex items-end justify-end">
-                  <IconButton
-                    icon={Trash2}
-                    label="حذف السطر"
-                    variant="danger"
-                    onClick={() => removeIssueLine(index)}
-                  />
-                </div>
-                )}
-              </div>
-            ))
-          )}
+      <ItemReservationDocumentPanel
+        warehouseId={warehouseId}
+        disabled={isReadOnly}
+        onApply={applyReservationToIssue}
+      />
+
+      <FormSectionCard title="بنود الصرف" subtitle="الصنف والكمية والسعر والإجمالي" bodyClassName="space-y-3">
+          <StockVoucherLinesGrid
+            lines={issueLines}
+            warehouseId={warehouseId}
+            hideExistingQty={hideExistingQty}
+            priceLabel="السعر"
+            readOnly={isReadOnly}
+            itemsLoading={itemsLoading}
+            onAdd={addIssueLine}
+            onRemove={removeIssueLine}
+            onChange={updateIssueLine}
+          />
       </FormSectionCard>
       </DocumentFormLock>
 

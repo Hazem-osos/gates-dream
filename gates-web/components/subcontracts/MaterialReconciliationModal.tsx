@@ -70,7 +70,7 @@ export function MaterialReconciliationModal({
   return (
     <div className="fixed inset-0 z-[140] flex items-center justify-center bg-black/40 p-4" dir="rtl">
       <div className="w-full max-w-xl space-y-4 rounded-xl bg-white p-5 shadow-xl">
-        <h2 className="text-lg font-bold text-[#0E79AA]">تسوية هوالك خامات الموقع</h2>
+        <h2 className="text-lg font-bold text-[#0E78AA]">تسوية هوالك خامات الموقع</h2>
         <label className="block text-sm">
           <span className="mb-1 block font-medium">الخامة</span>
           <select
@@ -136,7 +136,7 @@ export function MaterialReconciliationModal({
             <span>قيمة الزيادة: {formatEgp(preview.rawPenalty)}</span>
             <span>أعباء إدارية {Math.round(overheadRate * 100)}٪: {formatEgp(preview.overheadAmount)}</span>
           </div>
-          <p className="mt-2 font-bold text-[#0E79AA]">إجمالي الخصم: {formatEgp(preview.totalDeduction)}</p>
+          <p className="mt-2 font-bold text-[#0E78AA]">إجمالي الخصم: {formatEgp(preview.totalDeduction)}</p>
         </div>
         <div className="flex justify-end gap-2">
           <Button variant="secondary" onClick={onClose}>

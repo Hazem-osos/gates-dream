@@ -56,7 +56,7 @@ export function DistributeRentModal({
   return (
     <div className="fixed inset-0 z-[140] flex items-center justify-center bg-black/40 p-4" dir="rtl">
       <div className="w-full max-w-lg space-y-4 rounded-xl bg-white p-5 shadow-xl">
-        <h2 className="text-lg font-bold text-[#0E79AA]">توزيع إيجار المجمع التجاري</h2>
+        <h2 className="text-lg font-bold text-[#0E78AA]">توزيع إيجار المجمع التجاري</h2>
         <p className="text-sm text-slate-600">
           الوحدة {agreement.propertyUnit?.unitCode} — المالك {agreement.owner?.arabicName}
         </p>
@@ -83,7 +83,7 @@ export function DistributeRentModal({
         <div className="rounded-xl bg-[#F6FBFD] p-3 text-sm">
           <p>صافي التشغيل: {formatEgp(live.net)}</p>
           <p>إيراد المطوّر: {formatEgp(live.developer)}</p>
-          <p className="font-bold text-[#0E79AA]">صافي الموزّع للمالك: {formatEgp(live.owner)}</p>
+          <p className="font-bold text-[#0E78AA]">صافي الموزّع للمالك: {formatEgp(live.owner)}</p>
         </div>
         <div className="flex justify-end gap-2">
           <Button variant="secondary" onClick={onClose}>إلغاء</Button>

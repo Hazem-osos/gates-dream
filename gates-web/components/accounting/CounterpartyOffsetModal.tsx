@@ -63,22 +63,22 @@ export function CounterpartyOffsetModal({
   return (
     <div className="fixed inset-0 z-[140] flex items-center justify-center bg-black/40 p-4" dir="rtl">
       <div className="w-full max-w-lg rounded-xl bg-white p-5 shadow-xl space-y-4">
-        <h2 className="text-lg font-bold text-[#0E79AA]">مقاصة وتسوية ثنائية</h2>
+        <h2 className="text-lg font-bold text-[#0E78AA]">مقاصة وتسوية ثنائية</h2>
         {isLoading && <p className="text-sm text-gray-500">جاري التحميل…</p>}
         {summary && (
           <div className="grid grid-cols-2 gap-3 text-sm">
             <div className="rounded-lg bg-[#F6FBFD] p-3">
               <div className="text-gray-600">رصيد العميل (لنا)</div>
-              <div className="text-lg font-bold">{summary.customer.arBalance.toFixed(2)} ج.م</div>
+              <div className="text-lg font-bold">{summary.customer.arBalance.toLocaleString()} ج.م</div>
             </div>
             <div className="rounded-lg bg-[#F6FBFD] p-3">
               <div className="text-gray-600">رصيد المورد (علينا)</div>
-              <div className="text-lg font-bold">{summary.supplier.apBalance.toFixed(2)} ج.م</div>
+              <div className="text-lg font-bold">{summary.supplier.apBalance.toLocaleString()} ج.م</div>
             </div>
           </div>
         )}
         <div>
-          <label className="block text-sm font-medium mb-1">مبلغ المقاصة (حد أقصى {max.toFixed(2)})</label>
+          <label className="block text-sm font-medium mb-1">مبلغ المقاصة (حد أقصى {max.toLocaleString()})</label>
           <input
             type="number"
             className="w-full border rounded-lg px-3 py-2"
@@ -91,7 +91,7 @@ export function CounterpartyOffsetModal({
           <div className="text-sm bg-emerald-50 border border-emerald-200 rounded-lg p-3">
             <div className="font-semibold">تم تنفيذ سند التسوية</div>
             <div>رقم: {String(voucher.voucherNumber ?? '—')}</div>
-            <div>المبلغ: {Number(voucher.amount ?? 0).toFixed(2)} ج.م</div>
+            <div>المبلغ: {Number(voucher.amount ?? 0).toLocaleString()} ج.م</div>
           </div>
         )}
         {execute.isError && (

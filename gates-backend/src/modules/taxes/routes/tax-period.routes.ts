@@ -16,7 +16,7 @@ const router = Router();
 async function handleListTaxPeriods(req: AuthRequest, res: Response) {
   const companyId = req.companyId ?? req.tenantId;
   if (!companyId) {
-    return void res.status(400).json({ status: 'error', message: 'Company ID required' });
+    return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
   }
   const fiscalYearId = req.query.fiscalYearId as string | undefined;
   const etag = await getTaxPeriodsEtag(companyId, fiscalYearId);
@@ -48,7 +48,7 @@ router.post(
   async (req: AuthRequest, res: Response) => {
     const companyId = req.companyId ?? req.tenantId;
     if (!companyId) {
-      return void res.status(400).json({ status: 'error', message: 'Company ID required' });
+      return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     }
     const data = await taxPeriodService.create(companyId, {
       ...req.body,
@@ -64,7 +64,7 @@ router.post(
   async (req: AuthRequest, res: Response) => {
     const companyId = req.companyId ?? req.tenantId;
     if (!companyId) {
-      return void res.status(400).json({ status: 'error', message: 'Company ID required' });
+      return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     }
     const data = await taxPeriodService.close(companyId, req.params.id);
     return void res.json({ status: 'success', data });
@@ -77,7 +77,7 @@ router.post(
   async (req: AuthRequest, res: Response) => {
     const companyId = req.companyId ?? req.tenantId;
     if (!companyId) {
-      return void res.status(400).json({ status: 'error', message: 'Company ID required' });
+      return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     }
     const data = await taxPeriodService.reopen(companyId, req.params.id);
     return void res.json({ status: 'success', data });

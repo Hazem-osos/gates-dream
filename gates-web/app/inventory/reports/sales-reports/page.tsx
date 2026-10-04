@@ -7,14 +7,17 @@ export default function SalesReportsPage() {
     <InventoryReportFilterPage
       urlPath="/inventory/reports/sales-reports"
       icon="🧾"
-      subtitle="فواتير المبيعات المرحّلة ضمن الفترة والمرشحات المحددة."
-      defaults={{ unpaidOnly: true }}
+      subtitle="فواتير المبيعات ضمن الفترة والمرشحات المحددة."
+      defaults={{ unpaidOnly: false }}
       fields={{
         dates: 'range',
-        profileBaseType: 'SALES_INVOICE',
         customer: true,
         delegate: true,
-        seller: true,
+        seller: false,
+        driver: true,
+        distributor: true,
+        itemGroup: true,
+        financialPresence: true,
         warehouse: true,
         item: true,
         costCenter: true,
@@ -23,6 +26,8 @@ export default function SalesReportsPage() {
         branch: true,
         sortBy: true,
         unpaidOnly: true,
+        showUnposted: true,
+        allAccounts: true,
       }}
     />
   );

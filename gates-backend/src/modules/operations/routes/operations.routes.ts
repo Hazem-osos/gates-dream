@@ -37,7 +37,7 @@ function parseIsoDate(value: string, field: string): Date {
 
 function journalCtx(req: AuthRequest) {
   const companyId = req.companyId ?? req.tenantId;
-  if (!companyId) throw new AppError(400, 'Company ID required');
+  if (!companyId) throw new AppError(400, 'معرّف الشركة مطلوب');
   return journalEntryService.buildPostingContext(
     companyId,
     req.branchId,
@@ -54,7 +54,7 @@ router.post(
   async (req: AuthRequest, res: Response) => {
     try {
       const companyId = req.companyId ?? req.tenantId;
-      if (!companyId) throw new AppError(400, 'Company ID required');
+      if (!companyId) throw new AppError(400, 'معرّف الشركة مطلوب');
 
       const body = req.body as z.infer<typeof batchBodySchema>;
       const data = await batchOperationsService.batchPost(
@@ -89,7 +89,7 @@ router.post(
   async (req: AuthRequest, res: Response) => {
     try {
       const companyId = req.companyId ?? req.tenantId;
-      if (!companyId) throw new AppError(400, 'Company ID required');
+      if (!companyId) throw new AppError(400, 'معرّف الشركة مطلوب');
 
       const body = req.body as z.infer<typeof batchBodySchema>;
       const data = await batchOperationsService.batchUnpost(

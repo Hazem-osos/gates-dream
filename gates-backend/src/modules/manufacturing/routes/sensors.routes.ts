@@ -5,11 +5,65 @@ import { setTenantContext } from '../../../shared/middleware/tenant.middleware';
 import { sensorSubscriberService, SensorData } from '../services/sensor-subscriber.service';
 import { logger } from '../../../shared/logger';
 import { AuthRequest } from '../../../shared/auth/types';
+import prisma from '../../../shared/database/prisma';
 
 const router = Router();
 
 router.use(authenticate);
 router.use(setTenantContext);
+
+/**
+ * GET /api/v1/manufacturing/sensors/readings
+ * List recent sensor readings for the tenant (SensorReading model).
+ */
+router.get(
+  '/readings',
+  authorize({ resource: 'sensor', action: 'view' }),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const companyId = req.companyId ?? req.tenantId;
+      if (!companyId) {
+        return void res.status(400).json({
+          status: 'error',
+          message: 'معرّف الشركة مطلوب',
+        });
+      }
+
+      const limitRaw = parseInt(String(req.query.limit ?? '100'), 10);
+      const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(limitRaw, 1), 500) : 100;
+      const machineId = typeof req.query.machineId === 'string' ? req.query.machineId.trim() : '';
+      const sensorType = typeof req.query.sensorType === 'string' ? req.query.sensorType.trim() : '';
+
+      const rows = await prisma.sensorReading.findMany({
+        where: {
+          companyId,
+          ...(machineId ? { machineId } : {}),
+          ...(sensorType ? { sensorType } : {}),
+        },
+        orderBy: { timestamp: 'desc' },
+        take: limit,
+      });
+
+      return void res.json({
+        status: 'success',
+        data: rows.map((row) => ({
+          id: row.id,
+          machineId: row.machineId,
+          sensorType: row.sensorType,
+          value: Number(row.value),
+          unit: row.unit,
+          timestamp: row.timestamp,
+        })),
+      });
+    } catch (error) {
+      logger.error({ error }, 'Error listing sensor readings');
+      return void res.status(500).json({
+        status: 'error',
+        message: 'Failed to list sensor readings',
+      });
+    }
+  }
+);
 
 /**
  * POST /api/v1/manufacturing/sensors/subscribe
@@ -26,7 +80,7 @@ router.post(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -37,13 +91,11 @@ router.post(
         });
       }
 
-      // Subscribe to sensor
       sensorSubscriberService.subscribe(
         companyId,
         machineId,
         sensorType,
         (data: SensorData) => {
-          // Handle sensor data (e.g., emit via WebSocket, store in DB)
           logger.debug({ data }, 'Sensor data received via subscription');
         }
       );
@@ -84,7 +136,7 @@ router.post(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 

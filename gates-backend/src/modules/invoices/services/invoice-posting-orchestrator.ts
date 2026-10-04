@@ -2,20 +2,28 @@ import { Decimal } from '@prisma/client/runtime/library';
 import { Prisma } from '@prisma/client';
 import prisma from '../../../shared/database/prisma';
 import { AppError } from '../../../shared/middleware/error-handler';
+import { throwStaleWrite } from '../../../shared/concurrency/optimistic-lock';
 import { VAT_ACCOUNT_UNMAPPED_MESSAGE } from '../../accounting/constants/ledger-integrity';
 import { roundTo4 } from '../../../shared/utils/decimal-round';
 import { journalPostingService } from '../../accounting/services/journal-posting.service';
+import { applyPostedJournalBalancesInTx } from '../../accounting/services/ledger-balance.service';
 import { autoGlPostingService } from '../../accounting/services/auto-gl-posting.service';
 import type { JournalEntryLineData } from '../../accounting/types/journal-entry.types';
 import { partyCreditService } from '../../accounting/services/party-credit.service';
 import { companySettingService } from '../../platform/services/company-setting.service';
 import { documentSequenceService } from '../../platform/services/document-sequence.service';
+import { emitDomainEvent } from '../../automation/events/automation-event-bus.service';
 import { advancedRightsService } from '../../platform/services/advanced-rights.service';
 import { itemCostService } from '../../inventory/services/item-cost.service';
 import { stockMovementService } from '../../inventory/services/stock-movement.service';
 import { inventoryCostingService } from '../../inventory/services/inventory-costing.service';
 import { COSTING_MOVEMENT } from '../../inventory/services/inventory-costing-math';
 import { sortForStockLocking } from '../../inventory/utils/stock-lock-order.util';
+import {
+  fulfillReservationInTx,
+  reverseReservationFulfillmentInTx,
+} from '../../inventory/services/item-reservation.service';
+import { transactionEnforcesStrictNegativeStock } from '../../inventory/services/strict-inventory';
 import { invoiceAccountResolverService } from './invoice-account-resolver.service';
 import {
   ACCOUNT_SLOT_ALIASES,
@@ -44,6 +52,7 @@ import {
 } from '../../inventory/utils/inventory-system';
 import { computeAdjustmentInvoiceAmount } from './invoice-adjustment.math';
 import { computePurchaseLineNetCost } from './purchase-line-net-cost';
+import { resolveOriginalLineUnitCostByLineId } from './resolve-original-line-unit-cost';
 import { taxPeriodService } from '../../taxes/services/tax-period.service';
 import { approvalWorkflowService } from '../../accounting/services/approval-workflow.service';
 import { documentAuditService } from '../../accounting/services/document-audit.service';
@@ -82,6 +91,7 @@ const ADVANCED_RIGHT_KEYS: Record<InvoiceKind, { post: string; unpost: string }>
   PURCHASE: { post: 'svPost', unpost: 'svUnpost' },
   SALE_RETURN: { post: 'srPost', unpost: 'srUnpost' },
   PURCHASE_RETURN: { post: 'prPost', unpost: 'prUnpost' },
+  SALES_ORDER: { post: 'soPost', unpost: 'soUnpost' },
 };
 
 function legacySourceType(kind: InvoiceKind): string {
@@ -99,21 +109,44 @@ function legacySourceType(kind: InvoiceKind): string {
   }
 }
 
+function resolveGroupedLineCostCenter(
+  settings: Awaited<ReturnType<typeof loadInvoiceTransactionSettings>>,
+  pair: 'SALES' | 'COST_OF_GOODS_SOLD',
+  costCenterId?: string,
+  postingSide?: 'debit' | 'credit'
+): string | undefined {
+  if (!costCenterId || !settings) return undefined;
+  if (settings.costCenterAllocationTarget !== pair) return undefined;
+  if (!postingSide) return costCenterId;
+  const wantDebit = settings.costCenterSide === 'DEBIT';
+  const matches =
+    postingSide === 'debit' ? wantDebit : settings.costCenterSide === 'CREDIT';
+  return matches ? costCenterId : undefined;
+}
+
+function stripPartnerCostCenters(lines: JournalEntryLineData[]): JournalEntryLineData[] {
+  return lines.map((line) =>
+    line.partnerId || line.partnerType ? { ...line, costCenterId: undefined } : line
+  );
+}
+
+/** Final pass: keep CC only on the configured side of the journal (legacy safety net). */
 function allocateCostCenters(
   lines: JournalEntryLineData[],
   pair: 'SALES' | 'COST_OF_GOODS_SOLD',
   settings: Awaited<ReturnType<typeof loadInvoiceTransactionSettings>>,
   costCenterId?: string
 ): JournalEntryLineData[] {
-  if (!costCenterId || !settings) return lines;
+  if (!costCenterId || !settings) return stripPartnerCostCenters(lines);
   if (settings.costCenterAllocationTarget !== pair) {
-    return lines.map((line) => ({ ...line, costCenterId: undefined }));
+    return stripPartnerCostCenters(lines.map((line) => ({ ...line, costCenterId: undefined })));
   }
   const wantDebit = settings.costCenterSide === 'DEBIT';
-  return lines.map((line) => ({
+  const allocated = lines.map((line) => ({
     ...line,
     costCenterId: Number(line.debit) > 0 === wantDebit ? costCenterId : undefined,
   }));
+  return stripPartnerCostCenters(allocated);
 }
 
 function stockDelta(kind: InvoiceKind, baseQty: number): number {
@@ -261,19 +294,32 @@ function buildGroupedAccountLines(
   valueByAccount: Map<string, number>,
   expectedTotal: number,
   side: 'debit' | 'credit',
-  mk: (accountId: string, debit: number, credit: number, description?: string) => JournalEntryLineData,
-  description: string
+  mk: (
+    accountId: string,
+    debit: number,
+    credit: number,
+    description?: string,
+    costCenterId?: string | null
+  ) => JournalEntryLineData,
+  description: string,
+  lineCostCenterId?: string | null
 ): JournalEntryLineData[] {
   const entries = [...valueByAccount.entries()].sort(([a], [b]) => a.localeCompare(b));
   if (entries.length === 0) return [];
+  const flip = expectedTotal < 0;
+  const total = roundTo4(Math.abs(expectedTotal));
+  const actualSide = flip ? (side === 'debit' ? 'credit' : 'debit') : side;
   let runningSum = 0;
   const lines: JournalEntryLineData[] = [];
   entries.forEach(([accountId, rawValue], i) => {
     const isLast = i === entries.length - 1;
-    const value = isLast ? roundTo4(expectedTotal - runningSum) : roundTo4(rawValue);
+    const share = flip ? Math.abs(rawValue) : rawValue;
+    const value = isLast ? roundTo4(total - runningSum) : roundTo4(share);
     runningSum = roundTo4(runningSum + value);
     lines.push(
-      side === 'debit' ? mk(accountId, value, 0, description) : mk(accountId, 0, value, description)
+      actualSide === 'debit'
+        ? mk(accountId, value, 0, description, lineCostCenterId)
+        : mk(accountId, 0, value, description, lineCostCenterId)
     );
   });
   return lines;
@@ -282,9 +328,13 @@ function buildGroupedAccountLines(
 function computeLineTotals(invoice: InvoiceWithLines): InvoiceLineTotals {
   const discount = roundTo4(Number(invoice.discountAmount));
   const merchandise = roundTo4(Number(invoice.totalAmount) - discount);
-  const tax = roundTo4(Number(invoice.taxAmount));
+  const storedTax = roundTo4(Number(invoice.taxAmount));
+  const applySalesTax = invoice.isSalesTaxInvoice !== false;
+  const tax = applySalesTax ? storedTax : 0;
   const developmentFee = roundTo4(Number(invoice.developmentFeeAmount ?? 0));
-  const net = roundTo4(Number(invoice.netAmount));
+  const net = applySalesTax
+    ? roundTo4(Number(invoice.netAmount))
+    : roundTo4(Number(invoice.netAmount) - storedTax);
 
   return {
     merchandise,
@@ -357,10 +407,10 @@ export class InvoicePostingOrchestrator {
     const invoice = await this.loadInvoice(ctx.companyId, invoiceId);
 
     if (invoice.isPosted) {
-      throw new AppError(400, 'Invoice is already posted');
+      throw new AppError(400, 'الفاتورة مرحّلة مسبقاً');
     }
     if (invoice.isCancelled) {
-      throw new AppError(400, 'Cannot post a cancelled invoice');
+      throw new AppError(400, 'لا يمكن ترحيل فاتورة ملغاة');
     }
     await taxPeriodService.assertOpenForDocumentDate(ctx.companyId, invoice.date);
     const headerWarehouseId = invoice.warehouseId ?? '';
@@ -378,6 +428,7 @@ export class InvoicePostingOrchestrator {
     const moduleSettings = await resolveInvoiceModuleSettings(ctx.companyId, moduleCode);
     const txSettings = await loadInvoiceTransactionSettings(ctx.companyId, kind);
     const affectStore = txSettings?.affectStock ?? moduleSettings.postTostore;
+    const forceStrictNegativeStock = transactionEnforcesStrictNegativeStock(txSettings);
     const createGl = txSettings ? txSettings.generateEntryOnSave : !moduleSettings.notCreateGL;
     const allocatedCostCenterId = invoice.costCenterId ?? txSettings?.defaultCostCenterId ?? undefined;
 
@@ -533,37 +584,53 @@ export class InvoicePostingOrchestrator {
     // H10 fix: for SALE_RETURN lines linked to an original sale line, use the
     // cost that was actually charged to COGS at issue time rather than today's
     // moving average. Prevents credit-note COGS from diverging from the original.
-    const originalLineCostByLineId = new Map<string, number>();
-    if (kind === 'SALE_RETURN') {
-      const originalLineIds = invoice.lines
-        .map((l) => l.originalInvoiceLineId)
-        .filter((id): id is string => Boolean(id));
-      if (originalLineIds.length > 0) {
-        // InvoiceLine has no direct companyId — tenant scope is guaranteed because
-        // originalInvoiceLineIds come from this company's own invoice.lines.
-        const originalLines = await prisma.invoiceLine.findMany({
-          where: { id: { in: originalLineIds } },
-          select: { id: true, unitCostAtIssue: true },
-        });
-        for (const orig of originalLines) {
-          if (orig.unitCostAtIssue != null) {
-            originalLineCostByLineId.set(orig.id, Number(orig.unitCostAtIssue));
-          }
-        }
-      }
-    }
-
-    return prisma.$transaction(async (tx) => {
+    const posted = await prisma.$transaction(async (tx) => {
+      const deferredCardJournalIds: string[] = [];
+      const deferCardColumns = {
+        skipCardColumns: true as const,
+        onJournalCreated: (journalEntryId: string) => {
+          deferredCardJournalIds.push(journalEntryId);
+        },
+      };
       // P2 fix: atomic idempotency guard. `updateMany` is a single DB write that
       // only matches when isPosted is still false — concurrent post requests will
       // see count=0 and throw before any stock or GL work runs, preventing
       // duplicate movements and duplicate journal entries.
+      // Everything below is computed from the revision loaded before this
+      // transaction, so the claim also requires that revision to be current.
       const claimPost = await tx.invoice.updateMany({
-        where: { id: invoiceId, companyId: ctx.companyId, isPosted: false, isCancelled: false },
+        where: {
+          id: invoiceId,
+          companyId: ctx.companyId,
+          isPosted: false,
+          isCancelled: false,
+          version: invoice.version,
+        },
         data: { isPosted: true, postedAt: new Date(), postedBy: ctx.userId ?? null },
       });
       if (claimPost.count === 0) {
+        const current = await tx.invoice.findFirst({
+          where: { id: invoiceId, companyId: ctx.companyId },
+          select: { isPosted: true, isCancelled: true },
+        });
+        if (current && !current.isPosted && !current.isCancelled) {
+          throwStaleWrite();
+        }
         throw new AppError(400, 'Invoice is already posted or cancelled');
+      }
+
+      let originalLineCostByLineId = new Map<string, number>();
+      if (kind === 'SALE_RETURN' || kind === 'PURCHASE_RETURN') {
+        const originalLineIds = invoice.lines
+          .map((l) => l.originalInvoiceLineId)
+          .filter((id): id is string => Boolean(id));
+        if (originalLineIds.length > 0) {
+          originalLineCostByLineId = await resolveOriginalLineUnitCostByLineId(
+            tx,
+            ctx.companyId,
+            originalLineIds
+          );
+        }
       }
 
       let runningCogs = 0;
@@ -612,6 +679,7 @@ export class InvoicePostingOrchestrator {
             sourceDocumentId: invoice.id,
             transactionDate: invoice.date,
             hijriDate: invoice.hijriDate ?? undefined,
+            ...(forceStrictNegativeStock ? { forceStrictNegativeCheck: true } : {}),
           };
 
           if (kind === 'PURCHASE') {
@@ -624,18 +692,18 @@ export class InvoicePostingOrchestrator {
             });
             unitCost = inbound.unitCost;
           } else if (kind === 'SALE_RETURN') {
-            // Use the cost saved on the original sale line (unitCostAtIssue) when
-            // available, so the credit-note reversal is always at the original COGS —
-            // not at today's MAC which may have drifted since the original sale.
-            const originalCost = line.originalInvoiceLineId
-              ? originalLineCostByLineId.get(line.originalInvoiceLineId)
+            const linkedOriginalId = line.originalInvoiceLineId ?? undefined;
+            const originalCost = linkedOriginalId
+              ? originalLineCostByLineId.get(linkedOriginalId)
               : undefined;
+            const useOriginalCost = originalCost !== undefined;
             const inbound = await inventoryCostingService.applyInboundMovement(tx, {
               ...costingBase,
               quantity: baseQty,
-              unitCost: originalCost ?? (unitCostByItemId.get(line.itemId) ?? 0),
-              // Only inherit current MAC when no original cost is available (standalone return)
-              inheritCurrentCost: originalCost == null,
+              unitCost: useOriginalCost
+                ? originalCost
+                : (unitCostByItemId.get(line.itemId) ?? 0),
+              inheritCurrentCost: !useOriginalCost,
               updateLastPurchasePrice: false,
               movementType: COSTING_MOVEMENT.RETURN_SALE,
             });
@@ -652,12 +720,69 @@ export class InvoicePostingOrchestrator {
               lineCogsAcct,
               roundTo4((cogsDebitByAccount.get(lineCogsAcct) ?? 0) + lineCogs)
             );
+          } else if (kind === 'PURCHASE_RETURN') {
+            const linkedOriginalId = line.originalInvoiceLineId ?? undefined;
+            const originalCost = linkedOriginalId
+              ? originalLineCostByLineId.get(linkedOriginalId)
+              : undefined;
+            if (linkedOriginalId && originalCost !== undefined) {
+              const reversed = await inventoryCostingService.reverseInboundInTx(tx, {
+                ...costingBase,
+                quantity: baseQty,
+                originalUnitCost: originalCost,
+                movementType: COSTING_MOVEMENT.RETURN_PURCHASE,
+                updateLastPurchasePrice: false,
+              });
+              unitCost = reversed.unitCost;
+              const lineCogs = reversed.totalValuation;
+              runningCogs += lineCogs;
+              const lineAccountId = lineInventoryAccountId.get(line.id) ?? accounts.inventoryAccountId;
+              cogsByAccount.set(
+                lineAccountId,
+                roundTo4((cogsByAccount.get(lineAccountId) ?? 0) + lineCogs)
+              );
+              const lineCogsAcct = lineCogsAccountId.get(line.id) ?? accounts.cogsAccountId;
+              cogsDebitByAccount.set(
+                lineCogsAcct,
+                roundTo4((cogsDebitByAccount.get(lineCogsAcct) ?? 0) + lineCogs)
+              );
+            } else {
+              const outbound = await inventoryCostingService.applyOutboundMovement(tx, {
+                ...costingBase,
+                quantity: baseQty,
+                movementType: COSTING_MOVEMENT.RETURN_PURCHASE,
+              });
+              unitCost = outbound.unitCost;
+              const lineCogs = outbound.totalValuation;
+              runningCogs += lineCogs;
+              const lineAccountId = lineInventoryAccountId.get(line.id) ?? accounts.inventoryAccountId;
+              cogsByAccount.set(
+                lineAccountId,
+                roundTo4((cogsByAccount.get(lineAccountId) ?? 0) + lineCogs)
+              );
+              const lineCogsAcct = lineCogsAccountId.get(line.id) ?? accounts.cogsAccountId;
+              cogsDebitByAccount.set(
+                lineCogsAcct,
+                roundTo4((cogsDebitByAccount.get(lineCogsAcct) ?? 0) + lineCogs)
+              );
+            }
           } else {
+            if (kind === 'SALE') {
+              const reservationId = line.itemReservationId as string | null | undefined;
+              const fulfillQty = Number(line.reservationFulfillQuantity ?? 0);
+              if (reservationId && fulfillQty > 0 && lineWarehouseId) {
+                await fulfillReservationInTx(tx, ctx.companyId, {
+                  reservationId,
+                  warehouseId: lineWarehouseId,
+                  itemId: line.itemId,
+                  quantity: fulfillQty,
+                });
+              }
+            }
             const outbound = await inventoryCostingService.applyOutboundMovement(tx, {
               ...costingBase,
               quantity: baseQty,
-              movementType:
-                kind === 'SALE' ? COSTING_MOVEMENT.SALE : COSTING_MOVEMENT.RETURN_PURCHASE,
+              movementType: COSTING_MOVEMENT.SALE,
             });
             unitCost = outbound.unitCost;
             const lineCogs = outbound.totalValuation;
@@ -678,7 +803,7 @@ export class InvoicePostingOrchestrator {
           // so a future return (once linked via H10) can reverse at the true
           // original cost instead of re-deriving whatever the average is by
           // the time the return happens.
-          if (kind === 'SALE' || kind === 'PURCHASE_RETURN') {
+          if (kind === 'SALE' || kind === 'PURCHASE' || kind === 'PURCHASE_RETURN') {
             await tx.invoiceLine.update({
               where: { id: line.id },
               data: { unitCostAtIssue: new Decimal(unitCost ?? 0) },
@@ -709,14 +834,26 @@ export class InvoicePostingOrchestrator {
         credit: number,
         description?: string,
         costCenterId?: string | null
-      ): JournalEntryLineData => ({
-        accountId,
-        debit: roundTo4(debit),
-        credit: roundTo4(credit),
-        lineOrder: lineOrder++,
-        description,
-        costCenterId: costCenterId ?? invoice.costCenterId ?? undefined,
-      });
+      ): JournalEntryLineData => {
+        let debitAmount = roundTo4(debit);
+        let creditAmount = roundTo4(credit);
+        if (debitAmount < 0) {
+          creditAmount = roundTo4(creditAmount - debitAmount);
+          debitAmount = 0;
+        }
+        if (creditAmount < 0) {
+          debitAmount = roundTo4(debitAmount - creditAmount);
+          creditAmount = 0;
+        }
+        return {
+          accountId,
+          debit: debitAmount,
+          credit: creditAmount,
+          lineOrder: lineOrder++,
+          description,
+          costCenterId: costCenterId ?? undefined,
+        };
+      };
 
       const pushAdjustmentLines = (target: JournalEntryLineData[], isSaleSide: boolean, sign: number) => {
         const baseSubtotal = roundTo4(Number(invoice.totalAmount) - Number(invoice.discountAmount));
@@ -779,25 +916,35 @@ export class InvoicePostingOrchestrator {
             roundTo4((merchandiseByAccount.get(accountId) ?? 0) + share)
           );
         }
+        const purchaseInventoryCc = resolveGroupedLineCostCenter(
+          txSettings,
+          'COST_OF_GOODS_SOLD',
+          allocatedCostCenterId,
+          'debit'
+        );
         lines.push(
           ...buildGroupedAccountLines(
             merchandiseByAccount,
             sign * totals.merchandise,
             'debit',
             mkLine,
-            purchaseReturnAccountId ? 'Purchase returns' : 'Inventory — purchase'
+            purchaseReturnAccountId ? 'Purchase returns' : 'Inventory — purchase',
+            purchaseInventoryCc
           )
         );
         if (totals.tax > 0) {
-          if (!accounts.vatInputAccountId) {
+          const purchaseVatAccountId =
+            accounts.vatInputAccountId ?? accounts.vatOutputAccountId;
+          if (!purchaseVatAccountId) {
             throw new AppError(422, VAT_ACCOUNT_UNMAPPED_MESSAGE);
           }
-          lines.push(
-            mkLine(accounts.vatInputAccountId, sign * totals.tax, 0, 'Input VAT')
-          );
+          lines.push(mkLine(purchaseVatAccountId, sign * totals.tax, 0, 'VAT'));
         }
         if (totals.developmentFee > 0) {
-          const feeAccount = accounts.vatInputAccountId ?? accounts.inventoryAccountId;
+          const feeAccount =
+            accounts.vatInputAccountId ??
+            accounts.vatOutputAccountId ??
+            accounts.inventoryAccountId;
           lines.push(
             mkLine(feeAccount, sign * totals.developmentFee, 0, 'رسم التنمية')
           );
@@ -811,7 +958,7 @@ export class InvoicePostingOrchestrator {
           if (!accounts.withholdingAccountId) {
             throw new AppError(
               422,
-              'Purchase withholding tax requires withholdingTaxAccount in company account definitions'
+              'خصم المنبع محتاج حساب ضريبة خصم المنبع في تعريف الحسابات قبل الترحيل'
             );
           }
           lines.push(
@@ -833,14 +980,26 @@ export class InvoicePostingOrchestrator {
           sourceNumber: sourceNum,
           sourceYearId,
           entryType: kind,
-          lines,
-          costCenterId: invoice.costCenterId,
+          lines: allocateCostCenters(
+            lines,
+            'COST_OF_GOODS_SOLD',
+            txSettings,
+            allocatedCostCenterId
+          ),
+          costCenterId: allocatedCostCenterId,
+          ...deferCardColumns,
         });
         journalEntryId = je!.id;
 
         if (kind === 'PURCHASE_RETURN' && totals.cogs > 0) {
           lineOrder = 1;
           const cogsSign = -1;
+          const purchaseReturnCogsCc = resolveGroupedLineCostCenter(
+            txSettings,
+            'COST_OF_GOODS_SOLD',
+            allocatedCostCenterId,
+            'debit'
+          );
           const cogsLines: JournalEntryLineData[] = [
             // Sales Invoice Enterprise Redesign: group the COGS debit by
             // each line's resolved COGS account instead of one aggregate
@@ -850,7 +1009,8 @@ export class InvoicePostingOrchestrator {
               cogsSign * totals.cogs,
               'debit',
               mkLine,
-              'COGS — purchase return'
+              'COGS — purchase return',
+              purchaseReturnCogsCc
             ),
             // P1 fix: group the inventory-relief credit by each line's
             // resolved account instead of one aggregate line.
@@ -874,8 +1034,14 @@ export class InvoicePostingOrchestrator {
             sourceNumber: sourceNum,
             sourceYearId,
             entryType: `${kind}_COGS`,
-            lines: cogsLines,
-            costCenterId: invoice.costCenterId,
+            lines: allocateCostCenters(
+              cogsLines,
+              'COST_OF_GOODS_SOLD',
+              txSettings,
+              allocatedCostCenterId
+            ),
+            costCenterId: allocatedCostCenterId,
+            ...deferCardColumns,
           });
           costJournalEntryId = costJe!.id;
         }
@@ -897,7 +1063,7 @@ export class InvoicePostingOrchestrator {
           if (!accounts.whtReceivableAccountId) {
             throw new AppError(
               422,
-              'Sales withholding tax requires whtReceivableAccount in company account definitions'
+              'خصم المنبع على المبيعات يحتاج حساب ضريبة خصم المنبع (مدين) في تعريف الحسابات قبل الترحيل.'
             );
           }
           revenueLines.push(
@@ -926,20 +1092,27 @@ export class InvoicePostingOrchestrator {
             roundTo4((revenueByAccount.get(accountId) ?? 0) + Number(line.total))
           );
         }
+        const salesRevenueCc = resolveGroupedLineCostCenter(
+          txSettings,
+          'SALES',
+          allocatedCostCenterId,
+          'credit'
+        );
         revenueLines.push(
           ...buildGroupedAccountLines(
             revenueByAccount,
             sign * Number(invoice.totalAmount),
             'credit',
             mkLine,
-            'Sales revenue (gross)'
+            'Sales revenue (gross)',
+            salesRevenueCc
           )
         );
         if (totals.discount > 0) {
           if (!accounts.salesDiscountAccountId) {
             throw new AppError(
               422,
-              'Sales discount requires salesDiscountAccount in company account definitions'
+              'خصم المبيعات يحتاج حساب خصم مبيعات في تعريف الحسابات قبل الترحيل.'
             );
           }
           revenueLines.push(
@@ -982,11 +1155,18 @@ export class InvoicePostingOrchestrator {
           entryType: kind,
           lines: allocateCostCenters(revenueLines, 'SALES', txSettings, allocatedCostCenterId),
           costCenterId: allocatedCostCenterId,
+          ...deferCardColumns,
         });
         journalEntryId = revenueJe!.id;
 
         if (totals.cogs > 0) {
           lineOrder = 1;
+          const salesCogsCc = resolveGroupedLineCostCenter(
+            txSettings,
+            'COST_OF_GOODS_SOLD',
+            allocatedCostCenterId,
+            'debit'
+          );
           const cogsLines: JournalEntryLineData[] = [
             // Sales Invoice Enterprise Redesign: group the COGS debit by
             // each line's resolved COGS account instead of one aggregate
@@ -996,7 +1176,8 @@ export class InvoicePostingOrchestrator {
               sign * totals.cogs,
               'debit',
               mkLine,
-              'COGS'
+              'COGS',
+              salesCogsCc
             ),
             // P1 fix: group the inventory-relief credit by each line's
             // resolved account instead of one aggregate line.
@@ -1027,6 +1208,7 @@ export class InvoicePostingOrchestrator {
               allocatedCostCenterId
             ),
             costCenterId: allocatedCostCenterId,
+            ...deferCardColumns,
           });
           costJournalEntryId = costJe!.id;
         }
@@ -1054,10 +1236,12 @@ export class InvoicePostingOrchestrator {
         },
       });
 
-      if (
-        isSplitPaymentInvoice(invoice) &&
-        (kind === 'SALE' || kind === 'PURCHASE')
-      ) {
+      const settleCashKinds =
+        kind === 'SALE' ||
+        kind === 'PURCHASE' ||
+        kind === 'SALE_RETURN' ||
+        kind === 'PURCHASE_RETURN';
+      if (isSplitPaymentInvoice(invoice) && settleCashKinds) {
         await invoiceSettlementSplitService.autoSettleSplitInTx(tx, ctx, {
           id: updated.id,
           invoiceKind: updated.invoiceKind,
@@ -1069,10 +1253,7 @@ export class InvoicePostingOrchestrator {
           netAmount: updated.netAmount,
           paymentSplits: invoice.paymentSplits,
         });
-      } else if (
-        isImmediateCashInvoice(invoice) &&
-        (kind === 'SALE' || kind === 'PURCHASE')
-      ) {
+      } else if (isImmediateCashInvoice(invoice) && settleCashKinds) {
         // `totals.net` (sourced from `invoice.netAmount`) is already stored
         // net-of-WHT by invoice-m5.service.ts — see the C2 note on
         // `computePartyDelta` above. Subtracting `wht` again here
@@ -1084,30 +1265,17 @@ export class InvoicePostingOrchestrator {
         }
       }
 
-      // Wave 4 fix: this must run *after* the auto-settle branches above.
-      // Auto-settle (cash/split) locks safe/bank rows via
-      // `treasuryPostingService.postCashTransactionInTx`, which always locks
-      // safe/bank before customer/supplier. A plain treasury receipt on the
-      // same safe/customer pair follows that same order. If this invoice's
-      // own AR/AP delta locked the customer/supplier row *first* — as it did
-      // when this ran before the auto-settle call — a concurrent post could
-      // acquire customer-then-safe here while a receipt acquired
-      // safe-then-customer there, deadlocking. Locking safe/bank first
-      // (inside auto-settle) and the party row second keeps every posting
-      // path on the same global order.
-      if (invoice.customerId && (kind === 'SALE' || kind === 'SALE_RETURN')) {
-        const delta = computePartyDelta(kind, totals);
-        await tx.customer.update({
-          where: { id: invoice.customerId },
-          data: { balance: { increment: new Decimal(delta) } },
+      if (deferredCardJournalIds.length > 0) {
+        const cardLines = await tx.journalEntryLine.findMany({
+          where: { journalEntryId: { in: deferredCardJournalIds } },
         });
-      }
-
-      if (invoice.supplierId && (kind === 'PURCHASE' || kind === 'PURCHASE_RETURN')) {
-        const delta = computePartyDelta(kind, totals);
-        await tx.supplier.update({
-          where: { id: invoice.supplierId },
-          data: { balance: { increment: new Decimal(delta) } },
+        await applyPostedJournalBalancesInTx(tx, {
+          companyId: ctx.companyId,
+          date: invoice.date,
+          currencyCode: invoice.currencyCode,
+          skipAccountPeriod: true,
+          skipPartnerBalances: true,
+          lines: cardLines,
         });
       }
 
@@ -1128,6 +1296,11 @@ export class InvoicePostingOrchestrator {
         totals: { ...totals, withholding: wht },
       };
     });
+
+    if (posted.kind === 'SALE' || posted.kind === 'PURCHASE') {
+      void emitPostedInvoiceEvent(ctx.companyId, posted.kind, posted.invoice);
+    }
+    return posted;
   }
 
   async unpost(ctx: InvoicePostingContext, invoiceId: string) {
@@ -1153,6 +1326,7 @@ export class InvoicePostingOrchestrator {
     const moduleSettings = await resolveInvoiceModuleSettings(ctx.companyId, moduleCode);
     const txSettings = await loadInvoiceTransactionSettings(ctx.companyId, kind);
     const affectStore = txSettings?.affectStock ?? moduleSettings.postTostore;
+    const forceStrictNegativeStock = transactionEnforcesStrictNegativeStock(txSettings);
 
     // Mirror the tax-period guard from post() so unpost cannot reopen a closed
     // VAT/Dariba period or modify entries in a locked fiscal year.
@@ -1178,6 +1352,16 @@ export class InvoicePostingOrchestrator {
       String(new Date(invoice.date).getFullYear());
 
     const unpostResult = await prisma.$transaction(async (tx) => {
+      // The isPosted check above runs outside this transaction; claim the row
+      // first so a concurrent unpost stops before reversing anything.
+      const claimUnpost = await tx.invoice.updateMany({
+        where: { id: invoiceId, companyId: ctx.companyId, isPosted: true },
+        data: { isPosted: false, postedAt: null },
+      });
+      if (claimUnpost.count === 0) {
+        throw new AppError(400, 'Invoice is not posted');
+      }
+
       // Reverse tenders first. Invoice AR/AP below uses the full net total, so
       // undoing cash/cheque party deltas beforehand restores the pre-invoice
       // balance without double-counting.
@@ -1192,18 +1376,52 @@ export class InvoicePostingOrchestrator {
         const reverseDelta = affectStore ? -stockDelta(kind, baseQty) : 0;
         const lineWarehouseId = resolveInvoiceLineWarehouseId(line.warehouseId, invoice.warehouseId);
         if (reverseDelta !== 0 && lineWarehouseId) {
-          await stockMovementService.postMovementInTx(tx, {
+          const costingBase = {
             companyId: ctx.companyId,
             branchId: ctx.branchId ?? undefined,
             warehouseId: lineWarehouseId,
             itemId: line.itemId,
-            quantityDelta: reverseDelta,
-            movementType: `${sourceType}-UNPOST`,
             sourceType: `${sourceType}-UNPOST`,
             sourceNumber: sourceNum,
             sourceYearId,
-            documentDate: invoice.date,
-          });
+            sourceDocumentId: invoice.id,
+            transactionDate: invoice.date,
+            hijriDate: invoice.hijriDate ?? undefined,
+            updateLastPurchasePrice: false as const,
+            ...(forceStrictNegativeStock ? { forceStrictNegativeCheck: true } : {}),
+          };
+          if (reverseDelta < 0) {
+            const originalUnitCost =
+              kind === 'PURCHASE'
+                ? computePurchaseLineNetCost(line, Number(invoice.exchangeRate) || 1).unifiedNetUnitCost
+                : Number(line.unitCostAtIssue ?? 0);
+            await inventoryCostingService.reverseInboundInTx(tx, {
+              ...costingBase,
+              quantity: Math.abs(reverseDelta),
+              originalUnitCost,
+              movementType: `${sourceType}-UNPOST`,
+            });
+          } else {
+            await inventoryCostingService.applyInboundMovement(tx, {
+              ...costingBase,
+              quantity: reverseDelta,
+              unitCost: Number(line.unitCostAtIssue ?? 0),
+              inheritCurrentCost: line.unitCostAtIssue == null,
+              movementType: `${sourceType}-UNPOST`,
+            });
+          }
+          if (kind === 'SALE' && lineWarehouseId) {
+            const reservationId = line.itemReservationId as string | null | undefined;
+            const fulfillQty = Number(line.reservationFulfillQuantity ?? 0);
+            if (reservationId && fulfillQty > 0) {
+              await reverseReservationFulfillmentInTx(tx, ctx.companyId, {
+                reservationId,
+                warehouseId: lineWarehouseId,
+                itemId: line.itemId,
+                quantity: fulfillQty,
+              });
+            }
+          }
         }
 
         // Only PURCHASE writes a moving-average cost history row (C1 fix:
@@ -1235,29 +1453,11 @@ export class InvoicePostingOrchestrator {
         );
       }
 
-      const totals = computeLineTotals(invoice);
-      if (invoice.customerId && (kind === 'SALE' || kind === 'SALE_RETURN')) {
-        const delta = -computePartyDelta(kind, totals);
-        await tx.customer.update({
-          where: { id: invoice.customerId },
-          data: { balance: { increment: new Decimal(delta) } },
-        });
-      }
-      if (invoice.supplierId && (kind === 'PURCHASE' || kind === 'PURCHASE_RETURN')) {
-        const delta = -computePartyDelta(kind, totals);
-        await tx.supplier.update({
-          where: { id: invoice.supplierId },
-          data: { balance: { increment: new Decimal(delta) } },
-        });
-      }
-
       const unposted = await tx.invoice.update({
         where: { id: invoiceId },
         data: {
-          isPosted: false,
           workflowStatus: 'DRAFT',
           isApproved: false,
-          postedAt: null,
           postedBy: null,
           paidAmount: new Decimal(0),
           remainingAmount: new Decimal(roundTo4(Number(invoice.netAmount))),
@@ -1311,6 +1511,63 @@ export class InvoicePostingOrchestrator {
         workflowStatus: invoice.isPosted ? invoice.workflowStatus : 'DRAFT',
       },
     });
+  }
+}
+
+async function emitPostedInvoiceEvent(
+  companyId: string,
+  kind: string,
+  invoice: {
+    id: string;
+    invoiceNumber: string | null;
+    totalAmount: unknown;
+    netAmount: unknown;
+    customerId: string | null;
+    supplierId: string | null;
+    warehouseId: string | null;
+    currencyCode: string;
+  }
+) {
+  try {
+    const amount = (value: unknown) => Number(value);
+    if (kind === 'SALE') {
+      const customer = invoice.customerId
+        ? await prisma.customer.findFirst({
+            where: { id: invoice.customerId, companyId },
+            select: { customerCategoryId: true },
+          })
+        : null;
+      await emitDomainEvent({
+        companyId,
+        eventType: 'sales.invoice.posted',
+        data: {
+          invoiceId: invoice.id,
+          invoiceNumber: invoice.invoiceNumber ?? null,
+          totalAmount: amount(invoice.totalAmount),
+          netAmount: amount(invoice.netAmount),
+          customerId: invoice.customerId ?? null,
+          customerCategoryId: customer?.customerCategoryId ?? null,
+          warehouseId: invoice.warehouseId ?? null,
+          currencyCode: invoice.currencyCode,
+        },
+      });
+      return;
+    }
+    await emitDomainEvent({
+      companyId,
+      eventType: 'purchase.invoice.posted',
+      data: {
+        invoiceId: invoice.id,
+        invoiceNumber: invoice.invoiceNumber ?? null,
+        supplierId: invoice.supplierId ?? null,
+        warehouseId: invoice.warehouseId ?? null,
+        totalAmount: amount(invoice.totalAmount),
+        netAmount: amount(invoice.netAmount),
+        currencyCode: invoice.currencyCode,
+      },
+    });
+  } catch {
+    // A committed post must not fail because automation could not be queued.
   }
 }
 

@@ -27,6 +27,7 @@ import { apiClient } from '@/lib/api/client';
 import type { ApiError } from '@/lib/api/types';
 import { cn } from '@/lib/utils';
 import { WarehouseSelect } from '@/app/components/form/WarehouseSelect';
+import { InvoiceLineStockBalanceCell } from '@/components/invoices/InvoiceLineStockBalanceCell';
 
 interface BomLine {
   id: string;
@@ -143,6 +144,7 @@ export default function ManufacturingOperationPage() {
     return {
       id: line.id,
       index: index + 1,
+      itemId: line.rawItem?.id ?? line.rawItemId,
       itemName: line.rawItem?.arabicName ?? line.rawItemId,
       quantity: required,
       unit: line.rawItem?.serial ?? '—',
@@ -193,7 +195,7 @@ export default function ManufacturingOperationPage() {
     const labor = num(order?.totalLaborCost) || laborCost;
     const overhead = num(order?.totalOverheadCost) || overheadCost;
     return [
-      { id: 'materials', label: 'المواد الخام', value: materials, color: '#0E79AA' },
+      { id: 'materials', label: 'المواد الخام', value: materials, color: '#0E78AA' },
       { id: 'labor', label: 'أجور مباشرة', value: labor, color: '#38bdf8' },
       { id: 'overhead', label: 'مصاريف صناعية', value: overhead, color: '#94a3b8' },
     ];
@@ -319,7 +321,7 @@ export default function ManufacturingOperationPage() {
             onClick={() => void handlePost()}
             disabled={!order || isPosted || busy}
             size="sm"
-            className="bg-[#0E79AA] hover:bg-[#0B6188]"
+            className="bg-[#0E78AA] hover:bg-[#0B6188]"
           >
             ترحيل صرف الخامات
           </Button>
@@ -427,6 +429,7 @@ export default function ManufacturingOperationPage() {
               <tr>
                 <th className={mfgThClass}>م</th>
                 <th className={mfgThClass}>إسم الصنف</th>
+                <th className={mfgThClass}>الكمية المتاحة</th>
                 <th className={cn(mfgThClass, 'min-w-[100px]')}>الكمية</th>
                 <th className={mfgThClass}>الوحدة</th>
                 <th className={cn(mfgThClass, 'min-w-[100px]')}>سعر</th>
@@ -438,6 +441,12 @@ export default function ManufacturingOperationPage() {
                 <tr className={mfgTrClass}>
                   <td className={mfgTdClass}>1</td>
                   <td className={mfgTdClass}>{bom.finishedItem.arabicName}</td>
+                  <td className={mfgTdClass}>
+                    <InvoiceLineStockBalanceCell
+                      itemId={bom.finishedItem.id}
+                      warehouseId={fromWarehouse}
+                    />
+                  </td>
                   <td className={cn(mfgTdClass, 'tabular-nums')}>
                     {fmt(num(order?.actualQuantity ?? plannedQuantity))}
                   </td>
@@ -452,7 +461,7 @@ export default function ManufacturingOperationPage() {
                   </td>
                 </tr>
               ) : (
-                <MfgEmptyRow colSpan={6}>اختر نموذجاً لعرض الأصناف الناتجة</MfgEmptyRow>
+                <MfgEmptyRow colSpan={7}>اختر نموذجاً لعرض الأصناف الناتجة</MfgEmptyRow>
               )}
             </tbody>
           </table>
@@ -464,6 +473,7 @@ export default function ManufacturingOperationPage() {
               <tr>
                 <th className={mfgThClass}>م</th>
                 <th className={mfgThClass}>إسم الصنف</th>
+                <th className={mfgThClass}>الكمية المتاحة</th>
                 <th className={cn(mfgThClass, 'min-w-[100px]')}>الكمية</th>
                 <th className={mfgThClass}>الوحدة</th>
                 <th className={cn(mfgThClass, 'min-w-[100px]')}>سعر الوحدة</th>
@@ -472,12 +482,15 @@ export default function ManufacturingOperationPage() {
             </thead>
             <tbody>
               {rawMaterials.length === 0 ? (
-                <MfgEmptyRow colSpan={6}>اختر نموذجاً وعدد النماذج لعرض احتياج الخامات</MfgEmptyRow>
+                <MfgEmptyRow colSpan={7}>اختر نموذجاً وعدد النماذج لعرض احتياج الخامات</MfgEmptyRow>
               ) : (
                 rawMaterials.map((row) => (
                   <tr key={row.id} className={mfgTrClass}>
                     <td className={mfgTdClass}>{row.index}</td>
                     <td className={mfgTdClass}>{row.itemName}</td>
+                    <td className={mfgTdClass}>
+                      <InvoiceLineStockBalanceCell itemId={row.itemId} warehouseId={fromWarehouse} />
+                    </td>
                     <td className={cn(mfgTdClass, 'tabular-nums')}>{fmt(row.quantity)}</td>
                     <td className={mfgTdClass}>{row.unit}</td>
                     <td className={mfgTdClass}>{isPosted ? '—' : 'يُحسب عند الصرف'}</td>
@@ -487,7 +500,7 @@ export default function ManufacturingOperationPage() {
               )}
               {rawMaterials.length > 0 ? (
                 <tr className={cn(mfgTrClass, 'bg-[#F8FBFD] font-semibold')}>
-                  <td colSpan={5} className={cn(mfgTdClass, 'text-left')}>
+                  <td colSpan={6} className={cn(mfgTdClass, 'text-left')}>
                     الإجمالي
                   </td>
                   <td className={cn(mfgTdClass, 'tabular-nums')}>

@@ -30,15 +30,15 @@ export function AiDrawerHeader({
     <header className="shrink-0 border-b border-white/10 bg-gradient-to-l from-slate-950 via-slate-900 to-[#0A3D56] px-3 pb-2.5 pt-3 text-white">
       <div className="flex items-start justify-between gap-2">
         <div className="flex min-w-0 items-center gap-2.5">
-          <span className="relative flex h-8 w-8 items-center justify-center rounded-xl bg-[#0E79AA] shadow-[0_0_18px_rgba(0,194,255,0.45)]">
+          <span className="relative flex h-8 w-8 items-center justify-center rounded-xl bg-[#0E78AA] shadow-[0_0_18px_rgba(0,194,255,0.45)]">
             <span className="absolute inset-0 animate-pulse rounded-xl bg-[#00C2FF]/25" />
             <Sparkles className="relative h-3.5 w-3.5 text-white" />
           </span>
           <div className="min-w-0">
             <h2 id="gates-intelligence-title" className="truncate text-[13px] font-bold tracking-tight">
-              Gates Intelligence
+              الذكاء المالي
             </h2>
-            <p className="truncate text-[10px] text-slate-300">AI CFO & Operations Copilot</p>
+            <p className="truncate text-[10px] text-slate-300">المدير المالي والمساعد التشغيلي</p>
           </div>
         </div>
         <div className="flex items-center gap-1">

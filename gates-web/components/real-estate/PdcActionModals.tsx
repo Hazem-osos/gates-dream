@@ -13,7 +13,7 @@ function Overlay({ title, children }: { title: string; children: React.ReactNode
   return (
     <div className="fixed inset-0 z-[140] flex items-center justify-center bg-black/40 p-4" dir="rtl">
       <div className="max-h-[90vh] w-full max-w-xl space-y-4 overflow-auto rounded-xl bg-white p-5 shadow-xl">
-        <h2 className="text-lg font-bold text-[#0E79AA]">{title}</h2>
+        <h2 className="text-lg font-bold text-[#0E78AA]">{title}</h2>
         {children}
       </div>
     </div>

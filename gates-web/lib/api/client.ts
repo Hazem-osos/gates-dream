@@ -11,9 +11,17 @@ import { buildTenantRequestHeaders, getTenantContext } from '../tenant/tenant-co
 import {
   buildConditionalGetKey,
   bodyForNotModified,
+  forgetConditionalGet,
   peekConditionalGetEtag,
   rememberConditionalGet,
 } from './conditional-get-cache';
+import { applyTrustedPostingState, rememberPostingResponse } from '@/lib/documents/posting-trust';
+import {
+  bumpMasterCatalog,
+  catalogWriteFromResponse,
+  masterCatalogGeneration,
+  masterKindForMutation,
+} from '@/lib/query/master-catalog-sync';
 import {
   rememberAuthUserSub,
   readRememberedAuthUserSub,
@@ -258,7 +266,8 @@ class ApiClient {
   private async handleResponse<T>(
     response: Response,
     cacheKey?: string,
-    skipAuthExpire = false
+    skipAuthExpire = false,
+    rememberConditional = true
   ): Promise<ApiResponse<T>> {
     if (response.status === 304) {
       const cached = bodyForNotModified<T>(cacheKey);
@@ -320,6 +329,16 @@ class ApiClient {
         status: 'error' as const,
         errors: bodyRecord?.errors as ApiError['errors'] | Array<{ path?: string; message?: string }> | undefined,
         code,
+        stage: typeof bodyRecord?.stage === 'string' ? bodyRecord.stage : undefined,
+        originalCode: typeof bodyRecord?.originalCode === 'string' ? bodyRecord.originalCode : undefined,
+        originalStatusCode:
+          typeof bodyRecord?.originalStatusCode === 'number' ? bodyRecord.originalStatusCode : undefined,
+        etaHttpStatus: typeof bodyRecord?.etaHttpStatus === 'number' ? bodyRecord.etaHttpStatus : undefined,
+        etaBodyPreview: typeof bodyRecord?.etaBodyPreview === 'string' ? bodyRecord.etaBodyPreview : undefined,
+        signingSessionId: typeof bodyRecord?.signingSessionId === 'string' ? bodyRecord.signingSessionId : undefined,
+        documentId: typeof bodyRecord?.documentId === 'string' ? bodyRecord.documentId : undefined,
+        contentHash: typeof bodyRecord?.contentHash === 'string' ? bodyRecord.contentHash : undefined,
+        localVerify: typeof bodyRecord?.localVerify === 'string' ? bodyRecord.localVerify : undefined,
       }) as Error & ApiError;
       err.message = formatApiErrorMessage(err);
 
@@ -334,7 +353,7 @@ class ApiClient {
     }
 
     const parsed = data as ApiResponse<T>;
-    if (cacheKey) {
+    if (cacheKey && rememberConditional) {
       const etag = response.headers.get('ETag');
       if (etag) rememberConditionalGet(cacheKey, etag, parsed);
     }
@@ -378,7 +397,10 @@ class ApiClient {
       return;
     }
     notifyApiError({
-      message: localizeApiErrorMessage(error.message, httpStatus),
+      message:
+        error.code === 'ETA_SUBMISSION_FAILED'
+          ? error.message
+          : localizeApiErrorMessage(error.message, httpStatus),
       httpStatus,
       code: error.code,
       url,
@@ -465,6 +487,7 @@ class ApiClient {
       timeout = DEFAULT_TIMEOUT,
       bypassConditionalGet = false,
     } = config;
+    const catalogGenerationAtStart = method === 'GET' ? masterCatalogGeneration() : 0;
 
     // Build full URL (resolve base each request — avoids wrong host when module loaded before `window`)
     const queryString = params ? this.buildQueryString(params) : '';
@@ -538,13 +561,43 @@ class ApiClient {
 
       if (response.status === 304 && !bypassConditionalGet) {
         const cached = bodyForNotModified<T>(cacheKey);
-        if (cached) return cached;
-        return this.request<T>(url, { ...config, bypassConditionalGet: true });
+        const catalogStillCurrent =
+          config.ignoreCatalogDrift || masterCatalogGeneration() === catalogGenerationAtStart;
+        if (cached && catalogStillCurrent) return applyTrustedPostingState(cached);
+        return this.request<T>(url, {
+          ...config,
+          bypassConditionalGet: true,
+          ignoreCatalogDrift: true,
+        });
       }
 
       const skipAuthExpire =
         config.skipErrorNotify === true || url.includes('/document-edit-leases/');
-      return await this.handleResponse<T>(response, cacheKey, skipAuthExpire);
+      const catalogMoved =
+        method === 'GET' &&
+        !config.ignoreCatalogDrift &&
+        masterCatalogGeneration() !== catalogGenerationAtStart;
+      const parsed = await this.handleResponse<T>(response, cacheKey, skipAuthExpire, !catalogMoved);
+      if (catalogMoved) {
+        forgetConditionalGet(cacheKey);
+        if (signal?.aborted) {
+          throw new DOMException('The operation was aborted.', 'AbortError');
+        }
+        return this.request<T>(url, {
+          ...config,
+          bypassConditionalGet: true,
+          ignoreCatalogDrift: true,
+        });
+      }
+      if (method !== 'GET') {
+        rememberPostingResponse(url, parsed);
+        bumpMasterCatalog(
+          masterKindForMutation(url) ?? undefined,
+          catalogWriteFromResponse(url, method, parsed)
+        );
+        return parsed;
+      }
+      return applyTrustedPostingState(parsed);
     } catch (error) {
       throw normalizeFetchFailure(error);
     }

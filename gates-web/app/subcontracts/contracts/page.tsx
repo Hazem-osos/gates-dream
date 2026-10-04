@@ -66,7 +66,7 @@ export default function SubcontractsListPage() {
             id: 'number',
             header: 'رقم العقد',
             cell: (row) => (
-              <Link href={`/subcontracts/${row.id}`} className="font-semibold text-[#0E79AA] underline">
+              <Link href={`/subcontracts/${row.id}`} className="font-semibold text-[#0E78AA] underline">
                 {row.subcontractNumber}
               </Link>
             ),

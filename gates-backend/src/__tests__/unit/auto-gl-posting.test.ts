@@ -65,13 +65,22 @@ describe('AutoGlPostingService guards', () => {
     ).toThrow(UnbalancedJournalEntryException);
   });
 
-  it('allows a sub-cent residual under the 0.001 epsilon', () => {
+  it('rejects a residual that is not equal at 4 decimal places', () => {
     expect(() =>
       assertJournalBalanced([
         { debit: 100, credit: 0 },
         { debit: 0, credit: 99.9995 },
       ])
-    ).not.toThrow();
+    ).toThrow(UnbalancedJournalEntryException);
+  });
+
+  it('balances a foreign-currency voucher on base amounts', () => {
+    const { totalDebit, totalCredit } = assertJournalBalanced([
+      { debit: 10, credit: 0, exchangeRate: 50 },
+      { debit: 0, credit: 500, exchangeRate: 1 },
+    ]);
+    expect(totalDebit).toBe(500);
+    expect(totalCredit).toBe(500);
   });
 
   it('builds a balanced purchase invoice with input VAT and WHT', () => {

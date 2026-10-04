@@ -104,6 +104,10 @@ export type UnitContract = {
   downPayment: string | number;
   status: UnitContractStatus;
   resaleLock: boolean;
+  contractJournalEntryId?: string | null;
+  handoverJournalEntryId?: string | null;
+  postedAt?: string | null;
+  handoverAt?: string | null;
   customer: CustomerRef & { phone?: string | null };
   unit?: {
     id: string;

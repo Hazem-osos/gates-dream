@@ -305,7 +305,7 @@ export default function ContractExtractEditorPage() {
       onSave={() => void handleSave()}
       savePending={saveMutation.isPending}
       canSave={!isPosted}
-      onNew={() => router.push('/contracting/extracts/new')}
+      onNew={undefined}
       currentId={isNew ? null : extractId}
       favoriteHref="/contracting/extracts"
       extraActions={
@@ -334,6 +334,20 @@ export default function ContractExtractEditorPage() {
     >
       {error ? <ErrorToast message={error} onClose={() => setError('')} /> : null}
       {success ? <SuccessToast message={success} onClose={() => setSuccess('')} /> : null}
+
+      {isNew ? (
+        <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+          إنشاء مستخلص Wave3 (ContractExtract) متوقف للمشاريع Enterprise. افتح{' '}
+          <button type="button" className="font-semibold text-[#0E78AA] underline" onClick={() => router.push('/contracting/projects')}>
+            مساحة المشروع
+          </button>{' '}
+          لمستخلص المالك، أو{' '}
+          <button type="button" className="font-semibold text-[#0E78AA] underline" onClick={() => router.push('/subcontracts/contracts')}>
+            عقود الباطن
+          </button>{' '}
+          للباطن. الحفظ سيرفضه الخادم إذا كان المشروع Enterprise.
+        </div>
+      ) : null}
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_320px]" data-print-root="">
         <div>
@@ -446,8 +460,8 @@ export default function ContractExtractEditorPage() {
                             disabled={isPosted}
                           />
                         </td>
-                        <td className={denseTdClass}>{cum.toFixed(4)}</td>
-                        <td className={denseTdClass}>{pct.toFixed(2)}%</td>
+                        <td className={denseTdClass}>{cum.toLocaleString()}</td>
+                        <td className={denseTdClass}>{pct.toLocaleString()}%</td>
                         <td className={`${denseTdClass} font-medium`}>{fmtMoney(lineTotal)}</td>
                       </tr>
                     );

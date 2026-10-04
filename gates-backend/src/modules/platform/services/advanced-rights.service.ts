@@ -109,7 +109,9 @@ export class AdvancedRightsService {
     if (!ok) {
       throw new AppError(
         403,
-        `User is not permitted to ${opts?.actionLabel ?? key} (AdvancedRights)`
+        /invoice/i.test(opts?.actionLabel ?? '')
+          ? 'ليس لديك صلاحية ترحيل هذا النوع من الفواتير. اطلب من المدير تفعيل الصلاحية من الحقوق المتقدمة.'
+          : `ليس لديك صلاحية تنفيذ هذه العملية (${opts?.actionLabel ?? key}).`
       );
     }
   }

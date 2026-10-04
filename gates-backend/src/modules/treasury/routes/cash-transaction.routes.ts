@@ -36,7 +36,7 @@ router.get(
   asyncHandler(async (req: AuthRequest, res: Response) => {
     const companyId = req.companyId ?? req.tenantId;
     if (!companyId) {
-      return void res.status(400).json({ status: 'error', message: 'Company ID required' });
+      return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     }
     const q = req.query as {
       page?: number;
@@ -67,7 +67,7 @@ router.get(
   asyncHandler(async (req: AuthRequest, res: Response) => {
     const companyId = req.companyId ?? req.tenantId;
     if (!companyId) {
-      return void res.status(400).json({ status: 'error', message: 'Company ID required' });
+      return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     }
     const family = normalizeFamily(typeof req.query.family === 'string' ? req.query.family : undefined) ?? 'BP01';
     const mode = await cashDisbursementWorkflowService.resolvePostingMode(companyId, family);
@@ -82,7 +82,7 @@ router.post(
   asyncHandler(async (req: AuthRequest, res: Response) => {
     const companyId = req.companyId ?? req.tenantId;
     if (!companyId) {
-      return void res.status(400).json({ status: 'error', message: 'Company ID required' });
+      return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     }
     const userId = req.user?.sub;
     const created = await cashTransactionService.create(
@@ -134,7 +134,7 @@ router.get(
   asyncHandler(async (req: AuthRequest, res: Response) => {
     const companyId = req.companyId ?? req.tenantId;
     if (!companyId) {
-      return void res.status(400).json({ status: 'error', message: 'Company ID required' });
+      return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     }
     const data = await cashDisbursementWorkflowService.getApprovalReport(companyId, req.params.id);
     return void res.json({ status: 'success', data });
@@ -147,7 +147,7 @@ router.post(
   asyncHandler(async (req: AuthRequest, res: Response) => {
     const companyId = req.companyId ?? req.tenantId;
     if (!companyId) {
-      return void res.status(400).json({ status: 'error', message: 'Company ID required' });
+      return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     }
     if (!req.user?.sub) {
       return void res.status(401).json({ status: 'error', message: 'User required' });
@@ -164,7 +164,7 @@ router.patch(
   asyncHandler(async (req: AuthRequest, res: Response) => {
     const companyId = req.companyId ?? req.tenantId;
     if (!companyId) {
-      return void res.status(400).json({ status: 'error', message: 'Company ID required' });
+      return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     }
     const existing = await cashTransactionService.getById(companyId, req.params.id);
     const isVoucher = (existing.documentRole ?? 'VOUCHER') === 'VOUCHER';
@@ -173,24 +173,25 @@ router.patch(
       ? await cashDisbursementWorkflowService.resolvePostingMode(companyId, family)
       : 'MANUAL';
     const wasPosted = Boolean(existing.isPosted);
-    const shouldRewriteJournal =
-      isVoucher && wasPosted && Boolean(existing.journalEntryId) && mode !== 'MULTI';
+    const shouldRewriteJournal = isVoucher && wasPosted && Boolean(existing.journalEntryId);
     const shouldAutoPost =
       isVoucher &&
       !shouldRewriteJournal &&
       mode !== 'MULTI' &&
       (mode === 'AUTO' || isAdminRequest(req));
 
-    await cashTransactionService.update(companyId, req.params.id, req.body, req.user?.sub, {
-      allowPosted: shouldRewriteJournal,
-    });
-
     if (shouldRewriteJournal) {
       const ctx = await resolveTreasuryPostingContext(
         req,
         new Date(req.body?.date ?? existing.date)
       );
-      await treasuryPostingService.rewritePostedCashJournal(ctx, existing.id, existing);
+      await treasuryPostingService.updatePostedCashTransaction(
+        ctx,
+        existing.id,
+        req.body,
+        existing,
+        req.user?.sub
+      );
       const posted = await cashTransactionService.getById(companyId, req.params.id);
       return void res.json({
         status: 'success',
@@ -198,6 +199,8 @@ router.patch(
         message: 'تم حفظ تعديلات السند وتحديث القيد',
       });
     }
+
+    await cashTransactionService.update(companyId, req.params.id, req.body, req.user?.sub);
 
     if (shouldAutoPost) {
       const ctx = await resolveTreasuryPostingContext(
@@ -225,7 +228,7 @@ router.post(
   asyncHandler(async (req: AuthRequest, res: Response) => {
     const companyId = req.companyId ?? req.tenantId;
     if (!companyId) {
-      return void res.status(400).json({ status: 'error', message: 'Company ID required' });
+      return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     }
     const data = await cashTransactionService.cancel(
       companyId,
@@ -242,7 +245,7 @@ router.get(
   asyncHandler(async (req: AuthRequest, res: Response) => {
     const companyId = req.companyId ?? req.tenantId;
     if (!companyId) {
-      return void res.status(400).json({ status: 'error', message: 'Company ID required' });
+      return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     }
     const data = await cashTransactionService.getById(companyId, req.params.id);
     return void res.json({ status: 'success', data });

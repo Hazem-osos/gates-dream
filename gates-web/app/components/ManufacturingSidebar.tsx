@@ -19,32 +19,31 @@ export const manufacturingModules: ModuleWithChildren[] = [
     key: 'creations',
     icon: '',
     label: 'إنشاءات التصنيع',
-    color: '#0E79AA',
+    color: '#0E78AA',
     children: [
-      { key: 'manufacturing-stages', icon: '', label: 'مراحل التصنيع', color: '#0E79AA', href: '/manufacturing/creations/manufacturing-stages' },
-      { key: 'manufacturing-model', icon: '', label: 'نموذج التصنيع', color: '#0E79AA', href: '/manufacturing/creations/manufacturing-model' },
-      { key: 'manufacturing-plan', icon: '', label: 'خطة التصنيع', color: '#0E79AA', href: '/manufacturing/creations/manufacturing-plan' },
+      { key: 'manufacturing-model', icon: '', label: 'نموذج التصنيع / قائمة المواد', color: '#0E78AA', href: '/manufacturing/creations/manufacturing-model' },
+      { key: 'sensor', icon: '', label: 'قراءات المستشعرات', color: '#0E78AA', href: '/manufacturing/creations/sensor' },
     ]
   },
   {
     key: 'operations',
     icon: '',
     label: 'عمليات التصنيع',
-    color: '#0E79AA',
+    color: '#0E78AA',
     children: [
-      { key: 'production-orders', icon: '', label: ' عملية التصنيع', color: '#0E79AA', href: '/manufacturing/operations/operation' }
+      { key: 'production-orders', icon: '', label: ' عملية التصنيع', color: '#0E78AA', href: '/manufacturing/operations/operation' }
     ]
   },
   {
     key: 'reports',
     icon: '',
     label: 'تقارير التصنيع',
-    color: '#0E79AA',
+    color: '#0E78AA',
     children: [
-      { key: 'theoretical-capability', icon: '', label: 'إمكانية التصنيع النظرية', color: '#0E79AA', href: '/manufacturing/reports/theoretical-capability' },
-      { key: 'cost-variance', icon: '', label: 'إنحراف تكاليف التصنيع', color: '#0E79AA', href: '/manufacturing/reports/cost-variance' },
-      { key: 'invoice-variance', icon: '', label: 'إنحراف فواتير التصنيع', color: '#0E79AA', href: '/manufacturing/reports/invoice-variance' },
-      { key: 'manufacturing-movements', icon: '', label: 'حركات التصنيع', color: '#0E79AA', href: '/manufacturing/reports/manufacturing-movements' },
+      { key: 'theoretical-capability', icon: '', label: 'إمكانية التصنيع النظرية', color: '#0E78AA', href: '/manufacturing/reports/theoretical-capability' },
+      { key: 'cost-variance', icon: '', label: 'إنحراف تكاليف التصنيع', color: '#0E78AA', href: '/manufacturing/reports/cost-variance' },
+      { key: 'invoice-variance', icon: '', label: 'إنحراف فواتير التصنيع', color: '#0E78AA', href: '/manufacturing/reports/invoice-variance' },
+      { key: 'manufacturing-movements', icon: '', label: 'حركات التصنيع', color: '#0E78AA', href: '/manufacturing/reports/manufacturing-movements' },
     ]
   },
 ];

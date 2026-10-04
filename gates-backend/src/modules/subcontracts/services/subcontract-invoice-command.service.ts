@@ -18,6 +18,8 @@ import type { SubcontractInvoiceWorkflowJobData } from '../../automation/types/a
 import type { JournalPostingContext } from '../../accounting/services/journal-posting.service';
 import { subcontractAccountingService } from './subcontract-accounting.service';
 import { subcontractInvoiceCalculationService } from './subcontract-invoice-calculation.service';
+import { assertNoCompetingWave3SubFinancials } from '../../contracting/services/contracting-canonical-stack.service';
+import { refreshSubcontractInvoiceSettlementInTx } from '../../contracting/settlement/contracting-certificate-balance.service';
 
 type PostedInvoice = SubcontractInvoice & { items: SubcontractInvoiceItem[] };
 
@@ -27,80 +29,90 @@ export class SubcontractInvoiceCommandService {
     subcontractId: string,
     dto: CreateOrUpdateDraftInvoiceDto
   ) {
-    return prisma.$transaction(async (tx) => {
-      const subcontract = await tx.subcontract.findFirst({
-        where: { id: subcontractId, companyId },
-      });
-      if (!subcontract) throw new SubcontractNotFoundError(companyId, subcontractId);
-      if (subcontract.status !== 'ACTIVE') {
-        throw new AppError(409, 'Invoices can only be drafted against an ACTIVE subcontract');
+    return prisma.$transaction((tx) =>
+      this.createOrUpdateDraftInvoiceInTx(tx, companyId, subcontractId, dto)
+    );
+  }
+
+  async createOrUpdateDraftInvoiceInTx(
+    tx: Prisma.TransactionClient,
+    companyId: string,
+    subcontractId: string,
+    dto: CreateOrUpdateDraftInvoiceDto
+  ) {
+    const subcontract = await tx.subcontract.findFirst({
+      where: { id: subcontractId, companyId },
+    });
+    if (!subcontract) throw new SubcontractNotFoundError(companyId, subcontractId);
+    if (subcontract.status !== 'ACTIVE') {
+      throw new AppError(409, 'Invoices can only be drafted against an ACTIVE subcontract');
+    }
+
+    let existing: SubcontractInvoice | null = null;
+    if (dto.invoiceId) {
+      existing = await this.requireInvoice(tx, companyId, dto.invoiceId, subcontractId);
+      this.assertMutable(existing);
+      if (existing.status !== 'DRAFT') {
+        throw new InvoiceStateError(existing.id, existing.status, ['DRAFT']);
       }
+    }
 
-      let existing: SubcontractInvoice | null = null;
-      if (dto.invoiceId) {
-        existing = await this.requireInvoice(tx, companyId, dto.invoiceId, subcontractId);
-        this.assertMutable(existing);
-        if (existing.status !== 'DRAFT') {
-          throw new InvoiceStateError(existing.id, existing.status, ['DRAFT']);
-        }
-      }
+    const calculated = await subcontractInvoiceCalculationService.calculateDraftInvoiceInTx(tx, {
+      companyId,
+      subcontractId,
+      items: dto.items,
+      applyEarlyPaymentDiscount: dto.applyEarlyPaymentDiscount,
+      excludeInvoiceId: existing?.id,
+      excludePreliminaryCertificateId: dto.excludePreliminaryCertificateId,
+    });
 
-      const calculated = await subcontractInvoiceCalculationService.calculateDraftInvoiceInTx(tx, {
-        companyId,
-        subcontractId,
-        items: dto.items,
-        applyEarlyPaymentDiscount: dto.applyEarlyPaymentDiscount,
-        excludeInvoiceId: existing?.id,
+    const sequenceNumber =
+      dto.sequenceNumber ??
+      existing?.sequenceNumber ??
+      (await this.nextSequenceNumber(tx, companyId, subcontractId));
+    const invoiceNumber =
+      dto.invoiceNumber ??
+      existing?.invoiceNumber ??
+      `${subcontract.subcontractNumber}-${String(sequenceNumber).padStart(5, '0')}`;
+
+    const header = this.headerFromCalculation(calculated, {
+      companyId,
+      subcontractId,
+      invoiceNumber,
+      sequenceNumber,
+      periodStartDate: dto.periodStartDate,
+      periodEndDate: dto.periodEndDate,
+      type: dto.type ?? 'INTERIM_RUNNING',
+      notes: dto.notes ?? null,
+      attachments: dto.attachments === undefined ? undefined : (dto.attachments as Prisma.InputJsonValue),
+    });
+
+    const invoice = existing
+      ? await tx.subcontractInvoice.update({
+          where: { id: existing.id },
+          data: header,
+        })
+      : await tx.subcontractInvoice.create({ data: header });
+
+    await tx.subcontractInvoiceItem.deleteMany({ where: { subcontractInvoiceId: invoice.id } });
+    if (calculated.lines.length) {
+      await tx.subcontractInvoiceItem.createMany({
+        data: calculated.lines.map((line) => ({
+          subcontractInvoiceId: invoice.id,
+          subcontractBOQItemId: line.subcontractBOQItemId,
+          previousQuantity: line.previousQuantity,
+          currentQuantity: line.currentQuantity,
+          totalCumulativeQuantity: line.totalCumulativeQuantity,
+          completionPercentage: line.completionPercentage,
+          unitPrice: line.unitPrice,
+          totalCurrentAmount: line.totalCurrentAmount,
+        })),
       });
+    }
 
-      const sequenceNumber =
-        dto.sequenceNumber ??
-        existing?.sequenceNumber ??
-        (await this.nextSequenceNumber(tx, companyId, subcontractId));
-      const invoiceNumber =
-        dto.invoiceNumber ??
-        existing?.invoiceNumber ??
-        `${subcontract.subcontractNumber}-${String(sequenceNumber).padStart(5, '0')}`;
-
-      const header = this.headerFromCalculation(calculated, {
-        companyId,
-        subcontractId,
-        invoiceNumber,
-        sequenceNumber,
-        periodStartDate: dto.periodStartDate,
-        periodEndDate: dto.periodEndDate,
-        type: dto.type ?? 'INTERIM_RUNNING',
-        notes: dto.notes ?? null,
-        attachments: dto.attachments === undefined ? undefined : (dto.attachments as Prisma.InputJsonValue),
-      });
-
-      const invoice = existing
-        ? await tx.subcontractInvoice.update({
-            where: { id: existing.id },
-            data: header,
-          })
-        : await tx.subcontractInvoice.create({ data: header });
-
-      await tx.subcontractInvoiceItem.deleteMany({ where: { subcontractInvoiceId: invoice.id } });
-      if (calculated.lines.length) {
-        await tx.subcontractInvoiceItem.createMany({
-          data: calculated.lines.map((line) => ({
-            subcontractInvoiceId: invoice.id,
-            subcontractBOQItemId: line.subcontractBOQItemId,
-            previousQuantity: line.previousQuantity,
-            currentQuantity: line.currentQuantity,
-            totalCumulativeQuantity: line.totalCumulativeQuantity,
-            completionPercentage: line.completionPercentage,
-            unitPrice: line.unitPrice,
-            totalCurrentAmount: line.totalCurrentAmount,
-          })),
-        });
-      }
-
-      return tx.subcontractInvoice.findFirstOrThrow({
-        where: { id: invoice.id, companyId },
-        include: { items: true },
-      });
+    return tx.subcontractInvoice.findFirstOrThrow({
+      where: { id: invoice.id, companyId },
+      include: { items: true },
     });
   }
 
@@ -159,6 +171,18 @@ export class SubcontractInvoiceCommandService {
     invoiceId: string,
     postingCtx?: JournalPostingContext
   ): Promise<{ invoice: PostedInvoice; glPayload: SubcontractInvoiceGlPayload; journalEntryId?: string }> {
+    const invoiceHead = await prisma.subcontractInvoice.findFirst({
+      where: { id: invoiceId, companyId },
+      select: { subcontractId: true },
+    });
+    if (!invoiceHead) throw new SubcontractInvoiceNotFoundError(companyId, invoiceId);
+    const subcontractHead = await prisma.subcontract.findFirst({
+      where: { id: invoiceHead.subcontractId, companyId },
+      select: { projectId: true },
+    });
+    if (!subcontractHead) throw new SubcontractNotFoundError(companyId, invoiceHead.subcontractId);
+    await assertNoCompetingWave3SubFinancials(companyId, subcontractHead.projectId);
+
     const posted = await prisma.$transaction(async (tx) => {
       const invoice = await this.requireInvoice(tx, companyId, invoiceId);
       if (invoice.status !== 'TECH_OFFICE_APPROVED') {
@@ -206,6 +230,13 @@ export class SubcontractInvoiceCommandService {
         );
         journalEntryId = je.id;
       }
+
+      await refreshSubcontractInvoiceSettlementInTx(tx, companyId, posted.id);
+
+      const { projectCostSyncService } = await import(
+        '../../contracting/project-cost/project-cost-sync.service'
+      );
+      await projectCostSyncService.syncSubcontractInvoiceInTx(tx, companyId, posted.id);
 
       return {
         invoice: { ...posted, journalEntryId: journalEntryId ?? posted.journalEntryId },

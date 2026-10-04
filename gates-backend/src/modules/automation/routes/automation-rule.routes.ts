@@ -23,7 +23,7 @@ router.use(setTenantContext);
 function requireCompanyId(req: AuthRequest): string {
   const companyId = req.companyId || req.tenantId;
   if (!companyId) {
-    throw new AppError(400, 'Company ID is required');
+    throw new AppError(400, 'معرّف الشركة مطلوب');
   }
   return companyId;
 }

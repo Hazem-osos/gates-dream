@@ -17,6 +17,7 @@ export const createBranchSchema = z.object({
   buildingNumber: z.string().optional(),
   postalCode: z.string().optional(),
   address: z.string().optional(),
+  activityCode: z.string().optional(),
 });
 
 export const updateBranchSchema = createBranchSchema.partial().omit({

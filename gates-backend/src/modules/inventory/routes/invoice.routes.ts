@@ -37,7 +37,7 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -100,7 +100,7 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -116,7 +116,7 @@ router.get(
     } catch (error) {
       logger.error({ error }, 'Error getting invoice');
       const status =
-        error instanceof Error && error.message === 'Invoice not found'
+        error instanceof Error && error.message === 'الفاتورة غير موجودة'
           ? 404
           : 500;
       return void res.status(status).json({
@@ -142,7 +142,7 @@ router.post(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -192,7 +192,7 @@ router.put(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -219,7 +219,7 @@ router.put(
         error instanceof AppError
           ? error.statusCode
           : error instanceof Error &&
-              (error.message === 'Invoice not found' ||
+              (error.message === 'الفاتورة غير موجودة' ||
                 error.message.includes('Cannot update') ||
                 error.message.includes('Unpost') ||
                 error.message.includes('Cancelled') ||
@@ -250,7 +250,7 @@ router.post(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -272,7 +272,7 @@ router.post(
         error instanceof AppError
           ? error.statusCode
           : error instanceof Error &&
-              (error.message === 'Invoice not found' ||
+              (error.message === 'الفاتورة غير موجودة' ||
                 error.message.includes('already') ||
                 error.message.includes('Cannot') ||
                 error.message.includes('Insufficient') ||
@@ -302,7 +302,7 @@ router.post(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -324,7 +324,7 @@ router.post(
         error instanceof AppError
           ? error.statusCode
           : error instanceof Error &&
-              (error.message === 'Invoice not found' ||
+              (error.message === 'الفاتورة غير موجودة' ||
                 error.message.includes('not posted') ||
                 error.message.includes('Cannot') ||
                 error.message.includes('insufficient'))
@@ -352,7 +352,7 @@ router.post(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -370,7 +370,7 @@ router.post(
       logger.error({ error }, 'Error approving invoice');
       const status =
         error instanceof Error &&
-        (error.message === 'Invoice not found' ||
+        (error.message === 'الفاتورة غير موجودة' ||
           error.message.includes('already') ||
           error.message.includes('Cannot') ||
           error.message.includes('must be posted'))
@@ -398,7 +398,7 @@ router.post(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -416,7 +416,7 @@ router.post(
       logger.error({ error }, 'Error unapproving invoice');
       const status =
         error instanceof Error &&
-        (error.message === 'Invoice not found' ||
+        (error.message === 'الفاتورة غير موجودة' ||
           error.message.includes('not approved'))
           ? 400
           : 500;
@@ -442,7 +442,7 @@ router.post(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -460,7 +460,7 @@ router.post(
       logger.error({ error }, 'Error cancelling invoice');
       const status =
         error instanceof Error &&
-        (error.message === 'Invoice not found' ||
+        (error.message === 'الفاتورة غير موجودة' ||
           error.message.includes('already') ||
           error.message.includes('Cannot'))
           ? 400
@@ -487,7 +487,7 @@ router.post(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -505,7 +505,7 @@ router.post(
       logger.error({ error }, 'Error restoring invoice');
       const status =
         error instanceof Error &&
-        (error.message === 'Invoice not found' ||
+        (error.message === 'الفاتورة غير موجودة' ||
           error.message.includes('not cancelled'))
           ? 400
           : 500;
@@ -532,7 +532,7 @@ router.post(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -551,7 +551,7 @@ router.post(
       logger.error({ error }, 'Error collecting payment');
       const status =
         error instanceof Error &&
-        (error.message === 'Invoice not found' ||
+        (error.message === 'الفاتورة غير موجودة' ||
           error.message.includes('must be posted') ||
           error.message.includes('Cannot') ||
           error.message.includes('exceeds'))
@@ -581,7 +581,7 @@ router.delete(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -599,7 +599,7 @@ router.delete(
         error instanceof AppError
           ? error.statusCode
           : error instanceof Error &&
-              (error.message === 'Invoice not found' ||
+              (error.message === 'الفاتورة غير موجودة' ||
                 error.message.includes('Cannot delete') ||
                 error.message.includes('Posted') ||
                 error.message.includes('settlements'))

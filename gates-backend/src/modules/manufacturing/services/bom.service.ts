@@ -19,6 +19,8 @@ export interface CreateBomInput {
   lines: BomLineInput[];
 }
 
+export type UpdateBomInput = CreateBomInput;
+
 export class BomService {
   computeScaleFactor(baseQuantity: number, plannedQuantity: number): number {
     if (baseQuantity <= 0) throw new AppError(422, 'BOM base quantity must be positive');
@@ -93,6 +95,70 @@ export class BomService {
         _count: { select: { lines: true } },
       },
       orderBy: { updatedAt: 'desc' },
+    });
+  }
+
+  /**
+   * Replace BOM header + lines. Locked when any production order has left DRAFT
+   * (materials issued / in progress / completed) — there is no posted flag on BOM itself.
+   */
+  async update(companyId: string, id: string, input: UpdateBomInput) {
+    const existing = await prisma.billOfMaterials.findFirst({
+      where: { id, companyId, isActive: true },
+      include: {
+        productionOrders: {
+          where: { status: { notIn: ['DRAFT', 'CANCELLED'] } },
+          select: { id: true, status: true },
+          take: 1,
+        },
+      },
+    });
+    if (!existing) throw new AppError(404, 'BOM not found');
+    if (existing.productionOrders.length > 0) {
+      throw new AppError(422, 'Cannot update BOM after production orders have been released');
+    }
+    if (!input.finishedItemId) throw new AppError(422, 'Finished item is required');
+    if (!input.lines?.length) throw new AppError(422, 'BOM requires at least one raw line');
+
+    const finished = await prisma.item.findFirst({
+      where: { id: input.finishedItemId, companyId },
+    });
+    if (!finished) throw new AppError(404, 'Finished item not found');
+
+    for (const line of input.lines) {
+      const raw = await prisma.item.findFirst({
+        where: { id: line.rawItemId, companyId },
+      });
+      if (!raw) throw new AppError(404, `Raw item ${line.rawItemId} not found`);
+    }
+
+    return prisma.$transaction(async (tx) => {
+      await tx.bomLine.deleteMany({ where: { bomId: id } });
+      return tx.billOfMaterials.update({
+        where: { id },
+        data: {
+          name: input.name,
+          finishedItemId: input.finishedItemId,
+          baseQuantity: new Decimal(input.baseQuantity ?? 1),
+          standardLaborCost: new Decimal(input.standardLaborCost ?? 0),
+          standardOverheadCost: new Decimal(input.standardOverheadCost ?? 0),
+          lines: {
+            create: input.lines.map((line, idx) => ({
+              rawItemId: line.rawItemId,
+              quantity: new Decimal(line.quantity),
+              scrapPercentage: new Decimal(line.scrapPercentage ?? 0),
+              lineOrder: line.lineOrder ?? idx + 1,
+            })),
+          },
+        },
+        include: {
+          lines: {
+            orderBy: { lineOrder: 'asc' },
+            include: { rawItem: { select: { id: true, arabicName: true, serial: true } } },
+          },
+          finishedItem: { select: { id: true, arabicName: true, serial: true } },
+        },
+      });
     });
   }
 

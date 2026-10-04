@@ -9,6 +9,12 @@ import { assertStoreDocumentRight } from './store-document-rights';
 import { fiscalYearService } from '../../platform/services/fiscal-year.service';
 import { assertUpdateCount } from '../../../shared/concurrency/optimistic-lock';
 import { assertWarehouseActive } from '../utils/inventory-system';
+import { claimDocumentPost, claimDocumentUnpost } from '../utils/claim-document-post';
+import { resolveStoreDocumentSerialInTx } from './store-document-numbering.service';
+import {
+  ensurePerpetualInventoryGlReady,
+  runCompanyStockGlPosting,
+} from '../utils/stock-gl-posting-guard';
 
 export interface AdjustmentLine {
   itemId: string;
@@ -66,7 +72,7 @@ export class AdjustmentService {
       });
 
       if (items.length !== itemIds.length) {
-        throw new Error('One or more items not found or do not belong to company');
+        throw new Error('أحد الأصناف غير موجود أو لا يتبع الشركة');
       }
 
       // Validate locations if provided
@@ -107,7 +113,7 @@ export class AdjustmentService {
         for (const lineData of data.lines) {
           // Get current book quantity from system if not provided
           let bookQty = lineData.bookQuantity;
-          if (!bookQty) {
+          if (bookQty == null) {
             bookQty = liveBookByItem.get(lineData.itemId) ?? 0;
           }
 
@@ -121,13 +127,21 @@ export class AdjustmentService {
           totalAmount += Math.abs(adjustmentTotal);
         }
 
+        const serial = await resolveStoreDocumentSerialInTx(tx, {
+          companyId,
+          branchId: data.branchId ?? null,
+          fiscalYearId: null,
+          kind: 'adjustment',
+          clientSerial: data.serial,
+        });
+
         // Create adjustment record
         const record = await tx.adjustment.create({
           data: {
             companyId,
             branchId: data.branchId || null,
             description: data.description || null,
-            serial: data.serial || null,
+            serial,
             date: new Date(data.date),
             warehouseId: data.warehouseId,
             totalAmount,
@@ -142,7 +156,7 @@ export class AdjustmentService {
         for (const lineData of data.lines) {
           // Get current book quantity from system if not provided
           let bookQty = lineData.bookQuantity;
-          if (!bookQty) {
+          if (bookQty == null) {
             bookQty = liveBookByItem.get(lineData.itemId) ?? 0;
           }
 
@@ -189,6 +203,62 @@ export class AdjustmentService {
       logger.error({ error, companyId, data }, 'Error creating adjustment');
       throw error;
     }
+  }
+
+  async updateAdjustment(companyId: string, adjustmentId: string, data: CreateAdjustmentData) {
+    const existing = await prisma.adjustment.findFirst({ where: { id: adjustmentId, companyId } });
+    if (!existing) throw new Error('Adjustment not found');
+    if (existing.isPosted) throw new Error('لا يمكن تعديل تسوية مرحّلة. ألغِ الترحيل أولاً');
+    if (existing.isCancelled) throw new Error('لا يمكن تعديل تسوية ملغاة');
+    await assertWarehouseActive(companyId, data.warehouseId);
+    const itemIds = [...new Set(data.lines.map((line) => line.itemId).filter(Boolean))];
+    const items = await prisma.item.findMany({ where: { id: { in: itemIds }, companyId } });
+    if (items.length !== itemIds.length) throw new Error('أحد الأصناف غير موجود أو لا يتبع الشركة');
+    const balances = await prisma.itemWarehouseBalance.findMany({
+      where: { companyId, itemId: { in: itemIds }, warehouseId: data.warehouseId },
+    });
+    const liveBookByItem = new Map(balances.map((row) => [row.itemId, Number(row.quantityOnHand) || 0]));
+    let totalAmount = 0;
+    const lineRows = data.lines.map((lineData) => {
+      const bookQty = lineData.bookQuantity == null ? liveBookByItem.get(lineData.itemId) ?? 0 : lineData.bookQuantity;
+      const unitPrice = lineData.unitPrice || 0;
+      const computed = this.calculateAdjustment(bookQty, lineData.actualQuantity, unitPrice);
+      totalAmount += Math.abs(computed.adjustmentTotal);
+      return {
+        adjustmentId,
+        itemId: lineData.itemId,
+        locationId: lineData.locationId || null,
+        bookQuantity: bookQty,
+        actualQuantity: lineData.actualQuantity,
+        adjustmentQuantity: computed.adjustmentQuantity,
+        unitPrice,
+        adjustmentTotal: computed.adjustmentTotal,
+      };
+    });
+    await prisma.$transaction(async (tx) => {
+      await tx.adjustmentLine.deleteMany({ where: { adjustmentId } });
+      await tx.adjustment.update({
+        where: { id: adjustmentId },
+        data: {
+          branchId: data.branchId || existing.branchId,
+          description: data.description || null,
+          serial: data.serial || existing.serial,
+          date: new Date(data.date),
+          warehouseId: data.warehouseId,
+          totalAmount,
+        },
+      });
+      await tx.adjustmentLine.createMany({ data: lineRows });
+    });
+    return this.getAdjustmentById(companyId, adjustmentId);
+  }
+
+  async deleteAdjustment(companyId: string, adjustmentId: string) {
+    const existing = await prisma.adjustment.findFirst({ where: { id: adjustmentId, companyId } });
+    if (!existing) throw new Error('Adjustment not found');
+    if (existing.isPosted) throw new Error('لا يمكن حذف تسوية مرحّلة. ألغِ الترحيل أولاً');
+    await prisma.adjustment.delete({ where: { id: adjustmentId } });
+    return { success: true };
   }
 
   /**
@@ -385,7 +455,15 @@ export class AdjustmentService {
       const sourceNumber = adjustment.serial ?? adjustment.id.slice(0, 8);
       const sourceYearId = String(new Date(adjustment.date).getFullYear());
 
+      const inventorySystem = await ensurePerpetualInventoryGlReady(
+        companyId,
+        glCtx,
+        adjustment.warehouseId
+      );
+
+      let glSkipped = false;
       await prisma.$transaction(async (tx) => {
+        await claimDocumentPost((args) => tx.adjustment.updateMany(args), adjustmentId, companyId);
         for (const line of adjustment.lines) {
           const qty = Number(line.adjustmentQuantity);
           if (qty === 0) continue;
@@ -432,21 +510,15 @@ export class AdjustmentService {
         }
 
         if (glCtx) {
-          await stockMovementGlService.postAdjustmentVarianceGlInTx(tx, glCtx, adjustment);
+          glSkipped = await runCompanyStockGlPosting(inventorySystem, () =>
+            stockMovementGlService.postAdjustmentVarianceGlInTx(tx, glCtx, adjustment)
+          );
         }
-
-        await tx.adjustment.update({
-          where: { id: adjustmentId },
-          data: {
-            isPosted: true,
-            postedAt: new Date(),
-          },
-        });
       });
 
-      logger.info({ companyId, adjustmentId }, 'Adjustment posted');
+      logger.info({ companyId, adjustmentId, glSkipped }, 'Adjustment posted');
 
-      return { success: true };
+      return { success: true, glSkipped };
     } catch (error) {
       logger.error({ error, companyId, adjustmentId }, 'Error posting adjustment');
       throw error;
@@ -489,6 +561,7 @@ export class AdjustmentService {
       const sourceYearId = String(new Date(adjustment.date).getFullYear());
 
       await prisma.$transaction(async (tx) => {
+        await claimDocumentUnpost((args) => tx.adjustment.updateMany(args), adjustmentId, companyId);
         for (const line of adjustment.lines) {
           const qty = Number(line.adjustmentQuantity);
           if (qty === 0) continue;
@@ -533,14 +606,6 @@ export class AdjustmentService {
             `Adjustment ${sourceNumber} unposted`
           );
         }
-
-        await tx.adjustment.update({
-          where: { id: adjustmentId },
-          data: {
-            isPosted: false,
-            postedAt: null,
-          },
-        });
       });
 
       logger.info({ companyId, adjustmentId }, 'Adjustment unposted');

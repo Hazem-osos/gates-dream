@@ -3,11 +3,12 @@
  * Used by generic report preview pages. Returns null when no backend route exists.
  */
 import { getReportByRegistryPath } from '@/lib/reports/reportCatalog';
+import { reportDefaultDateRange } from '@/lib/reports/reportDefaultDates';
 
 const M16_REPORT_PATHS: Record<string, string> = {
   'balances/review-balance': 'trial-balance',
   'books/review-balance': 'trial-balance',
-  'balances/monthly-review-balance': 'trial-balance',
+  'balances/monthly-review-balance': 'monthly-review-balance',
   'analysis/income-statement': 'income-statement',
   // M16 (Item 35): "profit-loss" is the same statement as "income-statement"
   // in the catalog (duplicate templates). Routing it to the legacy
@@ -20,13 +21,14 @@ const M16_REPORT_PATHS: Record<string, string> = {
   'moves/cash-flow': 'cash-flow',
   'credit/aged-receivables': 'aged-receivables',
   'credit/aged-payables': 'aged-payables',
-  'balances/accounts-balance': 'trial-balance',
+  'balances/accounts-balance': 'accounts-balance',
 };
 
 const LEGACY_ACCOUNT_REPORT_PATHS: Record<string, string> = {
   'credit/account-balances': 'account-balances-credit',
   'books/journal-book': 'daily-journal',
   'books/daily-journal': 'daily-journal',
+  'balances/cost-center-balance': 'cost-center-balance',
   'balances/cost-center-balancee': 'cost-center-balance',
   'balances/cost-centers-balancee': 'cost-centers-balance',
 };
@@ -68,6 +70,12 @@ export function resolveReportApiPath(
       return `/accounting/reports/general-ledger`;
     }
 
+    if (rest === 'books/cost-center-ledger') {
+      const costCenterId = query?.costCenterId?.trim();
+      if (costCenterId) return `/accounting/reports/cost-center-statement/${costCenterId}`;
+      return null;
+    }
+
     const apiSeg = LEGACY_ACCOUNT_REPORT_PATHS[rest] ?? rest.split('/').pop() ?? rest;
     return `/accounting/reports/${apiSeg}`;
   }
@@ -106,6 +114,8 @@ export function resolveReportApiPath(
   if (registryPath.startsWith('hr/')) {
     const HR_REPORT_PATHS: Record<string, string> = {
       'hr/employee-data-report': 'employee-data',
+      'hr/payroll-report': 'payroll',
+      'hr/leave-entitlements-report': 'leave',
       'hr/end-of-service-report': 'end-of-service',
     };
     const seg = HR_REPORT_PATHS[registryPath];
@@ -182,12 +192,19 @@ export function localTodayIso(d = new Date()): string {
   return `${y}-${m}-${day}`;
 }
 
+const INVENTORY_REPORTS_WITHOUT_DATES = new Set([
+  'inventory-reports',
+  'price-list',
+  'item-balances',
+  'valuation',
+]);
+
 /** Inventory + accounting reports 400 if fromDate/toDate (or start/end) are missing. */
 export function reportPreviewNeedsDateRange(registryPath: string): boolean {
   if (registryPath === 'pos/daily' || registryPath.startsWith('pos/')) return false;
   if (registryPath.startsWith('inventory/reports/')) {
     const seg = registryPath.slice('inventory/reports/'.length);
-    return seg !== 'price-list';
+    return !INVENTORY_REPORTS_WITHOUT_DATES.has(seg);
   }
   return registryPath.startsWith('accounting/account-reports/');
 }
@@ -204,9 +221,10 @@ export function ensureReportPreviewDates(
     return out;
   }
   if (!reportPreviewNeedsDateRange(registryPath)) return params;
+  const defaults = reportDefaultDateRange(registryPath);
   const out = { ...params };
-  if (!out.fromDate) out.fromDate = today;
-  if (!out.toDate) out.toDate = today;
+  if (!out.fromDate) out.fromDate = defaults.fromDate;
+  if (!out.toDate) out.toDate = defaults.toDate;
   if (!out.startDate) out.startDate = out.fromDate;
   if (!out.endDate) out.endDate = out.toDate;
   return out;
@@ -237,8 +255,7 @@ export function mapReportPreviewQueryParams(
     (registryPath.includes('financial-position-statement') ||
       registryPath.includes('aged-receivables') ||
       registryPath.includes('aged-payables') ||
-      registryPath.includes('receivables-aging') ||
-      registryPath.includes('overdue-payments')) &&
+      registryPath.includes('receivables-aging')) &&
     !out.asOfDate
   ) {
     out.asOfDate = out.toDate || out.endDate || localTodayIso();

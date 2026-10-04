@@ -39,6 +39,7 @@ export const invoiceKindSchema = z.enum([
   'SALE',
   'PURCHASE_RETURN',
   'SALE_RETURN',
+  'SALES_ORDER',
 ]);
 
 export const createM5InvoiceSchema = z
@@ -108,7 +109,7 @@ export const createM5InvoiceSchema = z
   })
   .superRefine((data, ctx) => {
     if (
-      (data.invoiceKind === 'SALE' || data.invoiceKind === 'SALE_RETURN') &&
+      (data.invoiceKind === 'SALE' || data.invoiceKind === 'SALE_RETURN' || data.invoiceKind === 'SALES_ORDER') &&
       !data.customerId
     ) {
       ctx.addIssue({
@@ -259,10 +260,18 @@ export const partyAdvancesQuerySchema = z
 export const linkInvoiceAdvancesSchema = z.object({
   allocations: z
     .array(
-      z.object({
-        cashTransactionId: z.string().uuid(),
-        amount: z.number().positive(),
-      })
+      z
+        .object({
+          source: z.enum(['RECEIPT', 'BANK', 'CHEQUE', 'PAPER']).optional(),
+          cashTransactionId: z.string().uuid().optional(),
+          chequeId: z.string().uuid().optional(),
+          securitiesReceiptId: z.string().uuid().optional(),
+          amount: z.number().positive(),
+        })
+        .refine(
+          (row) => Boolean(row.cashTransactionId || row.chequeId || row.securitiesReceiptId),
+          { message: 'حدد السند أو الورقة المراد ربطها' }
+        )
     )
     .min(1, 'اختر دفعة مقدمة واحدة على الأقل'),
 });

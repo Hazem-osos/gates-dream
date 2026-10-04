@@ -264,7 +264,7 @@ describe('automation rule persistence helpers', () => {
       enabled: true,
       eventType: 'sales.invoice.posted',
       conditions: matchingInvoice.conditions,
-      actions: matchingInvoice.actions,
+      actions: [{ ...(matchingInvoice.actions as object[])[0], actionIndex: 0 }],
     });
   });
 

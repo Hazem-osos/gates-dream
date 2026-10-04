@@ -53,7 +53,7 @@ export function WarehouseParentField({
           title="عدسة المخزن الأب"
           disabled={disabled}
           onClick={() => setOpen(true)}
-          className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] text-[#0E79AA] hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+          className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] text-[#0E78AA] hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
         >
           <SearchIcon />
         </button>

@@ -11,7 +11,7 @@ import {
 } from '@/lib/validation/hr.schema';
 
 const defaults: EmployeeReinstatementFormInput = {
-  serialNumber: '1212378971212',
+  serialNumber: '',
   employee: '',
   fromDate: '2025-11-26',
   fromHijriDate: '2025-11-26',
@@ -67,18 +67,18 @@ export default function EmployeeReinstatementPage() {
                   <div className="flex flex-col gap-1">
                     <div className="flex items-center gap-2">
                       <select
-                        className="w-50 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg"
+                        className="w-50 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg"
                         {...register('employee')}
                       >
                         <option value="">اختر...</option>
-                        <option value="1212378971212">1212378971212</option>
+                        <option value=""></option>
                         <option value="employee1">موظف 1</option>
                         <option value="employee2">موظف 2</option>
                         <option value="employee3">موظف 3</option>
                       </select>
                       <input
                         type="text"
-                        className="w-50 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E79AA] focus:ring-[#0E79AA] rounded-lg"
+                        className="w-50 py-2 border border-[#D6EAF3] bg-[#F6FBFD] focus:border-[#0E78AA] focus:ring-[#0E78AA] rounded-lg"
                         placeholder="إدخل اسم الموظف"
                       />
                     </div>

@@ -35,7 +35,7 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -46,6 +46,7 @@ router.get(
         supplierType: req.query.supplierType as string | undefined,
         isActive: req.query.isActive as boolean | undefined,
         supplierCategoryId: req.query.supplierCategoryId as string | undefined,
+        accountId: req.query.accountId as string | undefined,
       });
 
       logger.info(
@@ -81,7 +82,7 @@ router.get(
     try {
       const companyId = req.companyId || req.tenantId;
       if (!companyId) {
-        return void res.status(400).json({ status: 'error', message: 'Company ID is required' });
+        return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
       }
       const serial = await supplierService.nextSupplierCode(companyId);
       return void res.json({ status: 'success', data: { serial } });
@@ -108,7 +109,7 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -148,7 +149,7 @@ router.post(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -195,7 +196,7 @@ router.put(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -219,7 +220,7 @@ router.put(
       }
       logger.error({ error, supplierId: req.params.id }, 'Error updating supplier');
       const status =
-        error instanceof Error && error.message === 'Supplier not found'
+        error instanceof Error && error.message === 'المورد غير موجود'
           ? 404
           : 500;
       return void res.status(status).json({
@@ -244,7 +245,7 @@ router.delete(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -260,7 +261,7 @@ router.delete(
       }
       logger.error({ error, supplierId: req.params.id }, 'Error deleting supplier');
       const status =
-        error instanceof Error && error.message === 'Supplier not found'
+        error instanceof Error && error.message === 'المورد غير موجود'
           ? 404
           : 500;
       return void res.status(status).json({

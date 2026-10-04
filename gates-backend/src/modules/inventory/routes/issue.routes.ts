@@ -10,9 +10,10 @@ import {
 import { issueService } from '../services/issue.service';
 import { logger } from '../../../shared/logger';
 import { AuthRequest } from '../../../shared/auth/types';
-import { isAdminRequest } from '../../../shared/auth/roles.util';
 import { buildStockGlPostingContext } from '../services/stock-gl-posting-context';
+import { stockPostJson } from '../utils/stock-post-route-response';
 import { resolveStockListPaging } from '../utils/stock-list-query';
+import { stockMutationMessage, stockMutationStatus } from '../utils/stock-route-error';
 
 const router = Router();
 
@@ -33,7 +34,7 @@ router.post(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -46,12 +47,9 @@ router.post(
         hijriDate: req.body.hijriDate,
         record: req.body.record,
         warehouseId: req.body.warehouseId,
+        customerId: req.body.customerId || undefined,
         lines: req.body.lines,
       });
-
-      if (isAdminRequest(req)) {
-        await issueService.postIssue(companyId, issue.id, buildStockGlPostingContext(req, companyId));
-      }
 
       logger.info(
         { companyId, issueId: issue.id },
@@ -60,24 +58,14 @@ router.post(
 
       return void res.status(201).json({
         status: 'success',
-        message: isAdminRequest(req) ? 'تم حفظ وترحيل الصرف تلقائياً' : 'Issue created successfully',
+        message: 'تم حفظ إذن الصرف',
         data: issue,
       });
     } catch (error) {
       logger.error({ error }, 'Error creating issue');
-      const status =
-        error instanceof Error &&
-        (error.message.includes('not found') ||
-          error.message.includes('do not belong') ||
-          error.message.includes('Insufficient'))
-          ? 400
-          : 500;
-      return void res.status(status).json({
+      return void res.status(stockMutationStatus(error)).json({
         status: 'error',
-        message:
-          error instanceof Error
-            ? error.message
-            : 'Failed to create issue',
+        message: stockMutationMessage(error, 'تعذّر حفظ إذن الصرف'),
       });
     }
   }
@@ -97,7 +85,7 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -158,7 +146,7 @@ router.get(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -188,6 +176,48 @@ router.get(
   }
 );
 
+router.put(
+  '/:id',
+  authorize({ resource: 'invoice', action: 'edit' }),
+  validate({ body: createIssueSchema }),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const companyId = req.companyId || req.tenantId;
+      if (!companyId) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
+      const issue = await issueService.updateIssue(companyId, req.params.id, {
+        companyId,
+        branchId: req.body.branchId || req.branchId || undefined,
+        description: req.body.description,
+        serial: req.body.serial,
+        date: req.body.date,
+        hijriDate: req.body.hijriDate,
+        record: req.body.record,
+        warehouseId: req.body.warehouseId,
+        customerId: req.body.customerId || undefined,
+        lines: req.body.lines,
+      });
+      return void res.json({ status: 'success', message: 'تم حفظ السند', data: issue });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'تعذر تعديل السند';
+      const status = message.includes('not found') || message.includes('لا يمكن') || message.includes('غير') ? 400 : 500;
+      return void res.status(status).json({ status: 'error', message });
+    }
+  }
+);
+
+router.delete('/:id', authorize({ resource: 'invoice', action: 'edit' }), async (req: AuthRequest, res: Response) => {
+  try {
+    const companyId = req.companyId || req.tenantId;
+    if (!companyId) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
+    await issueService.deleteIssue(companyId, req.params.id);
+    return void res.json({ status: 'success', message: 'تم حذف السند' });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'تعذر حذف السند';
+    const status = message.includes('not found') || message.includes('لا يمكن') ? 400 : 500;
+    return void res.status(status).json({ status: 'error', message });
+  }
+});
+
 /**
  * POST /api/v1/inventory/issues/:id/post
  * Post issue (remove quantities from warehouse)
@@ -201,34 +231,24 @@ router.post(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
-      await issueService.postIssue(companyId, req.params.id, buildStockGlPostingContext(req, companyId));
+      const result = await issueService.postIssue(
+        companyId,
+        req.params.id,
+        buildStockGlPostingContext(req, companyId)
+      );
 
       logger.info({ companyId, issueId: req.params.id }, 'Issue posted');
 
-      return void res.json({
-        status: 'success',
-        message: 'Issue posted successfully',
-      });
+      return void res.json(stockPostJson(result, 'تم ترحيل الصرف بنجاح'));
     } catch (error) {
       logger.error({ error }, 'Error posting issue');
-      const status =
-        error instanceof Error &&
-        (error.message === 'Issue not found' ||
-          error.message.includes('already') ||
-          error.message.includes('Cannot') ||
-          error.message.includes('Insufficient'))
-          ? 400
-          : 500;
-      return void res.status(status).json({
+      return void res.status(stockMutationStatus(error)).json({
         status: 'error',
-        message:
-          error instanceof Error
-            ? error.message
-            : 'Failed to post issue',
+        message: stockMutationMessage(error, 'تعذّر ترحيل إذن الصرف'),
       });
     }
   }
@@ -247,7 +267,7 @@ router.post(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -292,7 +312,7 @@ router.post(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 
@@ -341,7 +361,7 @@ router.post(
       if (!companyId) {
         return void res.status(400).json({
           status: 'error',
-          message: 'Company ID is required',
+          message: 'معرّف الشركة مطلوب',
         });
       }
 

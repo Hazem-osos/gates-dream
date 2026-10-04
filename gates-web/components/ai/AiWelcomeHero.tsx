@@ -51,7 +51,7 @@ export function AiWelcomeHero({
 }) {
   return (
     <div className="relative isolate overflow-hidden rounded-2xl">
-      <div className="pointer-events-none absolute inset-0 bg-gradient-to-tr from-[#0E79AA]/10 via-transparent to-emerald-500/5" />
+      <div className="pointer-events-none absolute inset-0 bg-gradient-to-tr from-[#0E78AA]/10 via-transparent to-emerald-500/5" />
       <div className="relative px-1 pb-1 pt-2">
         <p className="text-[15px] font-semibold leading-6 text-slate-900">
           مرحباً، أنا مستشارك المالي والتشغيلي المباشر
@@ -69,9 +69,9 @@ export function AiWelcomeHero({
                 type="button"
                 disabled={disabled}
                 onClick={() => onSelect(card.prompt)}
-                className="group flex flex-col items-start rounded-xl border border-slate-200/90 bg-white/80 p-2.5 text-right shadow-sm transition-all hover:border-[#0E79AA] hover:shadow-md disabled:cursor-not-allowed disabled:opacity-50"
+                className="group flex flex-col items-start rounded-xl border border-slate-200/90 bg-white/80 p-2.5 text-right shadow-sm transition-all hover:border-[#0E78AA] hover:shadow-md disabled:cursor-not-allowed disabled:opacity-50"
               >
-                <span className="mb-2 inline-flex h-8 w-8 items-center justify-center rounded-lg bg-[#0E79AA]/10 text-[#0E79AA] transition group-hover:bg-[#0E79AA] group-hover:text-white">
+                <span className="mb-2 inline-flex h-8 w-8 items-center justify-center rounded-lg bg-[#0E78AA]/10 text-[#0E78AA] transition group-hover:bg-[#0E78AA] group-hover:text-white">
                   <Icon className="h-4 w-4" />
                 </span>
                 <span className="text-[12px] font-semibold leading-5 text-slate-900">{card.title}</span>

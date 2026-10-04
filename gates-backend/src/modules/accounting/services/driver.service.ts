@@ -1,4 +1,5 @@
 import prisma from '../../../shared/database/prisma';
+import { permanentDelete } from '../../../shared/database/permanent-delete.util';
 import { logger } from '../../../shared/logger';
 import { CreateDriverInput, UpdateDriverInput } from '../schemas/driver.schema';
 
@@ -176,7 +177,7 @@ export class DriverService {
   }
 
   /**
-   * Delete driver (soft delete)
+   * Delete driver (permanent delete)
    */
   async deleteDriver(companyId: string, driverId: string) {
     try {
@@ -192,10 +193,7 @@ export class DriverService {
         throw new Error('Driver not found');
       }
 
-      await prisma.driver.update({
-        where: { id: driverId },
-        data: { deletedAt: new Date() },
-      });
+      await permanentDelete('السائق', () => prisma.driver.delete({ where: { id: driverId } }));
 
       logger.info({ companyId, driverId }, 'Driver deleted');
       return { success: true };

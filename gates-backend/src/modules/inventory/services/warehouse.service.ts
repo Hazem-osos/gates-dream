@@ -2,11 +2,12 @@
 import prisma from '../../../shared/database/prisma';
 import { logger } from '../../../shared/logger';
 import { AppError } from '../../../shared/middleware/error-handler';
-import { advancedFlag, nextHierarchicalCode } from '../../../shared/utils/next-numeric-code';
+import { nextHierarchicalCode } from '../../../shared/utils/next-numeric-code';
 import {
   resolveCreateWarehouseKind,
   type WarehouseKindValue,
 } from '../utils/warehouse-kind';
+import { scopedItemQuantityWhere } from '../utils/item-quantity-tenant';
 
 export interface CreateWarehouseData {
   code?: string;
@@ -111,6 +112,7 @@ async function assertWarehouseIdle(companyId: string, warehouseId: string) {
   const [
     childrenCount,
     stockRows,
+    locationRows,
     movementCount,
     invoiceCount,
     invoiceLineCount,
@@ -137,6 +139,9 @@ async function assertWarehouseIdle(companyId: string, warehouseId: string) {
         warehouseId,
         OR: [{ quantityOnHand: { not: 0 } }, { reservedQuantity: { not: 0 } }],
       },
+    }),
+    prisma.itemQuantity.count({
+      where: scopedItemQuantityWhere(companyId, { warehouseId, quantity: { not: 0 } }),
     }),
     prisma.inventoryMovement.count({
       where: { companyId, warehouseId },
@@ -174,7 +179,7 @@ async function assertWarehouseIdle(companyId: string, warehouseId: string) {
       'لا يمكن حذف المخزن لأن تحته مخازن فرعية. احذف أو انقل الفروع أولاً.'
     );
   }
-  if (stockRows > 0 || movementCount > 0) {
+  if (stockRows > 0 || locationRows > 0 || movementCount > 0) {
     throw new AppError(
       409,
       'لا يمكن حذف المخزن لأن عليه رصيد أو حركات مخزنية. سوِّ الرصيد أو انقل الحركات أولاً.'
@@ -231,7 +236,9 @@ async function detachWarehousePointers(
     data: { defaultWarehouseId: null },
   });
   await tx.itemOrderLimitList.deleteMany({ where: { companyId, warehouseId } });
-  await tx.itemQuantity.deleteMany({ where: { warehouseId } });
+  await tx.itemQuantity.deleteMany({
+    where: scopedItemQuantityWhere(companyId, { warehouseId }),
+  });
   await tx.itemWarehouseBalance.deleteMany({ where: { companyId, warehouseId } });
   await tx.location.deleteMany({ where: { warehouseId } });
 }
@@ -327,14 +334,6 @@ function warehouseCardFields(data: CreateWarehouseData) {
 }
 
 export class WarehouseService {
-  private async isWarehouseAutoNumbering(companyId: string): Promise<boolean> {
-    const settings = await prisma.companySettings.findUnique({
-      where: { companyId },
-      select: { advancedSettings: true },
-    });
-    return advancedFlag(settings?.advancedSettings, 'warehouseAutoNumbering');
-  }
-
   async suggestNextWarehouseCode(companyId: string, parentWarehouseId?: string | null): Promise<string> {
     const live = { companyId, isActive: true };
 
@@ -386,16 +385,20 @@ export class WarehouseService {
         select: { id: true, code: true, isActive: true },
       });
       const requested = data.code?.trim() || '';
-      const auto = await this.isWarehouseAutoNumbering(companyId);
       if (requested) {
         const clash = existing.find(
           (row) => row.isActive && (row.code ?? '').trim() === requested
         );
         if (clash) {
-          throw new AppError(409, `رقم المخزن «${requested}» مستخدم بالفعل. غيّر الرقم أو اتركه فارغًا للترقيم التلقائي.`);
+          throw new AppError(409, `رقم المخزن «${requested}» مستخدم بالفعل. حدّث الشاشة ليُقترح رقمًا جديدًا.`);
         }
-      } else if (!auto) {
-        throw new AppError(400, 'رقم المخزن مطلوب — الترقيم يدوي.');
+      }
+      if (data.branchId) {
+        const branch = await prisma.branch.findFirst({
+          where: { id: data.branchId, companyId },
+          select: { id: true },
+        });
+        if (!branch) throw new AppError(422, 'الفرع لا يتبع هذه الشركة');
       }
       const code = requested || (await this.suggestNextWarehouseCode(companyId, data.parentWarehouseId));
       const warehouse = await prisma.warehouse.create({
@@ -638,6 +641,13 @@ export class WarehouseService {
         }
       }
 
+      if (data.branchId) {
+        const branch = await prisma.branch.findFirst({
+          where: { id: data.branchId, companyId },
+          select: { id: true },
+        });
+        if (!branch) throw new AppError(422, 'الفرع لا يتبع هذه الشركة');
+      }
       const warehouse = await prisma.warehouse.update({
         where: { id: warehouseId },
         data: {

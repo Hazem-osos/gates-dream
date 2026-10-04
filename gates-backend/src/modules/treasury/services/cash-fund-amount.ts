@@ -23,7 +23,7 @@ type CashFundRow = {
  */
 export function cashOffsetInHeaderCurrency(netCashBase: number, headerRate: number): number {
   const rate = asFxRate(headerRate, 1);
-  return netCashBase / rate;
+  return Math.round((netCashBase / rate) * 10_000) / 10_000;
 }
 
 /**

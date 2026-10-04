@@ -166,16 +166,14 @@ async function main() {
   assert(posted.postingStatus === 'Post', 'postingStatus Post');
   assert(!!posted.postedAt, 'postedAt set');
 
-  // Under the immutable-ledger design (C11 fix), "unposting" a journal entry
-  // creates a contra reversal entry rather than mutating the original. The
-  // original entry remains posted forever, and a linked reversal entry with
-  // swapped debits/credits brings the net GL impact to zero.
+  // In-place unpost: same voucher id, caches inverted, no contra row.
   const unposted = await journalPostingService.unpostJournalEntry(ctx, entry!.id);
-  assert(unposted.isPosted === true, 'original stays posted after unpost (contra reversal)');
-  assert(unposted.postingStatus === 'Post', 'original postingStatus stays Post');
-  assert(!!unposted.reversal, 'reversal entry created');
-  assert(unposted.reversal.isPosted === true, 'reversal entry is posted');
-  assert(unposted.reversal.reversalOfJournalEntryId === entry!.id, 'reversal links to original');
+  assert(unposted.isPosted === false, 'isPosted cleared after unpost');
+  assert(unposted.postingStatus === 'UnPost', 'postingStatus UnPost');
+  const contraCount = await prisma.journalEntry.count({
+    where: { companyId: COMPANY_ID, reversalOfJournalEntryId: entry!.id },
+  });
+  assert(contraCount === 0, 'no contra reversal journal');
 
   console.log('Wave0 GL integration test — PASSED');
   console.log({

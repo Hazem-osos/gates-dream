@@ -71,7 +71,7 @@ export function ProjectLgTable({
               >
                 <td className="px-3 py-2 font-semibold text-[#094C6B]">
                   {onSelect ? (
-                    <button type="button" className="text-[#0E79AA] underline" onClick={() => onSelect(lg)}>
+                    <button type="button" className="text-[#0E78AA] underline" onClick={() => onSelect(lg)}>
                       {lg.lgNumber}
                     </button>
                   ) : (
