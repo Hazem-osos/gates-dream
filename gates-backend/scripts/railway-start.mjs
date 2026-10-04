@@ -2,6 +2,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { runMigrateDeployWithRecovery } from './migrate-deploy-with-recovery.mjs';
 
 const root = path.resolve(fileURLToPath(new URL('.', import.meta.url)), '..');
 
@@ -56,18 +57,8 @@ if (prismaClientReady) {
 if (runWorkers) {
   console.log('GATES_RUN_WORKERS=1 — starting the worker process, skipping migrate and seed.');
 } else {
-  const migrated = runAllowFail('npx', ['prisma', 'migrate', 'deploy']);
-  if (migrated !== 0) {
-    console.log('Clearing failed WhatsApp migration so the corrected SQL can apply.');
-    runAllowFail('npx', [
-      'prisma',
-      'migrate',
-      'resolve',
-      '--rolled-back',
-      '20260924170000_whatsapp_embedded_signup',
-    ]);
-    run('npx', ['prisma', 'migrate', 'deploy']);
-  }
+  const migrated = runMigrateDeployWithRecovery();
+  if (migrated !== 0) process.exit(migrated);
 }
 
 if (!runWorkers && truthy(process.env.SEED_ON_BOOT)) {
