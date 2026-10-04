@@ -76,6 +76,7 @@ const PATH_LABEL_EXACT: Record<string, string> = {
   '/contracting/tenders/new': 'عطاء جديد',
   '/contracting/extracts': 'مستخلصات العقود (أرشيف)',
   '/contracting/projects': 'المشاريع',
+  '/contracting/reports': 'تقارير المقاولات',
   '/subcontracts': 'لوحة مقاولي الباطن',
   '/subcontracts/contracts': 'سجل عقود الباطن',
   '/subcontracts/reports/tax-form-41': 'نموذج 41 — خصم المنبع',

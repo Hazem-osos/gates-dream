@@ -10,6 +10,7 @@ import lettersOfGuaranteeRoutes from './letters-of-guarantee.routes';
 import costControlRoutes from './cost-control.routes';
 import executionRoutes from './execution.routes';
 import tenderRoutes from './tender.routes';
+import reportsRoutes from '../reports/contracting-reports.routes';
 import dashboardRoutes from './dashboard.routes';
 import excelRoutes from './excel.routes';
 
@@ -28,5 +29,6 @@ router.use('/letters-of-guarantee', lettersOfGuaranteeRoutes);
 router.use('/cost-control', costControlRoutes);
 router.use('/execution', executionRoutes);
 router.use('/tenders', tenderRoutes);
+router.use('/reports', reportsRoutes);
 
 export default router;

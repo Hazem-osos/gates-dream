@@ -1,0 +1,8 @@
+{
+  "name": "gates-dream",
+  "private": true,
+  "description": "Monorepo root — deploy gates-backend or gates-web, not this folder.",
+  "scripts": {
+    "railway:build": "node scripts/railway-monorepo-guard.mjs"
+  }
+}

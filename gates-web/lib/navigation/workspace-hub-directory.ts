@@ -71,6 +71,7 @@ const WORKSPACE_HUB_GROUPS_RAW: WorkspaceHubGroup[] = [
       { label: 'لوحة المقاولات', href: '/contracting' },
       { label: 'العطاءات', href: '/contracting/tenders' },
       { label: 'المشاريع', href: '/contracting/projects' },
+      { label: 'تقارير المقاولات', href: '/contracting/reports' },
       { label: 'مقاولو الباطن', href: '/subcontracts/contracts' },
       { label: 'أرشيف Wave3', href: '/contracting/extracts' },
       { label: 'مستخلصات قديمة', href: '/extracts/operations/projects' },

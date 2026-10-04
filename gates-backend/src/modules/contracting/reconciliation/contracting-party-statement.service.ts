@@ -20,6 +20,78 @@ export type SubcontractorStatementLine = {
   sourceType: string | null;
 };
 
+export async function getCustomerPartyStatement(
+  companyId: string,
+  customerId: string,
+  options?: { fromDate?: Date; toDate?: Date }
+) {
+  const customer = await prisma.customer.findFirst({
+    where: { id: customerId, companyId },
+    select: { id: true, arabicName: true },
+  });
+  if (!customer) throw new AppError(404, 'العميل غير موجود');
+
+  const lines = await prisma.journalEntryLine.findMany({
+    where: {
+      partnerId: customerId,
+      partnerType: 'CUSTOMER',
+      journalEntry: {
+        companyId,
+        ...POSTED_JE,
+        ...(options?.fromDate || options?.toDate
+          ? {
+              date: {
+                ...(options.fromDate ? { gte: options.fromDate } : {}),
+                ...(options.toDate ? { lte: options.toDate } : {}),
+              },
+            }
+          : {}),
+      },
+    },
+    orderBy: [{ journalEntry: { date: 'asc' } }, { lineOrder: 'asc' }],
+    select: {
+      debitBase: true,
+      creditBase: true,
+      description: true,
+      journalEntry: {
+        select: {
+          date: true,
+          voucherNumber: true,
+          legacyGlNum: true,
+          description: true,
+          sourceType: true,
+        },
+      },
+    },
+  });
+
+  let running = 0;
+  const rows: SubcontractorStatementLine[] = lines.map((line) => {
+    const debit = roundTo4(Number(line.debitBase));
+    const credit = roundTo4(Number(line.creditBase));
+    running = roundTo4(running + debit - credit);
+    return {
+      date: line.journalEntry.date,
+      voucherNumber: line.journalEntry.voucherNumber ?? line.journalEntry.legacyGlNum,
+      description: line.description ?? line.journalEntry.description,
+      debit,
+      credit,
+      runningBalance: running,
+      sourceType: line.journalEntry.sourceType,
+    };
+  });
+
+  const ledgerNet = await sumPartnerNetOriginal(prisma, companyId, customerId, 'CUSTOMER');
+
+  return {
+    customerId,
+    nameAr: customer.arabicName,
+    lines: rows,
+    receivableBalance: roundTo4(Number(ledgerNet)),
+    note: 'لا يُنسَب سطر اليومية للمشروع إلا إذا كان المصدر يدعم ذلك صراحة',
+  };
+}
+
 export async function getSubcontractorPartyStatement(
   companyId: string,
   subcontractorId: string,
