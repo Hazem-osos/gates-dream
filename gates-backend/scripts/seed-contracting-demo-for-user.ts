@@ -179,7 +179,7 @@ async function seedProject(
         netPayableByClient: new Decimal(net * 0.9),
         collectedAmount: new Decimal(net * 0.6),
         remainingSettlementAmount: new Decimal(net * 0.3),
-        settlementStatus: 'PARTIALLY_PAID',
+        settlementStatus: 'PARTIALLY_SETTLED',
       },
     });
   }
