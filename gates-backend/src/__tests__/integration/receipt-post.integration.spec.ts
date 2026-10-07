@@ -141,4 +141,55 @@ describeDb('Receipt post (integration)', () => {
 
     await expect(receiptService.postReceipt(companyId, receiptId, glCtx)).rejects.toThrow(/مرحّل/);
   });
+
+  it('credits the STOCK_RECEIPT offset account from document settings', async () => {
+    const offsetAccountId = (
+      await prisma.account.create({
+        data: {
+          companyId,
+          code: `7${suffix.slice(-5)}`,
+          arabicName: 'Receipt offset',
+          accountType: 'liability',
+          isActive: true,
+          accountKind: 'POSTING',
+        },
+      })
+    ).id;
+
+    await prisma.transactionSettings.upsert({
+      where: { companyId_documentType: { companyId, documentType: 'STOCK_RECEIPT' } },
+      create: {
+        companyId,
+        documentType: 'STOCK_RECEIPT',
+        defaultOffsetAccountId: offsetAccountId,
+      },
+      update: { defaultOffsetAccountId: offsetAccountId },
+    });
+
+    const receipt = await prisma.receipt.create({
+      data: {
+        companyId,
+        branchId,
+        warehouseId,
+        date: new Date('2026-07-01'),
+        serial: `GR-OFF-${suffix}`,
+        lines: {
+          create: [{ itemId, quantity: 2, unitPrice: 10 }],
+        },
+      },
+      include: { lines: true },
+    });
+
+    await receiptService.postReceipt(companyId, receipt.id, glCtx);
+
+    const posted = await prisma.receipt.findUnique({ where: { id: receipt.id } });
+    const je = await prisma.journalEntry.findFirst({
+      where: { id: posted!.journalEntryId!, companyId },
+      include: { lines: true },
+    });
+    const creditLines = je!.lines.filter((l) => Number(l.credit) > 0);
+    expect(creditLines).toHaveLength(1);
+    expect(creditLines[0].accountId).toBe(offsetAccountId);
+    expect(Number(creditLines[0].credit)).toBe(20);
+  });
 });

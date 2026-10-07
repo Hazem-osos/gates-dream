@@ -105,6 +105,7 @@ export const inventoryModules: ModuleWithChildren[] = [
         children: [
           { key: 'price-quote', icon: '', label: 'عرض سعر', color: C, href: '/inventory/operations/price-quote' },
           { key: 'sales-order', icon: '', label: 'أمر بيع', color: C, href: '/inventory/operations/sales-order' },
+          { key: 'supply-order', icon: '', label: 'أمر توريد', color: C, href: '/inventory/operations/supply-order' },
           { key: 'sales-invoice', icon: '', label: 'فاتورة مبيعات', color: C, href: '/inventory/operations/sales-invoice', badge: { text: 'يومي', tone: 'info' } },
           { key: 'sales-returns', icon: '', label: 'مردودات مبيعات', color: C, href: '/inventory/operations/sales-returns' },
         ],
@@ -164,6 +165,13 @@ export const inventoryModules: ModuleWithChildren[] = [
         color: C,
         children: [
           { key: 'sales-reports', icon: '', label: 'تقارير المبيعات', color: C, href: '/inventory/reports/sales-reports' },
+          {
+            key: 'supply-order-follow-up',
+            icon: '',
+            label: 'متابعة أوامر التوريد',
+            color: C,
+            href: '/inventory/reports/supply-order-follow-up',
+          },
           { key: 'sales-returns-reports', icon: '', label: 'مردودات المبيعات', color: C, href: '/inventory/reports/sales-returns-reports' },
           { key: 'sales-and-returns-reports', icon: '', label: 'المبيعات والمردودات', color: C, href: '/inventory/reports/sales-and-returns-reports' },
           { key: 'monthly-sales-for-items', icon: '', label: 'المبيعات الشهرية للأصناف', color: C, href: '/inventory/reports/monthly-sales-for-items' },

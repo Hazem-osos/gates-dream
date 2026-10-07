@@ -134,7 +134,7 @@ export function MonthlyItemSalesSheet({ rows }: { rows: Row[] }) {
       </div>
 
       <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <div className="overflow-x-auto">
+        <div dir="rtl" className="report-scroll-viewport erp-scroll-x overflow-x-auto">
           <table className="w-max min-w-full border-collapse text-sm" dir="rtl">
             <thead>
               <tr className="bg-[#0E4C6E] text-white">

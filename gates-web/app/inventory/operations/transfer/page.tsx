@@ -61,6 +61,13 @@ import { invalidateStockViews } from '@/lib/invoices/invalidate-stock-views';
 import { useDraftAutosave } from '@/lib/hooks/useDraftAutosave';
 import { rememberTabHref, rememberTabSearch } from '@/lib/navigation/tab-memory';
 import { normalizeAppPath } from '@/lib/navigation/app-module-root';
+import { consumeMfgTransferPrefill } from '@/lib/manufacturing/mfg-transfer-prefill';
+import Link from 'next/link';
+import { DocumentSourceLoadBar } from '@/components/invoices/DocumentSourceLoadBar';
+import { stockHeaderFieldsFromSource } from '@/lib/inventory/apply-source-to-stock-document';
+import type { SourceHydratePayload } from '@/lib/invoices/sourceDocument';
+import { STOCK_TRANSFER_SOURCE_TYPES } from '@/lib/invoices/sourceDocument';
+import { toast } from '@/lib/feedback/toast';
 
 
 interface TransferLine {
@@ -202,6 +209,12 @@ function postFailureFromSave(res: ApiResponse<unknown> | undefined): string | nu
   return message.slice('تم الحفظ.'.length).trim() || 'تم الحفظ لكن تعذر الترحيل';
 }
 
+function needsStockGlSetupHint(message: string): boolean {
+  const m = message.trim();
+  if (!m) return false;
+  return /حساب|جرد|مخزون|GL|configured/i.test(m);
+}
+
 function pinTransferTabSearch(id: string | null) {
   if (typeof window === 'undefined') return;
   const path = normalizeAppPath(window.location.pathname);
@@ -233,6 +246,11 @@ function TransferPageInner() {
   const todayStr = new Date().toISOString().split('T')[0];
   const skipServerHydrateRef = useRef(false);
   const postAfterSaveRef = useRef(false);
+  const [mfgTransferHint, setMfgTransferHint] = useState<{
+    returnHref?: string;
+    returnLabel?: string;
+    shortageOnly?: boolean;
+  } | null>(null);
 
   const inputCls = compactControlClass;
   const labelCls = compactLabelClass;
@@ -243,6 +261,7 @@ function TransferPageInner() {
     reset,
     watch,
     setValue,
+    getValues,
     control,
     formState: { errors },
   } = useForm<InventoryTransferHeaderFormInput>({
@@ -270,6 +289,7 @@ function TransferPageInner() {
   const watchedForm = watch();
 
   const [transferLines, setTransferLines] = useState<TransferLine[]>([]);
+  const [sourceBarKey, setSourceBarKey] = useState(0);
   const transferLinesRef = useRef<TransferLine[]>([]);
   transferLinesRef.current = transferLines;
 
@@ -330,6 +350,37 @@ function TransferPageInner() {
     [replaceTransferLines, reset]
   );
 
+  useEffect(() => {
+    if (selectedTransferId) return;
+    const prefill = consumeMfgTransferPrefill();
+    if (!prefill) return;
+    skipServerHydrateRef.current = true;
+    reset({
+      ...emptyTransferFormDefaults(),
+      description: prefill.description,
+      fromWarehouseId: prefill.fromWarehouseId,
+      toWarehouseId: prefill.toWarehouseId,
+    });
+    replaceTransferLines(
+      prefill.lines.map((l) => ({
+        itemId: l.itemId,
+        itemName: l.itemName,
+        quantity: l.quantity,
+        unitPrice: 0,
+      }))
+    );
+    setMfgTransferHint({
+      returnHref: prefill.returnHref,
+      returnLabel: prefill.returnLabel,
+      shortageOnly: prefill.shortageOnly,
+    });
+    setSuccess(
+      prefill.shortageOnly
+        ? 'تم تحميل بنود عجز الخامات — راجع الكميات ثم «حفظ وترحيل»'
+        : 'تم تحميل بنود التحويل من التصنيع — راجع الكميات ثم احفظ'
+    );
+  }, [selectedTransferId, replaceTransferLines, reset]);
+
   const {
     restoreOffer,
     acceptRestore,
@@ -368,9 +419,26 @@ function TransferPageInner() {
 
   const clearTransferForNext = () => {
     clearDraft();
+    setMfgTransferHint(null);
     openTransfer(null);
     replaceTransferLines([]);
     reset(emptyTransferFormDefaults());
+    setSourceBarKey((k) => k + 1);
+  };
+
+  const handleSourceHydrate = (payload: SourceHydratePayload) => {
+    const header = stockHeaderFieldsFromSource(payload, getValues('description'));
+    if (header.warehouseId) setValue('fromWarehouseId', header.warehouseId);
+    if (header.description) setValue('description', header.description);
+    replaceTransferLines(
+      payload.lines.map((line) => ({
+        itemId: line.itemId,
+        itemName: line.itemName,
+        quantity: line.quantity || 0,
+        unitPrice: line.unitPrice || 0,
+      }))
+    );
+    toast.success(`تم التحميل من ${payload.sourceNumber}`);
   };
 
   const transferMutation = useApiMutation<unknown, Record<string, unknown>>(
@@ -649,7 +717,39 @@ function TransferPageInner() {
   return (
     <ErpDocumentLayout>
       {error && <ErrorToast message={error} onClose={() => setError('')} />}
+      {error && needsStockGlSetupHint(error) ? (
+        <p className="mb-3 text-right text-sm text-slate-700">
+          راجع{' '}
+          <Link href="/inventory/guide" className="font-semibold text-[#0E78AA] underline">
+            دليل المخازن (حساب المخزون لكل مخزن)
+          </Link>
+          {' '}قبل إعادة الترحيل. التحويل يحفظ كمسودة أولاً؛ الترحيل يحرّك الكميات ويُنشئ القيد في الجرد المستمر.
+        </p>
+      ) : null}
       {success && <SuccessToast message={success} onClose={() => setSuccess('')} />}
+
+      {mfgTransferHint && !selectedTransferId ? (
+        <div className="mb-4 rounded-xl border border-[#D6EAF3] bg-[#F8FBFD] px-4 py-3 text-right text-sm text-[#0A3D5E]">
+          <p className="font-semibold">تحويل من التصنيع</p>
+          <p className="mt-1 text-slate-600">
+            {mfgTransferHint.shortageOnly
+              ? 'البنود المعروضة = عجز الكمية فقط (غير المتاح في مخزن المصدر).'
+              : 'البنود من نموذج التصنيع — عدّل الكميات إن لزم.'}
+            {' '}
+            «حفظ وترحيل» ينقل المخزون بين المخزنين؛ لا يُنشأ قيد إلا عند الترحيل وليس عند الحفظ فقط.
+          </p>
+          <p className="mt-2 flex flex-wrap gap-3 text-sm">
+            {mfgTransferHint.returnHref ? (
+              <Link href={mfgTransferHint.returnHref} className="font-semibold text-[#0E78AA] underline">
+                ← رجوع إلى {mfgTransferHint.returnLabel || 'التصنيع'}
+              </Link>
+            ) : null}
+            <Link href="/inventory/guide" className="text-[#0E78AA] underline">
+              إعداد حسابات المخازن
+            </Link>
+          </p>
+        </div>
+      ) : null}
 
       {restoreOffer && !selectedTransferId ? (
         <PageDraftRestoreBanner
@@ -707,6 +807,15 @@ function TransferPageInner() {
           onNew: handleNew,
           newLabel: 'جديد',
         }}
+        extraActions={
+          <DocumentSourceLoadBar
+            key={sourceBarKey}
+            hasExistingLines={transferLines.some((l) => Boolean(l.itemId))}
+            disabled={isReadOnly || statusPosted}
+            allowedTypes={STOCK_TRANSFER_SOURCE_TYPES}
+            onHydrate={handleSourceHydrate}
+          />
+        }
       />
 
       <DocumentBrowseDrawer open={showList} onClose={() => setShowList(false)} title="التحويلات السابقة">

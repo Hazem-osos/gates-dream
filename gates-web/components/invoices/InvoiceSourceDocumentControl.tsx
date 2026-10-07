@@ -27,6 +27,8 @@ type Props = {
   onHydrate: (payload: SourceHydratePayload) => void;
   hasExistingLines: boolean;
   disabled?: boolean;
+  /** When omitted, all source sections are shown (default ERP behavior). */
+  allowedTypes?: readonly SelectableSourceType[];
 };
 
 export function InvoiceSourceDocumentControl({
@@ -37,12 +39,18 @@ export function InvoiceSourceDocumentControl({
   onHydrate,
   hasExistingLines,
   disabled = false,
+  allowedTypes,
 }: Props) {
+  const typeOptions = useMemo(() => {
+    if (!allowedTypes?.length) return SOURCE_TYPE_OPTIONS;
+    const allowed = new Set(allowedTypes);
+    return SOURCE_TYPE_OPTIONS.filter((opt) => allowed.has(opt.value));
+  }, [allowedTypes]);
   const [search, setSearch] = useState('');
   const [pending, setPending] = useState<SourceDocumentListItem | null>(null);
   const [loadingId, setLoadingId] = useState<string | null>(null);
 
-  const selectedType = SOURCE_TYPE_OPTIONS.some((opt) => opt.value === sourceType)
+  const selectedType = typeOptions.some((opt) => opt.value === sourceType)
     ? (sourceType as SelectableSourceType)
     : '';
 
@@ -91,7 +99,7 @@ export function InvoiceSourceDocumentControl({
   return (
     <div className="flex justify-end" data-tour="source-reference">
       <DocumentSectionNumberPair>
-        <div className="w-[7.75rem] shrink-0">
+        <div className="w-[9.5rem] shrink-0">
           <label className={sectionNumberLabelClass}>القسم</label>
           <select
             className={sectionNumberInputClass}
@@ -105,14 +113,14 @@ export function InvoiceSourceDocumentControl({
             }}
           >
             <option value="">اختر القسم...</option>
-            {SOURCE_TYPE_OPTIONS.map((opt) => (
+            {typeOptions.map((opt) => (
               <option key={opt.value} value={opt.value}>
                 {opt.icon} {opt.label}
               </option>
             ))}
           </select>
         </div>
-        <div className="w-[16rem] min-w-0">
+        <div className="w-[18rem] min-w-[14rem] max-w-[22rem] flex-1">
           <label className={sectionNumberLabelClass}>الرقم</label>
           <SearchableCombobox
             value={sourceId}

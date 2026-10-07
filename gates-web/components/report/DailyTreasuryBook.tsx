@@ -125,7 +125,11 @@ export function DailyTreasuryBook({ rows }: { rows: Row[] }) {
       {blocks.map((sheet) => {
         const lines = Math.max(sheet.receipts.length, sheet.payments.length, 1);
         return (
-          <section key={`${sheet.safe}-${sheet.day}`} className="overflow-x-auto rounded-xl border border-slate-300 bg-white">
+          <section
+            key={`${sheet.safe}-${sheet.day}`}
+            dir="rtl"
+            className="report-scroll-viewport erp-scroll-x overflow-x-auto rounded-xl border border-slate-300 bg-white"
+          >
             <div className="bg-[#1787B8] px-3 py-2 text-center text-sm font-semibold text-white">
               {sheet.safe} — {dayLabel(sheet.day)}
             </div>

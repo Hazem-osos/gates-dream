@@ -769,13 +769,16 @@ export class InvoicePostingOrchestrator {
           } else {
             if (kind === 'SALE') {
               const reservationId = line.itemReservationId as string | null | undefined;
-              const fulfillQty = Number(line.reservationFulfillQuantity ?? 0);
+              const fulfillQty = reservationId
+                ? roundTo4(Number(line.reservationFulfillQuantity ?? baseQty) || baseQty)
+                : 0;
               if (reservationId && fulfillQty > 0 && lineWarehouseId) {
                 await fulfillReservationInTx(tx, ctx.companyId, {
                   reservationId,
                   warehouseId: lineWarehouseId,
                   itemId: line.itemId,
                   quantity: fulfillQty,
+                  expectedCustomerId: invoice.customerId,
                 });
               }
             }
@@ -1412,7 +1415,10 @@ export class InvoicePostingOrchestrator {
           }
           if (kind === 'SALE' && lineWarehouseId) {
             const reservationId = line.itemReservationId as string | null | undefined;
-            const fulfillQty = Number(line.reservationFulfillQuantity ?? 0);
+            const reverseBaseQty = Math.abs(Number(line.baseQuantity) || Number(line.quantity) || 0);
+            const fulfillQty = reservationId
+              ? roundTo4(Number(line.reservationFulfillQuantity ?? reverseBaseQty) || reverseBaseQty)
+              : 0;
             if (reservationId && fulfillQty > 0) {
               await reverseReservationFulfillmentInTx(tx, ctx.companyId, {
                 reservationId,

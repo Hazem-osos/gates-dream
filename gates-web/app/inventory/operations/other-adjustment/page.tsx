@@ -45,6 +45,10 @@ import { WarehouseSelect } from '@/components/form/WarehouseSelect';
 import { DatePickerWithHijri } from '@/components/ui/DatePickerWithHijri';
 import { ItemSelect } from '@/app/components/form/ItemSelect';
 import { TableNumberInput } from '@/components/grid/TableNumberInput';
+import { DocumentSourceLoadBar } from '@/components/invoices/DocumentSourceLoadBar';
+import { stockHeaderFieldsFromSource } from '@/lib/inventory/apply-source-to-stock-document';
+import { STOCK_LINE_COPY_SOURCE_TYPES, type SourceHydratePayload } from '@/lib/invoices/sourceDocument';
+import { toast } from '@/lib/feedback/toast';
 
 type AdjustmentType = 'addition' | 'discount';
 
@@ -131,6 +135,7 @@ export default function OtherAdjustmentPage() {
   const [selectedId, setSelectedId] = useState<string | null>(
     () => searchParams.get('id')?.trim() || null
   );
+  const [sourceBarKey, setSourceBarKey] = useState(0);
 
   const setSerialNumber = useCallback(
     (value: string) =>
@@ -190,6 +195,29 @@ export default function OtherAdjustmentPage() {
     setLines([blankLine()]);
     reset(emptyHeaderDefaults());
     void invalidateNextSerial();
+    setSourceBarKey((k) => k + 1);
+  };
+
+  const handleSourceHydrate = (payload: SourceHydratePayload) => {
+    const header = stockHeaderFieldsFromSource(payload, watch('description'));
+    if (header.warehouseId) setValue('warehouseId', header.warehouseId);
+    if (header.description) setValue('description', header.description);
+    setLines(
+      payload.lines.length
+        ? payload.lines.map((line) => {
+            const qty = line.quantity || 0;
+            const price = line.unitPrice || 0;
+            return {
+              itemId: line.itemId,
+              quantity: qty,
+              unitPrice: price,
+              total: qty * price,
+              adjustmentType: 'addition' as AdjustmentType,
+            };
+          })
+        : [blankLine()]
+    );
+    toast.success(`تم تحميل البنود من ${payload.sourceNumber}`);
   };
 
   const formLocked = Boolean(selectedId);
@@ -406,24 +434,33 @@ export default function OtherAdjustmentPage() {
           unpostPending: unpostMutation.isPending,
         }}
         extraActions={
-          <button
-            type="button"
-            className="rounded-lg border border-[#D6EAF3] px-3 py-2 text-sm text-[#0A3D5E]"
-            onClick={() =>
-              printStockDocument({
-                title: 'إضافات وخصومات أخرى',
-                number: watch('serialNumber'),
-                date: watch('date'),
-                rows: lines.map((line) => ({
-                  item: line.itemId,
-                  quantity: line.quantity,
-                  price: line.unitPrice,
-                })),
-              })
-            }
-          >
-            طباعة
-          </button>
+          <div className="flex flex-wrap items-end justify-end gap-2">
+            <DocumentSourceLoadBar
+              key={sourceBarKey}
+              hasExistingLines={lines.some((l) => Boolean(l.itemId))}
+              disabled={formLocked || isPosted}
+              allowedTypes={STOCK_LINE_COPY_SOURCE_TYPES}
+              onHydrate={handleSourceHydrate}
+            />
+            <button
+              type="button"
+              className="rounded-lg border border-[#D6EAF3] px-3 py-2 text-sm text-[#0A3D5E]"
+              onClick={() =>
+                printStockDocument({
+                  title: 'إضافات وخصومات أخرى',
+                  number: watch('serialNumber'),
+                  date: watch('date'),
+                  rows: lines.map((line) => ({
+                    item: line.itemId,
+                    quantity: line.quantity,
+                    price: line.unitPrice,
+                  })),
+                })
+              }
+            >
+              طباعة
+            </button>
+          </div>
         }
       />
 

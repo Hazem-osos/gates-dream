@@ -90,6 +90,10 @@ const hasRolePermission = (
       { resource: 'payroll', action: 'view' },
       { resource: 'payroll', action: 'edit' },
       { resource: 'payroll', action: 'approve' },
+      { resource: 'payroll', action: 'calculate' },
+      { resource: 'payroll', action: 'post' },
+      { resource: 'payroll', action: 'pay' },
+      { resource: 'payroll', action: 'gl_manage' },
     ],
     inventory_viewer: [
       { resource: 'item', action: 'view' },

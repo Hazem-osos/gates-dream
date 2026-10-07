@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import prisma from '../../../shared/database/prisma';
 import { AppError } from '../../../shared/middleware/error-handler';
 
@@ -81,6 +82,41 @@ export async function getInventorySystem(companyId: string): Promise<InventorySy
     select: { advancedSettings: true },
   });
   return readInventorySystem(settings?.advancedSettings);
+}
+
+/** Walk warehouse → parent chain; first non-null account on each slot wins. */
+export async function resolveEffectiveWarehouseGlAccounts(
+  companyId: string,
+  warehouseId: string,
+  db: Prisma.TransactionClient | typeof prisma = prisma
+): Promise<{
+  inventoryAccountId: string | null;
+  costAccountId: string | null;
+  giftAccountId: string | null;
+}> {
+  let currentId: string | null = warehouseId;
+  const seen = new Set<string>();
+  let inventoryAccountId: string | null = null;
+  let costAccountId: string | null = null;
+  let giftAccountId: string | null = null;
+  while (currentId && !seen.has(currentId)) {
+    seen.add(currentId);
+    const warehouse = await db.warehouse.findFirst({
+      where: { id: currentId, companyId },
+      select: {
+        parentWarehouseId: true,
+        inventoryAccountId: true,
+        costAccountId: true,
+        giftAccountId: true,
+      },
+    });
+    if (!warehouse) break;
+    inventoryAccountId = inventoryAccountId || warehouse.inventoryAccountId;
+    costAccountId = costAccountId || warehouse.costAccountId;
+    giftAccountId = giftAccountId || warehouse.giftAccountId;
+    currentId = warehouse.parentWarehouseId;
+  }
+  return { inventoryAccountId, costAccountId, giftAccountId };
 }
 
 export async function loadWarehouseGlMap(

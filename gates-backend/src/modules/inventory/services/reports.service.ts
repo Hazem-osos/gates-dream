@@ -1506,7 +1506,7 @@ export class InventoryReportsService {
       if (filters.showUnposted) {
         await addUnpostedStockQty(
           companyId,
-          data,
+        data,
           { showUnposted: true },
           (row, quantity) => {
             row.quantityOnHand = quantity;
@@ -1517,20 +1517,20 @@ export class InventoryReportsService {
         );
       }
 
-      return {
-        data,
-        summary: {
-          totalItems: total,
-          totalQuantity: data.reduce((sum, row) => sum + row.quantityOnHand, 0),
-          totalValue: data.reduce((sum, row) => sum + row.stockValue, 0),
-        },
-        pagination: {
-          page,
-          limit,
-          total,
-          totalPages: Math.ceil(total / limit),
-        },
-      };
+    return {
+      data,
+      summary: {
+        totalItems: total,
+        totalQuantity: data.reduce((sum, row) => sum + row.quantityOnHand, 0),
+        totalValue: data.reduce((sum, row) => sum + row.stockValue, 0),
+      },
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
     }
   }
 
@@ -4887,9 +4887,9 @@ export class InventoryReportsService {
       applyReportUser(where, filters);
       const [invoices, quantityRates, valuePolicies, policies] = await Promise.all([
         prisma.invoice.findMany({
-          where,
-          include: {
-            delegate: true,
+        where,
+        include: {
+          delegate: true,
             lines: { include: { item: true } },
           },
         }),

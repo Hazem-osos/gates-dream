@@ -85,6 +85,8 @@ type Props = {
   newDocumentLabel?: string;
   postLabel?: string;
   extraMenuItems?: Array<{ id: string; label: string; onClick: () => void; disabled?: boolean }>;
+  /** e.g. القسم / الرقم (تحميل من مستند) beside journal badge */
+  toolbarLeading?: ReactNode;
 };
 
 export function SalesInvoicePageHeader(props: Props) {
@@ -137,6 +139,7 @@ export function SalesInvoicePageHeader(props: Props) {
     newDocumentLabel = 'فاتورة جديدة',
     postLabel = 'ترحيل الفاتورة',
     extraMenuItems = [],
+    toolbarLeading,
   } = props;
 
   const printModel = useMemo(() => {
@@ -299,6 +302,7 @@ export function SalesInvoicePageHeader(props: Props) {
       }}
       extraActions={
         <>
+          {toolbarLeading}
           <JournalEntryBadge
             journalEntryId={props.journalEntryId}
             journalNumber={props.journalNumber}

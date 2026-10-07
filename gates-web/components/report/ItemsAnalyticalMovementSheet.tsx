@@ -69,7 +69,7 @@ export function ItemsAnalyticalMovementSheet({ rows, summary }: { rows: Row[]; s
   const { delegates, totals } = readItemsAnalyticalSheet(summary, rows);
 
   return (
-    <div className="overflow-x-auto rounded-md border border-[#9BB6CE] bg-white" data-print-layout="landscape">
+    <div dir="rtl" className="report-scroll-viewport erp-scroll-x overflow-x-auto rounded-md border border-[#9BB6CE] bg-white" data-print-layout="landscape">
       <table className="min-w-full border-collapse text-xs text-slate-800" dir="rtl">
         <thead>
           <tr className="bg-[#4F86C6] text-white">

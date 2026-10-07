@@ -55,6 +55,7 @@ import {
 } from '@/lib/inventory/use-document-post-mutation';
 import { printStockDocument } from '@/lib/print/printStockDocument';
 import { invalidateStockViews } from '@/lib/invoices/invalidate-stock-views';
+import { TransactionSettingsDrawer } from '@/components/settings/transaction-settings/TransactionSettingsDrawer';
 import {
   ItemReservationDocumentPanel,
   type ApplyReservationPayload,
@@ -66,6 +67,14 @@ import {
 import { useIssueTourPrepare } from '@/lib/onboarding/useIssueTourPrepare';
 import { consumeAiTransactionDraft } from '@/lib/ai/ai-draft-storage';
 import { invoiceDateFromDraft, issueLinesFromAiDraft } from '@/lib/ai/hydrate-ai-draft';
+import { DocumentSourceLoadBar } from '@/components/invoices/DocumentSourceLoadBar';
+import {
+  mapSourcePayloadToStockLines,
+  stockHeaderFieldsFromSource,
+} from '@/lib/inventory/apply-source-to-stock-document';
+import type { SourceHydratePayload } from '@/lib/invoices/sourceDocument';
+import { STOCK_ISSUE_SOURCE_TYPES } from '@/lib/invoices/sourceDocument';
+import { toast } from '@/lib/feedback/toast';
 
 
 interface Item {
@@ -136,6 +145,7 @@ function IssuePageInner() {
     reset,
     watch,
     setValue,
+    getValues,
     control,
     formState: { errors },
   } = useForm<IssueHeaderForm>({
@@ -149,6 +159,7 @@ function IssuePageInner() {
   const hideExistingQty = watch('hideExistingQty');
 
   const [issueLines, setIssueLines] = useState<StockVoucherLine[]>(() => seedStockVoucherLines());
+  const [sourceBarKey, setSourceBarKey] = useState(0);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [selectedIssueId, setSelectedIssueId] = useState<string | null>(
@@ -201,6 +212,7 @@ function IssuePageInner() {
     else window.history.replaceState(null, '', window.location.pathname);
   };
   const [showList, setShowList] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   // Fetch items
   const { isLoading: itemsLoading } = useApiQuery<Item[]>(
@@ -256,6 +268,7 @@ function IssuePageInner() {
   const clearIssueForNext = () => {
     openIssue(null);
     setIssueLines(seedStockVoucherLines());
+    setSourceBarKey((k) => k + 1);
     reset(emptyIssueFormDefaults());
   };
 
@@ -433,6 +446,16 @@ function IssuePageInner() {
     setError('');
     setSuccess('');
     reset(emptyIssueFormDefaults());
+    setSourceBarKey((k) => k + 1);
+  };
+
+  const handleSourceHydrate = (payload: SourceHydratePayload) => {
+    const header = stockHeaderFieldsFromSource(payload, getValues('description'));
+    if (header.customerId) setValue('customerId', header.customerId);
+    if (header.warehouseId) setValue('warehouseId', header.warehouseId);
+    if (header.description) setValue('description', header.description);
+    setIssueLines(mapSourcePayloadToStockLines(payload));
+    toast.success(`تم تحميل الإذن من ${payload.sourceNumber}`);
   };
 
   const onSaveValid: SubmitHandler<IssueHeaderForm> = (values) => {
@@ -584,8 +607,19 @@ function IssuePageInner() {
           onVoid: handleDelete,
           onNew: handleNew,
           newLabel: 'جديد',
+          extraItems: [
+            { id: 'settings', label: 'إعدادات المستند', onClick: () => setSettingsOpen(true) },
+          ],
         }}
         extraActions={
+          <div className="flex flex-wrap items-end justify-end gap-2">
+            <DocumentSourceLoadBar
+              key={sourceBarKey}
+              hasExistingLines={issueLines.some((l) => Boolean(l.itemId))}
+              disabled={isPosted || isReadOnly}
+              allowedTypes={STOCK_ISSUE_SOURCE_TYPES}
+              onHydrate={handleSourceHydrate}
+            />
           <button
             type="button"
             className="rounded-lg border border-[#D6EAF3] px-3 py-2 text-sm text-[#0A3D5E]"
@@ -604,7 +638,14 @@ function IssuePageInner() {
           >
             طباعة
           </button>
+          </div>
         }
+      />
+
+      <TransactionSettingsDrawer
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        documentType="STOCK_ISSUE"
       />
 
       <DocumentBrowseDrawer open={showList} onClose={() => setShowList(false)} title="أذون الصرف المخزنية السابقة">

@@ -140,6 +140,7 @@ type Props = {
   showAverageCostOnQuantity?: boolean;
   /** When set, overrides default item pick pricing (supplier price list + purchase price). */
   applyPickedItemToLine?: (index: number, picked: Item | undefined) => void;
+  invoiceAffectsStock?: boolean;
 };
 
 function patchLine(lines: PurchaseInvoiceLine[], index: number, patch: Partial<PurchaseInvoiceLine>) {
@@ -166,6 +167,7 @@ type PurchaseLineRowProps = {
   lockUnitPrice?: boolean;
   allLines?: PurchaseInvoiceLine[];
   showAverageCostOnQuantity?: boolean;
+  invoiceAffectsStock?: boolean;
 };
 
 const PurchaseInvoiceLineRow = memo(function PurchaseInvoiceLineRow({
@@ -188,6 +190,7 @@ const PurchaseInvoiceLineRow = memo(function PurchaseInvoiceLineRow({
   lockUnitPrice = false,
   allLines,
   showAverageCostOnQuantity = false,
+  invoiceAffectsStock = true,
 }: PurchaseLineRowProps) {
   const handlers = {
     gridId: PURCHASE_GRID_ID,
@@ -424,6 +427,7 @@ const PurchaseInvoiceLineRow = memo(function PurchaseInvoiceLineRow({
                 <ItemUnitSelect
                   itemId={line.itemId}
                   value={line.unitId ?? ''}
+                  invoiceAffectsStock={invoiceAffectsStock}
                   onChange={(unitId) => onPatch(index, { unitId })}
                   className={`${lineInputCls} text-sm py-2`}
                   nativeSelectProps={{
@@ -730,6 +734,7 @@ export function ProgressivePurchaseInvoiceLineGrid({
   defaultWithholdingRate = 0,
   showAverageCostOnQuantity = false,
   applyPickedItemToLine: applyPickedItemToLineProp,
+  invoiceAffectsStock = true,
 }: Props) {
   const gridContainerRef = useRef<HTMLDivElement>(null);
 
@@ -1024,6 +1029,7 @@ export function ProgressivePurchaseInvoiceLineGrid({
                       lockUnitPrice={lockUnitPrice}
                       allLines={lines}
                       showAverageCostOnQuantity={showAverageCostOnQuantity}
+                      invoiceAffectsStock={invoiceAffectsStock}
                     />
                   );
                 })}

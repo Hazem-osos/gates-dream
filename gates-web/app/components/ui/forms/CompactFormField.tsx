@@ -7,6 +7,8 @@ import { HijriCaption } from '@/components/ui/DatePickerWithHijri';
 import {
   compactControlClass,
   compactControlShellClass,
+  compactNumericControlClass,
+  compactSerialControlClass,
   dateControlClass,
   compactFieldErrorClass,
   compactLabelClass,
@@ -46,6 +48,11 @@ export const CompactFormField = React.forwardRef<HTMLInputElement, CompactFormFi
     const fieldId = htmlFor ?? id;
     const describedBy = error ? `${fieldId ?? label}-error` : hint ? `${fieldId ?? label}-hint` : undefined;
     const isDateField = inputProps.type === 'date' && !HIJRI_ONLY_LABEL.test(label);
+    const isNumericField =
+      inputProps.type === 'number' ||
+      inputProps.inputMode === 'decimal' ||
+      inputProps.inputMode === 'numeric';
+    const isSerialField = /مسلسل|رقم الأمر|رقم التشغيلة|رقم الفاتورة|رقم السند/i.test(label);
     const [dateIso, setDateIso] = React.useState(() =>
       String(inputProps.value ?? inputProps.defaultValue ?? '')
     );
@@ -111,7 +118,11 @@ export const CompactFormField = React.forwardRef<HTMLInputElement, CompactFormFi
             aria-invalid={Boolean(error) || undefined}
             aria-describedby={describedBy}
             className={cn(
-              compactControlClass,
+              isSerialField
+                ? compactSerialControlClass
+                : isNumericField
+                  ? compactNumericControlClass
+                  : compactControlClass,
               isDateField && dateControlClass,
               error && 'border-red-500 focus:border-red-500 focus:ring-red-500/30'
             )}

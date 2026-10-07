@@ -209,7 +209,7 @@ async function seedProject(
       subcon?.id ??
       (
         await prisma.subcontractor.create({
-          data: { companyId, nameAr: `باطن ${projectCode}`, isActive: true },
+          data: { companyId, nameAr: `باطن ${projectCode}`, status: 'ACTIVE' },
         })
       ).id;
     let sub = await prisma.subcontract.findFirst({

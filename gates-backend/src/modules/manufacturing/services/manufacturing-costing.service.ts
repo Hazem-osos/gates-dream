@@ -10,7 +10,9 @@ import {
 import { documentSequenceService } from '../../platform/services/document-sequence.service';
 import { itemCostService } from '../../inventory/services/item-cost.service';
 import { stockMovementService } from '../../inventory/services/stock-movement.service';
+import { SYSTEM_GL_CODES } from '../../accounting/data/system-account-map';
 import { manufacturingAccountResolverService } from './manufacturing-account-resolver.service';
+import { invoiceAccountResolverService } from '../../invoices/services/invoice-account-resolver.service';
 import { journalLines } from '../../trade/utils/journal-lines.util';
 
 export class ManufacturingCostingService {
@@ -26,11 +28,13 @@ export class ManufacturingCostingService {
       sourceYearId?: string;
       totalMaterialCost: number;
       issueDate: Date;
+      costCenterId?: string;
     }
   ) {
     const accounts = await manufacturingAccountResolverService.resolveAccounts(ctx.companyId);
     const legacyGlNum = await this.allocateGlNum(ctx);
     const amount = roundTo4(params.totalMaterialCost);
+    const cc = params.costCenterId;
 
     return journalPostingService.createAndPostInTx(tx, ctx, {
       fiscalYearId: ctx.fiscalYearId!,
@@ -44,8 +48,8 @@ export class ManufacturingCostingService {
       sourceNumber: params.orderNumber,
       sourceYearId: params.sourceYearId,
       lines: journalLines([
-        { accountId: accounts.wipMaterialsAccountId, debit: amount, credit: 0 },
-        { accountId: accounts.rawInventoryAccountId, debit: 0, credit: amount },
+        { accountId: accounts.wipMaterialsAccountId, debit: amount, credit: 0, costCenterId: cc },
+        { accountId: accounts.rawInventoryAccountId, debit: 0, credit: amount, costCenterId: cc },
       ]),
     });
   }
@@ -59,6 +63,7 @@ export class ManufacturingCostingService {
       laborCost: number;
       overheadCost: number;
       postingDate: Date;
+      costCenterId?: string;
     }
   ) {
     const accounts = await manufacturingAccountResolverService.resolveAccounts(ctx.companyId);
@@ -66,6 +71,7 @@ export class ManufacturingCostingService {
     if (total <= 0) throw new AppError(422, 'Labor and overhead must be greater than zero');
 
     const legacyGlNum = await this.allocateGlNum(ctx);
+    const cc = params.costCenterId;
     return journalPostingService.createAndPostInTx(tx, ctx, {
       fiscalYearId: ctx.fiscalYearId!,
       legacyGlNum,
@@ -78,8 +84,8 @@ export class ManufacturingCostingService {
       sourceNumber: `${params.orderNumber}-OH`,
       sourceYearId: params.sourceYearId,
       lines: journalLines([
-        { accountId: accounts.wipLaborOverheadAccountId, debit: total, credit: 0 },
-        { accountId: accounts.overheadAbsorptionAccountId, debit: 0, credit: total },
+        { accountId: accounts.wipLaborOverheadAccountId, debit: total, credit: 0, costCenterId: cc },
+        { accountId: accounts.overheadAbsorptionAccountId, debit: 0, credit: total, costCenterId: cc },
       ]),
     });
   }
@@ -162,6 +168,123 @@ export class ManufacturingCostingService {
       sourceNum: params.orderNumber,
       sourceYearId: params.sourceYearId ?? String(new Date().getUTCFullYear()),
       sourceType: 'MO',
+    });
+  }
+
+  async resolveExpenseAccountId(companyId: string, accountLabel: string): Promise<string> {
+    const label = accountLabel.trim();
+    const accounts = await manufacturingAccountResolverService.resolveAccounts(companyId);
+    if (!label) return accounts.overheadAbsorptionAccountId;
+
+    try {
+      return await invoiceAccountResolverService.resolvePostingAccountId(companyId, label, [
+        SYSTEM_GL_CODES.subcontractorCost,
+        SYSTEM_GL_CODES.cogs,
+      ]);
+    } catch {
+      const byName = await prisma.account.findFirst({
+        where: {
+          companyId,
+          deletedAt: null,
+          accountKind: 'POSTING',
+          OR: [
+            { arabicName: label },
+            { arabicName: { contains: label } },
+            { englishName: { contains: label } },
+          ],
+        },
+        select: { id: true },
+        orderBy: { code: 'asc' },
+      });
+      if (byName) {
+        return invoiceAccountResolverService.resolvePostingAccountId(companyId, byName.id, [
+          SYSTEM_GL_CODES.subcontractorCost,
+        ]);
+      }
+      return accounts.overheadAbsorptionAccountId;
+    }
+  }
+
+  /**
+   * Unified production JE: Cr inventory (from warehouse), Dr inventory (to) for materials,
+   * Dr expense accounts for additional BOM costs (legacy ManufactProcess parity).
+   */
+  async postUnifiedMaterialAndAdditional(
+    ctx: JournalPostingContext,
+    tx: Prisma.TransactionClient,
+    params: {
+      orderNumber: string;
+      sourceYearId?: string;
+      fromWarehouseId: string;
+      toWarehouseId: string;
+      materialCost: number;
+      additionalCosts: Array<{ accountId?: string; accountLabel?: string; value?: number }>;
+      issueDate: Date;
+      costCenterId?: string;
+    }
+  ) {
+    const material = roundTo4(params.materialCost);
+    const additionalRows = params.additionalCosts.filter((c) => (Number(c.value) || 0) > 0);
+    const additionalTotal = roundTo4(
+      additionalRows.reduce((s, c) => s + (Number(c.value) || 0), 0)
+    );
+    const totalCredit = roundTo4(material + additionalTotal);
+    if (totalCredit <= 0) {
+      throw new AppError(422, 'Material and additional costs are zero');
+    }
+
+    const [fromWh, toWh, defaultAccounts] = await Promise.all([
+      prisma.warehouse.findFirst({
+        where: { id: params.fromWarehouseId, companyId: ctx.companyId },
+        select: { inventoryAccountId: true },
+      }),
+      prisma.warehouse.findFirst({
+        where: { id: params.toWarehouseId, companyId: ctx.companyId },
+        select: { inventoryAccountId: true },
+      }),
+      manufacturingAccountResolverService.resolveAccounts(ctx.companyId),
+    ]);
+    if (!fromWh || !toWh) throw new AppError(404, 'Warehouse not found for unified production entry');
+
+    const fromInv = await manufacturingAccountResolverService.resolveWarehouseInventoryAccountId(
+      ctx.companyId,
+      fromWh.inventoryAccountId,
+      '1142'
+    );
+    const toInv = await manufacturingAccountResolverService.resolveWarehouseInventoryAccountId(
+      ctx.companyId,
+      toWh.inventoryAccountId,
+      '1141'
+    );
+
+    const cc = params.costCenterId;
+    const lines: Array<{ accountId: string; debit: number; credit: number; costCenterId?: string }> =
+      [];
+    if (material > 0) {
+      lines.push({ accountId: toInv, debit: material, credit: 0, costCenterId: cc });
+    }
+    for (const row of additionalRows) {
+      const value = roundTo4(Number(row.value) || 0);
+      const accountId =
+        row.accountId?.trim() ||
+        (await this.resolveExpenseAccountId(ctx.companyId, row.accountLabel ?? ''));
+      lines.push({ accountId, debit: value, credit: 0, costCenterId: cc });
+    }
+    lines.push({ accountId: fromInv, debit: 0, credit: totalCredit, costCenterId: cc });
+
+    const legacyGlNum = await this.allocateGlNum(ctx);
+    return journalPostingService.createAndPostInTx(tx, ctx, {
+      fiscalYearId: ctx.fiscalYearId!,
+      legacyGlNum,
+      date: params.issueDate,
+      description: `Production unified ${params.orderNumber}`,
+      currencyCode: 'EGP',
+      exchangeRate: 1,
+      entryType: 'ProdUnified',
+      sourceType: 'MO',
+      sourceNumber: `${params.orderNumber}-UNI`,
+      sourceYearId: params.sourceYearId,
+      lines: journalLines(lines),
     });
   }
 }

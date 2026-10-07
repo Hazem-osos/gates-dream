@@ -32,6 +32,7 @@ const SCREEN_TITLES: Record<string, string> = {
   '/inventory/operations/purchase-returns': 'مردود مشتريات',
   '/inventory/operations/price-quote': 'عرض سعر',
   '/inventory/operations/sales-order': 'أمر بيع',
+  '/manufacturing/operations/sales-order': 'أمر البيع (تصنيع)',
   '/inventory/operations/purchase-order': 'أمر شراء',
   '/sales/quotes': 'عرض سعر',
   '/sales/orders': 'أمر بيع',

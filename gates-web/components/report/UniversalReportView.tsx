@@ -60,6 +60,7 @@ import {
   readItemsAnalyticalSheet,
 } from '@/components/report/ItemsAnalyticalMovementSheet';
 import { StockTransferSheet } from '@/components/report/StockTransferSheet';
+import { ReportScrollViewport } from '@/components/report/ReportScrollViewport';
 
 export type UniversalReportViewProps = {
   title: string;
@@ -416,20 +417,29 @@ function ReportTable({
   });
   const totalLabelIndex = totals.findIndex((value) => value == null);
 
+  const rowSurface = (row: Record<string, unknown>, i: number) => {
+    if (row.rowKind === 'total') return 'bg-slate-100';
+    if (row.rowKind === 'opening') return 'bg-amber-50';
+    if (row.isGroup === true) return 'bg-sky-50';
+    return i % 2 === 0 ? 'bg-slate-50' : 'bg-white';
+  };
+
   return (
     <div>
-    <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white report-print-table-wrap">
+    <ReportScrollViewport className="rounded-xl border border-slate-200 bg-white report-print-table-wrap">
       <table className="w-full text-sm text-center report-print-table">
         <thead>
           <tr>
-            {columns.map((col) => {
+            {columns.map((col, colIndex) => {
               const active = filters[col.id] ? columnFilterActive(filters[col.id]) : false;
               const sortedMark = sort?.columnId === col.id ? (sort.direction === 'asc' ? '↑' : '↓') : '';
               const columnValues = valuesByColumn.get(col.id) ?? [];
               return (
                 <th
                   key={col.id}
-                  className="bg-[#1787B8] p-0 font-medium whitespace-nowrap text-white no-print:bg-[#1787B8]"
+                  className={`bg-[#1787B8] p-0 font-medium whitespace-nowrap text-white no-print:bg-[#1787B8] ${
+                    colIndex === 0 ? 'min-w-[7rem]' : ''
+                  }`}
                 >
                   {columnValues.length ? (
                     <button
@@ -493,7 +503,7 @@ function ReportTable({
                           : 'bg-white'
                 }
               >
-                {columns.map((col) => {
+                {columns.map((col, colIndex) => {
                   const raw = getRowCellValue(row, col);
                   const currency = moneyLabel
                     ? moneyLabel
@@ -546,8 +556,10 @@ function ReportTable({
                         journalBook
                           ? `border border-slate-400 px-2 py-1 text-center ${
                               col.format === 'money' ? 'text-red-600 font-medium' : 'text-slate-900'
+                            } ${colIndex === 0 ? rowSurface(row, i) : ''}`
+                          : `py-2 px-2 border-b border-slate-100 text-slate-800 ${
+                              colIndex === 0 ? rowSurface(row, i) : ''
                             }`
-                          : 'py-2 px-2 border-b border-slate-100 text-slate-800'
                       }
                     >
                       {badge ? (
@@ -620,7 +632,12 @@ function ReportTable({
                         currencyCode: currency === 'EGP' ? 'ج.م' : currency,
                       }).text;
                 return (
-                  <td key={col.id} className="border-t border-slate-300 px-2 py-2 text-slate-900">
+                  <td
+                    key={col.id}
+                    className={`border-t border-slate-300 px-2 py-2 text-slate-900 bg-slate-100 ${
+                      index === 0 ? 'min-w-[7rem]' : ''
+                    }`}
+                  >
                     {shown}
                   </td>
                 );
@@ -645,7 +662,7 @@ function ReportTable({
           }}
         />
       ) : null}
-    </div>
+    </ReportScrollViewport>
     </div>
   );
 }

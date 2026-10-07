@@ -14,12 +14,18 @@ import { reportsWorker } from './processors/reports.processor';
 import { createPdfGenerationWorker } from './processors/pdf-generation.processor';
 import { createTaxPortalSyncWorker } from './processors/tax-portal-sync.processor';
 import { createReportExportWorker } from './processors/report-export.processor';
+import { createHcmTimeWorker } from './processors/hcm-time.processor';
+import { createHcmLeaveAccrualWorker } from './processors/hcm-leave-accrual.processor';
+import { createHcmPayrollCalculateWorker } from './processors/hcm-payroll-calculate.processor';
 import { closeQueueManager } from './queue-manager';
 import { closeBullmqRedisPool } from './redis-pool';
 
 const pdfGenerationWorker = createPdfGenerationWorker();
 const taxPortalSyncWorker = createTaxPortalSyncWorker();
 const reportExportWorker = createReportExportWorker();
+const hcmTimeWorker = createHcmTimeWorker();
+const hcmLeaveAccrualWorker = createHcmLeaveAccrualWorker();
+const hcmPayrollCalculateWorker = createHcmPayrollCalculateWorker();
 
 /**
  * Initialize all workers
@@ -45,7 +51,7 @@ const initializeWorkers = () => {
 
     logger.info(
       {
-        queues: ['pdf-generation', 'tax-portal-sync', 'report-export', 'payroll', 'reports'],
+        queues: ['pdf-generation', 'tax-portal-sync', 'report-export', 'payroll', 'reports', 'hcm-time-recalc'],
       },
       'All workers started'
     );

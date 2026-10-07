@@ -38,6 +38,8 @@ const WORKSPACE_HUB_GROUPS_RAW: WorkspaceHubGroup[] = [
       { label: 'تتبع أقساط الفواتير', href: '/inventory/operations/invoice-installments' },
       { label: 'عروض الأسعار', href: '/inventory/operations/price-quote' },
       { label: 'أوامر البيع', href: '/inventory/operations/sales-order' },
+      { label: 'أمر توريد', href: '/inventory/operations/supply-order' },
+      { label: 'متابعة أوامر التوريد', href: '/inventory/reports/supply-order-follow-up' },
       { label: 'دليل العملاء والموردين', href: '/accounting/guide/customers-suppliers' },
       { label: 'مرتجعات المبيعات', href: '/inventory/operations/sales-returns' },
     ],

@@ -33,6 +33,7 @@ import {
   type ExistingItemKeys,
   type ItemImportMatchKind,
 } from '@/lib/inventory/item-import-match';
+import { resolveItemBarcode } from '@/lib/inventory/item-barcode-default';
 
 const ITEM_IMPORT_HEADERS = ['اسم الصنف', 'الوحدة', 'رقم الصنف', 'الباركود', 'سعر البيع', 'سعر الشراء'];
 const ITEM_IMPORT_SAMPLE = ['صنف تجريبي', 'قطعة', '', '', 100, 80];
@@ -373,7 +374,7 @@ export default function ImportItemsPage() {
           </div>
         </div>
         <p className="sm:col-span-2 lg:col-span-3 text-xs text-slate-500">
-          العمود المطلوب: <strong>اسم الصنف</strong>. الوحدة والسعر والباركود ورقم الصنف اختياريين — لو رقم الصنف فاضي النظام بيولّد كود تلقائي، ولو مفيش وحدة بتنزل <strong>قطعة</strong>.
+          العمود المطلوب: <strong>اسم الصنف</strong>. الوحدة والسعر والباركود ورقم الصنف اختياريين — لو رقم الصنف فاضي النظام بيولّد كود تلقائي، ولو الباركود فاضي بياخد <strong>نفس رقم الصنف</strong>، ولو مفيش وحدة بتنزل <strong>قطعة</strong>.
           النظام يقارن بالموجود بالباركود أو رقم الصنف أو نفس الاسم، والمكرر مش بيتضاف تاني.
         </p>
       </FormSectionCard>
@@ -403,7 +404,10 @@ export default function ImportItemsPage() {
                         cellOf(row, ['arabicName', 'name']),
                         cellOf(row, ['unit']) || 'قطعة',
                         cellOf(row, ['serial', 'code']) || 'تلقائي',
-                        cellOf(row, ['barcode']),
+                        resolveItemBarcode(
+                          cellOf(row, ['barcode']) || '',
+                          cellOf(row, ['serial', 'code']) || ''
+                        ) || 'نفس رقم الصنف',
                         cellOf(row, ['price', 'salesPrice']),
                         cellOf(row, ['purchasePrice']),
                         selectedGroup?.arabicName ?? 'بدون مجموعة',

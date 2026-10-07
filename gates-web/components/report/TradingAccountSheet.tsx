@@ -124,7 +124,7 @@ export function TradingAccountSheet({ query }: { query: Record<string, string> }
           طباعة
         </button>
       </div>
-      <div id="trading-account-print" className="overflow-x-auto" dir="rtl">
+      <div id="trading-account-print" className="report-scroll-viewport erp-scroll-x overflow-x-auto" dir="rtl">
         <table className="w-full border-collapse text-sm">
           <thead>
             <tr className="bg-[#1d6fb8] text-white">

@@ -69,7 +69,7 @@ export function AnalyticalInvoiceSheet({ rows, summary }: { rows: Row[]; summary
       {hiddenCount > 0 ? (
         <p className="text-xs text-slate-500">يُعرض {rows.length.toLocaleString('ar-EG')} بندًا من {num(fromSummary?.lineCount).toLocaleString('ar-EG')}.</p>
       ) : null}
-    <div className="overflow-x-auto rounded-xl border border-slate-200">
+    <div dir="rtl" className="report-scroll-viewport erp-scroll-x overflow-x-auto rounded-xl border border-slate-200">
       <table className="min-w-full border-collapse text-xs text-slate-800">
         <thead className="bg-[#0E4C6E] text-white">
           <tr>

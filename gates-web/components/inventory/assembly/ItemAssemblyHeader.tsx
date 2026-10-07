@@ -9,6 +9,11 @@ import { ItemSelect } from '@/app/components/form/ItemSelect';
 import { WarehouseSelect } from '@/app/components/form/WarehouseSelect';
 import { CostCenterSelect } from '@/app/components/form/CostCenterSelect';
 import { erpInputClass, erpLabelClass } from '@/components/erp';
+import { compactSerialControlClass } from '@/app/components/ui/forms/formTokens';
+import {
+  ASSEMBLY_PRICING_METHOD_OPTIONS,
+  type AssemblyPricingMethod,
+} from '@/lib/inventory/assembly-pricing';
 
 export type AssemblyParentOption = {
   id: string;
@@ -39,6 +44,8 @@ type Props = {
   onTargetWarehouseId: (id: string) => void;
   costCenterId: string;
   onCostCenterId: (id: string) => void;
+  pricingMethod: AssemblyPricingMethod;
+  onPricingMethod: (method: AssemblyPricingMethod) => void;
   disabled?: boolean;
   explodePending?: boolean;
   canExplode?: boolean;
@@ -73,6 +80,8 @@ export function ItemAssemblyHeader({
   onTargetWarehouseId,
   costCenterId,
   onCostCenterId,
+  pricingMethod,
+  onPricingMethod,
   disabled,
   explodePending,
   canExplode,
@@ -115,7 +124,7 @@ export function ItemAssemblyHeader({
             type="button"
             size="sm"
             variant="outline"
-            disabled={!canExplode || explodePending || disabled}
+            disabled={!canExplode || explodePending}
             className="gap-1.5 border-primary/30 bg-primary/10 font-semibold text-primary shadow-sm hover:bg-primary/20"
             onClick={onExplode}
           >
@@ -141,7 +150,7 @@ export function ItemAssemblyHeader({
                 value={docNumber}
                 placeholder={serialPlaceholder}
                 onChange={(e) => onSerialChange?.(e.target.value)}
-                className={erpInputClass}
+                className={compactSerialControlClass}
               />
             </div>
             <DatePickerWithHijri label="التاريخ" value={date} onChange={onDate} disabled={disabled} />
@@ -167,7 +176,7 @@ export function ItemAssemblyHeader({
                 disabled={disabled}
                 value={assemblyQuantity || ''}
                 onChange={(e) => onAssemblyQuantity(Math.max(1, Number(e.target.value) || 1))}
-                className={`${erpInputClass} text-center font-mono font-bold`}
+                className={`${erpInputClass} h-9 text-center text-base font-semibold tabular-nums`}
                 placeholder="الكمية"
               />
             </div>
@@ -215,6 +224,21 @@ export function ItemAssemblyHeader({
                 disabled={disabled}
                 emptyLabel="مركز التكلفة..."
               />
+            </div>
+            <div>
+              <label className={erpLabelClass}>طريقة التسعير</label>
+              <select
+                className={erpInputClass}
+                disabled={disabled}
+                value={pricingMethod}
+                onChange={(e) => onPricingMethod(e.target.value as AssemblyPricingMethod)}
+              >
+                {ASSEMBLY_PRICING_METHOD_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
             </div>
           </>
         }

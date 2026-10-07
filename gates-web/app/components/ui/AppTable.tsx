@@ -239,7 +239,7 @@ export function AppTable<T extends object>({
     (exportFileName ? appTableColumnsToExport(columns) : undefined);
 
   const renderCells = (row: T, rowIndex: number) =>
-    columns.map((col) => {
+    columns.map((col, colIndex) => {
       let content: React.ReactNode;
       if (col.cell) {
         content = col.cell(row, rowIndex);
@@ -257,6 +257,10 @@ export function AppTable<T extends object>({
             col.align === 'center' && 'text-center',
             col.align !== 'end' && col.align !== 'center' && 'text-right',
             col.numeric && 'min-w-[100px] tabular-nums',
+            stickyHeader &&
+              colIndex === 0 &&
+              'sticky right-0 z-[11] shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.08)]',
+            stickyHeader && colIndex === 0 && (rowIndex % 2 === 1 ? 'bg-[#F3F9FC]' : 'bg-white'),
             col.className
           )}
         >
@@ -273,7 +277,7 @@ export function AppTable<T extends object>({
       )}
     >
       <tr>
-        {columns.map((col) => {
+        {columns.map((col, colIndex) => {
           const sortable = columnSortable(col);
           const active = sort?.id === col.id;
           const columnValues = valuesByColumn.get(col.id) ?? [];
@@ -284,6 +288,7 @@ export function AppTable<T extends object>({
             aria-sort={active ? (sort?.dir === 'asc' ? 'ascending' : 'descending') : 'none'}
             className={cn(
               'px-3 text-xs font-semibold tracking-wider whitespace-nowrap border-e border-white/20 last:border-e-0',
+              stickyHeader && colIndex === 0 && 'sticky right-0 z-[40] min-w-[6rem]',
               col.align === 'end' && 'text-left',
               col.align === 'center' && 'text-center',
               col.align !== 'end' && col.align !== 'center' && 'text-right',
@@ -422,9 +427,10 @@ export function AppTable<T extends object>({
       ) : null}
       <div
         ref={useVirtual ? parentRef : undefined}
+        dir="rtl"
         className={cn(
           'erp-scroll-x min-w-0 w-full max-w-full overflow-x-scroll rounded-lg border border-[#D6EAF3] bg-white',
-          useVirtual && 'max-h-[480px] overflow-y-auto'
+          stickyHeader && 'report-scroll-viewport'
         )}
       >
         <table className="w-max min-w-full border-collapse text-sm">

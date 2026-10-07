@@ -43,6 +43,14 @@ router.post(
   async (req: AuthRequest, res: Response) => {
     const companyId = req.companyId || req.tenantId;
     if (!companyId) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
+    res.setHeader('Deprecation', 'true');
+    res.setHeader('Link', '</api/v1/hr/time>; rel="successor-version"');
+    if (req.body.kind === 'shift') {
+      return void res.status(410).json({
+        status: 'error',
+        message: 'Legacy shift writes are disabled. Use /api/v1/hr/time/shifts.',
+      });
+    }
     const row = await prisma.hrAttendanceRecord.create({
       data: {
         companyId,

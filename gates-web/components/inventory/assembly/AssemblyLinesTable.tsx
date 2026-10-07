@@ -5,7 +5,10 @@ import { Trash2 } from 'lucide-react';
 import { ItemSelect } from '@/app/components/form/ItemSelect';
 import { UniversalDataGrid } from '@/components/ui/data-entry-grid';
 import { TableNumberInput } from '@/components/grid/TableNumberInput';
-import { dataEntryGridInputClass } from '@/components/ui/data-entry-grid/tokens';
+import {
+  dataEntryGridInputClass,
+  dataEntryGridNumericInputClass,
+} from '@/components/ui/data-entry-grid/tokens';
 import {
   ASSEMBLY_LINE_FIELD_ORDER,
   handleLineGridKeyDown,
@@ -22,11 +25,16 @@ import {
   type AssemblyComponentLine,
 } from './assembly-line-types';
 import { seedLineDescription, useFollowHeaderDescription } from '@/lib/hooks/useFollowHeaderDescription';
+import {
+  resolveAssemblyUnitCost,
+  type AssemblyPricingMethod,
+} from '@/lib/inventory/assembly-pricing';
 
 type Props = {
   lines: AssemblyComponentLine[];
   onChange: (lines: AssemblyComponentLine[]) => void;
   warehouseId?: string;
+  pricingMethod: AssemblyPricingMethod;
   disabled?: boolean;
   headerDescription?: string;
 };
@@ -39,9 +47,11 @@ export function AssemblyLinesTable({
   lines,
   onChange,
   warehouseId,
+  pricingMethod,
   disabled,
   headerDescription = '',
 }: Props) {
+  const unitCostReadOnly = pricingMethod !== 'MANUAL';
   const gridId = 'assembly-components';
   const wrapRef = useRef<HTMLDivElement>(null);
   const pasteFieldRef = useRef('quantity');
@@ -126,10 +136,10 @@ export function AssemblyLinesTable({
           { id: 'itemName', label: 'صنف المكون (المادة الخام)', className: 'min-w-[220px]' },
           { id: 'notes', label: 'البيان', className: 'min-w-[140px]' },
           { id: 'unitName', label: 'الوحدة', className: 'w-24', align: 'center' },
-          { id: 'available', label: 'الكمية المتاحة', className: 'w-28', align: 'center' },
-          { id: 'quantity', label: 'الكمية المطلوبة', className: 'w-28', align: 'left' },
-          { id: 'unitCost', label: 'تكلفة الوحدة', className: 'w-28', align: 'left' },
-          { id: 'total', label: 'إجمالي التكلفة', className: 'w-28', align: 'left' },
+          { id: 'available', label: 'الكمية المتاحة', className: 'min-w-[6.5rem] w-[6.5rem]', align: 'center' },
+          { id: 'quantity', label: 'الكمية المطلوبة', className: 'min-w-[8rem] w-[8rem]', align: 'left' },
+          { id: 'unitCost', label: 'تكلفة الوحدة', className: 'min-w-[8rem] w-[8rem]', align: 'left' },
+          { id: 'total', label: 'إجمالي التكلفة', className: 'min-w-[9rem] w-[9rem]', align: 'left' },
           { id: 'action', label: 'إجراء', className: 'w-12', align: 'center' },
         ]}
         rowCount={Math.max(lines.length, 1)}
@@ -177,7 +187,7 @@ export function AssemblyLinesTable({
                     itemName: item.arabicName,
                     unitId: unit?.unitId || unit?.unit?.id || '',
                     unitName: unit?.unit?.arabicName || '',
-                    unitCost: line.unitCost || Number(catalog.averageCost) || 0,
+                    unitCost: resolveAssemblyUnitCost(pricingMethod, catalog),
                     availableQuantity: availableFromItemOption(catalog) ?? 0,
                   };
                   updateLine(index, patch);
@@ -217,10 +227,11 @@ export function AssemblyLinesTable({
           }
           if (columnId === 'quantity' || columnId === 'unitCost') {
             const value = columnId === 'quantity' ? line.quantity : line.unitCost;
+            const costLocked = columnId === 'unitCost' && unitCostReadOnly;
             return (
               <TableNumberInput
-                disabled={disabled}
-                className={`${dataEntryGridInputClass} text-end font-mono font-bold`}
+                disabled={disabled || costLocked}
+                className={dataEntryGridNumericInputClass}
                 value={value}
                 onValueCommit={(n) => updateLine(index, { [columnId]: n })}
                 onKeyDown={(e) => onCellKeyDown(e, index)}
@@ -230,7 +241,7 @@ export function AssemblyLinesTable({
           }
           if (columnId === 'total') {
             return (
-              <span className="block px-2 text-end font-mono text-xs font-semibold text-muted-foreground">
+              <span className="block px-2 text-end text-sm font-semibold tabular-nums text-[#094C6B]">
                 {formatMoney(assemblyLineTotal(line))}
               </span>
             );

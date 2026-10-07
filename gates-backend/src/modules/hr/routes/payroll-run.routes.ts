@@ -8,6 +8,9 @@ import { isAdminRequest } from '../../../shared/auth/roles.util';
 import { journalEntryService } from '../../accounting/services/journal-entry.service';
 import { payrollEngineService } from '../services/payroll-engine.service';
 import { payrollPostingService } from '../services/payroll-posting.service';
+import { payrollWorkflowService } from '../services/payroll/payroll-workflow.service';
+import { hcmPayrollCalculateQueue } from '../../../workers/queues/hcm-payroll-calculate.queue';
+import { randomUUID } from 'crypto';
 
 const router = Router();
 
@@ -27,8 +30,63 @@ function postingContext(req: AuthRequest) {
 }
 
 router.post(
+  '/calculate-async',
+  authorize({ resource: 'payroll', action: 'calculate' }),
+  async (req: AuthRequest, res: Response) => {
+    const companyId = req.companyId ?? req.tenantId;
+    if (!companyId) {
+      return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
+    }
+    const { periodMonth, periodYear, idempotencyKey } = req.body as {
+      periodMonth: number;
+      periodYear: number;
+      idempotencyKey?: string;
+    };
+    const key = idempotencyKey ?? randomUUID();
+    const job = await hcmPayrollCalculateQueue.add(
+      'calculate',
+      {
+        companyId,
+        periodYear: Number(periodYear),
+        periodMonth: Number(periodMonth),
+        requestedBy: req.user?.sub,
+        idempotencyKey: key,
+      },
+      { jobId: `${companyId}:${periodYear}:${periodMonth}:${key}` }
+    );
+    return void res.status(202).json({
+      status: 'success',
+      data: { jobId: job.id, idempotencyKey: key, queue: 'hcm-payroll-calculate' },
+    });
+  }
+);
+
+router.get(
+  '/calculate-async/:jobId',
+  authorize({ resource: 'payroll', action: 'view' }),
+  async (req: AuthRequest, res: Response) => {
+    const job = await hcmPayrollCalculateQueue.getJob(req.params.jobId);
+    if (!job) {
+      return void res.status(404).json({ status: 'error', message: 'Job not found' });
+    }
+    const state = await job.getState();
+    const progress = job.progress;
+    return void res.json({
+      status: 'success',
+      data: {
+        jobId: job.id,
+        state,
+        progress,
+        result: job.returnvalue,
+        failedReason: job.failedReason,
+      },
+    });
+  }
+);
+
+router.post(
   '/',
-  authorize({ resource: 'payroll', action: 'edit' }),
+  authorize({ resource: 'payroll', action: 'calculate' }),
   async (req: AuthRequest, res: Response) => {
     const companyId = req.companyId ?? req.tenantId;
     if (!companyId) {
@@ -76,8 +134,29 @@ router.get(
 );
 
 router.post(
+  '/:id/approve',
+  authorize({ resource: 'payroll', action: 'approve' }),
+  async (req: AuthRequest, res: Response) => {
+    const companyId = req.companyId ?? req.tenantId;
+    if (!companyId) {
+      return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
+    }
+    try {
+      const data = await payrollWorkflowService.approveRun(companyId, req.params.id, req.user?.sub ?? 'system');
+      return void res.json({ status: 'success', data });
+    } catch (e) {
+      const status = e instanceof AppError ? e.statusCode : 500;
+      return void res.status(status).json({
+        status: 'error',
+        message: e instanceof Error ? e.message : 'Approve failed',
+      });
+    }
+  }
+);
+
+router.post(
   '/:id/post-accrual',
-  authorize({ resource: 'payroll', action: 'edit' }),
+  authorize({ resource: 'payroll', action: 'post' }),
   async (req: AuthRequest, res: Response) => {
     try {
       const ctx = postingContext(req);
@@ -98,7 +177,7 @@ router.post(
 
 router.post(
   '/:id/unpost-accrual',
-  authorize({ resource: 'payroll', action: 'edit' }),
+  authorize({ resource: 'payroll', action: 'post' }),
   async (req: AuthRequest, res: Response) => {
     try {
       const ctx = postingContext(req);
@@ -119,7 +198,7 @@ router.post(
 
 router.post(
   '/:id/disburse',
-  authorize({ resource: 'payroll', action: 'edit' }),
+  authorize({ resource: 'payroll', action: 'pay' }),
   async (req: AuthRequest, res: Response) => {
     try {
       const ctx = postingContext(req);
@@ -143,7 +222,7 @@ router.post(
 
 router.post(
   '/:id/unpost-disbursement',
-  authorize({ resource: 'payroll', action: 'edit' }),
+  authorize({ resource: 'payroll', action: 'pay' }),
   async (req: AuthRequest, res: Response) => {
     try {
       const ctx = postingContext(req);

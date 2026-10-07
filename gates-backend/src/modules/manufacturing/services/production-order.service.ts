@@ -7,40 +7,183 @@ import { itemCostService } from '../../inventory/services/item-cost.service';
 import { stockMovementService } from '../../inventory/services/stock-movement.service';
 import { bomService } from './bom.service';
 import { manufacturingCostingService } from './manufacturing-costing.service';
+import { resolveManufacturingOrderNumberInTx } from './manufacturing-order-numbering.service';
+import { materialRequirementsFromProcessMetadata } from '../utils/production-order-material-requirements';
+import {
+  assertProductionOrderQuantityWithinWorkOrderCap,
+  markWorkOrderInProgressIfNeeded,
+} from '../utils/work-order-progress';
 
 export interface CreateProductionOrderInput {
   orderNumber: string;
   bomId: string;
+  manufacturingWorkOrderId?: string | null;
   plannedQuantity: number;
   warehouseIdRaw: string;
   warehouseIdFinished: string;
   branchId?: string;
   fiscalYearId?: string;
   sourceYearId?: string;
+  processMetadata?: Record<string, unknown>;
 }
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function productionOrderCostCenterId(
+  processMetadata: Record<string, unknown> | null | undefined
+): string | undefined {
+  const raw = processMetadata?.costCenter;
+  if (typeof raw !== 'string') return undefined;
+  const id = raw.trim();
+  return UUID_RE.test(id) ? id : undefined;
+}
+
+async function assertWorkOrderLink(
+  companyId: string,
+  manufacturingWorkOrderId: string | null | undefined,
+  bomId: string
+) {
+  if (!manufacturingWorkOrderId) return;
+  const wo = await prisma.manufacturingWorkOrder.findFirst({
+    where: { id: manufacturingWorkOrderId, companyId },
+    select: { id: true, bomId: true, status: true, processMetadata: true },
+  });
+  if (!wo) throw new AppError(404, 'أمر التشغيل غير موجود');
+  if (wo.status === 'CANCELLED') {
+    throw new AppError(422, 'لا يمكن ربط أمر تصنيع بأمر تشغيل ملغي');
+  }
+  if (wo.status === 'COMPLETED' || wo.status === 'CLOSED') {
+    throw new AppError(422, 'أمر الشغل منتهي أو مغلق — لا يمكن إنشاء أوامر تصنيع جديدة');
+  }
+  const meta = wo.processMetadata as { bomPlans?: Array<{ bomId?: string }> } | null;
+  const allowed = new Set<string>();
+  if (wo.bomId) allowed.add(wo.bomId);
+  for (const row of meta?.bomPlans ?? []) {
+    if (row.bomId?.trim()) allowed.add(row.bomId.trim());
+  }
+  if (allowed.size > 0 && !allowed.has(bomId)) {
+    throw new AppError(422, 'نموذج التصنيع غير مرتبط بالتخطيط الإنتاجي / أمر الشغل');
+  }
+}
+
+export type UpdateProductionOrderInput = CreateProductionOrderInput;
 
 export class ProductionOrderService {
   async create(companyId: string, input: CreateProductionOrderInput) {
     const bom = await bomService.getById(companyId, input.bomId);
+    await assertWorkOrderLink(companyId, input.manufacturingWorkOrderId, bom.id);
+    if (input.plannedQuantity <= 0) {
+      throw new AppError(422, 'Planned quantity must be positive');
+    }
+    if (input.manufacturingWorkOrderId) {
+      await assertProductionOrderQuantityWithinWorkOrderCap(
+        companyId,
+        input.manufacturingWorkOrderId,
+        bom.id,
+        input.plannedQuantity
+      );
+    }
+
+    const created = await prisma.$transaction(async (tx) => {
+      const orderNumber = await resolveManufacturingOrderNumberInTx(tx, {
+        companyId,
+        branchId: input.branchId ?? null,
+        fiscalYearId: input.fiscalYearId ?? null,
+        clientSerial: input.orderNumber,
+      });
+
+      return tx.productionOrder.create({
+        data: {
+          companyId,
+          branchId: input.branchId,
+          fiscalYearId: input.fiscalYearId,
+          sourceYearId: input.sourceYearId,
+          orderNumber,
+          bomId: bom.id,
+          manufacturingWorkOrderId: input.manufacturingWorkOrderId ?? undefined,
+          finishedItemId: bom.finishedItemId,
+          plannedQuantity: new Decimal(input.plannedQuantity),
+          warehouseIdRaw: input.warehouseIdRaw,
+          warehouseIdFinished: input.warehouseIdFinished,
+          processMetadata: input.processMetadata ?? undefined,
+          status: 'RELEASED',
+          releasedAt: new Date(),
+        },
+        include: { bom: { include: { lines: true } } },
+      });
+    });
+    if (input.manufacturingWorkOrderId) {
+      await markWorkOrderInProgressIfNeeded(companyId, input.manufacturingWorkOrderId);
+    }
+    return created;
+  }
+
+  async update(companyId: string, orderId: string, input: UpdateProductionOrderInput) {
+    const order = await this.getById(companyId, orderId);
+    if (order.status === 'CANCELLED') {
+      throw new AppError(422, 'لا يمكن تعديل أمر ملغي');
+    }
+    if (
+      order.materialsIssueJournalEntryId ||
+      order.status === 'IN_PROGRESS' ||
+      order.status === 'COMPLETED'
+    ) {
+      throw new AppError(
+        422,
+        'لا يمكن تعديل أمر بعد بدء التنفيذ — ألغِ صرف الخامات أولاً إن احتجت التعديل'
+      );
+    }
     if (input.plannedQuantity <= 0) {
       throw new AppError(422, 'Planned quantity must be positive');
     }
 
-    return prisma.productionOrder.create({
-      data: {
+    const bom = await bomService.getById(companyId, input.bomId);
+    await assertWorkOrderLink(companyId, input.manufacturingWorkOrderId, bom.id);
+    if (input.manufacturingWorkOrderId) {
+      await assertProductionOrderQuantityWithinWorkOrderCap(
         companyId,
-        branchId: input.branchId,
-        fiscalYearId: input.fiscalYearId,
-        sourceYearId: input.sourceYearId,
-        orderNumber: input.orderNumber,
-        bomId: bom.id,
-        finishedItemId: bom.finishedItemId,
-        plannedQuantity: new Decimal(input.plannedQuantity),
-        warehouseIdRaw: input.warehouseIdRaw,
-        warehouseIdFinished: input.warehouseIdFinished,
-        status: 'DRAFT',
-      },
-      include: { bom: { include: { lines: true } } },
+        input.manufacturingWorkOrderId,
+        bom.id,
+        input.plannedQuantity,
+        orderId
+      );
+    }
+    const orderNumber = input.orderNumber?.trim();
+    if (!orderNumber) {
+      throw new AppError(422, 'رقم الأمر مطلوب');
+    }
+
+    return prisma.$transaction(async (tx) => {
+      const clash = await tx.productionOrder.findFirst({
+        where: {
+          companyId,
+          orderNumber,
+          id: { not: orderId },
+        },
+        select: { id: true },
+      });
+      if (clash) {
+        throw new AppError(409, 'رقم الأمر مستخدم مسبقاً');
+      }
+
+      return tx.productionOrder.update({
+        where: { id: orderId },
+        data: {
+          orderNumber,
+          bomId: bom.id,
+          manufacturingWorkOrderId: input.manufacturingWorkOrderId ?? undefined,
+          finishedItemId: bom.finishedItemId,
+          plannedQuantity: new Decimal(input.plannedQuantity),
+          warehouseIdRaw: input.warehouseIdRaw,
+          warehouseIdFinished: input.warehouseIdFinished,
+          processMetadata: input.processMetadata ?? undefined,
+        },
+        include: {
+          bom: { include: { lines: true } },
+          finishedItem: { select: { id: true, arabicName: true, serial: true } },
+        },
+      });
     });
   }
 
@@ -51,6 +194,9 @@ export class ProductionOrderService {
         bom: { include: { lines: true } },
         materialIssues: { include: { lines: true } },
         finishedItem: { select: { id: true, arabicName: true } },
+        manufacturingWorkOrder: {
+          select: { id: true, orderNumber: true, status: true, modelQuantity: true },
+        },
       },
     });
     if (!order) throw new AppError(404, 'Production order not found');
@@ -114,17 +260,27 @@ export class ProductionOrderService {
 
   async issueMaterials(ctx: JournalPostingContext, orderId: string) {
     const order = await this.getById(ctx.companyId, orderId);
-    if (order.status !== 'RELEASED' && order.status !== 'IN_PROGRESS') {
-      throw new AppError(400, 'Order must be RELEASED to issue materials');
+    if (order.status === 'COMPLETED' || order.status === 'CANCELLED') {
+      throw new AppError(422, 'لا يمكن بدء تنفيذ أمر منتهي أو ملغي');
+    }
+    if (order.status === 'DRAFT') {
+      await prisma.productionOrder.update({
+        where: { id: orderId },
+        data: { status: 'RELEASED', releasedAt: new Date() },
+      });
+    } else if (order.status !== 'RELEASED' && order.status !== 'IN_PROGRESS') {
+      throw new AppError(400, 'Order must be confirmed before issuing materials');
     }
     if (order.materialsIssueJournalEntryId) {
       throw new AppError(409, 'Materials already issued for this order');
     }
 
-    const requirements = await bomService.explodeRequirements(
-      order.bomId,
-      Number(order.plannedQuantity)
+    const fromSnapshot = materialRequirementsFromProcessMetadata(
+      order.processMetadata as { rawLinesSnapshot?: Array<{ rawItemId?: string; quantity?: number }> } | null
     );
+    const requirements =
+      fromSnapshot ??
+      (await bomService.explodeRequirements(order.bomId, Number(order.plannedQuantity)));
     const issueDate = new Date();
     const issueLines: Array<{
       rawItemId: string;
@@ -169,12 +325,37 @@ export class ProductionOrderService {
         });
       }
 
-      const je = await manufacturingCostingService.postMaterialIssue(ctx, tx, {
-        orderNumber: order.orderNumber,
-        sourceYearId: order.sourceYearId ?? undefined,
-        totalMaterialCost,
-        issueDate,
-      });
+      const meta = order.processMetadata as {
+        additionalCosts?: Array<{ accountId?: string; accountLabel?: string; value?: number }>;
+      } | null;
+      const additionalCosts = (meta?.additionalCosts ?? []).filter(
+        (c) =>
+          (Number(c.value) || 0) > 0 &&
+          Boolean(c.accountId?.trim() || c.accountLabel?.trim())
+      );
+      const useUnified = additionalCosts.length > 0;
+      const costCenterId = productionOrderCostCenterId(
+        order.processMetadata as Record<string, unknown> | null
+      );
+
+      const je = useUnified
+        ? await manufacturingCostingService.postUnifiedMaterialAndAdditional(ctx, tx, {
+            orderNumber: order.orderNumber,
+            sourceYearId: order.sourceYearId ?? undefined,
+            fromWarehouseId: order.warehouseIdRaw,
+            toWarehouseId: order.warehouseIdFinished,
+            materialCost: totalMaterialCost,
+            additionalCosts,
+            issueDate,
+            costCenterId,
+          })
+        : await manufacturingCostingService.postMaterialIssue(ctx, tx, {
+            orderNumber: order.orderNumber,
+            sourceYearId: order.sourceYearId ?? undefined,
+            totalMaterialCost,
+            issueDate,
+            costCenterId,
+          });
 
       const issue = await tx.productionMaterialIssue.create({
         data: {
@@ -200,6 +381,7 @@ export class ProductionOrderService {
           status: 'IN_PROGRESS',
           totalMaterialCost: new Decimal(totalMaterialCost),
           materialsIssueJournalEntryId: je.id,
+          ...(useUnified ? { additionalCostsJournalEntryId: je.id } : {}),
         },
         include: { materialIssues: { include: { lines: true } } },
       });
@@ -221,6 +403,9 @@ export class ProductionOrderService {
     }
 
     const postingDate = new Date();
+    const costCenterId = productionOrderCostCenterId(
+      order.processMetadata as Record<string, unknown> | null
+    );
     return prisma.$transaction(async (tx) => {
       const je = await manufacturingCostingService.postLaborOverhead(ctx, tx, {
         orderNumber: order.orderNumber,
@@ -228,6 +413,7 @@ export class ProductionOrderService {
         laborCost,
         overheadCost,
         postingDate,
+        costCenterId,
       });
 
       return tx.productionOrder.update({
@@ -421,6 +607,7 @@ export class ProductionOrderService {
           status: 'RELEASED',
           totalMaterialCost: new Decimal(0),
           materialsIssueJournalEntryId: null,
+          additionalCostsJournalEntryId: null,
         },
       });
     });

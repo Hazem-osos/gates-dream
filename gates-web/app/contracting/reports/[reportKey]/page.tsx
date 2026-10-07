@@ -1,120 +1,81 @@
 'use client';
 
-import { useMemo, useState } from 'react';
 import Link from 'next/link';
+import { useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
-import { ReportFilterPageShell, ReportFilterSection, ReportFilterField } from '@/components/report/reportFilterFields';
-import { useApiQuery } from '@/lib/hooks/useApi';
+import { PartySelect } from '@/app/components/form/PartySelect';
+import { ContractingReportChrome } from '@/components/contracting/ContractingReportChrome';
+import { ContractingReportResults } from '@/components/contracting/ContractingReportResults';
+import {
+  ReportFilterDate,
+  ReportFilterField,
+  ReportFilterPageShell,
+  ReportFilterSection,
+  ReportFilterSelect,
+} from '@/components/report/reportFilterFields';
+import { reportDefaultDateRange } from '@/lib/reports/reportDefaultDates';
 import { CONTRACTING_REPORT_CONFIG } from '@/lib/contracting/reports-config';
-import { formatEgp } from '@/lib/subcontracts/money';
+import { useApiQuery } from '@/lib/hooks/useApi';
 
 type ProjectRow = { id: string; projectCode: string; projectName: string };
+type SubcontractorRow = { id: string; arabicName: string; code?: string | null };
 
-function isPlainObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === 'object' && v !== null && !Array.isArray(v);
-}
-
-function MetricGrid({ data }: { data: Record<string, unknown> }) {
-  const entries = Object.entries(data).filter(([, v]) => typeof v === 'number' || typeof v === 'string');
-  return (
-    <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-      {entries.map(([k, v]) => (
-        <div key={k} className="rounded-xl border bg-[var(--info-soft)] p-3 text-sm">
-          <p className="text-xs text-muted-foreground">{k}</p>
-          <p className="font-bold tabular-nums text-brand">
-            {typeof v === 'number' ? formatEgp(v) : String(v)}
-          </p>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function JsonTable({ rows }: { rows: Record<string, unknown>[] }) {
-  if (!rows.length) {
-    return <p className="text-sm text-muted-foreground">لا توجد بيانات للمعايير المحددة.</p>;
+function buildApiPath(
+  config: (typeof CONTRACTING_REPORT_CONFIG)[string],
+  ids: { projectId: string; customerId: string; subcontractorId: string }
+): string {
+  if (typeof config.apiPath === 'function') {
+    return config.apiPath(ids);
   }
-  const cols = Object.keys(rows[0]).slice(0, 12);
-  return (
-    <div className="overflow-x-auto rounded-2xl border">
-      <table className="min-w-full text-xs">
-        <thead className="bg-[var(--info-soft)]">
-          <tr>
-            {cols.map((c) => (
-              <th key={c} className="px-2 py-2 text-right font-bold">
-                {c}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.slice(0, 500).map((row, i) => (
-            <tr key={i} className="border-t">
-              {cols.map((c) => (
-                <td key={c} className="px-2 py-1.5 tabular-nums">
-                  {formatCell(row[c])}
-                </td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
+  return config.apiPath;
 }
 
-function formatCell(v: unknown): string {
-  if (v == null) return '—';
-  if (typeof v === 'number') return formatEgp(v);
-  if (typeof v === 'boolean') return v ? 'نعم' : 'لا';
-  if (typeof v === 'object') return JSON.stringify(v).slice(0, 80);
-  return String(v);
+function buildQueryParams(
+  config: (typeof CONTRACTING_REPORT_CONFIG)[string],
+  filters: {
+    projectId: string;
+    customerId: string;
+    subcontractorId: string;
+    dateFrom: string;
+    dateTo: string;
+  }
+): Record<string, string> {
+  const q: Record<string, string> = {};
+  if (filters.dateFrom) q.dateFrom = filters.dateFrom;
+  if (filters.dateTo) q.dateTo = filters.dateTo;
+
+  const projectInPath = typeof config.apiPath === 'function' && config.needsProject;
+  const customerInPath = typeof config.apiPath === 'function' && config.needsCustomer;
+  const subcontractorInPath = typeof config.apiPath === 'function' && config.needsSubcontractor;
+
+  if (filters.projectId && !projectInPath) q.projectId = filters.projectId;
+  if (filters.customerId && !customerInPath) q.customerId = filters.customerId;
+  if (filters.subcontractorId && !subcontractorInPath) q.subcontractorId = filters.subcontractorId;
+
+  return q;
 }
 
-function extractRows(data: unknown): Record<string, unknown>[] {
-  if (!data || typeof data !== 'object') return [];
-  const d = data as Record<string, unknown>;
-  if (Array.isArray(d.items)) return d.items as Record<string, unknown>[];
-  if (Array.isArray(data)) return data as Record<string, unknown>[];
-  return [];
-}
+const defaultFilters = () => ({
+  ...reportDefaultDateRange(),
+  projectId: '',
+  customerId: '',
+  subcontractorId: '',
+});
 
 export default function ContractingReportPage() {
   const params = useParams<{ reportKey: string }>();
   const key = params.reportKey;
   const config = CONTRACTING_REPORT_CONFIG[key];
 
-  const [projectId, setProjectId] = useState('');
-  const [customerId, setCustomerId] = useState('');
-  const [subcontractorId, setSubcontractorId] = useState('');
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
+  const [filters, setFilters] = useState(defaultFilters);
+  const [preview, setPreview] = useState<{
+    apiPath: string;
+    queryParams: Record<string, string>;
+  } | null>(null);
+  const [error, setError] = useState('');
 
-  const queryParams = useMemo(() => {
-    const q: Record<string, string> = {};
-    if (projectId) q.projectId = projectId;
-    if (customerId) q.customerId = customerId;
-    if (subcontractorId) q.subcontractorId = subcontractorId;
-    if (dateFrom) q.dateFrom = dateFrom;
-    if (dateTo) q.dateTo = dateTo;
-    return q;
-  }, [projectId, customerId, subcontractorId, dateFrom, dateTo]);
-
-  const apiPath = useMemo(() => {
-    if (!config) return '';
-    const base =
-      typeof config.apiPath === 'function'
-        ? config.apiPath({ projectId, customerId, subcontractorId })
-        : config.apiPath;
-    const qs = new URLSearchParams(queryParams).toString();
-    return qs ? `${base}?${qs}` : base;
-  }, [config, projectId, customerId, subcontractorId, queryParams]);
-
-  const enabled =
-    Boolean(config) &&
-    (!config?.needsProject || Boolean(projectId)) &&
-    (!config?.needsCustomer || Boolean(customerId)) &&
-    (!config?.needsSubcontractor || Boolean(subcontractorId));
+  const patch = (p: Partial<ReturnType<typeof defaultFilters>>) =>
+    setFilters((prev) => ({ ...prev, ...p }));
 
   const projectsQ = useApiQuery<ProjectRow[]>(
     ['contracting-projects-report-filter'],
@@ -124,143 +85,138 @@ export default function ContractingReportPage() {
   );
   const projects = projectsQ.data?.data ?? [];
 
-  const q = useApiQuery<unknown>(
-    ['contracting-report', key, apiPath],
-    apiPath,
-    queryParams,
-    { enabled: enabled && Boolean(apiPath) }
+  const subcontractorsQ = useApiQuery<SubcontractorRow[]>(
+    ['contracting-report-subcontractors'],
+    '/subcontracts/directory/subcontractors',
+    { limit: 300 },
+    { enabled: Boolean(config?.needsSubcontractor) }
   );
+  const subcontractors = subcontractorsQ.data?.data ?? [];
+
+  const projectOptions = useMemo(
+    () => projects.map((p) => ({ value: p.id, label: `${p.projectCode} — ${p.projectName}` })),
+    [projects]
+  );
+
+  const subcontractorOptions = useMemo(
+    () =>
+      subcontractors.map((s) => ({
+        value: s.id,
+        label: s.code ? `[${s.code}] ${s.arabicName}` : s.arabicName,
+      })),
+    [subcontractors]
+  );
+
+  const showProjectFilter =
+    config &&
+    ((config.needsProject || !config.needsCustomer) && !config.needsSubcontractor);
+
+  const handlePreview = () => {
+    if (!config) return;
+    setError('');
+    if (config.needsProject && !filters.projectId) {
+      setError('اختر المشروع');
+      return;
+    }
+    if (config.needsCustomer && !filters.customerId) {
+      setError('اختر العميل');
+      return;
+    }
+    if (config.needsSubcontractor && !filters.subcontractorId) {
+      setError('اختر مقاول الباطن');
+      return;
+    }
+    if (config.dateRange && (!filters.fromDate || !filters.toDate)) {
+      setError('حدد من تاريخ وإلى تاريخ');
+      return;
+    }
+
+    const apiPath = buildApiPath(config, {
+      projectId: filters.projectId,
+      customerId: filters.customerId,
+      subcontractorId: filters.subcontractorId,
+    });
+    const queryParams = buildQueryParams(config, {
+      projectId: filters.projectId,
+      customerId: filters.customerId,
+      subcontractorId: filters.subcontractorId,
+      dateFrom: filters.fromDate,
+      dateTo: filters.toDate,
+    });
+
+    setPreview({ apiPath, queryParams });
+  };
 
   if (!config) {
     return (
       <ReportFilterPageShell title="تقرير غير معروف">
-        <Link href="/contracting/reports" className="text-brand underline">
+        <Link href="/contracting/reports" className="text-[#0E78AA] underline">
           العودة لمركز التقارير
         </Link>
       </ReportFilterPageShell>
     );
   }
 
-  const data = q.data?.data;
-  const rows = extractRows(data);
-  const portfolio =
-    key === 'management-dashboard' && isPlainObject(data) && isPlainObject(data.portfolio)
-      ? (data.portfolio as Record<string, unknown>)
-      : null;
-
   return (
-    <ReportFilterPageShell
+    <ContractingReportChrome
       title={config.titleAr}
-      breadcrumbs={[
-        { href: '/extracts', label: 'المستخلصات' },
-        { href: '/contracting', label: 'المقاولات' },
-        { href: '/contracting/reports', label: 'التقارير' },
-        { label: config.titleAr },
-      ]}
-      headerActions={
-        <button
-          type="button"
-          className="rounded-xl border px-3 py-2 text-sm font-bold"
-          onClick={() => window.print()}
-        >
-          طباعة
-        </button>
+      onPreview={handlePreview}
+      onReset={() => {
+        setFilters(defaultFilters());
+        setPreview(null);
+        setError('');
+      }}
+      error={error}
+      onClearError={() => setError('')}
+      below={
+        preview ? (
+          <ContractingReportResults
+            reportKey={key}
+            apiPath={preview.apiPath}
+            queryParams={preview.queryParams}
+          />
+        ) : null
       }
     >
       <ReportFilterSection title="تصفية">
-        {(config.needsProject || !config.needsCustomer) && !config.needsSubcontractor ? (
-          <ReportFilterField label="المشروع">
-            <select
-              className="w-full rounded-lg border px-2 py-1.5 text-sm"
-              value={projectId}
-              onChange={(e) => setProjectId(e.target.value)}
-            >
-              <option value="">— الكل / اختر —</option>
-              {projects.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.projectCode} — {p.projectName}
-                </option>
-              ))}
-            </select>
-          </ReportFilterField>
+        {showProjectFilter ? (
+          <ReportFilterSelect
+            label="المشروع"
+            value={filters.projectId}
+            onChange={(projectId) => patch({ projectId })}
+            options={projectOptions}
+            placeholder="كل المشروعات"
+          />
         ) : null}
         {config.needsCustomer ? (
-          <ReportFilterField label="معرّف العميل (UUID)">
-            <input
-              className="w-full rounded-lg border px-2 py-1.5 text-sm"
-              value={customerId}
-              onChange={(e) => setCustomerId(e.target.value)}
-              placeholder="customerId"
-            />
+          <ReportFilterField label="العميل">
+            <PartySelect kind="CUSTOMER" value={filters.customerId} onChange={(customerId) => patch({ customerId })} />
           </ReportFilterField>
         ) : null}
         {config.needsSubcontractor ? (
-          <ReportFilterField label="معرّف المقاول (UUID)">
-            <input
-              className="w-full rounded-lg border px-2 py-1.5 text-sm"
-              value={subcontractorId}
-              onChange={(e) => setSubcontractorId(e.target.value)}
-            />
-          </ReportFilterField>
+          <ReportFilterSelect
+            label="مقاول الباطن"
+            value={filters.subcontractorId}
+            onChange={(subcontractorId) => patch({ subcontractorId })}
+            options={subcontractorOptions}
+            placeholder="اختر المقاول"
+          />
         ) : null}
         {config.dateRange ? (
           <>
-            <ReportFilterField label="من تاريخ">
-              <input
-                type="date"
-                className="w-full rounded-lg border px-2 py-1.5 text-sm"
-                value={dateFrom}
-                onChange={(e) => setDateFrom(e.target.value)}
-              />
-            </ReportFilterField>
-            <ReportFilterField label="إلى تاريخ">
-              <input
-                type="date"
-                className="w-full rounded-lg border px-2 py-1.5 text-sm"
-                value={dateTo}
-                onChange={(e) => setDateTo(e.target.value)}
-              />
-            </ReportFilterField>
+            <ReportFilterDate
+              label="من تاريخ"
+              value={filters.fromDate}
+              onChange={(fromDate) => patch({ fromDate })}
+            />
+            <ReportFilterDate
+              label="إلى تاريخ"
+              value={filters.toDate}
+              onChange={(toDate) => patch({ toDate })}
+            />
           </>
         ) : null}
       </ReportFilterSection>
-
-      {config.needsProject && !projectId ? (
-        <p className="mt-4 text-sm text-muted-foreground">اختر مشروعاً لعرض التقرير.</p>
-      ) : null}
-      {q.isLoading ? <p className="text-sm text-muted-foreground">جاري التحميل…</p> : null}
-      {q.isError ? <p className="text-sm text-destructive">تعذر تحميل التقرير.</p> : null}
-
-      {portfolio ? <div className="mt-4 space-y-4"><MetricGrid data={portfolio} /></div> : null}
-
-      {key === 'project-financial-position' && isPlainObject(data) ? (
-        <div className="mt-4 space-y-4 text-sm">
-          {['contract', 'revenue', 'cost', 'execution'].map((section) =>
-            isPlainObject((data as Record<string, unknown>)[section]) ? (
-              <div key={section}>
-                <h3 className="mb-2 font-bold text-brand">{section}</h3>
-                <MetricGrid data={(data as Record<string, Record<string, unknown>>)[section]} />
-              </div>
-            ) : null
-          )}
-        </div>
-      ) : null}
-
-      {rows.length > 0 && key !== 'project-financial-position' ? (
-        <div className="mt-4">
-          <JsonTable rows={rows} />
-        </div>
-      ) : null}
-
-      {!rows.length && !portfolio && enabled && !q.isLoading && key !== 'project-financial-position' ? (
-        <p className="mt-4 text-sm text-muted-foreground">لا توجد صفوف — جرّب توسيع التصفية.</p>
-      ) : null}
-
-      {isPlainObject(data) && (data as { disclaimerAr?: string }).disclaimerAr ? (
-        <p className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs">
-          {(data as { disclaimerAr: string }).disclaimerAr}
-        </p>
-      ) : null}
-    </ReportFilterPageShell>
+    </ContractingReportChrome>
   );
 }

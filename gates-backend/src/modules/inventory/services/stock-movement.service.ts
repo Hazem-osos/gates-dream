@@ -363,6 +363,7 @@ export class StockMovementService {
       direction?: 'forward' | 'backward';
       itemId?: string;
       warehouseId?: string;
+      sourceDocumentId?: string;
       movementType?: string;
       startDate?: string;
       endDate?: string;
@@ -373,6 +374,7 @@ export class StockMovementService {
     const where: Record<string, unknown> = { companyId };
     if (opts.itemId) where.itemId = opts.itemId;
     if (opts.warehouseId) where.warehouseId = opts.warehouseId;
+    if (opts.sourceDocumentId) where.sourceDocumentId = opts.sourceDocumentId;
     if (opts.movementType) where.movementType = opts.movementType;
     if (opts.startDate || opts.endDate) {
       const dateFilter: Record<string, Date> = {};
@@ -418,12 +420,18 @@ export class StockMovementService {
       };
     }
 
+    const movementInclude = {
+      item: { select: { serial: true, arabicName: true } },
+      warehouse: { select: { code: true, arabicName: true } },
+    };
+
     const [movements, total] = await Promise.all([
       prisma.inventoryMovement.findMany({
         where,
         skip: (page - 1) * limit,
         take: limit,
         orderBy,
+        include: movementInclude,
       }),
       prisma.inventoryMovement.count({ where }),
     ]);

@@ -37,10 +37,12 @@ const basicDataChildren: HrNavItem[] = [
   { key: 'procedures', label: 'تعريف الإجراءات', href: '/hr/procedures' },
   { key: 'scientific-specializations', label: 'التخصصات العلمية', href: '/hr/scientific-specializations' },
   { key: 'managers', label: 'تعريف الإدارات', href: '/hr/managements' },
+  { key: 'positions', label: 'المناصب الوظيفية', href: '/hr/positions' },
 ];
 
 const employeeOpsChildren: HrNavItem[] = [
   { key: 'employee-data', label: 'بيانات موظف', href: '/hr/employee-data' },
+  { key: 'employee-360', label: 'ملف الموظف 360', href: '/hr/employee-360' },
   { key: 'employee-contract', label: 'تعاقد موظف', href: '/hr/employee-contract' },
   { key: 'employee-onboarding', label: 'مباشرة للعمل', href: '/hr/employee-onboarding' },
   { key: 'employee-penalty', label: 'جزاء', href: '/hr/employee-penalty' },
@@ -59,6 +61,15 @@ const employeeOpsChildren: HrNavItem[] = [
 ];
 
 const attendanceChildren: HrNavItem[] = [
+  { key: 'attendance-dashboard', label: 'لوحة الحضور', href: '/hr/attendance/dashboard' },
+  { key: 'attendance-today', label: 'حضور اليوم', href: '/hr/attendance/today' },
+  { key: 'attendance-exceptions', label: 'استثناءات الحضور', href: '/hr/attendance/exceptions' },
+  { key: 'attendance-corrections', label: 'تصحيحات الحضور', href: '/hr/attendance/corrections' },
+  { key: 'attendance-devices', label: 'أجهزة الحضور', href: '/hr/attendance/devices' },
+  { key: 'attendance-import', label: 'استيراد البصمات', href: '/hr/attendance/import' },
+  { key: 'attendance-schedules', label: 'جداول العمل', href: '/hr/attendance/schedules' },
+  { key: 'attendance-policies', label: 'سياسات الحضور', href: '/hr/attendance/policies' },
+  { key: 'attendance-period-review', label: 'مراجعة الفترة', href: '/hr/attendance/period-review' },
   { key: 'work-shifts', label: 'ورديات العمل', href: '/hr/work-shifts' },
   { key: 'employee-working-days', label: 'أيام عمل الموظفين', href: '/hr/employee-working-days' },
   { key: 'company-leave-days-definition', label: 'أيام الإجازات بالشركة', href: '/hr/company-leave-days-definition' },
@@ -69,8 +80,25 @@ const attendanceChildren: HrNavItem[] = [
   { key: 'attendance-sheet-fingerprint', label: 'شيت البصمة', href: '/hr/attendance-sheet-fingerprint' },
 ];
 
+const leaveChildren: HrNavItem[] = [
+  { key: 'leave-dashboard', label: 'لوحة الإجازات', href: '/hr/leave/dashboard' },
+  { key: 'leave-requests', label: 'طلبات الإجازة', href: '/hr/leave/requests' },
+  { key: 'leave-request-new', label: 'طلب جديد', href: '/hr/leave/requests/new' },
+  { key: 'leave-inbox', label: 'صندوق الاعتماد', href: '/hr/leave/inbox' },
+  { key: 'leave-enrollments', label: 'تسجيل السياسة', href: '/hr/leave/enrollments' },
+  { key: 'leave-ledger', label: 'السجل والرصيد', href: '/hr/leave/ledger' },
+  { key: 'leave-adjustments', label: 'تسويات', href: '/hr/leave/adjustments' },
+  { key: 'leave-accrual', label: 'ترحيل الاستحقاق', href: '/hr/leave/accrual' },
+  { key: 'leave-reports', label: 'تقارير الإجازات', href: '/hr/leave/reports' },
+  { key: 'leave-calendar', label: 'تقويم الإجازات', href: '/hr/leave/calendar' },
+  { key: 'leave-types', label: 'أنواع الإجازة', href: '/hr/leave/types' },
+  { key: 'leave-policies', label: 'سياسات الإجازة', href: '/hr/leave/policies' },
+];
+
 const payrollChildren: HrNavItem[] = [
-  { key: 'monthly-salaries', label: 'الرواتب الشهرية', href: '/hr/monthly-salaries' },
+  { key: 'payroll-hcm-dashboard', label: 'عمليات الرواتب (HCM)', href: '/hr/payroll/dashboard' },
+  { key: 'payroll-hcm-runs', label: 'مسيرات PayrollRun', href: '/hr/payroll/runs' },
+  { key: 'monthly-salaries', label: 'الرواتب الشهرية (Legacy)', href: '/hr/monthly-salaries' },
   { key: 'monthly-salaries-disbursement', label: 'صرف الرواتب', href: '/hr/monthly-salaries-disbursement' },
   { key: 'annual-leave-entitlements-clearance', label: 'تصفية مستحقات الإجازة', href: '/hr/annual-leave-entitlements-clearance' },
   { key: 'annual-leave-entitlements-disbursement', label: 'صرف مستحقات الإجازة', href: '/hr/annual-leave-entitlements-disbursement' },
@@ -110,6 +138,12 @@ export const hrModules: HrNavItem[] = [
     label: 'الحضور والانصراف',
     icon: CalendarClock,
     children: attendanceChildren,
+  },
+  {
+    key: 'leave',
+    label: 'الإجازات',
+    icon: CalendarClock,
+    children: leaveChildren,
   },
   {
     key: 'payroll',

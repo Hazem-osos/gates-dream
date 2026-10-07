@@ -186,6 +186,38 @@ html.gates-privacy-mode .gates-sensitive {
   background: #0E78AA;
 }
 
+/* Report grids: vertical + horizontal scroll; header + first column stay visible (RTL). */
+.report-scroll-viewport {
+  max-height: min(70vh, 42rem);
+  overflow: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.report-scroll-viewport table {
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.report-scroll-viewport thead th {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+}
+
+.report-scroll-viewport[dir='rtl'] thead th:first-child {
+  right: 0;
+  z-index: 40;
+}
+
+.report-scroll-viewport[dir='rtl'] tbody td:first-child,
+.report-scroll-viewport[dir='rtl'] tfoot td:first-child {
+  position: sticky;
+  right: 0;
+  z-index: 20;
+  box-shadow: -4px 0 8px -4px rgba(15, 23, 42, 0.12);
+}
+
 /*
  * ERP laptops/PCs: tables must never collapse into the grid.
  * Any table (or its wrapper) keeps a full-width scroller.

@@ -8,6 +8,7 @@ import { clientSearch, isClientSearchAvailable } from '@/lib/search/clientSearch
 import type { SearchIndexEntity } from '@/workers/search.worker';
 import { useClientMounted } from '@/lib/hooks/useClientMounted';
 import { compactControlClass } from '@/components/ui/forms/formTokens';
+import { sortComboboxOptions } from '@/lib/sort/master-picker-sort';
 
 export type ComboboxOption = {
   value: string;
@@ -160,33 +161,35 @@ export function SearchableCombobox({
     }
   }, [selected, value, open, valueLabel]);
 
+  const sortedOptions = useMemo(() => sortComboboxOptions(options), [options]);
+
   const filtered = useMemo(() => {
     const q = typedQuery;
     const nq = normalizeArabicForSearch(q);
     if (!nq) {
-      const base = options.slice(0, maxVisible);
+      const base = sortedOptions.slice(0, maxVisible);
       if (!value) return base;
-      const sel = options.find((o) => o.value === value);
+      const sel = sortedOptions.find((o) => o.value === value);
       if (sel && !base.some((o) => o.value === value)) {
         return [sel, ...base.slice(0, maxVisible - 1)];
       }
       return base;
     }
     if (workerRankedIds && workerRankedIds.length > 0 && clientSearchEntity) {
-      const byId = new Map(options.map((o) => [o.value, o]));
+      const byId = new Map(sortedOptions.map((o) => [o.value, o]));
       const ranked = workerRankedIds
         .map((id) => byId.get(id))
         .filter((o): o is ComboboxOption => Boolean(o))
         .slice(0, maxVisible);
       if (ranked.length > 0) return ranked;
     }
-    return options
+    return sortedOptions
       .filter((o) => {
         const blob = normalizeArabicForSearch(`${o.label} ${o.searchText ?? ''}`);
         return blob.includes(nq);
       })
       .slice(0, maxVisible);
-  }, [options, typedQuery, value, workerRankedIds, clientSearchEntity, maxVisible]);
+  }, [sortedOptions, typedQuery, value, workerRankedIds, clientSearchEntity, maxVisible]);
 
   const showQuickCreate = Boolean(onQuickCreate && quickCreateLabel);
   const quickCreateText = typedQuery

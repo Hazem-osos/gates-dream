@@ -8,9 +8,12 @@ import { Button, IconButton } from '@/components/ui';
 import {
   ERP_INVOICE_ITEMS_TABLE_WRAP_CLASS,
   erpLineGridInputClass,
+  erpLineGridNumericInputClass,
   erpTableBodyCellClass,
   erpTableHeadCellClass,
   erpTableHeadRowClass,
+  erpTableNumCellClass,
+  erpTableNumHeadClass,
 } from '@/components/erp/erpUiTokens';
 import { formatInvoiceMoney } from '@/lib/invoices/computeInvoiceFinancialSummary';
 
@@ -86,9 +89,9 @@ export function StockVoucherLinesGrid({
               {hideExistingQty ? null : (
                 <th className={`${erpTableHeadCellClass} w-28 text-center`}>المتاح</th>
               )}
-              <th className={`${erpTableHeadCellClass} w-28 text-center`}>الكمية</th>
-              <th className={`${erpTableHeadCellClass} w-32 text-center`}>{priceLabel}</th>
-              <th className={`${erpTableHeadCellClass} w-32 text-center`}>الإجمالي</th>
+              <th className={erpTableNumHeadClass}>الكمية</th>
+              <th className={erpTableNumHeadClass}>{priceLabel}</th>
+              <th className={erpTableNumHeadClass}>الإجمالي</th>
               {readOnly ? null : <th className={`${erpTableHeadCellClass} w-14`} />}
             </tr>
           </thead>
@@ -115,7 +118,7 @@ export function StockVoucherLinesGrid({
                 )}
                 <td className={erpTableBodyCellClass}>
                   <TableNumberInput
-                    className={erpLineGridInputClass}
+                    className={erpLineGridNumericInputClass}
                     value={line.quantity}
                     disabled={readOnly}
                     onValueCommit={(n) => onChange(index, 'quantity', n)}
@@ -123,13 +126,13 @@ export function StockVoucherLinesGrid({
                 </td>
                 <td className={erpTableBodyCellClass}>
                   <TableNumberInput
-                    className={erpLineGridInputClass}
+                    className={erpLineGridNumericInputClass}
                     value={line.unitPrice}
                     disabled={readOnly}
                     onValueCommit={(n) => onChange(index, 'unitPrice', n)}
                   />
                 </td>
-                <td className={`${erpTableBodyCellClass} text-center font-semibold tabular-nums text-[#0A3D5E]`}>
+                <td className={erpTableNumCellClass}>
                   {formatInvoiceMoney(Number(line.total) || 0)}
                 </td>
                 {readOnly ? null : (

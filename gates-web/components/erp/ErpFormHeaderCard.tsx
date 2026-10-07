@@ -55,6 +55,11 @@ export function ErpFormHeaderCard({
           <div className={erpFormGridClass}>{row1}</div>
           <div className={erpFormGridClass}>{row2}</div>
         </fieldset>
+        {headerActions ? (
+          <div className="flex w-full flex-wrap items-end justify-end gap-2 border-b border-slate-100 pb-2">
+            {headerActions}
+          </div>
+        ) : null}
         {extras ? (
           <>
             <div className="flex w-full flex-wrap items-center justify-start gap-2 pt-1">
@@ -66,7 +71,6 @@ export function ErpFormHeaderCard({
                 <Settings2 className="h-4 w-4" />
                 {extrasLabel} {extrasOpen ? '▴' : '▾'}
               </button>
-              {headerActions}
             </div>
             <div
               className={`grid transition-all duration-200 ease-out overflow-hidden ${

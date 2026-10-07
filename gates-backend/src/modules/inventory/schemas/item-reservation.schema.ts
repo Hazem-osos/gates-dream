@@ -25,6 +25,7 @@ const reason = z.string().trim().min(1, 'سبب الحجز مطلوب').max(500,
 export const createItemReservationSchema = z.object({
   warehouseId: z.string().min(1, 'يرجى اختيار المخزن'),
   itemId: z.string().min(1, 'يرجى اختيار الصنف'),
+  customerId: z.string().uuid('يرجى اختيار العميل'),
   quantity,
   reason,
 });
@@ -39,6 +40,7 @@ export const itemReservationQuerySchema = z.object({
   limit: asLimit,
   warehouseId: z.string().min(1).optional(),
   itemId: z.string().min(1).optional(),
+  customerId: z.string().uuid().optional(),
   status: z.enum(['ACTIVE', 'RELEASED', 'ALL', 'OPEN']).optional(),
 });
 

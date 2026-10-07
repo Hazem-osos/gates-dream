@@ -32,6 +32,10 @@ import { confirmAction } from '@/lib/feedback/confirm';
 import { onFieldErrors } from '@/lib/forms/on-field-errors';
 import { finishDocumentSave } from '@/lib/documents/finish-save';
 import { invalidateStockViews } from '@/lib/invoices/invalidate-stock-views';
+import { DocumentSourceLoadBar } from '@/components/invoices/DocumentSourceLoadBar';
+import { stockHeaderFieldsFromSource } from '@/lib/inventory/apply-source-to-stock-document';
+import { STOCK_LINE_COPY_SOURCE_TYPES, type SourceHydratePayload } from '@/lib/invoices/sourceDocument';
+import { toast } from '@/lib/feedback/toast';
 import { OpeningStockHeader } from './OpeningStockHeader';
 import { OpeningStockLinesTable } from './OpeningStockLinesTable';
 import { OpeningStockStickyFooter } from './OpeningStockStickyFooter';
@@ -143,6 +147,7 @@ function OpeningStockFormInner() {
   const [loadPending, setLoadPending] = useState(false);
   const [lifecyclePending, setLifecyclePending] = useState(false);
   const [sheetBusy, setSheetBusy] = useState(false);
+  const [sourceBarKey, setSourceBarKey] = useState(0);
   const sheetRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -682,6 +687,28 @@ function OpeningStockFormInner() {
     setError('');
     setSuccess('');
     setMode('create');
+    setSourceBarKey((k) => k + 1);
+  };
+
+  const handleSourceHydrate = (payload: SourceHydratePayload) => {
+    const wh = defaultWarehouseId || payload.warehouseId || '';
+    const header = stockHeaderFieldsFromSource(payload, watch('description'));
+    if (header.warehouseId && !defaultWarehouseId) {
+      setValue('warehouseId', header.warehouseId, { shouldValidate: false });
+    }
+    if (header.description) setValue('description', header.description, { shouldValidate: false });
+    setLines(
+      payload.lines.length
+        ? payload.lines.map((line) => ({
+            ...emptyOpeningStockLine(wh),
+            itemId: line.itemId,
+            itemName: line.itemName,
+            quantity: line.quantity || 0,
+            unitCost: line.unitPrice || 0,
+          }))
+        : [emptyOpeningStockLine(wh)]
+    );
+    toast.success(`تم تحميل البنود من ${payload.sourceNumber}`);
   };
 
   const handleClearAll = async () => {
@@ -909,6 +936,15 @@ function OpeningStockFormInner() {
           onVoid={() => void handleVoid()}
           onRestore={() => void handleRestore()}
           isCancelled={isCancelled}
+          sourceLoadBar={
+            <DocumentSourceLoadBar
+              key={sourceBarKey}
+              hasExistingLines={lines.some((l) => isEnteredOpeningStockLine(l))}
+              disabled={gridLocked}
+              allowedTypes={STOCK_LINE_COPY_SOURCE_TYPES}
+              onHydrate={handleSourceHydrate}
+            />
+          }
         />
 
         <input

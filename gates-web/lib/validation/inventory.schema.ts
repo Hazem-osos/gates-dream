@@ -518,7 +518,16 @@ export const salesInvoiceSchema = z.object({
   purchaseOrderNumber: z.string().optional(),
   purchaseOrderDescription: z.string().optional(),
   sourceType: z
-    .enum(['NONE', 'QUOTATION', 'SALES_ORDER', 'PURCHASE_ORDER', 'PURCHASE_INVOICE', 'DELIVERY_NOTE'])
+    .enum([
+      'NONE',
+      'QUOTATION',
+      'SALES_ORDER',
+      'PURCHASE_ORDER',
+      'PURCHASE_INVOICE',
+      'DELIVERY_NOTE',
+      'GOODS_RECEIPT',
+      'SALES_INVOICE',
+    ])
     .optional(),
   sourceId: z.string().optional(),
   sourceNumber: z.string().optional(),

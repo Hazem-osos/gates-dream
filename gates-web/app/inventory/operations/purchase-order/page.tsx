@@ -47,6 +47,11 @@ import {
   reorderPurchaseQuantity,
   type ReorderCandidate,
 } from '@/lib/inventory/reorder-items';
+import { DocumentSourceLoadBar } from '@/components/invoices/DocumentSourceLoadBar';
+import { PURCHASE_ORDER_SOURCE_TYPES } from '@/lib/invoices/sourceDocument';
+import { stockHeaderFieldsFromSource } from '@/lib/inventory/apply-source-to-stock-document';
+import type { SourceHydratePayload } from '@/lib/invoices/sourceDocument';
+import { toast } from '@/lib/feedback/toast';
 
 interface Currency {
   id: string;
@@ -115,6 +120,7 @@ export default function PurchaseOrderPage() {
 
   const [showCanceled, setShowCanceled] = useState(false);
   const [orderLines, setOrderLines] = useState<PurchaseOrderLine[]>([emptyOrderLine()]);
+  const [sourceBarKey, setSourceBarKey] = useState(0);
   const [showList, setShowList] = useState(false);
   const router = useRouter();
   const ownPathname = useOwnTabPathname();
@@ -248,6 +254,7 @@ export default function PurchaseOrderPage() {
   const clearOrderForNext = () => {
     setSelectedOrderId(null);
     setOrderLines([emptyOrderLine()]);
+    setSourceBarKey((k) => k + 1);
     reset(emptyPurchaseOrderHeader(new Date().toISOString().split('T')[0]));
     const params = new URLSearchParams(searchParams.toString());
     params.delete('orderId');
@@ -380,6 +387,25 @@ export default function PurchaseOrderPage() {
     clearOrderForNext();
   };
 
+  const handleSourceHydrate = (payload: SourceHydratePayload) => {
+    const header = stockHeaderFieldsFromSource(payload, getValues('description'));
+    if (header.supplierId) setValue('supplierId', header.supplierId);
+    if (header.warehouseId) setValue('warehouseId', header.warehouseId);
+    if (header.description) setValue('description', header.description);
+    setOrderLines(
+      payload.lines.length
+        ? payload.lines.map((line) => ({
+            itemId: line.itemId,
+            quantity: line.quantity || 1,
+            unitPrice: line.unitPrice || 0,
+            discount: line.discount || 0,
+            tax: line.taxRate || 0,
+          }))
+        : [emptyOrderLine()]
+    );
+    toast.success(`تم تحميل الأمر من ${payload.sourceNumber}`);
+  };
+
   const submitOrderSave = (header: InventoryPurchaseOrderHeaderFormInput) => {
     setError('');
     setSuccess('');
@@ -495,6 +521,15 @@ export default function PurchaseOrderPage() {
             },
           ],
         }}
+        extraActions={
+          <DocumentSourceLoadBar
+            key={sourceBarKey}
+            hasExistingLines={orderLines.some((l) => Boolean(l.itemId))}
+            disabled={Boolean(isPosted)}
+            allowedTypes={PURCHASE_ORDER_SOURCE_TYPES}
+            onHydrate={handleSourceHydrate}
+          />
+        }
       />
 
       <DocumentBrowseDrawer open={showList} onClose={() => setShowList(false)} title="أوامر الشراء السابقة">

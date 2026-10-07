@@ -71,6 +71,10 @@ import {
   ensureWithholdingColumns,
   mergeVisibleColumnIds,
 } from '@/lib/invoices/invoiceLineColumns';
+import {
+  invoiceLineColumnsForStockPolicy,
+  transactionAffectsStock,
+} from '@/lib/transaction-settings/affect-stock';
 import { whtSettingsToLinePercent } from '@/lib/invoices/itemTracking';
 import { useVisibleColumnIds } from '@/lib/invoices/useVisibleColumnIds';
 import { useDocumentProfileBySlug } from '@/lib/hooks/useDocumentProfiles';
@@ -113,6 +117,9 @@ import {
 } from '@/lib/invoices/sourceDocument';
 import { useCustomerFrequentItems } from '@/lib/hooks/useCustomerFrequentItems';
 import { CustomerFrequentItemsBar } from '@/components/inventory/CustomerFrequentItemsBar';
+import { CustomerItemReservationButton } from '@/components/inventory/reservations/CustomerItemReservationButton';
+import { CustomerItemReservationDrawer } from '@/components/inventory/reservations/CustomerItemReservationDrawer';
+import type { ApplyReservationPayload } from '@/components/inventory/reservations/ItemReservationDocumentPanel';
 import { InternalNotesScratchpad } from '@/components/documents/InternalNotesScratchpad';
 import { ElectronicInvoiceDetailsButton } from '@/components/inventory/sales-invoice/ElectronicInvoiceDetailsButton';
 import type { InternalNoteEntry, PaymentSplitLine } from '@/lib/invoices/payment-split.types';
@@ -496,6 +503,7 @@ function SalesInvoicePageInner() {
   const [applyWithholding, setApplyWithholding] = useState(false);
   const defaultWhtRate = applyWithholding ? (configuredWhtRate > 0 ? configuredWhtRate : 1) : 0;
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [reservationDrawerOpen, setReservationDrawerOpen] = useState(false);
   const invalidateQuery = useInvalidateQuery();
   
   const [isPosted, setIsPosted] = useState(false);
@@ -593,8 +601,11 @@ function SalesInvoicePageInner() {
   const baseVisibleColumnIds = documentProfile
     ? columnsFromDocumentProfile(documentProfile.visibleColumns)
     : userVisibleColumnIds;
-  const visibleColumnIds =
-    defaultWhtRate > 0 ? ensureWithholdingColumns(baseVisibleColumnIds) : baseVisibleColumnIds;
+  const affectsStock = transactionAffectsStock(txSettings);
+  const visibleColumnIds = invoiceLineColumnsForStockPolicy(
+    defaultWhtRate > 0 ? ensureWithholdingColumns(baseVisibleColumnIds) : baseVisibleColumnIds,
+    affectsStock
+  );
   const setVisibleColumnIds = documentProfile ? () => undefined : setUserVisibleColumnIds;
 
   const appendBlankInvoiceLine = useCallback(() => {
@@ -1052,6 +1063,12 @@ function SalesInvoicePageInner() {
       setValue(`lines.${index}.baseQuantity`, synced.baseQuantity, { shouldDirty: true });
       setValue(`lines.${index}.conversionFactor`, synced.conversionFactor, { shouldDirty: true });
       setValue(`lines.${index}.baseUnitId`, synced.baseUnitId, { shouldDirty: true });
+      if (getValues(`lines.${index}.itemReservationId`)) {
+        const fulfillBase = Number(synced.baseQuantity) || Number(getValues(`lines.${index}.quantity`)) || 0;
+        if (fulfillBase > 0) {
+          setValue(`lines.${index}.reservationFulfillQuantity`, fulfillBase, { shouldDirty: true });
+        }
+      }
     },
     [
       defaultWhtRate,
@@ -1364,6 +1381,57 @@ function SalesInvoicePageInner() {
       });
     },
     [append, defaultWhtRate, items, isSalesTaxInvoice]
+  );
+
+  const applyReservationToInvoice = useCallback(
+    ({ reservation, quantity }: ApplyReservationPayload) => {
+      const picked = items.find((x) => x.id === reservation.itemId);
+      const label = reservation.itemSerial
+        ? `${reservation.itemSerial} — ${reservation.itemName}`
+        : reservation.itemName;
+      const lineWarehouse =
+        reservation.warehouseId && reservation.warehouseId !== warehouseIdW
+          ? reservation.warehouseId
+          : '';
+      append({
+        ...blankSalesInvoiceLine(),
+        itemId: reservation.itemId,
+        unitId: picked ? defaultUnitIdForItem(picked) : '',
+        quantity,
+        itemReservationId: reservation.id,
+        reservationFulfillQuantity: quantity,
+        reservationLabel: `حجز: ${label} (${quantity})`,
+        warehouseId: lineWarehouse,
+        taxRate: isSalesTaxInvoice ? 14 : 0,
+        withholdingTaxRate: defaultWhtRate,
+      });
+      const lineIndex = getValues('lines').length - 1;
+      if (picked) {
+        applyPickedItemToLine(lineIndex, picked);
+        setValue(`lines.${lineIndex}.quantity`, quantity, { shouldDirty: true });
+        if (lineWarehouse) {
+          setValue(`lines.${lineIndex}.warehouseId`, lineWarehouse, { shouldDirty: true });
+        }
+        setValue(`lines.${lineIndex}.itemReservationId`, reservation.id, { shouldDirty: true });
+        const fulfillBase =
+          Number(getValues(`lines.${lineIndex}.baseQuantity`)) || Number(quantity) || 0;
+        setValue(`lines.${lineIndex}.reservationFulfillQuantity`, fulfillBase, { shouldDirty: true });
+        setValue(`lines.${lineIndex}.reservationLabel`, `حجز: ${label} (${quantity})`, {
+          shouldDirty: true,
+        });
+      }
+      toast.success('تم تحميل الحجز على الفاتورة');
+    },
+    [
+      append,
+      applyPickedItemToLine,
+      defaultWhtRate,
+      getValues,
+      isSalesTaxInvoice,
+      items,
+      setValue,
+      warehouseIdW,
+    ]
   );
 
   const printInvoiceDocument = useMemo((): Record<string, unknown> | null => {
@@ -2452,6 +2520,15 @@ function SalesInvoicePageInner() {
         documentType="SALES_INVOICE"
       />
 
+      <CustomerItemReservationDrawer
+        open={reservationDrawerOpen}
+        onClose={() => setReservationDrawerOpen(false)}
+        customerId={customerIdW}
+        warehouseId={warehouseIdW}
+        disabled={isPosted || isReadOnly || lockLoadedSource}
+        onApply={applyReservationToInvoice}
+      />
+
       {showInvoiceList ? (
         <InvoiceDocumentListDrawer
           open
@@ -2544,8 +2621,17 @@ function SalesInvoicePageInner() {
         lockTreasury={Boolean(documentProfile?.lockTreasury)}
         lockCostCenter={Boolean(documentProfile?.lockCostCenter)}
         includeAllAccounts={txSettings?.showAllAccountsInCustomerField === true}
+        affectsStock={affectsStock}
         headerActions={
           <div className="inline-flex flex-wrap items-center gap-2">
+            {affectsStock ? (
+              <CustomerItemReservationButton
+                customerId={customerIdW}
+                warehouseId={warehouseIdW}
+                disabled={isPosted || isReadOnly || lockLoadedSource}
+                onOpen={() => setReservationDrawerOpen(true)}
+              />
+            ) : null}
             <InternalNotesScratchpad
               notes={internalNotes}
               onChange={setInternalNotes}
@@ -2608,6 +2694,7 @@ function SalesInvoicePageInner() {
             lockUnitPrice={txSettings?.allowItemPriceOverride === false}
             enforceBelowCost={txSettings?.preventSellingBelowCost !== false}
             headerDescription={descriptionW}
+            invoiceAffectsStock={affectsStock}
         />
       </div>
       </DocumentFormLock>

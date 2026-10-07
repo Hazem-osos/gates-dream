@@ -32,9 +32,13 @@ export const createPayrollWorker = (): Worker<PayrollJobData> => {
     async (job: Job<PayrollJobData>) => {
       const { companyId, period, userId } = job.data;
 
-      logger.info(
+      logger.warn(
         { jobId: job.id, companyId, period, userId },
-        'Processing payroll calculation'
+        'Deprecated payroll processor job — canonical path is PayrollRun via payroll-runs API'
+      );
+
+      throw new Error(
+        'DEPRECATED_PAYROLL_PROCESSOR: use POST /api/v1/hr/payroll-runs (PayrollRun). This job no longer writes MonthlySalary.'
       );
 
       try {

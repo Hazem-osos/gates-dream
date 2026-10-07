@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation';
 
-export default function RouteAliasPage() {
-  redirect('/hr/monthly-salaries');
+export default function PayrollHubPage() {
+  redirect('/hr/payroll/dashboard');
 }

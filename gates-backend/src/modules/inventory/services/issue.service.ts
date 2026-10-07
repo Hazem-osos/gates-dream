@@ -14,10 +14,11 @@ import {
   ensurePerpetualInventoryGlReady,
   runCompanyStockGlPosting,
 } from '../utils/stock-gl-posting-guard';
+import { attachDocumentFiscalYear } from './stock-gl-posting-context';
 import {
-  attachDocumentFiscalYear,
-  resolveStockMovementBranchId,
-} from './stock-gl-posting-context';
+  resolveStoreDocumentBranchId,
+  resolveStoreDocumentBranchIdOptional,
+} from '../utils/store-document-branch.util';
 import {
   fulfillReservationInTx,
   reverseReservationFulfillmentInTx,
@@ -94,6 +95,11 @@ export class IssueService {
         }
       }
 
+      const resolvedBranchId = await resolveStoreDocumentBranchIdOptional(companyId, {
+        documentBranchId: data.branchId,
+        warehouseId: data.warehouseId,
+      });
+
       // Drafts save without stock. Posting enforces quantity.
       const issue = await prisma.$transaction(async (tx) => {
         // Calculate total amount
@@ -104,7 +110,7 @@ export class IssueService {
 
         const serial = await resolveStoreDocumentSerialInTx(tx, {
           companyId,
-          branchId: data.branchId ?? null,
+          branchId: resolvedBranchId,
           fiscalYearId: null,
           kind: 'issue',
           clientSerial: data.serial,
@@ -114,7 +120,7 @@ export class IssueService {
         const record = await tx.issue.create({
           data: {
             companyId,
-            branchId: data.branchId || null,
+            branchId: resolvedBranchId,
             description: data.description || null,
             serial,
             date: new Date(data.date),
@@ -200,12 +206,16 @@ export class IssueService {
       (sum, line) => sum + (line.total || line.quantity * (line.unitPrice || 0)),
       0
     );
+    const resolvedBranchId = await resolveStoreDocumentBranchIdOptional(companyId, {
+      documentBranchId: data.branchId || existing.branchId,
+      warehouseId: data.warehouseId,
+    });
     await prisma.$transaction(async (tx) => {
       await tx.issueLine.deleteMany({ where: { issueId } });
       await tx.issue.update({
         where: { id: issueId },
         data: {
-          branchId: data.branchId || existing.branchId,
+          branchId: resolvedBranchId ?? existing.branchId,
           description: data.description || null,
           serial: data.serial || existing.serial,
           date: new Date(data.date),
@@ -420,7 +430,12 @@ export class IssueService {
 
       const fiscalYearId = await fiscalYearService.assertOpenForDate(companyId, issue.date);
       await assertWarehouseActive(companyId, issue.warehouseId);
-      const postingCtx = attachDocumentFiscalYear(glCtx, fiscalYearId, issue.branchId);
+      const movementBranchId = await resolveStoreDocumentBranchId(companyId, {
+        documentBranchId: issue.branchId,
+        warehouseId: issue.warehouseId,
+        headerBranchId: glCtx?.branchId,
+      });
+      const postingCtx = attachDocumentFiscalYear(glCtx, fiscalYearId, movementBranchId);
       const inventorySystem = await ensurePerpetualInventoryGlReady(
         companyId,
         postingCtx,
@@ -440,8 +455,6 @@ export class IssueService {
         issue.lines.map((l) => l.itemId),
         issue.date
       );
-      const movementBranchId = resolveStockMovementBranchId(postingCtx, issue.branchId);
-
       let glSkipped = false;
       await prisma.$transaction(async (tx) => {
         await claimDocumentPost((args) => tx.issue.updateMany(args), issueId, companyId);

@@ -28,6 +28,7 @@ const detailSelect = {
   id: true,
   warehouseId: true,
   itemId: true,
+  customerId: true,
   quantity: true,
   fulfilledQuantity: true,
   reason: true,
@@ -37,6 +38,7 @@ const detailSelect = {
   updatedAt: true,
   warehouse: { select: { id: true, code: true, arabicName: true } },
   item: { select: { id: true, serial: true, arabicName: true } },
+  customer: { select: { id: true, code: true, arabicName: true } },
 } satisfies Prisma.ItemReservationSelect;
 
 type ReservationDetail = Prisma.ItemReservationGetPayload<{ select: typeof detailSelect }>;
@@ -45,6 +47,7 @@ type LockedReservation = {
   id: string;
   warehouseId: string;
   itemId: string;
+  customerId: string | null;
   quantity: unknown;
   fulfilledQuantity: unknown;
   status: string;
@@ -110,6 +113,7 @@ function mapReservation(row: ReservationDetail) {
     id: row.id,
     warehouseId: row.warehouseId,
     itemId: row.itemId,
+    customerId: row.customerId,
     quantity,
     fulfilledQuantity,
     remainingQuantity,
@@ -123,6 +127,8 @@ function mapReservation(row: ReservationDetail) {
     warehouseCode: row.warehouse.code,
     itemName: row.item.arabicName,
     itemSerial: row.item.serial ?? '',
+    customerName: row.customer?.arabicName ?? '',
+    customerCode: row.customer?.code ?? null,
   };
 }
 
@@ -132,7 +138,7 @@ async function lockReservationInTx(
   id: string
 ): Promise<LockedReservation | null> {
   const rows = await tx.$queryRaw<LockedReservation[]>`
-    SELECT id, warehouseId, itemId, quantity, fulfilledQuantity, status
+    SELECT id, warehouseId, itemId, customerId, quantity, fulfilledQuantity, status
     FROM item_reservations
     WHERE id = ${id} AND companyId = ${companyId}
     FOR UPDATE
@@ -154,6 +160,8 @@ export type FulfillReservationInput = {
   warehouseId: string;
   itemId: string;
   quantity: number;
+  /** When set (e.g. sales invoice), reject fulfill if the reservation belongs to another customer. */
+  expectedCustomerId?: string | null;
 };
 
 /** Release reserved qty before outbound movement (same TX). */
@@ -172,6 +180,13 @@ export async function fulfillReservationInTx(
   }
   if (locked.warehouseId !== input.warehouseId || locked.itemId !== input.itemId) {
     throw new AppError(422, 'الحجز لا يطابق المخزن أو الصنف في السطر');
+  }
+  if (
+    input.expectedCustomerId &&
+    locked.customerId &&
+    locked.customerId !== input.expectedCustomerId
+  ) {
+    throw new AppError(422, 'الحجز لا يخص العميل المحدد في الفاتورة');
   }
 
   const total = qtyOf(locked.quantity);
@@ -257,6 +272,7 @@ export class ItemReservationService {
       limit?: number;
       warehouseId?: string;
       itemId?: string;
+      customerId?: string;
       status?: 'ACTIVE' | 'RELEASED' | 'ALL' | 'OPEN';
     }
   ) {
@@ -267,6 +283,7 @@ export class ItemReservationService {
       companyId,
       ...(options.warehouseId ? { warehouseId: options.warehouseId } : {}),
       ...(options.itemId ? { itemId: options.itemId } : {}),
+      ...(options.customerId ? { customerId: options.customerId } : {}),
       ...(status === 'ALL'
         ? {}
         : status === 'RELEASED'
@@ -317,6 +334,13 @@ export class ItemReservationService {
     if (!item || item.inactiveItem) {
       throw new AppError(404, 'الصنف غير موجود أو غير نشط');
     }
+    const customer = await prisma.customer.findFirst({
+      where: { id: input.customerId, companyId, deletedAt: null, isActive: true },
+      select: { id: true },
+    });
+    if (!customer) {
+      throw new AppError(404, 'العميل غير موجود أو غير نشط');
+    }
 
     return prisma.$transaction(async (tx) => {
       await lockWarehouseBalanceInTx(tx, companyId, input.itemId, input.warehouseId);
@@ -333,6 +357,7 @@ export class ItemReservationService {
           companyId,
           warehouseId: input.warehouseId,
           itemId: input.itemId,
+          customerId: input.customerId,
           quantity: quantity.toFixed(4),
           fulfilledQuantity: '0',
           reason,

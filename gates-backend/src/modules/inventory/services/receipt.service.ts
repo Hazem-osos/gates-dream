@@ -15,10 +15,11 @@ import {
   ensurePerpetualInventoryGlReady,
   runCompanyStockGlPosting,
 } from '../utils/stock-gl-posting-guard';
+import { attachDocumentFiscalYear } from './stock-gl-posting-context';
 import {
-  attachDocumentFiscalYear,
-  resolveStockMovementBranchId,
-} from './stock-gl-posting-context';
+  resolveStoreDocumentBranchId,
+  resolveStoreDocumentBranchIdOptional,
+} from '../utils/store-document-branch.util';
 
 export interface ReceiptLine {
   itemId: string;
@@ -88,6 +89,11 @@ export class ReceiptService {
         }
       }
 
+      const resolvedBranchId = await resolveStoreDocumentBranchIdOptional(companyId, {
+        documentBranchId: data.branchId,
+        warehouseId: data.warehouseId,
+      });
+
       // Use transaction to ensure atomicity
       const receipt = await prisma.$transaction(async (tx) => {
         // Calculate total amount
@@ -98,7 +104,7 @@ export class ReceiptService {
 
         const serial = await resolveStoreDocumentSerialInTx(tx, {
           companyId,
-          branchId: data.branchId ?? null,
+          branchId: resolvedBranchId,
           fiscalYearId: null,
           kind: 'receipt',
           clientSerial: data.serial,
@@ -108,7 +114,7 @@ export class ReceiptService {
         const record = await tx.receipt.create({
           data: {
             companyId,
-            branchId: data.branchId || null,
+            branchId: resolvedBranchId,
             description: data.description || null,
             serial,
             date: new Date(data.date),
@@ -188,12 +194,17 @@ export class ReceiptService {
       0
     );
 
+    const resolvedBranchId = await resolveStoreDocumentBranchIdOptional(companyId, {
+      documentBranchId: data.branchId || existing.branchId,
+      warehouseId: data.warehouseId,
+    });
+
     await prisma.$transaction(async (tx) => {
       await tx.receiptLine.deleteMany({ where: { receiptId } });
       await tx.receipt.update({
         where: { id: receiptId },
         data: {
-          branchId: data.branchId || existing.branchId,
+          branchId: resolvedBranchId ?? existing.branchId,
           description: data.description || null,
           serial: data.serial || existing.serial,
           date: new Date(data.date),
@@ -406,7 +417,12 @@ export class ReceiptService {
 
       const fiscalYearId = await fiscalYearService.assertOpenForDate(companyId, receipt.date);
       await assertWarehouseActive(companyId, receipt.warehouseId);
-      const postingCtx = attachDocumentFiscalYear(glCtx, fiscalYearId, receipt.branchId);
+      const movementBranchId = await resolveStoreDocumentBranchId(companyId, {
+        documentBranchId: receipt.branchId,
+        warehouseId: receipt.warehouseId,
+        headerBranchId: glCtx?.branchId,
+      });
+      const postingCtx = attachDocumentFiscalYear(glCtx, fiscalYearId, movementBranchId);
       const inventorySystem = await ensurePerpetualInventoryGlReady(
         companyId,
         postingCtx,
@@ -418,7 +434,6 @@ export class ReceiptService {
       const sourceType = 'GR';
       const sourceNumber = receipt.serial ?? receipt.id.slice(0, 8);
       const sourceYearId = String(new Date(receipt.date).getFullYear());
-      const movementBranchId = resolveStockMovementBranchId(postingCtx, receipt.branchId);
 
       let glSkipped = false;
       await prisma.$transaction(async (tx) => {

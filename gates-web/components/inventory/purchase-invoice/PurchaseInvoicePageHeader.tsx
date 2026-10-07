@@ -3,6 +3,7 @@
 import { SalesInvoicePageHeader } from '@/components/inventory/sales-invoice/SalesInvoicePageHeader';
 import type { CompanyPrintProfile } from '@/lib/print/types';
 import type { StatusTone } from '@/components/ui/StatusBadge';
+import type { ReactNode } from 'react';
 
 type Props = {
   invoiceNumber: string;
@@ -35,6 +36,7 @@ type Props = {
   journalEntryId?: string | null;
   journalNumber?: string | null;
   onPreviewJournal?: () => void;
+  toolbarLeading?: ReactNode;
 };
 
 /** Sales invoice header. Purchase only changes the party-side labels. */
@@ -71,6 +73,7 @@ export function PurchaseInvoicePageHeader(props: Props) {
       journalEntryId={props.journalEntryId}
       journalNumber={props.journalNumber}
       onPreviewJournal={props.onPreviewJournal}
+      toolbarLeading={props.toolbarLeading}
       hideStandalonePost
       title="فاتورة مشتريات"
       breadcrumbLabel="فاتورة مشتريات"

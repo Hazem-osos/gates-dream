@@ -19,6 +19,7 @@ import { toast } from '@/lib/feedback/toast';
 import type { QuickCreatedItem } from '@/app/components/form/QuickCreateItemModal';
 import { useAccountingSettingsQuery } from '@/lib/hooks/useAccountingSettings';
 import { nextNumericSerial } from '@/lib/masters/nextNumericSerial';
+import { resolveItemBarcode } from '@/lib/inventory/item-barcode-default';
 import { findDefaultPieceUnitId } from '@/lib/inventory/item-units';
 
 type ItemQuickAddModalProps = {
@@ -186,7 +187,7 @@ export function ItemQuickAddModal({
       const body: Record<string, unknown> = {
         arabicName: form.arabicName.trim(),
         serial: form.serial.trim() || undefined,
-        barcode: form.barcode.trim() || undefined,
+        barcode: resolveItemBarcode(form.barcode, form.serial) || undefined,
         englishName: form.englishName.trim() || undefined,
         categoryId: form.categoryId || undefined,
         baseUnitId: primaryUnitId || undefined,

@@ -42,6 +42,18 @@ export class InvoiceAccountResolverService {
     return byCode.id;
   }
 
+  /** Resolve a chart code/id to a leaf posting account (not a header folder). */
+  async resolvePostingAccountId(
+    companyId: string,
+    codeOrId: string,
+    fallbackCodes: string[] = []
+  ): Promise<string> {
+    const trimmed = codeOrId.trim();
+    const id = await this.resolveAccountId(companyId, trimmed);
+    const fallbacks = [...new Set([trimmed, ...fallbackCodes].filter(Boolean))];
+    return this.movementAccountId(companyId, id, fallbacks);
+  }
+
   /**
    * Company mappings sometimes point at a header (the English fixture
    * 4100/5100). Journals can only hit a posting account, so a header falls

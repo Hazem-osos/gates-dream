@@ -70,7 +70,7 @@ export function ExpensesAnalysisSheet({ rows, mode }: { rows: Row[]; mode: Mode 
   const supportedLevy = supportedNet * 0.07;
 
   return (
-    <div className="overflow-x-auto rounded-xl border border-slate-300 bg-white">
+    <div dir="rtl" className="report-scroll-viewport erp-scroll-x overflow-x-auto rounded-xl border border-slate-300 bg-white">
       <table className="w-full border-collapse text-sm" dir="rtl">
         <thead>
           <tr className="bg-[#1787B8] text-white">

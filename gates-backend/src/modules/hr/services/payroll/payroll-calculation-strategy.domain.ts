@@ -1,0 +1,7 @@
+export const PAYROLL_CALCULATION_MODES = {
+  RULE_ENGINE: 'RULE_ENGINE',
+  LEGACY_COMPATIBILITY: 'LEGACY_COMPATIBILITY',
+} as const;
+
+export type PayrollCalculationMode =
+  (typeof PAYROLL_CALCULATION_MODES)[keyof typeof PAYROLL_CALCULATION_MODES];

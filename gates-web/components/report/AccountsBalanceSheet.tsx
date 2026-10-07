@@ -191,7 +191,7 @@ function StatementTable({
   closingLabel: string;
 }) {
   return (
-    <div className="overflow-x-auto rounded-xl border border-[#D6EAF3] bg-white">
+    <div dir="rtl" className="report-scroll-viewport erp-scroll-x overflow-x-auto rounded-xl border border-[#D6EAF3] bg-white">
       <table className="w-full min-w-[720px] border-collapse text-sm text-[#0A3D5E]">
         <thead>
           <tr className="bg-[#F3F4F6] text-[#0A3D5E]">

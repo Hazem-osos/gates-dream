@@ -1,6 +1,29 @@
 import { AppError } from '../../../shared/middleware/error-handler';
 import prisma from '../../../shared/database/prisma';
 import { bomService } from '../../manufacturing/services/bom.service';
+import type { z } from 'zod';
+import type { assemblyPricingMethodSchema } from '../schemas/item.schema';
+
+export type AssemblyPricingMethod = z.infer<typeof assemblyPricingMethodSchema>;
+
+function resolveComponentUnitCost(
+  method: AssemblyPricingMethod,
+  ctx: {
+    warehouseAverage?: number;
+    itemAverage?: number;
+    itemLastPurchase?: number;
+  }
+): number {
+  if (method === 'MANUAL') return 0;
+  if (method === 'LAST_PURCHASE') {
+    const last = Number(ctx.itemLastPurchase) || 0;
+    if (last > 0) return last;
+    return Number(ctx.itemAverage) || 0;
+  }
+  const wh = Number(ctx.warehouseAverage) || 0;
+  if (wh > 0) return wh;
+  return Number(ctx.itemAverage) || 0;
+}
 
 export type BomExplosionComponent = {
   itemId: string;
@@ -47,7 +70,8 @@ export class ItemBomExplosionService {
     companyId: string,
     finishedItemId: string,
     quantity: number,
-    warehouseId?: string
+    warehouseId?: string,
+    pricingMethod: AssemblyPricingMethod = 'AVERAGE_COST'
   ): Promise<{
     finishedItemId: string;
     bomId: string;
@@ -68,7 +92,14 @@ export class ItemBomExplosionService {
 
     const cardComponents = parseCardAssemblyComponents(finished.assemblyComponents);
     if (cardComponents.length) {
-      return this.explodeFromItemCard(companyId, finished, quantity, warehouseId, cardComponents);
+      return this.explodeFromItemCard(
+        companyId,
+        finished,
+        quantity,
+        warehouseId,
+        cardComponents,
+        pricingMethod
+      );
     }
 
     const bom = await prisma.billOfMaterials.findFirst({
@@ -85,6 +116,7 @@ export class ItemBomExplosionService {
                 barcode: true,
                 arabicName: true,
                 averageCost: true,
+                lastPurchasePrice: true,
                 units: {
                   include: { unit: { select: { id: true, arabicName: true, englishName: true } } },
                 },
@@ -138,8 +170,11 @@ export class ItemBomExplosionService {
       );
       const baseUnit =
         line.rawItem.units.find((u) => u.isBaseUnit) ?? line.rawItem.units[0] ?? null;
-      const unitCost =
-        costByItem.get(line.rawItemId) || Number(line.rawItem.averageCost) || 0;
+      const unitCost = resolveComponentUnitCost(pricingMethod, {
+        warehouseAverage: costByItem.get(line.rawItemId),
+        itemAverage: Number(line.rawItem.averageCost) || 0,
+        itemLastPurchase: Number(line.rawItem.lastPurchasePrice) || 0,
+      });
       return {
         itemId: line.rawItem.id,
         itemCode: line.rawItem.serial || line.rawItem.barcode || '',
@@ -172,7 +207,8 @@ export class ItemBomExplosionService {
     finished: { id: string; arabicName: string | null },
     quantity: number,
     warehouseId: string | undefined,
-    cardComponents: CardComponentRow[]
+    cardComponents: CardComponentRow[],
+    pricingMethod: AssemblyPricingMethod = 'AVERAGE_COST'
   ) {
     const rawIds = [...new Set(cardComponents.map((row) => row.itemId))];
     const items = await prisma.item.findMany({
@@ -183,6 +219,7 @@ export class ItemBomExplosionService {
         barcode: true,
         arabicName: true,
         averageCost: true,
+        lastPurchasePrice: true,
         units: {
           include: { unit: { select: { id: true, arabicName: true, englishName: true } } },
         },
@@ -224,8 +261,11 @@ export class ItemBomExplosionService {
         if (!item) return null;
         const requiredQuantity = row.quantity * quantity;
         const baseUnit = item.units.find((u) => u.isBaseUnit) ?? item.units[0] ?? null;
-        const unitCost =
-          row.cost || costByItem.get(item.id) || Number(item.averageCost) || 0;
+        const unitCost = resolveComponentUnitCost(pricingMethod, {
+          warehouseAverage: costByItem.get(item.id),
+          itemAverage: Number(item.averageCost) || 0,
+          itemLastPurchase: Number(item.lastPurchasePrice) || 0,
+        });
         return {
           itemId: item.id,
           itemCode: item.serial || item.barcode || '',

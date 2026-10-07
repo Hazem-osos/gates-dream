@@ -28,8 +28,21 @@ export function useDocumentPostMutation<T = unknown>(
   });
 }
 
+export type StockDocumentPostResult = {
+  glSkipped?: boolean;
+  journalEntryId?: string | null;
+};
+
+export function extractStockPostResult(res?: ApiResponse<unknown>): StockDocumentPostResult {
+  const data = res?.data as StockDocumentPostResult | undefined;
+  return {
+    glSkipped: Boolean(data?.glSkipped),
+    journalEntryId: data?.journalEntryId ?? null,
+  };
+}
+
 export function postSuccessMessage(res?: ApiResponse<unknown>): string {
-  const glSkipped = Boolean((res?.data as { glSkipped?: boolean } | undefined)?.glSkipped);
+  const { glSkipped } = extractStockPostResult(res);
   if (glSkipped) {
     return 'تم ترحيل المخزون. لم يُنشأ قيد محاسبي — عرّف حسابات المخزون من إعدادات الشركة.';
   }

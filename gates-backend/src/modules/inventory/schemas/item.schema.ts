@@ -150,6 +150,11 @@ export const itemFinderQuerySchema = z.object({
   limit: z.string().optional().transform((val) => (val ? parseInt(val, 10) : 50)),
 });
 
+export const assemblyPricingMethodSchema = z
+  .enum(['AVERAGE_COST', 'LAST_PURCHASE', 'MANUAL'])
+  .optional()
+  .default('AVERAGE_COST');
+
 export const bomExplosionQuerySchema = z.object({
   quantity: z.coerce.number().positive().optional().default(1),
   warehouseId: z.preprocess(
@@ -160,6 +165,7 @@ export const bomExplosionQuerySchema = z.object({
     (val) => (val === '' || val == null ? undefined : val),
     z.string().uuid().optional()
   ),
+  pricingMethod: assemblyPricingMethodSchema,
 });
 
 export type CreateItemInput = z.infer<typeof createItemSchema>;

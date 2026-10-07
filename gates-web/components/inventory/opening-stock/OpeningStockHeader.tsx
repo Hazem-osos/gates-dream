@@ -1,5 +1,6 @@
 'use client';
 
+import type { ReactNode } from 'react';
 import { Download } from 'lucide-react';
 import { ErpDocumentPageHeader } from '@/components/erp/ErpDocumentPageHeader';
 import { DatePickerWithHijri } from '@/components/ui/DatePickerWithHijri';
@@ -36,6 +37,7 @@ type Props = {
   onVoid?: () => void;
   onRestore?: () => void;
   isCancelled?: boolean;
+  sourceLoadBar?: ReactNode;
 };
 
 export function OpeningStockHeader({
@@ -68,6 +70,7 @@ export function OpeningStockHeader({
   onVoid,
   onRestore,
   isCancelled,
+  sourceLoadBar,
 }: Props) {
   return (
     <>
@@ -93,6 +96,7 @@ export function OpeningStockHeader({
         favoriteLabel="بضاعة أول المدة"
         extraActions={
           <div className="flex flex-wrap items-center gap-2">
+            {sourceLoadBar}
             <Button
               type="button"
               variant="secondary"

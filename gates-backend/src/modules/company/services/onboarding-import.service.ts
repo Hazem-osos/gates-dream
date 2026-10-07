@@ -7,6 +7,7 @@ import {
   rememberImportedItemKeys,
 } from '../../inventory/utils/item-import-match';
 import { ensureDefaultUngroupedCategory } from '../../inventory/services/ensure-default-item-category';
+import { resolveItemBarcode } from '../../inventory/utils/item-barcode-default';
 import { nextNumericCode } from '../../../shared/utils/next-numeric-code';
 import { acquireUniqueKey, UNIQUE_KINDS } from '../../../shared/database/company-unique-key';
 
@@ -215,13 +216,14 @@ export class OnboardingImportService {
               row.purchasePrice != null && Number.isFinite(row.purchasePrice) ? row.purchasePrice : null;
             const serial = explicitSerial || nextNumericCode(localPool);
             localPool.push(serial);
+            const resolvedBarcode = resolveItemBarcode(barcode, serial);
             await acquireUniqueKey(tx, companyId, UNIQUE_KINDS.itemName, incoming.arabicName);
             const item = await tx.item.create({
               data: {
                 companyId,
                 arabicName: row.arabicName.trim(),
                 serial,
-                barcode,
+                barcode: resolvedBarcode,
                 categoryId: row.categoryId || fallbackCategory.id,
                 isActive: true,
                 beginningCostPrice: purchasePrice != null ? new Decimal(purchasePrice) : undefined,

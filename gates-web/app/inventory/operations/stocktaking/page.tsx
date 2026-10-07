@@ -47,6 +47,13 @@ import {
 import { STORE_SAVE_AND_POST_LABEL } from '@/lib/inventory/store-document-save-post';
 import { invalidateStockViews } from '@/lib/invoices/invalidate-stock-views';
 import { dispatchAcademyTrigger } from '@/lib/onboarding/tourCheckpoints';
+import { DocumentSourceLoadBar } from '@/components/invoices/DocumentSourceLoadBar';
+import {
+  mapSourcePayloadToStocktakingLines,
+  stockHeaderFieldsFromSource,
+} from '@/lib/inventory/apply-source-to-stock-document';
+import { STOCK_LINE_COPY_SOURCE_TYPES, type SourceHydratePayload } from '@/lib/invoices/sourceDocument';
+import { toast } from '@/lib/feedback/toast';
 
 import { formatMoneyAr } from '@/lib/formatMoney';
 
@@ -136,6 +143,7 @@ export default function StocktakingPage() {
     () => searchParams.get('id')?.trim() || null
   );
   const [showList, setShowList] = useState(false);
+  const [sourceBarKey, setSourceBarKey] = useState(0);
   const openStocktaking = (id: string | null) => {
     setDocumentId(id);
     if (typeof window === 'undefined') return;
@@ -217,6 +225,15 @@ export default function StocktakingPage() {
     openStocktaking(null);
     setStocktakingLines([]);
     reset(emptyStocktakingDefaults(new Date().toISOString().split('T')[0]));
+    setSourceBarKey((k) => k + 1);
+  };
+
+  const handleSourceHydrate = (payload: SourceHydratePayload) => {
+    const header = stockHeaderFieldsFromSource(payload, watch('description'));
+    if (header.warehouseId) setValue('warehouseId', header.warehouseId);
+    if (header.description) setValue('description', header.description);
+    setStocktakingLines(mapSourcePayloadToStocktakingLines(payload));
+    toast.success(`تم تحميل البنود من ${payload.sourceNumber}`);
   };
 
   const stocktakingMutation = useApiMutation<{ id?: string; serial?: string; serialNumber?: string }, Record<string, unknown>>(
@@ -491,6 +508,15 @@ export default function StocktakingPage() {
           onNew: handleNew,
           newLabel: 'جديد',
         }}
+        extraActions={
+          <DocumentSourceLoadBar
+            key={sourceBarKey}
+            hasExistingLines={stocktakingLines.some((l) => Boolean(l.itemId))}
+            disabled={Boolean(isPosted)}
+            allowedTypes={STOCK_LINE_COPY_SOURCE_TYPES}
+            onHydrate={handleSourceHydrate}
+          />
+        }
       />
       <JournalEntryBadge
         journalEntryId={stocktakingDetail?.data?.journalEntryId}

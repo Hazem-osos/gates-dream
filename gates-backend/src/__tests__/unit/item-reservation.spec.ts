@@ -21,6 +21,7 @@ jest.mock('../../shared/database/prisma', () => ({
     $transaction: (fn: (client: typeof tx) => Promise<unknown>) => fn(tx),
     item: { findFirst: jest.fn() },
     warehouse: { findFirst: jest.fn() },
+    customer: { findFirst: jest.fn() },
     itemReservation: {
       findMany: jest.fn(),
       count: jest.fn(),
@@ -46,6 +47,7 @@ import {
 
 const itemFind = prisma.item.findFirst as jest.Mock;
 const warehouseFind = prisma.warehouse.findFirst as jest.Mock;
+const customerFind = prisma.customer.findFirst as jest.Mock;
 
 const detail = {
   id: 'res-1',
@@ -60,6 +62,8 @@ const detail = {
   updatedAt: new Date('2026-09-28T09:00:00.000Z'),
   warehouse: { id: 'wh-1', code: 'M1', arabicName: 'الرئيسي' },
   item: { id: 'item-1', serial: '1', arabicName: 'سكر' },
+  customerId: 'cust-1',
+  customer: { id: 'cust-1', code: 'C1', arabicName: 'عميل' },
 };
 
 beforeEach(() => {
@@ -72,6 +76,7 @@ beforeEach(() => {
     warehouseKind: 'POSTING',
   });
   itemFind.mockResolvedValue({ id: 'item-1', inactiveItem: false });
+  customerFind.mockResolvedValue({ id: 'cust-1' });
   getWarehouseBalance.mockResolvedValue({
     quantityOnHand: 10,
     reservedQuantity: 0,
@@ -102,6 +107,7 @@ describe('item reservation stock effect', () => {
   it('adds the reserved quantity without changing on-hand stock', async () => {
     const row = await itemReservationService.create('co-1', {
       warehouseId: 'wh-1',
+      customerId: 'cust-1',
       itemId: 'item-1',
       quantity: 4,
       reason: 'عميل',
@@ -128,6 +134,7 @@ describe('item reservation stock effect', () => {
     await expect(
       itemReservationService.create('co-1', {
         warehouseId: 'wh-1',
+        customerId: 'cust-1',
         itemId: 'item-1',
         quantity: 4,
         reason: 'عميل',

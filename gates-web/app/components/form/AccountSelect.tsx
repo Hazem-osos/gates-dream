@@ -13,6 +13,7 @@ import { SearchableCombobox } from '@/app/components/form/SearchableCombobox';
 import { compactControlClass } from '@/components/ui/forms/formTokens';
 import { QuickCreateAccountModal } from '@/app/components/form/QuickCreateAccountModal';
 import { useApiQuery } from '@/lib/hooks/useApi';
+import { sortComboboxOptions } from '@/lib/sort/master-picker-sort';
 
 const selectCls = compactControlClass;
 
@@ -97,7 +98,7 @@ function AccountSelectInner({
       const label = code ? formatAccountLabel({ code, arabicName }) : arabicName;
       options.push({ value: id, label, searchText: `${code} ${arabicName}` });
     }
-    return options;
+    return sortComboboxOptions(options);
   }, [bankOnly, banksRes?.data]);
   const accounts = data?.data ?? [];
 
@@ -129,9 +130,12 @@ function AccountSelectInner({
         searchText: `${a.code} ${a.arabicName} ${a.englishName ?? ''}`,
       }));
     if (allowEmpty) {
-      return [{ value: '', label: emptyLabel || placeholder, searchText: '' }, ...list];
+      return sortComboboxOptions([
+        { value: '', label: emptyLabel || placeholder, searchText: '' },
+        ...list,
+      ]);
     }
-    return list;
+    return sortComboboxOptions(list);
   }, [accounts, allowEmpty, bankGlIds, bankGlOptions, bankOnly, emptyLabel, excludeIds, headerOnly, leafOnly, placeholder, pinnedAccount]);
 
   const valueLabel = useMemo(() => {

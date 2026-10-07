@@ -16,8 +16,11 @@ import { roundTo4 } from '../../../shared/utils/decimal-round';
 import { assertWarehouseActive } from '../utils/inventory-system';
 import {
   ensurePerpetualInventoryGlReady,
+  isStockGlConfigurationError,
   runCompanyStockGlPosting,
 } from '../utils/stock-gl-posting-guard';
+import { resolveStoreDocumentBranchId } from '../utils/store-document-branch.util';
+import { attachDocumentFiscalYear } from './stock-gl-posting-context';
 import { AppError } from '../../../shared/middleware/error-handler';
 import { fiscalYearService } from '../../platform/services/fiscal-year.service';
 import { claimDocumentPost, claimDocumentUnpost } from '../utils/claim-document-post';
@@ -432,18 +435,25 @@ export class DisassemblyService {
 
       const extras = parseDisassemblyExtras(disassembly.record);
       const destWarehouseId = extras.toWarehouseId || disassembly.warehouseId;
-      await fiscalYearService.assertOpenForDate(companyId, disassembly.date);
+      const fiscalYearId = await fiscalYearService.assertOpenForDate(companyId, disassembly.date);
       await assertWarehouseActive(companyId, disassembly.warehouseId);
       if (destWarehouseId !== disassembly.warehouseId) {
         await assertWarehouseActive(companyId, destWarehouseId, { label: 'مخزن الإضافة' });
       }
+      const movementBranchId = await resolveStoreDocumentBranchId(companyId, {
+        documentBranchId: disassembly.branchId,
+        warehouseId: disassembly.warehouseId,
+        warehouseIds: destWarehouseId !== disassembly.warehouseId ? [destWarehouseId] : undefined,
+        headerBranchId: glCtx?.branchId,
+      });
+      const glForPost = attachDocumentFiscalYear(glCtx, fiscalYearId, movementBranchId);
       const sourceType = 'DSM';
       const sourceNumber = disassembly.serial ?? disassembly.id.slice(0, 8);
       const sourceYearId = String(new Date(disassembly.date).getFullYear());
 
       const inventorySystem = await ensurePerpetualInventoryGlReady(
         companyId,
-        glCtx,
+        glForPost,
         disassembly.warehouseId
       );
 
@@ -454,19 +464,21 @@ export class DisassemblyService {
       const allItemIds = [...new Set([...disassembledItemIds, ...componentItemIds])];
 
       const resolveGlAccountsPair = async () => {
-        if (!glCtx) return null;
-        if (inventorySystem === 'PERPETUAL') {
+        if (!glForPost) return null;
+        const load = (warehouseId: string) =>
+          resolveStockGlAccounts(companyId, warehouseId, prisma, { transformationOnly: true });
+        try {
           const [source, dest] = await Promise.all([
-            resolveStockGlAccounts(companyId, disassembly.warehouseId),
-            resolveStockGlAccounts(companyId, destWarehouseId),
+            load(disassembly.warehouseId),
+            load(destWarehouseId),
           ]);
           return { source, dest };
+        } catch (error) {
+          if (inventorySystem === 'PERPETUAL' || !isStockGlConfigurationError(error)) {
+            throw error;
+          }
+          return null;
         }
-        const [source, dest] = await Promise.all([
-          resolveStockGlAccounts(companyId, disassembly.warehouseId).catch(() => null),
-          resolveStockGlAccounts(companyId, destWarehouseId).catch(() => null),
-        ]);
-        return source && dest ? { source, dest } : null;
       };
 
       const [unitCosts, items, glAccounts] = await Promise.all([
@@ -483,15 +495,24 @@ export class DisassemblyService {
       const debitLines: { accountId: string; amount: number; description: string }[] = [];
       const creditLines: { accountId: string; amount: number; description: string }[] = [];
 
+      let postJournalEntryId: string | null = null;
+      let postGlSkipped = false;
+
       await prisma.$transaction(async (tx) => {
         await claimDocumentPost((args) => tx.disassembly.updateMany(args), disassemblyId, companyId);
+        if (disassembly.branchId !== movementBranchId) {
+          await tx.disassembly.update({
+            where: { id: disassemblyId },
+            data: { branchId: movementBranchId },
+          });
+        }
         for (const line of disassembly.lines) {
           const disassembledUnitCost = unitCosts.get(line.disassembledItemId) ?? 0;
           const totalValue = roundTo4(disassembledUnitCost * Number(line.disassembledQuantity));
 
           await stockMovementService.postMovementInTx(tx, {
             companyId,
-            branchId: disassembly.branchId ?? undefined,
+            branchId: movementBranchId,
             warehouseId: disassembly.warehouseId,
             itemId: line.disassembledItemId,
             quantityDelta: -Number(line.disassembledQuantity),
@@ -500,6 +521,7 @@ export class DisassemblyService {
             sourceType,
             sourceNumber,
             sourceYearId,
+            sourceDocumentId: disassembly.id,
             documentDate: disassembly.date,
           });
 
@@ -544,7 +566,7 @@ export class DisassemblyService {
 
             await inventoryCostingService.applyInboundMovement(tx, {
               companyId,
-              branchId: disassembly.branchId ?? undefined,
+              branchId: movementBranchId,
               warehouseId: destWarehouseId,
               itemId: component.componentItemId,
               quantity: componentQty,
@@ -576,20 +598,29 @@ export class DisassemblyService {
         }
 
         let journalEntryId: string | undefined;
-        if (glCtx && glAccounts) {
-          await runCompanyStockGlPosting(inventorySystem, async () => {
+        if (glForPost && glAccounts) {
+          postGlSkipped = await runCompanyStockGlPosting(inventorySystem, async () => {
             const je = await stockMovementGlService.postInventoryTransformationGlInTx(
               tx,
-              glCtx,
-              disassembly,
+              glForPost,
+              { ...disassembly, branchId: movementBranchId },
               'DISASSEMBLY',
               debitLines,
               creditLines,
               'disassembly'
             );
             journalEntryId = je?.id;
+            if (!journalEntryId && inventorySystem === 'PERPETUAL') {
+              throw new AppError(
+                422,
+                'تعذر إنشاء القيد المحاسبي لعملية التفكيك — راجع حساب المخزون وحساب التسوية في إعدادات الشركة.'
+              );
+            }
           });
+        } else if (glForPost) {
+          postGlSkipped = true;
         }
+        postJournalEntryId = journalEntryId ?? null;
 
         await tx.disassembly.update({
           where: { id: disassemblyId },
@@ -607,7 +638,7 @@ export class DisassemblyService {
 
       logger.info({ companyId, disassemblyId }, 'Disassembly posted');
 
-      return { success: true };
+      return { success: true, glSkipped: postGlSkipped, journalEntryId: postJournalEntryId };
     } catch (error) {
       logger.error({ error, companyId, disassemblyId }, 'Error posting disassembly');
       if (error instanceof AppError) throw error;

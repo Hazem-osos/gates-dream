@@ -31,10 +31,10 @@ type ProductionOrder = {
 };
 
 const STAGE: Record<ProductionOrder['status'], string> = {
-  DRAFT: 'مسودة',
-  RELEASED: 'صرف خامات',
-  IN_PROGRESS: 'تجميع',
-  COMPLETED: 'تام',
+  DRAFT: 'تم التأكيد',
+  RELEASED: 'تم التأكيد',
+  IN_PROGRESS: 'قيد التنفيذ',
+  COMPLETED: 'منتهي',
   CANCELLED: 'ملغى',
 };
 
@@ -59,8 +59,8 @@ export default function ManufacturingCommand() {
   >(['mfg-items'], '/inventory/items', { limit: 200, isActive: true }, { staleTime: staleTimes.masterMs });
 
   const orders = useMemo(() => ordersQ.data?.data ?? [], [ordersQ.data?.data]);
-  const running = orders.filter((o) => o.status === 'IN_PROGRESS' || o.status === 'RELEASED');
-  const drafts = orders.filter((o) => o.status === 'DRAFT');
+  const inProgress = orders.filter((o) => o.status === 'IN_PROGRESS');
+  const confirmed = orders.filter((o) => o.status === 'RELEASED' || o.status === 'DRAFT');
   const completed = orders.filter((o) => o.status === 'COMPLETED');
   const items = itemsQ.data?.data ?? [];
   const shortages = items.filter((it) => {
@@ -80,7 +80,7 @@ export default function ManufacturingCommand() {
     );
   }, [orders]);
 
-  const activeRows = running.concat(drafts).slice(0, 12);
+  const activeRows = inProgress.concat(confirmed).slice(0, 12);
 
   return (
     <ManufacturingPageChrome
@@ -90,8 +90,8 @@ export default function ManufacturingCommand() {
       hideSave
     >
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-        <MfgMetric label="أوامر نشطة" value={running.length} hint={`${orders.length} إجمالي`} />
-        <MfgMetric label="بانتظار صرف خامات" value={drafts.length} tone={drafts.length ? 'warn' : 'ok'} />
+        <MfgMetric label="قيد التنفيذ" value={inProgress.length} hint={`${orders.length} إجمالي`} />
+        <MfgMetric label="تم التأكيد" value={confirmed.length} tone={confirmed.length ? 'warn' : 'ok'} />
         <MfgMetric label="انحراف الهدر" value={`${scrap.toLocaleString()}٪`} tone={scrap > 0 ? 'bad' : 'ok'} />
         <MfgMetric label="نواقص خامات" value={shortages.length} tone={shortages.length ? 'bad' : 'ok'} />
         <MfgMetric label="نماذج BOM" value={bomsQ.data?.data?.length ?? 0} />
@@ -110,8 +110,8 @@ export default function ManufacturingCommand() {
         <p className="mb-2 text-sm font-semibold text-[#094C6B]">توزيع أوامر التشغيل</p>
         <SegmentedBar
           segments={[
-            { label: 'مسودة', value: drafts.length, color: '#E3A008' },
-            { label: 'قيد التشغيل', value: running.length, color: '#0E78AA' },
+            { label: 'مسودة', value: confirmed.length, color: '#E3A008' },
+            { label: 'قيد التشغيل', value: inProgress.length, color: '#0E78AA' },
             { label: 'تام', value: completed.length, color: '#059669' },
             { label: 'ملغى', value: orders.filter((o) => o.status === 'CANCELLED').length, color: '#94A3B8' },
           ]}

@@ -7,7 +7,7 @@ import {
   defaultUnitIdForItem,
   formatUnitLabel,
   itemUnitRowsToLinks,
-  unitsForItem,
+  unitsForItemInvoiceStockPolicy,
 } from '@/lib/inventory/item-units';
 import { compactControlClass } from '@/components/ui/forms/formTokens';
 
@@ -28,6 +28,7 @@ export function ItemUnitSelect({
   disabled,
   className,
   nativeSelectProps,
+  invoiceAffectsStock = true,
 }: {
   itemId: string;
   value: string;
@@ -35,6 +36,8 @@ export function ItemUnitSelect({
   disabled?: boolean;
   className?: string;
   nativeSelectProps?: React.SelectHTMLAttributes<HTMLSelectElement>;
+  /** false = فاتورة بدون تأثير مخزني — الوحدة الأساسية فقط */
+  invoiceAffectsStock?: boolean;
 }) {
   const { data, isLoading } = useItemsQuery();
   const items = data?.data ?? [];
@@ -43,7 +46,10 @@ export function ItemUnitSelect({
     () => items.find((i: ItemOption) => i.id === itemId),
     [items, itemId]
   );
-  const cachedLinks = useMemo(() => unitsForItem(item), [item]);
+  const cachedLinks = useMemo(
+    () => unitsForItemInvoiceStockPolicy(item, invoiceAffectsStock),
+    [item, invoiceAffectsStock]
+  );
 
   const needsItemUnitsFetch = Boolean(itemId) && !isLoading && cachedLinks.length === 0;
 
@@ -57,7 +63,10 @@ export function ItemUnitSelect({
   const unitLinks = useMemo(() => {
     if (cachedLinks.length > 0) return cachedLinks;
     const rows = itemUnitsResponse?.data ?? [];
-    if (rows.length > 0) return itemUnitRowsToLinks(rows);
+    if (rows.length > 0) {
+      const links = itemUnitRowsToLinks(rows);
+      return unitsForItemInvoiceStockPolicy({ id: itemId, units: links }, invoiceAffectsStock);
+    }
     if (value?.trim()) {
       return [
         {

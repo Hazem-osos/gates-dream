@@ -14,66 +14,23 @@ router.use(authenticate);
 router.use(setTenantContext);
 
 /**
+ * @deprecated Legacy async job — writes MonthlySalary rows via BullMQ.
+ * Canonical payroll calculation: POST /api/v1/hr/payroll-runs (PayrollRun).
+ * See docs/hcm/HCM_PAYROLL_ARCHITECTURE.md.
+ *
  * POST /api/v1/hr/payroll/calculate
  * Enqueue payroll calculation job
  */
 router.post(
   '/calculate',
   authorize({ resource: 'payroll', action: 'edit' }),
-  async (req: AuthRequest, res: Response) => {
-    try {
-      if (!requireRedisEnabled(res)) return;
-
-      const { period } = req.body;
-      const companyId = req.companyId || req.tenantId;
-      const userId = req.user?.sub || '';
-
-      if (!period) {
-        return void res.status(400).json({
-          status: 'error',
-          message: 'Period is required (format: YYYY-MM)',
-        });
-      }
-
-      if (!companyId) {
-        return void res.status(400).json({
-          status: 'error',
-          message: 'معرّف الشركة مطلوب',
-        });
-      }
-
-      // Enqueue job
-      const job = await payrollQueue.add(
-        'calculate-payroll',
-        {
-          companyId,
-          period,
-          userId,
-        },
-        {
-          priority: 1, // Higher priority
-        }
-      );
-
-      logger.info(
-        { jobId: job.id, companyId, period, userId },
-        'Payroll calculation job enqueued'
-      );
-
-      // Return 202 Accepted with job ID
-      return void res.status(202).json({
-        status: 'accepted',
-        message: 'Payroll calculation job enqueued',
-        jobId: job.id,
-        statusUrl: `/api/v1/jobs/${job.id}`,
-      });
-    } catch (error) {
-      logger.error({ error }, 'Error enqueuing payroll job');
-      return void res.status(500).json({
-        status: 'error',
-        message: 'Failed to enqueue payroll calculation job',
-      });
-    }
+  async (_req: AuthRequest, res: Response) => {
+    return void res.status(410).json({
+      status: 'error',
+      message:
+        'Deprecated: use POST /api/v1/hr/payroll-runs for canonical PayrollRun calculation. MonthlySalary async job removed.',
+      canonicalEndpoint: '/api/v1/hr/payroll-runs',
+    });
   }
 );
 

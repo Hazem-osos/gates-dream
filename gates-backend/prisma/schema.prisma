@@ -156,6 +156,7 @@ model Company {
   purchaseOrders                            PurchaseOrder[]
   purchaseReturns                           PurchaseReturn[]
   priceQuotes                               PriceQuote[]
+  supplyOrders                              SupplyOrder[]
   serialNumbers                             SerialNumber[]
   itemOffers                                ItemOffer[]
   employees                                 Employee[]
@@ -279,9 +280,42 @@ model Company {
   guaranteeLetters                          GuaranteeLetter[]
   hrSettings                                HrSettings?
   payrollRuns                               PayrollRun[]
+  hcmPositions                              HcmPosition[]
+  hcmEmployments                            HcmEmployment[]
+  hcmEmploymentAssignments                  HcmEmploymentAssignment[]
+  hcmCompensationAssignments                HcmCompensationAssignment[]
+  hcmEmploymentEvents                       HcmEmploymentEvent[]
+  hcmTimeDevices                            HcmTimeDevice[]
+  hcmDeviceEmployeeMappings                 HcmDeviceEmployeeMapping[]
+  hcmWorkShifts                             HcmWorkShift[]
+  hcmWorkSchedules                          HcmWorkSchedule[]
+  hcmEmployeeScheduleAssignments            HcmEmployeeScheduleAssignment[]
+  hcmCalendarDays                           HcmCalendarDay[]
+  hcmAttendancePolicies                     HcmAttendancePolicy[]
+  hcmTimePunches                            HcmTimePunch[]
+  hcmAttendanceDays                         HcmAttendanceDay[]
+  hcmWorkIntervals                          HcmWorkInterval[]
+  hcmTimeExceptions                         HcmTimeException[]
+  hcmTimeCorrections                        HcmTimeCorrection[]
+  hcmAttendancePeriodReviews                HcmAttendancePeriodReview[]
+  hcmLeaveTypes                             HcmLeaveType[]
+  hcmLeavePolicies                          HcmLeavePolicy[]
+  hcmLeaveEnrollments                       HcmLeaveEnrollment[]
+  hcmLeaveLedgerEntries                     HcmLeaveLedgerEntry[]
+  hcmLeaveRequests                          HcmLeaveRequest[]
+  hcmLeaveRequestDays                       HcmLeaveRequestDay[]
+  hcmLeaveAccrualRuns                       HcmLeaveAccrualRun[]
+  hcmPayComponents                          HcmPayComponent[]
+  hcmPayrollRules                           HcmPayrollRule[]
+  hcmCompensationComponentAssignments       HcmCompensationComponentAssignment[]
+  hcmPayrollOneTimeInputs                   HcmPayrollOneTimeInput[]
+  hcmPayrollLocalizationConfigs             HcmPayrollLocalizationConfig[]
   manufacturingSettings                     ManufacturingSettings?
   billOfMaterials                           BillOfMaterials[]
   productionOrders                          ProductionOrder[]
+  manufacturingPlans                        ManufacturingPlan[]
+  manufacturingWorkOrders                   ManufacturingWorkOrder[]
+  itemAlternatives                          ItemAlternative[]
   contractingSettings                       ContractingSettings?
   contractingProjects                       ContractingProject[]
   contractExtracts                          ContractExtract[]
@@ -403,7 +437,13 @@ model Branch {
   lettersOfCredit       LetterOfCredit[]
   guaranteeLetters      GuaranteeLetter[]
   payrollRuns           PayrollRun[]
+  hcmPositions          HcmPosition[]
+  hcmEmploymentAssignments HcmEmploymentAssignment[]
+  hcmTimeDevices        HcmTimeDevice[]
+  hcmCalendarDays       HcmCalendarDay[]
+  departments           Department[]
   productionOrders      ProductionOrder[]
+  manufacturingWorkOrders ManufacturingWorkOrder[]
   documentAttachments   DocumentAttachment[]
   counterpartyOffsets   CounterpartyOffset[]
   documentLayoutConfigs DocumentLayoutConfig[]
@@ -985,6 +1025,7 @@ model CostCenter {
   PriceQuote          PriceQuote[]
   EmployeeContract    EmployeeContract[]
   employees           Employee[]
+  hcmPositions        HcmPosition[]
   contractingProjects ContractingProject[]
   realEstateProjects  RealEstateProject[]
   propertyProjects    PropertyProject[]
@@ -1453,6 +1494,8 @@ model Customer {
   rentalPoolAgreements       RentalPoolAgreement[]
   schoolStudents             SchoolStudent[]
   stockIssues                Issue[]
+  itemReservations           ItemReservation[]
+  supplyOrders               SupplyOrder[]
 
   linkedBySupplier    Supplier?            @relation("SupplierToLinkedCustomer")
   counterpartyOffsets CounterpartyOffset[]
@@ -2559,6 +2602,7 @@ model Unit {
   purchaseOrderBaseUnits PurchaseOrderLine[]  @relation("BaseUnit")
   priceQuoteLines        PriceQuoteLine[]
   priceQuoteBaseUnits    PriceQuoteLine[]     @relation("BaseUnit")
+  supplyOrderLines       SupplyOrderLine[]
   itemOffers             ItemOffer[]          @relation("OfferSourceUnit")
   PurchaseReturnLine     PurchaseReturnLine[]
   personItemPrices       PersonItemPrice[]
@@ -2709,6 +2753,7 @@ model Item {
   otherAdjustmentLines       OtherAdjustmentLine[]
   purchaseReturnLines        PurchaseReturnLine[]
   priceQuoteLines            PriceQuoteLine[]
+  supplyOrderLines           SupplyOrderLine[]
   itemOffersFrom             ItemOffer[]                   @relation("FromItem")
   itemOffersTo               ItemOffer[]                   @relation("ToItem")
   PurchaseOrderLine          PurchaseOrderLine[]
@@ -2726,6 +2771,9 @@ model Item {
   commissionQuantityLines    RepresentativeCommissionQuantity[]
   orderLimitLines            ItemOrderLimitLine[]
   itemReservations           ItemReservation[]
+  itemAlternativesFor        ItemAlternative[] @relation("ItemAlternativesFor")
+  itemAlternativesSubstitute ItemAlternative[] @relation("ItemAlternativesSubstitute")
+  manufacturingWorkOrderLines ManufacturingWorkOrderLine[]
 
   @@index([companyId])
   @@index([serial])
@@ -2853,12 +2901,15 @@ model Warehouse {
   purchaseOrders           PurchaseOrder[]
   purchaseReturns          PurchaseReturn[]
   priceQuotes              PriceQuote[]
+  supplyOrderLines         SupplyOrderLine[]
   inventoryMovements       InventoryMovement[]
   newModuleStores          NewModuleStore[]
   posTerminals             PosTerminal[]
   lettersOfCredit          LetterOfCredit[]
   productionOrdersRaw      ProductionOrder[]      @relation("ProductionRawWarehouse")
   productionOrdersFinished ProductionOrder[]      @relation("ProductionFinishedWarehouse")
+  manufacturingPlansFrom   ManufacturingPlan[]    @relation("ManufacturingPlanFromWarehouse")
+  manufacturingPlanLines   ManufacturingPlanLine[] @relation("ManufacturingPlanLineWarehouse")
   invoiceLines             InvoiceLine[]
   documentProfiles         DocumentProfile[] @relation("DocumentProfileWarehouse")
   transactionSettings      TransactionSettings[]
@@ -2960,6 +3011,7 @@ model ItemReservation {
   companyId   String
   warehouseId String
   itemId      String
+  customerId  String?
   quantity    Decimal   @db.Decimal(18, 4)
   /// Cumulative qty issued against this hold (issue voucher / sales invoice).
   fulfilledQuantity Decimal @default(0) @db.Decimal(18, 4)
@@ -2973,8 +3025,10 @@ model ItemReservation {
   company   Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
   warehouse Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
   item      Item      @relation(fields: [itemId], references: [id], onDelete: Restrict)
+  customer  Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
 
   @@index([companyId, warehouseId])
+  @@index([companyId, customerId])
   @@index([itemId])
   @@map("item_reservations")
 }
@@ -3988,6 +4042,62 @@ model PriceQuoteCondition {
   @@map("price_quote_conditions")
 }
 
+/// Sales supply order (أمر توريد) — customer delivery planning vs warehouse stock.
+model SupplyOrder {
+  id                   String    @id @default(uuid())
+  companyId            String
+  branchId             String?
+  serial               String?
+  description          String?   @db.Text
+  date                 DateTime
+  hijriDate            String?
+  customerId           String
+  expectedLeadDays     Int?
+  expectedDeliveryDate DateTime?
+  totalAmount          Decimal   @default(0) @db.Decimal(15, 2)
+  isClosed             Boolean   @default(false)
+  closedAt             DateTime?
+  isCancelled          Boolean   @default(false)
+  cancelledAt          DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  company  Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  customer Customer          @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  lines    SupplyOrderLine[]
+
+  @@index([companyId])
+  @@index([branchId])
+  @@index([customerId])
+  @@index([date])
+  @@index([isClosed])
+  @@map("supply_orders")
+}
+
+model SupplyOrderLine {
+  id            String   @id @default(uuid())
+  supplyOrderId String
+  itemId        String
+  warehouseId   String
+  unitId        String?
+  quantity      Decimal  @db.Decimal(15, 3)
+  unitPrice     Decimal  @default(0) @db.Decimal(15, 2)
+  total         Decimal  @default(0) @db.Decimal(15, 2)
+  lineOrder     Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  supplyOrder SupplyOrder @relation(fields: [supplyOrderId], references: [id], onDelete: Cascade)
+  item        Item        @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  warehouse   Warehouse   @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+  unit        Unit?       @relation(fields: [unitId], references: [id], onDelete: SetNull)
+
+  @@index([supplyOrderId])
+  @@index([itemId])
+  @@index([warehouseId])
+  @@map("supply_order_lines")
+}
+
 // Item Offers
 model ItemOffer {
   id                 String   @id @default(uuid())
@@ -4045,6 +4155,8 @@ enum SourceDocumentType {
   PURCHASE_ORDER
   PURCHASE_INVOICE
   DELIVERY_NOTE
+  GOODS_RECEIPT
+  SALES_INVOICE
   NONE
 }
 
@@ -4196,6 +4308,7 @@ model Invoice {
   originalInvoice       Invoice?               @relation("InvoiceReturns", fields: [originalInvoiceId], references: [id], onDelete: SetNull)
   returns               Invoice[]              @relation("InvoiceReturns")
   installments          InvoiceInstallment[]
+  manufacturingWorkOrders ManufacturingWorkOrder[]
 
   @@unique([companyId, branchId, fiscalYearId, invoiceType, invoiceNumber])
   @@index([companyId, date])
@@ -4648,6 +4761,13 @@ model Employee {
   annualLeaveEntitlementsDisbursements      AnnualLeaveEntitlementsDisbursement[]
   housingAllowanceEntitlementsDisbursements HousingAllowanceEntitlementsDisbursement[]
   payrollRunItems                           PayrollRunItem[]
+  hcmPayrollOneTimeInputs                   HcmPayrollOneTimeInput[]
+  hcmEmployments                            HcmEmployment[]
+  hcmDeviceMappings                         HcmDeviceEmployeeMapping[]
+  hcmTimePunches                            HcmTimePunch[]
+  hcmAttendanceDays                         HcmAttendanceDay[]
+  hcmTimeExceptions                         HcmTimeException[]
+  hcmLeaveRequests                          HcmLeaveRequest[]
 
   @@index([companyId])
   @@index([serial])
@@ -4661,6 +4781,9 @@ model Employee {
 model EmployeeContract {
   id                     String    @id @default(uuid())
   employeeId             String
+  employmentId           String?
+  previousContractId     String?
+  contractStatus         String?   @default("ACTIVE") @db.VarChar(20)
   serial                 String?
   contractStartDate      DateTime
   contractStartDateHijri String?
@@ -4691,8 +4814,12 @@ model EmployeeContract {
   updatedAt              DateTime  @updatedAt
 
   employee                          Employee                           @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  employment                        HcmEmployment?                     @relation(fields: [employmentId], references: [id], onDelete: SetNull)
+  previousContract                  EmployeeContract?                  @relation("ContractChain", fields: [previousContractId], references: [id], onDelete: SetNull)
+  supersededBy                      EmployeeContract[]                 @relation("ContractChain")
   wagePolicy                        WagePolicy?                        @relation(fields: [wagePolicyId], references: [id])
   department                        Department?                        @relation(fields: [departmentId], references: [id])
+  section                           Department?                        @relation("ContractSection", fields: [sectionId], references: [id], onDelete: SetNull)
   jobTitle                          JobTitle?                          @relation(fields: [jobTitleId], references: [id])
   jobCadre                          JobCadre?                          @relation(fields: [jobCadreId], references: [id])
   city                              City?                              @relation(fields: [cityId], references: [id])
@@ -4703,6 +4830,8 @@ model EmployeeContract {
   annualLeaveEntitlementsClearances AnnualLeaveEntitlementsClearance[]
 
   @@index([employeeId])
+  @@index([employmentId])
+  @@index([sectionId])
   // Wave 4 fix: reconciles idx_employee_contracts_employee_active,
   // created directly by a raw-SQL migration but never declared here.
   @@index([employeeId, isActive])
@@ -4725,6 +4854,8 @@ model EmployeeProcedure {
   createdAt     DateTime @default(now())
 
   employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  hcmAssignmentSources      HcmEmploymentAssignment[]
+  hcmCompensationSources    HcmCompensationAssignment[]
 
   @@index([employeeId])
   @@index([procedureType])
@@ -4770,6 +4901,13 @@ model HrSettings {
   employeeInsuranceRate               Decimal  @default(0.11) @db.Decimal(8, 6)
   employerInsuranceRate               Decimal  @default(0.1875) @db.Decimal(8, 6)
   payrollTaxFlatRate                  Decimal  @default(0.10) @db.Decimal(8, 6)
+  payrollProrationMethod              String   @default("CALENDAR_DAYS") @db.VarChar(32)
+  payrollNegativeNetPolicy            String   @default("BLOCK") @db.VarChar(32)
+  payrollRequireApprovalBeforePost    Boolean  @default(false)
+  payrollCalculatorCannotApproveOwnRun Boolean @default(false)
+  /// LEGACY_COMPATIBILITY | RULE_ENGINE — explicit tenant mode (no silent auto-switch)
+  payrollEngineMode                   String   @default("LEGACY_COMPATIBILITY") @db.VarChar(32)
+  payrollRequireTimeReady             Boolean  @default(true)
   createdAt                           DateTime @default(now())
   updatedAt                           DateTime @updatedAt
 
@@ -4805,6 +4943,28 @@ model PayrollRun {
   branch     Branch?          @relation(fields: [branchId], references: [id], onDelete: SetNull)
   fiscalYear FiscalYear?      @relation(fields: [fiscalYearId], references: [id], onDelete: SetNull)
   items      PayrollRunItem[]
+  snapshot   HcmPayrollRunSnapshot?
+
+  periodStartDate DateTime? @db.Date
+  periodEndDate   DateTime? @db.Date
+  paymentDate     DateTime? @db.Date
+  calculatedAt    DateTime?
+  calculatedById  String?   @db.VarChar(36)
+  calculationMode String?   @db.VarChar(32) // LEGACY_COMPATIBILITY | RULE_ENGINE
+  negativeNetPolicy String? @db.VarChar(32)
+  negativeNetOverrideReason String? @db.Text
+  negativeNetOverrideById   String? @db.VarChar(36)
+  negativeNetOverrideAt     DateTime?
+  createdById     String?   @db.VarChar(36)
+  reviewedById    String?   @db.VarChar(36)
+  reviewedAt      DateTime?
+  approvedById    String?   @db.VarChar(36)
+  approvedAt      DateTime?
+  postedById      String?   @db.VarChar(36)
+  paidById        String?   @db.VarChar(36)
+  reversedAt      DateTime?
+  reversedById      String?   @db.VarChar(36)
+  calculationJobId String?  @db.VarChar(64)
 
   @@unique([companyId, periodYear, periodMonth])
   @@index([companyId, status])
@@ -4831,10 +4991,874 @@ model PayrollRunItem {
 
   payrollRun PayrollRun @relation(fields: [payrollRunId], references: [id], onDelete: Cascade)
   employee   Employee   @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  components HcmPayrollItemComponent[]
 
   @@unique([payrollRunId, employeeId])
   @@index([employeeId])
   @@map("payroll_run_items")
+}
+
+// ============================================
+// HCM PHASE 5 — PAY COMPONENTS / RULE ENGINE / SNAPSHOTS
+// ============================================
+
+model HcmPayComponent {
+  id                    String   @id @default(uuid())
+  companyId             String
+  code                  String   @db.VarChar(40)
+  arabicName            String
+  englishName           String?
+  componentType         String   @db.VarChar(32) // EARNING | DEDUCTION | EMPLOYER_CONTRIBUTION
+  calculationSource     String   @default("RULE") @db.VarChar(32)
+  taxableClass          String   @default("TAXABLE") @db.VarChar(32)
+  insurableClass        String   @default("INSURABLE") @db.VarChar(32)
+  isRecurring           Boolean  @default(true)
+  showOnPayslip         Boolean  @default(true)
+  glExpenseAccountId    String?
+  glPayableAccountId    String?
+  priority              Int      @default(100)
+  isActive              Boolean  @default(true)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  company               Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  rules                 HcmPayrollRule[]
+  compensationLines     HcmCompensationComponentAssignment[]
+  oneTimeInputs         HcmPayrollOneTimeInput[]
+  itemComponents        HcmPayrollItemComponent[]
+
+  @@unique([companyId, code])
+  @@index([companyId, isActive])
+  @@map("hcm_pay_components")
+}
+
+model HcmPayrollRule {
+  id              String    @id @default(uuid())
+  companyId       String
+  payComponentId  String
+  code            String    @db.VarChar(60)
+  name            String
+  phase           Int       @default(10)
+  priority        Int       @default(100)
+  effectiveFrom   DateTime  @db.Date
+  effectiveTo     DateTime? @db.Date
+  conditionExpr   String?   @db.Text
+  formulaExpr     String    @db.Text
+  roundingMode    String    @default("HALF_UP_2") @db.VarChar(20)
+  minAmount       Decimal?  @db.Decimal(15, 4)
+  maxAmount       Decimal?  @db.Decimal(15, 4)
+  dependsOnCodes  String?   @db.Text // JSON array of component codes
+  localizationKey String?   @db.VarChar(40)
+  isActive        Boolean   @default(true)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  company         Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  payComponent    HcmPayComponent @relation(fields: [payComponentId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, code, effectiveFrom])
+  @@index([companyId, effectiveFrom, effectiveTo])
+  @@index([payComponentId])
+  @@map("hcm_payroll_rules")
+}
+
+model HcmCompensationComponentAssignment {
+  id             String    @id @default(uuid())
+  companyId      String
+  employmentId   String
+  payComponentId String
+  amount         Decimal   @db.Decimal(15, 2)
+  currencyCode   String    @default("EGP") @db.VarChar(10)
+  effectiveFrom  DateTime  @db.Date
+  effectiveTo    DateTime? @db.Date
+  sourceType     String    @default("EMPLOYEE") @db.VarChar(32)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  company        Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  employment     HcmEmployment @relation(fields: [employmentId], references: [id], onDelete: Cascade)
+  payComponent   HcmPayComponent @relation(fields: [payComponentId], references: [id], onDelete: Restrict)
+
+  @@index([companyId, employmentId])
+  @@index([employmentId, effectiveFrom])
+  @@map("hcm_compensation_component_assignments")
+}
+
+model HcmPayrollOneTimeInput {
+  id             String    @id @default(uuid())
+  companyId      String
+  employmentId   String
+  employeeId     String
+  payComponentId String
+  periodYear     Int
+  periodMonth    Int
+  amount         Decimal   @db.Decimal(15, 2)
+  reason         String?   @db.Text
+  source         String?   @db.VarChar(40)
+  status         String    @default("DRAFT") @db.VarChar(20)
+  approvedById   String?   @db.VarChar(36)
+  approvedAt     DateTime?
+  consumedRunId  String?   @db.VarChar(36)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  company        Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  employment     HcmEmployment @relation(fields: [employmentId], references: [id], onDelete: Cascade)
+  employee       Employee      @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  payComponent   HcmPayComponent @relation(fields: [payComponentId], references: [id], onDelete: Restrict)
+
+  @@index([companyId, periodYear, periodMonth, status])
+  @@index([employmentId])
+  @@map("hcm_payroll_one_time_inputs")
+}
+
+model HcmPayrollRunSnapshot {
+  id                 String   @id @default(uuid())
+  payrollRunId       String   @unique
+  ruleSetFingerprint String   @db.VarChar(64)
+  inputSnapshot      Json
+  createdAt          DateTime @default(now())
+
+  payrollRun PayrollRun @relation(fields: [payrollRunId], references: [id], onDelete: Cascade)
+
+  @@map("hcm_payroll_run_snapshots")
+}
+
+model HcmPayrollItemComponent {
+  id               String   @id @default(uuid())
+  payrollRunItemId String
+  payComponentId   String?
+  componentCode    String   @db.VarChar(40)
+  componentType    String   @db.VarChar(32)
+  phase            Int      @default(0)
+  amount           Decimal  @db.Decimal(15, 4)
+  quantity         Decimal? @db.Decimal(15, 4)
+  baseAmount       Decimal? @db.Decimal(15, 4)
+  rate             Decimal? @db.Decimal(15, 6)
+  ruleCode         String?  @db.VarChar(60)
+  ruleId           String?  @db.VarChar(36)
+  ruleFingerprint  String?  @db.VarChar(64)
+  ruleFormulaFingerprint String? @db.VarChar(64)
+  roundingMode     String?  @db.VarChar(20)
+  sourceType       String?  @db.VarChar(32)
+  sourceRef        String?  @db.VarChar(64)
+  glExpenseAccountIdSnapshot String? @db.VarChar(36)
+  glPayableAccountIdSnapshot String? @db.VarChar(36)
+  branchIdSnapshot String?  @db.VarChar(36)
+  departmentIdSnapshot String? @db.VarChar(36)
+  costCenterIdSnapshot String? @db.VarChar(36)
+  glAccountId      String?  @db.VarChar(36)
+  explanation      Json?
+  createdAt        DateTime @default(now())
+
+  payrollRunItem PayrollRunItem   @relation(fields: [payrollRunItemId], references: [id], onDelete: Cascade)
+  payComponent   HcmPayComponent? @relation(fields: [payComponentId], references: [id], onDelete: SetNull)
+
+  @@index([payrollRunItemId])
+  @@index([componentCode])
+  @@map("hcm_payroll_item_components")
+}
+
+model HcmPayrollLocalizationConfig {
+  id            String    @id @default(uuid())
+  companyId     String
+  countryCode   String    @db.VarChar(4)
+  effectiveFrom DateTime  @db.Date
+  effectiveTo   DateTime? @db.Date
+  configKey     String    @db.VarChar(60)
+  configJson    Json
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, countryCode, configKey, effectiveFrom])
+  @@index([companyId, countryCode])
+  @@map("hcm_payroll_localization_configs")
+}
+
+// ============================================
+// HCM PHASE 1 — EMPLOYMENT / POSITION / EFFECTIVE DATING
+// ============================================
+
+model HcmPosition {
+  id                  String    @id @default(uuid())
+  companyId           String
+  code                String
+  arabicName          String
+  englishName         String?
+  jobTitleId          String?
+  departmentId        String?
+  branchId            String?
+  jobCadreId          String?
+  costCenterId        String?
+  reportsToPositionId String?
+  headcountLimit      Int?
+  effectiveFrom       DateTime  @db.Date
+  effectiveTo         DateTime? @db.Date
+  isActive            Boolean   @default(true)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  company         Company                @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  jobTitle        JobTitle?              @relation(fields: [jobTitleId], references: [id], onDelete: SetNull)
+  department      Department?            @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  branch          Branch?                @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  jobCadre        JobCadre?              @relation(fields: [jobCadreId], references: [id], onDelete: SetNull)
+  costCenter      CostCenter?            @relation(fields: [costCenterId], references: [id], onDelete: SetNull)
+  reportsTo       HcmPosition?           @relation("HcmPositionReportsTo", fields: [reportsToPositionId], references: [id], onDelete: SetNull)
+  directReports        HcmPosition[]             @relation("HcmPositionReportsTo")
+  assignments          HcmEmploymentAssignment[]
+  managerAssignments   HcmEmploymentAssignment[] @relation("AssignmentManagerPosition")
+  managedUnits         Department[]              @relation("DepartmentManagerPosition")
+
+  @@unique([companyId, code])
+  @@index([companyId, isActive])
+  @@index([departmentId])
+  @@index([reportsToPositionId])
+  @@map("hcm_positions")
+}
+
+model HcmEmployment {
+  id                   String    @id @default(uuid())
+  companyId            String
+  employeeId           String
+  episodeNumber        Int       @default(1)
+  previousEmploymentId String?
+  employmentNumber     String?
+  hireDate             DateTime  @db.Date
+  originalHireDate     DateTime? @db.Date
+  employmentType       String?   @db.VarChar(40)
+  status               String    @default("ACTIVE") @db.VarChar(20)
+  probationStart       DateTime? @db.Date
+  probationEnd         DateTime? @db.Date
+  terminationDate      DateTime? @db.Date
+  terminationReason    String?   @db.Text
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  company            Company                     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  employee           Employee                    @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  previousEmployment HcmEmployment?              @relation("EmploymentEpisodeChain", fields: [previousEmploymentId], references: [id], onDelete: SetNull)
+  nextEpisodes       HcmEmployment[]             @relation("EmploymentEpisodeChain")
+  assignments        HcmEmploymentAssignment[]
+  compensations      HcmCompensationAssignment[]
+  contracts          EmployeeContract[]
+  events             HcmEmploymentEvent[]
+  scheduleAssignments HcmEmployeeScheduleAssignment[]
+  attendanceDays     HcmAttendanceDay[]
+  timePunches        HcmTimePunch[]
+  timeExceptions     HcmTimeException[]
+  timeCorrections    HcmTimeCorrection[]
+  leaveEnrollments   HcmLeaveEnrollment[]
+  leaveLedgerEntries HcmLeaveLedgerEntry[]
+  leaveRequests      HcmLeaveRequest[]
+  compensationComponentAssignments HcmCompensationComponentAssignment[]
+  payrollOneTimeInputs             HcmPayrollOneTimeInput[]
+
+  @@index([companyId, employeeId])
+  @@index([companyId, employeeId, status])
+  @@index([companyId, status])
+  @@index([employeeId])
+  @@map("hcm_employments")
+}
+
+model HcmEmploymentAssignment {
+  id                  String    @id @default(uuid())
+  companyId           String
+  employmentId        String
+  positionId          String?
+  branchId            String?
+  departmentId        String?
+  jobTitleId          String?
+  jobCadreId          String?
+  managerPositionId   String?
+  effectiveFrom       DateTime  @db.Date
+  effectiveTo         DateTime? @db.Date
+  changeReason        String?   @db.VarChar(80)
+  sourceProcedureId   String?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  company         Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  employment      HcmEmployment     @relation(fields: [employmentId], references: [id], onDelete: Cascade)
+  position        HcmPosition?      @relation(fields: [positionId], references: [id], onDelete: SetNull)
+  branch          Branch?           @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  department      Department?       @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  jobTitle        JobTitle?         @relation(fields: [jobTitleId], references: [id], onDelete: SetNull)
+  jobCadre        JobCadre?         @relation(fields: [jobCadreId], references: [id], onDelete: SetNull)
+  managerPosition HcmPosition?      @relation("AssignmentManagerPosition", fields: [managerPositionId], references: [id], onDelete: SetNull)
+  sourceProcedure EmployeeProcedure? @relation(fields: [sourceProcedureId], references: [id], onDelete: SetNull)
+
+  @@index([companyId, employmentId])
+  @@index([employmentId, effectiveFrom])
+  @@index([employmentId, effectiveTo])
+  @@index([positionId])
+  @@map("hcm_employment_assignments")
+}
+
+model HcmCompensationAssignment {
+  id              String    @id @default(uuid())
+  companyId       String
+  employmentId    String
+  effectiveFrom   DateTime  @db.Date
+  effectiveTo     DateTime? @db.Date
+  basicSalary     Decimal   @db.Decimal(15, 2)
+  fixedAllowances Decimal   @default(0) @db.Decimal(15, 2)
+  currencyCode    String    @default("EGP") @db.VarChar(10)
+  changeReason    String?   @db.VarChar(80)
+  sourceProcedureId String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  company         Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  employment      HcmEmployment      @relation(fields: [employmentId], references: [id], onDelete: Cascade)
+  sourceProcedure EmployeeProcedure? @relation(fields: [sourceProcedureId], references: [id], onDelete: SetNull)
+
+  @@index([companyId, employmentId])
+  @@index([employmentId, effectiveFrom])
+  @@index([employmentId, effectiveTo])
+  @@map("hcm_compensation_assignments")
+}
+
+model HcmEmploymentEvent {
+  id                String    @id @default(uuid())
+  companyId         String
+  employmentId      String
+  eventType         String    @db.VarChar(40)
+  effectiveDate     DateTime  @db.Date
+  status            String    @default("DRAFT") @db.VarChar(20)
+  reason            String?   @db.VarChar(255)
+  notes             String?   @db.Text
+  payload           Json?
+  beforeSnapshot    Json?
+  afterSnapshot     Json?
+  requestedBy       String?
+  requestedAt       DateTime?
+  approvedBy        String?
+  approvedAt        DateTime?
+  rejectedBy        String?
+  rejectedAt        DateTime?
+  rejectionReason   String?   @db.Text
+  appliedAt         DateTime?
+  sourceProcedureId String?
+  assignmentId      String?
+  compensationId    String?
+  contractId        String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  company    Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  employment HcmEmployment @relation(fields: [employmentId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, employmentId])
+  @@index([contractId])
+  @@index([companyId, status])
+  @@index([employmentId, effectiveDate])
+  @@index([eventType])
+  @@map("hcm_employment_events")
+}
+
+// ============================================
+// HCM Phase 3 — Time & Attendance
+// ============================================
+
+model HcmTimeDevice {
+  id           String    @id @default(uuid())
+  companyId    String
+  code         String    @db.VarChar(40)
+  name         String    @db.VarChar(120)
+  branchId     String?
+  timezone     String    @default("UTC") @db.VarChar(64)
+  providerType String    @db.VarChar(40)
+  config       Json?
+  isActive     Boolean   @default(true)
+  lastSyncAt   DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  company  Company                    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  branch   Branch?                    @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  mappings HcmDeviceEmployeeMapping[]
+  punches  HcmTimePunch[]
+
+  @@unique([companyId, code])
+  @@index([companyId, isActive])
+  @@map("hcm_time_devices")
+}
+
+model HcmDeviceEmployeeMapping {
+  id                   String   @id @default(uuid())
+  companyId            String
+  deviceId             String
+  externalEmployeeCode String   @db.VarChar(80)
+  employeeId           String
+  employmentId         String?
+  isActive             Boolean  @default(true)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  company  Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  device   HcmTimeDevice @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  employee Employee      @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([deviceId, externalEmployeeCode], map: "hcm_dev_emp_map_dev_ext_key")
+  @@index([companyId, employeeId])
+  @@map("hcm_device_employee_mappings")
+}
+
+model HcmWorkShift {
+  id                     String   @id @default(uuid())
+  companyId              String
+  code                   String   @db.VarChar(40)
+  arabicName             String   @db.VarChar(120)
+  startTimeMinutes       Int
+  endTimeMinutes         Int
+  crossesMidnight        Boolean  @default(false)
+  inWindowStartMinutes   Int?
+  inWindowEndMinutes     Int?
+  outWindowStartMinutes  Int?
+  outWindowEndMinutes    Int?
+  expectedWorkMinutes    Int?
+  unpaidBreakMinutes     Int      @default(0)
+  isActive               Boolean  @default(true)
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  company        Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  attendanceDays HcmAttendanceDay[]
+
+  @@unique([companyId, code])
+  @@map("hcm_work_shifts")
+}
+
+model HcmWorkSchedule {
+  id           String   @id @default(uuid())
+  companyId    String
+  code         String   @db.VarChar(40)
+  arabicName   String   @db.VarChar(120)
+  scheduleType String   @default("FIXED_WEEKLY") @db.VarChar(30)
+  pattern      Json
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  company     Company                         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  assignments HcmEmployeeScheduleAssignment[]
+
+  @@unique([companyId, code])
+  @@map("hcm_work_schedules")
+}
+
+model HcmEmployeeScheduleAssignment {
+  id            String    @id @default(uuid())
+  companyId     String
+  employmentId  String
+  scheduleId    String
+  effectiveFrom DateTime  @db.Date
+  effectiveTo   DateTime? @db.Date
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  company    Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  employment HcmEmployment   @relation(fields: [employmentId], references: [id], onDelete: Cascade)
+  schedule   HcmWorkSchedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, employmentId, effectiveFrom], map: "hcm_emp_sched_co_emp_from_idx")
+  @@map("hcm_employee_schedule_assignments")
+}
+
+model HcmCalendarDay {
+  id           String   @id @default(uuid())
+  companyId    String
+  branchId     String?
+  calendarDate DateTime @db.Date
+  dayType      String   @db.VarChar(30)
+  name         String?  @db.VarChar(120)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  branch  Branch? @relation(fields: [branchId], references: [id], onDelete: SetNull)
+
+  @@index([companyId, calendarDate])
+  @@index([companyId, branchId, calendarDate])
+  @@map("hcm_calendar_days")
+}
+
+model HcmAttendancePolicy {
+  id            String    @id @default(uuid())
+  companyId     String
+  code          String    @db.VarChar(40)
+  arabicName    String    @db.VarChar(120)
+  effectiveFrom DateTime @db.Date
+  effectiveTo   DateTime? @db.Date
+  rules         Json
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, code])
+  @@index([companyId, effectiveFrom])
+  @@map("hcm_attendance_policies")
+}
+
+model HcmTimePunch {
+  id                   String    @id @default(uuid())
+  companyId            String
+  employeeId           String?
+  employmentId         String?
+  externalEmployeeCode String?   @db.VarChar(80)
+  deviceId             String?
+  source               String    @db.VarChar(20)
+  punchType            String?   @db.VarChar(10)
+  punchedAt            DateTime
+  timezone             String    @default("UTC") @db.VarChar(64)
+  rawPayload           Json?
+  externalPunchId      String?   @db.VarChar(120)
+  importBatchId        String?   @db.VarChar(80)
+  dedupeFingerprint    String    @db.VarChar(191)
+  receivedAt           DateTime  @default(now())
+  createdAt            DateTime  @default(now())
+
+  company    Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  device     HcmTimeDevice? @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+  employee   Employee?      @relation(fields: [employeeId], references: [id], onDelete: SetNull)
+  employment HcmEmployment? @relation(fields: [employmentId], references: [id], onDelete: SetNull)
+
+  @@unique([companyId, dedupeFingerprint])
+  @@index([companyId, punchedAt])
+  @@index([companyId, employeeId, punchedAt])
+  @@index([deviceId, externalPunchId])
+  @@map("hcm_time_punches")
+}
+
+model HcmAttendanceDay {
+  id                      String    @id @default(uuid())
+  companyId               String
+  employmentId            String
+  employeeId              String
+  logicalWorkDate         DateTime  @db.Date
+  timezone                String    @default("UTC") @db.VarChar(64)
+  scheduleId              String?
+  shiftId                 String?
+  scheduledStartAt        DateTime?
+  scheduledEndAt          DateTime?
+  actualFirstInAt         DateTime?
+  actualLastOutAt         DateTime?
+  scheduledMinutes        Int       @default(0)
+  workedMinutes           Int       @default(0)
+  lateMinutes             Int       @default(0)
+  earlyLeaveMinutes       Int       @default(0)
+  absenceMinutes          Int       @default(0)
+  breakMinutes            Int       @default(0)
+  detectedOvertimeMinutes Int       @default(0)
+  approvedOvertimeMinutes Int       @default(0)
+  paidLeaveMinutes        Int       @default(0)
+  unpaidLeaveMinutes      Int       @default(0)
+  sickLeaveMinutes        Int       @default(0)
+  otherApprovedLeaveMinutes Int     @default(0)
+  dayClassification       String?   @db.VarChar(30)
+  status                  String    @default("CALCULATED") @db.VarChar(20)
+  calculationVersion      Int       @default(1)
+  calculationHash         String?   @db.VarChar(64)
+  calculatedAt            DateTime?
+  lockedAt                DateTime?
+  lockedBy                String?
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+
+  company    Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  employment HcmEmployment   @relation(fields: [employmentId], references: [id], onDelete: Cascade)
+  employee   Employee        @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  shift      HcmWorkShift?   @relation(fields: [shiftId], references: [id], onDelete: SetNull)
+  intervals  HcmWorkInterval[]
+  exceptions HcmTimeException[]
+
+  @@unique([employmentId, logicalWorkDate])
+  @@index([companyId, logicalWorkDate])
+  @@index([companyId, employeeId, logicalWorkDate])
+  @@index([companyId, status])
+  @@map("hcm_attendance_days")
+}
+
+model HcmWorkInterval {
+  id              String   @id @default(uuid())
+  companyId       String
+  attendanceDayId String
+  sequence        Int
+  inAt            DateTime?
+  outAt           DateTime?
+  workedMinutes   Int      @default(0)
+  createdAt       DateTime @default(now())
+
+  company       Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  attendanceDay HcmAttendanceDay @relation(fields: [attendanceDayId], references: [id], onDelete: Cascade)
+
+  @@index([attendanceDayId, sequence])
+  @@map("hcm_work_intervals")
+}
+
+model HcmTimeException {
+  id              String    @id @default(uuid())
+  companyId       String
+  employmentId    String?
+  employeeId      String?
+  attendanceDayId String?
+  logicalWorkDate DateTime? @db.Date
+  exceptionType   String    @db.VarChar(40)
+  severity        String    @default("WARNING") @db.VarChar(20)
+  status          String    @default("OPEN") @db.VarChar(20)
+  details         Json?
+  resolution      String?   @db.Text
+  resolvedBy      String?
+  resolvedAt      DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  company       Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  employment    HcmEmployment?    @relation(fields: [employmentId], references: [id], onDelete: SetNull)
+  employee      Employee?         @relation(fields: [employeeId], references: [id], onDelete: SetNull)
+  attendanceDay HcmAttendanceDay? @relation(fields: [attendanceDayId], references: [id], onDelete: SetNull)
+
+  @@index([companyId, status])
+  @@index([companyId, logicalWorkDate])
+  @@map("hcm_time_exceptions")
+}
+
+model HcmTimeCorrection {
+  id              String    @id @default(uuid())
+  companyId       String
+  employmentId    String
+  attendanceDayId String?
+  logicalWorkDate DateTime  @db.Date
+  status          String    @default("REQUESTED") @db.VarChar(20)
+  correctionType  String    @db.VarChar(40)
+  payload         Json
+  reason          String?   @db.Text
+  requestedBy     String?
+  approvedBy      String?
+  rejectedBy      String?
+  appliedAt       DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  company    Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  employment HcmEmployment @relation(fields: [employmentId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, status])
+  @@index([employmentId, logicalWorkDate])
+  @@map("hcm_time_corrections")
+}
+
+model HcmAttendancePeriodReview {
+  id               String    @id @default(uuid())
+  companyId        String
+  periodStart      DateTime  @db.Date
+  periodEnd        DateTime  @db.Date
+  readiness        String    @default("NOT_READY") @db.VarChar(20)
+  readinessReasons Json?
+  lockedAt         DateTime?
+  lockedBy         String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, periodStart, periodEnd], map: "hcm_att_period_co_start_end_key")
+  @@map("hcm_attendance_period_reviews")
+}
+
+// ============================================
+// HCM Phase 4 — Leave & Absence
+// ============================================
+
+model HcmLeaveType {
+  id                      String   @id @default(uuid())
+  companyId               String
+  code                    String   @db.VarChar(40)
+  arabicName              String   @db.VarChar(120)
+  englishName             String?  @db.VarChar(120)
+  paidClassification      String   @default("PAID") @db.VarChar(20)
+  requiresBalance         Boolean  @default(true)
+  requiresAttachment      Boolean  @default(false)
+  attendanceClassification String  @default("PAID_LEAVE") @db.VarChar(30)
+  payrollClassification   String?  @db.VarChar(40)
+  displayOrder            Int      @default(0)
+  isActive                Boolean  @default(true)
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  company        Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  ledgerEntries  HcmLeaveLedgerEntry[]
+  requests       HcmLeaveRequest[]
+  policyRules    HcmLeavePolicyRule[]
+
+  @@unique([companyId, code])
+  @@index([companyId, isActive])
+  @@map("hcm_leave_types")
+}
+
+model HcmLeavePolicy {
+  id            String    @id @default(uuid())
+  companyId     String
+  code          String    @db.VarChar(40)
+  arabicName    String    @db.VarChar(120)
+  effectiveFrom DateTime  @db.Date
+  effectiveTo   DateTime? @db.Date
+  rules         Json
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  company     Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  enrollments HcmLeaveEnrollment[]
+  policyRules HcmLeavePolicyRule[]
+
+  @@unique([companyId, code, effectiveFrom])
+  @@index([companyId, effectiveFrom])
+  @@map("hcm_leave_policies")
+}
+
+model HcmLeavePolicyRule {
+  id           String   @id @default(uuid())
+  companyId    String
+  policyId     String
+  leaveTypeId  String
+  rules        Json
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  policy    HcmLeavePolicy @relation(fields: [policyId], references: [id], onDelete: Cascade)
+  leaveType HcmLeaveType   @relation(fields: [leaveTypeId], references: [id], onDelete: Cascade)
+
+  @@unique([policyId, leaveTypeId])
+  @@index([companyId])
+  @@map("hcm_leave_policy_rules")
+}
+
+model HcmLeaveEnrollment {
+  id            String    @id @default(uuid())
+  companyId     String
+  employmentId  String
+  policyId      String
+  effectiveFrom DateTime  @db.Date
+  effectiveTo   DateTime? @db.Date
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  company    Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  employment HcmEmployment  @relation(fields: [employmentId], references: [id], onDelete: Cascade)
+  policy     HcmLeavePolicy @relation(fields: [policyId], references: [id], onDelete: Restrict)
+
+  @@index([companyId, employmentId, effectiveFrom])
+  @@map("hcm_leave_enrollments")
+}
+
+model HcmLeaveLedgerEntry {
+  id              String   @id @default(uuid())
+  companyId       String
+  employmentId    String
+  leaveTypeId     String
+  effectiveDate   DateTime @db.Date
+  quantity        Decimal  @db.Decimal(12, 4)
+  unit            String   @default("DAYS") @db.VarChar(10)
+  transactionType String   @db.VarChar(30)
+  sourceKey       String   @db.VarChar(191)
+  requestId       String?
+  reason          String?  @db.Text
+  createdBy       String?
+  createdAt       DateTime @default(now())
+
+  company    Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  employment HcmEmployment @relation(fields: [employmentId], references: [id], onDelete: Cascade)
+  leaveType  HcmLeaveType  @relation(fields: [leaveTypeId], references: [id], onDelete: Restrict)
+  request    HcmLeaveRequest? @relation(fields: [requestId], references: [id], onDelete: SetNull)
+
+  @@unique([companyId, sourceKey])
+  @@index([companyId, employmentId, leaveTypeId, effectiveDate])
+  @@index([companyId, employmentId, transactionType])
+  @@map("hcm_leave_ledger_entries")
+}
+
+model HcmLeaveRequest {
+  id                 String    @id @default(uuid())
+  companyId          String
+  employmentId       String
+  employeeId         String
+  leaveTypeId        String
+  status             String    @default("DRAFT") @db.VarChar(20)
+  startDate          DateTime  @db.Date
+  endDate            DateTime  @db.Date
+  unit               String    @default("DAYS") @db.VarChar(10)
+  requestedQuantity  Decimal   @db.Decimal(12, 4)
+  calculatedQuantity Decimal?  @db.Decimal(12, 4)
+  reason             String?   @db.Text
+  attachmentRef      String?   @db.VarChar(191)
+  calculationDetail  Json?
+  submittedAt        DateTime?
+  submittedBy        String?
+  approvedAt         DateTime?
+  approvedBy         String?
+  rejectedAt         DateTime?
+  rejectedBy         String?
+  rejectionReason    String?   @db.Text
+  cancelledAt        DateTime?
+  cancelledBy        String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  company       Company               @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  employment    HcmEmployment         @relation(fields: [employmentId], references: [id], onDelete: Cascade)
+  employee      Employee              @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  leaveType     HcmLeaveType          @relation(fields: [leaveTypeId], references: [id], onDelete: Restrict)
+  days          HcmLeaveRequestDay[]
+  ledgerEntries HcmLeaveLedgerEntry[]
+
+  @@index([companyId, status, startDate])
+  @@index([companyId, employmentId, status])
+  @@map("hcm_leave_requests")
+}
+
+model HcmLeaveRequestDay {
+  id                String   @id @default(uuid())
+  companyId         String
+  requestId         String
+  workDate          DateTime @db.Date
+  segmentType       String   @default("FULL") @db.VarChar(20)
+  startAt           DateTime?
+  endAt             DateTime?
+  chargeableDays    Decimal  @default(0) @db.Decimal(12, 4)
+  chargeableMinutes Int      @default(0)
+  calendarDetail    Json?
+
+  company Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  request HcmLeaveRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@unique([requestId, workDate, segmentType])
+  @@index([companyId, workDate])
+  @@map("hcm_leave_request_days")
+}
+
+model HcmLeaveAccrualRun {
+  id          String   @id @default(uuid())
+  companyId   String
+  periodKey   String   @db.VarChar(40)
+  status      String   @default("COMPLETED") @db.VarChar(20)
+  processed   Int      @default(0)
+  credited    Int      @default(0)
+  skipped     Int      @default(0)
+  failed      Int      @default(0)
+  details     Json?
+  createdAt   DateTime @default(now())
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, periodKey])
+  @@map("hcm_leave_accrual_runs")
 }
 
 // ============================================
@@ -4866,6 +5890,8 @@ model BillOfMaterials {
   standardLaborCost    Decimal  @default(0) @db.Decimal(15, 2)
   standardOverheadCost Decimal  @default(0) @db.Decimal(15, 2)
   isActive             Boolean  @default(true)
+  /// Header + additional cost lines + multi-output rows (legacy ManufactWay parity)
+  formMetadata         Json?
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 
@@ -4873,6 +5899,8 @@ model BillOfMaterials {
   finishedItem     Item              @relation("BomFinishedItem", fields: [finishedItemId], references: [id], onDelete: Restrict)
   lines            BomLine[]
   productionOrders ProductionOrder[]
+  planLines        ManufacturingPlanLine[]
+  workOrders       ManufacturingWorkOrder[]
 
   @@index([companyId, finishedItemId])
   @@map("bill_of_materials")
@@ -4885,6 +5913,9 @@ model BomLine {
   quantity        Decimal  @db.Decimal(15, 4)
   scrapPercentage Decimal  @default(0) @db.Decimal(8, 4)
   lineOrder       Int      @default(1)
+  lineDescription String?  @db.VarChar(500)
+  warehouseId     String?
+  manufacturedItemId String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -4895,6 +5926,26 @@ model BomLine {
   @@map("bom_lines")
 }
 
+/// Substitute items for a primary item (manufacturing alternates).
+model ItemAlternative {
+  id                String   @id @default(uuid())
+  companyId         String
+  itemId            String
+  alternativeItemId String
+  quantity          Decimal  @db.Decimal(15, 4)
+  lineOrder         Int      @default(1)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  company         Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  item            Item    @relation("ItemAlternativesFor", fields: [itemId], references: [id], onDelete: Cascade)
+  alternativeItem Item    @relation("ItemAlternativesSubstitute", fields: [alternativeItemId], references: [id], onDelete: Restrict)
+
+  @@unique([companyId, itemId, alternativeItemId])
+  @@index([companyId, itemId])
+  @@map("item_alternatives")
+}
+
 model ProductionOrder {
   id                           String    @id @default(uuid())
   companyId                    String
@@ -4903,6 +5954,7 @@ model ProductionOrder {
   sourceYearId                 String?   @db.VarChar(20)
   orderNumber                  String
   bomId                        String
+  manufacturingWorkOrderId     String?
   finishedItemId               String
   plannedQuantity              Decimal   @db.Decimal(15, 4)
   actualQuantity               Decimal?  @db.Decimal(15, 4)
@@ -4916,7 +5968,10 @@ model ProductionOrder {
   unitCost                     Decimal?  @db.Decimal(15, 4)
   materialsIssueJournalEntryId String?
   laborOverheadJournalEntryId  String?
-  completionJournalEntryId     String?
+  completionJournalEntryId       String?
+  additionalCostsJournalEntryId  String?
+  /// Snapshot from operation UI: additional costs, operation shift, etc.
+  processMetadata                Json?
   releasedAt                   DateTime?
   completedAt                  DateTime?
   createdAt                    DateTime  @default(now())
@@ -4926,6 +5981,7 @@ model ProductionOrder {
   branch            Branch?                   @relation(fields: [branchId], references: [id], onDelete: SetNull)
   fiscalYear        FiscalYear?               @relation(fields: [fiscalYearId], references: [id], onDelete: SetNull)
   bom               BillOfMaterials           @relation(fields: [bomId], references: [id], onDelete: Restrict)
+  manufacturingWorkOrder ManufacturingWorkOrder? @relation(fields: [manufacturingWorkOrderId], references: [id], onDelete: SetNull)
   finishedItem      Item                      @relation("ProductionFinishedItem", fields: [finishedItemId], references: [id], onDelete: Restrict)
   warehouseRaw      Warehouse                 @relation("ProductionRawWarehouse", fields: [warehouseIdRaw], references: [id], onDelete: Restrict)
   warehouseFinished Warehouse                 @relation("ProductionFinishedWarehouse", fields: [warehouseIdFinished], references: [id], onDelete: Restrict)
@@ -4933,7 +5989,100 @@ model ProductionOrder {
 
   @@unique([companyId, orderNumber])
   @@index([companyId, status])
+  @@index([companyId, manufacturingWorkOrderId])
   @@map("production_orders")
+}
+
+model ManufacturingPlan {
+  id              String   @id @default(uuid())
+  companyId       String
+  planNumber      String   @db.VarChar(50)
+  description     String?  @db.VarChar(500)
+  headerBomId     String?
+  headerStage     String?  @db.VarChar(100)
+  fromWarehouseId String?
+  costCenter      String?  @db.VarChar(100)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  company       Company                 @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  fromWarehouse Warehouse?              @relation("ManufacturingPlanFromWarehouse", fields: [fromWarehouseId], references: [id], onDelete: SetNull)
+  lines         ManufacturingPlanLine[]
+
+  @@unique([companyId, planNumber])
+  @@index([companyId, updatedAt])
+  @@map("manufacturing_plans")
+}
+
+model ManufacturingPlanLine {
+  id          String   @id @default(uuid())
+  planId      String
+  lineNo      Int
+  lineDate    DateTime @db.Date
+  bomId       String
+  stage       String?  @db.VarChar(100)
+  quantity    Decimal  @db.Decimal(15, 4)
+  warehouseId String?
+  costCenter  String?  @db.VarChar(100)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  plan      ManufacturingPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  bom       BillOfMaterials   @relation(fields: [bomId], references: [id], onDelete: Restrict)
+  warehouse Warehouse?        @relation("ManufacturingPlanLineWarehouse", fields: [warehouseId], references: [id], onDelete: SetNull)
+
+  @@index([planId, lineNo])
+  @@map("manufacturing_plan_lines")
+}
+
+/// Shop-floor run order: planned vs completed quantities per finished output line.
+model ManufacturingWorkOrder {
+  id            String   @id @default(uuid())
+  companyId     String
+  branchId      String?
+  orderNumber   String   @db.VarChar(50)
+  bomId         String?
+  salesOrderInvoiceId String?
+  description   String?  @db.VarChar(500)
+  workDate      DateTime @db.Date
+  modelQuantity Decimal  @db.Decimal(15, 4)
+  /// OPEN | CLOSED | CANCELLED
+  status        String   @default("OPEN") @db.VarChar(20)
+  /// Snapshots: outputs/raws, warehouses, stage (parity with manufacturing operation UI)
+  processMetadata Json?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  company         Company           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  branch          Branch?           @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  bom             BillOfMaterials?  @relation(fields: [bomId], references: [id], onDelete: Restrict)
+  salesOrder      Invoice?          @relation(fields: [salesOrderInvoiceId], references: [id], onDelete: SetNull)
+  lines           ManufacturingWorkOrderLine[]
+  productionOrders ProductionOrder[]
+
+  @@unique([companyId, orderNumber])
+  @@index([companyId, status])
+  @@index([companyId, workDate])
+  @@index([companyId, salesOrderInvoiceId])
+  @@map("manufacturing_work_orders")
+}
+
+model ManufacturingWorkOrderLine {
+  id                String  @id @default(uuid())
+  workOrderId       String
+  itemId            String
+  plannedQuantity   Decimal @db.Decimal(15, 4)
+  completedQuantity Decimal @default(0) @db.Decimal(15, 4)
+  unit              String? @db.VarChar(50)
+  lineDescription   String? @db.Text
+  imageUrl          String? @db.LongText
+  lineOrder         Int     @default(1)
+
+  workOrder ManufacturingWorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+  item      Item                   @relation(fields: [itemId], references: [id], onDelete: Restrict)
+
+  @@index([workOrderId, lineOrder])
+  @@map("manufacturing_work_order_lines")
 }
 
 model ProductionMaterialIssue {
@@ -7788,9 +8937,11 @@ model JobTitle {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  company   Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  contracts EmployeeContract[]
-  employees Employee[]
+  company        Company                   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  contracts      EmployeeContract[]
+  employees      Employee[]
+  hcmPositions   HcmPosition[]
+  hcmAssignments HcmEmploymentAssignment[]
 
   @@unique([companyId, code])
   @@map("job_titles")
@@ -7806,27 +8957,38 @@ model JobCadre {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  company   Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  contracts EmployeeContract[]
+  company        Company                   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  contracts      EmployeeContract[]
+  hcmPositions   HcmPosition[]
+  hcmAssignments HcmEmploymentAssignment[]
 
   @@unique([companyId, code])
   @@map("job_cadres")
 }
 
 model Department {
-  id           String   @id @default(uuid())
-  companyId    String
-  code         String?
-  arabicName   String
-  englishName  String?
-  managementId String?
-  isActive     Boolean  @default(true)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id                  String   @id @default(uuid())
+  companyId           String
+  code                String?
+  arabicName          String
+  englishName         String?
+  managementId        String?
+  /// MANAGEMENT | DEPARTMENT | SECTION — evolved org unit type (Phase 1 HCM)
+  unitType            String   @default("DEPARTMENT") @db.VarChar(20)
+  branchId            String?
+  managerPositionId   String?
+  isActive            Boolean  @default(true)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 
-  company        Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  contracts      EmployeeContract[]
-  employees      Employee[]
+  company             Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  branch              Branch?            @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  managerPosition     HcmPosition?       @relation("DepartmentManagerPosition", fields: [managerPositionId], references: [id], onDelete: SetNull)
+  contracts           EmployeeContract[]
+  contractSections    EmployeeContract[] @relation("ContractSection")
+  employees           Employee[]
+  hcmPositions        HcmPosition[]
+  hcmAssignments      HcmEmploymentAssignment[]
   // Self-relation: a department's parent "management" (إدارة) is itself a Department
   // row with no managementId of its own. See gates-web app/hr/managements + app/hr/departments.
   management          Department?        @relation("DepartmentManagement", fields: [managementId], references: [id], onDelete: SetNull)
@@ -7835,6 +8997,8 @@ model Department {
 
   @@unique([companyId, code])
   @@index([managementId])
+  @@index([companyId, unitType])
+  @@index([branchId])
   @@map("departments")
 }
 

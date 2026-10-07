@@ -11,7 +11,10 @@ export const dataEntryGridBodyCellClass =
   'px-2 py-1.5 align-middle border-b border-[#E8F1F6] border-e border-[#E8F1F6] last:border-e-0';
 
 export const dataEntryGridInputClass =
-  'w-full bg-[#F6FBFD] border-0 px-2 py-2 text-sm text-[#094C6B] rounded-md placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#0E78AA] focus-visible:bg-white';
+  'w-full bg-[#F6FBFD] border-0 px-2.5 py-2 text-sm text-[#094C6B] rounded-md placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#0E78AA] focus-visible:bg-white';
+
+export const dataEntryGridNumericInputClass =
+  'w-full min-w-[6.5rem] bg-[#F6FBFD] border-0 px-2.5 py-2 text-base font-semibold tabular-nums text-end text-[#094C6B] rounded-md placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#0E78AA] focus-visible:bg-white';
 
 export const dataEntryGridAddButtonClass =
   'mt-2 gap-1.5 text-xs font-semibold text-primary hover:bg-primary/10';

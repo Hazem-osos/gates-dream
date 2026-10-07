@@ -95,6 +95,8 @@ const SEGMENT_LABELS: Record<string, string> = {
   impact: 'أثر Gates',
   disassembly: 'تفكيك الأصناف',
   'sales-order': 'أمر بيع',
+  'supply-order': 'أمر توريد',
+  'supply-order-follow-up': 'متابعة أوامر التوريد',
   'sales-returns': 'مردودات مبيعات',
   'purchase-returns': 'مردودات مشتريات',
   'final-purchase-invoice': 'فاتورة مشتريات',

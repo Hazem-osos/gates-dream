@@ -1,0 +1,27 @@
+# Disposable local SQL Server for legacy .bak forensic audit (READ-ONLY usage after restore).
+# Not for production. Do not expose ports beyond localhost.
+
+services:
+  legacy-mssql:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    platform: linux/amd64
+    container_name: gates-legacy-forensic-mssql
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "${MSSQL_SA_PASSWORD:-GatesForensic_LocalOnly_ChangeMe!}"
+      MSSQL_PID: Developer
+    ports:
+      - "14333:1433"
+    volumes:
+      - legacy_mssql_data:/var/opt/mssql
+      - ./backup:/backup:ro
+      - ./audit-out:/audit-out
+    healthcheck:
+      test: /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$${MSSQL_SA_PASSWORD}" -C -Q "SELECT 1" || exit 1
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 40s
+
+volumes:
+  legacy_mssql_data:

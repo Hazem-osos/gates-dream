@@ -1,6 +1,7 @@
 import prisma from '../../../shared/database/prisma';
 import { permanentDelete } from '../../../shared/database/permanent-delete.util';
 import { logger } from '../../../shared/logger';
+import { AppError } from '../../../shared/middleware/error-handler';
 import { emitDomainEvent } from '../../automation/events/automation-event-bus.service';
 
 export interface CreateEmployeeData {
@@ -346,6 +347,21 @@ export class EmployeeService {
 
       if (!existing) {
         throw new Error('Employee not found');
+      }
+
+      const hcmEmployment = await prisma.hcmEmployment.findFirst({
+        where: { companyId, employeeId, status: { in: ['ACTIVE', 'SUSPENDED'] } },
+      });
+      const authoritativeKeys = ['basicSalary', 'departmentId', 'jobTitleId', 'costCenterId'] as const;
+      for (const key of authoritativeKeys) {
+        if (data[key] !== undefined) {
+          if (hcmEmployment) {
+            throw new AppError(
+              422,
+              'Use HCM employment lifecycle events to change organization or compensation for this employee'
+            );
+          }
+        }
       }
 
       const updateData: any = {};

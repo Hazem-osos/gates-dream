@@ -2,6 +2,7 @@
 
 import type { ReactNode } from 'react';
 import { ErpDocumentLayout, ErpDocumentPageHeader } from '@/components/erp';
+import type { DocumentActionMenuProps } from '@/components/common/document-shell';
 import { compactControlClass, compactLabelClass } from '@/components/ui/forms/formTokens';
 import type { StatusTone } from '@/components/ui/StatusBadge';
 import { cn } from '@/lib/utils';
@@ -22,6 +23,11 @@ export function ManufacturingPageChrome({
   extraActions,
   hideSave = false,
   statusTone = 'info',
+  onBrowseList,
+  browseListLabel = 'السابق',
+  hideBrowseList,
+  standardActions,
+  saveDisabledHint,
 }: {
   title: string;
   breadcrumbs?: { href?: string; label: string }[];
@@ -37,6 +43,11 @@ export function ManufacturingPageChrome({
   saveLabel?: string;
   extraActions?: ReactNode;
   hideSave?: boolean;
+  onBrowseList?: () => void;
+  browseListLabel?: string;
+  hideBrowseList?: boolean;
+  standardActions?: DocumentActionMenuProps;
+  saveDisabledHint?: string;
 }) {
   const crumbs = breadcrumbs ?? [{ href: '/manufacturing', label: 'التصنيع والإنتاج' }, { label: title }];
 
@@ -55,9 +66,13 @@ export function ManufacturingPageChrome({
         onSaveDraft={hideSave ? undefined : onSave}
         savePending={savePending}
         canSave={Boolean(onSave) && canSave && !savePending}
+        saveDisabledHint={saveDisabledHint}
         hideStandalonePost
-        hideBrowseList
-        hideActionMenu
+        hideBrowseList={hideBrowseList ?? !onBrowseList}
+        onBrowseList={onBrowseList}
+        browseListLabel={browseListLabel}
+        hideActionMenu={!standardActions}
+        standardActions={standardActions}
         extraActions={extraActions}
         currentId={currentId}
         favoriteHref={favoriteHref}
@@ -122,14 +137,21 @@ export function MfgMetric({
   );
 }
 
+/** Scrollable table area — ~2+ data rows visible, grows with scroll for more lines. */
+export const mfgTableScrollViewportClass = cn(
+  'min-h-[13rem] max-h-[min(30rem,62vh)] overflow-auto overscroll-contain px-1 pb-2'
+);
+
 export function MfgTableCard({
   title,
   toolbar,
   children,
+  scrollViewport = false,
 }: {
   title?: string;
   toolbar?: ReactNode;
   children: ReactNode;
+  scrollViewport?: boolean;
 }) {
   return (
     <section className="overflow-hidden rounded-2xl border border-[#D6EAF3] bg-white shadow-sm">
@@ -139,16 +161,32 @@ export function MfgTableCard({
           {toolbar}
         </div>
       ) : null}
-      <div className="-mx-0 overflow-x-auto">{children}</div>
+      <div
+        className={cn('-mx-0 overflow-x-auto', scrollViewport && mfgTableScrollViewportClass)}
+      >
+        {children}
+      </div>
     </section>
   );
 }
 
-export const mfgTableClass = 'min-w-full text-right text-sm';
-export const mfgTheadClass = 'bg-[#F4F9FC] text-[11px] font-bold uppercase tracking-wide text-[#0A3D5E]';
-export const mfgThClass = 'whitespace-nowrap border-b border-[#D6EAF3] px-3 py-2.5';
-export const mfgTdClass = 'whitespace-nowrap border-b border-[#EEF5F9] px-3 py-2.5 text-[#0A3D5E]';
-export const mfgTrClass = 'hover:bg-[#F8FBFD]';
+export const mfgTableClass = 'min-w-full border-separate border-spacing-0 text-right text-sm';
+export const mfgTheadClass = 'bg-[#0E78AA] text-xs font-semibold uppercase tracking-wide text-white';
+export const mfgTheadStickyClass = cn(mfgTheadClass, 'sticky top-0 z-10 shadow-sm');
+export const mfgThClass =
+  'whitespace-nowrap border-b border-white/15 px-3 py-3 text-right last:border-e-0 border-e border-white/15';
+export const mfgTdClass =
+  'whitespace-nowrap border-b border-[#EEF5F9] px-3 py-3 text-[#0A3D5E] align-middle min-h-[2.75rem]';
+export const mfgTrClass = 'bg-white hover:bg-[#F8FBFD]';
+
+export const mfgThIdx = cn(mfgThClass, 'w-11 text-center');
+export const mfgThItem = cn(mfgThClass, 'min-w-[12rem]');
+export const mfgThAvail = cn(mfgThClass, 'min-w-[6.5rem] text-center');
+export const mfgThQty = cn(mfgThClass, 'min-w-[8.5rem] w-[8.5rem] text-center');
+export const mfgThUnit = cn(mfgThClass, 'min-w-[5rem] text-center');
+export const mfgThMoney = cn(mfgThClass, 'min-w-[9rem] w-[9rem] text-end');
+export const mfgTdNum = cn(mfgTdClass, 'tabular-nums text-end font-semibold text-[#094C6B]');
+export const mfgTdIdx = cn(mfgTdClass, 'text-center text-slate-500 tabular-nums');
 
 export function MfgEmptyRow({ colSpan, children }: { colSpan: number; children: ReactNode }) {
   return (

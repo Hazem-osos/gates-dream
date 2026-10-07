@@ -102,6 +102,20 @@ export const PERMISSION_ACTIONS = [
   'no_sale',
   'lock_terminal',
   'handover',
+  'manage',
+  'correct',
+  'lock',
+  'device_manage',
+  'request',
+  'adjust',
+  'policy_manage',
+  'ledger_view',
+  'calculate',
+  'pay',
+  'rules_manage',
+  'localization_manage',
+  'inputs_manage',
+  'gl_manage',
 ] as const;
 
 export type PermissionAction = (typeof PERMISSION_ACTIONS)[number];

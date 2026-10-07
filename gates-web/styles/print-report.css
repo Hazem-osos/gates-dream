@@ -59,6 +59,18 @@
     position: static !important;
   }
 
+  .report-scroll-viewport {
+    max-height: none !important;
+    overflow: visible !important;
+  }
+
+  .report-scroll-viewport thead th,
+  .report-scroll-viewport tbody td:first-child,
+  .report-scroll-viewport tfoot td:first-child {
+    position: static !important;
+    box-shadow: none !important;
+  }
+
   .report-print-table {
     width: 100%;
     border-collapse: collapse;

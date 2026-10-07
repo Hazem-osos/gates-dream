@@ -22,7 +22,7 @@ export const manufacturingModules: ModuleWithChildren[] = [
     color: '#0E78AA',
     children: [
       { key: 'manufacturing-model', icon: '', label: 'نموذج التصنيع / قائمة المواد', color: '#0E78AA', href: '/manufacturing/creations/manufacturing-model' },
-      { key: 'sensor', icon: '', label: 'قراءات المستشعرات', color: '#0E78AA', href: '/manufacturing/creations/sensor' },
+      { key: 'item-alternatives', icon: '', label: 'تعريف البدائل', color: '#0E78AA', href: '/manufacturing/creations/item-alternatives' },
     ]
   },
   {
@@ -31,7 +31,21 @@ export const manufacturingModules: ModuleWithChildren[] = [
     label: 'عمليات التصنيع',
     color: '#0E78AA',
     children: [
-      { key: 'production-orders', icon: '', label: ' عملية التصنيع', color: '#0E78AA', href: '/manufacturing/operations/operation' }
+      {
+        key: 'sales-order',
+        icon: '',
+        label: 'أمر البيع',
+        color: '#0E78AA',
+        href: '/manufacturing/operations/sales-order',
+      },
+      {
+        key: 'work-order',
+        icon: '',
+        label: 'أمر الشغل',
+        color: '#0E78AA',
+        href: '/manufacturing/operations/production-planning',
+      },
+      { key: 'production-orders', icon: '', label: 'أمر التصنيع', color: '#0E78AA', href: '/manufacturing/operations/operation' },
     ]
   },
   {
@@ -44,6 +58,9 @@ export const manufacturingModules: ModuleWithChildren[] = [
       { key: 'cost-variance', icon: '', label: 'إنحراف تكاليف التصنيع', color: '#0E78AA', href: '/manufacturing/reports/cost-variance' },
       { key: 'invoice-variance', icon: '', label: 'إنحراف فواتير التصنيع', color: '#0E78AA', href: '/manufacturing/reports/invoice-variance' },
       { key: 'manufacturing-movements', icon: '', label: 'حركات التصنيع', color: '#0E78AA', href: '/manufacturing/reports/manufacturing-movements' },
+      { key: 'order-status', icon: '', label: 'مواقف أوامر التصنيع', color: '#0E78AA', href: '/manufacturing/reports/order-status' },
+      { key: 'sales-order-tracking', icon: '', label: 'متابعة أوامر البيع', color: '#0E78AA', href: '/manufacturing/reports/sales-order-tracking' },
+      { key: 'work-order-tracking', icon: '', label: 'متابعة أوامر الشغل', color: '#0E78AA', href: '/manufacturing/reports/work-order-tracking' },
     ]
   },
 ];

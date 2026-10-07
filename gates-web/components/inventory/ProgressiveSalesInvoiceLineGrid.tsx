@@ -162,6 +162,7 @@ type Props = {
   lockUnitPrice?: boolean;
   enforceBelowCost?: boolean;
   headerDescription?: string;
+  invoiceAffectsStock?: boolean;
 };
 
 export function ProgressiveSalesInvoiceLineGrid({
@@ -191,6 +192,7 @@ export function ProgressiveSalesInvoiceLineGrid({
   lockUnitPrice = false,
   enforceBelowCost = false,
   headerDescription = '',
+  invoiceAffectsStock = true,
 }: Props) {
   useFollowHeaderDescription({
     headerDescription,
@@ -826,6 +828,7 @@ export function ProgressiveSalesInvoiceLineGrid({
                                   <ItemUnitSelect
                                     itemId={line?.itemId ?? ''}
                                     value={f.value ?? ''}
+                                    invoiceAffectsStock={invoiceAffectsStock}
                                     onChange={(unitId) => {
                                       f.onChange(unitId);
                                       syncLineUnits(index, { unitId });

@@ -43,6 +43,8 @@ import {
 } from '@/lib/invoices/cash-tender';
 import { paymentMethodForCashPaid } from '@/components/invoices/InvoiceCashPaidControls';
 import { sumPaymentSplits, type PaymentSplitLine } from '@/lib/invoices/payment-split.types';
+import { DocumentSourceLoadBar } from '@/components/invoices/DocumentSourceLoadBar';
+import { PURCHASE_RETURN_SOURCE_TYPES, type SourceHydratePayload } from '@/lib/invoices/sourceDocument';
 import { MultiPaymentSplitterModal } from '@/components/invoices/MultiPaymentSplitterModal';
 import { pickDefaultSafeId, useSafesQuery } from '@/lib/hooks/useMasterDataQueries';
 
@@ -95,6 +97,7 @@ export default function PurchaseReturnsPage() {
   const [warehouseId, setWarehouseId] = useState('');
   const [currencyId, setCurrencyId] = useState('');
   const [sourcePurchaseInvoiceId, setSourcePurchaseInvoiceId] = useState('');
+  const [sourceBarKey, setSourceBarKey] = useState(0);
   const [returnLines, setReturnLines] = useState<ReturnLineForm[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [returnReason, setReturnReason] = useState('');
@@ -348,7 +351,20 @@ export default function PurchaseReturnsPage() {
     setDriverId('');
     setDistributorId('');
     setDate(new Date().toISOString().split('T')[0]);
+    setSourceBarKey((k) => k + 1);
   }, [replaceQuery, resetKeepPosted, txSettings?.defaultWarehouseId]);
+
+  const handleReturnSourceHydrate = useCallback(
+    (payload: SourceHydratePayload) => {
+      if (selectedReturnId || isPosted) return;
+      if (payload.supplierId) setSupplierId(payload.supplierId);
+      if (payload.warehouseId) setWarehouseId(payload.warehouseId);
+      if (payload.currencyId) setCurrencyId(payload.currencyId);
+      setSourcePurchaseInvoiceId(payload.sourceId);
+      setSuccess(`تم اختيار فاتورة ${payload.sourceNumber} — جاري تحميل البنود القابلة للإرجاع`);
+    },
+    [isPosted, selectedReturnId]
+  );
 
   const sourceRefLabel = () => {
     const ref = purchaseInvoices.find((i) => i.id === sourcePurchaseInvoiceId);
@@ -568,6 +584,15 @@ export default function PurchaseReturnsPage() {
         title="مردود مشتريات"
         breadcrumbLabel="مردودات المشتريات"
         invoiceKind="PURCHASE_RETURN"
+        toolbarLeading={
+          <DocumentSourceLoadBar
+            key={sourceBarKey}
+            hasExistingLines={returnLines.some((l) => Boolean(l.itemId))}
+            disabled={isPosted || Boolean(selectedReturnId)}
+            allowedTypes={PURCHASE_RETURN_SOURCE_TYPES}
+            onHydrate={handleReturnSourceHydrate}
+          />
+        }
         invoiceNumber={invoiceNumber}
         statusTone={isPosted ? 'success' : 'warning'}
         statusLabel={isPosted ? 'مرحّل' : unpostedDocumentStatusLabel(Boolean(selectedReturnId))}

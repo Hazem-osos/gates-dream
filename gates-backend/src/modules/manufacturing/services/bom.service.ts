@@ -2,13 +2,46 @@ import { Decimal } from '@prisma/client/runtime/library';
 import prisma from '../../../shared/database/prisma';
 import { AppError } from '../../../shared/middleware/error-handler';
 import { roundTo4 } from '../../../shared/utils/decimal-round';
+import { sumOutputCostPercents } from '../utils/bom-cost-distribution';
 
 export interface BomLineInput {
   rawItemId: string;
   quantity: number;
   scrapPercentage?: number;
   lineOrder?: number;
+  lineDescription?: string;
+  warehouseId?: string;
+  manufacturedItemId?: string;
 }
+
+export type BomFormMetadata = {
+  distributeCostByUnits?: boolean;
+  fromWarehouseId?: string;
+  toWarehouseId?: string;
+  standardExecutionTime?: number;
+  stage?: string;
+  description?: string;
+  costCenterId?: string;
+  costCenter?: string;
+  outputLines?: Array<{
+    itemId: string;
+    quantity: number;
+    unit?: string;
+    unitPrice?: number;
+    costPercent?: number;
+    description?: string;
+    warehouseId?: string;
+  }>;
+  additionalCosts?: Array<{
+    accountId?: string;
+    accountLabel?: string;
+    value?: number;
+    valuePercent?: number;
+    description?: string;
+    costCenter?: string;
+    manufacturedItemId?: string;
+  }>;
+};
 
 export interface CreateBomInput {
   name: string;
@@ -16,6 +49,7 @@ export interface CreateBomInput {
   baseQuantity?: number;
   standardLaborCost?: number;
   standardOverheadCost?: number;
+  formMetadata?: BomFormMetadata;
   lines: BomLineInput[];
 }
 
@@ -25,6 +59,24 @@ export class BomService {
   computeScaleFactor(baseQuantity: number, plannedQuantity: number): number {
     if (baseQuantity <= 0) throw new AppError(422, 'BOM base quantity must be positive');
     return plannedQuantity / baseQuantity;
+  }
+
+  private assertOutputCostPercents(formMetadata?: BomFormMetadata) {
+    if (formMetadata?.distributeCostByUnits) return;
+    const outputs = (formMetadata?.outputLines ?? []).filter((o) => o.itemId?.trim());
+    if (outputs.length <= 1) return;
+    const sum = sumOutputCostPercents(
+      outputs.map((o) => ({
+        quantity: Number(o.quantity) || 0,
+        costPercent: Number(o.costPercent) || 0,
+      }))
+    );
+    if (sum <= 0) {
+      throw new AppError(422, 'حدد نسب التكلفة للأصناف الناتجة');
+    }
+    if (Math.abs(sum - 100) > 0.01) {
+      throw new AppError(422, `مجموع نسب التكلفة يجب أن يساوي 100 (الحالي ${sum})`);
+    }
   }
 
   computeLineRequirement(
@@ -49,6 +101,8 @@ export class BomService {
       if (!raw) throw new AppError(404, `Raw item ${line.rawItemId} not found`);
     }
 
+    this.assertOutputCostPercents(input.formMetadata);
+
     return prisma.billOfMaterials.create({
       data: {
         companyId,
@@ -57,12 +111,16 @@ export class BomService {
         baseQuantity: new Decimal(input.baseQuantity ?? 1),
         standardLaborCost: new Decimal(input.standardLaborCost ?? 0),
         standardOverheadCost: new Decimal(input.standardOverheadCost ?? 0),
+        formMetadata: input.formMetadata ?? undefined,
         lines: {
           create: input.lines.map((line, idx) => ({
             rawItemId: line.rawItemId,
             quantity: new Decimal(line.quantity),
             scrapPercentage: new Decimal(line.scrapPercentage ?? 0),
             lineOrder: line.lineOrder ?? idx + 1,
+            lineDescription: line.lineDescription?.trim() || null,
+            warehouseId: line.warehouseId || null,
+            manufacturedItemId: line.manufacturedItemId || null,
           })),
         },
       },
@@ -91,32 +149,19 @@ export class BomService {
     return prisma.billOfMaterials.findMany({
       where: { companyId, isActive: true },
       include: {
-        finishedItem: { select: { id: true, arabicName: true } },
+        finishedItem: { select: { id: true, arabicName: true, serial: true } },
         _count: { select: { lines: true } },
       },
       orderBy: { updatedAt: 'desc' },
     });
   }
 
-  /**
-   * Replace BOM header + lines. Locked when any production order has left DRAFT
-   * (materials issued / in progress / completed) — there is no posted flag on BOM itself.
-   */
+  /** Replace BOM header + lines (editable regardless of linked production orders). */
   async update(companyId: string, id: string, input: UpdateBomInput) {
     const existing = await prisma.billOfMaterials.findFirst({
       where: { id, companyId, isActive: true },
-      include: {
-        productionOrders: {
-          where: { status: { notIn: ['DRAFT', 'CANCELLED'] } },
-          select: { id: true, status: true },
-          take: 1,
-        },
-      },
     });
     if (!existing) throw new AppError(404, 'BOM not found');
-    if (existing.productionOrders.length > 0) {
-      throw new AppError(422, 'Cannot update BOM after production orders have been released');
-    }
     if (!input.finishedItemId) throw new AppError(422, 'Finished item is required');
     if (!input.lines?.length) throw new AppError(422, 'BOM requires at least one raw line');
 
@@ -132,6 +177,8 @@ export class BomService {
       if (!raw) throw new AppError(404, `Raw item ${line.rawItemId} not found`);
     }
 
+    this.assertOutputCostPercents(input.formMetadata);
+
     return prisma.$transaction(async (tx) => {
       await tx.bomLine.deleteMany({ where: { bomId: id } });
       return tx.billOfMaterials.update({
@@ -142,12 +189,16 @@ export class BomService {
           baseQuantity: new Decimal(input.baseQuantity ?? 1),
           standardLaborCost: new Decimal(input.standardLaborCost ?? 0),
           standardOverheadCost: new Decimal(input.standardOverheadCost ?? 0),
+          formMetadata: input.formMetadata ?? undefined,
           lines: {
             create: input.lines.map((line, idx) => ({
               rawItemId: line.rawItemId,
               quantity: new Decimal(line.quantity),
               scrapPercentage: new Decimal(line.scrapPercentage ?? 0),
               lineOrder: line.lineOrder ?? idx + 1,
+              lineDescription: line.lineDescription?.trim() || null,
+              warehouseId: line.warehouseId || null,
+              manufacturedItemId: line.manufacturedItemId || null,
             })),
           },
         },

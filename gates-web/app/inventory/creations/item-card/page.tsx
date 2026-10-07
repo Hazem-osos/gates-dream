@@ -38,6 +38,7 @@ import { formatMoneyAr } from '@/lib/formatMoney';
 import { useItemCardTourPrepare } from '@/lib/onboarding/useItemCardTourPrepare';
 import { queryKeys } from '@/lib/query/query-keys';
 import { rememberCreatedItemCategory } from '@/lib/inventory/remember-item-category';
+import { resolveItemBarcode } from '@/lib/inventory/item-barcode-default';
 import { BarcodePrintModal } from '@/app/components/print/BarcodePrintModal';
 import { EtaDetailsDialog } from '@/components/electronic-invoices/EtaDetailsDialog';
 import { UnitDefinitionDialog } from '@/components/inventory/UnitDefinitionDialog';
@@ -412,6 +413,17 @@ function ItemCardPageInner() {
   }, [activeItemId, itemAuto, nextItemSerial]);
 
   useEffect(() => {
+    setFormData((prev) => {
+      const serial = prev.serial.trim();
+      if (!serial) return prev;
+      const barcode = prev.barcode.trim();
+      if (barcode && barcode !== serial) return prev;
+      const nextBarcode = resolveItemBarcode(prev.barcode, serial);
+      return prev.barcode === nextBarcode ? prev : { ...prev, barcode: nextBarcode };
+    });
+  }, [formData.serial]);
+
+  useEffect(() => {
     if (!quickCreate.prefillName || activeItemId) return;
     setFormData((prev) => (prev.arabicName ? prev : { ...prev, arabicName: quickCreate.prefillName }));
   }, [activeItemId, quickCreate.prefillName]);
@@ -475,6 +487,37 @@ function ItemCardPageInner() {
     setLocalUnits(mapped.length ? mapped : [emptyBaseUnitRow(formData.baseUnitId)]);
     setUnitsHydratedFor(itemDetail.id);
   }, [activeItemId, formData.baseUnitId, itemDetail, unitsHydratedFor]);
+
+  const barcodePrintSeed = useMemo((): ItemOption | undefined => {
+    const arabicName = formData.arabicName.trim() || itemDetail?.arabicName?.trim();
+    if (!arabicName && !activeItemId) return undefined;
+    const serial = formData.serial.trim() || itemDetail?.serial?.trim() || '';
+    const barcode = resolveItemBarcode(formData.barcode, serial) || null;
+    const fromForm =
+      optionalMoney(formData.retailPrice) ??
+      optionalMoney(formData.priceRetail) ??
+      optionalMoney(formData.consumerPrice);
+    const fromDetail =
+      itemDetail?.retailPrice != null
+        ? Number(itemDetail.retailPrice)
+        : itemDetail?.priceRetail != null
+          ? Number(itemDetail.priceRetail)
+          : null;
+    const salesPrice =
+      fromForm ?? (fromDetail != null && Number.isFinite(fromDetail) ? fromDetail : null);
+    return {
+      id: activeItemId ?? '__item-card-draft__',
+      serial: serial || null,
+      barcode,
+      arabicName: arabicName || 'صنف',
+      salesPrice,
+      itemPrices: itemDetail?.prices?.map((row) => ({
+        price: Number(row.price),
+        retailPrice: row.retailPrice ?? row.price,
+        unitId: row.unitId,
+      })),
+    };
+  }, [activeItemId, formData.arabicName, formData.barcode, formData.serial, formData.retailPrice, formData.priceRetail, formData.consumerPrice, itemDetail]);
 
   const refreshItemUnits = () => {
     if (activeItemId) invalidateQuery(['item', activeItemId]);
@@ -800,7 +843,19 @@ function ItemCardPageInner() {
   const [saving, setSaving] = useState(false);
   const loading = saving;
   const fieldsLocked = isReadOnly && Boolean(activeItemId);
-  const patch = (next: Partial<ItemCardForm>) => setFormData((prev) => ({ ...prev, ...next }));
+  const patch = (next: Partial<ItemCardForm>) =>
+    setFormData((prev) => {
+      const merged = { ...prev, ...next };
+      if (next.serial !== undefined && next.barcode === undefined) {
+        const serial = String(next.serial ?? '').trim();
+        const prevBarcode = prev.barcode.trim();
+        const prevSerial = prev.serial.trim();
+        if (!prevBarcode || prevBarcode === prevSerial) {
+          merged.barcode = serial;
+        }
+      }
+      return merged;
+    });
 
   const handleSave = async () => {
     setError('');
@@ -953,7 +1008,12 @@ function ItemCardPageInner() {
             disabled: !activeItemId,
             destructive: true,
           },
-          { id: 'barcode', label: 'طباعة باركود', onClick: () => setShowPrint(true) },
+          {
+            id: 'barcode',
+            label: 'طباعة باركود',
+            onClick: () => setShowPrint(true),
+            disabled: !barcodePrintSeed,
+          },
           { id: 'guide', label: 'دليل الأصناف', onClick: () => router.push('/inventory/guide/items') },
         ]}
         favoriteHref="/inventory/creations/item-card"
@@ -1027,11 +1087,11 @@ function ItemCardPageInner() {
           </div>
         </CompactFormField>
         <CompactFormField
-          label="الباركود"
+          label="الباركود (للطباعة والمسح)"
           disabled={isReadOnly}
           value={formData.barcode}
           onChange={(e) => patch({ barcode: e.target.value })}
-          placeholder="اختياري"
+          placeholder="افتراضيًا = المسلسل — يُحفظ ويُطبَع ويُبحَث بنفس الرقم"
         />
         <CompactFormField label="المخزن الافتراضي">
           <WarehouseSelect
@@ -1752,7 +1812,7 @@ function ItemCardPageInner() {
             variant="secondary"
             size="sm"
             onClick={() => setShowPrint(true)}
-            disabled={!activeItemId}
+            disabled={!barcodePrintSeed}
           >
             طباعة الباركود
           </Button>
@@ -1799,6 +1859,7 @@ function ItemCardPageInner() {
           open
           onClose={() => setShowPrint(false)}
           initialItemId={activeItemId ?? undefined}
+          seedItem={barcodePrintSeed}
         />
       ) : null}
 

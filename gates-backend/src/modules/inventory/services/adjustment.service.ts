@@ -15,6 +15,11 @@ import {
   ensurePerpetualInventoryGlReady,
   runCompanyStockGlPosting,
 } from '../utils/stock-gl-posting-guard';
+import {
+  resolveStoreDocumentBranchId,
+  resolveStoreDocumentBranchIdOptional,
+} from '../utils/store-document-branch.util';
+import { attachDocumentFiscalYear } from './stock-gl-posting-context';
 
 export interface AdjustmentLine {
   itemId: string;
@@ -104,6 +109,11 @@ export class AdjustmentService {
         warehouseBalances.map((row) => [row.itemId, Number(row.quantityOnHand) || 0])
       );
 
+      const resolvedBranchId = await resolveStoreDocumentBranchIdOptional(companyId, {
+        documentBranchId: data.branchId,
+        warehouseId: data.warehouseId,
+      });
+
       // Use transaction to ensure atomicity
       const adjustment = await prisma.$transaction(async (tx) => {
         // Calculate totals and adjustments
@@ -129,7 +139,7 @@ export class AdjustmentService {
 
         const serial = await resolveStoreDocumentSerialInTx(tx, {
           companyId,
-          branchId: data.branchId ?? null,
+          branchId: resolvedBranchId,
           fiscalYearId: null,
           kind: 'adjustment',
           clientSerial: data.serial,
@@ -139,7 +149,7 @@ export class AdjustmentService {
         const record = await tx.adjustment.create({
           data: {
             companyId,
-            branchId: data.branchId || null,
+            branchId: resolvedBranchId,
             description: data.description || null,
             serial,
             date: new Date(data.date),
@@ -448,8 +458,14 @@ export class AdjustmentService {
         throw new Error('Adjustment is already posted');
       }
 
-      await fiscalYearService.assertOpenForDate(companyId, adjustment.date);
+      const fiscalYearId = await fiscalYearService.assertOpenForDate(companyId, adjustment.date);
       await assertWarehouseActive(companyId, adjustment.warehouseId);
+      const movementBranchId = await resolveStoreDocumentBranchId(companyId, {
+        documentBranchId: adjustment.branchId,
+        warehouseId: adjustment.warehouseId,
+        headerBranchId: glCtx?.branchId,
+      });
+      const glForPost = attachDocumentFiscalYear(glCtx, fiscalYearId, movementBranchId);
 
       const sourceType = 'ADJ';
       const sourceNumber = adjustment.serial ?? adjustment.id.slice(0, 8);
@@ -457,20 +473,26 @@ export class AdjustmentService {
 
       const inventorySystem = await ensurePerpetualInventoryGlReady(
         companyId,
-        glCtx,
+        glForPost,
         adjustment.warehouseId
       );
 
       let glSkipped = false;
       await prisma.$transaction(async (tx) => {
         await claimDocumentPost((args) => tx.adjustment.updateMany(args), adjustmentId, companyId);
+        if (adjustment.branchId !== movementBranchId) {
+          await tx.adjustment.update({
+            where: { id: adjustmentId },
+            data: { branchId: movementBranchId },
+          });
+        }
         for (const line of adjustment.lines) {
           const qty = Number(line.adjustmentQuantity);
           if (qty === 0) continue;
 
           const costingBase = {
             companyId,
-            branchId: adjustment.branchId ?? undefined,
+            branchId: movementBranchId,
             warehouseId: adjustment.warehouseId,
             itemId: line.itemId,
             locationId: line.locationId,
@@ -509,9 +531,12 @@ export class AdjustmentService {
           }
         }
 
-        if (glCtx) {
+        if (glForPost) {
           glSkipped = await runCompanyStockGlPosting(inventorySystem, () =>
-            stockMovementGlService.postAdjustmentVarianceGlInTx(tx, glCtx, adjustment)
+            stockMovementGlService.postAdjustmentVarianceGlInTx(tx, glForPost, {
+              ...adjustment,
+              branchId: movementBranchId,
+            })
           );
         }
       });

@@ -82,7 +82,7 @@ export function resolveItemUnitId(
   return link?.unit?.id ?? link?.unitId ?? fallbackUnitId?.trim() ?? undefined;
 }
 
-type M5FormData = {
+export type M5FormData = {
   invoiceNumber?: string;
   description?: string;
   date?: string;
@@ -168,6 +168,7 @@ export function mapSalesFormToM5CreateBody(
       { quantity: line.quantity || 1, baseQuantity: line.baseQuantity }
     );
     const qty = Number(synced.quantity) || 1;
+    const baseQty = Number(synced.baseQuantity) || qty;
     const lineAfterDiscount = computeLineSubtotalAfterDiscount(
       { ...line, quantity: qty, baseQuantity: Number(synced.baseQuantity) || qty },
       pricingCalculationBasis
@@ -182,7 +183,7 @@ export function mapSalesFormToM5CreateBody(
       itemId: line.itemId,
       ...(optionalUuid(unitId) ? { unitId: optionalUuid(unitId) } : {}),
       quantity: qty,
-      baseQuantity: Number(synced.baseQuantity) || qty,
+      baseQuantity: baseQty,
       conversionFactor: Number(synced.conversionFactor) || 1,
       baseUnitId: optionalUuid(synced.baseUnitId),
       price: Number(line.unitPrice) || 0,
@@ -198,10 +199,9 @@ export function mapSalesFormToM5CreateBody(
       taxExemptionReason: line.taxExemptionReason || undefined,
       warehouseId: optionalUuid(line.warehouseId) || optionalUuid(data.warehouseId),
       itemReservationId: optionalUuid(line.itemReservationId),
-      reservationFulfillQuantity:
-        line.itemReservationId && line.reservationFulfillQuantity != null
-          ? Number(line.reservationFulfillQuantity)
-          : undefined,
+      reservationFulfillQuantity: optionalUuid(line.itemReservationId)
+        ? baseQty
+        : undefined,
       costCenterId: optionalUuid(line.costCenterId),
       withholdingTaxRate: line.withholdingTaxRate || undefined,
       withholdingTaxAmount: withholdingTaxAmount > 0 ? withholdingTaxAmount : undefined,

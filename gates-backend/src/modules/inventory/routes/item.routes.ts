@@ -232,7 +232,8 @@ router.get(
         companyId,
         req.params.id,
         Number(req.query.quantity ?? 1),
-        req.query.warehouseId as string | undefined
+        req.query.warehouseId as string | undefined,
+        req.query.pricingMethod as 'AVERAGE_COST' | 'LAST_PURCHASE' | 'MANUAL'
       );
       return void res.json({ status: 'success', data });
     } catch (error) {

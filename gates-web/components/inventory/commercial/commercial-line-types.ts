@@ -10,6 +10,10 @@ export type CommercialDocumentLine = {
   taxRate: number;
   notes: string;
   costCenterId: string;
+  /** أمر البيع: مواصفات الصنف */
+  specifications?: string;
+  /** أمر البيع: صورة الصنف (data URL أو رابط) */
+  imageUrl?: string;
 };
 
 export function emptyCommercialLine(): CommercialDocumentLine {
@@ -25,6 +29,8 @@ export function emptyCommercialLine(): CommercialDocumentLine {
     taxRate: 14,
     notes: '',
     costCenterId: '',
+    specifications: '',
+    imageUrl: '',
   };
 }
 

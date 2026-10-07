@@ -27,18 +27,97 @@ import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
 import { useApiMutation, useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
 import { useDocumentConvertMutation } from '@/lib/hooks/useDocumentConvert';
-import { mapSalesFormToM5CreateBody, mapSalesFormToM5UpdateBody } from '@/lib/invoices/mapFormToM5Invoice';
+import {
+  mapSalesFormToM5CreateBody,
+  mapSalesFormToM5UpdateBody,
+  type M5FormData,
+} from '@/lib/invoices/mapFormToM5Invoice';
 import { finishDocumentSave } from '@/lib/documents/finish-save';
 import { invalidateStockViews } from '@/lib/invoices/invalidate-stock-views';
 import { toHijriDate } from '@/lib/hijri-date';
 import type { ApiError } from '@/lib/api/types';
-import { CommercialLinesTable } from '@/components/inventory/commercial/CommercialLinesTable';
+import dynamic from 'next/dynamic';
+import { apiClient } from '@/lib/api/client';
+import { SalesOrderLinesTable } from '@/components/inventory/sales-order/SalesOrderLinesTable';
+import {
+  SalesOrderWorkOrderPanel,
+  type WorkOrderPanelData,
+} from '@/components/inventory/sales-order/SalesOrderWorkOrderPanel';
+import { packSalesOrderLineNotes, unpackSalesOrderLineNotes } from '@/lib/invoices/sales-order-line-meta';
+import {
+  extractPaymentInstallments,
+  stripPaymentInstallmentsNote,
+  withPaymentInstallmentsNote,
+  type PaymentInstallmentRow,
+} from '@/lib/invoices/payment-installments';
+import type { InternalNoteEntry } from '@/lib/invoices/payment-split.types';
 import {
   commercialLineParts,
   emptyCommercialLine,
   isEnteredCommercialLine,
   type CommercialDocumentLine,
 } from '@/components/inventory/commercial/commercial-line-types';
+import { DocumentSourceLoadBar } from '@/components/invoices/DocumentSourceLoadBar';
+import {
+  mapSourcePayloadToCommercialLines,
+  stockHeaderFieldsFromSource,
+} from '@/lib/inventory/apply-source-to-stock-document';
+import type { SourceHydratePayload } from '@/lib/invoices/sourceDocument';
+import type { TransactionSettings } from '@/lib/transaction-settings/types';
+
+const PaymentInstallmentsModal = dynamic(
+  () =>
+    import('@/components/invoices/PaymentInstallmentsModal').then((m) => ({
+      default: m.PaymentInstallmentsModal,
+    })),
+  { ssr: false }
+);
+
+function addDaysIso(iso: string, days: number) {
+  const d = new Date(iso);
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+function daysBetween(start: string, end: string) {
+  const ms = new Date(end).getTime() - new Date(start).getTime();
+  if (!Number.isFinite(ms)) return 0;
+  return Math.max(0, Math.round(ms / 86400000));
+}
+
+type WorkOrderApi = {
+  id: string;
+  orderNumber: string;
+  workDate: string;
+  processMetadata?: Record<string, unknown> | null;
+  salesOrder?: { invoiceNumber?: string | null };
+  lines?: Array<{
+    itemId: string;
+    plannedQuantity: string | number;
+    lineDescription?: string | null;
+    imageUrl?: string | null;
+    item?: { arabicName: string };
+  }>;
+};
+
+function mapWorkOrderToPanel(wo: WorkOrderApi): WorkOrderPanelData {
+  const meta = wo.processMetadata ?? {};
+  return {
+    id: wo.id,
+    orderNumber: wo.orderNumber,
+    salesOrderNumber: String(meta.salesOrderNumber ?? wo.salesOrder?.invoiceNumber ?? ''),
+    workDate: String(wo.workDate).slice(0, 10),
+    deliveryLeadDays: Number(meta.deliveryLeadDays ?? 0),
+    expectedDeliveryDate: String(meta.expectedDeliveryDate ?? '').slice(0, 10),
+    lines: (wo.lines ?? []).map((l) => ({
+      itemId: l.itemId,
+      itemName: l.item?.arabicName ?? '',
+      quantity: Number(l.plannedQuantity) || 0,
+      specifications: l.lineDescription ?? '',
+      imageUrl: l.imageUrl ?? '',
+    })),
+  };
+}
 
 type OrderRecord = {
   id: string;
@@ -55,6 +134,8 @@ type OrderRecord = {
   isCancelled?: boolean;
   convertedInvoiceId?: string | null;
   version?: number;
+  internalNotes?: InternalNoteEntry[] | null;
+  customer?: { arabicName?: string | null };
   currency?: { code?: string };
   lines?: Array<{
     itemId: string;
@@ -86,10 +167,34 @@ function orderStatus(order?: OrderRecord | null) {
   return { tone: 'warning' as const, label: 'لم يتم التوريد (Pending Fulfillment)' };
 }
 
-export function SalesOrderForm() {
+const INVENTORY_SALES_ORDER_HREF = '/inventory/operations/sales-order';
+const MANUFACTURING_SALES_ORDER_HREF = '/manufacturing/operations/sales-order';
+
+export type SalesOrderFormProps = {
+  /** Inventory operations (default) vs manufacturing operations shell */
+  context?: 'inventory' | 'manufacturing';
+};
+
+export function SalesOrderForm({ context = 'inventory' }: SalesOrderFormProps) {
+  const isManufacturing = context === 'manufacturing';
+  const routeHref =
+    context === 'manufacturing' ? MANUFACTURING_SALES_ORDER_HREF : INVENTORY_SALES_ORDER_HREF;
+  const breadcrumbs =
+    context === 'manufacturing'
+      ? [
+          { href: '/manufacturing', label: 'التصنيع' },
+          { label: 'عمليات التصنيع' },
+          { label: 'أمر البيع' },
+        ]
+      : [
+          { href: '/inventory', label: 'المخازن' },
+          { label: 'العمليات' },
+          { label: 'أمر بيع' },
+        ];
   const router = useRouter();
   const searchParams = useOwnTabSearchParams();
   const orderIdFromUrl = searchParams.get('orderId') || searchParams.get('invoiceId');
+  const workOrderIdFromUrl = searchParams.get('workOrderId')?.trim() || null;
   const invalidateQuery = useInvalidateQuery();
   const convertMutation = useDocumentConvertMutation();
   const [selectedId, setSelectedId] = useState<string | null>(() => orderIdFromUrl?.trim() || null);
@@ -100,7 +205,13 @@ export function SalesOrderForm() {
   const [orderNumber, setOrderNumber] = useState('');
   const [description, setDescription] = useState('');
   const [date, setDate] = useState(todayIso());
+  const [deliveryLeadDays, setDeliveryLeadDays] = useState(7);
   const [deliveryDate, setDeliveryDate] = useState(plusDays(7));
+  const [paymentInstallments, setPaymentInstallments] = useState<PaymentInstallmentRow[]>([]);
+  const [internalNotes, setInternalNotes] = useState<InternalNoteEntry[]>([]);
+  const [paymentModalOpen, setPaymentModalOpen] = useState(false);
+  const [workOrderPanel, setWorkOrderPanel] = useState<WorkOrderPanelData | null>(null);
+  const [workOrderBusy, setWorkOrderBusy] = useState(false);
   const [customerId, setCustomerId] = useState('');
   const [warehouseId, setWarehouseId] = useState('');
   const [costCenterId, setCostCenterId] = useState('');
@@ -109,12 +220,25 @@ export function SalesOrderForm() {
   const [shippingTerms, setShippingTerms] = useState('');
   const [paymentTerms, setPaymentTerms] = useState('');
   const [lines, setLines] = useState<CommercialDocumentLine[]>([emptyCommercialLine()]);
+  const [sourceBarKey, setSourceBarKey] = useState(0);
+
+  const { data: salesInvoiceSettingsRes } = useApiQuery<TransactionSettings>(
+    ['transaction-settings', 'SALES_INVOICE'],
+    '/transaction-settings/SALES_INVOICE'
+  );
+  const defaultWarehouseFromSettings = salesInvoiceSettingsRes?.data?.defaultWarehouseId ?? '';
+
+  useEffect(() => {
+    if (selectedId || warehouseId || !defaultWarehouseFromSettings) return;
+    setWarehouseId(defaultWarehouseFromSettings);
+  }, [selectedId, warehouseId, defaultWarehouseFromSettings]);
 
   const salesOrderDraft = useMemo(
     () => ({
       orderNumber,
       description,
       date,
+      deliveryLeadDays,
       deliveryDate,
       customerId,
       warehouseId,
@@ -131,6 +255,7 @@ export function SalesOrderForm() {
       customerId,
       date,
       delegateId,
+      deliveryLeadDays,
       deliveryDate,
       description,
       lines,
@@ -144,6 +269,7 @@ export function SalesOrderForm() {
     setOrderNumber(payload.orderNumber);
     setDescription(payload.description);
     setDate(payload.date);
+    setDeliveryLeadDays(payload.deliveryLeadDays ?? 7);
     setDeliveryDate(payload.deliveryDate);
     setCustomerId(payload.customerId);
     setWarehouseId(payload.warehouseId);
@@ -161,7 +287,7 @@ export function SalesOrderForm() {
     dismissRestore,
     clearDraft,
   } = useDraftAutosave({
-    documentType: 'sales-order',
+    documentType: isManufacturing ? 'manufacturing-sales-order' : 'sales-order',
     value: salesOrderDraft,
     mode: selectedId ? 'edit' : 'new',
     documentId: selectedId,
@@ -232,6 +358,38 @@ export function SalesOrderForm() {
   }, [currencies, currencyId]);
 
   useEffect(() => {
+    if (!date || deliveryLeadDays < 0) return;
+    setDeliveryDate(addDaysIso(date, deliveryLeadDays));
+  }, [date, deliveryLeadDays]);
+
+  const { data: workOrderBySalesRes, refetch: refetchWorkOrder } = useApiQuery<WorkOrderApi | null>(
+    ['manufacturing-work-order-by-sales', selectedId ?? ''],
+    selectedId ? `/manufacturing/work-orders/by-sales-order/${selectedId}` : '',
+    undefined,
+    { enabled: Boolean(selectedId) }
+  );
+
+  useEffect(() => {
+    const wo = workOrderBySalesRes?.data;
+    if (wo) setWorkOrderPanel(mapWorkOrderToPanel(wo));
+    else if (!workOrderIdFromUrl) setWorkOrderPanel(null);
+  }, [workOrderBySalesRes?.data, workOrderIdFromUrl]);
+
+  useEffect(() => {
+    if (!workOrderIdFromUrl) return;
+    void apiClient
+      .get<WorkOrderApi>(`/manufacturing/work-orders/${workOrderIdFromUrl}`)
+      .then((res) => {
+        const wo = res.data;
+        if (!wo) return;
+        setWorkOrderPanel(mapWorkOrderToPanel(wo));
+        const salesId = (wo.processMetadata as { salesOrderInvoiceId?: string })?.salesOrderInvoiceId;
+        if (salesId && salesId !== selectedId) setSelectedId(salesId);
+      })
+      .catch(() => undefined);
+  }, [workOrderIdFromUrl, selectedId]);
+
+  useEffect(() => {
     if (skipServerHydrateRef.current) {
       skipServerHydrateRef.current = false;
       return;
@@ -240,26 +398,37 @@ export function SalesOrderForm() {
     setOrderNumber(loaded.invoiceNumber || '');
     setDescription(String(loaded.description || '').replace(/^\[أمر بيع\]\s*/, ''));
     setDate(loaded.date ? String(loaded.date).slice(0, 10) : todayIso());
-    setDeliveryDate(loaded.dueDate ? String(loaded.dueDate).slice(0, 10) : plusDays(7));
+    const due = loaded.dueDate ? String(loaded.dueDate).slice(0, 10) : plusDays(7);
+    const docDate = loaded.date ? String(loaded.date).slice(0, 10) : todayIso();
+    setDeliveryDate(due);
+    setDeliveryLeadDays(daysBetween(docDate, due));
     setCustomerId(loaded.customerId || '');
+    const notesList = Array.isArray(loaded.internalNotes) ? loaded.internalNotes : [];
+    setPaymentInstallments(extractPaymentInstallments(notesList));
+    setInternalNotes(stripPaymentInstallmentsNote(notesList));
     setWarehouseId(loaded.warehouseId || '');
     setCostCenterId(loaded.costCenterId || '');
     setDelegateId(loaded.representativeId || '');
     setCurrencyId(loaded.currencyId || currencyId);
     setLines(
-      (loaded.lines ?? []).map((line) => ({
-        itemId: line.itemId,
-        itemCode: line.item?.code || '',
-        itemName: line.item?.arabicName || '',
-        unitId: line.unitId || '',
-        unitName: '',
-        quantity: Number(line.quantity) || 0,
-        unitPrice: Number(line.unitPrice) || 0,
-        discount: Number(line.discountPercent) || 0,
-        taxRate: Number(line.taxPercent) || 14,
-        notes: line.lineNotes || '',
-        costCenterId: line.costCenterId || '',
-      }))
+      (loaded.lines ?? []).map((line) => {
+        const extras = unpackSalesOrderLineNotes(line.lineNotes);
+        return {
+          itemId: line.itemId,
+          itemCode: line.item?.code || '',
+          itemName: line.item?.arabicName || '',
+          unitId: line.unitId || '',
+          unitName: '',
+          quantity: Number(line.quantity) || 0,
+          unitPrice: Number(line.unitPrice) || 0,
+          discount: Number(line.discountPercent) || 0,
+          taxRate: Number(line.taxPercent) || 14,
+          notes: extras.specifications || '',
+          specifications: extras.specifications || '',
+          imageUrl: extras.imageUrl || '',
+          costCenterId: line.costCenterId || '',
+        };
+      })
     );
   }, [loaded, selectedId, currencyId]);
 
@@ -287,17 +456,20 @@ export function SalesOrderForm() {
       invalidateStockViews(invalidateQuery);
       const id = res.data?.id;
       finishDocumentSave({
-        label: 'أمر بيع',
+        label: isManufacturing ? 'أمر البيع للتصنيع' : 'أمر بيع',
         number: res.data?.invoiceNumber || orderNumber,
         savedId: id,
+        cleared: isManufacturing,
         clearDraft,
-        onOpen: (saved) => {
-          setSelectedId(saved);
-          const params = new URLSearchParams(searchParams.toString());
-          params.set('orderId', saved);
-          const qs = params.toString();
-          router.replace(qs ? `?${qs}` : window.location.pathname, { scroll: false });
-        },
+        onOpen: isManufacturing
+          ? undefined
+          : (saved) => {
+              setSelectedId(saved);
+              const params = new URLSearchParams(searchParams.toString());
+              params.set('orderId', saved);
+              const qs = params.toString();
+              router.replace(qs ? `?${qs}` : window.location.pathname, { scroll: false });
+            },
         reset: () => resetNew(),
       });
     },
@@ -313,17 +485,20 @@ export function SalesOrderForm() {
         invalidateStockViews(invalidateQuery);
         const id = selectedId;
         finishDocumentSave({
-          label: 'أمر بيع',
+          label: isManufacturing ? 'أمر البيع للتصنيع' : 'أمر بيع',
           number: orderNumber,
           savedId: id,
+          cleared: isManufacturing,
           clearDraft,
-          onOpen: (saved) => {
-            setSelectedId(saved);
-            const params = new URLSearchParams(searchParams.toString());
-            params.set('orderId', saved);
-            const qs = params.toString();
-            router.replace(qs ? `?${qs}` : window.location.pathname, { scroll: false });
-          },
+          onOpen: isManufacturing
+            ? undefined
+            : (saved) => {
+                setSelectedId(saved);
+                const params = new URLSearchParams(searchParams.toString());
+                params.set('orderId', saved);
+                const qs = params.toString();
+                router.replace(qs ? `?${qs}` : window.location.pathname, { scroll: false });
+              },
           reset: () => resetNew(),
         });
       },
@@ -348,6 +523,7 @@ export function SalesOrderForm() {
   const buildOrderBody = () => {
     const notes = [shippingTerms, paymentTerms].filter(Boolean).join(' — ');
     const desc = (description || '').trim();
+    const notesWithInstallments = withPaymentInstallmentsNote(internalNotes, paymentInstallments);
     return {
       invoiceNumber: orderNumber || undefined,
       description: notes ? `${desc} — ${notes}` : desc,
@@ -359,7 +535,9 @@ export function SalesOrderForm() {
       currencyId,
       costCenterId: costCenterId || undefined,
       delegateId: delegateId || undefined,
-      paymentMethod: 'credit',
+      paymentMethod: 'credit' as M5FormData['paymentMethod'],
+      internalNotes: notesWithInstallments,
+      installments: paymentInstallments.length ? paymentInstallments : undefined,
       lines: entered.map((line) => ({
         itemId: line.itemId,
         unitId: line.unitId,
@@ -367,10 +545,72 @@ export function SalesOrderForm() {
         unitPrice: line.unitPrice,
         discount: line.discount,
         taxRate: line.taxRate,
-        lineNotes: line.notes,
+        lineNotes: packSalesOrderLineNotes(
+          line.specifications || line.notes || '',
+          line.imageUrl
+        ),
         costCenterId: line.costCenterId || undefined,
       })),
     };
+  };
+
+  const handleCreateWorkOrder = async () => {
+    setError('');
+    if (!selectedId) {
+      setError('احفظ أمر البيع أولاً ثم أنشئ أمر الشغل');
+      return;
+    }
+    setWorkOrderBusy(true);
+    try {
+      const res = await apiClient.post<WorkOrderApi>(
+        `/manufacturing/work-orders/from-sales-order/${selectedId}`
+      );
+      if (res.data) {
+        setWorkOrderPanel(mapWorkOrderToPanel(res.data));
+        setSuccess('تم إنشاء أمر الشغل من أمر البيع');
+        void refetchWorkOrder();
+      }
+    } catch (err) {
+      setError((err as ApiError).message || 'تعذر إنشاء أمر الشغل');
+    } finally {
+      setWorkOrderBusy(false);
+    }
+  };
+
+  const handleSaveWorkOrderLines = async () => {
+    if (!workOrderPanel?.id) return;
+    setWorkOrderBusy(true);
+    try {
+      const payload = {
+        workDate: workOrderPanel.workDate,
+        modelQuantity: 1,
+        status: 'CONFIRMED',
+        processMetadata: {
+          salesOrderNumber: workOrderPanel.salesOrderNumber,
+          deliveryLeadDays: workOrderPanel.deliveryLeadDays,
+          expectedDeliveryDate: workOrderPanel.expectedDeliveryDate,
+        },
+        lines: workOrderPanel.lines
+          .filter((l) => l.itemId && l.quantity > 0)
+          .map((l, index) => ({
+            itemId: l.itemId,
+            plannedQuantity: l.quantity,
+            lineDescription: l.specifications || null,
+            imageUrl: l.imageUrl || null,
+            lineOrder: index + 1,
+          })),
+      };
+      const res = await apiClient.put<WorkOrderApi>(
+        `/manufacturing/work-orders/${workOrderPanel.id}`,
+        payload
+      );
+      if (res.data) setWorkOrderPanel(mapWorkOrderToPanel(res.data));
+      setSuccess('تم تحديث أصناف أمر الشغل');
+    } catch (err) {
+      setError((err as ApiError).message || 'تعذر حفظ أمر الشغل');
+    } finally {
+      setWorkOrderBusy(false);
+    }
   };
 
   const handleSave = () => {
@@ -387,7 +627,7 @@ export function SalesOrderForm() {
       setError('أضف صنفاً واحداً على الأقل');
       return;
     }
-    const form = buildOrderBody();
+    const form = buildOrderBody() as unknown as M5FormData;
     if (selectedId) {
       updateMutation.mutate(
         mapSalesFormToM5UpdateBody(form, {
@@ -429,20 +669,38 @@ export function SalesOrderForm() {
     setOrderNumber('');
     setDescription('');
     setDate(todayIso());
+    setDeliveryLeadDays(7);
     setDeliveryDate(plusDays(7));
+    setWorkOrderPanel(null);
     setCustomerId('');
     setLines([emptyCommercialLine()]);
+    setSourceBarKey((k) => k + 1);
     setError('');
     setSuccess('');
+    if (isManufacturing) {
+      setWarehouseId(defaultWarehouseFromSettings || '');
+      setCostCenterId('');
+    }
     const params = new URLSearchParams(searchParams.toString());
     params.delete('orderId');
     params.delete('invoiceId');
+    params.delete('workOrderId');
     const qs = params.toString();
     router.replace(qs ? `?${qs}` : window.location.pathname, { scroll: false });
     clearDraft();
   };
 
   const money = (n: number) => n.toLocaleString('ar-EG', { minimumFractionDigits: 2 });
+
+  const handleSourceHydrate = (payload: SourceHydratePayload) => {
+    const header = stockHeaderFieldsFromSource(payload, description);
+    if (header.customerId) setCustomerId(header.customerId);
+    if (header.warehouseId) setWarehouseId(header.warehouseId);
+    if (header.description) setDescription(header.description);
+    const mapped = mapSourcePayloadToCommercialLines(payload);
+    setLines(mapped.length ? mapped : [emptyCommercialLine()]);
+    toast.success(`تم تحميل الأمر من ${payload.sourceNumber}`);
+  };
 
   return (
     <ErpDocumentLayout>
@@ -460,17 +718,13 @@ export function SalesOrderForm() {
       ) : null}
       <div className="flex min-h-[calc(100dvh-3rem)] flex-col pb-4">
         <ErpDocumentPageHeader
-          breadcrumbs={[
-            { href: '/inventory', label: 'المخازن' },
-            { label: 'العمليات' },
-            { label: 'أمر بيع' },
-          ]}
-          title="أمر بيع / حجز بضاعة"
+          breadcrumbs={breadcrumbs}
+          title={isManufacturing ? 'أمر البيع للتصنيع' : 'أمر البيع'}
           docNumber={orderNumber || 'SO-XXXX'}
           statusTone={status.tone}
           statusLabel={status.label}
           onSaveDraft={handleSave}
-          saveLabel="حفظ أمر البيع"
+          saveLabel={isManufacturing ? 'حفظ' : 'حفظ أمر البيع'}
           savePending={saveMutation.isPending || updateMutation.isPending}
           canSave={!loaded?.isCancelled && !loaded?.convertedInvoiceId}
           hideStandalonePost
@@ -484,7 +738,7 @@ export function SalesOrderForm() {
             }
           }}
           editDisabled={!selectedId || Boolean(loaded?.isCancelled)}
-          favoriteHref="/inventory/operations/sales-order"
+          favoriteHref={routeHref}
           favoriteLabel="أمر بيع"
           moreMenuItems={[
             { id: 'new', label: 'أمر جديد', onClick: resetNew },
@@ -536,107 +790,207 @@ export function SalesOrderForm() {
         {success ? <SuccessToast message={success} onClose={() => setSuccess('')} /> : null}
 
         <ErpFormHeaderCard
-          extrasLabel="خيارات إضافية"
+          extrasLabel={isManufacturing ? undefined : 'خيارات إضافية'}
+          headerActions={
+            isManufacturing
+              ? undefined
+              : (
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button type="button" size="sm" variant="outline" onClick={() => setPaymentModalOpen(true)}>
+                    شروط الدفع
+                  </Button>
+                  <DocumentSourceLoadBar
+                    key={sourceBarKey}
+                    hasExistingLines={entered.length > 0}
+                    disabled={Boolean(loaded?.isPosted || loaded?.convertedInvoiceId)}
+                    onHydrate={handleSourceHydrate}
+                  />
+                </div>
+              )
+          }
           row1={
             <>
               <div className="space-y-1">
-                <label className={erpLabelClass}>رقم الأمر</label>
+                <label className={erpLabelClass}>رقم أمر البيع</label>
                 <input className={erpInputClass} value={orderNumber} onChange={(e) => setOrderNumber(e.target.value)} />
               </div>
-              <DatePickerWithHijri label="تاريخ أمر البيع" value={date} onChange={setDate} />
-              <DatePickerWithHijri label="تاريخ التسليم المتوقع" value={deliveryDate} onChange={setDeliveryDate} />
+              <div className="space-y-1">
+                <label className={erpLabelClass}>اسم العميل</label>
+                <CustomerSelect value={customerId} onChange={setCustomerId} className={erpInputClass} />
+              </div>
+              <div className="space-y-1">
+                <label className={erpLabelClass}>
+                  المخزن <span className="text-rose-600" aria-hidden="true">*</span>
+                </label>
+                <WarehouseSelect
+                  value={warehouseId}
+                  onChange={setWarehouseId}
+                  className={erpInputClass}
+                  leafOnly
+                  emptyLabel="اختر المخزن"
+                  disabled={Boolean(loaded?.isCancelled || loaded?.convertedInvoiceId)}
+                />
+              </div>
+              <DatePickerWithHijri label="التاريخ" value={date} onChange={setDate} />
+              <div className="space-y-1">
+                <label className={erpLabelClass}>مدة التسليم (يوم)</label>
+                <input
+                  type="number"
+                  min={0}
+                  className={erpInputClass}
+                  value={deliveryLeadDays}
+                  onChange={(e) => setDeliveryLeadDays(Number(e.target.value) || 0)}
+                />
+              </div>
+              <DatePickerWithHijri
+                label="تاريخ التسليم المتوقع"
+                value={deliveryDate}
+                onChange={setDeliveryDate}
+              />
             </>
           }
           row2={
             <>
-              <div className="space-y-1">
-                <label className={erpLabelClass}>العميل</label>
-                <CustomerSelect value={customerId} onChange={setCustomerId} className={erpInputClass} />
-              </div>
-              <div className="space-y-1">
+              <div className="space-y-1 md:col-span-2">
                 <label className={erpLabelClass}>الشرح / البيان</label>
                 <input className={erpInputClass} value={description} onChange={(e) => setDescription(e.target.value)} />
               </div>
-              <div className="space-y-1">
-                <label className={erpLabelClass}>المخزن</label>
-                <WarehouseSelect value={warehouseId} onChange={setWarehouseId} className={erpInputClass} />
-              </div>
-              <div className="space-y-1">
-                <label className={erpLabelClass}>العملة</label>
-                <select className={erpInputClass} value={currencyId} onChange={(e) => setCurrencyId(e.target.value)}>
-                  {currencies.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.arabicName || c.code}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              {!isManufacturing ? (
+                <div className="space-y-1">
+                  <label className={erpLabelClass}>العملة</label>
+                  <select className={erpInputClass} value={currencyId} onChange={(e) => setCurrencyId(e.target.value)}>
+                    {currencies.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.arabicName || c.code}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : null}
             </>
           }
           extras={
-            <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-              <div className="space-y-1">
-                <label className={erpLabelClass}>مندوب المبيعات</label>
-                <select className={erpInputClass} value={delegateId} onChange={(e) => setDelegateId(e.target.value)}>
-                  <option value="">—</option>
-                  {delegates.map((d) => (
-                    <option key={d.id} value={d.id}>
-                      {d.arabicName}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="space-y-1">
-                <label className={erpLabelClass}>كود المشروع / مركز التكلفة</label>
-                <CostCenterSelect value={costCenterId} onChange={setCostCenterId} className={erpInputClass} />
-              </div>
-              <div className="space-y-1">
-                <label className={erpLabelClass}>شروط الشحن والتسليم</label>
-                <input className={erpInputClass} value={shippingTerms} onChange={(e) => setShippingTerms(e.target.value)} />
-              </div>
-              <div className="space-y-1">
-                <label className={erpLabelClass}>شروط السداد</label>
-                <input className={erpInputClass} value={paymentTerms} onChange={(e) => setPaymentTerms(e.target.value)} />
-              </div>
-            </div>
+            isManufacturing
+              ? undefined
+              : (
+                <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+                  <div className="space-y-1">
+                    <label className={erpLabelClass}>مندوب المبيعات</label>
+                    <select className={erpInputClass} value={delegateId} onChange={(e) => setDelegateId(e.target.value)}>
+                      <option value="">—</option>
+                      {delegates.map((d) => (
+                        <option key={d.id} value={d.id}>
+                          {d.arabicName}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className={erpLabelClass}>كود المشروع / مركز التكلفة</label>
+                    <CostCenterSelect value={costCenterId} onChange={setCostCenterId} className={erpInputClass} />
+                  </div>
+                  <div className="space-y-1">
+                    <label className={erpLabelClass}>شروط الشحن والتسليم</label>
+                    <input className={erpInputClass} value={shippingTerms} onChange={(e) => setShippingTerms(e.target.value)} />
+                  </div>
+                  <div className="space-y-1">
+                    <label className={erpLabelClass}>شروط السداد</label>
+                    <input className={erpInputClass} value={paymentTerms} onChange={(e) => setPaymentTerms(e.target.value)} />
+                  </div>
+                </div>
+              )
           }
         />
 
         <div className="mt-3">
-          <CommercialLinesTable
+          <SalesOrderLinesTable
             lines={lines}
             onChange={setLines}
-            headerDescription={description}
             warehouseId={warehouseId}
+            mode={isManufacturing ? 'manufacturing' : 'full'}
+            disabled={Boolean(loaded?.isCancelled || loaded?.convertedInvoiceId)}
           />
         </div>
 
-        <div className="sticky bottom-0 z-30 mt-auto flex w-full flex-wrap items-center justify-between gap-3 border-t border-border/80 bg-background/95 px-6 py-3 shadow-lg backdrop-blur-md">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
-              {status.label}
-            </span>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <Button
+            type="button"
+            size="sm"
+            className="bg-[#0E78AA] hover:bg-[#0B6188]"
+            disabled={!selectedId || workOrderBusy || Boolean(workOrderPanel)}
+            onClick={() => void handleCreateWorkOrder()}
+          >
+            إنشاء أمر شغل
+          </Button>
+          {workOrderPanel ? (
             <Button
               type="button"
               size="sm"
-              variant="outline"
-              className="gap-1.5 border-emerald-600/30 font-semibold text-emerald-700 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/30"
-              disabled={!selectedId || Boolean(loaded?.convertedInvoiceId || loaded?.isCancelled) || convertMutation.isPending}
-              onClick={() => void handleGenerateInvoice()}
+              variant="secondary"
+              disabled={workOrderBusy}
+              onClick={() => void handleSaveWorkOrderLines()}
             >
-              <Receipt className="h-3.5 w-3.5" />
-              إصدار فاتورة مبيعات من هذا الأمر
+              حفظ أصناف أمر الشغل
             </Button>
-          </div>
-          <div className="flex flex-wrap items-center gap-4 text-xs">
-            <span>قبل الضريبة: <b className="font-mono">{money(totals.gross)}</b></span>
-            <span>الخصم: <b className="font-mono">{money(totals.discount)}</b></span>
-            <span>ضريبة 14%: <b className="font-mono">{money(totals.tax)}</b></span>
-            <span className="text-sm">
-              الإجمالي: <b className="font-mono text-base text-emerald-600">{money(totals.net)} ج.م</b>
-            </span>
-          </div>
+          ) : null}
         </div>
+
+        <div className="mt-4">
+          <SalesOrderWorkOrderPanel
+            workOrder={workOrderPanel}
+            disabled={workOrderBusy}
+            onLinesChange={(nextLines) =>
+              setWorkOrderPanel((prev) => (prev ? { ...prev, lines: nextLines } : prev))
+            }
+          />
+        </div>
+
+        {!isManufacturing ? (
+          <PaymentInstallmentsModal
+            open={paymentModalOpen}
+            onClose={() => setPaymentModalOpen(false)}
+            remainingAmount={totals.net}
+            startDate={date}
+            initial={paymentInstallments}
+            onConfirm={(rows) => {
+              setPaymentInstallments(rows);
+              setPaymentModalOpen(false);
+            }}
+          />
+        ) : null}
+
+        {isManufacturing ? (
+          <p className="mt-4 text-xs text-slate-500">
+            بعد الحفظ استخدم «إنشاء أمر شغل» ثم أمر الشغل (نماذج التصنيع) — بدون فواتير مبيعات من هذه الشاشة.
+          </p>
+        ) : (
+          <div className="sticky bottom-0 z-30 mt-auto flex w-full flex-wrap items-center justify-between gap-3 border-t border-border/80 bg-background/95 px-6 py-3 shadow-lg backdrop-blur-md">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+                {status.label}
+              </span>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="gap-1.5 border-emerald-600/30 font-semibold text-emerald-700 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/30"
+                disabled={!selectedId || Boolean(loaded?.convertedInvoiceId || loaded?.isCancelled) || convertMutation.isPending}
+                onClick={() => void handleGenerateInvoice()}
+              >
+                <Receipt className="h-3.5 w-3.5" />
+                إصدار فاتورة مبيعات من هذا الأمر
+              </Button>
+            </div>
+            <div className="flex flex-wrap items-center gap-4 text-xs">
+              <span>قبل الضريبة: <b className="font-mono">{money(totals.gross)}</b></span>
+              <span>الخصم: <b className="font-mono">{money(totals.discount)}</b></span>
+              <span>ضريبة 14%: <b className="font-mono">{money(totals.tax)}</b></span>
+              <span className="text-sm">
+                الإجمالي: <b className="font-mono text-base text-emerald-600">{money(totals.net)} ج.م</b>
+              </span>
+            </div>
+          </div>
+        )}
 
         <DocumentBrowseDrawer open={browseOpen} onClose={() => setBrowseOpen(false)} title="أوامر البيع السابقة">
           {previousOrders.length === 0 ? (

@@ -109,7 +109,9 @@ export function TransactionSettingsForm({
   const treasury = isTreasuryDocumentType(documentType);
   const journalLike = isJournalLikeDocumentType(documentType);
   const securities = isSecuritiesDocumentType(documentType);
-  const hideStockPolicies = treasury || journalLike || securities;
+  const isStockReceipt = documentType === 'STOCK_RECEIPT';
+  const isStockIssue = documentType === 'STOCK_ISSUE';
+  const hideStockPolicies = treasury || journalLike || securities || isStockReceipt || isStockIssue;
   const isBankAdvice = documentType === 'BANK_DEBIT_ADVICE' || documentType === 'BANK_CREDIT_ADVICE';
   const isReceiptLike = documentType === 'RECEIPT_VOUCHER' || documentType === 'BANK_CREDIT_ADVICE';
 
@@ -339,7 +341,9 @@ export function TransactionSettingsForm({
             hint={
               documentType === 'PURCHASE_RETURN'
                 ? 'خصم البضاعة من المخزن تلقائياً عند حفظ مردود المشتريات.'
-                : 'خصم الكميات من المخزن تلقائياً دون الحاجة لإذن صرف مخزني منفصل.'
+                : documentType === 'PURCHASE_INVOICE'
+                  ? 'عند التفعيل: تُحدَّث أرصدة المخازن ويظهر تحميل إذن الإضافة في القسم. عند الإيقاف: فاتورة محاسبية فقط بدون مخزن.'
+                  : 'خصم الكميات من المخزن تلقائياً دون الحاجة لإذن صرف مخزني منفصل.'
             }
           />
         )}
@@ -364,6 +368,53 @@ export function TransactionSettingsForm({
           hint="لو مفعّلة، أعمدة العملة وسعر الصرف تظهر في الحركة الجديدة. تقدر تلغيها أو تشغّلها استثناءً من الخيارات الإضافية على نفس الصفحة."
         />
       </Section>
+
+      {isStockIssue ? (
+        <Section title="قيد إذن الصرف المخزني">
+          <p className="text-xs leading-5 text-slate-500">
+            عند الترحيل يُدين <strong className="font-semibold text-[#0A3D5E]">حساب تكلفة البضاعة المباعة</strong>{' '}
+            ويُقابل عليه <strong className="font-semibold text-[#0A3D5E]">حساب المخزون</strong> — من بطاقة المخزن
+            المختار في الإذن (أو من المخزن الأب إن لم تُعرَّف على الفرع). عرّف الحسابين من دليل المخازن.
+          </p>
+          <div>
+            <label className="mb-1.5 block text-xs font-semibold text-[#0A3D5E]">مركز التكلفة الافتراضي</label>
+            <CostCenterSelect
+              value={form.defaultCostCenterId ?? ''}
+              onChange={(id) => patch('defaultCostCenterId', id || null)}
+            />
+            <p className="mt-1 text-[11px] leading-4 text-slate-500">
+              يُطبَّق على سطور قيد الصرف عند الترحيل.
+            </p>
+          </div>
+        </Section>
+      ) : null}
+
+      {isStockReceipt ? (
+        <Section title="قيد إذن الإضافة المخزني">
+          <p className="text-xs leading-5 text-slate-500">
+            عند الترحيل يُدين حساب المخزون من بطاقة الصنف أو المخزن، ويُقابل عليه الحساب الذي تختاره هنا.
+            إن تُرك فارغًا يُستخدم حساب تسوية المخزون من إعدادات الشركة.
+          </p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {accountField(
+              'defaultOffsetAccountId',
+              'defaultOffsetAccount',
+              'الحساب المقابل (دائن القيد)',
+              'مثال: حساب مورد، مصروف، أو حساب وسيط — حسب طبيعة الإضافة.'
+            )}
+            <div>
+              <label className="mb-1.5 block text-xs font-semibold text-[#0A3D5E]">مركز التكلفة الافتراضي</label>
+              <CostCenterSelect
+                value={form.defaultCostCenterId ?? ''}
+                onChange={(id) => patch('defaultCostCenterId', id || null)}
+              />
+              <p className="mt-1 text-[11px] leading-4 text-slate-500">
+                يُطبَّق على سطور قيد الإضافة عند الترحيل.
+              </p>
+            </div>
+          </div>
+        </Section>
+      ) : null}
 
       {securities ? (
         <Section title="الحساب الافتراضي لقيد التحرير">
@@ -441,12 +492,14 @@ export function TransactionSettingsForm({
           label="منع البيع بأقل من سعر التكلفة"
           hint="حظر اعتماد الفاتورة إذا كان سعر البيع يقل عن متوسط التكلفة المرجح للصنف."
         />
-        <SwitchRow
-          checked={form.preventNegativeStock !== false}
-          onChange={(v) => patch('preventNegativeStock', v)}
-          label="منع الحركة بالسالب على رصيد الصنف"
-          hint="منع حفظ الفاتورة في حال تجاوز الكمية المباعة للرصيد الفعلي المتوفر بالمخزن."
-        />
+        {form.affectStock !== false ? (
+          <SwitchRow
+            checked={form.preventNegativeStock !== false}
+            onChange={(v) => patch('preventNegativeStock', v)}
+            label="منع الحركة بالسالب على رصيد الصنف"
+            hint="منع حفظ الفاتورة في حال تجاوز الكمية المباعة للرصيد الفعلي المتوفر بالمخزن."
+          />
+        ) : null}
       </Section>
       )}
 
@@ -530,13 +583,15 @@ export function TransactionSettingsForm({
               />
             </div>
           )}
-          <div>
-            <label className="mb-1.5 block text-xs font-semibold text-[#0A3D5E]">المخزن الافتراضي للفاتورة</label>
-            <WarehouseSelect
-              value={form.defaultWarehouseId ?? ''}
-              onChange={(id) => patch('defaultWarehouseId', id || null)}
-            />
-          </div>
+          {form.affectStock !== false ? (
+            <div>
+              <label className="mb-1.5 block text-xs font-semibold text-[#0A3D5E]">المخزن الافتراضي للفاتورة</label>
+              <WarehouseSelect
+                value={form.defaultWarehouseId ?? ''}
+                onChange={(id) => patch('defaultWarehouseId', id || null)}
+              />
+            </div>
+          ) : null}
           <div>
             <label className="mb-1.5 block text-xs font-semibold text-[#0A3D5E]">مركز التكلفة الافتراضي</label>
             <CostCenterSelect

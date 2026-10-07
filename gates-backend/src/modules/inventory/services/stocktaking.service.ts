@@ -16,6 +16,11 @@ import {
   runCompanyStockGlPosting,
 } from '../utils/stock-gl-posting-guard';
 import { getWarehouseBalance } from './adjust-stock-in-tx';
+import {
+  resolveStoreDocumentBranchId,
+  resolveStoreDocumentBranchIdOptional,
+} from '../utils/store-document-branch.util';
+import { attachDocumentFiscalYear } from './stock-gl-posting-context';
 
 export interface StocktakingLine {
   itemId: string;
@@ -109,6 +114,11 @@ export class StocktakingService {
         warehouseBalances.map((row) => [row.itemId, Number(row.quantityOnHand) || 0])
       );
 
+      const resolvedBranchId = await resolveStoreDocumentBranchIdOptional(companyId, {
+        documentBranchId: data.branchId,
+        warehouseId: data.warehouseId,
+      });
+
       // Use transaction to ensure atomicity
       const stocktaking = await prisma.$transaction(async (tx) => {
         // Calculate totals
@@ -137,7 +147,7 @@ export class StocktakingService {
 
         const serial = await resolveStoreDocumentSerialInTx(tx, {
           companyId,
-          branchId: data.branchId ?? null,
+          branchId: resolvedBranchId,
           fiscalYearId: null,
           kind: 'stocktaking',
           clientSerial: data.serial,
@@ -147,7 +157,7 @@ export class StocktakingService {
         const record = await tx.stocktaking.create({
           data: {
             companyId,
-            branchId: data.branchId || null,
+            branchId: resolvedBranchId,
             description: data.description || null,
             serial,
             date: new Date(data.date),
@@ -474,8 +484,14 @@ export class StocktakingService {
       // Once per document, never per line: the quantity leg used to skip the
       // period lock entirely, so a count dated in a closed month still moved
       // stock whenever no GL context was supplied.
-      await fiscalYearService.assertOpenForDate(companyId, stocktaking.date);
+      const fiscalYearId = await fiscalYearService.assertOpenForDate(companyId, stocktaking.date);
       await assertWarehouseActive(companyId, stocktaking.warehouseId);
+      const movementBranchId = await resolveStoreDocumentBranchId(companyId, {
+        documentBranchId: stocktaking.branchId,
+        warehouseId: stocktaking.warehouseId,
+        headerBranchId: glCtx?.branchId,
+      });
+      const glForPost = attachDocumentFiscalYear(glCtx, fiscalYearId, movementBranchId);
 
       const sourceType = 'STK';
       const sourceNumber = stocktaking.serial ?? stocktaking.id.slice(0, 8);
@@ -483,20 +499,26 @@ export class StocktakingService {
 
       const inventorySystem = await ensurePerpetualInventoryGlReady(
         companyId,
-        glCtx,
+        glForPost,
         stocktaking.warehouseId
       );
 
       let glSkipped = false;
       await prisma.$transaction(async (tx) => {
         await claimDocumentPost((args) => tx.stocktaking.updateMany(args), stocktakingId, companyId);
+        if (stocktaking.branchId !== movementBranchId) {
+          await tx.stocktaking.update({
+            where: { id: stocktakingId },
+            data: { branchId: movementBranchId },
+          });
+        }
         for (const line of stocktaking.lines) {
           const quantityDifference = line.actualQuantity - Number(line.bookQuantity);
           if (quantityDifference === 0) continue;
 
           const costingBase = {
             companyId,
-            branchId: stocktaking.branchId ?? undefined,
+            branchId: movementBranchId,
             warehouseId: line.warehouseId,
             itemId: line.itemId,
             locationId: line.locationId,
@@ -540,9 +562,12 @@ export class StocktakingService {
           }
         }
 
-        if (glCtx) {
+        if (glForPost) {
           glSkipped = await runCompanyStockGlPosting(inventorySystem, () =>
-            stockMovementGlService.postStocktakingVarianceGlInTx(tx, glCtx, stocktaking)
+            stockMovementGlService.postStocktakingVarianceGlInTx(tx, glForPost, {
+              ...stocktaking,
+              branchId: movementBranchId,
+            })
           );
         }
 

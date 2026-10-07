@@ -14,6 +14,8 @@ import {
   ensurePerpetualInventoryGlReady,
   runCompanyStockGlPosting,
 } from '../utils/stock-gl-posting-guard';
+import { resolveStoreDocumentBranchId } from '../utils/store-document-branch.util';
+import { attachDocumentFiscalYear } from './stock-gl-posting-context';
 
 export interface OtherAdjustmentSource {
   source: string; // Source name (المصدر)
@@ -388,8 +390,14 @@ export class OtherAdjustmentService {
         throw new Error('Other adjustment is already posted');
       }
 
-      await fiscalYearService.assertOpenForDate(companyId, adjustment.date);
+      const fiscalYearId = await fiscalYearService.assertOpenForDate(companyId, adjustment.date);
       await assertWarehouseActive(companyId, adjustment.warehouseId);
+      const movementBranchId = await resolveStoreDocumentBranchId(companyId, {
+        documentBranchId: adjustment.branchId,
+        warehouseId: adjustment.warehouseId,
+        headerBranchId: glCtx?.branchId,
+      });
+      const glForPost = attachDocumentFiscalYear(glCtx, fiscalYearId, movementBranchId);
 
       // Wave 3 fix: route through `stockMovementService.postMovementInTx` so
       // each line takes a row lock (via a companyId/item/warehouse-scoped
@@ -405,19 +413,25 @@ export class OtherAdjustmentService {
 
       const inventorySystem = await ensurePerpetualInventoryGlReady(
         companyId,
-        glCtx,
+        glForPost,
         adjustment.warehouseId
       );
 
       let glSkipped = false;
       await prisma.$transaction(async (tx) => {
         await claimDocumentPost((args) => tx.otherAdjustment.updateMany(args), adjustmentId, companyId);
+        if (adjustment.branchId !== movementBranchId) {
+          await tx.otherAdjustment.update({
+            where: { id: adjustmentId },
+            data: { branchId: movementBranchId },
+          });
+        }
         for (const line of adjustment.lines) {
           const qty = Number(line.quantity);
           if (qty === 0) continue;
           const costingBase = {
             companyId,
-            branchId: adjustment.branchId ?? undefined,
+            branchId: movementBranchId,
             warehouseId: adjustment.warehouseId,
             itemId: line.itemId,
             locationId: line.locationId,
@@ -444,9 +458,12 @@ export class OtherAdjustmentService {
           }
         }
 
-        if (glCtx) {
+        if (glForPost) {
           glSkipped = await runCompanyStockGlPosting(inventorySystem, () =>
-            stockMovementGlService.postOtherAdjustmentGlInTx(tx, glCtx, adjustment)
+            stockMovementGlService.postOtherAdjustmentGlInTx(tx, glForPost, {
+              ...adjustment,
+              branchId: movementBranchId,
+            })
           );
         }
       });

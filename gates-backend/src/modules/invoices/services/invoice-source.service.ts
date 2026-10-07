@@ -17,6 +17,8 @@ const SOURCE_NOTE: Record<SelectableSourceType, string> = {
   PURCHASE_ORDER: 'محول من أمر شراء رقم',
   PURCHASE_INVOICE: 'محول من فاتورة مشتريات رقم',
   DELIVERY_NOTE: 'محول من إذن تسليم رقم',
+  GOODS_RECEIPT: 'محول من إذن إضافة رقم',
+  SALES_INVOICE: 'محول من فاتورة مبيعات رقم',
 };
 
 const SOURCE_LABEL: Record<SelectableSourceType, string> = {
@@ -25,6 +27,8 @@ const SOURCE_LABEL: Record<SelectableSourceType, string> = {
   PURCHASE_ORDER: 'أمر شراء',
   PURCHASE_INVOICE: 'فاتورة مشتريات',
   DELIVERY_NOTE: 'إذن تسليم',
+  GOODS_RECEIPT: 'إذن إضافة',
+  SALES_INVOICE: 'فاتورة مبيعات',
 };
 
 export type SourceListRow = {
@@ -259,6 +263,50 @@ export async function listSourceDocuments(
     };
   }
 
+  if (opts.type === 'SALES_INVOICE') {
+    const where: Prisma.InvoiceWhereInput = {
+      companyId,
+      invoiceKind: 'SALE',
+      isCancelled: false,
+      isPosted: true,
+      ...(search
+        ? {
+            OR: [
+              { invoiceNumber: search },
+              { customer: { arabicName: search } },
+            ],
+          }
+        : {}),
+    };
+    const [rows, total] = await Promise.all([
+      prisma.invoice.findMany({
+        where,
+        skip,
+        take: opts.limit,
+        orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
+        select: {
+          id: true,
+          invoiceNumber: true,
+          netAmount: true,
+          totalAmount: true,
+          createdAt: true,
+          customer: { select: { arabicName: true } },
+        },
+      }),
+      prisma.invoice.count({ where }),
+    ]);
+    return {
+      items: rows.map((row) => ({
+        id: row.id,
+        documentNumber: docNumber(row.invoiceNumber, row.id.slice(0, 8)),
+        partyName: row.customer?.arabicName ?? '—',
+        totalAmount: money(row.netAmount ?? row.totalAmount),
+        createdAt: row.createdAt,
+      })),
+      pagination: pageMeta(opts.page, opts.limit, total),
+    };
+  }
+
   if (opts.type === 'PURCHASE_INVOICE') {
     const where: Prisma.InvoiceWhereInput = {
       companyId,
@@ -296,6 +344,45 @@ export async function listSourceDocuments(
         documentNumber: docNumber(row.invoiceNumber, row.id.slice(0, 8)),
         partyName: row.supplier?.arabicName ?? '—',
         totalAmount: money(row.netAmount ?? row.totalAmount),
+        createdAt: row.createdAt,
+      })),
+      pagination: pageMeta(opts.page, opts.limit, total),
+    };
+  }
+
+  if (opts.type === 'GOODS_RECEIPT') {
+    const where: Prisma.ReceiptWhereInput = {
+      companyId,
+      isCancelled: false,
+      ...(search
+        ? {
+            OR: [{ serial: search }, { description: search }],
+          }
+        : {}),
+    };
+    const [rows, total] = await Promise.all([
+      prisma.receipt.findMany({
+        where,
+        skip,
+        take: opts.limit,
+        orderBy: [{ date: 'desc' }, { createdAt: 'desc' }],
+        select: {
+          id: true,
+          serial: true,
+          totalAmount: true,
+          createdAt: true,
+          warehouse: { select: { arabicName: true } },
+          supplier: { select: { arabicName: true } },
+        },
+      }),
+      prisma.receipt.count({ where }),
+    ]);
+    return {
+      items: rows.map((row) => ({
+        id: row.id,
+        documentNumber: docNumber(row.serial, row.id.slice(0, 8)),
+        partyName: row.supplier?.arabicName ?? row.warehouse?.arabicName ?? '—',
+        totalAmount: money(row.totalAmount),
         createdAt: row.createdAt,
       })),
       pagination: pageMeta(opts.page, opts.limit, total),
@@ -384,13 +471,17 @@ export async function getSourceDocumentForHydration(
     };
   }
 
-  if (type === 'SALES_ORDER' || type === 'PURCHASE_INVOICE') {
+  if (type === 'SALES_ORDER' || type === 'PURCHASE_INVOICE' || type === 'SALES_INVOICE') {
+    const invoiceKind =
+      type === 'PURCHASE_INVOICE' ? 'PURCHASE' : 'SALE';
     const row = await prisma.invoice.findFirst({
       where: {
         id,
         companyId,
         isCancelled: false,
-        invoiceKind: type === 'SALES_ORDER' ? 'SALE' : 'PURCHASE',
+        invoiceKind,
+        ...(type === 'SALES_INVOICE' ? { isPosted: true } : {}),
+        ...(type === 'SALES_ORDER' ? { isPosted: false, convertedInvoiceId: null } : {}),
       },
       include: {
         customer: { select: { id: true, arabicName: true } },
@@ -466,6 +557,46 @@ export async function getSourceDocumentForHydration(
         withholdingTaxRate: 0,
         discount: money(line.discountPercentage ?? line.discountValue),
         costCenterId: row.costCenterId,
+      })),
+    };
+  }
+
+  if (type === 'GOODS_RECEIPT') {
+    const row = await prisma.receipt.findFirst({
+      where: { id, companyId, isCancelled: false },
+      include: {
+        warehouse: { select: { arabicName: true } },
+        supplier: { select: { id: true, arabicName: true } },
+        lines: {
+          include: { item: { select: { arabicName: true } } },
+          orderBy: { createdAt: 'asc' },
+        },
+      },
+    });
+    if (!row) throw new AppError(404, 'إذن الإضافة غير موجود');
+    const sourceNumber = docNumber(row.serial, row.id.slice(0, 8));
+    return {
+      sourceType: type,
+      sourceId: row.id,
+      sourceNumber,
+      customerId: null,
+      supplierId: row.supplierId,
+      warehouseId: row.warehouseId,
+      costCenterId: null,
+      currencyId: null,
+      delegateId: null,
+      paymentMethod: null,
+      partyName: row.supplier?.arabicName ?? row.warehouse.arabicName,
+      notes: `${SOURCE_NOTE[type]} ${sourceNumber}`,
+      lines: row.lines.map((line) => ({
+        itemId: line.itemId,
+        itemName: line.item.arabicName,
+        quantity: money(line.quantity),
+        unitPrice: money(line.unitPrice),
+        taxRate: 0,
+        withholdingTaxRate: 0,
+        discount: 0,
+        costCenterId: null,
       })),
     };
   }

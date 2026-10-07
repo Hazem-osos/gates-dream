@@ -1,3 +1,5 @@
+import { resolveItemBarcode } from '@/lib/inventory/item-barcode-default';
+
 export type ItemUnitRow = {
   id?: string;
   unitId?: string;
@@ -328,7 +330,7 @@ export function buildItemPersistBody(input: {
     englishName: asText(form.englishName),
     categoryId: uuidOrNull(form.categoryId),
     baseUnitId: uuidOrNull(input.baseUnitId) ?? undefined,
-    barcode: asText(form.barcode) || null,
+    barcode: resolveItemBarcode(asText(form.barcode), asText(form.serial)) || null,
     defaultTaxPercent: form.isTaxExempt ? 0 : optionalMoney(form.defaultTaxPercent) ?? null,
     mainAccountId: uuidOrNull(form.mainAccountId),
     costCenterId: uuidOrNull(form.costCenterId),
@@ -421,7 +423,7 @@ export function applyItemToForm(item: Partial<ItemDetail>): ItemCardForm {
       item.units?.[0]?.unitId ||
       item.units?.[0]?.unit?.id ||
       '',
-    barcode: item.barcode ?? '',
+    barcode: resolveItemBarcode(item.barcode ?? '', item.serial ?? ''),
     defaultTaxPercent: item.isTaxExempt ? '0' : moneyToInput(item.defaultTaxPercent),
     mainAccountId: item.mainAccountId ?? '',
     costCenterId: item.costCenterId ?? '',

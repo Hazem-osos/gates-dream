@@ -11,6 +11,7 @@ export type ItemReservationRow = {
   id: string;
   warehouseId: string;
   itemId: string;
+  customerId?: string | null;
   quantity: number;
   fulfilledQuantity: number;
   remainingQuantity: number;
@@ -29,6 +30,7 @@ export type ApplyReservationPayload = {
 
 type Props = {
   warehouseId?: string;
+  customerId?: string;
   disabled?: boolean;
   onApply: (payload: ApplyReservationPayload) => void;
 };
@@ -37,23 +39,31 @@ function formatQty(value: number): string {
   return value.toLocaleString('ar-EG', { maximumFractionDigits: 4 });
 }
 
-export function ItemReservationDocumentPanel({ warehouseId, disabled, onApply }: Props) {
+export function ItemReservationDocumentPanel({
+  warehouseId,
+  customerId,
+  disabled,
+  onApply,
+}: Props) {
   const [draftQty, setDraftQty] = useState<Record<string, string>>({});
 
   const listParams = useMemo(
     () => ({
       warehouseId: warehouseId || undefined,
+      customerId: customerId || undefined,
       status: 'OPEN',
       limit: 50,
     }),
-    [warehouseId]
+    [warehouseId, customerId]
   );
 
-  const listQuery = useApiQuery<{ rows: ItemReservationRow[] }>(
+  const listEnabled = Boolean(warehouseId) || Boolean(customerId);
+
+  const listQuery = useApiQuery<ItemReservationRow[]>(
     queryKeys.itemReservations(listParams),
     '/inventory/item-reservations',
     listParams,
-    { enabled: Boolean(warehouseId) }
+    { enabled: listEnabled }
   );
 
   const rows = Array.isArray(listQuery.data?.data) ? listQuery.data.data : [];
@@ -65,8 +75,10 @@ export function ItemReservationDocumentPanel({ warehouseId, disabled, onApply }:
       icon={Lock}
       bodyClassName="space-y-3"
     >
-      {!warehouseId ? (
-        <p className="text-sm text-slate-600">اختر المخزن أولاً لعرض الحجوزات المفتوحة.</p>
+      {!listEnabled ? (
+        <p className="text-sm text-slate-600">
+          {customerId ? 'لا توجد حجوزات مفتوحة لهذا العميل.' : 'اختر المخزن أو العميل لعرض الحجوزات.'}
+        </p>
       ) : (
         <AppTable<ItemReservationRow>
           isLoading={listQuery.isLoading}

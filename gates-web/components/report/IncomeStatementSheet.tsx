@@ -93,7 +93,7 @@ export function IncomeStatementSheet({
   ];
 
   return (
-    <div className="overflow-x-auto rounded-xl border border-slate-300 bg-white" dir="rtl">
+    <div className="report-scroll-viewport erp-scroll-x overflow-x-auto rounded-xl border border-slate-300 bg-white" dir="rtl">
       <table className="w-full border-collapse text-sm">
         <thead>
           <tr className="bg-[#eef7fb] text-[#0b4f73]">

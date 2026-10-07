@@ -6,6 +6,8 @@ export const sourceDocumentTypeSchema = z.enum([
   'PURCHASE_ORDER',
   'PURCHASE_INVOICE',
   'DELIVERY_NOTE',
+  'GOODS_RECEIPT',
+  'SALES_INVOICE',
   'NONE',
 ]);
 
@@ -15,6 +17,8 @@ export const selectableSourceTypeSchema = z.enum([
   'PURCHASE_ORDER',
   'PURCHASE_INVOICE',
   'DELIVERY_NOTE',
+  'GOODS_RECEIPT',
+  'SALES_INVOICE',
 ]);
 
 export const listSourceDocumentsQuerySchema = z.object({

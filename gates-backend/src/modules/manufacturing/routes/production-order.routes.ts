@@ -7,6 +7,7 @@ import type { AuthRequest } from '../../../shared/auth/types';
 import { isAdminRequest } from '../../../shared/auth/roles.util';
 import { journalEntryService } from '../../accounting/services/journal-entry.service';
 import { productionOrderService } from '../services/production-order.service';
+import { peekManufacturingOrderNextNumber } from '../services/manufacturing-order-numbering.service';
 
 const router = Router();
 
@@ -24,6 +25,31 @@ function postingContext(req: AuthRequest) {
     isAdminRequest(req)
   );
 }
+
+router.get(
+  '/next-number',
+  authorize({ resource: 'invoice', action: 'view' }),
+  async (req: AuthRequest, res: Response) => {
+    const companyId = req.companyId ?? req.tenantId;
+    if (!companyId) {
+      return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
+    }
+    try {
+      const data = await peekManufacturingOrderNextNumber({
+        companyId,
+        branchId: req.branchId ?? null,
+        fiscalYearId: req.fiscalYearId ?? null,
+      });
+      return void res.json({ status: 'success', data });
+    } catch (e) {
+      const status = e instanceof AppError ? e.statusCode : 500;
+      return void res.status(status).json({
+        status: 'error',
+        message: e instanceof Error ? e.message : 'فشل معاينة رقم الأمر',
+      });
+    }
+  }
+);
 
 router.post(
   '/',
@@ -69,6 +95,31 @@ router.get(
       return void res.status(status).json({
         status: 'error',
         message: e instanceof Error ? e.message : 'List orders failed',
+      });
+    }
+  }
+);
+
+router.put(
+  '/:id',
+  authorize({ resource: 'invoice', action: 'edit' }),
+  async (req: AuthRequest, res: Response) => {
+    const companyId = req.companyId ?? req.tenantId;
+    if (!companyId) {
+      return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
+    }
+    try {
+      const data = await productionOrderService.update(companyId, req.params.id, {
+        ...req.body,
+        branchId: req.body.branchId ?? req.branchId,
+        fiscalYearId: req.body.fiscalYearId ?? req.fiscalYearId,
+      });
+      return void res.json({ status: 'success', data });
+    } catch (e) {
+      const status = e instanceof AppError ? e.statusCode : 500;
+      return void res.status(status).json({
+        status: 'error',
+        message: e instanceof Error ? e.message : 'Update order failed',
       });
     }
   }

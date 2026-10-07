@@ -47,6 +47,13 @@ import { DatePickerWithHijri } from '@/components/ui/DatePickerWithHijri';
 import { InvoiceLineStockBalanceCell } from '@/components/invoices/InvoiceLineStockBalanceCell';
 import { apiClient } from '@/lib/api/client';
 import { postStoreDocumentAfterSave } from '@/lib/inventory/post-store-document-after-save';
+import { DocumentSourceLoadBar } from '@/components/invoices/DocumentSourceLoadBar';
+import {
+  mapSourcePayloadToAdjustmentLines,
+  stockHeaderFieldsFromSource,
+} from '@/lib/inventory/apply-source-to-stock-document';
+import { STOCK_LINE_COPY_SOURCE_TYPES, type SourceHydratePayload } from '@/lib/invoices/sourceDocument';
+import { toast } from '@/lib/feedback/toast';
 
 
 interface Item {
@@ -125,6 +132,7 @@ export default function AdjustmentPage() {
   const [success, setSuccess] = useState('');
   const [showList, setShowList] = useState(false);
   const [selectedAdjustmentId, setSelectedAdjustmentId] = useState<string | null>(null);
+  const [sourceBarKey, setSourceBarKey] = useState(0);
 
   const setSerialNumber = useCallback(
     (value: string) =>
@@ -194,6 +202,15 @@ export default function AdjustmentPage() {
     setSelectedAdjustmentId(null);
     setAdjustmentLines([]);
     reset(emptyAdjustmentFormDefaults());
+    setSourceBarKey((k) => k + 1);
+  };
+
+  const handleSourceHydrate = (payload: SourceHydratePayload) => {
+    const header = stockHeaderFieldsFromSource(payload, watch('description'));
+    if (header.warehouseId) setValue('warehouseId', header.warehouseId);
+    if (header.description) setValue('description', header.description);
+    setAdjustmentLines(mapSourcePayloadToAdjustmentLines(payload));
+    toast.success(`تم تحميل البنود من ${payload.sourceNumber}`);
   };
 
   const adjustmentMutation = useApiMutation<
@@ -525,6 +542,14 @@ export default function AdjustmentPage() {
           unpostPending: unpostAdjustmentMutation.isPending,
         }}
         extraActions={
+          <div className="flex flex-wrap items-end justify-end gap-2">
+            <DocumentSourceLoadBar
+              key={sourceBarKey}
+              hasExistingLines={adjustmentLines.some((l) => Boolean(l.itemId))}
+              disabled={isPosted}
+              allowedTypes={STOCK_LINE_COPY_SOURCE_TYPES}
+              onHydrate={handleSourceHydrate}
+            />
           <button
             type="button"
             className="rounded-lg border border-[#D6EAF3] px-3 py-2 text-sm text-[#0A3D5E]"
@@ -543,6 +568,7 @@ export default function AdjustmentPage() {
           >
             طباعة
           </button>
+          </div>
         }
       />
 

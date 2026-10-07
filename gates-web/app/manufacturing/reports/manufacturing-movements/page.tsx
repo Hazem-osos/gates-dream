@@ -3,20 +3,23 @@
 import { reportDefaultDateRange } from '@/lib/reports/reportDefaultDates';
 
 import { useState } from 'react';
-import { InlineReportResults } from '@/components/report/InlineReportResults';
+import { ManufacturingMovementsReportResults } from '@/components/manufacturing/ManufacturingMovementsReportResults';
 import { ManufacturingReportChrome } from '@/components/manufacturing/ManufacturingReportChrome';
 import {
   ReportFilterCheckbox,
   ReportFilterCostCenterSelect,
   ReportFilterDate,
   ReportFilterSection,
+  ReportFilterField,
   ReportFilterSelect,
 } from '@/components/report/reportFilterFields';
 import { useApiQuery } from '@/lib/hooks/useApi';
+import { compactControlClass } from '@/components/ui';
 
 const defaultFilters = () => ({
   ...reportDefaultDateRange(),
-  currencyId: '',
+  bomId: '',
+  stage: '',
   costCenterId: '',
 });
 
@@ -24,32 +27,32 @@ export default function ManufacturingMovementsPage() {
   const [previewQuery, setPreviewQuery] = useState<Record<string, string> | null>(null);
   const [error, setError] = useState('');
   const [showUnposted, setShowUnposted] = useState(true);
+  const [showAnalyticalReport, setShowAnalyticalReport] = useState(false);
   const [filters, setFilters] = useState(defaultFilters);
   const patch = (p: Partial<ReturnType<typeof defaultFilters>>) =>
     setFilters((prev) => ({ ...prev, ...p }));
 
-  const { data: currenciesResponse } = useApiQuery<{ id: string; code: string; arabicName: string }[]>(
-    ['currencies'],
-    '/accounting/currencies',
-    { limit: 100, isActive: true }
+  const { data: bomsResponse } = useApiQuery<{ id: string; name: string }[]>(
+    ['manufacturing-boms-report'],
+    '/manufacturing/boms'
   );
-  const currencyOptions = (currenciesResponse?.data ?? []).map((c) => ({
-    value: c.id,
-    label: `${c.arabicName} (${c.code})`,
-  }));
+  const bomOptions = (bomsResponse?.data ?? []).map((b) => ({ value: b.id, label: b.name }));
 
   const handlePreview = () => {
     if (!filters.fromDate || !filters.toDate) {
       setError('يرجى اختيار تاريخ البداية والنهاية');
       return;
     }
-    const params = new URLSearchParams();
-    params.append('fromDate', filters.fromDate);
-    params.append('toDate', filters.toDate);
-    if (filters.currencyId) params.append('currencyId', filters.currencyId);
-    if (filters.costCenterId) params.append('costCenterId', filters.costCenterId);
-    if (showUnposted) params.append('showUnposted', 'true');
-    setPreviewQuery(Object.fromEntries(params));
+    const params: Record<string, string> = {
+      fromDate: filters.fromDate,
+      toDate: filters.toDate,
+    };
+    if (filters.bomId) params.bomId = filters.bomId;
+    if (filters.stage.trim()) params.stage = filters.stage.trim();
+    if (filters.costCenterId) params.costCenterId = filters.costCenterId;
+    params.showUnposted = showUnposted ? 'true' : 'false';
+    setError('');
+    setPreviewQuery(params);
   };
 
   return (
@@ -59,28 +62,41 @@ export default function ManufacturingMovementsPage() {
       onReset={() => {
         setFilters(defaultFilters());
         setShowUnposted(true);
+        setShowAnalyticalReport(false);
         setPreviewQuery(null);
       }}
       error={error}
       onClearError={() => setError('')}
-      below={previewQuery ? <InlineReportResults urlPath="/manufacturing/reports/manufacturing-movements" query={previewQuery} /> : null}
+      below={
+        previewQuery ? (
+          <ManufacturingMovementsReportResults query={previewQuery} showAnalyticalReport={showAnalyticalReport} />
+        ) : null
+      }
     >
       <ReportFilterSection title="التواريخ">
         <ReportFilterDate label="من تاريخ" value={filters.fromDate} onChange={(fromDate) => patch({ fromDate })} />
         <ReportFilterDate label="إلى تاريخ" value={filters.toDate} onChange={(toDate) => patch({ toDate })} />
       </ReportFilterSection>
       <ReportFilterSection title="المرشحات">
+        <ReportFilterSelect
+          label="النموذج"
+          value={filters.bomId}
+          onChange={(bomId) => patch({ bomId })}
+          options={bomOptions}
+          placeholder="كل النماذج"
+        />
+        <ReportFilterField label="المرحلة">
+          <input
+            className={compactControlClass}
+            value={filters.stage}
+            onChange={(e) => patch({ stage: e.target.value })}
+            placeholder="كل المراحل"
+          />
+        </ReportFilterField>
         <ReportFilterCostCenterSelect
           label="مركز التكلفة"
           value={filters.costCenterId}
           onChange={(costCenterId) => patch({ costCenterId })}
-        />
-        <ReportFilterSelect
-          label="العملة"
-          value={filters.currencyId}
-          onChange={(currencyId) => patch({ currencyId })}
-          options={currencyOptions}
-          placeholder="كل العملات"
         />
       </ReportFilterSection>
       <ReportFilterCheckbox
@@ -88,6 +104,12 @@ export default function ManufacturingMovementsPage() {
         label="إظهار العمليات غير المرحّلة"
         checked={showUnposted}
         onChange={setShowUnposted}
+      />
+      <ReportFilterCheckbox
+        id="show-analytical-mov"
+        label="إظهار التقرير التحليلي"
+        checked={showAnalyticalReport}
+        onChange={setShowAnalyticalReport}
       />
     </ManufacturingReportChrome>
   );

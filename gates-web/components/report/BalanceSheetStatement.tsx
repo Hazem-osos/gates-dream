@@ -183,7 +183,7 @@ function ListView({
 }) {
   const pairs = padRows(assets, liabilities);
   return (
-    <div className="overflow-x-auto rounded-xl border border-[#D6E4EE] bg-white">
+    <div dir="rtl" className="report-scroll-viewport erp-scroll-x overflow-x-auto rounded-xl border border-[#D6E4EE] bg-white">
       <table className="w-full min-w-[880px] border-collapse text-sm text-[#16324F]">
         <thead>
           <tr className="bg-[#1B6CA8] text-white">

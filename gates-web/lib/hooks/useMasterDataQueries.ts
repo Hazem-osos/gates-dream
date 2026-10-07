@@ -3,6 +3,14 @@
 import { useApiQuery } from '@/lib/hooks/useApi';
 import { queryKeys, staleTimes } from '@/lib/query/query-keys';
 import { useDebouncedValue } from '@/lib/hooks/useDebouncedValue';
+import {
+  sortAccountOptions,
+  sortCostCenterOptions,
+  sortItemOptions,
+  sortPartyOptions,
+  sortWarehouseOptions,
+  sortByArabicName,
+} from '@/lib/sort/master-picker-sort';
 
 export type AccountOption = {
   id: string;
@@ -171,7 +179,7 @@ export function useAccountsQuery(
   if (opts?.statementType) extra.statementType = opts.statementType;
   const params = pickerParams(debounced, limit, extra);
 
-  return useApiQuery<AccountOption[]>(
+  const query = useApiQuery<AccountOption[]>(
     queryKeys.accounts(params),
     '/accounting/accounts',
     params,
@@ -182,6 +190,9 @@ export function useAccountsQuery(
       enabled: opts?.enabled !== false,
     }
   );
+  const rows = sortAccountOptions(unwrapMasterRows<AccountOption>(query.data?.data, ['accounts']));
+  const data = query.data ? { ...query.data, data: rows } : query.data;
+  return { ...query, data };
 }
 
 export function isHeaderWarehouse(warehouse: WarehouseOption): boolean {
@@ -216,7 +227,9 @@ export function useWarehousesQuery(
       enabled: opts?.enabled !== false,
     }
   );
-  const rows = unwrapMasterRows<WarehouseOption>(query.data?.data, ['warehouses', 'items']);
+  const rows = sortWarehouseOptions(
+    unwrapMasterRows<WarehouseOption>(query.data?.data, ['warehouses', 'items'])
+  );
   const data = query.data ? { ...query.data, data: rows } : query.data;
   return { ...query, data };
 }
@@ -234,7 +247,7 @@ export function useItemsQuery(
     params,
     { staleTime: staleTimes.masterMs, gcTime: staleTimes.masterGcMs }
   );
-  const rows = unwrapMasterRows<ItemOption>(query.data?.data, ['items']);
+  const rows = sortItemOptions(unwrapMasterRows<ItemOption>(query.data?.data, ['items']));
   const data = query.data ? { ...query.data, data: rows } : query.data;
   return { ...query, data };
 }
@@ -242,23 +255,29 @@ export function useItemsQuery(
 export function useCustomersQuery(limit = 200, search?: string, enabled = true) {
   const debounced = useDebouncedValue(search ?? '', PICKER_SEARCH_DEBOUNCE_MS);
   const params = pickerParams(debounced, limit);
-  return useApiQuery<PartyOption[]>(
+  const query = useApiQuery<PartyOption[]>(
     ['customers', params],
     '/accounting/customers',
     params,
     { staleTime: staleTimes.masterMs, gcTime: staleTimes.masterGcMs, enabled }
   );
+  const rows = sortPartyOptions(unwrapMasterRows<PartyOption>(query.data?.data, ['customers']));
+  const data = query.data ? { ...query.data, data: rows } : query.data;
+  return { ...query, data };
 }
 
 export function useSuppliersQuery(limit = 200, search?: string, enabled = true) {
   const debounced = useDebouncedValue(search ?? '', PICKER_SEARCH_DEBOUNCE_MS);
   const params = pickerParams(debounced, limit);
-  return useApiQuery<PartyOption[]>(
+  const query = useApiQuery<PartyOption[]>(
     ['suppliers', params],
     '/accounting/suppliers',
     params,
     { staleTime: staleTimes.masterMs, gcTime: staleTimes.masterGcMs, enabled }
   );
+  const rows = sortPartyOptions(unwrapMasterRows<PartyOption>(query.data?.data, ['suppliers']));
+  const data = query.data ? { ...query.data, data: rows } : query.data;
+  return { ...query, data };
 }
 
 export function isPostableLeafCostCenter(center: CostCenterOption): boolean {
@@ -275,7 +294,7 @@ export function useCostCentersQuery(
   const extra: Record<string, string | number | boolean> = { limit, isActive: true };
   if (opts?.leafOnly) extra.leafOnly = 'true';
   if (opts?.headerOnly) extra.headerOnly = 'true';
-  return useApiQuery<CostCenterOption[]>(
+  const query = useApiQuery<CostCenterOption[]>(
     ['cost-centers', extra],
     '/accounting/cost-centers',
     extra,
@@ -285,10 +304,15 @@ export function useCostCentersQuery(
       enabled: opts?.enabled !== false,
     }
   );
+  const rows = sortCostCenterOptions(
+    unwrapMasterRows<CostCenterOption>(query.data?.data, ['costCenters', 'cost-centers'])
+  );
+  const data = query.data ? { ...query.data, data: rows } : query.data;
+  return { ...query, data };
 }
 
 export function useCurrenciesQuery(limit = 100) {
-  return useApiQuery<
+  const query = useApiQuery<
     { id: string; code: string; arabicName: string; englishName?: string; exchangeRate?: number | string | null }[]
   >(
     queryKeys.currencies,
@@ -296,6 +320,9 @@ export function useCurrenciesQuery(limit = 100) {
     { limit, isActive: true },
     { staleTime: 0, gcTime: staleTimes.masterGcMs, refetchOnMount: 'always' }
   );
+  const rows = sortByArabicName(unwrapMasterRows(query.data?.data, ['currencies']));
+  const data = query.data ? { ...query.data, data: rows } : query.data;
+  return { ...query, data };
 }
 
 export type SafeOption = {
@@ -318,7 +345,7 @@ export function pickDefaultSafeId<T extends { id: string; isDefault?: boolean }>
 
 export function useSafesQuery(params?: { isActive?: boolean; enabled?: boolean }) {
   const queryParams = { isActive: params?.isActive ?? true };
-  return useApiQuery<SafeOption[]>(
+  const query = useApiQuery<SafeOption[]>(
     queryKeys.safes(queryParams),
     '/accounting/safes',
     queryParams,
@@ -329,6 +356,9 @@ export function useSafesQuery(params?: { isActive?: boolean; enabled?: boolean }
       enabled: params?.enabled !== false,
     }
   );
+  const rows = sortByArabicName(unwrapMasterRows<SafeOption>(query.data?.data, ['safes']));
+  const data = query.data ? { ...query.data, data: rows } : query.data;
+  return { ...query, data };
 }
 
 export type BankAccountOption = {
@@ -346,7 +376,7 @@ export type BankAccountOption = {
 
 export function useBankAccountsQuery(params?: { isActive?: boolean; enabled?: boolean }) {
   const queryParams = { isActive: params?.isActive ?? true };
-  return useApiQuery<BankAccountOption[]>(
+  const query = useApiQuery<BankAccountOption[]>(
     queryKeys.bankAccounts(queryParams),
     '/accounting/bank-accounts',
     queryParams,
@@ -357,6 +387,9 @@ export function useBankAccountsQuery(params?: { isActive?: boolean; enabled?: bo
       enabled: params?.enabled !== false,
     }
   );
+  const rows = sortByArabicName(unwrapMasterRows<BankAccountOption>(query.data?.data, ['bankAccounts']));
+  const data = query.data ? { ...query.data, data: rows } : query.data;
+  return { ...query, data };
 }
 
 export type LiveFundBalance = { id: string; balance?: number | string | null };
@@ -390,21 +423,27 @@ export function invalidateTreasuryFundBalances(invalidate: (key: readonly unknow
 }
 
 export function useBranchesQuery(limit = 50) {
-  return useApiQuery<{ id: string; arabicName?: string; name?: string; isActive?: boolean }[]>(
+  const query = useApiQuery<{ id: string; arabicName?: string; name?: string; isActive?: boolean }[]>(
     queryKeys.branches({ limit }),
     '/company/branches',
     { page: 1, limit },
     { staleTime: staleTimes.masterMs, gcTime: staleTimes.masterGcMs }
   );
+  const rows = sortByArabicName(unwrapMasterRows(query.data?.data, ['branches']));
+  const data = query.data ? { ...query.data, data: rows } : query.data;
+  return { ...query, data };
 }
 
 export function useTaxRulesQuery(limit = 100) {
-  return useApiQuery<{ id: string; arabicName?: string; name?: string; rate?: number }[]>(
+  const query = useApiQuery<{ id: string; arabicName?: string; name?: string; rate?: number }[]>(
     queryKeys.taxRules({ limit }),
     '/accounting/tax-rules',
     { limit, isActive: true },
     { staleTime: staleTimes.masterMs, gcTime: staleTimes.masterGcMs, retry: 1 }
   );
+  const rows = sortByArabicName(unwrapMasterRows(query.data?.data, ['taxRules']));
+  const data = query.data ? { ...query.data, data: rows } : query.data;
+  return { ...query, data };
 }
 
 export function useCoaHierarchyQuery() {

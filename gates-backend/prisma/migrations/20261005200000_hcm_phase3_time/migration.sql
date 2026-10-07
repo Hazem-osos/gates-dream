@@ -1,0 +1,273 @@
+-- HCM Phase 3 Time & Attendance foundation
+
+CREATE TABLE `hcm_time_devices` (
+  `id` VARCHAR(191) NOT NULL,
+  `companyId` VARCHAR(191) NOT NULL,
+  `code` VARCHAR(40) NOT NULL,
+  `name` VARCHAR(120) NOT NULL,
+  `branchId` VARCHAR(191) NULL,
+  `timezone` VARCHAR(64) NOT NULL DEFAULT 'UTC',
+  `providerType` VARCHAR(40) NOT NULL,
+  `config` JSON NULL,
+  `isActive` BOOLEAN NOT NULL DEFAULT true,
+  `lastSyncAt` DATETIME(3) NULL,
+  `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  `updatedAt` DATETIME(3) NOT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE INDEX `hcm_time_devices_companyId_code_key`(`companyId`, `code`),
+  INDEX `hcm_time_devices_companyId_isActive_idx`(`companyId`, `isActive`),
+  CONSTRAINT `hcm_time_devices_companyId_fkey` FOREIGN KEY (`companyId`) REFERENCES `companies`(`id`) ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT `hcm_time_devices_branchId_fkey` FOREIGN KEY (`branchId`) REFERENCES `branches`(`id`) ON DELETE SET NULL ON UPDATE CASCADE
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+CREATE TABLE `hcm_device_employee_mappings` (
+  `id` VARCHAR(191) NOT NULL,
+  `companyId` VARCHAR(191) NOT NULL,
+  `deviceId` VARCHAR(191) NOT NULL,
+  `externalEmployeeCode` VARCHAR(80) NOT NULL,
+  `employeeId` VARCHAR(191) NOT NULL,
+  `employmentId` VARCHAR(191) NULL,
+  `isActive` BOOLEAN NOT NULL DEFAULT true,
+  `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  `updatedAt` DATETIME(3) NOT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE INDEX `hcm_dev_emp_map_dev_ext_key`(`deviceId`, `externalEmployeeCode`),
+  INDEX `hcm_device_employee_mappings_companyId_employeeId_idx`(`companyId`, `employeeId`),
+  CONSTRAINT `hcm_device_employee_mappings_companyId_fkey` FOREIGN KEY (`companyId`) REFERENCES `companies`(`id`) ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT `hcm_device_employee_mappings_deviceId_fkey` FOREIGN KEY (`deviceId`) REFERENCES `hcm_time_devices`(`id`) ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT `hcm_device_employee_mappings_employeeId_fkey` FOREIGN KEY (`employeeId`) REFERENCES `employees`(`id`) ON DELETE CASCADE ON UPDATE CASCADE
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+CREATE TABLE `hcm_work_shifts` (
+  `id` VARCHAR(191) NOT NULL,
+  `companyId` VARCHAR(191) NOT NULL,
+  `code` VARCHAR(40) NOT NULL,
+  `arabicName` VARCHAR(120) NOT NULL,
+  `startTimeMinutes` INTEGER NOT NULL,
+  `endTimeMinutes` INTEGER NOT NULL,
+  `crossesMidnight` BOOLEAN NOT NULL DEFAULT false,
+  `inWindowStartMinutes` INTEGER NULL,
+  `inWindowEndMinutes` INTEGER NULL,
+  `outWindowStartMinutes` INTEGER NULL,
+  `outWindowEndMinutes` INTEGER NULL,
+  `expectedWorkMinutes` INTEGER NULL,
+  `unpaidBreakMinutes` INTEGER NOT NULL DEFAULT 0,
+  `isActive` BOOLEAN NOT NULL DEFAULT true,
+  `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  `updatedAt` DATETIME(3) NOT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE INDEX `hcm_work_shifts_companyId_code_key`(`companyId`, `code`),
+  CONSTRAINT `hcm_work_shifts_companyId_fkey` FOREIGN KEY (`companyId`) REFERENCES `companies`(`id`) ON DELETE CASCADE ON UPDATE CASCADE
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+CREATE TABLE `hcm_work_schedules` (
+  `id` VARCHAR(191) NOT NULL,
+  `companyId` VARCHAR(191) NOT NULL,
+  `code` VARCHAR(40) NOT NULL,
+  `arabicName` VARCHAR(120) NOT NULL,
+  `scheduleType` VARCHAR(30) NOT NULL DEFAULT 'FIXED_WEEKLY',
+  `pattern` JSON NOT NULL,
+  `isActive` BOOLEAN NOT NULL DEFAULT true,
+  `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  `updatedAt` DATETIME(3) NOT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE INDEX `hcm_work_schedules_companyId_code_key`(`companyId`, `code`),
+  CONSTRAINT `hcm_work_schedules_companyId_fkey` FOREIGN KEY (`companyId`) REFERENCES `companies`(`id`) ON DELETE CASCADE ON UPDATE CASCADE
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+CREATE TABLE `hcm_employee_schedule_assignments` (
+  `id` VARCHAR(191) NOT NULL,
+  `companyId` VARCHAR(191) NOT NULL,
+  `employmentId` VARCHAR(191) NOT NULL,
+  `scheduleId` VARCHAR(191) NOT NULL,
+  `effectiveFrom` DATE NOT NULL,
+  `effectiveTo` DATE NULL,
+  `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  `updatedAt` DATETIME(3) NOT NULL,
+  PRIMARY KEY (`id`),
+  INDEX `hcm_emp_sched_co_emp_from_idx`(`companyId`, `employmentId`, `effectiveFrom`),
+  CONSTRAINT `hcm_emp_sched_co_fkey` FOREIGN KEY (`companyId`) REFERENCES `companies`(`id`) ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT `hcm_emp_sched_emp_fkey` FOREIGN KEY (`employmentId`) REFERENCES `hcm_employments`(`id`) ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT `hcm_emp_sched_sched_fkey` FOREIGN KEY (`scheduleId`) REFERENCES `hcm_work_schedules`(`id`) ON DELETE CASCADE ON UPDATE CASCADE
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+CREATE TABLE `hcm_calendar_days` (
+  `id` VARCHAR(191) NOT NULL,
+  `companyId` VARCHAR(191) NOT NULL,
+  `branchId` VARCHAR(191) NULL,
+  `calendarDate` DATE NOT NULL,
+  `dayType` VARCHAR(30) NOT NULL,
+  `name` VARCHAR(120) NULL,
+  `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  `updatedAt` DATETIME(3) NOT NULL,
+  PRIMARY KEY (`id`),
+  INDEX `hcm_calendar_days_companyId_calendarDate_idx`(`companyId`, `calendarDate`),
+  INDEX `hcm_calendar_days_companyId_branchId_calendarDate_idx`(`companyId`, `branchId`, `calendarDate`),
+  CONSTRAINT `hcm_calendar_days_companyId_fkey` FOREIGN KEY (`companyId`) REFERENCES `companies`(`id`) ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT `hcm_calendar_days_branchId_fkey` FOREIGN KEY (`branchId`) REFERENCES `branches`(`id`) ON DELETE SET NULL ON UPDATE CASCADE
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+CREATE TABLE `hcm_attendance_policies` (
+  `id` VARCHAR(191) NOT NULL,
+  `companyId` VARCHAR(191) NOT NULL,
+  `code` VARCHAR(40) NOT NULL,
+  `arabicName` VARCHAR(120) NOT NULL,
+  `effectiveFrom` DATE NOT NULL,
+  `effectiveTo` DATE NULL,
+  `rules` JSON NOT NULL,
+  `isActive` BOOLEAN NOT NULL DEFAULT true,
+  `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  `updatedAt` DATETIME(3) NOT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE INDEX `hcm_attendance_policies_companyId_code_key`(`companyId`, `code`),
+  INDEX `hcm_attendance_policies_companyId_effectiveFrom_idx`(`companyId`, `effectiveFrom`),
+  CONSTRAINT `hcm_attendance_policies_companyId_fkey` FOREIGN KEY (`companyId`) REFERENCES `companies`(`id`) ON DELETE CASCADE ON UPDATE CASCADE
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+CREATE TABLE `hcm_time_punches` (
+  `id` VARCHAR(191) NOT NULL,
+  `companyId` VARCHAR(191) NOT NULL,
+  `employeeId` VARCHAR(191) NULL,
+  `employmentId` VARCHAR(191) NULL,
+  `externalEmployeeCode` VARCHAR(80) NULL,
+  `deviceId` VARCHAR(191) NULL,
+  `source` VARCHAR(20) NOT NULL,
+  `punchType` VARCHAR(10) NULL,
+  `punchedAt` DATETIME(3) NOT NULL,
+  `timezone` VARCHAR(64) NOT NULL DEFAULT 'UTC',
+  `rawPayload` JSON NULL,
+  `externalPunchId` VARCHAR(120) NULL,
+  `importBatchId` VARCHAR(80) NULL,
+  `dedupeFingerprint` VARCHAR(191) NOT NULL,
+  `receivedAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (`id`),
+  UNIQUE INDEX `hcm_time_punches_companyId_dedupeFingerprint_key`(`companyId`, `dedupeFingerprint`),
+  INDEX `hcm_time_punches_companyId_punchedAt_idx`(`companyId`, `punchedAt`),
+  INDEX `hcm_time_punches_companyId_employeeId_punchedAt_idx`(`companyId`, `employeeId`, `punchedAt`),
+  INDEX `hcm_time_punches_deviceId_externalPunchId_idx`(`deviceId`, `externalPunchId`),
+  CONSTRAINT `hcm_time_punches_companyId_fkey` FOREIGN KEY (`companyId`) REFERENCES `companies`(`id`) ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT `hcm_time_punches_deviceId_fkey` FOREIGN KEY (`deviceId`) REFERENCES `hcm_time_devices`(`id`) ON DELETE SET NULL ON UPDATE CASCADE,
+  CONSTRAINT `hcm_time_punches_employeeId_fkey` FOREIGN KEY (`employeeId`) REFERENCES `employees`(`id`) ON DELETE SET NULL ON UPDATE CASCADE,
+  CONSTRAINT `hcm_time_punches_employmentId_fkey` FOREIGN KEY (`employmentId`) REFERENCES `hcm_employments`(`id`) ON DELETE SET NULL ON UPDATE CASCADE
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+CREATE TABLE `hcm_attendance_days` (
+  `id` VARCHAR(191) NOT NULL,
+  `companyId` VARCHAR(191) NOT NULL,
+  `employmentId` VARCHAR(191) NOT NULL,
+  `employeeId` VARCHAR(191) NOT NULL,
+  `logicalWorkDate` DATE NOT NULL,
+  `timezone` VARCHAR(64) NOT NULL DEFAULT 'UTC',
+  `scheduleId` VARCHAR(191) NULL,
+  `shiftId` VARCHAR(191) NULL,
+  `scheduledStartAt` DATETIME(3) NULL,
+  `scheduledEndAt` DATETIME(3) NULL,
+  `actualFirstInAt` DATETIME(3) NULL,
+  `actualLastOutAt` DATETIME(3) NULL,
+  `scheduledMinutes` INTEGER NOT NULL DEFAULT 0,
+  `workedMinutes` INTEGER NOT NULL DEFAULT 0,
+  `lateMinutes` INTEGER NOT NULL DEFAULT 0,
+  `earlyLeaveMinutes` INTEGER NOT NULL DEFAULT 0,
+  `absenceMinutes` INTEGER NOT NULL DEFAULT 0,
+  `breakMinutes` INTEGER NOT NULL DEFAULT 0,
+  `detectedOvertimeMinutes` INTEGER NOT NULL DEFAULT 0,
+  `approvedOvertimeMinutes` INTEGER NOT NULL DEFAULT 0,
+  `dayClassification` VARCHAR(30) NULL,
+  `status` VARCHAR(20) NOT NULL DEFAULT 'CALCULATED',
+  `calculationVersion` INTEGER NOT NULL DEFAULT 1,
+  `calculationHash` VARCHAR(64) NULL,
+  `calculatedAt` DATETIME(3) NULL,
+  `lockedAt` DATETIME(3) NULL,
+  `lockedBy` VARCHAR(191) NULL,
+  `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  `updatedAt` DATETIME(3) NOT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE INDEX `hcm_attendance_days_employmentId_logicalWorkDate_key`(`employmentId`, `logicalWorkDate`),
+  INDEX `hcm_attendance_days_companyId_logicalWorkDate_idx`(`companyId`, `logicalWorkDate`),
+  INDEX `hcm_attendance_days_companyId_employeeId_logicalWorkDate_idx`(`companyId`, `employeeId`, `logicalWorkDate`),
+  INDEX `hcm_attendance_days_companyId_status_idx`(`companyId`, `status`),
+  CONSTRAINT `hcm_attendance_days_companyId_fkey` FOREIGN KEY (`companyId`) REFERENCES `companies`(`id`) ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT `hcm_attendance_days_employmentId_fkey` FOREIGN KEY (`employmentId`) REFERENCES `hcm_employments`(`id`) ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT `hcm_attendance_days_employeeId_fkey` FOREIGN KEY (`employeeId`) REFERENCES `employees`(`id`) ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT `hcm_attendance_days_shiftId_fkey` FOREIGN KEY (`shiftId`) REFERENCES `hcm_work_shifts`(`id`) ON DELETE SET NULL ON UPDATE CASCADE
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+CREATE TABLE `hcm_work_intervals` (
+  `id` VARCHAR(191) NOT NULL,
+  `companyId` VARCHAR(191) NOT NULL,
+  `attendanceDayId` VARCHAR(191) NOT NULL,
+  `sequence` INTEGER NOT NULL,
+  `inAt` DATETIME(3) NULL,
+  `outAt` DATETIME(3) NULL,
+  `workedMinutes` INTEGER NOT NULL DEFAULT 0,
+  `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (`id`),
+  INDEX `hcm_work_intervals_attendanceDayId_sequence_idx`(`attendanceDayId`, `sequence`),
+  CONSTRAINT `hcm_work_intervals_companyId_fkey` FOREIGN KEY (`companyId`) REFERENCES `companies`(`id`) ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT `hcm_work_intervals_attendanceDayId_fkey` FOREIGN KEY (`attendanceDayId`) REFERENCES `hcm_attendance_days`(`id`) ON DELETE CASCADE ON UPDATE CASCADE
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+CREATE TABLE `hcm_time_exceptions` (
+  `id` VARCHAR(191) NOT NULL,
+  `companyId` VARCHAR(191) NOT NULL,
+  `employmentId` VARCHAR(191) NULL,
+  `employeeId` VARCHAR(191) NULL,
+  `attendanceDayId` VARCHAR(191) NULL,
+  `logicalWorkDate` DATE NULL,
+  `exceptionType` VARCHAR(40) NOT NULL,
+  `severity` VARCHAR(20) NOT NULL DEFAULT 'WARNING',
+  `status` VARCHAR(20) NOT NULL DEFAULT 'OPEN',
+  `details` JSON NULL,
+  `resolution` TEXT NULL,
+  `resolvedBy` VARCHAR(191) NULL,
+  `resolvedAt` DATETIME(3) NULL,
+  `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  `updatedAt` DATETIME(3) NOT NULL,
+  PRIMARY KEY (`id`),
+  INDEX `hcm_time_exceptions_companyId_status_idx`(`companyId`, `status`),
+  INDEX `hcm_time_exceptions_companyId_logicalWorkDate_idx`(`companyId`, `logicalWorkDate`),
+  CONSTRAINT `hcm_time_exceptions_companyId_fkey` FOREIGN KEY (`companyId`) REFERENCES `companies`(`id`) ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT `hcm_time_exceptions_employmentId_fkey` FOREIGN KEY (`employmentId`) REFERENCES `hcm_employments`(`id`) ON DELETE SET NULL ON UPDATE CASCADE,
+  CONSTRAINT `hcm_time_exceptions_employeeId_fkey` FOREIGN KEY (`employeeId`) REFERENCES `employees`(`id`) ON DELETE SET NULL ON UPDATE CASCADE,
+  CONSTRAINT `hcm_time_exceptions_attendanceDayId_fkey` FOREIGN KEY (`attendanceDayId`) REFERENCES `hcm_attendance_days`(`id`) ON DELETE SET NULL ON UPDATE CASCADE
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+CREATE TABLE `hcm_time_corrections` (
+  `id` VARCHAR(191) NOT NULL,
+  `companyId` VARCHAR(191) NOT NULL,
+  `employmentId` VARCHAR(191) NOT NULL,
+  `attendanceDayId` VARCHAR(191) NULL,
+  `logicalWorkDate` DATE NOT NULL,
+  `status` VARCHAR(20) NOT NULL DEFAULT 'REQUESTED',
+  `correctionType` VARCHAR(40) NOT NULL,
+  `payload` JSON NOT NULL,
+  `reason` TEXT NULL,
+  `requestedBy` VARCHAR(191) NULL,
+  `approvedBy` VARCHAR(191) NULL,
+  `rejectedBy` VARCHAR(191) NULL,
+  `appliedAt` DATETIME(3) NULL,
+  `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  `updatedAt` DATETIME(3) NOT NULL,
+  PRIMARY KEY (`id`),
+  INDEX `hcm_time_corrections_companyId_status_idx`(`companyId`, `status`),
+  INDEX `hcm_time_corrections_employmentId_logicalWorkDate_idx`(`employmentId`, `logicalWorkDate`),
+  CONSTRAINT `hcm_time_corrections_companyId_fkey` FOREIGN KEY (`companyId`) REFERENCES `companies`(`id`) ON DELETE CASCADE ON UPDATE CASCADE,
+  CONSTRAINT `hcm_time_corrections_employmentId_fkey` FOREIGN KEY (`employmentId`) REFERENCES `hcm_employments`(`id`) ON DELETE CASCADE ON UPDATE CASCADE
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+CREATE TABLE `hcm_attendance_period_reviews` (
+  `id` VARCHAR(191) NOT NULL,
+  `companyId` VARCHAR(191) NOT NULL,
+  `periodStart` DATE NOT NULL,
+  `periodEnd` DATE NOT NULL,
+  `readiness` VARCHAR(20) NOT NULL DEFAULT 'NOT_READY',
+  `readinessReasons` JSON NULL,
+  `lockedAt` DATETIME(3) NULL,
+  `lockedBy` VARCHAR(191) NULL,
+  `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  `updatedAt` DATETIME(3) NOT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE INDEX `hcm_att_period_co_start_end_key`(`companyId`, `periodStart`, `periodEnd`),
+  CONSTRAINT `hcm_attendance_period_reviews_companyId_fkey` FOREIGN KEY (`companyId`) REFERENCES `companies`(`id`) ON DELETE CASCADE ON UPDATE CASCADE
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;

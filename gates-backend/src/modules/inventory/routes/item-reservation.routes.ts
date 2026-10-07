@@ -43,6 +43,7 @@ router.get(
         limit: req.query.limit as number | undefined,
         warehouseId: req.query.warehouseId as string | undefined,
         itemId: req.query.itemId as string | undefined,
+        customerId: req.query.customerId as string | undefined,
         status: req.query.status as 'ACTIVE' | 'RELEASED' | 'ALL' | 'OPEN' | undefined,
       });
       return void res.json({

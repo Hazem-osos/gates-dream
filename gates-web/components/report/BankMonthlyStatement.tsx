@@ -111,7 +111,7 @@ function Sheet({ sheet }: { sheet: MonthSheet }) {
   ] as const;
 
   return (
-    <div className="overflow-x-auto rounded-lg border border-[#9ec3d8] bg-white">
+    <div dir="rtl" className="report-scroll-viewport erp-scroll-x overflow-x-auto rounded-lg border border-[#9ec3d8] bg-white">
       <table className="w-full min-w-[920px] border-collapse text-xs text-slate-800" dir="rtl">
         <thead>
           <tr className="bg-[#7eb6d9] text-white">

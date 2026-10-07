@@ -17,6 +17,7 @@ import { documentSequenceService } from '../../platform/services/document-sequen
 import {
   pickInventoryAccount,
   readInventorySystem,
+  resolveEffectiveWarehouseGlAccounts,
 } from '../utils/inventory-system';
 
 export interface StockGlPostingContext extends JournalPostingContext {
@@ -56,10 +57,16 @@ async function allocateGlNum(
   );
 }
 
+export type ResolveStockGlAccountsOptions = {
+  /** تجميع/تفكيك: تحريك قيمة بين حسابات المخزون فقط — لا يُشترط حساب صرف المخزون. */
+  transformationOnly?: boolean;
+};
+
 export async function resolveStockGlAccounts(
   companyId: string,
   warehouseId?: string | null,
-  db: Prisma.TransactionClient | typeof prisma = prisma
+  db: Prisma.TransactionClient | typeof prisma = prisma,
+  options?: ResolveStockGlAccountsOptions
 ) {
   const settings = await db.companySettings.findUnique({
     where: { companyId },
@@ -95,40 +102,43 @@ export async function resolveStockGlAccounts(
     'stocktakingSurplusAccount',
   ]);
 
+  const transformationOnly = options?.transformationOnly === true;
+
   if (!inventoryRaw) {
     throw new AppError(422, 'Inventory GL account is not configured in company settings');
   }
-  if (!expenseRaw) {
+  if (!expenseRaw && !transformationOnly) {
     throw new AppError(422, 'Stock issue expense account is not configured in company settings');
   }
   if (!adjustmentRaw) {
     throw new AppError(422, 'Inventory adjustment account is not configured in company settings');
   }
 
-  const [inventoryAccountId, expenseAccountId, adjustmentAccountId, giftAccountId] = await Promise.all([
-    invoiceAccountResolverService.resolveAccountId(companyId, inventoryRaw, db),
-    invoiceAccountResolverService.resolveAccountId(companyId, expenseRaw, db),
-    invoiceAccountResolverService.resolveAccountId(companyId, adjustmentRaw, db),
-    giftRaw
-      ? invoiceAccountResolverService.resolveAccountId(companyId, giftRaw, db)
-      : Promise.resolve(undefined),
-  ]);
+  const inventoryAccountId = await invoiceAccountResolverService.resolveAccountId(
+    companyId,
+    inventoryRaw,
+    db
+  );
+  const adjustmentAccountId = await invoiceAccountResolverService.resolveAccountId(
+    companyId,
+    adjustmentRaw,
+    db
+  );
+  const expenseAccountId = expenseRaw
+    ? await invoiceAccountResolverService.resolveAccountId(companyId, expenseRaw, db)
+    : inventoryAccountId;
+  const giftAccountId = giftRaw
+    ? await invoiceAccountResolverService.resolveAccountId(companyId, giftRaw, db)
+    : undefined;
 
   let warehouseInventoryId: string | null = null;
   let warehouseCostId: string | null = null;
   let warehouseGiftId: string | null = null;
   if (system === 'PERPETUAL' && warehouseId) {
-    const warehouse = await db.warehouse.findFirst({
-      where: { id: warehouseId, companyId },
-      select: {
-        inventoryAccountId: true,
-        costAccountId: true,
-        giftAccountId: true,
-      },
-    });
-    warehouseInventoryId = warehouse?.inventoryAccountId ?? null;
-    warehouseCostId = warehouse?.costAccountId ?? null;
-    warehouseGiftId = warehouse?.giftAccountId ?? null;
+    const effective = await resolveEffectiveWarehouseGlAccounts(companyId, warehouseId, db);
+    warehouseInventoryId = effective.inventoryAccountId;
+    warehouseCostId = effective.costAccountId;
+    warehouseGiftId = effective.giftAccountId;
   }
 
   return {
@@ -162,6 +172,31 @@ export function pickLineInventoryAccount(
       itemAccountId
     ) ?? accounts.inventoryAccountId
   );
+}
+
+/** Goods issue: perpetual inventory credit uses warehouse card (then company), not item main account. */
+export function pickGoodsIssueInventoryAccount(
+  accounts: Awaited<ReturnType<typeof resolveStockGlAccounts>>
+) {
+  if (accounts.system === 'PERPETUAL') {
+    return (
+      accounts.warehouseInventoryAccountId ||
+      accounts.companyInventoryAccountId ||
+      accounts.inventoryAccountId
+    );
+  }
+  return accounts.inventoryAccountId;
+}
+
+export function pickGoodsIssueExpenseAccount(
+  accounts: Awaited<ReturnType<typeof resolveStockGlAccounts>>,
+  overrideExpenseAccountId?: string
+) {
+  if (overrideExpenseAccountId) return overrideExpenseAccountId;
+  if (accounts.system === 'PERPETUAL' && accounts.warehouseCostAccountId) {
+    return accounts.warehouseCostAccountId;
+  }
+  return accounts.expenseAccountId;
 }
 
 type IssueWithLines = Prisma.IssueGetPayload<{ include: { lines: true } }>;
@@ -206,6 +241,54 @@ function linesFromAmountMap(
     }));
 }
 
+type TransformationGlSideLine = { accountId: string; amount: number; description: string };
+
+/** Gross debit/credit lines per account — never net to zero on a single inventory account. */
+export function buildInventoryTransformationJournalLines(
+  debitLines: TransformationGlSideLine[],
+  creditLines: TransformationGlSideLine[]
+): JournalEntryLineData[] {
+  const debitByAccount = new Map<string, { amount: number; description: string }>();
+  const creditByAccount = new Map<string, { amount: number; description: string }>();
+
+  for (const l of debitLines) {
+    if (!l.accountId || l.amount <= 0) continue;
+    const cur = debitByAccount.get(l.accountId) ?? { amount: 0, description: l.description };
+    cur.amount = roundTo4(cur.amount + l.amount);
+    debitByAccount.set(l.accountId, cur);
+  }
+  for (const l of creditLines) {
+    if (!l.accountId || l.amount <= 0) continue;
+    const cur = creditByAccount.get(l.accountId) ?? { amount: 0, description: l.description };
+    cur.amount = roundTo4(cur.amount + l.amount);
+    creditByAccount.set(l.accountId, cur);
+  }
+
+  let lineOrder = 1;
+  const lines: JournalEntryLineData[] = [];
+  for (const [accountId, v] of debitByAccount.entries()) {
+    if (v.amount <= 0) continue;
+    lines.push({
+      accountId,
+      debit: v.amount,
+      credit: 0,
+      lineOrder: lineOrder++,
+      description: v.description,
+    });
+  }
+  for (const [accountId, v] of creditByAccount.entries()) {
+    if (v.amount <= 0) continue;
+    lines.push({
+      accountId,
+      debit: 0,
+      credit: v.amount,
+      lineOrder: lineOrder++,
+      description: v.description,
+    });
+  }
+  return lines;
+}
+
 async function loadItemInventoryMap(
   tx: Prisma.TransactionClient,
   companyId: string,
@@ -227,14 +310,34 @@ export class StockMovementGlService {
     issue: IssueWithLines,
     options?: { expenseAccountId?: string; costCenterId?: string | null }
   ) {
-    const accounts = await resolveStockGlAccounts(ctx.companyId, issue.warehouseId);
-    const expenseAccountId = options?.expenseAccountId ?? accounts.expenseAccountId;
+    const txSettings = await tx.transactionSettings.findUnique({
+      where: {
+        companyId_documentType: { companyId: ctx.companyId, documentType: 'STOCK_ISSUE' },
+      },
+      select: { generateEntryOnSave: true, defaultCostCenterId: true },
+    });
+    if (txSettings?.generateEntryOnSave === false) return null;
+
+    const accounts = await resolveStockGlAccounts(ctx.companyId, issue.warehouseId, tx);
+    const expenseAccountId = pickGoodsIssueExpenseAccount(accounts, options?.expenseAccountId);
+    const costCenterId = options?.costCenterId ?? txSettings?.defaultCostCenterId ?? undefined;
+
+    if (accounts.system === 'PERPETUAL') {
+      if (!accounts.warehouseCostAccountId) {
+        throw new AppError(
+          422,
+          'عرّف حساب تكلفة البضاعة المباعة في بطاقة المخزن (أو المخزن الأب) ثم أعد الترحيل'
+        );
+      }
+      if (!accounts.warehouseInventoryAccountId) {
+        throw new AppError(422, 'عرّف حساب المخزون في بطاقة المخزن (أو المخزن الأب) ثم أعد الترحيل');
+      }
+    }
+
+    const issueInventoryAccountId = pickGoodsIssueInventoryAccount(accounts);
 
     const itemIds = [...new Set(issue.lines.map((l) => l.itemId))];
-    const [unitCosts, items] = await Promise.all([
-      itemCostService.getCostsAsOf(ctx.companyId, itemIds, issue.date, tx),
-      loadItemInventoryMap(tx, ctx.companyId, itemIds),
-    ]);
+    const unitCosts = await itemCostService.getCostsAsOf(ctx.companyId, itemIds, issue.date, tx);
 
     const issueByInv = new Map<string, number>();
     const giftByInv = new Map<string, number>();
@@ -247,7 +350,7 @@ export class StockMovementGlService {
       const unit = unitCosts.get(line.itemId) ?? 0;
       const value = roundTo4(qty * unit);
       if (value <= 0) continue;
-      const invAccount = pickLineInventoryAccount(accounts, items.get(line.itemId)?.mainAccountId);
+      const invAccount = issueInventoryAccountId;
       if (isGift) {
         giftCost += value;
         addAmount(giftByInv, invAccount, value);
@@ -272,8 +375,8 @@ export class StockMovementGlService {
         debit: issueCost,
         credit: 0,
         lineOrder: lines.length + 1,
-        description: 'Goods issue — expense',
-        costCenterId: options?.costCenterId ?? undefined,
+        description: 'Goods issue — COGS',
+        costCenterId: costCenterId ?? undefined,
       });
       lines.push(
         ...linesFromAmountMap(
@@ -281,7 +384,7 @@ export class StockMovementGlService {
           'credit',
           'Goods issue — inventory relief',
           lines.length + 1,
-          options?.costCenterId
+          costCenterId
         )
       );
     }
@@ -292,7 +395,7 @@ export class StockMovementGlService {
         credit: 0,
         lineOrder: lines.length + 1,
         description: 'Goods issue — gift',
-        costCenterId: options?.costCenterId ?? undefined,
+        costCenterId: costCenterId ?? undefined,
       });
       lines.push(
         ...linesFromAmountMap(
@@ -300,7 +403,7 @@ export class StockMovementGlService {
           'credit',
           'Goods issue — gift inventory relief',
           lines.length + 1,
-          options?.costCenterId
+          costCenterId
         )
       );
     }
@@ -331,13 +434,54 @@ export class StockMovementGlService {
     return je;
   }
 
+  async resolveGoodsReceiptCreditAccountInTx(
+    tx: Prisma.TransactionClient,
+    ctx: StockGlPostingContext,
+    fallbackAdjustmentAccountId: string
+  ): Promise<string> {
+    const settings = await tx.transactionSettings.findUnique({
+      where: {
+        companyId_documentType: { companyId: ctx.companyId, documentType: 'STOCK_RECEIPT' },
+      },
+      select: { defaultOffsetAccountId: true },
+    });
+    const offsetId = settings?.defaultOffsetAccountId?.trim();
+    if (!offsetId) return fallbackAdjustmentAccountId;
+
+    const account = await tx.account.findFirst({
+      where: { id: offsetId, companyId: ctx.companyId, deletedAt: null, isActive: true },
+      select: { id: true },
+    });
+    if (!account) {
+      throw new AppError(
+        422,
+        'الحساب المقابل لإذن الإضافة في إعدادات المستند غير موجود أو غير نشط'
+      );
+    }
+    return account.id;
+  }
+
   async postGoodsReceiptGlInTx(
     tx: Prisma.TransactionClient,
     ctx: StockGlPostingContext,
     receipt: ReceiptWithLines,
     options?: { costCenterId?: string | null }
   ) {
+    const txSettings = await tx.transactionSettings.findUnique({
+      where: {
+        companyId_documentType: { companyId: ctx.companyId, documentType: 'STOCK_RECEIPT' },
+      },
+      select: { generateEntryOnSave: true, defaultCostCenterId: true },
+    });
+    if (txSettings?.generateEntryOnSave === false) return null;
+
     const accounts = await resolveStockGlAccounts(ctx.companyId, receipt.warehouseId);
+    const creditAccountId = await this.resolveGoodsReceiptCreditAccountInTx(
+      tx,
+      ctx,
+      accounts.adjustmentAccountId
+    );
+    const costCenterId = options?.costCenterId ?? txSettings?.defaultCostCenterId ?? undefined;
 
     const itemIds = [...new Set(receipt.lines.map((l) => l.itemId))];
     const items = await loadItemInventoryMap(tx, ctx.companyId, itemIds);
@@ -370,15 +514,15 @@ export class StockMovementGlService {
         'debit',
         'Goods receipt — inventory',
         1,
-        options?.costCenterId
+        costCenterId
       ),
       {
-        accountId: accounts.adjustmentAccountId,
+        accountId: creditAccountId,
         debit: 0,
         credit: totalCost,
         lineOrder: inventoryByAccount.size + 1,
-        description: 'Goods receipt — stock adjustment',
-        costCenterId: options?.costCenterId ?? undefined,
+        description: 'Goods receipt — offset',
+        costCenterId: costCenterId ?? undefined,
       },
     ];
     lines.forEach((line, index) => {
@@ -768,9 +912,10 @@ export class StockMovementGlService {
   /**
    * Assembly/disassembly move value between the raw-material and finished
    * item inventory accounts (a production receipt / issue). When both sides
-   * map to the same company inventory account the entry is self-balancing
-   * but still gives a visible GL trail; when items carry distinct
-   * `mainAccountId`s the value genuinely moves between control accounts.
+   * map to the same company inventory account the entry is self-balancing on
+   * the account balance but still posts separate debit/credit lines for an
+   * audit trail; when items carry distinct `mainAccountId`s the value moves
+   * between control accounts.
    */
   async postInventoryTransformationGlInTx(
     tx: Prisma.TransactionClient,
@@ -779,46 +924,25 @@ export class StockMovementGlService {
     kind: 'ASSEMBLY' | 'DISASSEMBLY',
     debitLines: { accountId: string; amount: number; description: string }[],
     creditLines: { accountId: string; amount: number; description: string }[],
-    model: 'assembly' | 'disassembly'
+    _model: 'assembly' | 'disassembly'
   ) {
     const totalDebit = roundTo4(debitLines.reduce((s, l) => s + l.amount, 0));
     const totalCredit = roundTo4(creditLines.reduce((s, l) => s + l.amount, 0));
     if (totalDebit <= 0 || totalCredit <= 0) return null;
+    if (Math.abs(totalDebit - totalCredit) > 0.02) {
+      throw new AppError(
+        422,
+        `قيد ${kind === 'ASSEMBLY' ? 'التجميع' : 'التفكيك'} غير متوازن (مدين ${totalDebit} — دائن ${totalCredit})`
+      );
+    }
+
+    const lines = buildInventoryTransformationJournalLines(debitLines, creditLines);
+    if (lines.length === 0) return null;
 
     const legacyGlNum = await allocateGlNum(tx, ctx);
     const serial = doc.serial ?? doc.id.slice(0, 8);
     const sourceYearId = sourceYearOf(doc.date);
     const sourceType = kind === 'ASSEMBLY' ? 'ASM' : 'DSM';
-
-    // Net debit vs credit per account first — a journal line cannot carry
-    // both sides, and when the raw-material and finished-item accounts are
-    // the same (single company-wide inventory account) the two sides
-    // cancel out entirely for that account.
-    const byAccount = new Map<string, { net: number; description: string }>();
-    for (const l of debitLines) {
-      const cur = byAccount.get(l.accountId) ?? { net: 0, description: l.description };
-      cur.net = roundTo4(cur.net + l.amount);
-      byAccount.set(l.accountId, cur);
-    }
-    for (const l of creditLines) {
-      const cur = byAccount.get(l.accountId) ?? { net: 0, description: l.description };
-      cur.net = roundTo4(cur.net - l.amount);
-      byAccount.set(l.accountId, cur);
-    }
-
-    let lineOrder = 1;
-    const lines: JournalEntryLineData[] = [];
-    for (const [accountId, v] of byAccount.entries()) {
-      if (v.net === 0) continue;
-      lines.push({
-        accountId,
-        debit: v.net > 0 ? v.net : 0,
-        credit: v.net < 0 ? -v.net : 0,
-        lineOrder: lineOrder++,
-        description: v.description,
-      });
-    }
-    if (lines.length === 0) return null;
 
     const je = await journalPostingService.createAndPostInTx(tx, ctx, {
       date: doc.date,
@@ -832,11 +956,6 @@ export class StockMovementGlService {
       sourceYearId,
       entryType: kind,
       lines,
-    });
-
-    await (tx as any)[model].update({
-      where: { id: doc.id },
-      data: { record: je.legacyGlNum ?? je.id },
     });
 
     return je;

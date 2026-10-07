@@ -6,6 +6,7 @@ import { AppTable, CompactFormField, FormSectionCard, compactControlClass } from
 import { MasterCardShell } from '@/components/erp';
 import { ItemSelect } from '@/app/components/form/ItemSelect';
 import { WarehouseSelect } from '@/components/form/WarehouseSelect';
+import { CustomerSelect } from '@/app/components/form/PartySelect';
 import { useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
 import { useItemStockBalance } from '@/lib/hooks/useItemStockBalance';
 import { apiClient } from '@/lib/api/client';
@@ -35,6 +36,7 @@ type ReservationRow = {
 
 type FormState = {
   warehouseId: string;
+  customerId: string;
   itemId: string;
   quantity: string;
   reason: string;
@@ -42,6 +44,7 @@ type FormState = {
 
 const emptyForm = (): FormState => ({
   warehouseId: '',
+  customerId: '',
   itemId: '',
   quantity: '',
   reason: '',
@@ -112,6 +115,10 @@ export default function ItemReservationPage() {
       setError('يرجى اختيار المخزن');
       return;
     }
+    if (!form.customerId) {
+      setError('يرجى اختيار العميل');
+      return;
+    }
     if (!form.itemId) {
       setError('يرجى اختيار الصنف');
       return;
@@ -141,6 +148,7 @@ export default function ItemReservationPage() {
       } else {
         await apiClient.post('/inventory/item-reservations', {
           warehouseId: form.warehouseId,
+          customerId: form.customerId,
           itemId: form.itemId,
           quantity,
           reason: form.reason.trim(),
@@ -181,6 +189,7 @@ export default function ItemReservationPage() {
     setLoadedQuantity(row.quantity);
     setForm({
       warehouseId: row.warehouseId,
+      customerId: (row as { customerId?: string }).customerId ?? '',
       itemId: row.itemId,
       quantity: String(row.quantity),
       reason: row.reason,
@@ -227,6 +236,14 @@ export default function ItemReservationPage() {
             }}
             emptyLabel="اختر المخزن"
             enableQuickCreate={false}
+            disabled={Boolean(editingId)}
+          />
+        </CompactFormField>
+        <CompactFormField label="العميل" required>
+          <CustomerSelect
+            value={form.customerId}
+            onChange={(customerId) => patch({ customerId })}
+            emptyLabel="اختر العميل"
             disabled={Boolean(editingId)}
           />
         </CompactFormField>

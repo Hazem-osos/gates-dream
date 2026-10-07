@@ -28,8 +28,10 @@ import { WarehouseSelect } from '@/components/form/WarehouseSelect';
 import { SupplierSelect } from '@/app/components/form/PartySelect';
 import { useApiQuery, useApiMutation, useInvalidateQuery } from '@/lib/hooks/useApi';
 import { apiClient } from '@/lib/api/client';
-import { getTenantContext } from '@/lib/tenant/tenant-context-storage';
-import { STORE_SAVE_AND_POST_LABEL } from '@/lib/inventory/store-document-save-post';
+import {
+  getBranchIdForStoreDocumentSave,
+  STORE_SAVE_AND_POST_LABEL,
+} from '@/lib/inventory/store-document-save-post';
 import { resolvePostedFlag } from '@/lib/documents/posting-trust';
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
@@ -54,6 +56,15 @@ import {
   useStoreDocumentSerial,
   STORE_DOCUMENT_UNPOSTED_LABEL,
 } from '@/lib/inventory/use-store-document-serial';
+import { TransactionSettingsDrawer } from '@/components/settings/transaction-settings/TransactionSettingsDrawer';
+import { DocumentSourceLoadBar } from '@/components/invoices/DocumentSourceLoadBar';
+import {
+  mapSourcePayloadToStockLines,
+  stockHeaderFieldsFromSource,
+} from '@/lib/inventory/apply-source-to-stock-document';
+import type { SourceHydratePayload } from '@/lib/invoices/sourceDocument';
+import { STOCK_RECEIPT_SOURCE_TYPES } from '@/lib/invoices/sourceDocument';
+import { toast } from '@/lib/feedback/toast';
 
 
 interface Item {
@@ -113,6 +124,7 @@ export default function ReceiptPage() {
     reset,
     watch,
     setValue,
+    getValues,
     control,
     formState: { errors },
   } = useForm<ReceiptHeaderForm>({
@@ -126,6 +138,7 @@ export default function ReceiptPage() {
   const hideExistingQty = watch('hideExistingQty');
 
   const [receiptLines, setReceiptLines] = useState<StockVoucherLine[]>(() => seedStockVoucherLines());
+  const [sourceBarKey, setSourceBarKey] = useState(0);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [selectedReceiptId, setSelectedReceiptId] = useState<string | null>(
@@ -138,6 +151,7 @@ export default function ReceiptPage() {
     else window.history.replaceState(null, '', window.location.pathname);
   };
   const [showList, setShowList] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const setSerialNumber = useCallback(
     (value: string) =>
@@ -202,6 +216,7 @@ export default function ReceiptPage() {
     openReceipt(null);
     setReceiptLines(seedStockVoucherLines());
     reset(emptyReceiptFormDefaults());
+    setSourceBarKey((k) => k + 1);
   };
 
   const receiptMutation = useApiMutation<{ id?: string; serial?: string; serialNumber?: string }, Record<string, unknown>>(
@@ -355,6 +370,16 @@ export default function ReceiptPage() {
     setError('');
     setSuccess('');
     reset(emptyReceiptFormDefaults());
+    setSourceBarKey((k) => k + 1);
+  };
+
+  const handleSourceHydrate = (payload: SourceHydratePayload) => {
+    const header = stockHeaderFieldsFromSource(payload, getValues('description'));
+    if (header.supplierId) setValue('supplierId', header.supplierId);
+    if (header.warehouseId) setValue('warehouseId', header.warehouseId);
+    if (header.description) setValue('description', header.description);
+    setReceiptLines(mapSourcePayloadToStockLines(payload));
+    toast.success(`تم تحميل الإذن من ${payload.sourceNumber}`);
   };
 
   const onSaveValid: SubmitHandler<ReceiptHeaderForm> = (values) => {
@@ -373,7 +398,7 @@ export default function ReceiptPage() {
       setError(msg || 'تحقق من بنود الأصناف');
       return;
     }
-    const activeBranchId = getTenantContext().branchId;
+    const activeBranchId = getBranchIdForStoreDocumentSave();
     const requestBody = {
       ...(activeBranchId ? { branchId: activeBranchId } : {}),
       serial: values.serialNumber || undefined,
@@ -503,8 +528,19 @@ export default function ReceiptPage() {
           newLabel: 'جديد',
           postPending: loading,
           unpostPending: unpostReceiptMutation.isPending,
+          extraItems: [
+            { id: 'settings', label: 'إعدادات المستند', onClick: () => setSettingsOpen(true) },
+          ],
         }}
         extraActions={
+          <div className="flex flex-wrap items-end justify-end gap-2">
+            <DocumentSourceLoadBar
+              key={sourceBarKey}
+              hasExistingLines={receiptLines.some((l) => Boolean(l.itemId))}
+              disabled={isPosted}
+              allowedTypes={STOCK_RECEIPT_SOURCE_TYPES}
+              onHydrate={handleSourceHydrate}
+            />
           <button
             type="button"
             className="rounded-lg border border-[#D6EAF3] px-3 py-2 text-sm text-[#0A3D5E]"
@@ -523,7 +559,14 @@ export default function ReceiptPage() {
           >
             طباعة
           </button>
+          </div>
         }
+      />
+
+      <TransactionSettingsDrawer
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        documentType="STOCK_RECEIPT"
       />
 
       <DocumentBrowseDrawer open={showList} onClose={() => setShowList(false)} title="أذون الإضافة المخزنية السابقة">

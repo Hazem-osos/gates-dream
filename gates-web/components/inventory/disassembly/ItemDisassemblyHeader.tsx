@@ -9,6 +9,7 @@ import { ItemSelect } from '@/app/components/form/ItemSelect';
 import { WarehouseSelect } from '@/app/components/form/WarehouseSelect';
 import { CostCenterSelect } from '@/app/components/form/CostCenterSelect';
 import { erpInputClass, erpLabelClass } from '@/components/erp';
+import { compactSerialControlClass } from '@/app/components/ui/forms/formTokens';
 
 export type DisassemblyParentOption = {
   id: string;
@@ -115,7 +116,7 @@ export function ItemDisassemblyHeader({
             type="button"
             size="sm"
             variant="outline"
-            disabled={!canExplode || explodePending || disabled}
+            disabled={!canExplode || explodePending}
             className="gap-1.5 border-primary/30 bg-primary/10 font-semibold text-primary shadow-sm hover:bg-primary/20"
             onClick={onExplode}
           >
@@ -141,7 +142,7 @@ export function ItemDisassemblyHeader({
                 value={docNumber}
                 placeholder={serialPlaceholder}
                 onChange={(e) => onSerialChange?.(e.target.value)}
-                className={erpInputClass}
+                className={compactSerialControlClass}
               />
             </div>
             <DatePickerWithHijri label="التاريخ" value={date} onChange={onDate} disabled={disabled} />
@@ -167,7 +168,7 @@ export function ItemDisassemblyHeader({
                 disabled={disabled}
                 value={disassemblyQuantity || ''}
                 onChange={(e) => onDisassemblyQuantity(Math.max(1, Number(e.target.value) || 1))}
-                className={`${erpInputClass} text-center font-mono font-bold`}
+                className={`${erpInputClass} h-9 text-center text-base font-semibold tabular-nums`}
                 placeholder="الكمية"
               />
             </div>

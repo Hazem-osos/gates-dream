@@ -1,5 +1,6 @@
 'use client';
 
+import { useMemo, type ReactNode } from 'react';
 import { SupplierSelect } from '@/components/form/PartySelect';
 import { WarehouseSelect } from '@/components/form/WarehouseSelect';
 import { CostCenterSelect } from '@/components/form/CostCenterSelect';
@@ -19,6 +20,7 @@ import {
 } from '@/lib/invoices/unit-conversion';
 import { InvoiceSourceDocumentControl } from '@/components/invoices/InvoiceSourceDocumentControl';
 import type { SelectableSourceType, SourceHydratePayload } from '@/lib/invoices/sourceDocument';
+import { purchaseInvoiceSourceTypes } from '@/lib/transaction-settings/affect-stock';
 import { DatePickerWithHijri } from '@/components/ui/DatePickerWithHijri';
 import { toHijriDate } from '@/lib/hijri-date';
 import type { CashTenderKind, InvoiceChequeDraft } from '@/lib/invoices/cash-tender';
@@ -103,9 +105,13 @@ type Props = {
   onSourceHydrate?: (payload: SourceHydratePayload) => void;
   hasExistingLines?: boolean;
   sourceDisabled?: boolean;
+  /** When false, التحميل is shown only in the page toolbar (no duplicate). */
+  showSourceLoad?: boolean;
   fieldsDisabled?: boolean;
   splitLocked?: boolean;
   splitCollectMode?: boolean;
+  headerActions?: ReactNode;
+  affectsStock?: boolean;
 };
 
 export function PurchaseInvoiceFormHeader(props: Props) {
@@ -151,7 +157,10 @@ export function PurchaseInvoiceFormHeader(props: Props) {
     onSourceHydrate,
     hasExistingLines = false,
     sourceDisabled = false,
+    showSourceLoad = true,
+    headerActions,
     fieldsDisabled = false,
+    affectsStock = true,
   } = props;
 
   const mounted = useClientMounted();
@@ -195,31 +204,38 @@ export function PurchaseInvoiceFormHeader(props: Props) {
         <label className={erpLabelClass}>البيان</label>
         <input className={erpInputClass} value={description} onChange={(e) => onDescription(e.target.value)} />
       </div>
-      <div>
-        <label className={erpLabelClass}>المخزن الافتراضي</label>
-        <WarehouseSelect
-          value={warehouseId}
-          onChange={onWarehouseId}
-          className={`${erpInputClass} ${err(!!errors?.warehouseId)}`}
-        />
-        <ErpFieldError message={errors?.warehouseId} show={showValidationErrors} />
-      </div>
+      {affectsStock ? (
+        <div>
+          <label className={erpLabelClass}>المخزن الافتراضي</label>
+          <WarehouseSelect
+            value={warehouseId}
+            onChange={onWarehouseId}
+            className={`${erpInputClass} ${err(!!errors?.warehouseId)}`}
+          />
+          <ErpFieldError message={errors?.warehouseId} show={showValidationErrors} />
+        </div>
+      ) : null}
     </>
   );
 
+  const purchaseSourceTypes = useMemo(() => purchaseInvoiceSourceTypes(affectsStock), [affectsStock]);
+
+  const sourceLoadControl =
+    showSourceLoad && onSourceHydrate && onSourceTypeChange ? (
+      <InvoiceSourceDocumentControl
+        sourceType={sourceType}
+        sourceId={sourceId}
+        sourceNumber={sourceNumber}
+        hasExistingLines={hasExistingLines}
+        disabled={sourceDisabled}
+        allowedTypes={purchaseSourceTypes}
+        onTypeChange={onSourceTypeChange}
+        onHydrate={onSourceHydrate}
+      />
+    ) : null;
+
   const extras = (
     <div className="space-y-3">
-      {onSourceHydrate && onSourceTypeChange ? (
-        <InvoiceSourceDocumentControl
-          sourceType={sourceType}
-          sourceId={sourceId}
-          sourceNumber={sourceNumber}
-          hasExistingLines={hasExistingLines}
-          disabled={sourceDisabled}
-          onTypeChange={onSourceTypeChange}
-          onHydrate={onSourceHydrate}
-        />
-      ) : null}
     <fieldset disabled={fieldsDisabled} className="m-0 min-w-0 border-0 p-0">
     <div className={erpFormGridClass}>
       <div>
@@ -317,5 +333,18 @@ export function PurchaseInvoiceFormHeader(props: Props) {
     </div>
   );
 
-  return <ErpFormHeaderCard row1={row1} row2={row2} extras={extras} fieldsDisabled={fieldsDisabled} />;
+  return (
+    <ErpFormHeaderCard
+      row1={row1}
+      row2={row2}
+      extras={extras}
+      fieldsDisabled={fieldsDisabled}
+      headerActions={
+        <>
+          {sourceLoadControl}
+          {headerActions}
+        </>
+      }
+    />
+  );
 }

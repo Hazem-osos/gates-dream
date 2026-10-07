@@ -15,6 +15,7 @@ import { ensureDefaultUngroupedCategory } from './ensure-default-item-category';
 import { attachStockSummaries, stockSummariesForItems } from './item-stock-summary';
 import { scopedItemQuantityWhere } from '../utils/item-quantity-tenant';
 import { acquireUniqueKey, releaseUniqueKeyIfUnused, UNIQUE_KINDS } from '../../../shared/database/company-unique-key';
+import { resolveItemBarcode } from '../utils/item-barcode-default';
 
 async function openingStockCardFigures(companyId: string, itemId: string) {
   const docs = await prisma.openingStock.findMany({
@@ -240,7 +241,8 @@ export class ItemService {
         serial = await this.suggestNextItemSerial(companyId);
       }
       await this.assertSerialUnique(companyId, serial);
-      await this.assertBarcodeUnique(companyId, data.barcode);
+      const barcode = resolveItemBarcode(data.barcode, serial);
+      await this.assertBarcodeUnique(companyId, barcode);
       // Sales Invoice Enterprise Redesign: "auto-assign GL accounts by
       // category" — when a category is selected, snapshot its defaults onto
       // any of mainAccountId/salesAccountId/cogsAccountId the caller left
@@ -286,7 +288,7 @@ export class ItemService {
             mainAccountId,
             costCenterId: data.costCenterId,
             categoryId: category.id,
-            barcode: data.barcode ?? null,
+            barcode,
             salesAccountId,
             cogsAccountId,
             defaultTaxPercent: data.isTaxExempt
@@ -788,8 +790,12 @@ export class ItemService {
         }
       }
       if (data.barcode !== undefined) {
-        await this.assertBarcodeUnique(companyId, data.barcode, itemId);
-        updateData.barcode = data.barcode?.trim() || null;
+        const serialForBarcode = (
+          data.serial !== undefined ? data.serial : existing.serial
+        )?.trim();
+        const barcode = resolveItemBarcode(data.barcode, serialForBarcode);
+        await this.assertBarcodeUnique(companyId, barcode, itemId);
+        updateData.barcode = barcode;
       }
       if (data.salesAccountId !== undefined) updateData.salesAccountId = data.salesAccountId;
       if (data.cogsAccountId !== undefined) updateData.cogsAccountId = data.cogsAccountId;
@@ -1005,7 +1011,7 @@ export class ItemService {
         itemId: item.id,
         itemName: item.arabicName,
         itemCode: item.serial || '',
-        barcode: item.barcode || '',
+        barcode: item.barcode || item.serial || '',
         purchasePrice: Number(item.lastPurchasePrice || item.averageCost || 0),
         salePrice: Number(item.priceRetail || item.consumerPrice || item.priceWholesale || 0),
       };

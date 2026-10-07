@@ -9,8 +9,31 @@ import {
   employeeQuerySchema,
 } from '../schemas/employee.schema';
 import { employeeService } from '../services/employee.service';
+import { employee360Service } from '../services/hcm/employee-360.service';
 import { logger } from '../../../shared/logger';
 import { AuthRequest } from '../../../shared/auth/types';
+import {
+  getCachedUserPermissions,
+  permissionGrantedFromCache,
+} from '../../../shared/cache/tenant-context.cache';
+import { redactEmployeeList } from '../services/payroll/payroll-field-redaction.util';
+
+async function canViewCompensation(req: AuthRequest, companyId: string): Promise<boolean> {
+  const userId = req.user?.sub;
+  if (!userId) return false;
+  const cached = await getCachedUserPermissions(userId, companyId);
+  return (
+    permissionGrantedFromCache(cached, 'compensation', 'view') ||
+    permissionGrantedFromCache(cached, 'payroll', 'view')
+  );
+}
+
+async function canViewPayrollAmounts(req: AuthRequest, companyId: string): Promise<boolean> {
+  const userId = req.user?.sub;
+  if (!userId) return false;
+  const cached = await getCachedUserPermissions(userId, companyId);
+  return permissionGrantedFromCache(cached, 'payroll', 'view');
+}
 
 const router = Router();
 
@@ -42,11 +65,14 @@ router.get(
         departmentId: req.query.departmentId as string | undefined,
         isActive: req.query.isActive as boolean | undefined,
       });
+      const includeSensitive =
+        (await canViewCompensation(req, companyId)) || (await canViewPayrollAmounts(req, companyId));
 
       return void res.json({
         status: 'success',
-        data: result.employees,
+        data: redactEmployeeList(result.employees as Record<string, unknown>[], includeSensitive),
         pagination: result.pagination,
+        amountsRedacted: !includeSensitive,
       });
     } catch (error) {
       logger.error({ error }, 'Error listing employees');
@@ -57,6 +83,54 @@ router.get(
             ? error.message
             : 'Failed to list employees',
       });
+    }
+  }
+);
+
+router.get(
+  '/:id/360',
+  authorize({ resource: 'employee', action: 'view' }),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const companyId = req.companyId || req.tenantId;
+      if (!companyId) {
+        return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
+      }
+      const includeCompensation = await canViewCompensation(req, companyId);
+      const includePayrollAmounts = await canViewPayrollAmounts(req, companyId);
+      const ps = req.query.attendancePeriodStart as string | undefined;
+      const pe = req.query.attendancePeriodEnd as string | undefined;
+      const data = await employee360Service.getView(companyId, req.params.id, {
+        includeCompensation,
+        includePayrollAmounts,
+        attendancePeriodStart: ps ? new Date(`${ps}T00:00:00.000Z`) : undefined,
+        attendancePeriodEnd: pe ? new Date(`${pe}T00:00:00.000Z`) : undefined,
+      });
+      return void res.json({ status: 'success', data });
+    } catch (error) {
+      const status =
+        error instanceof Error && error.message.includes('not found') ? 404 : 500;
+      return void res.status(status).json({
+        status: 'error',
+        message: error instanceof Error ? error.message : 'Employee 360 failed',
+      });
+    }
+  }
+);
+
+router.get(
+  '/:id/assignment-at',
+  authorize({ resource: 'employee', action: 'view' }),
+  async (req: AuthRequest, res: Response) => {
+    const companyId = req.companyId || req.tenantId;
+    if (!companyId) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
+    const date = (req.query.date as string) || new Date().toISOString().slice(0, 10);
+    try {
+      const data = await employee360Service.assignmentAt(companyId, req.params.id, date);
+      return void res.json({ status: 'success', data });
+    } catch (e) {
+      const status = e instanceof Error && e.message.includes('not found') ? 404 : 500;
+      return void res.status(status).json({ status: 'error', message: e instanceof Error ? e.message : 'Lookup failed' });
     }
   }
 );

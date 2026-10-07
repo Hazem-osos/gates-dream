@@ -130,7 +130,7 @@ export default function TaxForm41ReportPage() {
         ) : rows.length === 0 ? (
           <EmptyState title="لا توجد مستخلصات مرحلة في هذا الربع" description="يظهر هنا فقط المستخلصات بحالة مرحل حسابات." />
         ) : (
-          <div className="overflow-x-auto rounded-xl border border-[#E6F0F7]">
+          <div dir="rtl" className="report-scroll-viewport erp-scroll-x overflow-x-auto rounded-xl border border-[#E6F0F7]">
             <table className="w-full min-w-[860px] text-center text-sm">
               <thead>
                 <tr className="bg-[#0E78AA] text-white">

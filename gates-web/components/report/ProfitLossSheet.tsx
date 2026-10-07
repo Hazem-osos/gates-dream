@@ -165,7 +165,7 @@ export function ProfitLossSheet({
   const rowCount = Math.max(debitLines.length, creditLines.length, 12);
 
   return (
-    <div className="overflow-x-auto bg-white" dir="rtl">
+    <div className="report-scroll-viewport erp-scroll-x overflow-x-auto bg-white" dir="rtl">
       <p className="mb-1 text-right text-sm text-slate-800">العملة {currencyName}</p>
       <table className="w-full border-collapse text-sm">
         <thead>

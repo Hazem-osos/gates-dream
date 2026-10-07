@@ -1,6 +1,10 @@
 import { STOCK_GL_SKIPPED_AR } from './stock-gl-posting-guard';
 
-export type StockPostServiceResult = { success?: boolean; glSkipped?: boolean };
+export type StockPostServiceResult = {
+  success?: boolean;
+  glSkipped?: boolean;
+  journalEntryId?: string | null;
+};
 
 export function stockPostJson(
   result: StockPostServiceResult,

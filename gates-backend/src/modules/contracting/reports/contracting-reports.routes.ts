@@ -19,12 +19,17 @@ const router = Router();
 router.use(authenticate);
 router.use(setTenantContext);
 
+const emptyToUndefined = (value: unknown) =>
+  value === '' || value === null || value === undefined ? undefined : value;
+
+const optionalUuid = z.preprocess(emptyToUndefined, z.string().uuid().optional());
+
 const reportQuerySchema = z.object({
-  projectId: z.string().uuid().optional(),
-  customerId: z.string().uuid().optional(),
-  subcontractorId: z.string().uuid().optional(),
-  dateFrom: z.coerce.date().optional(),
-  dateTo: z.coerce.date().optional(),
+  projectId: optionalUuid,
+  customerId: optionalUuid,
+  subcontractorId: optionalUuid,
+  dateFrom: z.preprocess(emptyToUndefined, z.coerce.date().optional()),
+  dateTo: z.preprocess(emptyToUndefined, z.coerce.date().optional()),
   tenderStatus: z.string().optional(),
   costCategory: z
     .enum([
@@ -274,6 +279,7 @@ router.get(
 router.get(
   '/customer-statement/:customerId',
   authorize({ resource: 'project', action: 'view' }),
+  validateParams(z.object({ customerId: z.string().uuid() })),
   validateQuery(reportQuerySchema.pick({ dateFrom: true, dateTo: true })),
   asyncHandler(async (req, res) => {
     const q = req.query as { dateFrom?: Date; dateTo?: Date };
@@ -314,6 +320,7 @@ router.get(
 router.get(
   '/subcontractor-statement/:subcontractorId',
   authorize({ resource: 'project', action: 'view' }),
+  validateParams(z.object({ subcontractorId: z.string().uuid() })),
   validateQuery(reportQuerySchema.pick({ dateFrom: true, dateTo: true })),
   asyncHandler(async (req, res) => {
     const q = req.query as { dateFrom?: Date; dateTo?: Date };

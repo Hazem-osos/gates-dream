@@ -102,11 +102,17 @@ import {
   DocumentReadOnlyBanner,
   useDocumentMode,
 } from '@/components/common/document-shell';
+import { DocumentSourceLoadBar } from '@/components/invoices/DocumentSourceLoadBar';
 import {
   mergeSourceNote,
   sourceLineToPurchaseRow,
   type SourceHydratePayload,
 } from '@/lib/invoices/sourceDocument';
+import {
+  invoiceLineColumnsForStockPolicy,
+  purchaseInvoiceSourceTypes,
+  transactionAffectsStock,
+} from '@/lib/transaction-settings/affect-stock';
 import { consumeAiTransactionDraft } from '@/lib/ai/ai-draft-storage';
 import { invoiceDateFromDraft, purchaseLinesFromAiDraft } from '@/lib/ai/hydrate-ai-draft';
 
@@ -317,13 +323,18 @@ function FinalPurchaseInvoicePageInner() {
   const [sourceType, setSourceType] = useState('');
   const [sourceId, setSourceId] = useState('');
   const [sourceNumber, setSourceNumber] = useState('');
-  const lockLoadedSource = shouldLockLoadedSource(txSettingsRes?.data, sourceId);
+  const [sourceBarKey, setSourceBarKey] = useState(0);
+  const txSettings = txSettingsRes?.data;
+  const affectsStock = transactionAffectsStock(txSettings);
+  const lockLoadedSource = shouldLockLoadedSource(txSettings, sourceId);
   const [storedColumnIds, setStoredColumnIds] = useVisibleColumnIds(
     'gates:columns:purchase-invoice',
     companyId
   );
-  const visibleColumnIds =
-    defaultWhtRate > 0 ? ensureWithholdingColumns(storedColumnIds) : storedColumnIds;
+  const visibleColumnIds = invoiceLineColumnsForStockPolicy(
+    defaultWhtRate > 0 ? ensureWithholdingColumns(storedColumnIds) : storedColumnIds,
+    affectsStock
+  );
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<string | null>(
@@ -896,6 +907,7 @@ function FinalPurchaseInvoicePageInner() {
     setSourceType('');
     setSourceId('');
     setSourceNumber('');
+    setSourceBarKey((k) => k + 1);
     setSupplierId('');
     setWarehouseId('');
     setCostCenterId('');
@@ -1611,6 +1623,23 @@ function FinalPurchaseInvoicePageInner() {
           }
           unlockForEdit();
         }}
+        toolbarLeading={
+          <DocumentSourceLoadBar
+            key={sourceBarKey}
+            hasExistingLines={invoiceLines.some((line) => Boolean(line.itemId))}
+            disabled={isPosted || isReadOnly}
+            allowedTypes={purchaseInvoiceSourceTypes(affectsStock)}
+            sourceType={sourceType}
+            sourceId={sourceId}
+            sourceNumber={sourceNumber}
+            onTypeChange={(type) => {
+              setSourceType(type);
+              setSourceId('');
+              setSourceNumber('');
+            }}
+            onHydrate={handleSourceHydrate}
+          />
+        }
       />
 
       {showInvoiceList ? (
@@ -1751,6 +1780,7 @@ function FinalPurchaseInvoicePageInner() {
         sourceNumber={sourceNumber}
         hasExistingLines={invoiceLines.some((line) => Boolean(line.itemId))}
         sourceDisabled={isPosted || isReadOnly}
+        showSourceLoad={false}
         fieldsDisabled={lockLoadedSource}
         onSourceTypeChange={(type) => {
           setSourceType(type);
@@ -1758,6 +1788,7 @@ function FinalPurchaseInvoicePageInner() {
           setSourceNumber('');
         }}
         onSourceHydrate={handleSourceHydrate}
+        affectsStock={affectsStock}
       />
 
       <div className="mt-3">
@@ -1788,6 +1819,7 @@ function FinalPurchaseInvoicePageInner() {
           defaultTaxPercent={isSalesTaxInvoice ? 14 : 0}
           defaultWithholdingRate={defaultWhtRate}
           applyPickedItemToLine={applyPickedItemToLine}
+          invoiceAffectsStock={affectsStock}
         />
             </div>
       </DocumentFormLock>

@@ -26,7 +26,13 @@ export const erpTableHeadCellClass = 'py-3 px-3 whitespace-nowrap border-e borde
 
 export const erpTableBodyCellClass = 'py-3 px-3 align-top border-b border-border border-e border-border last:border-e-0';
 
-export const erpLineGridInputClass = `${erpInputClass} !max-w-none h-8 min-h-8`;
+export const erpLineGridInputClass = `${erpInputClass} !max-w-none h-9 min-h-9`;
+
+export const erpLineGridNumericInputClass = `${erpLineGridInputClass} tabular-nums text-end font-semibold px-2.5`;
+
+export const erpTableNumHeadClass = `${erpTableHeadCellClass} min-w-[7.5rem] text-center`;
+
+export const erpTableNumCellClass = `${erpTableBodyCellClass} min-w-[7.5rem] text-end tabular-nums font-semibold text-[#094C6B]`;
 
 export const ERP_SALES_COLUMN_WIDTH: Partial<Record<InvoiceLineColumnId, string>> = {
   rowIndex: 'w-10 min-w-[2.5rem] shrink-0 text-center',

@@ -38,24 +38,6 @@ function transferPostErrorMessage(error: unknown): string {
   return 'تعذر ترحيل النقل';
 }
 
-async function tryPostTransfer(
-  companyId: string,
-  transferId: string,
-  req: AuthRequest
-): Promise<string | null> {
-  try {
-    await transferService.postTransfer(
-      companyId,
-      transferId,
-      buildStockGlPostingContext(req, companyId)
-    );
-    return null;
-  } catch (error) {
-    logger.warn({ error, companyId, transferId }, 'Transfer saved; post skipped');
-    return transferPostErrorMessage(error);
-  }
-}
-
 function transferErrorStatus(error: unknown): number {
   if (error instanceof AppError) return error.statusCode;
   if (!(error instanceof Error)) return 500;
@@ -114,7 +96,6 @@ router.post(
         lines: req.body.lines,
       });
 
-      const postError = await tryPostTransfer(companyId, created.id, req);
       const transfer = await transferService.getTransferById(companyId, created.id);
 
       logger.info(
@@ -124,7 +105,7 @@ router.post(
 
       return void res.status(201).json({
         status: 'success',
-        message: postError ? `تم الحفظ. ${postError}` : 'تم حفظ وترحيل النقل',
+        message: 'تم حفظ النقل المخزني',
         data: transfer,
       });
     } catch (error) {
@@ -280,12 +261,11 @@ router.put(
         lines: req.body.lines,
       });
 
-      const postError = await tryPostTransfer(companyId, updated.id, req);
       const transfer = await transferService.getTransferById(companyId, updated.id);
 
       return void res.json({
         status: 'success',
-        message: postError ? `تم الحفظ. ${postError}` : 'تم حفظ وترحيل النقل',
+        message: 'تم حفظ النقل المخزني',
         data: transfer,
       });
     } catch (error) {

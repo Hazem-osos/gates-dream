@@ -40,6 +40,20 @@ export function unitsForItem(item: ItemWithUnits | undefined): ItemUnitLink[] {
   );
 }
 
+/** When the invoice does not affect stock, only the base unit is allowed on lines. */
+export function unitsForItemInvoiceStockPolicy(
+  item: ItemWithUnits | undefined,
+  affectsStock: boolean
+): ItemUnitLink[] {
+  const all = unitsForItem(item);
+  if (affectsStock) return all;
+  const base = baseUnitLinkForItem(item);
+  if (!base) return all.length ? [all[0]] : [];
+  const baseId = base.unit?.id ?? base.unitId;
+  const match = all.filter((u) => (u.unit?.id ?? u.unitId) === baseId);
+  return match.length ? match : [base];
+}
+
 export function defaultUnitIdForItem(item: ItemWithUnits | undefined): string {
   if (!item?.units?.length) return '';
   const base = item.units.find((u) => u.isBaseUnit) ?? item.units[0];

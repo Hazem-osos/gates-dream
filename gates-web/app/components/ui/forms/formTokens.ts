@@ -6,6 +6,14 @@ export const compactLabelClass =
 export const compactControlClass =
   'h-8 w-full min-w-0 max-w-[var(--erp-field-max,32rem)] rounded-lg border border-border bg-surface-2 px-2 text-sm font-medium text-foreground placeholder:text-foreground-muted/70 transition-colors focus:border-primary focus:bg-surface-1 focus:outline-none focus:ring-2 focus:ring-primary/15 disabled:cursor-not-allowed disabled:opacity-50';
 
+/** Serials, quantities, amounts — wider, easier to read in operations forms. */
+export const compactNumericControlClass =
+  'h-9 w-full min-w-0 max-w-[var(--erp-field-max,32rem)] rounded-lg border border-border bg-surface-2 px-3 text-base font-semibold tabular-nums text-end text-foreground placeholder:text-foreground-muted/70 transition-colors focus:border-primary focus:bg-surface-1 focus:outline-none focus:ring-2 focus:ring-primary/15 disabled:cursor-not-allowed disabled:opacity-50';
+
+/** Document serial / order number (left-aligned labels, monospace-friendly). */
+export const compactSerialControlClass =
+  'h-9 w-full min-w-[8.5rem] max-w-[var(--erp-field-max,32rem)] rounded-lg border border-border bg-surface-2 px-3 text-sm font-semibold tabular-nums tracking-wide text-foreground placeholder:text-foreground-muted/70 transition-colors focus:border-primary focus:bg-surface-1 focus:outline-none focus:ring-2 focus:ring-primary/15 disabled:cursor-not-allowed disabled:opacity-50';
+
 /** Native date inputs stay LTR so the calendar icon sits on the inline-end. */
 export const dateControlClass =
   '[direction:ltr] text-end [color-scheme:inherit] [field-sizing:fixed] [&::-webkit-date-and-time-value]:text-end [&::-webkit-calendar-picker-indicator]:ms-1.5 [&::-webkit-calendar-picker-indicator]:me-0 [&::-webkit-calendar-picker-indicator]:h-4 [&::-webkit-calendar-picker-indicator]:w-4 [&::-webkit-calendar-picker-indicator]:cursor-pointer [&::-webkit-calendar-picker-indicator]:opacity-70 hover:[&::-webkit-calendar-picker-indicator]:opacity-100';

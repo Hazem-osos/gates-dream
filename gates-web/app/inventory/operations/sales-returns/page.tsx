@@ -48,6 +48,9 @@ import { MultiPaymentSplitterModal } from '@/components/invoices/MultiPaymentSpl
 import { pickDefaultSafeId, useSafesQuery } from '@/lib/hooks/useMasterDataQueries';
 import { PageDraftRestoreBanner } from '@/components/erp/PageDraftRestoreBanner';
 import { useDraftAutosave } from '@/lib/hooks/useDraftAutosave';
+import { DocumentSourceLoadBar } from '@/components/invoices/DocumentSourceLoadBar';
+import { SALES_RETURN_SOURCE_TYPES } from '@/lib/invoices/sourceDocument';
+import type { SourceHydratePayload } from '@/lib/invoices/sourceDocument';
 
 const ReturnInvoiceLinesGrid = dynamic(
   () =>
@@ -106,6 +109,7 @@ export default function SalesReturnsPage() {
   const invoiceIdParam = searchParams.get('invoiceId');
   const prefillApplied = useRef(false);
   const restoredSourceRef = useRef<string | null>(null);
+  const [sourceBarKey, setSourceBarKey] = useState(0);
 
   const invalidateQuery = useInvalidateQuery();
   const [selectedReturnId, setSelectedReturnId] = useState<string | null>(
@@ -448,7 +452,21 @@ export default function SalesReturnsPage() {
     setReturnSplits([]);
     setTreasuryId('');
     setDate(new Date().toISOString().split('T')[0]);
+    setSourceBarKey((k) => k + 1);
   }, [clearDraft, replaceQuery, resetKeepPosted]);
+
+  const handleReturnSourceHydrate = useCallback(
+    (payload: SourceHydratePayload) => {
+      if (selectedReturnId || isPosted) return;
+      restoredSourceRef.current = null;
+      if (payload.customerId) setCustomerId(payload.customerId);
+      if (payload.warehouseId) setWarehouseId(payload.warehouseId);
+      if (payload.currencyId) setCurrencyId(payload.currencyId);
+      setSourceSaleInvoiceId(payload.sourceId);
+      setSuccess(`تم اختيار فاتورة ${payload.sourceNumber} — جاري تحميل البنود القابلة للإرجاع`);
+    },
+    [isPosted, selectedReturnId]
+  );
 
   const buildPayload = () => {
     if (!warehouseId) throw new Error('يرجى اختيار المخزن');
@@ -668,6 +686,15 @@ export default function SalesReturnsPage() {
         title="مردود مبيعات"
         breadcrumbLabel="مردودات المبيعات"
         invoiceKind="SALE_RETURN"
+        toolbarLeading={
+          <DocumentSourceLoadBar
+            key={sourceBarKey}
+            hasExistingLines={returnLines.some((l) => Boolean(l.itemId))}
+            disabled={isPosted || Boolean(selectedReturnId)}
+            allowedTypes={SALES_RETURN_SOURCE_TYPES}
+            onHydrate={handleReturnSourceHydrate}
+          />
+        }
         invoiceNumber={invoiceNumber}
         statusTone={isPosted ? 'success' : 'warning'}
         statusLabel={isPosted ? 'مرحّل' : unpostedDocumentStatusLabel(Boolean(selectedReturnId))}

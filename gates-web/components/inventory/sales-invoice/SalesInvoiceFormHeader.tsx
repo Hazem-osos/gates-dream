@@ -2,7 +2,7 @@
 
 import { Controller, useWatch, type Control, type FieldErrors, type UseFormRegister, type UseFormSetValue } from 'react-hook-form';
 import dynamic from 'next/dynamic';
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useMemo, type ReactNode } from 'react';
 import { CustomerSelect } from '@/components/form/PartySelect';
 import { DynamicModalSkeleton } from '@/components/ui/DynamicChunkSkeleton';
 import { WarehouseSelect } from '@/components/form/WarehouseSelect';
@@ -26,7 +26,8 @@ import { useFollowCurrencyCardRate } from '@/lib/hooks/useFollowCurrencyCardRate
 import { ExchangeRateInput } from '@/components/accounting/ExchangeRateInput';
 import { useCompanyBaseCurrency } from '@/lib/hooks/useCompanyBaseCurrency';
 import { InvoiceSourceDocumentControl } from '@/components/invoices/InvoiceSourceDocumentControl';
-import type { SourceHydratePayload } from '@/lib/invoices/sourceDocument';
+import { type SourceHydratePayload } from '@/lib/invoices/sourceDocument';
+import { salesInvoiceSourceTypes } from '@/lib/transaction-settings/affect-stock';
 import { formatUserDisplayName } from '@/lib/user/profile';
 import type { CashTenderKind, InvoiceChequeDraft } from '@/lib/invoices/cash-tender';
 import type { PaymentSplitLine } from '@/lib/invoices/payment-split.types';
@@ -118,6 +119,8 @@ type Props = {
   /** Create/draft: hide multi-pay. Posted view: collect without unpost/edit. */
   splitLocked?: boolean;
   splitCollectMode?: boolean;
+  /** من إعدادات المستند: التأثير على أرصدة المخازن */
+  affectsStock?: boolean;
 };
 
 export function SalesInvoiceFormHeader({
@@ -153,6 +156,7 @@ export function SalesInvoiceFormHeader({
   onHeaderExtrasOpenChange,
   onSourceHydrate,
   includeAllAccounts = false,
+  affectsStock = true,
 }: Props) {
   const mounted = useClientMounted();
   const { code: companyBase } = useCompanyBaseCurrency();
@@ -250,45 +254,52 @@ export function SalesInvoiceFormHeader({
         <label className={erpLabelClass}>البيان / الشرح</label>
         <input className={erpInputClass} placeholder="ملاحظات مختصرة" {...register('description')} />
       </div>
-      <div>
-        <label className={erpLabelClass}>
-          المخزن الافتراضي
-          <RequiredDot hint="يُستخدم كمخزن افتراضي لكل سطر — يمكن تغيير المخزن على مستوى الصنف" />
-        </label>
-        <Controller
-          name="warehouseId"
-          control={control}
-          render={({ field }) => (
-            <WarehouseSelect
-              value={field.value}
-              onChange={field.onChange}
-              disabled={lockWarehouse}
-              className={`${erpInputClass} ${err(!!errors.warehouseId)}`}
-            />
-          )}
-        />
-        <ErpFieldError message={errors.warehouseId?.message} show={showValidationErrors} />
-      </div>
+      {affectsStock ? (
+        <div>
+          <label className={erpLabelClass}>
+            المخزن الافتراضي
+            <RequiredDot hint="يُستخدم كمخزن افتراضي لكل سطر — يمكن تغيير المخزن على مستوى الصنف" />
+          </label>
+          <Controller
+            name="warehouseId"
+            control={control}
+            render={({ field }) => (
+              <WarehouseSelect
+                value={field.value}
+                onChange={field.onChange}
+                disabled={lockWarehouse}
+                className={`${erpInputClass} ${err(!!errors.warehouseId)}`}
+              />
+            )}
+          />
+          <ErpFieldError message={errors.warehouseId?.message} show={showValidationErrors} />
+        </div>
+      ) : null}
     </>
   );
 
+  const salesSourceTypes = useMemo(() => salesInvoiceSourceTypes(affectsStock), [affectsStock]);
+
+  const sourceLoadControl =
+    onSourceHydrate ? (
+      <InvoiceSourceDocumentControl
+        sourceType={sourceType ?? ''}
+        sourceId={sourceId ?? ''}
+        sourceNumber={sourceNumber ?? ''}
+        hasExistingLines={hasExistingLines}
+        disabled={sourceDisabled}
+        allowedTypes={salesSourceTypes}
+        onTypeChange={(type) => {
+          setValue('sourceType', type || 'NONE', { shouldDirty: true });
+          setValue('sourceId', '', { shouldDirty: true });
+          setValue('sourceNumber', '', { shouldDirty: true });
+        }}
+        onHydrate={onSourceHydrate}
+      />
+    ) : null;
+
   const extras = (
     <div className="space-y-3">
-      {onSourceHydrate ? (
-        <InvoiceSourceDocumentControl
-          sourceType={sourceType ?? ''}
-          sourceId={sourceId ?? ''}
-          sourceNumber={sourceNumber ?? ''}
-          hasExistingLines={hasExistingLines}
-          disabled={sourceDisabled}
-          onTypeChange={(type) => {
-            setValue('sourceType', type || 'NONE', { shouldDirty: true });
-            setValue('sourceId', '', { shouldDirty: true });
-            setValue('sourceNumber', '', { shouldDirty: true });
-          }}
-          onHydrate={onSourceHydrate}
-        />
-      ) : null}
     <fieldset disabled={fieldsDisabled} className="m-0 min-w-0 border-0 p-0">
     <div className={erpFormGridClass}>
       <div>
@@ -586,7 +597,12 @@ export function SalesInvoiceFormHeader({
       extras={extras}
       extrasOpen={headerExtrasOpen}
       onExtrasOpenChange={onHeaderExtrasOpenChange}
-      headerActions={headerActions}
+      headerActions={
+        <>
+          {sourceLoadControl}
+          {headerActions}
+        </>
+      }
       fieldsDisabled={fieldsDisabled}
     />
   );

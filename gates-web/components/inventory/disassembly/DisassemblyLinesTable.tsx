@@ -5,7 +5,10 @@ import { Trash2 } from 'lucide-react';
 import { ItemSelect } from '@/app/components/form/ItemSelect';
 import { UniversalDataGrid } from '@/components/ui/data-entry-grid';
 import { TableNumberInput } from '@/components/grid/TableNumberInput';
-import { dataEntryGridInputClass } from '@/components/ui/data-entry-grid/tokens';
+import {
+  dataEntryGridInputClass,
+  dataEntryGridNumericInputClass,
+} from '@/components/ui/data-entry-grid/tokens';
 import {
   ASSEMBLY_LINE_FIELD_ORDER,
   handleLineGridKeyDown,
@@ -126,10 +129,10 @@ export function DisassemblyLinesTable({
           { id: 'itemName', label: 'صنف المكون الناتج', className: 'min-w-[220px]' },
           { id: 'notes', label: 'البيان', className: 'min-w-[140px]' },
           { id: 'unitName', label: 'الوحدة', className: 'w-24', align: 'center' },
-          { id: 'available', label: 'الكمية المتاحة', className: 'w-28', align: 'center' },
-          { id: 'quantity', label: 'الكمية الناتجة (الاستلام)', className: 'w-28', align: 'left' },
-          { id: 'unitCost', label: 'تكلفة الوحدة', className: 'w-28', align: 'left' },
-          { id: 'total', label: 'إجمالي القيمة', className: 'w-28', align: 'left' },
+          { id: 'available', label: 'الكمية المتاحة', className: 'min-w-[6.5rem] w-[6.5rem]', align: 'center' },
+          { id: 'quantity', label: 'الكمية الناتجة (الاستلام)', className: 'min-w-[8rem] w-[8rem]', align: 'left' },
+          { id: 'unitCost', label: 'تكلفة الوحدة', className: 'min-w-[8rem] w-[8rem]', align: 'left' },
+          { id: 'total', label: 'إجمالي القيمة', className: 'min-w-[9rem] w-[9rem]', align: 'left' },
           { id: 'action', label: 'إجراء', className: 'w-12', align: 'center' },
         ]}
         rowCount={Math.max(lines.length, 1)}
@@ -219,7 +222,7 @@ export function DisassemblyLinesTable({
             return (
               <TableNumberInput
                 disabled={disabled}
-                className={`${dataEntryGridInputClass} text-end font-mono font-bold`}
+                className={dataEntryGridNumericInputClass}
                 value={value}
                 onValueCommit={(n) => updateLine(index, { [columnId]: n })}
                 onKeyDown={(e) => onCellKeyDown(e, index)}
@@ -229,7 +232,7 @@ export function DisassemblyLinesTable({
           }
           if (columnId === 'total') {
             return (
-              <span className="block px-2 text-end font-mono text-xs font-semibold text-muted-foreground">
+              <span className="block px-2 text-end text-sm font-semibold tabular-nums text-[#094C6B]">
                 {formatMoney(disassemblyLineTotal(line))}
               </span>
             );

@@ -6,13 +6,39 @@ import { ActionButtons } from '@/app/components/ui/ActionButtons';
 import { ItemSelect } from '@/app/components/form/ItemSelect';
 import { useItemsQuery, formatItemLabel, type ItemOption } from '@/lib/hooks/useMasterDataQueries';
 import { renderPrintableAndOpen } from '@/app/components/print/PrintDocumentButton';
-import { useCompanyPrintProfile } from '@/lib/hooks/useCompanyPrintProfile';
+import {
+  barcodeScanValue,
+  formatStickerPrice,
+  itemStickerCode,
+  resolveItemLabelPrice,
+} from '@/lib/inventory/barcode-label';
 import './print-styles.css';
 
-type LabelSize = '38x25' | '50x30';
+type LabelSize = '38x25' | '50x30' | '60x40';
 
-function BarcodeSvg({ value }: { value: string }) {
+const BARCODE_OPTS: Record<LabelSize, { height: number; width: number }> = {
+  '38x25': { height: 36, width: 1.5 },
+  '50x30': { height: 52, width: 1.85 },
+  '60x40': { height: 64, width: 2.1 },
+};
+
+function mergeItemForLabel(listItem: ItemOption | undefined, seed?: ItemOption): ItemOption | undefined {
+  if (!listItem && !seed) return undefined;
+  if (!listItem) return seed;
+  if (!seed || listItem.id !== seed.id) return listItem;
+  return {
+    ...listItem,
+    serial: seed.serial ?? listItem.serial,
+    barcode: seed.barcode ?? listItem.barcode,
+    arabicName: seed.arabicName || listItem.arabicName,
+    salesPrice: seed.salesPrice ?? listItem.salesPrice,
+    itemPrices: seed.itemPrices?.length ? seed.itemPrices : listItem.itemPrices,
+  };
+}
+
+function BarcodeSvg({ value, size }: { value: string; size: LabelSize }) {
   const svgRef = useRef<SVGSVGElement>(null);
+  const opts = BARCODE_OPTS[size];
   useEffect(() => {
     const el = svgRef.current;
     if (!el || !value) return;
@@ -20,50 +46,75 @@ function BarcodeSvg({ value }: { value: string }) {
     void import(/* webpackChunkName: "jsbarcode" */ 'jsbarcode').then(({ default: JsBarcode }) => {
       if (cancelled || !el) return;
       try {
+        const format = /^\d{13}$/.test(value) ? 'EAN13' : 'CODE128';
         JsBarcode(el, value, {
-          format: 'CODE128',
-          displayValue: true,
-          fontSize: 10,
-          height: 36,
-          margin: 2,
+          format,
+          displayValue: false,
+          lineColor: '#000000',
+          background: '#ffffff',
+          margin: 4,
+          height: opts.height,
+          width: opts.width,
         });
+        el.setAttribute('width', '100%');
+        el.removeAttribute('height');
+        el.style.maxWidth = '100%';
+        el.style.height = 'auto';
       } catch {
-        /* invalid barcode */
+        try {
+          JsBarcode(el, value, {
+            format: 'CODE128',
+            displayValue: false,
+            lineColor: '#000000',
+            background: '#ffffff',
+            margin: 4,
+            height: opts.height,
+            width: opts.width,
+          });
+        } catch {
+          /* invalid barcode */
+        }
       }
     });
     return () => {
       cancelled = true;
     };
-  }, [value]);
-  return <svg ref={svgRef} />;
+  }, [value, opts.height, opts.width]);
+  return <svg ref={svgRef} className="barcode-label-svg" aria-hidden />;
 }
 
 function LabelSheet({
-  companyName,
   item,
   count,
   size,
 }: {
-  companyName: string;
   item: ItemOption;
   count: number;
   size: LabelSize;
 }) {
-  const code = item.barcode || item.serial || item.code || item.id.slice(0, 12);
-  let price: number | null = null;
-  if (typeof item.salesPrice === 'number') price = item.salesPrice;
-  const sizeClass = size === '38x25' ? 'barcode-label-38x25' : 'barcode-label-50x30';
+  const scanValue = barcodeScanValue(item);
+  const stickerCode = itemStickerCode(item);
+  const price = resolveItemLabelPrice(item);
+  const sizeClass =
+    size === '38x25'
+      ? 'barcode-label-38x25'
+      : size === '60x40'
+        ? 'barcode-label-60x40'
+        : 'barcode-label-50x30';
   const labels = Array.from({ length: count }, (_, i) => i);
 
   return (
     <div className="barcode-label-sheet" dir="rtl">
       {labels.map((i) => (
         <div key={i} className={`barcode-label ${sizeClass}`}>
-          <div className="text-[9px] font-bold truncate">{companyName}</div>
-          <div className="text-[8px] truncate">{item.arabicName}</div>
-          <BarcodeSvg value={code} />
+          <div className="barcode-label-code">{stickerCode}</div>
+          <div className="barcode-label-name">{item.arabicName}</div>
+          <div className="barcode-label-bars">
+            <BarcodeSvg value={scanValue} size={size} />
+          </div>
+          <div className="barcode-label-digits">{stickerCode}</div>
           {price != null ? (
-            <div className="text-[9px] font-semibold">{price.toLocaleString()} EGP</div>
+            <div className="barcode-label-price">{formatStickerPrice(price)}</div>
           ) : null}
         </div>
       ))}
@@ -87,16 +138,17 @@ export function BarcodePrintModal({
    * the user to re-pick each one from the item selector. */
   initialItemIds?: string[];
 }) {
-  const { profile } = useCompanyPrintProfile();
   const { data } = useItemsQuery(500);
   const items = data?.data ?? [];
   const [itemId, setItemId] = useState(initialItemId ?? seedItem?.id ?? '');
   const [labelCount, setLabelCount] = useState(1);
-  const [size, setSize] = useState<LabelSize>('50x30');
+  const [size, setSize] = useState<LabelSize>('60x40');
   const [batchIds, setBatchIds] = useState<string[]>(initialItemIds ?? []);
 
   useEffect(() => {
-    if (open && (initialItemId || seedItem?.id)) setItemId(initialItemId ?? seedItem?.id ?? '');
+    if (!open) return;
+    if (initialItemId) setItemId(initialItemId);
+    else if (seedItem?.id) setItemId(seedItem.id);
   }, [open, initialItemId, seedItem?.id]);
 
   useEffect(() => {
@@ -105,11 +157,15 @@ export function BarcodePrintModal({
 
   if (!open) return null;
 
-  const selected =
-    items.find((it) => it.id === itemId) ??
-    (seedItem && seedItem.id === itemId ? seedItem : undefined);
+  const selected = mergeItemForLabel(
+    items.find((it) => it.id === itemId),
+    seedItem && (seedItem.id === itemId || !itemId) ? seedItem : undefined
+  );
   const resolveItem = (id: string) =>
-    items.find((it) => it.id === id) ?? (seedItem?.id === id ? seedItem : undefined);
+    mergeItemForLabel(
+      items.find((it) => it.id === id),
+      seedItem?.id === id ? seedItem : undefined
+    );
 
   const batchItems = batchIds.map(resolveItem).filter(Boolean) as ItemOption[];
 
@@ -119,21 +175,16 @@ export function BarcodePrintModal({
   };
 
   const print = () => {
-    const toPrint = batchItems.length > 0 ? batchItems : selected ? [selected] : [];
+    const toPrint =
+      batchItems.length > 0 ? batchItems : selected ? [selected] : seedItem ? [seedItem] : [];
     if (!toPrint.length) return;
     renderPrintableAndOpen(
       () => (
-        <>
+        <div className="barcode-label-print-root">
           {toPrint.map((it) => (
-            <LabelSheet
-              key={it.id}
-              companyName={profile?.nameAr ?? 'Gates'}
-              item={it}
-              count={labelCount}
-              size={size}
-            />
+            <LabelSheet key={it.id} item={it} count={labelCount} size={size} />
           ))}
-        </>
+        </div>
       )
     );
     onClose();
@@ -159,7 +210,16 @@ export function BarcodePrintModal({
             />
           </label>
           {selected ? (
-            <p className="text-xs text-gray-600">{formatItemLabel(selected)}</p>
+            <div className="rounded-lg border border-[#D6EAF3] bg-[#F6FBFD] p-3 text-center">
+              <p className="text-sm font-bold text-[#0A3D5E]">{itemStickerCode(selected) || '—'}</p>
+              <p className="text-xs text-[#094C6B] truncate">{selected.arabicName}</p>
+              <p className="mt-1 text-xs font-semibold text-[#0E78AA]">
+                {(() => {
+                  const p = resolveItemLabelPrice(selected);
+                  return p != null ? formatStickerPrice(p) : 'بدون سعر في البطاقة';
+                })()}
+              </p>
+            </div>
           ) : null}
           <div className="flex gap-2">
             <Button type="button" variant="secondary" onClick={addToBatch}>
@@ -207,8 +267,9 @@ export function BarcodePrintModal({
               value={size}
               onChange={(e) => setSize(e.target.value as LabelSize)}
             >
-              <option value="38x25">38 × 25 mm</option>
+              <option value="38x25">38 × 25 mm (صغير)</option>
               <option value="50x30">50 × 30 mm</option>
+              <option value="60x40">60 × 40 mm (مُوصى به)</option>
             </select>
           </label>
         </div>

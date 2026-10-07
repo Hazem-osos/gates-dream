@@ -36,6 +36,13 @@ import {
   isEnteredCommercialLine,
   type CommercialDocumentLine,
 } from '@/components/inventory/commercial/commercial-line-types';
+import { DocumentSourceLoadBar } from '@/components/invoices/DocumentSourceLoadBar';
+import {
+  mapSourcePayloadToCommercialLines,
+  stockHeaderFieldsFromSource,
+} from '@/lib/inventory/apply-source-to-stock-document';
+import type { SourceHydratePayload } from '@/lib/invoices/sourceDocument';
+import { toast } from '@/lib/feedback/toast';
 
 type QuoteRecord = {
   id: string;
@@ -107,6 +114,7 @@ export function PriceQuoteForm() {
   const [paymentTerms, setPaymentTerms] = useState('');
   const [deliveryPeriod, setDeliveryPeriod] = useState('');
   const [lines, setLines] = useState<CommercialDocumentLine[]>([emptyCommercialLine()]);
+  const [sourceBarKey, setSourceBarKey] = useState(0);
 
   const priceQuoteDraft = useMemo(
     () => ({
@@ -405,6 +413,7 @@ export function PriceQuoteForm() {
     setValidUntil(plusDays(30));
     setCustomerId('');
     setLines([emptyCommercialLine()]);
+    setSourceBarKey((k) => k + 1);
     setError('');
     setSuccess('');
     const params = new URLSearchParams(searchParams.toString());
@@ -416,6 +425,16 @@ export function PriceQuoteForm() {
   };
 
   const money = (n: number) => n.toLocaleString('ar-EG', { minimumFractionDigits: 2 });
+
+  const handleSourceHydrate = (payload: SourceHydratePayload) => {
+    const header = stockHeaderFieldsFromSource(payload, description);
+    if (header.customerId) setCustomerId(header.customerId);
+    if (header.warehouseId) setWarehouseId(header.warehouseId);
+    if (header.description) setDescription(header.description);
+    const mapped = mapSourcePayloadToCommercialLines(payload);
+    setLines(mapped.length ? mapped : [emptyCommercialLine()]);
+    toast.success(`تم تحميل العرض من ${payload.sourceNumber}`);
+  };
 
   return (
     <ErpDocumentLayout>
@@ -499,6 +518,14 @@ export function PriceQuoteForm() {
 
         <ErpFormHeaderCard
           extrasLabel="خيارات إضافية"
+          headerActions={
+            <DocumentSourceLoadBar
+              key={sourceBarKey}
+              hasExistingLines={entered.length > 0}
+              disabled={Boolean(loaded?.isConverted)}
+              onHydrate={handleSourceHydrate}
+            />
+          }
           row1={
             <>
               <div className="space-y-1">

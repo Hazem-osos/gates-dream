@@ -126,6 +126,7 @@ export class PayrollEngineService {
     return roundTo4(total);
   }
 
+  /** Canonical run creation — delegates to Phase 5 calculation + snapshot layer. */
   async createPayrollRun(
     companyId: string,
     params: {
@@ -134,96 +135,11 @@ export class PayrollEngineService {
       periodMonth: number;
       periodYear: number;
       employeeInputs?: Record<string, EmployeePayrollInput>;
+      calculatedById?: string;
     }
   ) {
-    const existing = await prisma.payrollRun.findUnique({
-      where: {
-        companyId_periodYear_periodMonth: {
-          companyId,
-          periodYear: params.periodYear,
-          periodMonth: params.periodMonth,
-        },
-      },
-    });
-    if (existing && existing.status !== 'DRAFT') {
-      throw new AppError(409, 'Payroll run already posted for this period');
-    }
-
-    const employees = await prisma.employee.findMany({
-      where: {
-        companyId,
-        isActive: true,
-        basicSalary: { gt: 0 },
-      },
-    });
-    if (employees.length === 0) {
-      throw new AppError(422, 'No active employees with basic salary configured');
-    }
-
-    const lines: CalculatedPayrollLine[] = [];
-    for (const emp of employees) {
-      const input = params.employeeInputs?.[emp.id] ?? {};
-      lines.push(await this.calculateEmployeePayroll(companyId, emp.id, input));
-    }
-
-    const totals = lines.reduce(
-      (acc, line) => ({
-        totalGross: acc.totalGross + line.grossSalary,
-        totalNet: acc.totalNet + line.netSalary,
-        totalEmployerInsurance: acc.totalEmployerInsurance + line.employerInsurance,
-        totalEmployeeInsurance: acc.totalEmployeeInsurance + line.employeeInsurance,
-        totalTax: acc.totalTax + line.tax,
-        totalAdvanceDeduction: acc.totalAdvanceDeduction + line.advanceDeduction,
-      }),
-      {
-        totalGross: 0,
-        totalNet: 0,
-        totalEmployerInsurance: 0,
-        totalEmployeeInsurance: 0,
-        totalTax: 0,
-        totalAdvanceDeduction: 0,
-      }
-    );
-
-    return prisma.$transaction(async (tx) => {
-      if (existing) {
-        await tx.payrollRunItem.deleteMany({ where: { payrollRunId: existing.id } });
-        await tx.payrollRun.delete({ where: { id: existing.id } });
-      }
-      return tx.payrollRun.create({
-      data: {
-        companyId,
-        branchId: params.branchId,
-        fiscalYearId: params.fiscalYearId,
-        periodMonth: params.periodMonth,
-        periodYear: params.periodYear,
-        status: 'DRAFT',
-        totalGross: new Decimal(roundTo4(totals.totalGross)),
-        totalNet: new Decimal(roundTo4(totals.totalNet)),
-        totalEmployerInsurance: new Decimal(roundTo4(totals.totalEmployerInsurance)),
-        totalEmployeeInsurance: new Decimal(roundTo4(totals.totalEmployeeInsurance)),
-        totalTax: new Decimal(roundTo4(totals.totalTax)),
-        totalAdvanceDeduction: new Decimal(roundTo4(totals.totalAdvanceDeduction)),
-        items: {
-          create: lines.map((line) => ({
-            employeeId: line.employeeId,
-            basicSalary: new Decimal(line.basicSalary),
-            allowances: new Decimal(line.allowances),
-            overtime: new Decimal(line.overtime),
-            absenceDeduction: new Decimal(line.absenceDeduction),
-            otherDeductions: new Decimal(line.otherDeductions),
-            grossSalary: new Decimal(line.grossSalary),
-            employerInsurance: new Decimal(line.employerInsurance),
-            employeeInsurance: new Decimal(line.employeeInsurance),
-            tax: new Decimal(line.tax),
-            advanceDeduction: new Decimal(line.advanceDeduction),
-            netSalary: new Decimal(line.netSalary),
-          })),
-        },
-      },
-      include: { items: true },
-      });
-    });
+    const { payrollRunCalculationService } = await import('./payroll/payroll-run-calculation.service');
+    return payrollRunCalculationService.createPayrollRun(companyId, params);
   }
 
   async getPayrollRun(companyId: string, id: string) {

@@ -1,0 +1,26 @@
+ROUTINE_NAME                                                                                                                    
+--------------------------------------------------------------------------------------------------------------------------------
+UpdateNothing                                                                                                                   
+SaveReturnInvoices                                                                                                              
+SavePayment                                                                                                                     
+SaveInvoices                                                                                                                    
+ReturnSavePayment                                                                                                               
+Return_create_Eshar_Credit                                                                                                      
+PostInvoice                                                                                                                     
+GetLogSQLText                                                                                                                   
+GetAllItemsInStore                                                                                                              
+GetAllItemsInStoreMobile                                                                                                        
+GetAllItemsCountNew                                                                                                             
+GetAllItemsCountData                                                                                                            
+GetAllItemsCount                                                                                                                
+create_Eshar_Credit                                                                                                             
+AdjustItemsCost                                                                                                                 
+
+# --- gates-mobile may also call (not always in Desktop dumps) ---
+# SaveStoreTrans
+# PostStoreTrans
+# PostStoreTransfer
+# PostPayment
+# PostCash
+# PostCashTrx
+# Verify on tenant: npm run erp:check-procedures

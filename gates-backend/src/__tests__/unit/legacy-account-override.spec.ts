@@ -178,6 +178,7 @@ describe('legacy-account-override', () => {
 
   it('rejects invalid target when COA mapping missing', async () => {
     const prisma = createPrismaMock(companyA, cashAccountId);
+    prisma._accounts.length = 0;
     const idMap = new MigrationIdMapService(prisma as any);
     await ensureOwnerApprovedOverrideCatalog(prisma as any, companyA);
     const ctx = makeCtx(prisma, jobId, companyA, idMap);

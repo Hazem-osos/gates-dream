@@ -21,19 +21,18 @@ import { resolvePostedFlag } from '@/lib/documents/posting-trust';
 import { apiClient } from '@/lib/api/client';
 import { confirmAction } from '@/lib/feedback/confirm';
 import { toHijriDate } from '@/lib/hijri-date';
-import type { ApiError } from '@/lib/api/types';
-import {
-  postNamedDocumentAfterSave,
-  useRepostAfterUnpost,
-} from '@/lib/accounting/ensure-posted-after-save';
+import type { ApiError, ApiResponse } from '@/lib/api/types';
+import { useRepostAfterUnpost } from '@/lib/accounting/ensure-posted-after-save';
 import { finishDocumentSave } from '@/lib/documents/finish-save';
 import {
+  extractStockPostResult,
   postSuccessMessage,
   useDocumentPostMutation,
 } from '@/lib/inventory/use-document-post-mutation';
 import { invalidateStockViews } from '@/lib/invoices/invalidate-stock-views';
-import { printPageContent } from '@/lib/print/printHtml';
+import { printManufacturingVoucher } from '@/lib/print/printManufacturingVoucher';
 import { useStoreDocumentSerial } from '@/lib/inventory/use-store-document-serial';
+import { StockMovementBottomSplit } from '@/components/inventory/stock/StockMovementBottomSplit';
 
 type ParentItem = {
   id: string;
@@ -113,6 +112,7 @@ function DisassemblyPageInner() {
   const [isPosted, setIsPosted] = useState(false);
   const [isCancelled, setIsCancelled] = useState(false);
   const [journalEntryId, setJournalEntryId] = useState<string | null>(null);
+  const [glSkipped, setGlSkipped] = useState(false);
   const [parentUnitCost, setParentUnitCost] = useState(0);
   const [lines, setLines] = useState<DisassemblyComponentLine[]>([emptyDisassemblyComponentLine()]);
   const [viewLocked, setViewLocked] = useState(false);
@@ -156,7 +156,9 @@ function DisassemblyPageInner() {
     setCostCenterId(loaded.costCenterId || '');
     setIsPosted(resolvePostedFlag(loaded));
     setIsCancelled(Boolean(loaded.isCancelled));
-    setJournalEntryId(loaded.journalEntryId || null);
+    const je = loaded.journalEntryId || null;
+    setJournalEntryId(je);
+    setGlSkipped(resolvePostedFlag(loaded) && !je);
     setParentUnitCost(Number(first?.disassembledUnitPrice) || 0);
     setLines(
       (first?.components ?? []).map((comp) => ({
@@ -195,13 +197,21 @@ function DisassemblyPageInner() {
     window.history.replaceState(null, '', `?id=${id}`);
   };
 
+  const applyPostResponse = (res: ApiResponse<unknown>) => {
+    const { journalEntryId: je, glSkipped: skipped } = extractStockPostResult(res);
+    setJournalEntryId(je);
+    setGlSkipped(skipped);
+  };
+
   const postDisassemblyAfterSave = (id: string, number?: string | null) => {
     void apiClient
       .post(`/inventory/disassemblies/${id}/post`)
       .then((res) => {
         setIsPosted(true);
+        applyPostResponse(res);
         setSuccess(postSuccessMessage(res));
         stayOnDisassembly(id, number);
+        invalidateQuery(['disassembly', id]);
         invalidateStockViews(invalidateQuery);
       })
       .catch((err: unknown) => {
@@ -263,8 +273,12 @@ function DisassemblyPageInner() {
         postAfterSaveRef.current = false;
         invalidateStockViews(invalidateQuery);
         if (consumeShouldRepost() && id) {
-          void postNamedDocumentAfterSave(`/inventory/disassemblies/${id}/post`)
-            .then(() => {
+          void apiClient
+            .post(`/inventory/disassemblies/${id}/post`, {}, { skipSuccessNotify: true })
+            .then((postRes) => {
+              setIsPosted(true);
+              applyPostResponse(postRes);
+              setSuccess(postSuccessMessage(postRes));
               finishDocumentSave({
                 label: 'تفكيك',
                 number,
@@ -277,6 +291,8 @@ function DisassemblyPageInner() {
                   setViewLocked(true);
                 },
               });
+              invalidateQuery(['disassembly', id]);
+              invalidateStockViews(invalidateQuery);
             })
             .catch((err: ApiError) => {
               stayOnDisassembly(id, res.data?.serial);
@@ -439,6 +455,7 @@ function DisassemblyPageInner() {
     setIsPosted(false);
     setIsCancelled(false);
     setJournalEntryId(null);
+    setGlSkipped(false);
     setParentUnitCost(0);
     setLines([emptyDisassemblyComponentLine()]);
     setError('');
@@ -454,6 +471,7 @@ function DisassemblyPageInner() {
     setIsPosted(false);
     setIsCancelled(false);
     setJournalEntryId(null);
+    setGlSkipped(false);
     setSuccess('تم تجهيز نسخة جديدة من أمر التفكيك');
     window.history.replaceState(null, '', window.location.pathname);
   };
@@ -493,7 +511,7 @@ function DisassemblyPageInner() {
           onCostCenterId={setCostCenterId}
           disabled={readOnly}
           explodePending={explodePending}
-          canExplode={Boolean(parentItemId) && disassemblyQuantity > 0 && !readOnly}
+          canExplode={Boolean(parentItemId) && disassemblyQuantity > 0 && !isPosted && !isCancelled}
           onExplode={() => void handleExplodeBOM()}
           onSaveDraft={handleSaveAndPost}
           onCancel={resetNew}
@@ -533,10 +551,13 @@ function DisassemblyPageInner() {
                       {
                         onSuccess: () => {
                           setIsPosted(false);
+                          setJournalEntryId(null);
+                          setGlSkipped(false);
                           setViewLocked(false);
                           markUnpostedForEdit();
                           setSuccess('تم فك ترحيل التفكيك');
                           stayOnDisassembly(selectedId);
+                          invalidateQuery(['disassembly', selectedId]);
                         },
                         onError: (err: ApiError) => setError(err.message || 'فشل فك الترحيل'),
                       }
@@ -544,7 +565,30 @@ function DisassemblyPageInner() {
                 });
               },
             },
-            { id: 'print', label: 'طباعة أمر التفكيك', onClick: () => void printPageContent('أمر التفكيك') },
+            {
+              id: 'print',
+              label: 'طباعة أمر التفكيك',
+              onClick: () => {
+                const parent = items.find((i) => i.id === parentItemId);
+                printManufacturingVoucher({
+                  title: 'أمر التفكيك',
+                  number: serial,
+                  date,
+                  description,
+                  parentItemLabel: parent?.arabicName,
+                  quantity: disassemblyQuantity,
+                  rows: entered.map((line) => ({
+                    code: line.itemCode,
+                    name: line.itemName,
+                    quantity: line.quantity,
+                    unitCost: line.unitCost,
+                    total: disassemblyLineTotal(line),
+                  })),
+                  totalAmount: parentTotal,
+                  totalsLabel: 'قيمة الصنف المفكك',
+                });
+              },
+            },
             { id: 'duplicate', label: 'تكرار التفكيك', onClick: handleDuplicate },
             {
               id: 'cancel',
@@ -577,6 +621,15 @@ function DisassemblyPageInner() {
           canSave={!readOnly && !savePending}
           onSave={handleSaveAndPost}
           onCancel={resetNew}
+        />
+
+        <StockMovementBottomSplit
+          totalAmount={parentTotal}
+          lineCount={entered.length}
+          journalEntryId={journalEntryId}
+          documentId={selectedId}
+          isPosted={isPosted}
+          glSkipped={glSkipped}
         />
 
         <DocumentBrowseDrawer open={browseOpen} onClose={() => setBrowseOpen(false)} title="أوامر التفكيك السابقة">

@@ -22,18 +22,19 @@ import { apiClient } from '@/lib/api/client';
 import { confirmAction } from '@/lib/feedback/confirm';
 import { toHijriDate } from '@/lib/hijri-date';
 import type { ApiError } from '@/lib/api/types';
-import {
-  postNamedDocumentAfterSave,
-  useRepostAfterUnpost,
-} from '@/lib/accounting/ensure-posted-after-save';
+import { useRepostAfterUnpost } from '@/lib/accounting/ensure-posted-after-save';
 import { finishDocumentSave } from '@/lib/documents/finish-save';
 import {
+  extractStockPostResult,
   postSuccessMessage,
   useDocumentPostMutation,
 } from '@/lib/inventory/use-document-post-mutation';
+import type { ApiResponse } from '@/lib/api/types';
 import { invalidateStockViews } from '@/lib/invoices/invalidate-stock-views';
-import { printPageContent } from '@/lib/print/printHtml';
+import { printManufacturingVoucher } from '@/lib/print/printManufacturingVoucher';
 import { useStoreDocumentSerial } from '@/lib/inventory/use-store-document-serial';
+import { StockMovementBottomSplit } from '@/components/inventory/stock/StockMovementBottomSplit';
+import type { AssemblyPricingMethod } from '@/lib/inventory/assembly-pricing';
 
 type AssemblyParentItem = {
   id: string;
@@ -108,7 +109,9 @@ function AssemblyPageInner() {
   const [isPosted, setIsPosted] = useState(false);
   const [isCancelled, setIsCancelled] = useState(false);
   const [journalEntryId, setJournalEntryId] = useState<string | null>(null);
+  const [glSkipped, setGlSkipped] = useState(false);
   const [lines, setLines] = useState<AssemblyComponentLine[]>([emptyAssemblyComponentLine()]);
+  const [pricingMethod, setPricingMethod] = useState<AssemblyPricingMethod>('AVERAGE_COST');
   const [viewLocked, setViewLocked] = useState(false);
 
   const { serialAutomatic, invalidateNextSerial } = useStoreDocumentSerial({
@@ -150,7 +153,9 @@ function AssemblyPageInner() {
     setCostCenterId(loaded.costCenterId || '');
     setIsPosted(resolvePostedFlag(loaded));
     setIsCancelled(Boolean(loaded.isCancelled));
-    setJournalEntryId(loaded.journalEntryId || null);
+    const je = loaded.journalEntryId || null;
+    setJournalEntryId(je);
+    setGlSkipped(resolvePostedFlag(loaded) && !je);
     setLines(
       (first?.components ?? []).map((comp) => ({
         itemId: comp.componentItemId,
@@ -187,13 +192,21 @@ function AssemblyPageInner() {
     window.history.replaceState(null, '', `?id=${id}`);
   };
 
+  const applyPostResponse = (res: ApiResponse<unknown>) => {
+    const { journalEntryId: je, glSkipped: skipped } = extractStockPostResult(res);
+    setJournalEntryId(je);
+    setGlSkipped(skipped);
+  };
+
   const postAssemblyAfterSave = (id: string, number?: string | null) => {
     void apiClient
       .post(`/inventory/assemblies/${id}/post`)
       .then((res) => {
         setIsPosted(true);
+        applyPostResponse(res);
         setSuccess(postSuccessMessage(res));
         stayOnAssembly(id, number);
+        invalidateQuery(['assembly', id]);
         invalidateStockViews(invalidateQuery);
       })
       .catch((err: unknown) => {
@@ -255,8 +268,12 @@ function AssemblyPageInner() {
         postAfterSaveRef.current = false;
         invalidateStockViews(invalidateQuery);
         if (consumeShouldRepost() && id) {
-          void postNamedDocumentAfterSave(`/inventory/assemblies/${id}/post`)
-            .then(() => {
+          void apiClient
+            .post(`/inventory/assemblies/${id}/post`, {}, { skipSuccessNotify: true })
+            .then((postRes) => {
+              setIsPosted(true);
+              applyPostResponse(postRes);
+              setSuccess(postSuccessMessage(postRes));
               finishDocumentSave({
                 label: 'تجميع',
                 number,
@@ -269,6 +286,8 @@ function AssemblyPageInner() {
                   setViewLocked(true);
                 },
               });
+              invalidateQuery(['assembly', id]);
+              invalidateStockViews(invalidateQuery);
             })
             .catch((err: ApiError) => {
               stayOnAssembly(id, res.data?.serial);
@@ -379,7 +398,11 @@ function AssemblyPageInner() {
     try {
       const res = await apiClient.get<BomExplosionResponse>(
         `/inventory/items/${parentItemId}/bom-explosion`,
-        { quantity: assemblyQuantity, warehouseId: sourceWarehouseId || undefined }
+        {
+          quantity: assemblyQuantity,
+          warehouseId: sourceWarehouseId || undefined,
+          pricingMethod,
+        }
       );
       const components = res.data?.components ?? [];
       if (!components.length) {
@@ -420,9 +443,11 @@ function AssemblyPageInner() {
     setSourceWarehouseId('');
     setTargetWarehouseId('');
     setCostCenterId('');
+    setPricingMethod('AVERAGE_COST');
     setIsPosted(false);
     setIsCancelled(false);
     setJournalEntryId(null);
+    setGlSkipped(false);
     setLines([emptyAssemblyComponentLine()]);
     setError('');
     setSuccess('');
@@ -437,6 +462,7 @@ function AssemblyPageInner() {
     setIsPosted(false);
     setIsCancelled(false);
     setJournalEntryId(null);
+    setGlSkipped(false);
     setSuccess('تم تجهيز نسخة جديدة من أمر التجميع');
     window.history.replaceState(null, '', window.location.pathname);
   };
@@ -474,9 +500,18 @@ function AssemblyPageInner() {
           onTargetWarehouseId={setTargetWarehouseId}
           costCenterId={costCenterId}
           onCostCenterId={setCostCenterId}
+          pricingMethod={pricingMethod}
+          onPricingMethod={(method) => {
+            setPricingMethod(method);
+            if (method === 'MANUAL') {
+              setLines((prev) =>
+                prev.map((line) => (line.itemId ? { ...line, unitCost: 0 } : line))
+              );
+            }
+          }}
           disabled={readOnly}
           explodePending={explodePending}
-          canExplode={Boolean(parentItemId) && assemblyQuantity > 0 && !readOnly}
+          canExplode={Boolean(parentItemId) && assemblyQuantity > 0 && !isPosted && !isCancelled}
           onExplode={() => void handleExplodeBOM()}
           onSaveDraft={handleSaveAndPost}
           onCancel={resetNew}
@@ -516,10 +551,13 @@ function AssemblyPageInner() {
                       {
                         onSuccess: () => {
                           setIsPosted(false);
+                          setJournalEntryId(null);
+                          setGlSkipped(false);
                           setViewLocked(false);
                           markUnpostedForEdit();
                           setSuccess('تم فك ترحيل التجميع');
                           stayOnAssembly(selectedId);
+                          invalidateQuery(['assembly', selectedId]);
                         },
                         onError: (err: ApiError) => setError(err.message || 'فشل فك الترحيل'),
                       }
@@ -527,7 +565,30 @@ function AssemblyPageInner() {
                 });
               },
             },
-            { id: 'print', label: 'طباعة أمر التجميع', onClick: () => void printPageContent('أمر التجميع') },
+            {
+              id: 'print',
+              label: 'طباعة أمر التجميع',
+              onClick: () => {
+                const parent = items.find((i) => i.id === parentItemId);
+                printManufacturingVoucher({
+                  title: 'أمر التجميع',
+                  number: serial,
+                  date,
+                  description,
+                  parentItemLabel: parent?.arabicName,
+                  quantity: assemblyQuantity,
+                  rows: entered.map((line) => ({
+                    code: line.itemCode,
+                    name: line.itemName,
+                    quantity: line.quantity,
+                    unitCost: line.unitCost,
+                    total: assemblyLineTotal(line),
+                  })),
+                  totalAmount: totalComponentsCost,
+                  totalsLabel: 'إجمالي تكلفة المكونات',
+                });
+              },
+            },
             { id: 'duplicate', label: 'تكرار التجميع', onClick: handleDuplicate },
             {
               id: 'cancel',
@@ -546,6 +607,7 @@ function AssemblyPageInner() {
           lines={lines}
           onChange={setLines}
           warehouseId={sourceWarehouseId}
+          pricingMethod={pricingMethod}
           disabled={readOnly}
           headerDescription={description}
         />
@@ -560,6 +622,15 @@ function AssemblyPageInner() {
           canSave={!readOnly && !savePending}
           onSave={handleSaveAndPost}
           onCancel={resetNew}
+        />
+
+        <StockMovementBottomSplit
+          totalAmount={totalComponentsCost}
+          lineCount={entered.length}
+          journalEntryId={journalEntryId}
+          documentId={selectedId}
+          isPosted={isPosted}
+          glSkipped={glSkipped}
         />
 
         <DocumentBrowseDrawer open={browseOpen} onClose={() => setBrowseOpen(false)} title="أوامر التجميع السابقة">

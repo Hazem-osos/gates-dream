@@ -182,7 +182,7 @@ export function InvoiceAnalyticalSheet({ cards }: { cards: InvoiceAnalyticalCard
             <p className="border-b border-slate-100 px-4 py-2 text-xs text-slate-600">{card.description}</p>
           ) : null}
 
-          <div className="overflow-x-auto">
+          <div dir="rtl" className="report-scroll-viewport erp-scroll-x overflow-x-auto">
             <table className="min-w-full border-collapse text-xs text-slate-800">
               <thead className="bg-slate-50 text-slate-600">
                 <tr>

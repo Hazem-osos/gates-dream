@@ -10,6 +10,9 @@ import { documentSequenceService } from '../../platform/services/document-sequen
 import { treasuryAccountResolverService } from '../../treasury/services/treasury-account-resolver.service';
 import { hrGlAccountResolverService } from './hr-gl-account-resolver.service';
 import { payrollEngineService } from './payroll-engine.service';
+import { payrollWorkflowService } from './payroll/payroll-workflow.service';
+import { payrollReconciliationService } from './payroll/payroll-reconciliation.service';
+import { payrollComponentJournalService } from './payroll/payroll-component-journal.service';
 import { journalLines } from '../../trade/utils/journal-lines.util';
 
 export class PayrollPostingService {
@@ -86,23 +89,66 @@ export class PayrollPostingService {
 
   async postAccrual(ctx: JournalPostingContext, payrollRunId: string) {
     const run = await payrollEngineService.getPayrollRun(ctx.companyId, payrollRunId);
-    if (run.status !== 'DRAFT') {
-      throw new AppError(400, 'Payroll run is not in DRAFT status');
+    const settings = await prisma.hrSettings.findUnique({ where: { companyId: ctx.companyId } });
+    payrollWorkflowService.assertCanPost(
+      run.status,
+      settings?.payrollRequireApprovalBeforePost ?? false
+    );
+
+    if (run.calculationMode === 'RULE_ENGINE') {
+      const recon = await payrollReconciliationService.reconcileRun(ctx.companyId, payrollRunId);
+      if (recon.blockers.length) {
+        throw new AppError(422, recon.blockers.join('; '));
+      }
     }
 
     const accounts = await hrGlAccountResolverService.resolveAccounts(ctx.companyId);
-    const gross = roundTo4(Number(run.totalGross));
-    const employerIns = roundTo4(Number(run.totalEmployerInsurance));
-    const employeeIns = roundTo4(Number(run.totalEmployeeInsurance));
-    const tax = roundTo4(Number(run.totalTax));
-    const advances = roundTo4(Number(run.totalAdvanceDeduction));
-    const net = roundTo4(Number(run.totalNet));
-
-    const socialPayable = roundTo4(employeeIns + employerIns);
     const legacyGlNum = await this.allocateGlNum(ctx);
     const runLabel = `${run.periodYear}-${String(run.periodMonth).padStart(2, '0')}`;
 
+    const journalLineInputs =
+      run.calculationMode === 'RULE_ENGINE'
+        ? journalLines(
+            (await payrollComponentJournalService.buildAccrualLines(ctx.companyId, payrollRunId)).map(
+              (l) => ({
+                accountId: l.accountId,
+                costCenterId: l.costCenterId ?? undefined,
+                debit: l.debit,
+                credit: l.credit,
+                description: l.memo,
+              })
+            )
+          )
+        : journalLines([
+            { accountId: accounts.salariesExpenseAccountId, debit: roundTo4(Number(run.totalGross)), credit: 0 },
+            {
+              accountId: accounts.employerInsuranceExpenseAccountId,
+              debit: roundTo4(Number(run.totalEmployerInsurance)),
+              credit: 0,
+            },
+            {
+              accountId: accounts.socialInsurancePayableAccountId,
+              debit: 0,
+              credit: roundTo4(Number(run.totalEmployeeInsurance) + Number(run.totalEmployerInsurance)),
+            },
+            { accountId: accounts.payrollTaxPayableAccountId, debit: 0, credit: roundTo4(Number(run.totalTax)) },
+            { accountId: accounts.employeeAdvancesAccountId, debit: 0, credit: roundTo4(Number(run.totalAdvanceDeduction)) },
+            { accountId: accounts.accruedPayrollAccountId, debit: 0, credit: roundTo4(Number(run.totalNet)) },
+          ]);
+
     return prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT id FROM payroll_runs WHERE id = ${payrollRunId} AND companyId = ${ctx.companyId} FOR UPDATE`;
+      const locked = await tx.payrollRun.findFirst({
+        where: { id: payrollRunId, companyId: ctx.companyId },
+      });
+      if (!locked) throw new AppError(404, 'Payroll run not found');
+      if (locked.accrualJournalEntryId) {
+        return tx.payrollRun.findUnique({
+          where: { id: payrollRunId },
+          include: { items: true },
+        })!;
+      }
+
       const je = await journalPostingService.createAndPostInTx(tx, ctx, {
         fiscalYearId: ctx.fiscalYearId!,
         legacyGlNum,
@@ -114,22 +160,7 @@ export class PayrollPostingService {
         sourceType: 'PR',
         sourceNumber: runLabel,
         sourceYearId: String(run.periodYear),
-        lines: journalLines([
-          { accountId: accounts.salariesExpenseAccountId, debit: gross, credit: 0 },
-          {
-            accountId: accounts.employerInsuranceExpenseAccountId,
-            debit: employerIns,
-            credit: 0,
-          },
-          {
-            accountId: accounts.socialInsurancePayableAccountId,
-            debit: 0,
-            credit: socialPayable,
-          },
-          { accountId: accounts.payrollTaxPayableAccountId, debit: 0, credit: tax },
-          { accountId: accounts.employeeAdvancesAccountId, debit: 0, credit: advances },
-          { accountId: accounts.accruedPayrollAccountId, debit: 0, credit: net },
-        ]),
+        lines: journalLineInputs,
       });
 
       await this.applyAdvanceRecoveries(tx, payrollRunId);
@@ -140,6 +171,7 @@ export class PayrollPostingService {
           status: 'POSTED',
           accrualJournalEntryId: je.id,
           postedAt: new Date(),
+          postedById: ctx.userId,
         },
         include: { items: true },
       });
@@ -153,6 +185,9 @@ export class PayrollPostingService {
    */
   async unpostAccrual(ctx: JournalPostingContext, payrollRunId: string) {
     const run = await payrollEngineService.getPayrollRun(ctx.companyId, payrollRunId);
+    if (run.status === 'DRAFT' && !run.accrualJournalEntryId) {
+      return run;
+    }
     if (run.status !== 'POSTED') {
       throw new AppError(400, 'Only a POSTED (not yet disbursed) payroll run can be unposted');
     }
@@ -161,7 +196,16 @@ export class PayrollPostingService {
     }
 
     return prisma.$transaction(async (tx) => {
-      await journalPostingService.reverseJournalEntryInTx(tx, ctx, run.accrualJournalEntryId!, {
+      await tx.$executeRaw`SELECT id FROM payroll_runs WHERE id = ${payrollRunId} AND companyId = ${ctx.companyId} FOR UPDATE`;
+      const locked = await tx.payrollRun.findFirst({ where: { id: payrollRunId } });
+      if (!locked?.accrualJournalEntryId) {
+        return locked!;
+      }
+      if (locked.status !== 'POSTED') {
+        throw new AppError(400, 'Only a POSTED (not yet disbursed) payroll run can be unposted');
+      }
+
+      await journalPostingService.reverseJournalEntryInTx(tx, ctx, locked.accrualJournalEntryId!, {
         reason: 'Payroll accrual unposted',
       });
 
@@ -185,11 +229,14 @@ export class PayrollPostingService {
     payment: { safeId?: string; bankAccountId?: string }
   ) {
     const run = await payrollEngineService.getPayrollRun(ctx.companyId, payrollRunId);
+    if (run.paymentJournalEntryId) {
+      return prisma.payrollRun.findUnique({
+        where: { id: payrollRunId },
+        include: { items: true },
+      })!;
+    }
     if (run.status !== 'POSTED') {
       throw new AppError(400, 'Payroll must be POSTED before disbursement');
-    }
-    if (run.paymentJournalEntryId) {
-      throw new AppError(400, 'Payroll run is already disbursed');
     }
     if (!payment.safeId && !payment.bankAccountId) {
       throw new AppError(422, 'safeId or bankAccountId is required');
@@ -214,6 +261,18 @@ export class PayrollPostingService {
     const runLabel = `${run.periodYear}-${String(run.periodMonth).padStart(2, '0')}`;
 
     return prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT id FROM payroll_runs WHERE id = ${payrollRunId} AND companyId = ${ctx.companyId} FOR UPDATE`;
+      const locked = await tx.payrollRun.findFirst({
+        where: { id: payrollRunId, companyId: ctx.companyId },
+      });
+      if (!locked) throw new AppError(404, 'Payroll run not found');
+      if (locked.paymentJournalEntryId) {
+        return tx.payrollRun.findUnique({
+          where: { id: payrollRunId },
+          include: { items: true },
+        })!;
+      }
+
       const je = await journalPostingService.createAndPostInTx(tx, ctx, {
         fiscalYearId: ctx.fiscalYearId!,
         legacyGlNum,

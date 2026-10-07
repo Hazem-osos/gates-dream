@@ -1,3 +1,5 @@
+import type { JournalEntryLineData } from '../../accounting/types/journal-entry.types';
+
 export function journalLines(
   rows: Array<{
     accountId: string;
@@ -6,9 +8,9 @@ export function journalLines(
     description?: string;
     costCenterId?: string;
     partnerId?: string;
-    partnerType?: string;
+    partnerType?: JournalEntryLineData['partnerType'];
   }>
-) {
+): JournalEntryLineData[] {
   const nonZero = rows.filter((row) => row.debit > 0 || row.credit > 0);
   return nonZero.map((row, idx) => ({
     ...row,
