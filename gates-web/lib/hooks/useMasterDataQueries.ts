@@ -311,16 +311,22 @@ export function useCostCentersQuery(
   return { ...query, data };
 }
 
+type CurrencyMasterRow = {
+  id: string;
+  code: string;
+  arabicName: string;
+  englishName?: string;
+  exchangeRate?: number | string | null;
+};
+
 export function useCurrenciesQuery(limit = 100) {
-  const query = useApiQuery<
-    { id: string; code: string; arabicName: string; englishName?: string; exchangeRate?: number | string | null }[]
-  >(
+  const query = useApiQuery<CurrencyMasterRow[]>(
     queryKeys.currencies,
     '/accounting/currencies',
     { limit, isActive: true },
     { staleTime: 0, gcTime: staleTimes.masterGcMs, refetchOnMount: 'always' }
   );
-  const rows = sortByArabicName(unwrapMasterRows(query.data?.data, ['currencies']));
+  const rows = sortByArabicName(unwrapMasterRows<CurrencyMasterRow>(query.data?.data, ['currencies']));
   const data = query.data ? { ...query.data, data: rows } : query.data;
   return { ...query, data };
 }
