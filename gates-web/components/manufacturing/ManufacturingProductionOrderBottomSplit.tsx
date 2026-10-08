@@ -9,6 +9,7 @@ import { CalculationInspector } from '@/components/ai/CalculationInspector';
 import type { CostRollupSlice } from '@/app/components/ui/CostRollupCard';
 import type { LoadedManufacturingProcess } from '@/lib/manufacturing/process-from-bom';
 import { productionOrderStatusLabel, type ProductionOrderStatus } from '@/lib/manufacturing/production-order-status';
+import { formatManufacturingOrderSerial } from '@/lib/manufacturing/order-serial';
 import { TableSkeleton } from '@/components/ui/TableSkeleton';
 import { EmptyState } from '@/components/ui/EmptyState';
 
@@ -370,7 +371,9 @@ export function ManufacturingProductionOrderBottomSplit({
         order?.id ? (
           <p className="text-xs text-slate-500 flex justify-between gap-2">
             <span>مسلسل الأمر</span>
-            <span className="font-semibold text-[#0A3D5E]">{order.orderNumber}</span>
+            <span className="font-semibold font-mono text-[#0A3D5E]">
+              {formatManufacturingOrderSerial(order.orderNumber)}
+            </span>
           </p>
         ) : null
       }

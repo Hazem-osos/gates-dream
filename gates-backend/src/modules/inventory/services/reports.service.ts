@@ -6,6 +6,10 @@ import { Decimal } from '@prisma/client/runtime/library';
 import { agedOpenItemsService } from '../../accounting/services/aged-open-items.service';
 import { roundTo4 } from '../../../shared/utils/decimal-round';
 import {
+  formatManufacturingOrderSerial,
+  stripManufacturingOrderSourceSuffix,
+} from '../../manufacturing/utils/order-serial';
+import {
   applyCustomerGroupWhere,
   applyCustomerMasterWhere,
   applySupplierGroupWhere,
@@ -433,6 +437,11 @@ const MOVEMENT_TYPE_AR: Record<string, string> = {
   GI: 'إذن صرف مخزني',
   GR: 'إذن إضافة مخزني',
   OPENING: 'رصيد أول المدة',
+  PROD_ISSUE: 'أمر تصنيع — صرف خامات',
+  PROD_ISSUE_REVERSAL: 'أمر تصنيع — عكس صرف خامات',
+  PROD_RECEIPT: 'أمر تصنيع — استلام منتج',
+  PROD_RECEIPT_REVERSAL: 'أمر تصنيع — عكس استلام منتج',
+  PROD_RECEIPT_ADJUST: 'أمر تصنيع — تسوية استلام',
 };
 
 function n(value: unknown): number {
@@ -446,6 +455,7 @@ function labelMovementType(type: string | null | undefined): string {
 
 function movementSourceLabel(movementType: string | null | undefined, sourceType: string | null | undefined): string {
   const base = (sourceType || '').replace(/-UNPOST$/, '').replace(/-EDIT$/, '').replace(/-CANCEL$/, '');
+  if (base === 'MO') return 'أمر تصنيع';
   if (base === 'OB' || base === 'OPEN') return 'بضاعة أول المدة';
   if (base === 'GI') return MOVEMENT_TYPE_AR.ISSUE;
   if (base === 'GR') return MOVEMENT_TYPE_AR.RECEIPT;
@@ -1814,6 +1824,22 @@ export class InventoryReportsService {
           orderBy: [{ documentDate: 'asc' }, { effectiveAt: 'asc' }],
         });
 
+        const moLookupKeys = new Set<string>();
+        for (const row of movements) {
+          if (row.sourceType !== 'MO' || row.sourceDocumentId || !row.sourceNumber) continue;
+          moLookupKeys.add(stripManufacturingOrderSourceSuffix(row.sourceNumber));
+        }
+        const moIdByOrderNumber = new Map<string, string>();
+        if (moLookupKeys.size > 0) {
+          const moOrders = await prisma.productionOrder.findMany({
+            where: { companyId, orderNumber: { in: [...moLookupKeys] } },
+            select: { id: true, orderNumber: true },
+          });
+          for (const mo of moOrders) {
+            if (mo.orderNumber) moIdByOrderNumber.set(mo.orderNumber, mo.id);
+          }
+        }
+
         for (const row of movements) {
           if (isInvoiceStockMovement(row.sourceType)) continue;
           if (row.sourceDocumentId && invoiceIds.has(row.sourceDocumentId)) continue;
@@ -1825,11 +1851,22 @@ export class InventoryReportsService {
             || row.item?.units?.[0]?.unit?.arabicName
             || '';
           const traits = itemTraits(row.item);
+          const moKey =
+            row.sourceType === 'MO' && row.sourceNumber
+              ? stripManufacturingOrderSourceSuffix(row.sourceNumber)
+              : '';
+          const resolvedDocumentId =
+            row.sourceDocumentId ||
+            (moKey ? moIdByOrderNumber.get(moKey) ?? '' : '');
+          const displaySourceNumber =
+            row.sourceType === 'MO' && row.sourceNumber
+              ? formatManufacturingOrderSerial(row.sourceNumber)
+              : row.sourceNumber || '';
           sourceLines.push({
         date: row.documentDate,
             sourceLabel: movementSourceLabel(row.movementType, row.sourceType),
-            sourceNumber: row.sourceNumber || '',
-            sourceDocumentId: row.sourceDocumentId || '',
+            sourceNumber: displaySourceNumber,
+            sourceDocumentId: resolvedDocumentId,
             sourceType: row.sourceType || '',
         itemId: row.itemId,
             itemName: row.item?.arabicName || row.item?.serial || '',

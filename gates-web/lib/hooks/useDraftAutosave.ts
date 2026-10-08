@@ -158,7 +158,9 @@ export function useDraftAutosave<T>(config: UseDraftAutosaveConfig<T>) {
     }
     if (
       !fromQc &&
-      /(?:^|&)(id|invoiceId|fromInvoice|orderId|quoteId)=/i.test(recalledTabSearch(homePath))
+      /(?:^|&)(id|invoiceId|fromInvoice|orderId|quoteId|workOrderId|bomId|modelCount)=/i.test(
+        recalledTabSearch(homePath)
+      )
     ) {
       restoredKeyRef.current = storageKey;
       return;

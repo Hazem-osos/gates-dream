@@ -9,6 +9,10 @@ export type WorkOrderBomProgressRow = {
   requiredQuantity: number;
   completedQuantity: number;
   inProgressQuantity: number;
+  /** مسودات أوامر تصنيع محجوزة على هذا النموذج */
+  draftQuantity: number;
+  /** أدنى كمية مسموحة في الخطة = منفّذ + قيد التنفيذ + مسودات */
+  minimumModelQuantity: number;
   remainingQuantity: number;
   percentComplete: number;
 };
@@ -139,7 +143,12 @@ export async function computeWorkOrderProgress(
 
   const completedByBom = new Map<string, number>();
   const inProgressByBom = new Map<string, number>();
+  const draftByBom = new Map<string, number>();
   for (const o of orders) {
+    if (o.status === 'DRAFT') {
+      draftByBom.set(o.bomId, (draftByBom.get(o.bomId) ?? 0) + num(o.plannedQuantity));
+      continue;
+    }
     const planned = num(o.plannedQuantity);
     const completedQty = num(o.actualQuantity ?? o.plannedQuantity);
     const countsCompleted =
@@ -164,6 +173,8 @@ export async function computeWorkOrderProgress(
     const requiredQuantity = plan.modelCount;
     const completedQuantity = completedByBom.get(plan.bomId) ?? 0;
     const inProgressQuantity = inProgressByBom.get(plan.bomId) ?? 0;
+    const draftQuantity = draftByBom.get(plan.bomId) ?? 0;
+    const minimumModelQuantity = completedQuantity + inProgressQuantity + draftQuantity;
     const remainingQuantity = Math.max(0, requiredQuantity - completedQuantity);
     const percentComplete =
       requiredQuantity > 0
@@ -175,6 +186,8 @@ export async function computeWorkOrderProgress(
       requiredQuantity,
       completedQuantity,
       inProgressQuantity,
+      draftQuantity,
+      minimumModelQuantity,
       remainingQuantity,
       percentComplete,
     };
@@ -204,6 +217,64 @@ export async function computeWorkOrderProgress(
     bomRows,
     canFinish,
   };
+}
+
+export function minimumModelCountForBomProgress(row: {
+  completedQuantity: number;
+  inProgressQuantity: number;
+  draftQuantity?: number;
+}): number {
+  return row.completedQuantity + row.inProgressQuantity + (row.draftQuantity ?? 0);
+}
+
+/** يتحقق من خطة التخطيط عند حفظ أمر الشغل (كميات وإزالة نماذج). */
+export async function assertWorkOrderPlanningSave(
+  companyId: string,
+  workOrderId: string,
+  incomingPlans: WorkOrderBomPlanRow[]
+) {
+  const progress = await computeWorkOrderProgress(companyId, workOrderId);
+  if (!progress) return;
+
+  const incomingByBom = new Map<string, number>();
+  for (const p of normalizeBomPlans(incomingPlans)) {
+    incomingByBom.set(p.bomId, p.modelCount);
+  }
+
+  for (const row of progress.bomRows) {
+    const nextQty = incomingByBom.get(row.bomId);
+    if (nextQty === undefined) {
+      if (row.completedQuantity > 0 || row.inProgressQuantity > 0) {
+        throw new AppError(
+          422,
+          `لا يمكن حذف النموذج «${row.bomName}» — يوجد كمية منفّذة أو قيد التنفيذ`
+        );
+      }
+      const openOrders = await prisma.productionOrder.count({
+        where: {
+          companyId,
+          manufacturingWorkOrderId: workOrderId,
+          bomId: row.bomId,
+          status: { in: ['DRAFT', 'RELEASED', 'IN_PROGRESS'] },
+        },
+      });
+      if (openOrders > 0) {
+        throw new AppError(
+          422,
+          `لا يمكن حذف النموذج «${row.bomName}» — يوجد أوامر تصنيع في قائمة التنفيذ`
+        );
+      }
+      continue;
+    }
+
+    const floor = minimumModelCountForBomProgress(row);
+    if (nextQty < floor - 1e-6) {
+      throw new AppError(
+        422,
+        `كمية النموذج «${row.bomName}» لا يمكن أن تقل عن المنفّذ + قيد التنفيذ (${floor})`
+      );
+    }
+  }
 }
 
 export async function assertProductionOrderQuantityWithinWorkOrderCap(

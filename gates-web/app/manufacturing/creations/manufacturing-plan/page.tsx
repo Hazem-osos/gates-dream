@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Plus, Trash2 } from 'lucide-react';
 import {
@@ -13,7 +13,6 @@ import { DocumentBrowseDrawer } from '@/components/erp/DocumentBrowseDrawer';
 import { useBackendReachability } from '@/lib/hooks/useBackendReachability';
 import { useApiMutation, useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
 import { apiClient } from '@/lib/api/client';
-import { WarehouseSelect } from '@/app/components/form/WarehouseSelect';
 import {
   ManufacturingPageChrome,
   MfgEmptyRow,
@@ -33,6 +32,7 @@ import {
 import { stashMfgOperationPrefill } from '@/lib/manufacturing/mfg-operation-prefill';
 import { stashMfgTransferPrefill } from '@/lib/manufacturing/mfg-transfer-prefill';
 import { buildShortageTransferLines, shortageTransferError } from '@/lib/manufacturing/mfg-transfer-shortage';
+import { bomStageFromFormMetadata } from '@/lib/manufacturing/bom-form-metadata';
 import { cn } from '@/lib/utils';
 import type { ApiError } from '@/lib/api/types';
 
@@ -47,7 +47,19 @@ type PlanLine = {
   costCenter: string;
 };
 
-type BomListItem = { id: string; name: string; finishedItem?: { arabicName?: string } };
+type BomListItem = {
+  id: string;
+  name: string;
+  finishedItem?: { arabicName?: string };
+  formMetadata?: { stage?: string } | null;
+};
+
+function stageFromBomId(bomId: string, bomList: BomListItem[]): string {
+  if (!bomId) return '';
+  const bom = bomList.find((b) => b.id === bomId);
+  if (!bom) return '';
+  return bomStageFromFormMetadata(bom.formMetadata);
+}
 
 type SavedPlanLine = {
   id: string;
@@ -107,7 +119,6 @@ export default function ManufacturingPlanPage() {
   const [planDescription, setPlanDescription] = useState('');
   const [headerBomId, setHeaderBomId] = useState('');
   const [headerStage, setHeaderStage] = useState('');
-  const [headerFromWarehouse, setHeaderFromWarehouse] = useState('');
   const [headerCostCenter, setHeaderCostCenter] = useState('');
 
   const [lines, setLines] = useState<PlanLine[]>([emptyLine(1, { date: today })]);
@@ -130,6 +141,36 @@ export default function ManufacturingPlanPage() {
   const planList = plansListResponse?.data ?? [];
   const boms = bomsResponse?.data ?? [];
   const bomNameById = useMemo(() => new Map(boms.map((b) => [b.id, b.name])), [boms]);
+
+  const resolveStageForBomId = useCallback(
+    async (bomId: string): Promise<string> => {
+      const fromList = stageFromBomId(bomId, boms);
+      if (fromList) return fromList;
+      if (!bomId) return '';
+      try {
+        const res = await apiClient.get<BomForProcess>(`/manufacturing/boms/${bomId}`);
+        return bomStageFromFormMetadata(res.data.formMetadata);
+      } catch {
+        return '';
+      }
+    },
+    [boms]
+  );
+
+  useEffect(() => {
+    if (!boms.length) return;
+    if (headerBomId && !headerStage.trim()) {
+      const s = stageFromBomId(headerBomId, boms);
+      if (s) setHeaderStage(s);
+    }
+    setLines((prev) =>
+      prev.map((l) => {
+        if (!l.bomId || l.stage.trim()) return l;
+        const s = stageFromBomId(l.bomId, boms);
+        return s ? { ...l, stage: s } : l;
+      })
+    );
+  }, [boms, headerBomId, headerStage]);
 
   const selectedLine = lines.find((l) => l.id === selectedLineId) ?? null;
 
@@ -158,15 +199,16 @@ export default function ManufacturingPlanPage() {
     }
     setPlanDescription(source.description ?? '');
     setHeaderBomId(source.headerBomId ?? '');
-    setHeaderStage(source.headerStage ?? '');
-    setHeaderFromWarehouse(source.fromWarehouseId ?? '');
+    setHeaderStage(
+      (source.headerStage ?? '').trim() || stageFromBomId(source.headerBomId ?? '', boms)
+    );
     setHeaderCostCenter(source.costCenter ?? '');
     const mapped = source.lines.map((l) => ({
       id: mode === 'open' ? l.id : newLineId(),
       lineNo: l.lineNo,
       date: l.lineDate.slice(0, 10),
       bomId: l.bomId,
-      stage: l.stage ?? '',
+      stage: (l.stage ?? '').trim() || stageFromBomId(l.bomId, boms),
       quantity: String(l.quantity),
       warehouseId: l.warehouseId ?? '',
       costCenter: l.costCenter ?? '',
@@ -181,7 +223,6 @@ export default function ManufacturingPlanPage() {
       description: planDescription.trim() || undefined,
       headerBomId: headerBomId || undefined,
       headerStage: headerStage.trim() || undefined,
-      fromWarehouseId: headerFromWarehouse || undefined,
       costCenter: headerCostCenter.trim() || undefined,
       lines: lines.map((l, index) => ({
         lineNo: index + 1,
@@ -244,7 +285,6 @@ export default function ManufacturingPlanPage() {
     setPlanDescription('');
     setHeaderBomId('');
     setHeaderStage('');
-    setHeaderFromWarehouse('');
     setHeaderCostCenter('');
     setLines([emptyLine(1, { date: today })]);
     setSelectedLineId(null);
@@ -260,7 +300,6 @@ export default function ManufacturingPlanPage() {
         bomId: headerBomId,
         stage: headerStage,
         quantity: '1',
-        warehouseId: headerFromWarehouse,
         costCenter: headerCostCenter,
       }),
     ]);
@@ -275,19 +314,9 @@ export default function ManufacturingPlanPage() {
     let loaded = buildLoadedProcessFromBom(bom, qty);
     if (!loaded) return null;
     if (line.stage) loaded = { ...loaded, stage: line.stage };
-    if (line.warehouseId) {
-      loaded = {
-        ...loaded,
-        fromWarehouseId: headerFromWarehouse || loaded.fromWarehouseId,
-        toWarehouseId: line.warehouseId,
-      };
-    }
     if (line.costCenter) loaded = { ...loaded, costCenter: line.costCenter };
-    if (headerFromWarehouse) {
-      loaded = { ...loaded, fromWarehouseId: headerFromWarehouse };
-    }
     return loaded;
-  }, [headerFromWarehouse]);
+  }, []);
 
   async function requireSelectedLine(): Promise<PlanLine | null> {
     setError(null);
@@ -313,7 +342,7 @@ export default function ManufacturingPlanPage() {
         return;
       }
       setCheckProcess(loaded);
-      setCheckWarehouseId(headerFromWarehouse || loaded.fromWarehouseId || line.warehouseId);
+      setCheckWarehouseId(loaded.fromWarehouseId || line.warehouseId || '');
       setShowQtyCheck(true);
     } catch (err) {
       setError((err as ApiError).message || 'تعذر فحص الكميات');
@@ -333,8 +362,6 @@ export default function ManufacturingPlanPage() {
     stashMfgOperationPrefill({
       bomId: line.bomId,
       stage: line.stage || headerStage,
-      fromWarehouseId: headerFromWarehouse,
-      toWarehouseId: line.warehouseId,
       costCenter: line.costCenter || headerCostCenter,
       numberOfModels: qty,
       description: planDescription || `من خطة ${planSerial || '—'} — سطر ${line.lineNo}`,
@@ -353,14 +380,15 @@ export default function ManufacturingPlanPage() {
         setError('تعذر تحميل بيانات النموذج');
         return;
       }
-      const fromWh = headerFromWarehouse || loaded.fromWarehouseId;
-      const toWh = line.warehouseId || loaded.toWarehouseId;
-      if (!fromWh || !toWh) {
-        setError('حدد «من مخزن» في الرأس ومخزن التصنيع في السطر');
-        return;
-      }
-      if (fromWh === toWh) {
-        setError('مخزن المصدر والوجهة متطابقان — اختر مخزنين مختلفين');
+      const fromWh = loaded.fromWarehouseId || '';
+      const toWh = loaded.toWarehouseId || '';
+      if (quantityMode === 'shortage') {
+        if (!fromWh) {
+          setError('النموذج لا يحدد مخزن مصدر للخامات — راجع إعدادات النموذج');
+          return;
+        }
+      } else if (fromWh && toWh && fromWh === toWh) {
+        setError('مخزن المصدر والوجهة متطابقان — اختر مخزنين مختلفين أو حددهما في شاشة التحويل');
         return;
       }
 
@@ -394,14 +422,14 @@ export default function ManufacturingPlanPage() {
       }
 
       if (transferLines.length === 0) {
-        setError(kind === 'raw' ? 'لا خامات للنقل' : 'لا أصناف ناتجة للنقل');
+        setError(kind === 'raw' ? 'لا خامات للتحويل' : 'لا أصناف ناتجة للتحويل');
         return;
       }
       stashMfgTransferPrefill({
         description:
           quantityMode === 'shortage'
-            ? `نقل عجز خامات — خطة سطر ${line.lineNo}`
-            : `نقل من خطة تصنيع — سطر ${line.lineNo}`,
+            ? `تحويل عجز خامات — خطة سطر ${line.lineNo}`
+            : `تحويل كميات — خطة سطر ${line.lineNo}`,
         fromWarehouseId: fromWh,
         toWarehouseId: toWh,
         lines: transferLines,
@@ -413,7 +441,7 @@ export default function ManufacturingPlanPage() {
       setShowQtyCheck(false);
       router.push('/inventory/operations/transfer');
     } catch (err) {
-      setError(shortageTransferError(err) || (err as ApiError).message || 'تعذر فتح النقل المخزني');
+      setError(shortageTransferError(err) || (err as ApiError).message || 'تعذر فتح تحويل الكميات');
     } finally {
       setBusy(false);
     }
@@ -464,11 +492,25 @@ export default function ManufacturingPlanPage() {
         </div>
       </DocumentBrowseDrawer>
 
-      <FormSectionCard title="بيانات الخطة" subtitle="المسلسل والشرح والنموذج والمرحلة والمخزن" bodyClassName="grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
+      <FormSectionCard title="بيانات الخطة" subtitle="المسلسل والشرح والنموذج والمرحلة" bodyClassName="grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
         <CompactFormField label="المسلسل" value={planSerial} onChange={(e) => setPlanSerial(e.target.value)} />
         <CompactFormField label="الشرح" value={planDescription} onChange={(e) => setPlanDescription(e.target.value)} />
         <CompactFormField label="نموذج (افتراضي للسطر الجديد)">
-          <select className={compactControlClass} value={headerBomId} onChange={(e) => setHeaderBomId(e.target.value)}>
+          <select
+            className={compactControlClass}
+            value={headerBomId}
+            onChange={(e) => {
+              const v = e.target.value;
+              setHeaderBomId(v);
+              const immediate = stageFromBomId(v, boms);
+              setHeaderStage(immediate);
+              if (v && !immediate) {
+                void resolveStageForBomId(v).then((s) => {
+                  if (s) setHeaderStage(s);
+                });
+              }
+            }}
+          >
             <option value="">—</option>
             {boms.map((b) => (
               <option key={b.id} value={b.id}>
@@ -479,9 +521,6 @@ export default function ManufacturingPlanPage() {
           </select>
         </CompactFormField>
         <CompactFormField label="المرحلة" value={headerStage} onChange={(e) => setHeaderStage(e.target.value)} />
-        <CompactFormField label="من مخزن">
-          <WarehouseSelect value={headerFromWarehouse} onChange={setHeaderFromWarehouse} className={compactControlClass} emptyLabel="مصدر الخامات" />
-        </CompactFormField>
         <CompactFormField label="مركز التكلفة" value={headerCostCenter} onChange={(e) => setHeaderCostCenter(e.target.value)} />
       </FormSectionCard>
 
@@ -501,8 +540,7 @@ export default function ManufacturingPlanPage() {
               <th className={mfgThClass}>التاريخ</th>
               <th className={mfgThClass}>النموذج</th>
               <th className={mfgThClass}>المرحلة</th>
-              <th className={mfgThClass}>الكمية</th>
-              <th className={mfgThClass}>مخزن التصنيع</th>
+              <th className={cn(mfgThClass, 'w-[4rem] max-w-[4rem]')}>الكمية</th>
               <th className={mfgThClass}>مركز التكلفة</th>
               <th className={cn(mfgThClass, 'w-10')} />
             </tr>
@@ -534,7 +572,19 @@ export default function ManufacturingPlanPage() {
                     onClick={(e) => e.stopPropagation()}
                     onChange={(e) => {
                       const v = e.target.value;
-                      setLines((p) => p.map((l) => (l.id === line.id ? { ...l, bomId: v } : l)));
+                      const fromBom = stageFromBomId(v, boms);
+                      const lineId = line.id;
+                      setLines((p) =>
+                        p.map((l) => (l.id === lineId ? { ...l, bomId: v, stage: fromBom } : l))
+                      );
+                      if (v && !fromBom) {
+                        void resolveStageForBomId(v).then((s) => {
+                          if (!s) return;
+                          setLines((p) =>
+                            p.map((l) => (l.id === lineId ? { ...l, stage: s } : l))
+                          );
+                        });
+                      }
                     }}
                   >
                     <option value="">—</option>
@@ -556,26 +606,18 @@ export default function ManufacturingPlanPage() {
                     }}
                   />
                 </td>
-                <td className={mfgTdClass}>
+                <td className={cn(mfgTdClass, 'w-[4rem] max-w-[4rem]')}>
                   <input
                     type="number"
                     min={0}
                     step="0.0001"
-                    className={compactControlClass}
+                    className={cn(compactControlClass, 'w-full min-w-0 max-w-[3.75rem] px-1 text-sm')}
                     value={line.quantity}
                     onClick={(e) => e.stopPropagation()}
                     onChange={(e) => {
                       const v = e.target.value;
                       setLines((p) => p.map((l) => (l.id === line.id ? { ...l, quantity: v } : l)));
                     }}
-                  />
-                </td>
-                <td className={mfgTdClass} onClick={(e) => e.stopPropagation()}>
-                  <WarehouseSelect
-                    value={line.warehouseId}
-                    onChange={(v) => setLines((p) => p.map((l) => (l.id === line.id ? { ...l, warehouseId: v } : l)))}
-                    className={compactControlClass}
-                    emptyLabel="مخزن التصنيع"
                   />
                 </td>
                 <td className={mfgTdClass}>
@@ -609,7 +651,7 @@ export default function ManufacturingPlanPage() {
                 </td>
               </tr>
             ))}
-            {lines.length === 0 ? <MfgEmptyRow colSpan={8}>أضف سطراً للخطة</MfgEmptyRow> : null}
+            {lines.length === 0 ? <MfgEmptyRow colSpan={7}>أضف سطراً للخطة</MfgEmptyRow> : null}
           </tbody>
         </table>
         {selectedLine ? (
@@ -629,7 +671,7 @@ export default function ManufacturingPlanPage() {
           فحص الكميات
         </Button>
         <Button type="button" variant="secondary" disabled={busy} onClick={() => void requireSelectedLine().then((l) => l && setShowTransferPick(true))}>
-          نقل مخزني
+          تحويل الكميات
         </Button>
       </div>
 
@@ -652,8 +694,10 @@ export default function ManufacturingPlanPage() {
       {showTransferPick ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
           <div className="w-full max-w-md rounded-2xl border border-[#D6EAF3] bg-white p-5 shadow-xl">
-            <h3 className="text-base font-bold text-[#0A3D5E]">نقل مخزني من الخطة</h3>
-            <p className="mt-2 text-sm text-slate-600">نقل كميات السطر المختار (خامات أو منتجات ناتجة).</p>
+            <h3 className="text-base font-bold text-[#0A3D5E]">تحويل الكميات</h3>
+            <p className="mt-2 text-sm text-slate-600">
+              تحميل أصناف وكميات السطر المختار في شاشة النقل المخزني — اختر مخزن المصدر والوجهة هناك ثم احفظ.
+            </p>
             <div className="mt-4 flex flex-col gap-2">
               <Button type="button" disabled={busy} onClick={() => void openTransfer('raw', 'shortage')}>
                 مواد خام — العجز فقط

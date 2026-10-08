@@ -5,8 +5,8 @@ import { documentSequenceService } from '../../platform/services/document-sequen
 
 const DOC_TYPE = 'PRODUCTION-ORDER';
 const LEGACY_SUFFIX = 'MO01';
-/** Plain numeric serial like legacy manufacturing orders (`000001`). */
-const SERIAL_PADDING = 6;
+/** Plain numeric serial like legacy manufacturing orders (`0000000001`). */
+const SERIAL_PADDING = 10;
 
 async function loadExistingOrderNumbers(
   tx: Prisma.TransactionClient,

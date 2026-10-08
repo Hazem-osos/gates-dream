@@ -4,6 +4,7 @@ import { Fragment, useMemo, useState, type MouseEvent } from 'react';
 import Link from 'next/link';
 import { ColumnValueMenu } from '@/components/grid/ColumnValueMenu';
 import { movementDocumentHref } from '@/lib/accounting/journal-source';
+import { formatManufacturingOrderSerial } from '@/lib/manufacturing/order-serial';
 import type { ReportFilterBadge } from '@/lib/reportEngine/reportFilterBadges';
 
 type Row = Record<string, unknown>;
@@ -255,8 +256,13 @@ export function ItemMovementSheet({
                   : text(row, 'groupKey') || `${text(row, 'itemName')}|${text(row, 'warehouseName')}`;
               const showGroup = Boolean(group) && group !== previousGroup;
               previousGroup = group;
-              const href = movementDocumentHref(text(row, 'sourceType'), text(row, 'sourceDocumentId'));
-              const sourceNumber = text(row, 'sourceNumber');
+              const sourceType = text(row, 'sourceType');
+              const href = movementDocumentHref(sourceType, text(row, 'sourceDocumentId'));
+              const rawSourceNumber = text(row, 'sourceNumber');
+              const sourceNumber =
+                sourceType === 'MO' && rawSourceNumber
+                  ? formatManufacturingOrderSerial(rawSourceNumber)
+                  : rawSourceNumber;
               const sourceLabel = text(row, 'sourceLabel');
               return (
                 <Fragment key={`${group}-${index}`}>

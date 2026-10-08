@@ -5,7 +5,9 @@ import { bomService } from './bom.service';
 import { resolveManufacturingWorkOrderNumberInTx } from './manufacturing-work-order-numbering.service';
 import type { SaveManufacturingWorkOrderInput } from '../schemas/manufacturing-work-order.schema';
 import {
+  assertWorkOrderPlanningSave,
   computeWorkOrderProgress,
+  normalizeBomPlans,
   parseBomPlansFromMetadata,
 } from '../utils/work-order-progress';
 
@@ -326,6 +328,11 @@ export class ManufacturingWorkOrderService {
 
     const orderNumber = input.orderNumber?.trim() || existing.orderNumber;
     if (!orderNumber) throw new AppError(422, 'رقم الأمر مطلوب');
+
+    const incomingPlans = normalizeBomPlans(
+      parseBomPlansFromMetadata(input.processMetadata, bomId, input.modelQuantity)
+    );
+    await assertWorkOrderPlanningSave(companyId, id, incomingPlans);
 
     return prisma.$transaction(async (tx) => {
       const clash = await tx.manufacturingWorkOrder.findFirst({

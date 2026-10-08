@@ -134,6 +134,8 @@ export async function shouldAutoPostOnSave(
   companyId: string,
   moduleCode: string
 ): Promise<boolean> {
+  // Sales orders (SO*) are manufacturing/commercial commitments — not GL invoices.
+  if (moduleCode.startsWith('SO')) return false;
   const [directStore, directMoney, autoPostRow, settings] = await Promise.all([
     companySettingService.getFlag(companyId, 'DirectAffectStore', false),
     companySettingService.getFlag(companyId, 'DirectAffectMoney', false),

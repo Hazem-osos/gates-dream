@@ -1,7 +1,13 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
+import { Minus, Plus } from 'lucide-react';
 import { AppTable, type AppTableColumn } from '@/app/components/ui/AppTable';
+import {
+  formatManufacturingOrderSerial,
+  manufacturingOrderHref,
+} from '@/lib/manufacturing/order-serial';
 import { useApiQuery } from '@/lib/hooks/useApi';
 import {
   MfgTableCard,
@@ -71,8 +77,8 @@ function DetailTabs({ row }: { row: MfgMovementMasterRow }) {
   const [tab, setTab] = useState<'outputs' | 'raws' | 'additional'>('outputs');
 
   const tabs = [
-    { id: 'outputs' as const, label: 'المواد المصنعة' },
-    { id: 'raws' as const, label: 'المواد الأولية' },
+    { id: 'outputs' as const, label: 'أصناف الناتج' },
+    { id: 'raws' as const, label: 'الخامات الأولية' },
     { id: 'additional' as const, label: 'التكاليف الإضافية' },
   ];
 
@@ -80,9 +86,10 @@ function DetailTabs({ row }: { row: MfgMovementMasterRow }) {
     tab === 'outputs' ? row.details.outputs : tab === 'raws' ? row.details.raws : row.details.additionalCosts;
 
   const nameHeader =
-    tab === 'outputs' ? 'المواد المصنعة' : tab === 'raws' ? 'المواد الأولية' : 'التكاليف الإضافية';
+    tab === 'outputs' ? 'أصناف الناتج' : tab === 'raws' ? 'الخامات الأولية' : 'التكاليف الإضافية';
 
-  const showQtyCols = tab !== 'additional';
+  /** الخامات والتكاليف الإضافية وأصناف الناتج — نفس أعمدة الكمية/السعر المعيارية والفعلية */
+  const showQtyCols = true;
 
   return (
     <div className="border-t border-[#D6EAF3] bg-[#F8FBFD] px-3 py-3">
@@ -107,9 +114,9 @@ function DetailTabs({ row }: { row: MfgMovementMasterRow }) {
             <tr>
               <th className={mfgThClass}>{nameHeader}</th>
               {showQtyCols ? <th className={mfgThClass}>الوحدة</th> : null}
-              {showQtyCols ? <th className={mfgThClass}>الكمية القياسية</th> : null}
+              {showQtyCols ? <th className={mfgThClass}>الكمية المعيارية</th> : null}
               {showQtyCols ? <th className={mfgThClass}>الكمية الفعلية</th> : null}
-              <th className={mfgThClass}>السعر القياسي</th>
+              <th className={mfgThClass}>السعر المعياري</th>
               <th className={mfgThClass}>السعر الفعلي</th>
               {showQtyCols ? <th className={mfgThClass}>انحراف الكمية</th> : null}
               <th className={mfgThClass}>انحراف السعر</th>
@@ -147,6 +154,13 @@ function DetailTabs({ row }: { row: MfgMovementMasterRow }) {
   );
 }
 
+function toggleExpandedId(prev: Set<string>, id: string): Set<string> {
+  const next = new Set(prev);
+  if (next.has(id)) next.delete(id);
+  else next.add(id);
+  return next;
+}
+
 export function ManufacturingMovementsReportResults({
   query,
   showAnalyticalReport,
@@ -155,6 +169,11 @@ export function ManufacturingMovementsReportResults({
   showAnalyticalReport: boolean;
 }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
+
+  const toggleExpanded = useCallback((id: string) => {
+    setExpandedIds((prev) => toggleExpandedId(prev, id));
+  }, []);
 
   const { data: response, isLoading, isError } = useApiQuery<MfgMovementMasterRow[]>(
     ['manufacturing-movements-report', query],
@@ -165,16 +184,35 @@ export function ManufacturingMovementsReportResults({
   const rows = response?.data ?? [];
   const summary = response?.summary as unknown as ReportSummary | undefined;
 
+  const queryKey = useMemo(() => JSON.stringify(query), [query]);
+  useEffect(() => {
+    setExpandedIds(new Set());
+    setSelectedId(null);
+  }, [queryKey]);
+
   const columns: AppTableColumn<MfgMovementMasterRow>[] = useMemo(
     () => [
-      { id: 'rowNumber', header: 'الرقم', accessor: 'rowNumber', numeric: true, align: 'end' },
+      {
+        id: 'orderNumber',
+        header: 'رقم أمر التصنيع',
+        cell: (row) => {
+          const href = manufacturingOrderHref(row.id);
+          const label = formatManufacturingOrderSerial(row.orderNumber);
+          if (!href) return label;
+          return (
+            <Link href={href} className="font-mono text-[#0E78AA] hover:underline" onClick={(e) => e.stopPropagation()}>
+              {label}
+            </Link>
+          );
+        },
+      },
       { id: 'modelName', header: 'النموذج', accessor: 'modelName' },
       { id: 'date', header: 'التاريخ', accessor: 'date' },
       { id: 'quantity', header: 'الكمية', accessor: 'quantity', numeric: true, align: 'end' },
-      { id: 'unitCost', header: 'الكلفة الإفرادية', accessor: 'unitCost', numeric: true, align: 'end' },
-      { id: 'totalCost', header: 'الكلفة الإجمالية', accessor: 'totalCost', numeric: true, align: 'end' },
+      { id: 'unitCost', header: 'تكلفة القطعة', accessor: 'unitCost', numeric: true, align: 'end' },
+      { id: 'totalCost', header: 'إجمالي التكلفة', accessor: 'totalCost', numeric: true, align: 'end' },
       { id: 'variance', header: 'الانحراف', accessor: 'variance', numeric: true, align: 'end' },
-      { id: 'batchNumber', header: 'رقم الطبخة', accessor: 'batchNumber' },
+      { id: 'batchNumber', header: 'رقم التشغيل', accessor: 'batchNumber' },
       {
         id: 'productionTime',
         header: 'زمن الإنتاج',
@@ -193,7 +231,7 @@ export function ManufacturingMovementsReportResults({
     []
   );
 
-  const displayRows = showAnalyticalReport ? rows : rows;
+  const masterColCount = columns.length + (showAnalyticalReport ? 1 : 0);
 
   if (isError) {
     return (
@@ -223,23 +261,98 @@ export function ManufacturingMovementsReportResults({
         </div>
       ) : null}
 
-      <MfgTableCard title="حركات التصنيع — اضغط على سطر لعرض التحليل">
-        <AppTable
-          columns={columns}
-          data={displayRows}
-          isLoading={isLoading}
-          getRowKey={(row) => row.id}
-          onRowClick={(row) => setSelectedId((prev) => (prev === row.id ? null : row.id))}
-          rowClassName={(row) =>
-            cn(
-              selectedId === row.id && !showAnalyticalReport && 'bg-[#E8F4FA]',
-              !row.isPosted && 'opacity-90'
-            )
-          }
-          exportFileName="manufacturing-movements"
-          emptyTitle="لا توجد حركات"
-          emptyDescription="غيّر الفترة أو المرشحات ثم اعرض التقرير"
-        />
+      <MfgTableCard
+        title={
+          showAnalyticalReport
+            ? 'حركات التصنيع — كل سطر رأس عملية: اضغط + لفتح التحليل'
+            : 'حركات التصنيع — اضغط على سطر لعرض التحليل'
+        }
+      >
+        {showAnalyticalReport ? (
+          <div dir="rtl" className="report-scroll-viewport erp-scroll-x">
+            {isLoading ? (
+              <p className="px-4 py-8 text-center text-sm text-slate-500">جاري تحميل التقرير…</p>
+            ) : rows.length === 0 ? (
+              <p className="px-4 py-8 text-center text-sm text-slate-500">
+                لا توجد حركات — غيّر الفترة أو المرشحات ثم اعرض التقرير
+              </p>
+            ) : (
+              <table className={mfgTableClass}>
+                <thead className={mfgTheadClass}>
+                  <tr>
+                    <th className={cn(mfgThClass, 'w-12 text-center')}> </th>
+                    {columns.map((col) => (
+                      <th key={col.id} className={mfgThClass}>{col.header}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((row) => {
+                    const open = expandedIds.has(row.id);
+                    return (
+                      <Fragment key={row.id}>
+                        <tr
+                          className={cn(
+                            mfgTrClass,
+                            'cursor-pointer',
+                            open && 'bg-[#E8F4FA]',
+                            !row.isPosted && 'opacity-90'
+                          )}
+                          onClick={() => toggleExpanded(row.id)}
+                        >
+                          <td className={cn(mfgTdClass, 'text-center')}>
+                            <button
+                              type="button"
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[#D6EAF3] bg-white text-[#0E78AA] shadow-sm hover:bg-[#F0F9FF]"
+                              aria-expanded={open}
+                              aria-label={open ? 'إخفاء التحليل' : 'عرض التحليل'}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                toggleExpanded(row.id);
+                              }}
+                            >
+                              {open ? <Minus className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+                            </button>
+                          </td>
+                          {columns.map((col) => (
+                            <td key={col.id} className={mfgTdClass}>
+                              {col.cell
+                                ? col.cell(row)
+                                : col.accessor != null
+                                  ? String((row as Record<string, unknown>)[col.accessor as string] ?? '')
+                                  : ''}
+                            </td>
+                          ))}
+                        </tr>
+                        {open ? (
+                          <tr className="bg-[#F8FBFD]">
+                            <td colSpan={masterColCount} className="p-0">
+                              <DetailTabs row={row} />
+                            </td>
+                          </tr>
+                        ) : null}
+                      </Fragment>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
+        ) : (
+          <AppTable
+            columns={columns}
+            data={rows}
+            isLoading={isLoading}
+            getRowKey={(row) => row.id}
+            onRowClick={(row) => setSelectedId((prev) => (prev === row.id ? null : row.id))}
+            rowClassName={(row) =>
+              cn(selectedId === row.id && 'bg-[#E8F4FA]', !row.isPosted && 'opacity-90')
+            }
+            exportFileName="manufacturing-movements"
+            emptyTitle="لا توجد حركات"
+            emptyDescription="غيّر الفترة أو المرشحات ثم اعرض التقرير"
+          />
+        )}
         {summary && rows.length > 0 ? (
           <div className="grid grid-cols-2 gap-px border-t border-[#D6EAF3] bg-[#EEF5F9] sm:grid-cols-4 lg:grid-cols-8">
             <div className={cn(mfgTdClass, 'bg-[#E8F4FA] font-bold text-[#0A3D5E]')}>الإجماليات</div>
@@ -263,14 +376,6 @@ export function ManufacturingMovementsReportResults({
           </MfgTableCard>
         );
       })() : null}
-
-      {showAnalyticalReport
-        ? rows.map((row) => (
-            <MfgTableCard key={row.id} title={`تحليل — ${row.modelName} (${row.orderNumber})`}>
-              <DetailTabs row={row} />
-            </MfgTableCard>
-          ))
-        : null}
     </div>
   );
 }

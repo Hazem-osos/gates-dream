@@ -847,7 +847,11 @@ function ManufacturingOperationPageInner() {
     setSuccess(null);
   }
 
-  async function loadFromWorkOrder(workOrderId: string, bomIdOverride?: string) {
+  async function loadFromWorkOrder(
+    workOrderId: string,
+    bomIdOverride?: string,
+    quantityOverride?: number
+  ) {
     resetFeedback();
     setBusy(true);
     try {
@@ -867,10 +871,15 @@ function ManufacturingOperationPageInner() {
       setLinkedWorkOrderNumber(workOrder.orderNumber);
       setModel(activeBomId);
       const bomPlan = getBomPlan(workOrder.processMetadata ?? null, activeBomId);
+      const overrideQty =
+        quantityOverride != null && Number.isFinite(quantityOverride) && quantityOverride > 0
+          ? quantityOverride
+          : null;
       const manufacturingQty =
-        plannedQuantity > 0
+        overrideQty ??
+        (plannedQuantity > 0
           ? plannedQuantity
-          : Number(bomPlan?.modelCount ?? workOrder.modelQuantity ?? 1);
+          : Number(bomPlan?.modelCount ?? workOrder.modelQuantity ?? 1));
       const qty = manufacturingQty > 0 ? manufacturingQty : 1;
       setNumberOfModels(String(qty));
       applyWorkOrderProductDescription(workOrder);
@@ -992,17 +1001,21 @@ function ManufacturingOperationPageInner() {
     const woId = searchParams.get('workOrderId')?.trim();
     if (!woId || order) return;
     const bomId = searchParams.get('bomId')?.trim();
-    const qty =
+    const qtyRaw =
       searchParams.get('modelCount')?.trim() ||
       searchParams.get('numberOfModels')?.trim() ||
       '';
-    const key = `${woId}:${bomId ?? ''}:${qty}`;
+    const qtyNum = qtyRaw ? Math.max(0, Number(qtyRaw)) : 0;
+    const key = `${woId}:${bomId ?? ''}:${qtyRaw}`;
     if (workOrderDeepLinkRef.current === key) return;
     workOrderDeepLinkRef.current = key;
-    if (bomId) setModel(bomId);
-    if (qty) setNumberOfModels(qty);
-    void loadFromWorkOrder(woId, bomId || undefined);
-  }, [searchParams, order]);
+    if (bomId) {
+      clearDraft();
+      setModel(bomId);
+    }
+    if (qtyNum > 0) setNumberOfModels(String(qtyNum));
+    void loadFromWorkOrder(woId, bomId || undefined, qtyNum > 0 ? qtyNum : undefined);
+  }, [searchParams, order, clearDraft]);
 
   async function loadOrderAsNewDraft(orderId: string) {
     resetFeedback();
@@ -1179,14 +1192,15 @@ function ManufacturingOperationPageInner() {
       setError('اضغط «تحميل» لجلب بيانات النموذج أولاً');
       return;
     }
-    const fromWh = fromWarehouse || loadedProcess.fromWarehouseId;
-    const toWh = toWarehouse || loadedProcess.toWarehouseId;
-    if (!fromWh || !toWh) {
-      setError('حدد مخزن المصدر ومخزن الوجهة (من / إلى)');
-      return;
-    }
-    if (fromWh === toWh) {
-      setError('مخزن المصدر والوجهة متطابقان — اختر مخزنين مختلفين للنقل');
+    const fromWh = fromWarehouse || loadedProcess.fromWarehouseId || '';
+    const toWh = toWarehouse || loadedProcess.toWarehouseId || '';
+    if (quantityMode === 'shortage') {
+      if (!fromWh) {
+        setError('حدد مخزن المصدر لفحص العجز والتحويل');
+        return;
+      }
+    } else if (fromWh && toWh && fromWh === toWh) {
+      setError('مخزن المصدر والوجهة متطابقان — اختر مخزنين مختلفين أو حددهما في شاشة التحويل');
       return;
     }
 
@@ -2068,7 +2082,7 @@ function ManufacturingOperationPageInner() {
           <div className="w-full max-w-md rounded-2xl border border-[#D6EAF3] bg-white p-5 shadow-xl">
             <h3 className="text-base font-bold text-[#0A3D5E]">تحويل الكميات</h3>
             <p className="mt-2 text-sm text-slate-600">
-              الحفظ يحفظ مسودة النقل. «حفظ وترحيل» يحرّك المخزون ويُنشئ قيدًا عند الجرد المستمر — تأكد من حسابات المخازن أولاً.
+              تُفتح شاشة النقل المخزني محمّلة بالأصناف والكميات — اختر مخزن المصدر والوجهة ثم احفظ أو «حفظ وترحيل».
             </p>
             <div className="mt-4 flex flex-col gap-2">
               <Button type="button" disabled={busy} onClick={() => void openTransfer('raw', 'shortage')}>

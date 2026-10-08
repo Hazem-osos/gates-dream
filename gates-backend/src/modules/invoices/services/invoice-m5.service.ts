@@ -10,6 +10,30 @@ import type {
   UpdateM5InvoiceInput,
 } from '../schemas/invoice-m5.schema';
 import type { InvoiceKind, InvoicePostingContext } from '../types/invoice-posting.types';
+
+function isSalesOrderDocument(kind: string | null | undefined): boolean {
+  return kind === 'SALES_ORDER';
+}
+
+async function assertManufacturingSalesOrderNotLinkedToWorkOrder(
+  companyId: string,
+  salesOrderInvoiceId: string
+) {
+  const linkedWo = await prisma.manufacturingWorkOrder.findFirst({
+    where: {
+      companyId,
+      salesOrderInvoiceId,
+      status: { not: 'CANCELLED' },
+    },
+    select: { orderNumber: true },
+  });
+  if (linkedWo) {
+    throw new AppError(
+      422,
+      `لا يمكن إلغاء أو حذف أمر البيع — مربوط بأمر الشغل ${linkedWo.orderNumber}. ألغِ أمر الشغل من التخطيط أولاً.`
+    );
+  }
+}
 import {
   assertDraftInvoiceIntegrity,
   assertNoOverReturn,
@@ -750,7 +774,7 @@ export class InvoiceM5Service {
       include: { lines: { orderBy: { lineOrder: 'asc' } }, adjustments: true },
     });
     if (!existing) throw new AppError(404, 'الفاتورة غير موجودة');
-    if (existing.isPosted) {
+    if (existing.isPosted && !isSalesOrderDocument(existing.invoiceKind)) {
       // H4 fix: an approved+posted invoice can never be unposted (see the
       // orchestrator), so don't send the caller into a dead end — tell them
       // the actual correction path up front instead of a generic "unpost first".
@@ -1200,21 +1224,44 @@ export class InvoiceM5Service {
     if (collected > 0.01) {
       throw new AppError(422, INVOICE_CANCEL_COLLECTIONS_FIRST_MESSAGE);
     }
-    if (existing.isPosted) {
+    if (existing.isPosted && !isSalesOrderDocument(existing.invoiceKind)) {
       throw new AppError(422, 'Unpost the invoice before cancelling it');
     }
     if (existing.isCancelled) return existing;
+
+    if (isSalesOrderDocument(existing.invoiceKind)) {
+      await assertManufacturingSalesOrderNotLinkedToWorkOrder(companyId, id);
+    }
     await fiscalYearService.assertOpenForDate(companyId, existing.date);
 
     const updated = await prisma.$transaction(async (tx) => {
       // Claim before the cascade: it looks journals up by source and would
       // otherwise reverse the journal of a post that committed meanwhile.
+      const cancelWhere: Prisma.InvoiceWhereInput = { id, companyId };
+      if (!isSalesOrderDocument(existing.invoiceKind)) {
+        cancelWhere.isPosted = false;
+      }
       const claimCancel = await tx.invoice.updateMany({
-        where: { id, companyId, isPosted: false },
-        data: { isCancelled: true },
+        where: cancelWhere,
+        data: {
+          isCancelled: true,
+          ...(isSalesOrderDocument(existing.invoiceKind)
+            ? {
+                isPosted: false,
+                workflowStatus: 'DRAFT',
+                postedAt: null,
+                postedBy: null,
+              }
+            : {}),
+        },
       });
       if (claimCancel.count === 0) {
-        throw new AppError(422, 'Unpost the invoice before cancelling it');
+        throw new AppError(
+          422,
+          isSalesOrderDocument(existing.invoiceKind)
+            ? 'تعذر إلغاء أمر البيع'
+            : 'Unpost the invoice before cancelling it'
+        );
       }
       await journalPostingService.cascadeSourceJournalInTx(
         tx,
@@ -1249,6 +1296,7 @@ export class InvoiceM5Service {
       select: {
         id: true,
         date: true,
+        invoiceKind: true,
         isPosted: true,
         journalEntryId: true,
         costJournalEntryId: true,
@@ -1262,12 +1310,15 @@ export class InvoiceM5Service {
       },
     });
     if (!existing) throw new AppError(404, 'الفاتورة غير موجودة');
+    if (isSalesOrderDocument(existing.invoiceKind)) {
+      await assertManufacturingSalesOrderNotLinkedToWorkOrder(companyId, id);
+    }
     await fiscalYearService.assertOpenForDate(companyId, existing.date);
     const collected = await sumActiveInvoiceCollections(prisma, companyId, id);
     if (collected > 0.01) {
       throw new AppError(422, INVOICE_CANCEL_COLLECTIONS_FIRST_MESSAGE);
     }
-    if (existing.isPosted) {
+    if (existing.isPosted && !isSalesOrderDocument(existing.invoiceKind)) {
       throw new AppError(422, 'Posted invoices cannot be deleted — unpost or cancel instead');
     }
     if (

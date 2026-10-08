@@ -392,10 +392,15 @@ function TransferPageInner() {
       returnLabel: prefill.returnLabel,
       shortageOnly: prefill.shortageOnly,
     });
+    const needsWarehouses = !prefill.fromWarehouseId || !prefill.toWarehouseId;
     setSuccess(
       prefill.shortageOnly
-        ? 'تم تحميل بنود عجز الخامات — راجع الكميات ثم «حفظ وترحيل»'
-        : 'تم تحميل بنود التحويل من التصنيع — راجع الكميات ثم احفظ'
+        ? needsWarehouses
+          ? 'تم تحميل بنود عجز الخامات — اختر مخزن المصدر والوجهة ثم «حفظ وترحيل»'
+          : 'تم تحميل بنود عجز الخامات — راجع الكميات ثم «حفظ وترحيل»'
+        : needsWarehouses
+          ? 'تم تحميل بنود التحويل — اختر مخزن المصدر والوجهة ثم احفظ'
+          : 'تم تحميل بنود التحويل من التصنيع — راجع الكميات ثم احفظ'
     );
   }, [selectedTransferId, replaceTransferLines, reset]);
 

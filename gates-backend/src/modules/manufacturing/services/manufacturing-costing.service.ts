@@ -166,6 +166,7 @@ export class ManufacturingCostingService {
       quantity: number;
       unitCost: number;
       orderNumber: string;
+      productionOrderId?: string;
       sourceYearId?: string;
       documentDate: Date;
     }
@@ -180,6 +181,7 @@ export class ManufacturingCostingService {
       movementType: 'PROD_RECEIPT',
       sourceType: 'MO',
       sourceNumber: params.orderNumber,
+      sourceDocumentId: params.productionOrderId,
       sourceYearId: params.sourceYearId,
       documentDate: params.documentDate,
     });

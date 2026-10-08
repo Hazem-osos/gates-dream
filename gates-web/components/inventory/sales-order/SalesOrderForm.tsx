@@ -366,8 +366,10 @@ export function SalesOrderForm({ context = 'inventory' }: SalesOrderFormProps) {
     ['manufacturing-work-order-by-sales', selectedId ?? ''],
     selectedId ? `/manufacturing/work-orders/by-sales-order/${selectedId}` : '',
     undefined,
-    { enabled: Boolean(selectedId) }
+    { enabled: Boolean(isManufacturing && selectedId) }
   );
+  const linkedManufacturingWorkOrder = workOrderBySalesRes?.data ?? null;
+  const hasLinkedManufacturingWorkOrder = Boolean(linkedManufacturingWorkOrder?.id);
 
   useEffect(() => {
     const wo = workOrderBySalesRes?.data;
@@ -728,6 +730,12 @@ export function SalesOrderForm({ context = 'inventory' }: SalesOrderFormProps) {
           savePending={saveMutation.isPending || updateMutation.isPending}
           canSave={!loaded?.isCancelled && !loaded?.convertedInvoiceId}
           hideStandalonePost
+          lockWhenPosted={!isManufacturing}
+          saveDisabledHint={
+            isManufacturing
+              ? 'أكمل العميل والمخزن والأصناف قبل الحفظ'
+              : undefined
+          }
           onBrowseList={() => setBrowseOpen(true)}
           browseListLabel="السابق"
           onEdit={() => {
@@ -777,10 +785,31 @@ export function SalesOrderForm({ context = 'inventory' }: SalesOrderFormProps) {
             },
             {
               id: 'cancel',
-              label: 'إلغاء الأمر',
-              disabled: !selectedId || Boolean(loaded?.isCancelled || loaded?.convertedInvoiceId),
-              onClick: () => {
-                if (selectedId) cancelMutation.mutate({});
+              label: isManufacturing ? 'إلغاء أمر البيع' : 'إلغاء الأمر',
+              disabled:
+                !selectedId ||
+                Boolean(
+                  loaded?.isCancelled ||
+                    loaded?.convertedInvoiceId ||
+                    (isManufacturing && hasLinkedManufacturingWorkOrder)
+                ),
+              onClick: async () => {
+                if (!selectedId) return;
+                if (isManufacturing && hasLinkedManufacturingWorkOrder) {
+                  setError(
+                    `لا يمكن إلغاء أمر البيع — مربوط بأمر الشغل ${linkedManufacturingWorkOrder?.orderNumber ?? ''}. ألغِ أمر الشغل من التخطيط أولاً.`
+                  );
+                  return;
+                }
+                const ok = await confirmAction({
+                  message: isManufacturing
+                    ? 'إلغاء أمر البيع للتصنيع؟ (لا يؤثر على فواتير المبيعات)'
+                    : 'إلغاء أمر البيع؟',
+                  confirmLabel: 'إلغاء',
+                  tone: 'danger',
+                });
+                if (!ok) return;
+                cancelMutation.mutate({});
               },
             },
           ]}
@@ -788,6 +817,15 @@ export function SalesOrderForm({ context = 'inventory' }: SalesOrderFormProps) {
 
         {error ? <ErrorToast message={error} onClose={() => setError('')} /> : null}
         {success ? <SuccessToast message={success} onClose={() => setSuccess('')} /> : null}
+
+        {isManufacturing && hasLinkedManufacturingWorkOrder && linkedManufacturingWorkOrder ? (
+          <p className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-900">
+            مربوط بأمر الشغل{' '}
+            <span className="font-semibold">{linkedManufacturingWorkOrder.orderNumber}</span> — يمكنك{' '}
+            <strong>التعديل والحفظ</strong> في أي وقت. إلغاء أو حذف أمر البيع غير متاح قبل إلغاء أمر
+            الشغل من التخطيط الإنتاجي.
+          </p>
+        ) : null}
 
         <ErpFormHeaderCard
           extrasLabel={isManufacturing ? undefined : 'خيارات إضافية'}

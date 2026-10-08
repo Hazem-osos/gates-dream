@@ -34,6 +34,10 @@ assert(
   movementDocumentHref('OB', 'open-1') === '/inventory/operations/opening-stock?id=open-1',
   'opening stock movement'
 );
+assert(
+  movementDocumentHref('MO', 'mo-1') === '/manufacturing/operations/operation?orderId=mo-1',
+  'manufacturing order movement'
+);
 assert(movementDocumentHref('OB', '') === null, 'opening balance without a document');
 assert(isJournalNumberColumn({ id: 'legacyGlNum', label: 'رقم القيد' }), 'legacy number');
 assert(isJournalNumberColumn({ id: 'sourceNumber', label: 'رقم المصدر' }) === false, 'source number');

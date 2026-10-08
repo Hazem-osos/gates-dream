@@ -104,10 +104,28 @@ type WorkOrderProgress = {
     requiredQuantity: number;
     completedQuantity: number;
     inProgressQuantity: number;
+    draftQuantity?: number;
+    minimumModelQuantity?: number;
     remainingQuantity: number;
     percentComplete: number;
   }>;
 };
+
+function minPlanQuantityForBom(
+  progressByBomId: Map<string, WorkOrderProgress['bomRows'][number]>,
+  bomId: string
+): number {
+  const row = progressByBomId.get(bomId);
+  if (!row) return 0;
+  if (row.minimumModelQuantity != null && row.minimumModelQuantity > 0) {
+    return row.minimumModelQuantity;
+  }
+  return (
+    (row.completedQuantity ?? 0) +
+    (row.inProgressQuantity ?? 0) +
+    (row.draftQuantity ?? 0)
+  );
+}
 
 type WorkOrderListItem = {
   id: string;
@@ -376,6 +394,16 @@ function ProductionPlanningInner() {
       setError('أدخل كمية صحيحة لكل نموذج في التخطيط');
       return;
     }
+    for (const row of activePlans) {
+      const floor = minPlanQuantityForBom(progressByBomId, row.bomId);
+      const qty = Number(row.modelCount);
+      if (qty < floor - 1e-6) {
+        setError(
+          `كمية النموذج «${row.bomName || row.bomId}» لا يمكن أن تقل عن المنفّذ + قيد التنفيذ (${floor.toLocaleString('ar-EG')})`
+        );
+        return;
+      }
+    }
     await saveMutation.mutateAsync(buildSavePayload());
   }
 
@@ -415,6 +443,21 @@ function ProductionPlanningInner() {
   }
 
   function removePlanRow(index: number) {
+    const row = planRows[index];
+    if (row?.bomId) {
+      const bomProgress = progressByBomId.get(row.bomId);
+      if (bomProgress) {
+        if (bomProgress.completedQuantity > 0 || bomProgress.inProgressQuantity > 0) {
+          setError('لا يمكن حذف النموذج — يوجد كمية منفّذة أو قيد التنفيذ');
+          return;
+        }
+        if ((bomProgress.draftQuantity ?? 0) > 0) {
+          setError('لا يمكن حذف النموذج — يوجد أوامر تصنيع مسودة على هذا النموذج');
+          return;
+        }
+      }
+    }
+    setError(null);
     setPlanRows((prev) => prev.filter((_, i) => i !== index));
   }
 
@@ -968,6 +1011,9 @@ function ProductionPlanningInner() {
                 <table className={mfgTableClass}>
                   <thead className={mfgTheadClass}>
                     <tr>
+                      {canEditPlanning ? (
+                        <th className={cn(mfgThClass, 'w-14 text-center')}>حذف</th>
+                      ) : null}
                       <th className={mfgThClass}>نموذج التصنيع</th>
                       <th className={mfgThClass}>الصنف التام</th>
                       <th className={cn(mfgThClass, 'w-28')}>الكمية</th>
@@ -976,7 +1022,6 @@ function ProductionPlanningInner() {
                       <th className={mfgThClass}>متبقي</th>
                       <th className={mfgThClass}>%</th>
                       <th className={cn(mfgThClass, 'w-52')}>إجراءات</th>
-                      {canEditPlanning ? <th className={cn(mfgThClass, 'w-12')} /> : null}
                     </tr>
                   </thead>
                   <tbody>
@@ -992,8 +1037,29 @@ function ProductionPlanningInner() {
                           row.lineDescription?.trim() ||
                           bomMeta?.formMetadata?.description?.trim() ||
                           '—';
+                        const minQty = row.bomId ? minPlanQuantityForBom(progressByBomId, row.bomId) : 0;
                         return (
                           <tr key={row.id} className={mfgTrClass}>
+                            {canEditPlanning ? (
+                              <td className={cn(mfgTdClass, 'text-center')}>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-9 w-9 shrink-0 border-rose-300 bg-rose-50 p-0 text-rose-700 hover:bg-rose-100"
+                                  disabled={minQty > 0}
+                                  title={
+                                    minQty > 0
+                                      ? 'لا يمكن الحذف — يوجد منفّذ أو قيد التنفيذ'
+                                      : 'حذف النموذج من الخطة'
+                                  }
+                                  onClick={() => removePlanRow(rowIndex)}
+                                  aria-label="حذف النموذج من الخطة"
+                                >
+                                  <Trash2 className="h-4 w-4" aria-hidden />
+                                </Button>
+                              </td>
+                            ) : null}
                             <td className={mfgTdClass}>
                               {canEditPlanning ? (
                                 <select
@@ -1036,7 +1102,7 @@ function ProductionPlanningInner() {
                             <td className={mfgTdClass}>
                               <input
                                 type="number"
-                                min={0}
+                                min={minQty}
                                 step="any"
                                 className={compactControlClass}
                                 value={row.modelCount}
@@ -1045,6 +1111,11 @@ function ProductionPlanningInner() {
                                   patchPlanRow(rowIndex, { modelCount: e.target.value })
                                 }
                               />
+                              {canEditPlanning && minQty > 0 ? (
+                                <p className="mt-0.5 text-[10px] leading-snug text-amber-800">
+                                  الحد الأدنى: {minQty.toLocaleString('ar-EG')} (منفّذ + قيد التنفيذ)
+                                </p>
+                              ) : null}
                             </td>
                             <td className={mfgTdClass}>
                               <span
@@ -1110,19 +1181,6 @@ function ProductionPlanningInner() {
                                 </div>
                               </div>
                             </td>
-                            {canEditPlanning ? (
-                              <td className={mfgTdClass}>
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  variant="ghost"
-                                  onClick={() => removePlanRow(rowIndex)}
-                                  aria-label="حذف السطر"
-                                >
-                                  <Trash2 className="h-4 w-4 text-rose-600" />
-                                </Button>
-                              </td>
-                            ) : null}
                           </tr>
                         );
                       })

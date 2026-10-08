@@ -278,6 +278,8 @@ export function movementDocumentHref(
       return `/inventory/operations/assembly?id=${q}`;
     case 'DSM':
       return `/inventory/operations/disassembly?id=${q}`;
+    case 'MO':
+      return `/manufacturing/operations/operation?orderId=${q}`;
     default:
       return null;
   }

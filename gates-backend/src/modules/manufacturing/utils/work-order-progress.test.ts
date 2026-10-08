@@ -1,4 +1,5 @@
 import {
+  minimumModelCountForBomProgress,
   normalizeBomPlans,
   parseBomPlansFromMetadata,
 } from './work-order-progress';
@@ -22,6 +23,16 @@ describe('work-order-progress plans', () => {
     expect(parseBomPlansFromMetadata(null, 'legacy-bom', 25)).toEqual([
       { bomId: 'legacy-bom', modelCount: 25 },
     ]);
+  });
+
+  it('minimumModelCountForBomProgress sums executed, in progress, and drafts', () => {
+    expect(
+      minimumModelCountForBomProgress({
+        completedQuantity: 10,
+        inProgressQuantity: 5,
+        draftQuantity: 2,
+      })
+    ).toBe(17);
   });
 
   it('normalizeBomPlans sums by bomId', () => {
