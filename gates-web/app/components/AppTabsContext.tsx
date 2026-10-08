@@ -8,6 +8,7 @@ import {
   useMemo,
   useRef,
   useState,
+  Suspense,
   type ReactNode,
 } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
@@ -26,6 +27,7 @@ import {
   splitTabHref,
   type PersistedAppTab,
 } from '@/lib/navigation/tab-memory';
+import { tabHrefFromRoute } from '@/lib/navigation/tab-route-sync';
 import { flushPageDrafts } from '@/lib/drafts/page-drafts';
 import { probeCount, probeNavUrl } from '@/lib/debug/gates-crash-probe';
 
@@ -41,6 +43,8 @@ type AppTabsContextValue = {
   pinCurrentTab: () => void;
   openAppTab: (href: string) => void;
   openFreshPage: (href: string) => void;
+  /** Register tab before Link navigation (no router.push). */
+  primeTabNavigation: (href: string) => void;
 };
 
 const AppTabsContext = createContext<AppTabsContextValue | null>(null);
@@ -52,10 +56,39 @@ function toTab(input: string): AppTab {
   return { path, href, label: resolveTabLabel(path) };
 }
 
-export function AppTabsProvider({ children }: { children: ReactNode }) {
-  const pathname = usePathname();
+/**
+ * Isolated so useSearchParams suspends only this subtree — not the whole ERP shell.
+ * (AppTabsProvider must not call useSearchParams directly; ErpApp Suspense fallback is null.)
+ */
+function TabRouteSync({
+  pathname,
+  upsertTab,
+}: {
+  pathname: string | null;
+  upsertTab: (input: string, opts?: { background?: boolean; fresh?: boolean }) => void;
+}) {
   const searchParams = useSearchParams();
   const searchString = searchParams.toString();
+  const lastHrefRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const href = tabHrefFromRoute(pathname, searchString);
+    if (!href) return;
+    if (lastHrefRef.current === href) return;
+    lastHrefRef.current = href;
+    upsertTab(href);
+    const path = normalizeAppPath(pathname!);
+    document.title = `${resolveTabLabel(path)} | GATES`;
+    return () => {
+      pinCurrentWindowHref();
+    };
+  }, [pathname, searchString, upsertTab]);
+
+  return null;
+}
+
+function AppTabsProviderInner({ children }: { children: ReactNode }) {
+  const pathname = usePathname();
   const router = useRouter();
   const [tabs, setTabs] = useState<AppTab[]>([]);
   const [justOpenedPath, setJustOpenedPath] = useState<string | null>(null);
@@ -145,6 +178,14 @@ export function AppTabsProvider({ children }: { children: ReactNode }) {
     setFreshNonceByPath((prev) => ({ ...prev, [path]: (prev[path] ?? 0) + 1 }));
   }, []);
 
+  const primeTabNavigation = useCallback(
+    (href: string) => {
+      const dest = resolveAppTabHref(href);
+      upsertTab(dest);
+    },
+    [upsertTab]
+  );
+
   const openAppTab = useCallback(
     (href: string) => {
       probeCount('openAppTab', { href });
@@ -190,17 +231,6 @@ export function AppTabsProvider({ children }: { children: ReactNode }) {
     persistOpenTabs(tabs);
   }, [tabs]);
 
-  useEffect(() => {
-    if (!pathname) return;
-    const path = normalizeAppPath(pathname);
-    const href = searchString ? `${path}?${searchString}` : path;
-    upsertTab(href);
-    document.title = `${resolveTabLabel(path)} | GATES`;
-    return () => {
-      pinCurrentWindowHref();
-    };
-  }, [pathname, searchString, upsertTab]);
-
   const value = useMemo(
     () => ({
       tabs,
@@ -212,11 +242,34 @@ export function AppTabsProvider({ children }: { children: ReactNode }) {
       pinCurrentTab,
       openAppTab,
       openFreshPage,
+      primeTabNavigation,
     }),
-    [tabs, justOpenedPath, freshNonceByPath, addBackgroundTab, closeTab, hrefForTab, pinCurrentTab, openAppTab, openFreshPage]
+    [
+      tabs,
+      justOpenedPath,
+      freshNonceByPath,
+      addBackgroundTab,
+      closeTab,
+      hrefForTab,
+      pinCurrentTab,
+      openAppTab,
+      openFreshPage,
+      primeTabNavigation,
+    ]
   );
 
-  return <AppTabsContext.Provider value={value}>{children}</AppTabsContext.Provider>;
+  return (
+    <AppTabsContext.Provider value={value}>
+      <Suspense fallback={null}>
+        <TabRouteSync pathname={pathname} upsertTab={upsertTab} />
+      </Suspense>
+      {children}
+    </AppTabsContext.Provider>
+  );
+}
+
+export function AppTabsProvider({ children }: { children: ReactNode }) {
+  return <AppTabsProviderInner>{children}</AppTabsProviderInner>;
 }
 
 export function useAppTabs(): AppTabsContextValue | null {

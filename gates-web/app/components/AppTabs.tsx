@@ -102,8 +102,10 @@ export default function AppTabs() {
                   ref={isActive ? activeTabRef : undefined}
                   title={label}
                   onClick={() => {
-                    flushPageDrafts();
-                    pinCurrentWindowHref();
+                    if (tab.path !== activeTab) {
+                      flushPageDrafts();
+                      ctx?.pinCurrentTab();
+                    }
                     goTo(ctx?.hrefForTab(tab.path) ?? tab.href ?? tab.path);
                   }}
                   className={`flex max-w-[11rem] items-center py-2 pe-1 ps-3 text-sm ${
