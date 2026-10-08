@@ -82,7 +82,7 @@ export function currentAppTabHref(): string {
   return search ? `${path}?${search}` : path;
 }
 
-let hardNavFallbackTimer: ReturnType<typeof window.setTimeout> | null = null;
+let hardNavFallbackTimer: number | null = null;
 let hardNavFallbackTargetPath = '';
 
 /** Call when App Router pathname updates — cancels pending full-page fallback. */
