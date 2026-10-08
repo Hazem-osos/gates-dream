@@ -6,6 +6,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react';
@@ -13,6 +14,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { resolveTabLabel } from '@/lib/navigation/tab-labels';
 import { normalizeAppPath } from '@/lib/navigation/app-module-root';
 import {
+  MAX_OPEN_TABS,
   loadOpenTabs,
   persistOpenTabs,
   pinCurrentWindowHref,
@@ -58,17 +60,19 @@ export function AppTabsProvider({ children }: { children: ReactNode }) {
   const [tabs, setTabs] = useState<AppTab[]>([]);
   const [justOpenedPath, setJustOpenedPath] = useState<string | null>(null);
   const [freshNonceByPath, setFreshNonceByPath] = useState<Record<string, number>>({});
+  const pathnameRef = useRef(pathname);
+  pathnameRef.current = pathname;
 
   useEffect(() => {
     const stored = loadOpenTabs();
     if (stored.length) {
-      setTabs((prev) => (prev.length ? prev : stored));
+      setTabs((prev) => (prev.length ? prev : stored.slice(0, MAX_OPEN_TABS)));
     }
   }, []);
 
   const upsertTab = useCallback((input: string, opts?: { background?: boolean; fresh?: boolean }) => {
     const next = toTab(input);
-    const activePath = pathname ? normalizeAppPath(pathname) : '';
+    const activePath = pathnameRef.current ? normalizeAppPath(pathnameRef.current) : '';
     rememberTabHref(next.path, next.href);
     if (next.href.includes('?')) {
       rememberTabSearch(next.path, next.href.slice(next.href.indexOf('?') + 1));
@@ -78,7 +82,13 @@ export function AppTabsProvider({ children }: { children: ReactNode }) {
     probeCount('tab state updates');
     setTabs((prev) => {
       const index = prev.findIndex((tab) => tab.path === next.path);
-      if (index === -1) return [...prev, next];
+      if (index === -1) {
+        const row = { ...next };
+        if (prev.length >= MAX_OPEN_TABS) {
+          return [...prev.slice(1), row];
+        }
+        return [...prev, row];
+      }
       const current = prev[index];
       const incomingBare = next.href === next.path;
       const existingHasDoc = current.href !== current.path;
@@ -92,7 +102,7 @@ export function AppTabsProvider({ children }: { children: ReactNode }) {
       if (current.label === next.label && current.href === href) return prev;
       return prev.map((tab, i) => (i === index ? { ...next, href } : tab));
     });
-  }, [pathname]);
+  }, []);
 
   const addBackgroundTab = useCallback(
     (path: string) => {

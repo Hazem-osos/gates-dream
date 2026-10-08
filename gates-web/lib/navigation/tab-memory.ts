@@ -4,7 +4,9 @@ import { probeCount, probeNavUrl } from '@/lib/debug/gates-crash-probe';
 
 const HREF_KEY = 'gates:tab-hrefs';
 const SEARCH_KEY = 'gates:tab-search';
-const TABS_KEY = 'gates:open-tabs';
+/** Bumped when tab persistence shape/behavior changes — clears stale broken sessions. */
+const TABS_KEY = 'gates:open-tabs-v2';
+const MAX_OPEN_TABS = 14;
 
 type HrefMap = Record<string, string>;
 
@@ -116,12 +118,15 @@ export function clearTabSessionStorage() {
   if (typeof window === 'undefined') return;
   try {
     sessionStorage.removeItem(TABS_KEY);
+    sessionStorage.removeItem('gates:open-tabs');
     sessionStorage.removeItem(HREF_KEY);
     sessionStorage.removeItem(SEARCH_KEY);
   } catch {
     /* ignore */
   }
 }
+
+export { MAX_OPEN_TABS };
 
 export function loadOpenTabs(): PersistedAppTab[] {
   if (typeof window === 'undefined') return [];
