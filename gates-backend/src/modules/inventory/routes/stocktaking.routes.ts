@@ -223,7 +223,7 @@ router.post(
 
       logger.info({ companyId, stocktakingId: req.params.id }, 'Stocktaking posted');
 
-      return void res.json(stockPostJson(result, 'تم ترحيل الجرد بنجاح'));
+      return void res.json(stockPostJson(result, 'تم تنفيذ تسوية الجرد بنجاح'));
     } catch (error) {
       logger.error({ error }, 'Error posting stocktaking');
       const status =

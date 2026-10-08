@@ -26,6 +26,8 @@ import {
 import { StockDocumentsListSection } from '@/components/inventory/StockDocumentsListSection';
 import { WarehouseSelect } from '@/components/form/WarehouseSelect';
 import { SupplierSelect } from '@/app/components/form/PartySelect';
+import { AccountSelect } from '@/components/form/AccountSelect';
+import type { TransactionSettings } from '@/lib/transaction-settings/types';
 import { useApiQuery, useApiMutation, useInvalidateQuery } from '@/lib/hooks/useApi';
 import { apiClient } from '@/lib/api/client';
 import {
@@ -65,6 +67,9 @@ import {
 import type { SourceHydratePayload } from '@/lib/invoices/sourceDocument';
 import { STOCK_RECEIPT_SOURCE_TYPES } from '@/lib/invoices/sourceDocument';
 import { toast } from '@/lib/feedback/toast';
+import { useStockMovementPanel } from '@/lib/inventory/use-stock-movement-panel';
+import { Button } from '@/components/ui/button';
+import { formActionButtonClass } from '@/components/ui/forms/formTokens';
 
 
 interface Item {
@@ -81,6 +86,7 @@ interface ReceiptDocumentDetail extends Record<string, unknown> {
   hijriDate?: string;
   warehouseId?: string;
   supplierId?: string;
+  offsetAccountId?: string | null;
   record?: string;
   isPosted?: boolean;
   isApproved?: boolean;
@@ -91,8 +97,16 @@ interface ReceiptDocumentDetail extends Record<string, unknown> {
 
 const receiptHeaderSchema = inventoryWarehouseDocHeaderFormSchema.extend({
   supplierId: z.string().optional(),
+  offsetAccountId: z.string().optional(),
 });
 type ReceiptHeaderForm = z.infer<typeof receiptHeaderSchema>;
+
+function receiptOffsetAccountForSave(formValue: string, settingsDefault: string): string | null {
+  const raw = String(formValue ?? '').trim();
+  if (!raw) return null;
+  if (raw === String(settingsDefault ?? '').trim()) return null;
+  return raw;
+}
 
 function emptyReceiptFormDefaults(): ReceiptHeaderForm {
   const t = new Date().toISOString().split('T')[0];
@@ -103,6 +117,7 @@ function emptyReceiptFormDefaults(): ReceiptHeaderForm {
     hijriDate: '',
     warehouseId: '',
     supplierId: '',
+    offsetAccountId: '',
     record: '',
     isPosted: false,
     isApproved: false,
@@ -165,6 +180,12 @@ export default function ReceiptPage() {
   });
   const postAfterSaveRef = useRef(false);
 
+  const { data: stockReceiptSettingsRes } = useApiQuery<TransactionSettings>(
+    ['transaction-settings', 'STOCK_RECEIPT'],
+    '/transaction-settings/STOCK_RECEIPT'
+  );
+  const stockReceiptOffsetDefault = stockReceiptSettingsRes?.data?.defaultOffsetAccountId ?? '';
+
   // Fetch items
   const { isLoading: itemsLoading } = useApiQuery<Item[]>(
     ['items'],
@@ -179,10 +200,26 @@ export default function ReceiptPage() {
     { enabled: !!selectedReceiptId }
   );
   const selectedReceipt = receiptResponse?.data;
+  const stockPanel = useStockMovementPanel(
+    selectedReceiptId,
+    isPosted,
+    (selectedReceipt as { journalEntryId?: string | null })?.journalEntryId
+  );
+
+  useEffect(() => {
+    if (selectedReceiptId) return;
+    const def = stockReceiptOffsetDefault.trim();
+    if (!def) return;
+    const current = getValues('offsetAccountId')?.trim();
+    if (!current) {
+      setValue('offsetAccountId', def, { shouldDirty: false, shouldValidate: false });
+    }
+  }, [selectedReceiptId, stockReceiptOffsetDefault, getValues, setValue]);
 
   // Load receipt data when selected
   useEffect(() => {
     if (selectedReceipt) {
+      const storedOffset = String(selectedReceipt.offsetAccountId ?? '').trim();
       reset({
         serialNumber: String(selectedReceipt.serialNumber || selectedReceipt.serial || ''),
         description: selectedReceipt.description || '',
@@ -192,6 +229,7 @@ export default function ReceiptPage() {
         hijriDate: selectedReceipt.hijriDate || '',
         warehouseId: selectedReceipt.warehouseId || '',
         supplierId: String(selectedReceipt.supplierId || ''),
+        offsetAccountId: storedOffset || stockReceiptOffsetDefault,
         record: selectedReceipt.record || '',
         isPosted: resolvePostedFlag(selectedReceipt),
         isApproved: selectedReceipt.isApproved || false,
@@ -209,11 +247,12 @@ export default function ReceiptPage() {
         resolvePostedFlag(selectedReceipt) ? loadedLines : [...loadedLines, blankStockVoucherLine()]
       );
     }
-  }, [selectedReceipt, reset]);
+  }, [selectedReceipt, reset, stockReceiptOffsetDefault]);
 
   // Receipt create mutation
   const clearReceiptForNext = () => {
     openReceipt(null);
+    stockPanel.resetPanel();
     setReceiptLines(seedStockVoucherLines());
     reset(emptyReceiptFormDefaults());
     setSourceBarKey((k) => k + 1);
@@ -248,7 +287,9 @@ export default function ReceiptPage() {
             .then((postRes) => {
               setSuccess(postSuccessMessage(postRes));
               setValue('isPosted', true);
+              stockPanel.onPosted(postRes);
               invalidateStockViews(invalidateQuery);
+              if (id) invalidateQuery(['receipt', id]);
               finish(true);
             })
             .catch((err: unknown) => {
@@ -293,6 +334,8 @@ export default function ReceiptPage() {
         if (consumeShouldRepost() && id) {
           void postNamedDocumentAfterSave(`/inventory/receipts/${id}/post`)
             .then(() => {
+              stockPanel.onPosted();
+              if (id) invalidateQuery(['receipt', id]);
               finishSaved(true);
             })
             .catch((error: ApiError) => {
@@ -306,7 +349,9 @@ export default function ReceiptPage() {
             .then((postRes) => {
               setSuccess(postSuccessMessage(postRes));
               setValue('isPosted', true);
+              stockPanel.onPosted(postRes);
               invalidateStockViews(invalidateQuery);
+              if (id) invalidateQuery(['receipt', id]);
               finishSaved(true);
             })
             .catch((err: unknown) => {
@@ -407,6 +452,10 @@ export default function ReceiptPage() {
       hijriDate: values.hijriDate || undefined,
       warehouseId: values.warehouseId,
       supplierId: values.supplierId?.trim() ? values.supplierId.trim() : null,
+      offsetAccountId: receiptOffsetAccountForSave(
+        values.offsetAccountId ?? '',
+        stockReceiptOffsetDefault
+      ),
       record: values.record || undefined,
       isPosted: values.isPosted || false,
       isApproved: values.isApproved || false,
@@ -532,18 +581,12 @@ export default function ReceiptPage() {
             { id: 'settings', label: 'إعدادات المستند', onClick: () => setSettingsOpen(true) },
           ],
         }}
-        extraActions={
-          <div className="flex flex-wrap items-end justify-end gap-2">
-            <DocumentSourceLoadBar
-              key={sourceBarKey}
-              hasExistingLines={receiptLines.some((l) => Boolean(l.itemId))}
-              disabled={isPosted}
-              allowedTypes={STOCK_RECEIPT_SOURCE_TYPES}
-              onHydrate={handleSourceHydrate}
-            />
-          <button
+        printTrigger={
+          <Button
             type="button"
-            className="rounded-lg border border-[#D6EAF3] px-3 py-2 text-sm text-[#0A3D5E]"
+            variant="secondary"
+            size="sm"
+            className={formActionButtonClass}
             onClick={() =>
               printStockDocument({
                 title: 'إذن إضافة مخزني',
@@ -558,8 +601,16 @@ export default function ReceiptPage() {
             }
           >
             طباعة
-          </button>
-          </div>
+          </Button>
+        }
+        extraActions={
+          <DocumentSourceLoadBar
+            key={sourceBarKey}
+            hasExistingLines={receiptLines.some((l) => Boolean(l.itemId))}
+            disabled={isPosted}
+            allowedTypes={STOCK_RECEIPT_SOURCE_TYPES}
+            onHydrate={handleSourceHydrate}
+          />
         }
       />
 
@@ -627,6 +678,29 @@ export default function ReceiptPage() {
             />
           </CompactFormField>
           <CompactFormField label="الشرح" placeholder="إدخل الشرح" {...register('description')} />
+          <CompactFormField
+            label="الحساب الوسيط (دائن القيد)"
+            hint={
+              stockReceiptOffsetDefault
+                ? 'الافتراضي من إعدادات إذن الإضافة — يمكن تغييره لهذا الإذن فقط'
+                : 'حدّد الحساب الوسيط من إعدادات المستند أو اختر حساباً هنا'
+            }
+          >
+            <Controller
+              name="offsetAccountId"
+              control={control}
+              render={({ field }) => (
+                <AccountSelect
+                  value={field.value || ''}
+                  onChange={field.onChange}
+                  disabled={isPosted}
+                  leafOnly
+                  className={inputCls}
+                  placeholder="الحساب الوسيط"
+                />
+              )}
+            />
+          </CompactFormField>
       </FormSectionCard>
       <AdvancedFieldsSection title="الحقول والإعدادات المتقدمة">
         <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
@@ -688,8 +762,7 @@ export default function ReceiptPage() {
       <StockMovementBottomSplit
         totalAmount={totalAmount}
         lineCount={receiptLines.length}
-        journalEntryId={(selectedReceipt as { journalEntryId?: string })?.journalEntryId}
-        documentId={selectedReceiptId}
+        {...stockPanel.bottomSplitProps}
       />
     </ErpDocumentLayout>
   );

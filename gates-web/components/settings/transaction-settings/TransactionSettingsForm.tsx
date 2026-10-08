@@ -399,8 +399,8 @@ export function TransactionSettingsForm({
             {accountField(
               'defaultOffsetAccountId',
               'defaultOffsetAccount',
-              'الحساب المقابل (دائن القيد)',
-              'مثال: حساب مورد، مصروف، أو حساب وسيط — حسب طبيعة الإضافة.'
+              'الحساب الوسيط (دائن القيد)',
+              'يُستخدم دائناً في قيد الإضافة المخزنية. يمكن تغييره لكل إذن من شاشة الإذن.'
             )}
             <div>
               <label className="mb-1.5 block text-xs font-semibold text-[#0A3D5E]">مركز التكلفة الافتراضي</label>

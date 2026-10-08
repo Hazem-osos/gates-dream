@@ -26,6 +26,7 @@ export const createReceiptSchema = z.object({
   hijriDate: z.string().optional(),
   warehouseId: z.string().uuid('Warehouse ID must be a valid UUID'),
   supplierId: optionalUuid,
+  offsetAccountId: optionalUuid,
   record: z.string().optional(),
   lines: z.array(receiptLineSchema).min(1, 'At least one line is required'),
 });

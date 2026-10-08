@@ -342,12 +342,14 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
     (id: string | null) => {
       setSavedVoucherId(id);
       if (id) {
+        setIsEditing(false);
+        lockToView();
         router.replace(`${pathname}?id=${id}`, { scroll: false });
       } else {
         router.replace(pathname, { scroll: false });
       }
     },
-    [pathname, router]
+    [lockToView, pathname, router]
   );
 
   const skipUrlHydrateRef = useRef(false);
@@ -649,6 +651,8 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
           return;
         }
         lastHydratedIdRef.current = null;
+        setIsEditing(false);
+        lockToView();
         setSuccess(
           row?.isPosted
             ? `تم حفظ تعديلات ${variant.title} وتحديث القيد`
@@ -822,10 +826,13 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
     const postedNow = asTemplate ? false : resolvePostedFlag(row);
     setIsPosted(postedNow);
     setIsCancelled(asTemplate ? false : Boolean(row.isCancelled));
-    setIsEditing(asTemplate);
-    if (asTemplate) setMode('create');
-    else if (postedNow || row.isCancelled) lockToView();
-    else setMode('edit');
+    if (asTemplate) {
+      setIsEditing(true);
+      setMode('create');
+    } else {
+      setIsEditing(false);
+      lockToView();
+    }
     setJournalEntryId(asTemplate ? null : row.journalEntryId ?? row.journalEntry?.id ?? null);
     setJournalNumber(asTemplate ? null : row.journalEntry?.voucherNumber ?? null);
     const header = fieldsForRecurringTemplateLoad({
@@ -1962,8 +1969,9 @@ function FinancialVoucherEngineInner({ variantId }: { variantId: FinancialVouche
           ]}
           onSelect={(_id, row) => {
             lastHydratedIdRef.current = null;
+            const id = String((row as { id?: string }).id ?? '');
+            openVoucher(id);
             applyCashRow(row as unknown as CashTxRow);
-            openVoucher(String((row as { id?: string }).id ?? ''));
             setShowBrowseList(false);
           }}
         />

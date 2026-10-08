@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, type KeyboardEvent } from 'react';
+import { useEffect, useRef, type KeyboardEvent } from 'react';
 import { Trash2 } from 'lucide-react';
 import { ItemSelect } from '@/app/components/form/ItemSelect';
 import { UniversalDataGrid } from '@/components/ui/data-entry-grid';
@@ -26,7 +26,7 @@ import {
 } from './assembly-line-types';
 import { seedLineDescription, useFollowHeaderDescription } from '@/lib/hooks/useFollowHeaderDescription';
 import {
-  resolveAssemblyUnitCost,
+  resolveWarehouseAverageUnitCost,
   type AssemblyPricingMethod,
 } from '@/lib/inventory/assembly-pricing';
 
@@ -47,17 +47,44 @@ export function AssemblyLinesTable({
   lines,
   onChange,
   warehouseId,
-  pricingMethod,
+  pricingMethod: _pricingMethod,
   disabled,
   headerDescription = '',
 }: Props) {
-  const unitCostReadOnly = pricingMethod !== 'MANUAL';
+  const unitCostReadOnly = true;
   const gridId = 'assembly-components';
   const wrapRef = useRef<HTMLDivElement>(null);
   const pasteFieldRef = useRef('quantity');
   const pasteIndexRef = useRef(0);
   const linesRef = useRef(lines);
   linesRef.current = lines;
+
+  useEffect(() => {
+    if (!warehouseId) return;
+    const rows = linesRef.current;
+    const targets = rows
+      .map((line, index) => ({ line, index }))
+      .filter((row) => String(row.line.itemId ?? '').trim());
+    if (!targets.length) return;
+    let cancelled = false;
+    void (async () => {
+      const patches = await Promise.all(
+        targets.map(async ({ line, index }) => ({
+          index,
+          unitCost: await resolveWarehouseAverageUnitCost(line.itemId, warehouseId),
+        }))
+      );
+      if (cancelled) return;
+      const next = [...linesRef.current];
+      for (const { index, unitCost } of patches) {
+        if (next[index]) next[index] = { ...next[index], unitCost };
+      }
+      onChange(next);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [warehouseId, onChange]);
 
   useFollowHeaderDescription({
     headerDescription,
@@ -100,8 +127,10 @@ export function AssemblyLinesTable({
         if (row.itemName) current.itemName = row.itemName;
         const qty = Number(String(row.quantity ?? '').replace(/,/g, ''));
         if (Number.isFinite(qty) && row.quantity) current.quantity = qty;
-        const cost = Number(String(row.unitCost ?? '').replace(/,/g, ''));
-        if (Number.isFinite(cost) && row.unitCost) current.unitCost = cost;
+        if (!unitCostReadOnly) {
+          const cost = Number(String(row.unitCost ?? '').replace(/,/g, ''));
+          if (Number.isFinite(cost) && row.unitCost) current.unitCost = cost;
+        }
         next[index] = current;
       });
       onChange(next);
@@ -187,10 +216,16 @@ export function AssemblyLinesTable({
                     itemName: item.arabicName,
                     unitId: unit?.unitId || unit?.unit?.id || '',
                     unitName: unit?.unit?.arabicName || '',
-                    unitCost: resolveAssemblyUnitCost(pricingMethod, catalog),
+                    unitCost: 0,
                     availableQuantity: availableFromItemOption(catalog) ?? 0,
                   };
                   updateLine(index, patch);
+                  void resolveWarehouseAverageUnitCost(item.id, warehouseId, catalog).then(
+                    (unitCost) => {
+                      if (linesRef.current[index]?.itemId !== item.id) return;
+                      updateLine(index, { unitCost });
+                    }
+                  );
                   if (warehouseId) {
                     void fetchWarehouseAvailableQuantity(item.id, warehouseId)
                       .then((available) => {
@@ -231,7 +266,8 @@ export function AssemblyLinesTable({
             return (
               <TableNumberInput
                 disabled={disabled || costLocked}
-                className={dataEntryGridNumericInputClass}
+                className={`${dataEntryGridNumericInputClass}${costLocked ? ' bg-slate-50 text-slate-600' : ''}`}
+                title={costLocked ? 'متوسط التكلفة — لا يمكن التعديل' : undefined}
                 value={value}
                 onValueCommit={(n) => updateLine(index, { [columnId]: n })}
                 onKeyDown={(e) => onCellKeyDown(e, index)}

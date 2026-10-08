@@ -957,6 +957,7 @@ model Account {
   invoiceLineRevenueAccounts     InvoiceLine[]          @relation("InvoiceLineRevenueAccount")
   invoiceAdjustmentAccounts      InvoiceAdjustment[]    @relation("AdjustmentAccount")
   invoiceAdjustmentOffsetAccounts InvoiceAdjustment[]   @relation("AdjustmentOffsetAccount")
+  stockReceiptOffsetAccounts      Receipt[]              @relation("ReceiptOffsetAccount")
   transactionSettingsSales            TransactionSettings[]  @relation("SettingsSalesAccount")
   transactionSettingsPurchaseReturns  TransactionSettings[]  @relation("SettingsPurchaseReturnAccount")
   transactionSettingsCash             TransactionSettings[]  @relation("SettingsCashAccount")
@@ -3455,6 +3456,8 @@ model Receipt {
   hijriDate   String?
   warehouseId String
   supplierId  String?
+  /// Credit side of goods-receipt GL; when null, STOCK_RECEIPT settings default is used at post.
+  offsetAccountId String?
   totalAmount    Decimal   @default(0) @db.Decimal(15, 2)
   record         String?
   journalEntryId String?
@@ -3472,6 +3475,7 @@ model Receipt {
   company      Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
   warehouse    Warehouse     @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
   supplier     Supplier?     @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  offsetAccount Account?     @relation("ReceiptOffsetAccount", fields: [offsetAccountId], references: [id], onDelete: SetNull)
   journalEntry JournalEntry? @relation("ReceiptJournalEntry", fields: [journalEntryId], references: [id], onDelete: SetNull)
   lines        ReceiptLine[]
 
@@ -3479,6 +3483,7 @@ model Receipt {
   @@index([branchId])
   @@index([warehouseId])
   @@index([supplierId])
+  @@index([offsetAccountId])
   @@index([date])
   @@index([journalEntryId])
   @@map("receipts")

@@ -157,7 +157,9 @@ export function ErpDocumentPageHeader({
   const leaseId = asText(currentId) || null;
   const isReadOnly = documentMode?.isReadOnly === true;
   const looksPosted = lockWhenPosted && isPostedStatusLabel(statusLabel);
-  const hidePost = hideStandalonePost || Boolean(standardActions);
+  const hidePost =
+    hideStandalonePost === true ||
+    (hideStandalonePost !== false && Boolean(standardActions));
   const saveHint = isReadOnly
     ? 'المستند في وضع العرض فقط. اضغط تعديل للبدء في التغيير'
     : looksPosted
@@ -256,6 +258,7 @@ export function ErpDocumentPageHeader({
             </Button>
           )}
           {extraActions}
+          {printTrigger}
           {onCancel ? (
             <Button
               type="button"
@@ -310,7 +313,11 @@ export function ErpDocumentPageHeader({
             </Button>
           )}
           {printMenuItems?.length ? (
-            <SimpleDropdownMenu align="right" trigger={printTrigger} items={printMenuItems} />
+            <SimpleDropdownMenu
+              align="right"
+              trigger={printTrigger ?? <span className="hidden" />}
+              items={printMenuItems}
+            />
           ) : null}
           {hideActionMenu ? null : actionMenu ? (
             actionMenu

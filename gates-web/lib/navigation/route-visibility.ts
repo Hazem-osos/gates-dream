@@ -23,6 +23,8 @@ const HIDDEN_PREFIXES = [
   '/hr/housing-allowance-clearance',
   '/hr/transaction-models',
   '/hr/transaction-tracking',
+  // تسوية مخزنية — removed from product navigation; use جرد مخزني instead.
+  '/inventory/operations/adjustment',
 ] as const;
 
 export const HIDDEN_MODULE_KEYS = new Set(['importexport']);

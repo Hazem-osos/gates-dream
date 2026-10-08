@@ -3,8 +3,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useOwnTabSearchParams } from '@/lib/navigation/tab-route-lock';
-import dynamic from 'next/dynamic';
 import { useForm, type Resolver, type SubmitHandler } from 'react-hook-form';
+import { useQueryClient } from '@tanstack/react-query';
+import { queryKeys } from '@/lib/query/query-keys';
+import { fetchApiQuery } from '@/lib/api/query-fetch';
+import {
+  JournalEntriesListSection,
+  type JournalEntryRow,
+} from '@/app/components/accounting/JournalEntriesListSection';
 import { zodResolver } from '@hookform/resolvers/zod';
 import {
   openingBalanceHeaderSchema,
@@ -48,7 +54,6 @@ import { useCompanyPrintProfile } from '@/lib/hooks/useCompanyPrintProfile';
 import { PrintDocumentButton } from '@/app/components/print/PrintDocumentButton';
 import { printOperationalDocument } from '@/lib/print/printOperationalDocument';
 import type { JournalPrintModel } from '@/lib/print/types';
-import { DynamicChunkSkeleton } from '@/components/ui/DynamicChunkSkeleton';
 import { onFieldErrors } from '@/lib/forms/on-field-errors';
 import { impliedJournalLineRate, pickCurrencyByCode, resolveJournalLineCurrencyId, toBaseAmount } from '@/lib/accounting/fx-base';
 import {
@@ -57,14 +62,6 @@ import {
 } from '@/lib/accounting/ensure-posted-after-save';
 import { resolvePostedFlag } from '@/lib/documents/posting-trust';
 import { useCompanyBaseCurrency } from '@/lib/hooks/useCompanyBaseCurrency';
-
-const JournalEntriesListSection = dynamic(
-  () =>
-    import('@/app/components/accounting/JournalEntriesListSection').then((m) => ({
-      default: m.JournalEntriesListSection,
-    })),
-  { ssr: false, loading: () => <DynamicChunkSkeleton label="جاري تحميل القيود الافتتاحية…" /> }
-);
 
 const OPENING_ENTRY_TYPE = 'OPENING_BALANCE';
 const OPENING_HREF = '/accounting/operations/basic-operations/opening-balance';
@@ -251,6 +248,7 @@ function OpeningBalancePageInner() {
   const searchParams = useOwnTabSearchParams();
   const journalEntryIdFromUrl = searchParams.get('id');
   const invalidateQuery = useInvalidateQuery();
+  const queryClient = useQueryClient();
   const { lockToView, setMode, unlockForEdit, isReadOnly } = useDocumentMode();
   const { profile: companyProfile } = useCompanyPrintProfile();
 
@@ -260,6 +258,32 @@ function OpeningBalancePageInner() {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [showList, setShowList] = useState(false);
+
+  const openOpeningBrowseList = useCallback(() => {
+    const filterKey = {
+      statusFilter: 'all' as const,
+      search: '',
+      startDate: '',
+      endDate: '',
+      entryType: OPENING_ENTRY_TYPE,
+      sortBy: 'voucherNumber' as const,
+      sortDir: 'asc' as const,
+    };
+    const queryParams: Record<string, string | number | boolean> = {
+      page: 1,
+      limit: 10,
+      includeLines: false,
+      entryType: OPENING_ENTRY_TYPE,
+      sortBy: 'voucherNumber',
+      sortDir: 'asc',
+    };
+    void queryClient.prefetchQuery({
+      queryKey: [...queryKeys.journalEntries(1, filterKey), queryParams],
+      queryFn: () => fetchApiQuery<JournalEntryRow[]>('/accounting/journal-entries', queryParams),
+    });
+    setShowList(true);
+  }, [queryClient]);
+
   const { showFx: showFxColumns, setShowFx: setShowFxColumns, resetFxToSetting } = useShowFxColumns(
     'OPENING_BALANCE'
   );
@@ -1020,7 +1044,7 @@ function OpeningBalancePageInner() {
         onSaveAsDraft={() => void handleSubmit(onSaveAsDraft, onFieldErrors(setError))()}
         savePending={financialBusy}
         canSave={!isReadOnly && !isPosted && !financialBusy}
-        onBrowseList={() => setShowList(true)}
+        onBrowseList={openOpeningBrowseList}
         currentId={savedJournalEntryId}
         onNavigate={openEntry}
         printTrigger={
@@ -1114,6 +1138,7 @@ function OpeningBalancePageInner() {
 
       <DocumentBrowseDrawer open={showList} onClose={() => setShowList(false)} title="القيود الافتتاحية السابقة">
         <JournalEntriesListSection
+          enabled={showList}
           entryType={OPENING_ENTRY_TYPE}
           hrefBase={OPENING_HREF}
           onSelectEntry={(id) => {

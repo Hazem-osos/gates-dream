@@ -39,7 +39,19 @@ export interface CreateReceiptData {
   record?: string;
   warehouseId: string;
   supplierId?: string | null;
+  offsetAccountId?: string | null;
   lines: ReceiptLine[];
+}
+
+async function assertReceiptOffsetAccount(companyId: string, offsetAccountId?: string | null) {
+  const id = offsetAccountId?.trim();
+  if (!id) return null;
+  const account = await prisma.account.findFirst({
+    where: { id, companyId, deletedAt: null, isActive: true },
+    select: { id: true },
+  });
+  if (!account) throw new Error('الحساب الوسيط غير موجود أو غير نشط');
+  return account.id;
 }
 
 export class ReceiptService {
@@ -70,6 +82,8 @@ export class ReceiptService {
       if (items.length !== itemIds.length) {
         throw new Error('أحد الأصناف غير موجود أو لا يتبع الشركة');
       }
+
+      const offsetAccountId = await assertReceiptOffsetAccount(companyId, data.offsetAccountId);
 
       // Validate locations if provided
       const locationIds = data.lines
@@ -122,6 +136,7 @@ export class ReceiptService {
             record: data.record || null,
             warehouseId: data.warehouseId,
             supplierId: data.supplierId || null,
+            offsetAccountId,
             totalAmount,
             isPosted: false,
             isApproved: false,
@@ -189,6 +204,8 @@ export class ReceiptService {
     const items = await prisma.item.findMany({ where: { id: { in: itemIds }, companyId } });
     if (items.length !== itemIds.length) throw new Error('أحد الأصناف غير موجود أو لا يتبع الشركة');
 
+    const offsetAccountId = await assertReceiptOffsetAccount(companyId, data.offsetAccountId);
+
     const totalAmount = data.lines.reduce(
       (sum, line) => sum + (line.total || line.quantity * (line.unitPrice || 0)),
       0
@@ -212,6 +229,7 @@ export class ReceiptService {
           record: data.record || existing.record,
           warehouseId: data.warehouseId,
           supplierId: data.supplierId || null,
+          offsetAccountId,
           totalAmount,
         },
       });
@@ -250,6 +268,14 @@ export class ReceiptService {
         },
         include: {
           warehouse: {
+            select: {
+              id: true,
+              code: true,
+              arabicName: true,
+              englishName: true,
+            },
+          },
+          offsetAccount: {
             select: {
               id: true,
               code: true,
@@ -480,9 +506,32 @@ export class ReceiptService {
 
       });
 
+      const posted = await prisma.receipt.findFirst({
+        where: { id: receiptId, companyId },
+        select: { journalEntryId: true },
+      });
+
+      if (postingCtx?.userId) {
+        const { documentAuditService } = await import(
+          '../../accounting/services/document-audit.service'
+        );
+        await documentAuditService.record({
+          companyId,
+          entityType: 'STOCK_MOVEMENT',
+          entityId: receiptId,
+          action: 'POSTED',
+          userId: postingCtx.userId,
+          metadata: { documentKind: 'STOCK_RECEIPT', glSkipped },
+        });
+      }
+
       logger.info({ companyId, receiptId, glSkipped }, 'Receipt posted');
 
-      return { success: true, glSkipped };
+      return {
+        success: true,
+        glSkipped,
+        journalEntryId: posted?.journalEntryId ?? null,
+      };
     } catch (error) {
       logger.error(
         {

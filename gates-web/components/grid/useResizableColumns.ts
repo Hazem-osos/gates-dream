@@ -36,13 +36,29 @@ export function useResizableColumns(
 
   useEffect(() => {
     if (!enabled) return;
-    const stored = loadStoredWidths(storageKey, columnIds);
+    // Derive ids from the stable key so a new `columnIds` array reference on
+    // every render does not retrigger this effect (which would setState in a
+    // loop and throw "Maximum update depth exceeded").
+    const ids = idsKey ? idsKey.split('\0') : [];
+    const stored = loadStoredWidths(storageKey, ids);
     const next: Record<string, number> = {};
-    for (const id of columnIds) {
+    for (const id of ids) {
       next[id] = stored[id] ?? defaultWidth;
     }
-    setWidths(next);
-  }, [columnIds, defaultWidth, enabled, idsKey, storageKey]);
+    setWidths((prev) => {
+      if (ids.length === Object.keys(prev).length) {
+        let same = true;
+        for (const id of ids) {
+          if (prev[id] !== next[id]) {
+            same = false;
+            break;
+          }
+        }
+        if (same) return prev;
+      }
+      return next;
+    });
+  }, [defaultWidth, enabled, idsKey, storageKey]);
 
   const persist = useCallback(
     (snapshot: Record<string, number>) => {

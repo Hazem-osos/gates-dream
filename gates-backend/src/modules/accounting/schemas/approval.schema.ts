@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const documentEntityTypeSchema = z.enum(['INVOICE', 'JOURNAL_ENTRY']);
+export const documentEntityTypeSchema = z.enum(['INVOICE', 'JOURNAL_ENTRY', 'STOCK_MOVEMENT']);
 
 export const approvalEntityQuerySchema = z.object({
   entityType: documentEntityTypeSchema,

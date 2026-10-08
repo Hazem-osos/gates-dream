@@ -75,6 +75,9 @@ import {
 import type { SourceHydratePayload } from '@/lib/invoices/sourceDocument';
 import { STOCK_ISSUE_SOURCE_TYPES } from '@/lib/invoices/sourceDocument';
 import { toast } from '@/lib/feedback/toast';
+import { useStockMovementPanel } from '@/lib/inventory/use-stock-movement-panel';
+import { Button } from '@/components/ui/button';
+import { formActionButtonClass } from '@/components/ui/forms/formTokens';
 
 
 interface Item {
@@ -228,6 +231,11 @@ function IssuePageInner() {
     { enabled: !!selectedIssueId }
   );
   const selectedIssue = issueResponse?.data;
+  const stockPanel = useStockMovementPanel(
+    selectedIssueId,
+    isPosted,
+    (selectedIssue as { journalEntryId?: string | null })?.journalEntryId
+  );
 
   // Load receipt data when selected
   useEffect(() => {
@@ -267,6 +275,7 @@ function IssuePageInner() {
 
   const clearIssueForNext = () => {
     openIssue(null);
+    stockPanel.resetPanel();
     setIssueLines(seedStockVoucherLines());
     setSourceBarKey((k) => k + 1);
     reset(emptyIssueFormDefaults());
@@ -301,7 +310,9 @@ function IssuePageInner() {
             .then((postRes) => {
               setSuccess(postSuccessMessage(postRes));
               setValue('isPosted', true);
+              stockPanel.onPosted(postRes);
               invalidateStockViews(invalidateQuery);
+              if (id) invalidateQuery(['issue', id]);
               finish(true);
             })
             .catch((err: unknown) => {
@@ -345,6 +356,8 @@ function IssuePageInner() {
         if (consumeShouldRepost() && id) {
           void postNamedDocumentAfterSave(`/inventory/issues/${id}/post`)
             .then(() => {
+              stockPanel.onPosted();
+              if (id) invalidateQuery(['issue', id]);
               finishSaved(true);
             })
             .catch((error: ApiError) => {
@@ -358,7 +371,9 @@ function IssuePageInner() {
             .then((postRes) => {
               setSuccess(postSuccessMessage(postRes));
               setValue('isPosted', true);
+              stockPanel.onPosted(postRes);
               invalidateStockViews(invalidateQuery);
+              if (id) invalidateQuery(['issue', id]);
               finishSaved(true);
             })
             .catch((err: unknown) => {
@@ -611,18 +626,12 @@ function IssuePageInner() {
             { id: 'settings', label: 'إعدادات المستند', onClick: () => setSettingsOpen(true) },
           ],
         }}
-        extraActions={
-          <div className="flex flex-wrap items-end justify-end gap-2">
-            <DocumentSourceLoadBar
-              key={sourceBarKey}
-              hasExistingLines={issueLines.some((l) => Boolean(l.itemId))}
-              disabled={isPosted || isReadOnly}
-              allowedTypes={STOCK_ISSUE_SOURCE_TYPES}
-              onHydrate={handleSourceHydrate}
-            />
-          <button
+        printTrigger={
+          <Button
             type="button"
-            className="rounded-lg border border-[#D6EAF3] px-3 py-2 text-sm text-[#0A3D5E]"
+            variant="secondary"
+            size="sm"
+            className={formActionButtonClass}
             onClick={() =>
               printStockDocument({
                 title: 'إذن صرف مخزني',
@@ -637,8 +646,16 @@ function IssuePageInner() {
             }
           >
             طباعة
-          </button>
-          </div>
+          </Button>
+        }
+        extraActions={
+          <DocumentSourceLoadBar
+            key={sourceBarKey}
+            hasExistingLines={issueLines.some((l) => Boolean(l.itemId))}
+            disabled={isPosted || isReadOnly}
+            allowedTypes={STOCK_ISSUE_SOURCE_TYPES}
+            onHydrate={handleSourceHydrate}
+          />
         }
       />
 
@@ -777,8 +794,7 @@ function IssuePageInner() {
       <StockMovementBottomSplit
         totalAmount={totalAmount}
         lineCount={issueLines.length}
-        journalEntryId={(selectedIssue as { journalEntryId?: string })?.journalEntryId}
-        documentId={selectedIssueId}
+        {...stockPanel.bottomSplitProps}
       />
     </ErpDocumentLayout>
   );

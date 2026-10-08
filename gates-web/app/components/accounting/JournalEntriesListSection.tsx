@@ -42,10 +42,13 @@ export function JournalEntriesListSection({
   onSelectEntry,
   entryType,
   hrefBase = '/accounting/operations/journal-entry',
+  enabled = true,
 }: {
   onSelectEntry?: (id: string) => void;
   entryType?: string;
   hrefBase?: string;
+  /** When false, skips the list API (e.g. browse drawer closed). */
+  enabled?: boolean;
 }) {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -90,14 +93,20 @@ export function JournalEntriesListSection({
     return p;
   }, [page, pageSize, search, startDate, endDate, statusFilter, entryType, sortBy, sortDir]);
 
-  const { data, isLoading } = useApiQuery<JournalEntryRow[]>(
+  const { data, isLoading, isFetching, isError, error } = useApiQuery<JournalEntryRow[]>(
     queryKeys.journalEntries(page, filterKey),
     '/accounting/journal-entries',
     queryParams,
-    { staleTime: staleTimes.transactionalMs, gcTime: staleTimes.transactionalGcMs }
+    {
+      enabled,
+      staleTime: staleTimes.transactionalMs,
+      gcTime: staleTimes.transactionalGcMs,
+      requestTimeout: 60_000,
+    }
   );
 
   const rows = data?.data ?? [];
+  const listLoading = enabled && (isLoading || (isFetching && rows.length === 0));
   const total = data?.pagination?.total ?? data?.meta?.total ?? rows.length;
 
   const exportColumns: ExportColumnDef<JournalEntryRow>[] = [
@@ -126,6 +135,11 @@ export function JournalEntriesListSection({
 
   return (
     <section className="space-y-3">
+      {isError ? (
+        <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+          {error?.message || 'تعذّر تحميل القيود. أعد المحاولة أو غيّر عوامل التصفية.'}
+        </p>
+      ) : null}
       <FilterToolbar
         searchPlaceholder="بحث برقم السند أو الشرح…"
         onSearchChange={(v) => {
@@ -175,7 +189,7 @@ export function JournalEntriesListSection({
       </FilterToolbar>
 
       <AppTable<JournalEntryRow>
-        isLoading={isLoading}
+        isLoading={listLoading}
         data={rows}
         getRowKey={(r) => r.id}
         emptyTitle="لا توجد قيود"

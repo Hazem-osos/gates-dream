@@ -48,6 +48,7 @@ router.post(
         record: req.body.record,
         warehouseId: req.body.warehouseId,
         supplierId: req.body.supplierId || undefined,
+        offsetAccountId: req.body.offsetAccountId ?? undefined,
         lines: req.body.lines,
       });
 
@@ -196,6 +197,7 @@ router.put(
         record: req.body.record,
         warehouseId: req.body.warehouseId,
         supplierId: req.body.supplierId || undefined,
+        offsetAccountId: req.body.offsetAccountId ?? undefined,
         lines: req.body.lines,
       });
       return void res.json({ status: 'success', message: 'تم حفظ السند', data: receipt });

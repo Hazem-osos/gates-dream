@@ -17,6 +17,11 @@ describe('route-visibility', () => {
     expect(isRouteUnavailable('/manufacturing/creations/manufacturing-stages')).toBe(true);
   });
 
+  it('hides removed inventory adjustment screen', () => {
+    expect(isRouteUnavailable('/inventory/operations/adjustment')).toBe(true);
+    expect(isRouteUnavailable('/inventory/operations/adjustment?id=1')).toBe(true);
+  });
+
   it('keeps importexport module key hidden from switcher set', () => {
     expect(HIDDEN_MODULE_KEYS.has('importexport')).toBe(true);
     expect(HIDDEN_MODULE_KEYS.has('manufacturing')).toBe(false);

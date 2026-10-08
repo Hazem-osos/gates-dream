@@ -1,3 +1,5 @@
+import { fetchWarehouseAverageCost } from '@/lib/inventory/fetch-warehouse-stock-balance';
+
 export type AssemblyPricingMethod = 'AVERAGE_COST' | 'LAST_PURCHASE' | 'MANUAL';
 
 export const ASSEMBLY_PRICING_METHOD_OPTIONS: Array<{
@@ -30,4 +32,22 @@ export function resolveAssemblyUnitCost(
   if (Number.isFinite(wh) && wh > 0) return wh;
   const avg = Number(item?.averageCost ?? 0);
   return Number.isFinite(avg) && avg > 0 ? avg : 0;
+}
+
+/** Average cost for stock vouchers / adjustments (warehouse average, then item card). */
+export async function resolveWarehouseAverageUnitCost(
+  itemId: string,
+  warehouseId: string | undefined,
+  item?: AssemblyPricingItemBases | null
+): Promise<number> {
+  let warehouseAvg: number | null = null;
+  if (itemId && warehouseId) {
+    try {
+      const wh = await fetchWarehouseAverageCost(itemId, warehouseId);
+      warehouseAvg = wh > 0 ? wh : null;
+    } catch {
+      warehouseAvg = null;
+    }
+  }
+  return resolveAssemblyUnitCost('AVERAGE_COST', item, warehouseAvg);
 }

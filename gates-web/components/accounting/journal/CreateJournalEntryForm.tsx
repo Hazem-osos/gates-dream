@@ -4,8 +4,6 @@ import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { ClipboardList } from 'lucide-react';
 import { useForm, useFieldArray, type Resolver } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import dynamic from 'next/dynamic';
-import { DynamicChunkSkeleton } from '@/components/ui/DynamicChunkSkeleton';
 import { ErpDocumentLayout } from '@/components/erp/ErpDocumentLayout';
 import { ErpDocumentPageHeader } from '@/components/erp/ErpDocumentPageHeader';
 import { DocumentBrowseDrawer } from '@/components/erp/DocumentBrowseDrawer';
@@ -17,7 +15,11 @@ import { JournalLinesTable } from '@/components/accounting/journal/JournalLinesT
 import { Button } from '@/components/ui';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useOwnTabSearchParams } from '@/lib/navigation/tab-route-lock';
+import { useOwnTabPathname, useOwnTabSearchParams } from '@/lib/navigation/tab-route-lock';
+import { useQueryClient } from '@tanstack/react-query';
+import { queryKeys } from '@/lib/query/query-keys';
+import { fetchApiQuery } from '@/lib/api/query-fetch';
+import type { JournalEntryRow } from '@/app/components/accounting/JournalEntriesListSection';
 import { PageDraftRestoreBanner } from '@/components/erp/PageDraftRestoreBanner';
 import { useApiQuery, useApiMutation, useInvalidateQuery } from '@/lib/hooks/useApi';
 import type { ApiError } from '@/lib/api/types';
@@ -84,13 +86,7 @@ import { DocumentCurrencyRateFields } from '@/components/accounting/DocumentCurr
 import { ShowFxColumnsField } from '@/components/accounting/ShowFxColumnsField';
 import { useShowFxColumns } from '@/lib/transaction-settings/useShowFxColumns';
 
-const JournalEntriesListSection = dynamic(
-  () =>
-    import('@/app/components/accounting/JournalEntriesListSection').then((m) => ({
-      default: m.JournalEntriesListSection,
-    })),
-  { ssr: false, loading: () => <DynamicChunkSkeleton label="جاري تحميل قائمة القيود…" /> }
-);
+import { JournalEntriesListSection } from '@/app/components/accounting/JournalEntriesListSection';
 
 type JournalEntryApiBody = {
   date: string;
@@ -192,6 +188,8 @@ export default function CreateJournalEntryForm() {
 
 function CreateJournalEntryFormInner() {
   const router = useRouter();
+  const pathname = useOwnTabPathname();
+  const queryClient = useQueryClient();
   const { lockToView, setMode, unlockForEdit, isReadOnly, mode } = useDocumentMode();
   const invalidateQuery = useInvalidateQuery();
   const searchParams = useOwnTabSearchParams();
@@ -274,11 +272,35 @@ function CreateJournalEntryFormInner() {
     (id: string | null) => {
       skipUrlHydrateRef.current = false;
       setSavedJournalEntryId(id);
-      if (id) router.replace(`/accounting/operations/journal-entry?id=${id}`, { scroll: false });
-      else router.replace('/accounting/operations/journal-entry', { scroll: false });
+      const base = pathname || '/accounting/operations/journal-entry';
+      if (id) router.replace(`${base}?id=${encodeURIComponent(id)}`, { scroll: false });
+      else router.replace(base, { scroll: false });
     },
-    [router]
+    [pathname, router]
   );
+
+  const openJournalBrowseList = useCallback(() => {
+    const filterKey = {
+      statusFilter: 'all' as const,
+      search: '',
+      startDate: '',
+      endDate: '',
+      sortBy: 'voucherNumber' as const,
+      sortDir: 'asc' as const,
+    };
+    const queryParams = {
+      page: 1,
+      limit: 10,
+      includeLines: false,
+      sortBy: 'voucherNumber',
+      sortDir: 'asc',
+    };
+    void queryClient.prefetchQuery({
+      queryKey: [...queryKeys.journalEntries(1, filterKey), queryParams],
+      queryFn: () => fetchApiQuery<JournalEntryRow[]>('/accounting/journal-entries', queryParams),
+    });
+    setShowList(true);
+  }, [queryClient]);
 
   const {
     register,
@@ -1124,7 +1146,7 @@ function CreateJournalEntryFormInner() {
         }
         favoriteHref="/accounting/operations/journal-entry"
         favoriteLabel="قيد يومية"
-        onBrowseList={() => setShowList(true)}
+        onBrowseList={openJournalBrowseList}
         browseListLabel="السابق"
         hideStandalonePost
         navEntity="journal-entry"
@@ -1172,6 +1194,7 @@ function CreateJournalEntryFormInner() {
 
       <DocumentBrowseDrawer open={showList} onClose={() => setShowList(false)} title="القيود السابقة">
         <JournalEntriesListSection
+          enabled={showList}
           onSelectEntry={(id) => {
             skipUrlHydrateRef.current = false;
             openJournal(id);

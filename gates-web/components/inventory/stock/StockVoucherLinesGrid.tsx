@@ -16,6 +16,8 @@ import {
   erpTableNumHeadClass,
 } from '@/components/erp/erpUiTokens';
 import { formatInvoiceMoney } from '@/lib/invoices/computeInvoiceFinancialSummary';
+import type { ItemOption } from '@/lib/hooks/useMasterDataQueries';
+import { resolveWarehouseAverageUnitCost } from '@/lib/inventory/assembly-pricing';
 
 export type StockVoucherLine = {
   itemId: string;
@@ -51,6 +53,8 @@ type Props = {
   hideExistingQty?: boolean;
   priceLabel: string;
   readOnly?: boolean;
+  /** When true, unit price follows warehouse average cost and cannot be edited. */
+  lockUnitPrice?: boolean;
   itemsLoading?: boolean;
   onAdd: () => void;
   onRemove: (index: number) => void;
@@ -63,6 +67,7 @@ export function StockVoucherLinesGrid({
   hideExistingQty,
   priceLabel,
   readOnly,
+  lockUnitPrice = false,
   itemsLoading,
   onAdd,
   onRemove,
@@ -103,8 +108,20 @@ export function StockVoucherLinesGrid({
                   <ItemSelect
                     className={erpLineGridInputClass}
                     value={line.itemId}
+                    warehouseId={warehouseId}
                     onChange={(id) => onChange(index, 'itemId', id)}
                     disabled={itemsLoading || readOnly}
+                    onItemResolved={(item) => {
+                      if (!lockUnitPrice || !item || !('id' in item)) return;
+                      const catalog = item as ItemOption;
+                      void resolveWarehouseAverageUnitCost(
+                        catalog.id,
+                        warehouseId,
+                        catalog
+                      ).then((unitPrice) => {
+                        onChange(index, 'unitPrice', unitPrice);
+                      });
+                    }}
                   />
                 </td>
                 {hideExistingQty ? null : (
@@ -126,9 +143,10 @@ export function StockVoucherLinesGrid({
                 </td>
                 <td className={erpTableBodyCellClass}>
                   <TableNumberInput
-                    className={erpLineGridNumericInputClass}
+                    className={`${erpLineGridNumericInputClass}${lockUnitPrice ? ' bg-slate-50 text-slate-600' : ''}`}
                     value={line.unitPrice}
-                    disabled={readOnly}
+                    disabled={readOnly || lockUnitPrice}
+                    title={lockUnitPrice ? 'متوسط التكلفة — لا يمكن التعديل' : undefined}
                     onValueCommit={(n) => onChange(index, 'unitPrice', n)}
                   />
                 </td>

@@ -47,6 +47,8 @@ export type DocumentActionMenuProps = {
   restorePending?: boolean;
   /** Hide ترحيل / فك الترحيل from the 3-dots menu. */
   hidePostActions?: boolean;
+  postLabel?: string;
+  unpostLabel?: string;
   /** Keep تعديل enabled on posted docs (in-place journal update on save). */
   allowEditWhenPosted?: boolean;
   /** Opening docs stay editable after cancel so the same parties can be changed. */
@@ -86,6 +88,8 @@ export function DocumentActionMenu({
   voidPending,
   restorePending,
   hidePostActions = false,
+  postLabel = 'ترحيل',
+  unpostLabel = 'فك الترحيل',
   allowEditWhenPosted = false,
   allowEditWhenCancelled = false,
   printLabel,
@@ -153,7 +157,7 @@ export function DocumentActionMenu({
       : [
           {
             id: 'post',
-            label: postPending ? 'جاري الترحيل…' : 'ترحيل',
+            label: postPending ? `جاري ${postLabel}…` : postLabel,
             disabled: !hasDocument || isPosted || isCancelled || !onPost || postPending,
             onClick: () => onPost?.(),
           },
@@ -177,7 +181,7 @@ export function DocumentActionMenu({
       : [
           {
             id: 'unpost',
-            label: unpostPending ? 'جاري فك الترحيل…' : 'فك الترحيل',
+            label: unpostPending ? `جاري ${unpostLabel}…` : unpostLabel,
             disabled: !hasDocument || !isPosted || isCancelled || unpostPending,
             onClick: () => setConfirm('unpost'),
           },

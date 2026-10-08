@@ -256,6 +256,7 @@ export class ItemQuantityService {
               englishName: true,
               averageCost: true,
               lastPurchasePrice: true,
+              categoryId: true,
             },
           },
         },

@@ -28,11 +28,10 @@ const BASE_TYPES: { code: string; label: string }[] = [
   { code: 'SR', label: 'مرتجع مبيعات' },
   { code: 'PR', label: 'مرتجع مشتريات' },
   { code: 'ST', label: 'تحويل مخزني' },
-  { code: 'SA', label: 'تسوية مخزنية' },
-  { code: 'SC', label: 'جرد مخزني' },
+  { code: 'SC', label: 'تسوية الجرد المخزني' },
 ];
 
-const STORE_LINK_TYPES = new Set(['SI', 'PI', 'SR', 'PR', 'ST', 'SA', 'SC']);
+const STORE_LINK_TYPES = new Set(['SI', 'PI', 'SR', 'PR', 'ST', 'SC']);
 
 const MODULE_FLAGS: Array<{ base: string; label: string; defaultOn: boolean }> = [
   { base: 'AutoPost', label: 'ترحيل تلقائي عند الحفظ (AutoPost)', defaultOn: false },

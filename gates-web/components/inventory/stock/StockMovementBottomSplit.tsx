@@ -13,6 +13,8 @@ type Props = {
   isPosted?: boolean;
   /** When posted but GL was skipped (no journal id). */
   glSkipped?: boolean;
+  /** Default: التقسير المخزني — e.g. نقل مخزني uses أثر مخزني */
+  stockMovementsTabLabel?: string;
 };
 
 export function StockMovementBottomSplit({
@@ -22,6 +24,7 @@ export function StockMovementBottomSplit({
   lineCount,
   isPosted = false,
   glSkipped = false,
+  stockMovementsTabLabel = 'التقسير المخزني',
 }: Props) {
   const journalEmptyTitle = !isPosted
     ? 'يظهر القيد المحاسبي بعد حفظ وترحيل المستند.'
@@ -46,7 +49,7 @@ export function StockMovementBottomSplit({
       tabs={[
         {
           id: 'stock-lines',
-          label: 'التقسير المخزني',
+          label: stockMovementsTabLabel,
           content: (
             <DocumentLinkedStockMovementsTab documentId={documentId} isPosted={isPosted} />
           ),

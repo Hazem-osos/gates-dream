@@ -10,10 +10,7 @@ import { WarehouseSelect } from '@/app/components/form/WarehouseSelect';
 import { CostCenterSelect } from '@/app/components/form/CostCenterSelect';
 import { erpInputClass, erpLabelClass } from '@/components/erp';
 import { compactSerialControlClass } from '@/app/components/ui/forms/formTokens';
-import {
-  ASSEMBLY_PRICING_METHOD_OPTIONS,
-  type AssemblyPricingMethod,
-} from '@/lib/inventory/assembly-pricing';
+import type { AssemblyPricingMethod } from '@/lib/inventory/assembly-pricing';
 
 export type AssemblyParentOption = {
   id: string;
@@ -227,18 +224,13 @@ export function ItemAssemblyHeader({
             </div>
             <div>
               <label className={erpLabelClass}>طريقة التسعير</label>
-              <select
-                className={erpInputClass}
-                disabled={disabled}
-                value={pricingMethod}
-                onChange={(e) => onPricingMethod(e.target.value as AssemblyPricingMethod)}
-              >
-                {ASSEMBLY_PRICING_METHOD_OPTIONS.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
+              <input
+                className={`${erpInputClass} bg-slate-50 text-slate-600`}
+                readOnly
+                disabled
+                value="متوسط التكلفة"
+                title="يُسعَّر تلقائياً من متوسط تكلفة المخزن — لا يمكن التعديل"
+              />
             </div>
           </>
         }

@@ -509,9 +509,32 @@ export class IssueService {
       );
       await projectCostSyncService.syncPostedIssueInTx(prisma, companyId, issueId);
 
+      const posted = await prisma.issue.findFirst({
+        where: { id: issueId, companyId },
+        select: { journalEntryId: true },
+      });
+
+      if (postingCtx?.userId) {
+        const { documentAuditService } = await import(
+          '../../accounting/services/document-audit.service'
+        );
+        await documentAuditService.record({
+          companyId,
+          entityType: 'STOCK_MOVEMENT',
+          entityId: issueId,
+          action: 'POSTED',
+          userId: postingCtx.userId,
+          metadata: { documentKind: 'STOCK_ISSUE', glSkipped },
+        });
+      }
+
       logger.info({ companyId, issueId, glSkipped }, 'Issue posted');
 
-      return { success: true, glSkipped };
+      return {
+        success: true,
+        glSkipped,
+        journalEntryId: posted?.journalEntryId ?? null,
+      };
     } catch (error) {
       logger.error({ error, companyId, issueId }, 'Error posting issue');
       throw error;

@@ -17,27 +17,25 @@ import { ErpDocumentPageHeader } from '@/components/erp/ErpDocumentPageHeader';
 import { DocumentBrowseDrawer } from '@/components/erp/DocumentBrowseDrawer';
 import { StockMovementBottomSplit } from '@/components/inventory/stock/StockMovementBottomSplit';
 import { PageDraftRestoreBanner } from '@/components/erp/PageDraftRestoreBanner';
-import { Plus, Trash2 } from 'lucide-react';
+import {
+  StockVoucherLinesGrid,
+  blankStockVoucherLine,
+  type StockVoucherLine,
+} from '@/components/inventory/stock/StockVoucherLinesGrid';
 import {
   FormSectionCard,
   CompactFormField,
   AdvancedFieldsSection,
   FormStickyFooter,
-  Button,
-  IconButton,
   compactControlClass,
-  compactLabelClass,
 } from '@/components/ui';
 import { StockDocumentsListSection } from '@/components/inventory/StockDocumentsListSection';
 import { WarehouseSelect } from '@/components/form/WarehouseSelect';
 import { CostCenterSelect } from '@/components/form/CostCenterSelect';
-import { ItemSelect } from '@/components/form/ItemSelect';
-import { InvoiceLineStockBalanceCell } from '@/components/invoices/InvoiceLineStockBalanceCell';
 import { useApiQuery, useApiMutation, useInvalidateQuery } from '@/lib/hooks/useApi';
 import { resolvePostedFlag } from '@/lib/documents/posting-trust';
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
-import { TableNumberInput } from '@/components/grid/TableNumberInput';
 import {
   inventoryTransferHeaderFormSchema,
   inventoryStdLineSchema,
@@ -68,6 +66,8 @@ import { stockHeaderFieldsFromSource } from '@/lib/inventory/apply-source-to-sto
 import type { SourceHydratePayload } from '@/lib/invoices/sourceDocument';
 import { STOCK_TRANSFER_SOURCE_TYPES } from '@/lib/invoices/sourceDocument';
 import { toast } from '@/lib/feedback/toast';
+import { useStockMovementPanel } from '@/lib/inventory/use-stock-movement-panel';
+import { resolveWarehouseAverageUnitCost } from '@/lib/inventory/assembly-pricing';
 
 
 interface TransferLine {
@@ -75,16 +75,6 @@ interface TransferLine {
   itemName?: string;
   quantity: number;
   unitPrice: number;
-}
-
-function resolveItemCost(item: object | undefined): number {
-  if (!item) return 0;
-  const catalog = item as { averageCost?: unknown; lastPurchasePrice?: unknown };
-  const average = Number(catalog.averageCost);
-  if (Number.isFinite(average) && average > 0) return average;
-  const lastPurchase = Number(catalog.lastPurchasePrice);
-  if (Number.isFinite(lastPurchase) && lastPurchase > 0) return lastPurchase;
-  return 0;
 }
 
 interface TransferDocumentDetail extends Record<string, unknown> {
@@ -253,7 +243,6 @@ function TransferPageInner() {
   } | null>(null);
 
   const inputCls = compactControlClass;
-  const labelCls = compactLabelClass;
 
   const {
     register,
@@ -303,6 +292,35 @@ function TransferPageInner() {
     },
     []
   );
+
+  useEffect(() => {
+    if (!fromWarehouseId) return;
+    const rows = transferLinesRef.current;
+    const indexed = rows
+      .map((line, index) => ({ line, index }))
+      .filter((row) => String(row.line.itemId ?? '').trim());
+    if (!indexed.length) return;
+    let cancelled = false;
+    void (async () => {
+      const patches = await Promise.all(
+        indexed.map(async ({ line, index }) => ({
+          index,
+          unitPrice: await resolveWarehouseAverageUnitCost(line.itemId, fromWarehouseId),
+        }))
+      );
+      if (cancelled) return;
+      replaceTransferLines((prev) => {
+        const next = [...prev];
+        for (const { index, unitPrice } of patches) {
+          if (next[index]) next[index] = { ...next[index], unitPrice };
+        }
+        return next;
+      });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [fromWarehouseId, replaceTransferLines]);
 
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -405,6 +423,11 @@ function TransferPageInner() {
     { enabled: !!selectedTransferId }
   );
   const selectedTransfer = selectedTransferId ? transferResponse?.data : undefined;
+  const stockPanel = useStockMovementPanel(
+    selectedTransferId,
+    statusPosted,
+    (selectedTransfer as { journalEntryId?: string | null })?.journalEntryId
+  );
 
   // Load transfer data when selected
   useEffect(() => {
@@ -419,6 +442,7 @@ function TransferPageInner() {
 
   const clearTransferForNext = () => {
     clearDraft();
+    stockPanel.resetPanel();
     setMfgTransferHint(null);
     openTransfer(null);
     replaceTransferLines([]);
@@ -478,7 +502,9 @@ function TransferPageInner() {
             .then((postRes) => {
               setSuccess(postSuccessMessage(postRes));
               setValue('statusPosted', true);
+              stockPanel.onPosted(postRes);
               invalidateStockViews(invalidateQuery);
+              if (id) invalidateQuery(['transfer', id]);
               finish(true);
             })
             .catch((err: unknown) => {
@@ -536,7 +562,9 @@ function TransferPageInner() {
             .then((postRes) => {
               setSuccess(postSuccessMessage(postRes));
               setValue('statusPosted', true);
+              stockPanel.onPosted(postRes);
               invalidateStockViews(invalidateQuery);
+              if (id) invalidateQuery(['transfer', id]);
               finish(true);
             })
             .catch((err: unknown) => {
@@ -605,6 +633,7 @@ function TransferPageInner() {
           onSuccess: (res) => {
             setSuccess(postSuccessMessage(res));
             setValue('statusPosted', true);
+            stockPanel.onPosted(res);
             invalidateStockViews(invalidateQuery);
             if (selectedTransferId) invalidateQuery(['transfer', selectedTransferId]);
           },
@@ -663,16 +692,31 @@ function TransferPageInner() {
   };
 
   const removeTransferLine = (index: number) => {
-    replaceTransferLines((prev) => prev.filter((_, i) => i !== index));
+    replaceTransferLines((prev) => {
+      const next = prev.filter((_, i) => i !== index);
+      return next.length ? next : [{ itemId: '', quantity: 0, unitPrice: 0 }];
+    });
   };
 
-  const updateTransferLine = (index: number, field: keyof TransferLine, value: string | number) => {
+  const updateStockGridLine = (index: number, field: keyof StockVoucherLine, value: string | number) => {
+    if (field === 'unitPrice') return;
     replaceTransferLines((prev) => {
       const updatedLines = [...prev];
-      updatedLines[index] = { ...updatedLines[index], [field]: value };
+      const row = { ...updatedLines[index], [field]: value };
+      if (field === 'quantity') {
+        row.quantity = Number(value) || 0;
+      }
+      updatedLines[index] = row;
       return updatedLines;
     });
   };
+
+  const stockGridLines: StockVoucherLine[] = transferLines.map((line) => ({
+    itemId: line.itemId,
+    quantity: line.quantity,
+    unitPrice: line.unitPrice,
+    total: (Number(line.quantity) || 0) * (Number(line.unitPrice) || 0),
+  }));
 
   const totalAmount = transferLines.reduce(
     (sum, line) => sum + (Number(line.quantity) || 0) * (Number(line.unitPrice) || 0),
@@ -763,9 +807,9 @@ function TransferPageInner() {
         breadcrumbs={[
           { href: '/inventory', label: 'المخزون' },
           { label: 'العمليات' },
-          { label: 'تحويل مخزني' },
+          { label: 'نقل مخزني' },
         ]}
-        title="تحويل بين المخازن"
+        title="نقل مخزني"
         docNumber={watch('serialNumber') || ''}
         statusTone={statusPosted ? 'success' : 'warning'}
         statusLabel={statusPosted ? 'مرحّل' : STORE_DOCUMENT_UNPOSTED_LABEL}
@@ -947,100 +991,18 @@ function TransferPageInner() {
       </AdvancedFieldsSection>
 
       <div data-tour-id="transfer-lines-card">
-      <FormSectionCard title="بنود التحويل" subtitle="الصنف والكمية والتكلفة" bodyClassName="space-y-3">
-          {isReadOnly ? null : (
-          <div className="flex items-center justify-end">
-            <Button type="button" variant="primary" className="gap-2" onClick={addTransferLine}>
-              <Plus className="h-4 w-4" aria-hidden />
-              إضافة صنف
-            </Button>
-          </div>
-          )}
-          {transferLines.length === 0 ? (
-            <p className="py-6 text-center text-sm text-slate-500">لا توجد أصناف. اضغط «إضافة صنف».</p>
-          ) : (
-            transferLines.map((line, index) => (
-              <div
-                key={`transfer-line-${index}`}
-                className="grid min-w-0 grid-cols-1 gap-3 rounded-xl border border-[#E6F0F7] bg-[#F6FBFD] p-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4"
-              >
-                <div>
-                  <label className={labelCls}>الصنف</label>
-                  <ItemSelect
-                    value={line.itemId}
-                    onChange={(id) => {
-                      if (!id) {
-                        replaceTransferLines((prev) => {
-                          const next = [...prev];
-                          next[index] = { ...next[index], itemId: '', itemName: '', unitPrice: 0 };
-                          return next;
-                        });
-                        return;
-                      }
-                      updateTransferLine(index, 'itemId', id);
-                    }}
-                    onItemResolved={(item) => {
-                      if (!item) return;
-                      replaceTransferLines((prev) => {
-                        const next = [...prev];
-                        next[index] = {
-                          ...next[index],
-                          itemId: item.id,
-                          itemName: item.arabicName,
-                          unitPrice: resolveItemCost(item),
-                        };
-                        return next;
-                      });
-                    }}
-                    className={inputCls}
-                    emptyLabel="اختر الصنف"
-                    fallbackLabel={line.itemName}
-                  />
-                </div>
-                {hideExistingQty ? null : (
-                <div>
-                  <label className={labelCls}>الكمية المتاحة</label>
-                  <span className={`${inputCls} flex items-center`}>
-                    {fromWarehouseId ? (
-                      <InvoiceLineStockBalanceCell
-                        itemId={line.itemId}
-                        warehouseId={fromWarehouseId}
-                      />
-                    ) : (
-                      <span className="text-xs text-slate-400">اختر مخزن المصدر</span>
-                    )}
-                  </span>
-                </div>
-                )}
-                <div>
-                  <label className={labelCls}>الكمية المنقولة</label>
-                  <TableNumberInput
-                    className={inputCls}
-                    value={line.quantity}
-                    onValueCommit={(n) => updateTransferLine(index, 'quantity', n)}
-                  />
-                </div>
-                <div>
-                  <label className={labelCls}>التكلفة</label>
-                  <TableNumberInput
-                    className={inputCls}
-                    value={line.unitPrice}
-                    onValueCommit={(n) => updateTransferLine(index, 'unitPrice', n)}
-                  />
-                </div>
-                {isReadOnly ? null : (
-                <div className="flex items-end justify-end">
-                  <IconButton
-                    icon={Trash2}
-                    label="حذف السطر"
-                    variant="danger"
-                    onClick={() => removeTransferLine(index)}
-                  />
-                </div>
-                )}
-              </div>
-            ))
-          )}
+      <FormSectionCard title="بنود النقل" subtitle="الصنف والكمية والتكلفة" bodyClassName="space-y-3">
+          <StockVoucherLinesGrid
+            lines={stockGridLines.length ? stockGridLines : [blankStockVoucherLine()]}
+            warehouseId={fromWarehouseId}
+            hideExistingQty={hideExistingQty}
+            priceLabel="متوسط التكلفة"
+            lockUnitPrice
+            readOnly={isReadOnly}
+            onAdd={addTransferLine}
+            onRemove={removeTransferLine}
+            onChange={updateStockGridLine}
+          />
       </FormSectionCard>
       </div>
       </DocumentFormLock>
@@ -1054,8 +1016,8 @@ function TransferPageInner() {
       <StockMovementBottomSplit
         totalAmount={totalAmount}
         lineCount={transferLines.length}
-        journalEntryId={(selectedTransfer as { journalEntryId?: string })?.journalEntryId}
-        documentId={selectedTransferId}
+        stockMovementsTabLabel="أثر مخزني"
+        {...stockPanel.bottomSplitProps}
       />
     </ErpDocumentLayout>
   );

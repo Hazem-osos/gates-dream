@@ -50,6 +50,10 @@ import {
   loadWarehouseGlMap,
   pickInventoryAccount,
 } from '../../inventory/utils/inventory-system';
+import {
+  resolveStockGlAccounts,
+  stockMovementGlService,
+} from '../../inventory/services/stock-movement-gl.service';
 import { computeAdjustmentInvoiceAmount } from './invoice-adjustment.math';
 import { computePurchaseLineNetCost } from './purchase-line-net-cost';
 import { resolveOriginalLineUnitCostByLineId } from './resolve-original-line-unit-cost';
@@ -68,6 +72,42 @@ type InvoiceWithLines = Prisma.InvoiceGetPayload<{
     adjustments: true;
   };
 }>;
+
+type LinkedGoodsReceiptForInvoice = {
+  id: string;
+  isPosted: boolean;
+  warehouseId: string;
+  offsetAccountId: string | null;
+};
+
+async function loadLinkedPostedGoodsReceiptForPurchase(
+  companyId: string,
+  invoice: InvoiceWithLines
+): Promise<LinkedGoodsReceiptForInvoice | null> {
+  if (invoice.sourceType !== 'GOODS_RECEIPT' || !invoice.sourceId?.trim()) {
+    return null;
+  }
+  const receipt = await prisma.receipt.findFirst({
+    where: {
+      id: invoice.sourceId.trim(),
+      companyId,
+      isCancelled: false,
+    },
+    select: {
+      id: true,
+      isPosted: true,
+      warehouseId: true,
+      offsetAccountId: true,
+    },
+  });
+  if (!receipt) {
+    throw new AppError(422, 'إذن الإضافة المرتبط بالفاتورة غير موجود');
+  }
+  if (!receipt.isPosted) {
+    throw new AppError(422, 'يجب ترحيل إذن الإضافة المرتبط قبل ترحيل فاتورة المشتريات');
+  }
+  return receipt;
+}
 
 function resolveKind(invoice: InvoiceWithLines): InvoiceKind {
   if (invoice.invoiceKind) {
@@ -581,6 +621,12 @@ export class InvoicePostingOrchestrator {
       headerWarehouseId
     );
 
+    const linkedGoodsReceipt =
+      kind === 'PURCHASE'
+        ? await loadLinkedPostedGoodsReceiptForPurchase(ctx.companyId, invoice)
+        : null;
+    const skipPurchaseStockBecauseGoodsReceipt = Boolean(linkedGoodsReceipt);
+
     // H10 fix: for SALE_RETURN lines linked to an original sale line, use the
     // cost that was actually charged to COGS at issue time rather than today's
     // moving average. Prevents credit-note COGS from diverging from the original.
@@ -617,6 +663,22 @@ export class InvoicePostingOrchestrator {
           throwStaleWrite();
         }
         throw new AppError(400, 'Invoice is already posted or cancelled');
+      }
+
+      let goodsReceiptClearingAccountId: string | undefined;
+      if (linkedGoodsReceipt) {
+        const stockAccounts = await resolveStockGlAccounts(
+          ctx.companyId,
+          linkedGoodsReceipt.warehouseId,
+          tx
+        );
+        goodsReceiptClearingAccountId =
+          await stockMovementGlService.resolveGoodsReceiptCreditAccountInTx(
+            tx,
+            ctx,
+            stockAccounts.adjustmentAccountId,
+            linkedGoodsReceipt.offsetAccountId
+          );
       }
 
       let originalLineCostByLineId = new Map<string, number>();
@@ -662,7 +724,8 @@ export class InvoicePostingOrchestrator {
       }));
       for (const line of stockLockOrderedLines) {
         const baseQty = Number(line.baseQuantity);
-        const qtyDelta = affectStore ? stockDelta(kind, baseQty) : 0;
+        const qtyDelta =
+          affectStore && !skipPurchaseStockBecauseGoodsReceipt ? stockDelta(kind, baseQty) : 0;
         const lineWarehouseId =
           resolveInvoiceLineWarehouseId(line.warehouseId, headerWarehouseId) ?? '';
 
@@ -907,17 +970,19 @@ export class InvoicePostingOrchestrator {
           kind === 'PURCHASE_RETURN'
             ? txSettings?.defaultPurchaseReturnAccountId ?? accounts.purchaseReturnAccountId
             : undefined;
-        for (const line of invoice.lines) {
-          const { lineNetDoc } = computePurchaseLineNetCost(line, rate);
-          const share = lineNetDoc;
-          const accountId =
-            purchaseReturnAccountId ||
-            lineInventoryAccountId.get(line.id) ||
-            accounts.inventoryAccountId;
-          merchandiseByAccount.set(
-            accountId,
-            roundTo4((merchandiseByAccount.get(accountId) ?? 0) + share)
-          );
+        if (!goodsReceiptClearingAccountId) {
+          for (const line of invoice.lines) {
+            const { lineNetDoc } = computePurchaseLineNetCost(line, rate);
+            const share = lineNetDoc;
+            const accountId =
+              purchaseReturnAccountId ||
+              lineInventoryAccountId.get(line.id) ||
+              accounts.inventoryAccountId;
+            merchandiseByAccount.set(
+              accountId,
+              roundTo4((merchandiseByAccount.get(accountId) ?? 0) + share)
+            );
+          }
         }
         const purchaseInventoryCc = resolveGroupedLineCostCenter(
           txSettings,
@@ -925,16 +990,28 @@ export class InvoicePostingOrchestrator {
           allocatedCostCenterId,
           'debit'
         );
-        lines.push(
-          ...buildGroupedAccountLines(
-            merchandiseByAccount,
-            sign * totals.merchandise,
-            'debit',
-            mkLine,
-            purchaseReturnAccountId ? 'Purchase returns' : 'Inventory — purchase',
-            purchaseInventoryCc
-          )
-        );
+        if (goodsReceiptClearingAccountId) {
+          lines.push(
+            mkLine(
+              goodsReceiptClearingAccountId,
+              sign * totals.merchandise,
+              0,
+              'الحساب الوسيط — فاتورة مشتريات من إذن إضافة',
+              purchaseInventoryCc
+            )
+          );
+        } else {
+          lines.push(
+            ...buildGroupedAccountLines(
+              merchandiseByAccount,
+              sign * totals.merchandise,
+              'debit',
+              mkLine,
+              purchaseReturnAccountId ? 'Purchase returns' : 'Inventory — purchase',
+              purchaseInventoryCc
+            )
+          );
+        }
         if (totals.tax > 0) {
           const purchaseVatAccountId =
             accounts.vatInputAccountId ?? accounts.vatOutputAccountId;
@@ -1330,6 +1407,20 @@ export class InvoicePostingOrchestrator {
     const txSettings = await loadInvoiceTransactionSettings(ctx.companyId, kind);
     const affectStore = txSettings?.affectStock ?? moduleSettings.postTostore;
     const forceStrictNegativeStock = transactionEnforcesStrictNegativeStock(txSettings);
+    const linkedGoodsReceiptOnUnpost =
+      kind === 'PURCHASE' &&
+      invoice.sourceType === 'GOODS_RECEIPT' &&
+      invoice.sourceId?.trim()
+        ? await prisma.receipt.findFirst({
+            where: {
+              id: invoice.sourceId.trim(),
+              companyId: ctx.companyId,
+              isCancelled: false,
+            },
+            select: { id: true, isPosted: true },
+          })
+        : null;
+    const skipPurchaseStockUnpostBecauseGoodsReceipt = Boolean(linkedGoodsReceiptOnUnpost?.isPosted);
 
     // Mirror the tax-period guard from post() so unpost cannot reopen a closed
     // VAT/Dariba period or modify entries in a locked fiscal year.
@@ -1376,7 +1467,10 @@ export class InvoicePostingOrchestrator {
       }));
       for (const line of unpostStockLockOrderedLines) {
         const baseQty = Number(line.baseQuantity);
-        const reverseDelta = affectStore ? -stockDelta(kind, baseQty) : 0;
+        const reverseDelta =
+          affectStore && !skipPurchaseStockUnpostBecauseGoodsReceipt
+            ? -stockDelta(kind, baseQty)
+            : 0;
         const lineWarehouseId = resolveInvoiceLineWarehouseId(line.warehouseId, invoice.warehouseId);
         if (reverseDelta !== 0 && lineWarehouseId) {
           const costingBase = {

@@ -192,4 +192,68 @@ describeDb('Receipt post (integration)', () => {
     expect(creditLines[0].accountId).toBe(offsetAccountId);
     expect(Number(creditLines[0].credit)).toBe(20);
   });
+
+  it('credits per-receipt offset account over document settings', async () => {
+    const settingsOffsetId = (
+      await prisma.account.create({
+        data: {
+          companyId,
+          code: `7S${suffix.slice(-4)}`,
+          arabicName: 'Settings offset',
+          accountType: 'liability',
+          isActive: true,
+          accountKind: 'POSTING',
+        },
+      })
+    ).id;
+    const documentOffsetId = (
+      await prisma.account.create({
+        data: {
+          companyId,
+          code: `7D${suffix.slice(-4)}`,
+          arabicName: 'Document offset',
+          accountType: 'liability',
+          isActive: true,
+          accountKind: 'POSTING',
+        },
+      })
+    ).id;
+
+    await prisma.transactionSettings.upsert({
+      where: { companyId_documentType: { companyId, documentType: 'STOCK_RECEIPT' } },
+      create: {
+        companyId,
+        documentType: 'STOCK_RECEIPT',
+        defaultOffsetAccountId: settingsOffsetId,
+      },
+      update: { defaultOffsetAccountId: settingsOffsetId },
+    });
+
+    const receipt = await prisma.receipt.create({
+      data: {
+        companyId,
+        branchId,
+        warehouseId,
+        date: new Date('2026-07-02'),
+        serial: `GR-DOC-OFF-${suffix}`,
+        offsetAccountId: documentOffsetId,
+        lines: {
+          create: [{ itemId, quantity: 1, unitPrice: 15 }],
+        },
+      },
+      include: { lines: true },
+    });
+
+    await receiptService.postReceipt(companyId, receipt.id, glCtx);
+
+    const posted = await prisma.receipt.findUnique({ where: { id: receipt.id } });
+    const je = await prisma.journalEntry.findFirst({
+      where: { id: posted!.journalEntryId!, companyId },
+      include: { lines: true },
+    });
+    const creditLines = je!.lines.filter((l) => Number(l.credit) > 0);
+    expect(creditLines).toHaveLength(1);
+    expect(creditLines[0].accountId).toBe(documentOffsetId);
+    expect(Number(creditLines[0].credit)).toBe(15);
+  });
 });

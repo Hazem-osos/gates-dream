@@ -188,9 +188,12 @@ export const inventoryStocktakingHeaderFormSchema = z.object({
 
 export type InventoryStocktakingHeaderFormInput = z.infer<typeof inventoryStocktakingHeaderFormSchema>;
 
+/** تسوية الجرد — نطاق تحميل الأرصدة من المخزن */
+export const stocktakingLoadScopeSchema = z.enum(['all', 'withBalance', 'negativeOnly']);
+
 /** جرد — حقول إضافية للواجهة */
 export const inventoryStocktakingPageFormSchema = inventoryStocktakingHeaderFormSchema.extend({
-  excludeZeroValue: z.boolean(),
+  loadScope: stocktakingLoadScopeSchema,
 });
 
 export type InventoryStocktakingPageFormInput = z.infer<typeof inventoryStocktakingPageFormSchema>;

@@ -53,7 +53,7 @@ const WORKSPACE_HUB_GROUPS_RAW: WorkspaceHubGroup[] = [
       { label: 'إذن إضافة مخزني', href: '/inventory/operations/receipt' },
       { label: 'إذن صرف مخزني', href: '/inventory/operations/issue' },
       { label: 'التحويلات المخزنية', href: '/inventory/operations/transfer' },
-      { label: 'الجرد المخزني', href: '/inventory/operations/stocktaking' },
+      { label: 'تسوية الجرد المخزني', href: '/inventory/operations/stocktaking' },
     ],
   },
   {

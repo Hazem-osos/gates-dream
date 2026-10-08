@@ -35,6 +35,35 @@ router.get(
 );
 
 router.get(
+  '/definitions',
+  authorize({ resource: 'invoice', action: 'view' }),
+  async (req: AuthRequest, res: Response) => {
+    const companyId = req.companyId ?? req.tenantId;
+    if (!companyId) {
+      return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
+    }
+    const page = req.query.page ? parseInt(String(req.query.page), 10) : 1;
+    const limit = req.query.limit ? parseInt(String(req.query.limit), 10) : 50;
+    const search = typeof req.query.search === 'string' ? req.query.search : undefined;
+    const result = await itemAlternativeService.listDefinitions(companyId, { page, limit, search });
+    return void res.json({ status: 'success', ...result });
+  }
+);
+
+router.get(
+  '/definition-item-ids',
+  authorize({ resource: 'invoice', action: 'view' }),
+  async (req: AuthRequest, res: Response) => {
+    const companyId = req.companyId ?? req.tenantId;
+    if (!companyId) {
+      return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
+    }
+    const data = await itemAlternativeService.listDefinitionItemIds(companyId);
+    return void res.json({ status: 'success', data });
+  }
+);
+
+router.get(
   '/by-item/:itemId',
   authorize({ resource: 'invoice', action: 'view' }),
   async (req: AuthRequest, res: Response) => {
@@ -50,6 +79,27 @@ router.get(
       return void res.status(status).json({
         status: 'error',
         message: e instanceof Error ? e.message : 'Failed to load item alternatives',
+      });
+    }
+  }
+);
+
+router.delete(
+  '/by-item/:itemId',
+  authorize({ resource: 'invoice', action: 'edit' }),
+  async (req: AuthRequest, res: Response) => {
+    const companyId = req.companyId ?? req.tenantId;
+    if (!companyId) {
+      return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
+    }
+    try {
+      await itemAlternativeService.deleteForItem(companyId, req.params.itemId);
+      return void res.json({ status: 'success', message: 'تم حذف بدائل الصنف' });
+    } catch (e) {
+      const status = e instanceof AppError ? e.statusCode : 500;
+      return void res.status(status).json({
+        status: 'error',
+        message: e instanceof Error ? e.message : 'Failed to delete item alternatives',
       });
     }
   }

@@ -513,7 +513,8 @@ export class StocktakingService {
           });
         }
         for (const line of stocktaking.lines) {
-          const quantityDifference = line.actualQuantity - Number(line.bookQuantity);
+          const quantityDifference =
+            Number(line.actualQuantity) - Number(line.bookQuantity);
           if (quantityDifference === 0) continue;
 
           const costingBase = {
@@ -573,9 +574,18 @@ export class StocktakingService {
 
       });
 
+      const posted = await prisma.stocktaking.findFirst({
+        where: { id: stocktakingId, companyId },
+        select: { journalEntryId: true },
+      });
+
       logger.info({ companyId, stocktakingId, glSkipped }, 'Stocktaking posted');
 
-      return { success: true, glSkipped };
+      return {
+        success: true,
+        glSkipped,
+        journalEntryId: posted?.journalEntryId ?? null,
+      };
     } catch (error) {
       logger.error({ error, companyId, stocktakingId }, 'Error posting stocktaking');
       throw error;
@@ -620,7 +630,8 @@ export class StocktakingService {
       await prisma.$transaction(async (tx) => {
         await claimDocumentUnpost((args) => tx.stocktaking.updateMany(args), stocktakingId, companyId);
         for (const line of stocktaking.lines) {
-          const quantityDifference = line.actualQuantity - Number(line.bookQuantity);
+          const quantityDifference =
+            Number(line.actualQuantity) - Number(line.bookQuantity);
           if (quantityDifference === 0) continue;
 
           const costingBase = {

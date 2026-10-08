@@ -437,8 +437,26 @@ export class StockMovementGlService {
   async resolveGoodsReceiptCreditAccountInTx(
     tx: Prisma.TransactionClient,
     ctx: StockGlPostingContext,
-    fallbackAdjustmentAccountId: string
+    fallbackAdjustmentAccountId: string,
+    documentOffsetAccountId?: string | null
   ): Promise<string> {
+    const resolveActiveAccount = async (accountId: string) => {
+      const account = await tx.account.findFirst({
+        where: { id: accountId, companyId: ctx.companyId, deletedAt: null, isActive: true },
+        select: { id: true },
+      });
+      return account?.id ?? null;
+    };
+
+    const documentId = documentOffsetAccountId?.trim();
+    if (documentId) {
+      const resolved = await resolveActiveAccount(documentId);
+      if (!resolved) {
+        throw new AppError(422, 'الحساب الوسيط على الإذن غير موجود أو غير نشط');
+      }
+      return resolved;
+    }
+
     const settings = await tx.transactionSettings.findUnique({
       where: {
         companyId_documentType: { companyId: ctx.companyId, documentType: 'STOCK_RECEIPT' },
@@ -448,17 +466,14 @@ export class StockMovementGlService {
     const offsetId = settings?.defaultOffsetAccountId?.trim();
     if (!offsetId) return fallbackAdjustmentAccountId;
 
-    const account = await tx.account.findFirst({
-      where: { id: offsetId, companyId: ctx.companyId, deletedAt: null, isActive: true },
-      select: { id: true },
-    });
-    if (!account) {
+    const resolved = await resolveActiveAccount(offsetId);
+    if (!resolved) {
       throw new AppError(
         422,
-        'الحساب المقابل لإذن الإضافة في إعدادات المستند غير موجود أو غير نشط'
+        'الحساب الوسيط في إعدادات إذن الإضافة غير موجود أو غير نشط'
       );
     }
-    return account.id;
+    return resolved;
   }
 
   async postGoodsReceiptGlInTx(
@@ -479,7 +494,8 @@ export class StockMovementGlService {
     const creditAccountId = await this.resolveGoodsReceiptCreditAccountInTx(
       tx,
       ctx,
-      accounts.adjustmentAccountId
+      accounts.adjustmentAccountId,
+      receipt.offsetAccountId
     );
     const costCenterId = options?.costCenterId ?? txSettings?.defaultCostCenterId ?? undefined;
 

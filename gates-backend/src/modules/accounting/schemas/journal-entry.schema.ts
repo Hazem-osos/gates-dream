@@ -142,7 +142,8 @@ const optionalQueryBool = z
   .optional()
   .transform((val) => {
     if (val === undefined) return undefined;
-    return val === true || val === 'true';
+    if (val === false || val === 'false' || val === '0') return false;
+    return val === true || val === 'true' || val === '1';
   });
 
 export const journalEntryQuerySchema = z.object({

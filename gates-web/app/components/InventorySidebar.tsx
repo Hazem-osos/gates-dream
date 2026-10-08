@@ -89,10 +89,9 @@ export const inventoryModules: ModuleWithChildren[] = [
           { key: 'transfer', icon: '', label: 'نقل مخزني', color: C, href: '/inventory/operations/transfer' },
           { key: 'assembly', icon: '', label: 'تجميع الأصناف', color: C, href: '/inventory/operations/assembly' },
           { key: 'disassembly', icon: '', label: 'تفكيك الأصناف', color: C, href: '/inventory/operations/disassembly' },
-          { key: 'stocktaking', icon: '', label: 'جرد مخزني', color: C, href: '/inventory/operations/stocktaking' },
+          { key: 'stocktaking', icon: '', label: 'تسوية الجرد المخزني', color: C, href: '/inventory/operations/stocktaking' },
           { key: 'item-reservation', icon: '', label: 'حجز الأصناف', color: C, href: '/inventory/operations/item-reservation' },
           { key: 'opening-stock', icon: '', label: 'بضاعة أول المدة', color: C, href: '/inventory/operations/opening-stock' },
-          { key: 'adjustment', icon: '', label: 'تسوية مخزنية', color: C, href: '/inventory/operations/adjustment' },
         ],
       },
       {

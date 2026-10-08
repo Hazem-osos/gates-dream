@@ -714,9 +714,32 @@ export class TransferService {
         }
       });
 
+      const posted = await prisma.transfer.findFirst({
+        where: { id: transferId, companyId },
+        select: { journalEntryId: true },
+      });
+
+      if (glForPost?.userId) {
+        const { documentAuditService } = await import(
+          '../../accounting/services/document-audit.service'
+        );
+        await documentAuditService.record({
+          companyId,
+          entityType: 'STOCK_MOVEMENT',
+          entityId: transferId,
+          action: 'POSTED',
+          userId: glForPost.userId,
+          metadata: { documentKind: 'STOCK_TRANSFER', glSkipped },
+        });
+      }
+
       logger.info({ companyId, transferId, glSkipped }, 'Transfer posted');
 
-      return { success: true, glSkipped };
+      return {
+        success: true,
+        glSkipped,
+        journalEntryId: posted?.journalEntryId ?? null,
+      };
     } catch (error) {
       logger.error({ error, companyId, transferId }, 'Error posting transfer');
       throw error;
