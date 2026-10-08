@@ -82,13 +82,14 @@ export function currentAppTabHref(): string {
   return search ? `${path}?${search}` : path;
 }
 
-let hardNavFallbackTimer: number | null = null;
+type HardNavFallbackTimer = ReturnType<typeof globalThis.setTimeout>;
+let hardNavFallbackTimer: HardNavFallbackTimer | null = null;
 let hardNavFallbackTargetPath = '';
 
 /** Call when App Router pathname updates — cancels pending full-page fallback. */
 export function cancelHardNavigationFallback() {
   if (hardNavFallbackTimer !== null) {
-    window.clearTimeout(hardNavFallbackTimer);
+    globalThis.clearTimeout(hardNavFallbackTimer);
     hardNavFallbackTimer = null;
   }
   hardNavFallbackTargetPath = '';
@@ -107,7 +108,7 @@ export function scheduleHardNavigationFallback(href: string, delayMs = 2400) {
   if (startedPath === targetPath) return;
 
   hardNavFallbackTargetPath = targetPath;
-  hardNavFallbackTimer = window.setTimeout(() => {
+  hardNavFallbackTimer = globalThis.setTimeout(() => {
     hardNavFallbackTimer = null;
     const nowPath = normalizeAppPath(window.location.pathname);
     if (nowPath !== hardNavFallbackTargetPath) {
