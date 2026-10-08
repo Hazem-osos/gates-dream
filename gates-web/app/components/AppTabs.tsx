@@ -5,6 +5,9 @@ import { IoClose } from "react-icons/io5";
 import { normalizeAppPath } from '@/lib/navigation/app-module-root';
 import { resolveTabLabel } from '@/lib/navigation/tab-labels';
 import { useAppTabs } from './AppTabsContext';
+import { flushPageDrafts } from '@/lib/drafts/page-drafts';
+import { probeCount, probeNavUrl } from '@/lib/debug/gates-crash-probe';
+
 export default function AppTabs() {
   const pathname = usePathname();
   const router = useRouter();
@@ -33,10 +36,19 @@ export default function AppTabs() {
     return () => document.removeEventListener('mousedown', onPointer);
   }, [menuOpen]);
 
+  const goTo = (dest: string) => {
+    probeCount('router.push');
+    probeNavUrl(`${window.location.pathname}${window.location.search}`, dest);
+    router.push(dest);
+  };
+
   const activateTab = (path: string, href?: string) => {
     const dest = href || ctx?.hrefForTab(path) || path || '/';
-    if (ctx?.switchToOpenTab) ctx.switchToOpenTab(dest);
-    else router.push(dest);
+    if (path !== activeTab) {
+      flushPageDrafts();
+      ctx?.pinCurrentTab();
+    }
+    goTo(dest);
   };
 
   const closeTab = (path: string, e?: ReactMouseEvent) => {
