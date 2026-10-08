@@ -8,6 +8,7 @@ import {
   useMemo,
   useRef,
   useState,
+  Suspense,
   type ReactNode,
 } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
@@ -23,6 +24,7 @@ import {
   rememberTabSearch,
   rememberFreshPage,
   resolveAppTabHref,
+  scheduleHardNavigationFallback,
   splitTabHref,
   type PersistedAppTab,
 } from '@/lib/navigation/tab-memory';
@@ -52,21 +54,46 @@ function toTab(input: string): AppTab {
   return { path, href, label: resolveTabLabel(path) };
 }
 
-export function AppTabsProvider({ children }: { children: ReactNode }) {
-  const pathname = usePathname();
+function TabUrlSync({
+  pathname,
+  upsertTab,
+}: {
+  pathname: string | null;
+  upsertTab: (input: string, opts?: { background?: boolean; fresh?: boolean }) => void;
+}) {
   const searchParams = useSearchParams();
   const searchString = searchParams.toString();
+
+  useEffect(() => {
+    if (!pathname) return;
+    const path = normalizeAppPath(pathname);
+    const href = searchString ? `${path}?${searchString}` : path;
+    upsertTab(href);
+    document.title = `${resolveTabLabel(path)} | GATES`;
+    return () => {
+      pinCurrentWindowHref();
+    };
+  }, [pathname, searchString, upsertTab]);
+
+  return null;
+}
+
+function AppTabsProviderInner({ children }: { children: ReactNode }) {
+  const pathname = usePathname();
   const router = useRouter();
   const [tabs, setTabs] = useState<AppTab[]>([]);
   const [justOpenedPath, setJustOpenedPath] = useState<string | null>(null);
   const [freshNonceByPath, setFreshNonceByPath] = useState<Record<string, number>>({});
   const pathnameRef = useRef(pathname);
   pathnameRef.current = pathname;
+  const hydratedRef = useRef(false);
 
   useEffect(() => {
+    if (hydratedRef.current) return;
+    hydratedRef.current = true;
     const stored = loadOpenTabs();
     if (stored.length) {
-      setTabs((prev) => (prev.length ? prev : stored.slice(0, MAX_OPEN_TABS)));
+      setTabs(stored.slice(0, MAX_OPEN_TABS));
     }
   }, []);
 
@@ -138,6 +165,17 @@ export function AppTabsProvider({ children }: { children: ReactNode }) {
     upsertTab(`${window.location.pathname}${window.location.search}`);
   }, [upsertTab]);
 
+  const pushRoute = useCallback(
+    (href: string) => {
+      const dest = resolveAppTabHref(href);
+      probeCount('router.push');
+      probeNavUrl(`${window.location.pathname}${window.location.search}`, dest);
+      router.push(dest);
+      scheduleHardNavigationFallback(dest);
+    },
+    [router]
+  );
+
   const openAppTab = useCallback(
     (href: string) => {
       probeCount('openAppTab', { href });
@@ -150,11 +188,9 @@ export function AppTabsProvider({ children }: { children: ReactNode }) {
       window.setTimeout(() => {
         setJustOpenedPath((current) => (current === path ? null : current));
       }, 1600);
-      probeCount('router.push');
-      probeNavUrl(`${window.location.pathname}${window.location.search}`, dest);
-      router.push(dest);
+      pushRoute(dest);
     },
-    [router]
+    [pushRoute]
   );
 
   const openFreshPage = useCallback(
@@ -165,28 +201,15 @@ export function AppTabsProvider({ children }: { children: ReactNode }) {
       const dest = resolveAppTabHref(href);
       const path = splitTabHref(dest).path;
       rememberFreshPage(path);
-      probeCount('router.push');
-      probeNavUrl(`${window.location.pathname}${window.location.search}`, dest);
-      router.push(dest);
+      pushRoute(dest);
     },
-    [router]
+    [pushRoute]
   );
 
   useEffect(() => {
-    persistOpenTabs(tabs);
+    const handle = window.setTimeout(() => persistOpenTabs(tabs), 120);
+    return () => window.clearTimeout(handle);
   }, [tabs]);
-
-  useEffect(() => {
-    if (!pathname) return;
-    const path = normalizeAppPath(pathname);
-    const href = searchString ? `${path}?${searchString}` : path;
-    upsertTab(href);
-    const label = resolveTabLabel(path);
-    document.title = `${label} | GATES`;
-    return () => {
-      pinCurrentWindowHref();
-    };
-  }, [pathname, searchString, upsertTab]);
 
   const value = useMemo(
     () => ({
@@ -203,7 +226,18 @@ export function AppTabsProvider({ children }: { children: ReactNode }) {
     [tabs, justOpenedPath, freshNonceByPath, addBackgroundTab, closeTab, hrefForTab, pinCurrentTab, openAppTab, openFreshPage]
   );
 
-  return <AppTabsContext.Provider value={value}>{children}</AppTabsContext.Provider>;
+  return (
+    <AppTabsContext.Provider value={value}>
+      <Suspense fallback={null}>
+        <TabUrlSync pathname={pathname} upsertTab={upsertTab} />
+      </Suspense>
+      {children}
+    </AppTabsContext.Provider>
+  );
+}
+
+export function AppTabsProvider({ children }: { children: ReactNode }) {
+  return <AppTabsProviderInner>{children}</AppTabsProviderInner>;
 }
 
 export function useAppTabs(): AppTabsContextValue | null {

@@ -75,6 +75,26 @@ export function pinCurrentWindowHref() {
   rememberTabSearch(path, search);
 }
 
+export function currentAppTabHref(): string {
+  if (typeof window === 'undefined') return '';
+  const path = normalizeAppPath(window.location.pathname);
+  const search = window.location.search.replace(/^\?/, '');
+  return search ? `${path}?${search}` : path;
+}
+
+/** If App Router soft navigation stalls (2nd sidebar click), force a full load. */
+export function scheduleHardNavigationFallback(href: string, delayMs = 480) {
+  if (typeof window === 'undefined') return;
+  const target = resolveAppTabHref(href);
+  const started = currentAppTabHref();
+  if (started === target) return;
+  window.setTimeout(() => {
+    if (currentAppTabHref() !== target) {
+      window.location.assign(target);
+    }
+  }, delayMs);
+}
+
 /** Explicit `?id=` / query wins. Bare paths stay new — do not restore the last document. */
 export function resolveAppTabHref(href: string): string {
   const { href: normalized } = splitTabHref(href);
@@ -107,6 +127,7 @@ export type PersistedAppTab = {
 
 export function persistOpenTabs(tabs: PersistedAppTab[]) {
   if (typeof window === 'undefined') return;
+  if (tabs.length === 0) return;
   try {
     sessionStorage.setItem(TABS_KEY, JSON.stringify(tabs));
   } catch {

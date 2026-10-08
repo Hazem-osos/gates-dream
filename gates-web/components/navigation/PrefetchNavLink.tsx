@@ -8,6 +8,7 @@ import { flushPageDrafts } from '@/lib/drafts/page-drafts';
 import {
   pinCurrentWindowHref,
   rememberFreshPage,
+  scheduleHardNavigationFallback,
   splitTabHref,
 } from '@/lib/navigation/tab-memory';
 import { normalizeAppPath } from '@/lib/navigation/app-module-root';
@@ -38,6 +39,8 @@ export function PrefetchNavLink({
     const { path } = splitTabHref(href);
     if (normalizeAppPath(pathname) === path) {
       rememberFreshPage(path);
+    } else {
+      scheduleHardNavigationFallback(href);
     }
   };
 
