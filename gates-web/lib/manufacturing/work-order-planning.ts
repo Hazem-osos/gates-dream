@@ -114,6 +114,31 @@ export type ProductionPlanRow = {
   bomName: string;
 };
 
+/** صفوف التخطيط من bomPlans المحفوظة فقط — بدون تعبئة تلقائية من بنود أمر البيع. */
+export function buildProductionPlanRowsFromBomPlans(
+  boms: BomPickerRow[],
+  meta: WorkOrderPlanningMetadata
+): ProductionPlanRow[] {
+  const plans = meta.bomPlans ?? [];
+  if (!plans.length) return [];
+
+  return plans.map((plan, index) => {
+    const bom = boms.find((b) => b.id === plan.bomId);
+    const itemId =
+      plan.itemId ?? bom?.finishedItemId ?? bom?.finishedItem?.id ?? '';
+    return {
+      id: `pl-${plan.bomId}-${index}`,
+      itemId,
+      itemName: bom?.finishedItem?.arabicName ?? itemId,
+      lineDescription: plan.notes?.trim() ?? '',
+      modelCount: String(plan.modelCount),
+      bomId: plan.bomId,
+      bomName: bom?.name ?? 'نموذج تصنيع',
+    };
+  });
+}
+
+/** @deprecated استخدم buildProductionPlanRowsFromBomPlans — التخطيط لا يُشتق من بنود الأمر تلقائياً. */
 export function buildProductionPlanRows(
   workOrderLines: Array<{
     itemId: string;
@@ -124,26 +149,17 @@ export function buildProductionPlanRows(
   boms: BomPickerRow[],
   meta: WorkOrderPlanningMetadata
 ): ProductionPlanRow[] {
-  const planByItem = new Map(
-    (meta.bomPlans ?? [])
-      .filter((p) => p.itemId)
-      .map((p) => [p.itemId!, p] as const)
-  );
-  const planByBom = new Map((meta.bomPlans ?? []).map((p) => [p.bomId, p] as const));
-
+  const fromMeta = buildProductionPlanRowsFromBomPlans(boms, meta);
+  if (fromMeta.length > 0) return fromMeta;
   return workOrderLines.map((line) => {
     const bom = resolveBomForFinishedItem(boms, line.itemId);
-    const fromItem = planByItem.get(line.itemId);
-    const fromBom = bom ? planByBom.get(bom.id) : undefined;
-    const qty =
-      fromItem?.modelCount ?? fromBom?.modelCount ?? (Number(line.plannedQuantity) || 1);
-    const bomId = bom?.id ?? fromItem?.bomId ?? '';
+    const bomId = bom?.id ?? '';
     return {
       id: `pl-${line.itemId}`,
       itemId: line.itemId,
       itemName: line.item?.arabicName ?? line.itemId,
       lineDescription: line.lineDescription?.trim() ?? '',
-      modelCount: String(qty),
+      modelCount: String(Number(line.plannedQuantity) || 1),
       bomId,
       bomName: bom?.name ?? (bomId ? 'نموذج مرتبط' : 'لا يوجد نموذج لهذا الصنف'),
     };
@@ -152,11 +168,12 @@ export function buildProductionPlanRows(
 
 export function bomPlansFromProductionRows(rows: ProductionPlanRow[]): WorkOrderBomPlan[] {
   return rows
-    .filter((r) => r.itemId && r.bomId && Number(r.modelCount) > 0)
+    .filter((r) => r.bomId && Number(r.modelCount) > 0)
     .map((r) => ({
       bomId: r.bomId,
       modelCount: Number(r.modelCount),
-      itemId: r.itemId,
+      itemId: r.itemId?.trim() || undefined,
+      notes: r.lineDescription?.trim() || undefined,
     }));
 }
 

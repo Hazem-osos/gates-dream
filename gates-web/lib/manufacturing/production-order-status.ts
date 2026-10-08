@@ -33,6 +33,6 @@ export function productionOrderWorkflowStepIndex(
   if (!status || status === 'CANCELLED') return 0;
   if (status === 'DRAFT' || status === 'RELEASED') return 0;
   if (status === 'IN_PROGRESS') return 1;
-  if (status === 'COMPLETED') return 2;
+  if (status === 'COMPLETED') return PRODUCTION_ORDER_WORKFLOW_STEPS.length;
   return 0;
 }

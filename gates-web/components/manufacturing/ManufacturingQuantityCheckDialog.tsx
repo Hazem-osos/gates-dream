@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Button, Switch } from '@/components/ui';
 import { useItemStockBalance } from '@/lib/hooks/useItemStockBalance';
 import type { ProcessRawRow } from '@/lib/manufacturing/process-from-bom';
@@ -13,24 +13,36 @@ type Props = {
   defaultWarehouseId: string;
   onTransferShortages?: () => void;
   transferShortagesPending?: boolean;
+  /** عند فتح الفحص ومعروف أن هناك عجز — إبراز الصفوف وتصفية النقص تلقائياً */
+  emphasizeShortages?: boolean;
+  /** بعد صرف الخامات أو إنهاء الأمر — عرض الكميات المطلوبة دون مقارنة رصيد حالي */
+  materialsAlreadyIssued?: boolean;
 };
 
 function CheckRow({
   row,
   warehouseId,
+  materialsAlreadyIssued,
 }: {
   row: ProcessRawRow;
   warehouseId: string;
+  materialsAlreadyIssued?: boolean;
 }) {
   const wh = row.warehouseId || warehouseId;
-  const { data } = useItemStockBalance(row.itemId, wh || null);
+  const { data } = useItemStockBalance(row.itemId, materialsAlreadyIssued ? null : wh || null);
   const balance = Number(data?.data?.availableQuantity ?? data?.data?.quantityOnHand ?? 0);
   const required = row.quantity;
-  const shortage = Math.max(0, required - (Number.isFinite(balance) ? balance : 0));
+  const shortage = materialsAlreadyIssued
+    ? 0
+    : Math.max(0, required - (Number.isFinite(balance) ? balance : 0));
+
+  const hasShortage = !materialsAlreadyIssued && shortage > 0.0001;
 
   return (
-    <tr className="border-b border-[#EEF5F9]">
-      <td className="px-3 py-2 text-sm text-[#0A3D5E]">
+    <tr
+      className={`border-b border-[#EEF5F9] ${hasShortage ? 'bg-red-50 ring-1 ring-inset ring-red-200' : ''}`}
+    >
+      <td className={`px-3 py-2 text-sm ${hasShortage ? 'font-semibold text-rose-800' : 'text-[#0A3D5E]'}`}>
         <div className="flex min-w-0 items-center justify-end gap-1">
           <span className="min-w-0 truncate">{row.itemName}</span>
           <ItemAlternativesPeek itemId={row.itemId} />
@@ -38,12 +50,16 @@ function CheckRow({
       </td>
       <td className="px-3 py-2 tabular-nums text-sm">{required.toLocaleString('ar-EG')}</td>
       <td className="px-3 py-2 tabular-nums text-sm">
-        {Number.isFinite(balance) ? balance.toLocaleString('ar-EG') : '—'}
+        {materialsAlreadyIssued
+          ? 'تم الصرف'
+          : Number.isFinite(balance)
+            ? balance.toLocaleString('ar-EG')
+            : '—'}
       </td>
       <td
-        className={`px-3 py-2 tabular-nums text-sm font-semibold ${shortage > 0 ? 'text-rose-600' : 'text-emerald-700'}`}
+        className={`px-3 py-2 tabular-nums text-sm font-semibold ${hasShortage ? 'text-rose-700' : 'text-emerald-700'}`}
       >
-        {shortage.toLocaleString('ar-EG')}
+        {hasShortage ? shortage.toLocaleString('ar-EG') : '٠'}
       </td>
     </tr>
   );
@@ -56,8 +72,14 @@ export function ManufacturingQuantityCheckDialog({
   defaultWarehouseId,
   onTransferShortages,
   transferShortagesPending,
+  emphasizeShortages = false,
+  materialsAlreadyIssued = false,
 }: Props) {
   const [shortageOnly, setShortageOnly] = useState(false);
+
+  useEffect(() => {
+    if (open && emphasizeShortages) setShortageOnly(true);
+  }, [open, emphasizeShortages]);
 
   if (!open) return null;
 
@@ -70,10 +92,25 @@ export function ManufacturingQuantityCheckDialog({
             إغلاق
           </Button>
         </div>
+        {emphasizeShortages && !materialsAlreadyIssued ? (
+          <div className="border-b border-rose-200 bg-rose-50 px-4 py-2 text-xs font-semibold text-rose-800">
+            يوجد عجز في مخزون الخامات — الصفوف المميّزة بالأحمر هي الأصناف الناقصة.
+          </div>
+        ) : null}
+        {materialsAlreadyIssued ? (
+          <div className="border-b border-emerald-200 bg-emerald-50 px-4 py-2 text-xs font-semibold text-emerald-900">
+            تم صرف الخامات لهذا الأمر — الفحص يعرض الكميات المطلوبة وقت التصنيع للمراجعة.
+          </div>
+        ) : null}
         <div className="border-b border-[#EEF5F9] px-4 py-2">
-          <Switch label="عرض الأصناف الناقصة فقط" checked={shortageOnly} onCheckedChange={setShortageOnly} />
+          {!materialsAlreadyIssued ? (
+            <Switch label="عرض الأصناف الناقصة فقط" checked={shortageOnly} onCheckedChange={setShortageOnly} />
+          ) : null}
           <p className="mt-1 text-xs text-slate-500">
-            الكمية = من النموذج × عدد النماذج. الرصيد من مخزن كل خامة كما في نموذج التصنيع (أو مخزن النموذج الافتراضي).
+            الكمية = من النموذج × عدد النماذج.
+            {materialsAlreadyIssued
+              ? ' الرصيد الحالي لا يُستخدم بعد الصرف.'
+              : ' الرصيد من مخزن كل خامة كما في نموذج التصنيع (أو مخزن النموذج الافتراضي).'}
           </p>
         </div>
         <div className="max-h-[55vh] overflow-auto">
@@ -93,13 +130,18 @@ export function ManufacturingQuantityCheckDialog({
                     لا توجد خامات للفحص — اضغط «تحميل» من النموذج أولاً
                   </td>
                 </tr>
-              ) : shortageOnly ? (
+              ) : shortageOnly && !materialsAlreadyIssued ? (
                 rows.map((row) => (
                   <ShortageFilterRow key={row.itemId + row.warehouseId} row={row} warehouseId={defaultWarehouseId} />
                 ))
               ) : (
                 rows.map((row) => (
-                  <CheckRow key={row.itemId + row.warehouseId} row={row} warehouseId={defaultWarehouseId} />
+                  <CheckRow
+                    key={row.itemId + row.warehouseId}
+                    row={row}
+                    warehouseId={defaultWarehouseId}
+                    materialsAlreadyIssued={materialsAlreadyIssued}
+                  />
                 ))
               )}
             </tbody>
@@ -132,8 +174,8 @@ function ShortageFilterRow({ row, warehouseId }: { row: ProcessRawRow; warehouse
   const shortage = Math.max(0, row.quantity - (Number.isFinite(balance) ? balance : 0));
   if (shortage <= 0.0001) return null;
   return (
-    <tr className="border-b border-[#EEF5F9]">
-      <td className="px-3 py-2 text-sm">
+    <tr className="border-b border-[#EEF5F9] bg-red-50 ring-1 ring-inset ring-red-200">
+      <td className="px-3 py-2 text-sm font-semibold text-rose-800">
         <div className="flex min-w-0 items-center justify-end gap-1">
           <span className="min-w-0 truncate">{row.itemName}</span>
           <ItemAlternativesPeek itemId={row.itemId} />
@@ -141,7 +183,7 @@ function ShortageFilterRow({ row, warehouseId }: { row: ProcessRawRow; warehouse
       </td>
       <td className="px-3 py-2 tabular-nums text-sm">{row.quantity.toLocaleString('ar-EG')}</td>
       <td className="px-3 py-2 tabular-nums text-sm">{balance.toLocaleString('ar-EG')}</td>
-      <td className="px-3 py-2 tabular-nums text-sm font-semibold text-rose-600">
+      <td className="px-3 py-2 tabular-nums text-sm font-semibold text-rose-700">
         {shortage.toLocaleString('ar-EG')}
       </td>
     </tr>

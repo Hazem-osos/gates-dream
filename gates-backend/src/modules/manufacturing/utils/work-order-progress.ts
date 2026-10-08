@@ -99,10 +99,11 @@ export async function computeWorkOrderProgress(
   });
   if (!wo) return null;
 
-  const fromLines = await bomPlansFromWorkOrderLines(companyId, wo.lines);
   const fromMeta = parseBomPlansFromMetadata(wo.processMetadata, wo.bomId, wo.modelQuantity);
-  // بنود أمر الشغل هي مصدر الحقيقة للكمية المطلوبة (تصحح bomPlans القديمة أو modelQuantity=1).
-  const plans = fromLines.length > 0 ? fromLines : fromMeta;
+  const fromLines = await bomPlansFromWorkOrderLines(companyId, wo.lines);
+  // التخطيط المحفوظ (bomPlans) يطابق شاشة التخطيط الإنتاجي؛ بنود الشغل احتياط عند غياب الخطة.
+  const plans =
+    fromMeta.length > 0 ? fromMeta : fromLines.length > 0 ? fromLines : [];
   if (!plans.length) {
     return {
       workOrderId: wo.id,
@@ -125,23 +126,37 @@ export async function computeWorkOrderProgress(
   const bomNameById = new Map(boms.map((b) => [b.id, b.name]));
 
   const orders = await prisma.productionOrder.findMany({
-    where: {
-      companyId,
-      manufacturingWorkOrderId: workOrderId,
-      status: { not: 'CANCELLED' },
+    where: { companyId, manufacturingWorkOrderId: workOrderId },
+    select: {
+      bomId: true,
+      status: true,
+      plannedQuantity: true,
+      actualQuantity: true,
+      materialsIssueJournalEntryId: true,
+      completionJournalEntryId: true,
     },
-    select: { bomId: true, status: true, plannedQuantity: true, actualQuantity: true },
   });
 
   const completedByBom = new Map<string, number>();
   const inProgressByBom = new Map<string, number>();
   for (const o of orders) {
-    if (o.status === 'COMPLETED') {
-      const q = num(o.actualQuantity ?? o.plannedQuantity);
-      completedByBom.set(o.bomId, (completedByBom.get(o.bomId) ?? 0) + q);
-    } else if (o.status === 'IN_PROGRESS' || o.status === 'RELEASED') {
-      const q = num(o.plannedQuantity);
-      inProgressByBom.set(o.bomId, (inProgressByBom.get(o.bomId) ?? 0) + q);
+    const planned = num(o.plannedQuantity);
+    const completedQty = num(o.actualQuantity ?? o.plannedQuantity);
+    const countsCompleted =
+      o.status === 'COMPLETED' ||
+      (o.status === 'CANCELLED' && Boolean(o.completionJournalEntryId));
+    const countsInProgress =
+      !countsCompleted &&
+      (o.status === 'IN_PROGRESS' ||
+        o.status === 'RELEASED' ||
+        (o.status === 'CANCELLED' &&
+          Boolean(o.materialsIssueJournalEntryId) &&
+          !o.completionJournalEntryId));
+
+    if (countsCompleted) {
+      completedByBom.set(o.bomId, (completedByBom.get(o.bomId) ?? 0) + completedQty);
+    } else if (countsInProgress) {
+      inProgressByBom.set(o.bomId, (inProgressByBom.get(o.bomId) ?? 0) + planned);
     }
   }
 

@@ -38,6 +38,7 @@ import {
   isCompanyOpeningEntry,
   isOpeningBalanceDraft,
   OPENING_JOURNAL_EXISTS_MESSAGE,
+  nextOpeningJournalNumberInTx,
   openingJournalSlotKey,
 } from './opening-balance.service';
 import { JournalSourceType } from '@prisma/client';
@@ -321,21 +322,25 @@ export class JournalPostingService {
     );
 
     const requestedNumber = data.voucherNumber?.trim() || undefined;
-    await this.assertJournalNumberFree(ctx.companyId, requestedNumber);
-    let legacyGlNum = await documentSequenceService.nextGlNumber(
-      {
-        companyId: ctx.companyId,
-        branchId: optionalBranchId(ctx.branchId) ?? '',
-        fiscalYearId,
-      },
-      requestedNumber,
-      { forceAutomatic: !requestedNumber }
-    );
-    if (requestedNumber && legacyGlNum === requestedNumber && /^\d+$/.test(requestedNumber)) {
-      legacyGlNum = requestedNumber.padStart(8, '0').slice(-8);
-      await this.assertJournalNumberFree(ctx.companyId, legacyGlNum);
+    let legacyGlNum: string;
+    let persistedNumber: string;
+    if (!isOpening) {
+      await this.assertJournalNumberFree(ctx.companyId, requestedNumber);
+      legacyGlNum = await documentSequenceService.nextGlNumber(
+        {
+          companyId: ctx.companyId,
+          branchId: optionalBranchId(ctx.branchId) ?? '',
+          fiscalYearId,
+        },
+        requestedNumber,
+        { forceAutomatic: !requestedNumber }
+      );
+      if (requestedNumber && legacyGlNum === requestedNumber && /^\d+$/.test(requestedNumber)) {
+        legacyGlNum = requestedNumber.padStart(8, '0').slice(-8);
+        await this.assertJournalNumberFree(ctx.companyId, legacyGlNum);
+      }
+      persistedNumber = requestedNumber ?? legacyGlNum;
     }
-    const persistedNumber = requestedNumber ?? legacyGlNum;
 
     const sourceKind = resolveJournalSourceKind(data.sourceType, data.sourceKind);
     const sourceType = persistJournalSourceType(data.sourceType, sourceKind);
@@ -346,6 +351,19 @@ export class JournalPostingService {
     try {
       entry = await prisma.$transaction(async (tx) => {
       if (isOpening) await assertSingleOpeningJournal(tx, ctx.companyId);
+      if (isOpening) {
+        const manualOpening =
+          requestedNumber && /^\d+$/.test(requestedNumber)
+            ? requestedNumber.padStart(8, '0').slice(-8)
+            : undefined;
+        if (manualOpening) {
+          await this.assertJournalNumberFree(ctx.companyId, manualOpening);
+          legacyGlNum = manualOpening;
+        } else {
+          legacyGlNum = await nextOpeningJournalNumberInTx(tx, ctx.companyId);
+        }
+        persistedNumber = legacyGlNum;
+      }
       const created = await tx.journalEntry.create({
         data: {
           companyId: ctx.companyId,
@@ -508,19 +526,6 @@ export class JournalPostingService {
     const requestedNumber = data.voucherNumber?.trim() || undefined;
     const existingLegacy = data.legacyGlNum?.trim() || undefined;
     const fiscalYearId = data.fiscalYearId?.trim() || fiscalYearIdFromDate;
-    const legacyGlNum =
-      existingLegacy ||
-      (await documentSequenceService.nextGlNumberInTx(
-        tx,
-        {
-          companyId: ctx.companyId,
-          branchId: optionalBranchId(ctx.branchId) ?? '',
-          fiscalYearId,
-        },
-        requestedNumber,
-        { forceAutomatic: !requestedNumber }
-      ));
-    const voucherNumber = requestedNumber || legacyGlNum;
     const sourceKind = resolveJournalSourceKind(data.sourceType, data.sourceKind);
     const sourceType = persistJournalSourceType(data.sourceType, sourceKind);
     const companyOpening = isCompanyOpeningEntry({
@@ -528,6 +533,38 @@ export class JournalPostingService {
       sourceType: data.sourceType ?? sourceType,
     });
     if (companyOpening) await assertSingleOpeningJournal(tx, ctx.companyId);
+
+    let legacyGlNum: string;
+    let voucherNumber: string;
+    if (companyOpening) {
+      const manualOpening =
+        requestedNumber && /^\d+$/.test(requestedNumber)
+          ? requestedNumber.padStart(8, '0').slice(-8)
+          : undefined;
+      if (existingLegacy) {
+        legacyGlNum = existingLegacy;
+      } else if (manualOpening) {
+        await this.assertJournalNumberFree(ctx.companyId, manualOpening);
+        legacyGlNum = manualOpening;
+      } else {
+        legacyGlNum = await nextOpeningJournalNumberInTx(tx, ctx.companyId);
+      }
+      voucherNumber = legacyGlNum;
+    } else {
+      legacyGlNum =
+        existingLegacy ||
+        (await documentSequenceService.nextGlNumberInTx(
+          tx,
+          {
+            companyId: ctx.companyId,
+            branchId: optionalBranchId(ctx.branchId) ?? '',
+            fiscalYearId,
+          },
+          requestedNumber,
+          { forceAutomatic: !requestedNumber }
+        ));
+      voucherNumber = requestedNumber || legacyGlNum;
+    }
 
     const created = await tx.journalEntry.create({
       data: {

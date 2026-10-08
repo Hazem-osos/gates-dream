@@ -3,6 +3,9 @@
 import type { ReactNode } from 'react';
 import { Plus } from 'lucide-react';
 import { Button } from '@/components/ui';
+import { ColumnResizeHandle } from '@/components/grid/ColumnResizeHandle';
+import { ResizableColGroup } from '@/components/grid/ResizableColGroup';
+import { useResizableColumns } from '@/components/grid/useResizableColumns';
 import {
   dataEntryGridAddButtonClass,
   dataEntryGridBodyCellClass,
@@ -26,6 +29,9 @@ type Props = {
   addLabel?: string;
   disabled?: boolean;
   emptyMessage?: string;
+  /** Key to remember column widths (defaults to column ids). */
+  tableKey?: string;
+  resizableColumns?: boolean;
 };
 
 export function UniversalDataGrid({
@@ -36,24 +42,37 @@ export function UniversalDataGrid({
   addLabel = 'إضافة سطر جديد (Enter)',
   disabled,
   emptyMessage = 'لا توجد سطور',
+  tableKey,
+  resizableColumns = true,
 }: Props) {
   const rows = Math.max(rowCount, 0);
+  const columnIds = columns.map((col) => col.id);
+  const storageKey = `gates-cols:data-grid:${tableKey ?? columnIds.join('|')}`;
+  const { startResize, colGroup } = useResizableColumns(columnIds, {
+    storageKey,
+    enabled: resizableColumns,
+    defaultWidth: 140,
+  });
 
   return (
     <div className="col-span-full min-w-0 w-full max-w-full space-y-1" dir="rtl">
       <div className={dataEntryGridWrapClass}>
         <div className="erp-scroll-x min-w-0 w-full max-w-full overflow-x-scroll">
-          <table className="w-max min-w-full text-sm">
+          <table className={`min-w-full text-sm ${colGroup ? 'w-full table-fixed' : 'w-max'}`}>
+            <ResizableColGroup columns={colGroup} />
             <thead>
               <tr className={dataEntryGridHeadRowClass}>
                 {columns.map((col) => (
                   <th
                     key={col.id}
-                    className={`${dataEntryGridHeadCellClass} ${
+                    className={`relative ${dataEntryGridHeadCellClass} ${
                       col.align === 'center' ? 'text-center' : col.align === 'left' ? 'text-left' : 'text-right'
                     } ${col.className ?? ''}`}
                   >
                     {col.label}
+                    {resizableColumns ? (
+                      <ColumnResizeHandle onMouseDown={(event) => startResize(col.id, event)} />
+                    ) : null}
                   </th>
                 ))}
               </tr>

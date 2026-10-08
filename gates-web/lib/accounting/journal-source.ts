@@ -92,6 +92,7 @@ export function journalSourceLabel(
   if (entryType === 'OPENING_BALANCE') return 'قيد افتتاحي';
   if (family === 'KP01') return 'إشعار خصم بنكي';
   if (family === 'KR01') return 'إشعار إضافة بنكي';
+  if (family === 'MO' || entryType.startsWith('PROD')) return 'أمر تصنيع';
   const kind = resolveJournalSourceKind(sourceType, sourceKind);
   if (hint?.voucherFund === 'bank' && kind === 'PAYMENT_VOUCHER') return 'إشعار خصم بنكي';
   if (hint?.voucherFund === 'bank' && kind === 'RECEIPT_VOUCHER') return 'إشعار إضافة بنكي';
@@ -131,7 +132,9 @@ export function isSourcedJournalEntry(row: {
   if (sourceType && sourceType !== 'MANUAL' && !JOURNAL_OWNED_KINDS.has(sourceType as JournalSourceType)) {
     return true;
   }
+  const sourceFamily = String(row.sourceType ?? '').trim().toUpperCase().split('-')[0];
   const entryType = String(row.entryType ?? '').trim().toUpperCase();
+  if (sourceFamily === 'MO' || entryType.startsWith('PROD')) return true;
   if (!entryType || entryType === 'MANUAL' || entryType === 'OPENING_BALANCE') return false;
   if (entryType === 'REVERSAL' || entryType === 'YEARCLOSE') return true;
   if (entryType.includes('COGS') || entryType.includes('RETURN')) return true;
@@ -165,6 +168,9 @@ export function journalDocumentHref(row: {
   }
   if (entryType === 'OPENING_BALANCE') {
     return '/accounting/operations/basic-operations/opening-balance';
+  }
+  if (source === 'MO' && row.sourceId) {
+    return `/manufacturing/operations/operation?orderId=${encodeURIComponent(row.sourceId)}`;
   }
   const kind = resolveJournalSourceKind(row.sourceType, row.sourceKind);
   const fund = row.voucherFund === 'bank' || row.voucherFund === 'cash' ? row.voucherFund : null;

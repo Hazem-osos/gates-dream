@@ -11,8 +11,8 @@ import { fiscalYearService } from '../../platform/services/fiscal-year.service';
 import {
   assertWarehouseActive,
   getInventorySystem,
-  loadWarehouseGlMap,
   pickInventoryAccount,
+  resolveEffectiveWarehouseGlAccounts,
 } from '../utils/inventory-system';
 import {
   ensurePerpetualInventoryGlReady,
@@ -60,10 +60,12 @@ async function collectOpeningInventoryGlSlices(
   const companyAccounts = await resolveStockGlAccounts(companyId).catch(() => null);
   const companyInventoryId = companyAccounts?.inventoryAccountId;
   const system = companyAccounts?.system ?? (await getInventorySystem(companyId));
-  const warehouseMap = await loadWarehouseGlMap(
-    companyId,
-    lines.map((line) => line.warehouseId)
-  );
+  const warehouseIds = [...new Set(lines.map((line) => line.warehouseId).filter(Boolean))];
+  const warehouseInventoryById = new Map<string, string | null>();
+  for (const warehouseId of warehouseIds) {
+    const gl = await resolveEffectiveWarehouseGlAccounts(companyId, warehouseId, db);
+    warehouseInventoryById.set(warehouseId, gl.inventoryAccountId);
+  }
   const items = await db.item.findMany({
     where: { id: { in: [...new Set(lines.map((line) => line.itemId))] } },
     select: { id: true, mainAccountId: true, arabicName: true, serial: true },
@@ -77,7 +79,7 @@ async function collectOpeningInventoryGlSlices(
     const accountId = pickInventoryAccount(
       system,
       companyInventoryId,
-      warehouseMap.get(line.warehouseId)?.inventoryAccountId,
+      warehouseInventoryById.get(line.warehouseId),
       itemRow?.mainAccountId
     );
     if (!accountId) continue;

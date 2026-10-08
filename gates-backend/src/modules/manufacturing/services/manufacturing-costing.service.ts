@@ -15,6 +15,23 @@ import { manufacturingAccountResolverService } from './manufacturing-account-res
 import { invoiceAccountResolverService } from '../../invoices/services/invoice-account-resolver.service';
 import { journalLines } from '../../trade/utils/journal-lines.util';
 
+type MfgJeLine = {
+  accountId: string;
+  debit: number;
+  credit: number;
+  description?: string;
+  costCenterId?: string;
+};
+
+/** Legacy ManufactProcess / Gates UI: inventory issue lines post with inverted debit-credit vs textbook WIP. */
+function flipMfgJournalLine<T extends MfgJeLine>(line: T): T {
+  return { ...line, debit: line.credit, credit: line.debit };
+}
+
+function mfgJournalLines(rows: MfgJeLine[]) {
+  return journalLines(rows.map(flipMfgJournalLine));
+}
+
 export class ManufacturingCostingService {
   private async allocateGlNum(ctx: JournalPostingContext): Promise<string | undefined> {
     return documentSequenceService.nextGlNumber(ctx);
@@ -24,6 +41,7 @@ export class ManufacturingCostingService {
     ctx: JournalPostingContext,
     tx: Prisma.TransactionClient,
     params: {
+      productionOrderId: string;
       orderNumber: string;
       sourceYearId?: string;
       totalMaterialCost: number;
@@ -45,9 +63,10 @@ export class ManufacturingCostingService {
       exchangeRate: 1,
       entryType: 'ProdIssue',
       sourceType: 'MO',
+      sourceId: params.productionOrderId,
       sourceNumber: params.orderNumber,
       sourceYearId: params.sourceYearId,
-      lines: journalLines([
+      lines: mfgJournalLines([
         { accountId: accounts.wipMaterialsAccountId, debit: amount, credit: 0, costCenterId: cc },
         { accountId: accounts.rawInventoryAccountId, debit: 0, credit: amount, costCenterId: cc },
       ]),
@@ -58,6 +77,7 @@ export class ManufacturingCostingService {
     ctx: JournalPostingContext,
     tx: Prisma.TransactionClient,
     params: {
+      productionOrderId: string;
       orderNumber: string;
       sourceYearId?: string;
       laborCost: number;
@@ -81,9 +101,10 @@ export class ManufacturingCostingService {
       exchangeRate: 1,
       entryType: 'ProdOH',
       sourceType: 'MO',
+      sourceId: params.productionOrderId,
       sourceNumber: `${params.orderNumber}-OH`,
       sourceYearId: params.sourceYearId,
-      lines: journalLines([
+      lines: mfgJournalLines([
         { accountId: accounts.wipLaborOverheadAccountId, debit: total, credit: 0, costCenterId: cc },
         { accountId: accounts.overheadAbsorptionAccountId, debit: 0, credit: total, costCenterId: cc },
       ]),
@@ -94,6 +115,7 @@ export class ManufacturingCostingService {
     ctx: JournalPostingContext,
     tx: Prisma.TransactionClient,
     params: {
+      productionOrderId: string;
       orderNumber: string;
       sourceYearId?: string;
       totalBatchCost: number;
@@ -106,6 +128,9 @@ export class ManufacturingCostingService {
     const total = roundTo4(params.totalBatchCost);
     const materials = roundTo4(params.materialCost);
     const laborOh = roundTo4(params.laborOverheadCost);
+    if (total <= 0) {
+      throw new AppError(422, 'Completion total must be positive');
+    }
     if (Math.abs(total - (materials + laborOh)) > 0.05) {
       throw new AppError(422, 'Completion cost split must equal total batch cost');
     }
@@ -120,9 +145,10 @@ export class ManufacturingCostingService {
       exchangeRate: 1,
       entryType: 'ProdComplete',
       sourceType: 'MO',
+      sourceId: params.productionOrderId,
       sourceNumber: `${params.orderNumber}-FG`,
       sourceYearId: params.sourceYearId,
-      lines: journalLines([
+      lines: mfgJournalLines([
         { accountId: accounts.finishedGoodsAccountId, debit: total, credit: 0 },
         { accountId: accounts.wipMaterialsAccountId, debit: 0, credit: materials },
         { accountId: accounts.wipLaborOverheadAccountId, debit: 0, credit: laborOh },
@@ -206,13 +232,14 @@ export class ManufacturingCostingService {
   }
 
   /**
-   * Unified production JE: Cr inventory (from warehouse), Dr inventory (to) for materials,
-   * Dr expense accounts for additional BOM costs (legacy ManufactProcess parity).
+   * Unified production JE (before flip): Dr destination inventory + additional expense accounts,
+   * Cr source inventory — posted with legacy debit/credit inversion via mfgJournalLines.
    */
   async postUnifiedMaterialAndAdditional(
     ctx: JournalPostingContext,
     tx: Prisma.TransactionClient,
     params: {
+      productionOrderId: string;
       orderNumber: string;
       sourceYearId?: string;
       fromWarehouseId: string;
@@ -282,9 +309,10 @@ export class ManufacturingCostingService {
       exchangeRate: 1,
       entryType: 'ProdUnified',
       sourceType: 'MO',
+      sourceId: params.productionOrderId,
       sourceNumber: `${params.orderNumber}-UNI`,
       sourceYearId: params.sourceYearId,
-      lines: journalLines(lines),
+      lines: mfgJournalLines(lines),
     });
   }
 }

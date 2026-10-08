@@ -28,6 +28,16 @@ function isJournalAutoPostNoop(error: unknown): boolean {
   );
 }
 
+/** إعدادات المستند أولاً؛ ثم «ترحيل قيد تلقائي عند الحفظ» على مستوى الشركة. */
+export function journalShouldAutoPostOnSave(
+  txSettings: { autoPostOnSave?: boolean } | null | undefined,
+  companyAutoPostGl?: boolean
+): boolean {
+  if (txSettings?.autoPostOnSave === true) return true;
+  if (txSettings?.autoPostOnSave === false) return false;
+  return companyAutoPostGl !== false;
+}
+
 export async function postJournalAfterSave(journalEntryId: string): Promise<'posted' | 'kept'> {
   try {
     await apiClient.post(`/accounting/journal-entries/${journalEntryId}/post`, {});

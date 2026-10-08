@@ -1,4 +1,5 @@
 import {
+  accountIdsForStatementLevel,
   arrangeTrialBalanceTree,
   buildCostCenterProfitability,
   buildMonthlyPerformance,
@@ -50,6 +51,26 @@ describe('trial balance account filter', () => {
   it('does not include another root when an account is selected', () => {
     const selected = selectTrialBalanceRows(rows, { accountId: 'cash', tree });
     expect(selected.map((row) => row.accountId)).toEqual(['cash']);
+  });
+
+  it('matches trial balance depth for account statement level rows', () => {
+    const treeWithChild = [
+      ...tree,
+      { id: 'petty', parentId: 'cash' },
+    ];
+    const opening = new Map<string, number>([
+      ['cash', 10],
+      ['petty', 3],
+      ['bank', 0],
+    ]);
+    const movements = [
+      { accountId: 'cash', debitBase: 5, creditBase: 1 },
+      { accountId: 'petty', debitBase: 1, creditBase: 0 },
+      { accountId: 'bank', debitBase: 20, creditBase: 4 },
+    ];
+    expect(
+      accountIdsForStatementLevel('assets', treeWithChild, opening, movements, 2)
+    ).toEqual(['assets', 'cash', 'bank']);
   });
 
   it('lists a main account, then the branch under it, then the next branch', () => {

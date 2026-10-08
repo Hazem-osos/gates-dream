@@ -10,9 +10,20 @@ import { manufacturingCostingService } from './manufacturing-costing.service';
 import { resolveManufacturingOrderNumberInTx } from './manufacturing-order-numbering.service';
 import { materialRequirementsFromProcessMetadata } from '../utils/production-order-material-requirements';
 import {
+  additionalCostsTotalFromMetadata,
+  productionMaterialPostingChanged,
+  productionOrderUsesUnifiedIssue,
+} from '../utils/production-order-posting.helpers';
+import {
   assertProductionOrderQuantityWithinWorkOrderCap,
   markWorkOrderInProgressIfNeeded,
 } from '../utils/work-order-progress';
+import {
+  finishedReceiptAtIssueFromMetadata,
+  primaryFinishedOutputQuantity,
+  withFinishedReceiptAtIssueMetadata,
+  withoutFinishedReceiptAtIssueMetadata,
+} from '../utils/production-order-finished-output';
 
 export interface CreateProductionOrderInput {
   orderNumber: string;
@@ -124,15 +135,8 @@ export class ProductionOrderService {
     if (order.status === 'CANCELLED') {
       throw new AppError(422, 'لا يمكن تعديل أمر ملغي');
     }
-    if (
-      order.materialsIssueJournalEntryId ||
-      order.status === 'IN_PROGRESS' ||
-      order.status === 'COMPLETED'
-    ) {
-      throw new AppError(
-        422,
-        'لا يمكن تعديل أمر بعد بدء التنفيذ — ألغِ صرف الخامات أولاً إن احتجت التعديل'
-      );
+    if (order.status === 'COMPLETED') {
+      throw new AppError(422, 'لا يمكن تعديل أمر منتهي — أرجعه لقيد التنفيذ أو ألغِه من القائمة');
     }
     if (input.plannedQuantity <= 0) {
       throw new AppError(422, 'Planned quantity must be positive');
@@ -152,6 +156,33 @@ export class ProductionOrderService {
     const orderNumber = input.orderNumber?.trim();
     if (!orderNumber) {
       throw new AppError(422, 'رقم الأمر مطلوب');
+    }
+
+    if (order.materialsIssueJournalEntryId) {
+      const fingerprintBefore = {
+        bomId: order.bomId,
+        plannedQuantity: Number(order.plannedQuantity),
+        warehouseIdRaw: order.warehouseIdRaw,
+        warehouseIdFinished: order.warehouseIdFinished,
+        processMetadata: order.processMetadata as {
+          rawLinesSnapshot?: Array<{ rawItemId?: string; quantity?: number }>;
+        } | null,
+      };
+      const fingerprintAfter = {
+        bomId: bom.id,
+        plannedQuantity: input.plannedQuantity,
+        warehouseIdRaw: input.warehouseIdRaw,
+        warehouseIdFinished: input.warehouseIdFinished,
+        processMetadata: input.processMetadata as {
+          rawLinesSnapshot?: Array<{ rawItemId?: string; quantity?: number }>;
+        } | null,
+      };
+      if (productionMaterialPostingChanged(fingerprintBefore, fingerprintAfter)) {
+        throw new AppError(
+          422,
+          'تم ترحيل صرف الخامات. لتعديل الخامات أو الكميات أو المخازن: من القائمة (⋯) اختر «فك صرف الخامات» ثم عدّل وأعد «بدء التنفيذ».'
+        );
+      }
     }
 
     return prisma.$transaction(async (tx) => {
@@ -234,28 +265,166 @@ export class ProductionOrderService {
   }
 
   /**
-   * Wave 3 fix: `CANCELLED` was documented on `status` but nothing ever
-   * wrote it — a DRAFT/RELEASED order created by mistake had no way to
-   * close out. Only allowed before any GL/stock effect exists (materials
-   * not yet issued); past that point the sanctioned path is to unwind via
-   * `unpostMaterialIssue`/`unpostLaborOverhead`/`unpostCompletion` first,
-   * which brings the order back to RELEASED, and cancel from there.
+   * إلغاء إداري: الحالة CANCELLED فقط — بدون عكس قيود أو مخزون.
+   * لعكس التأثيرات: فك الإتمام / فك الأجور / فك صرف الخامات من القائمة.
    */
   async cancel(companyId: string, orderId: string) {
     const order = await this.getById(companyId, orderId);
     if (order.status === 'CANCELLED') {
-      throw new AppError(400, 'Production order is already cancelled');
-    }
-    if (order.status !== 'DRAFT' && order.status !== 'RELEASED') {
-      throw new AppError(
-        422,
-        `Cannot cancel a ${order.status} production order — unpost materials/costs/completion first`
-      );
+      throw new AppError(400, 'أمر التصنيع ملغي بالفعل');
     }
     return prisma.productionOrder.update({
       where: { id: orderId },
       data: { status: 'CANCELLED' },
     });
+  }
+
+  /**
+   * إلغاء أمر منتهي: عكس مخزون + إلغاء قيود المصدر (ملغي وغير مرحّل).
+   * القيود تبقى مربوطة بأمر التصنيع — لا تعديل يدوي من قيد اليومية.
+   */
+  async cancelCompletedOrder(ctx: JournalPostingContext, companyId: string, orderId: string) {
+    const order = await this.getById(companyId, orderId);
+    if (order.status === 'CANCELLED') {
+      throw new AppError(400, 'أمر التصنيع ملغي بالفعل');
+    }
+    if (order.status !== 'COMPLETED') {
+      throw new AppError(422, 'إلغاء الأمر المتاح للأوامر المنتهية فقط');
+    }
+
+    const journalEntryIds = [
+      order.completionJournalEntryId,
+      order.laborOverheadJournalEntryId,
+      order.materialsIssueJournalEntryId,
+      order.additionalCostsJournalEntryId,
+    ];
+
+    return prisma.$transaction(async (tx) => {
+      const receiptAtIssue = finishedReceiptAtIssueFromMetadata(order.processMetadata);
+      const qty = Number(order.actualQuantity ?? 0);
+      const baselineQty = receiptAtIssue?.quantity ?? qty;
+      const deltaFromComplete = roundTo4(qty - baselineQty);
+
+      if (Math.abs(deltaFromComplete) > 0.0001) {
+        await stockMovementService.postMovementInTx(tx, {
+          companyId,
+          branchId: ctx.branchId ?? undefined,
+          warehouseId: order.warehouseIdFinished,
+          itemId: order.finishedItemId,
+          quantityDelta: -deltaFromComplete,
+          unitCost: Number(order.unitCost ?? 0),
+          movementType: 'PROD_RECEIPT_REVERSAL',
+          sourceType: 'MO',
+          sourceNumber: order.orderNumber,
+          sourceYearId: order.sourceYearId ?? undefined,
+          documentDate: new Date(),
+        });
+        await itemCostService.removeCostHistoryBySourceInTx(tx, {
+          companyId,
+          itemId: order.finishedItemId,
+          sourceType: 'MO',
+          sourceNumber: order.orderNumber,
+          sourceYearId: order.sourceYearId ?? String(new Date().getUTCFullYear()),
+        });
+      }
+
+      for (const issue of order.materialIssues) {
+        for (const line of issue.lines) {
+          await stockMovementService.postMovementInTx(tx, {
+            companyId,
+            branchId: ctx.branchId ?? undefined,
+            warehouseId: order.warehouseIdRaw,
+            itemId: line.rawItemId,
+            quantityDelta: Number(line.quantity),
+            unitCost: Number(line.unitCost),
+            movementType: 'PROD_ISSUE_REVERSAL',
+            sourceType: 'MO',
+            sourceNumber: order.orderNumber,
+            sourceYearId: order.sourceYearId ?? undefined,
+            documentDate: new Date(),
+          });
+        }
+      }
+
+      if (receiptAtIssue && receiptAtIssue.quantity > 0) {
+        await stockMovementService.postMovementInTx(tx, {
+          companyId,
+          branchId: ctx.branchId ?? undefined,
+          warehouseId: order.warehouseIdFinished,
+          itemId: order.finishedItemId,
+          quantityDelta: -receiptAtIssue.quantity,
+          unitCost: receiptAtIssue.unitCost,
+          movementType: 'PROD_RECEIPT_REVERSAL',
+          sourceType: 'MO',
+          sourceNumber: order.orderNumber,
+          sourceYearId: order.sourceYearId ?? undefined,
+          documentDate: new Date(),
+        });
+        await itemCostService.removeCostHistoryBySourceInTx(tx, {
+          companyId,
+          itemId: order.finishedItemId,
+          sourceType: 'MO',
+          sourceNumber: order.orderNumber,
+          sourceYearId: order.sourceYearId ?? String(new Date().getUTCFullYear()),
+        });
+      }
+
+      await tx.productionMaterialIssue.deleteMany({ where: { productionOrderId: orderId } });
+
+      await journalPostingService.cascadeSourceJournalInTx(
+        tx,
+        companyId,
+        journalEntryIds,
+        'cancel',
+        ctx.userId,
+        {
+          sourceId: orderId,
+          sourceType: 'MO',
+          sourceNumber: order.orderNumber,
+        }
+      );
+
+      return tx.productionOrder.update({
+        where: { id: orderId },
+        data: {
+          status: 'CANCELLED',
+          completionJournalEntryId: null,
+          laborOverheadJournalEntryId: null,
+          materialsIssueJournalEntryId: null,
+          additionalCostsJournalEntryId: null,
+          totalMaterialCost: new Decimal(0),
+          totalLaborCost: new Decimal(0),
+          totalOverheadCost: new Decimal(0),
+          actualQuantity: null,
+          unitCost: null,
+          completedAt: null,
+          processMetadata: withoutFinishedReceiptAtIssueMetadata(order.processMetadata),
+        },
+      });
+    });
+  }
+
+  /** حذف نهائي — غير متاح للأوامر المنتهية (استخدم الإلغاء). */
+  async permanentDelete(ctx: JournalPostingContext, companyId: string, orderId: string) {
+    const order = await this.getById(companyId, orderId);
+    if (order.status === 'COMPLETED') {
+      throw new AppError(422, 'لا يمكن حذف أمر منتهي — استخدم «إلغاء الأمر» من القائمة');
+    }
+    if (order.status !== 'CANCELLED') {
+      if (order.completionJournalEntryId) {
+        await this.unpostCompletion(ctx, orderId);
+      }
+      const mid = await this.getById(companyId, orderId);
+      if (mid.laborOverheadJournalEntryId) {
+        await this.unpostLaborOverhead(ctx, orderId);
+      }
+      const mid2 = await this.getById(companyId, orderId);
+      if (mid2.materialsIssueJournalEntryId) {
+        await this.unpostMaterialIssue(ctx, orderId);
+      }
+    }
+    await prisma.productionOrder.delete({ where: { id: orderId } });
+    return { id: orderId, deleted: true as const };
   }
 
   async issueMaterials(ctx: JournalPostingContext, orderId: string) {
@@ -340,6 +509,7 @@ export class ProductionOrderService {
 
       const je = useUnified
         ? await manufacturingCostingService.postUnifiedMaterialAndAdditional(ctx, tx, {
+            productionOrderId: orderId,
             orderNumber: order.orderNumber,
             sourceYearId: order.sourceYearId ?? undefined,
             fromWarehouseId: order.warehouseIdRaw,
@@ -350,6 +520,7 @@ export class ProductionOrderService {
             costCenterId,
           })
         : await manufacturingCostingService.postMaterialIssue(ctx, tx, {
+            productionOrderId: orderId,
             orderNumber: order.orderNumber,
             sourceYearId: order.sourceYearId ?? undefined,
             totalMaterialCost,
@@ -375,6 +546,37 @@ export class ProductionOrderService {
         include: { lines: true },
       });
 
+      const outputQty = primaryFinishedOutputQuantity(order);
+      const additionalAtIssue = useUnified
+        ? additionalCostsTotalFromMetadata(order.processMetadata)
+        : 0;
+      const provisionalBatch = roundTo4(totalMaterialCost + additionalAtIssue);
+      const provisionalUnitCost =
+        outputQty > 0 ? roundTo4(provisionalBatch / outputQty) : 0;
+
+      if (outputQty > 0 && order.finishedItemId) {
+        await manufacturingCostingService.receiveFinishedGoodsInTx(tx, {
+          companyId: ctx.companyId,
+          branchId: ctx.branchId ?? undefined,
+          warehouseId: order.warehouseIdFinished,
+          itemId: order.finishedItemId,
+          quantity: outputQty,
+          unitCost: provisionalUnitCost,
+          orderNumber: order.orderNumber,
+          sourceYearId: order.sourceYearId ?? undefined,
+          documentDate: issueDate,
+        });
+      }
+
+      const finishedReceiptAtIssue =
+        outputQty > 0
+          ? {
+              quantity: outputQty,
+              unitCost: provisionalUnitCost,
+              receivedAt: issueDate.toISOString(),
+            }
+          : null;
+
       return tx.productionOrder.update({
         where: { id: orderId },
         data: {
@@ -382,6 +584,16 @@ export class ProductionOrderService {
           totalMaterialCost: new Decimal(totalMaterialCost),
           materialsIssueJournalEntryId: je.id,
           ...(useUnified ? { additionalCostsJournalEntryId: je.id } : {}),
+          ...(finishedReceiptAtIssue
+            ? {
+                actualQuantity: new Decimal(finishedReceiptAtIssue.quantity),
+                unitCost: new Decimal(finishedReceiptAtIssue.unitCost),
+                processMetadata: withFinishedReceiptAtIssueMetadata(
+                  order.processMetadata,
+                  finishedReceiptAtIssue
+                ),
+              }
+            : {}),
         },
         include: { materialIssues: { include: { lines: true } } },
       });
@@ -408,6 +620,7 @@ export class ProductionOrderService {
     );
     return prisma.$transaction(async (tx) => {
       const je = await manufacturingCostingService.postLaborOverhead(ctx, tx, {
+        productionOrderId: orderId,
         orderNumber: order.orderNumber,
         sourceYearId: order.sourceYearId ?? undefined,
         laborCost,
@@ -447,31 +660,92 @@ export class ProductionOrderService {
     const materialCost = Number(order.totalMaterialCost);
     const laborCost = Number(order.totalLaborCost);
     const overheadCost = Number(order.totalOverheadCost);
-    const totalBatch = roundTo4(materialCost + laborCost + overheadCost);
+    const useUnifiedIssue = productionOrderUsesUnifiedIssue(order);
+    const additionalAtIssue = useUnifiedIssue
+      ? additionalCostsTotalFromMetadata(order.processMetadata)
+      : 0;
+    const totalBatch = roundTo4(
+      materialCost + laborCost + overheadCost + additionalAtIssue
+    );
     const unitCost = roundTo4(totalBatch / actualQuantity);
     const completionDate = new Date();
+    const laborOverheadTotal = roundTo4(laborCost + overheadCost);
 
     return prisma.$transaction(async (tx) => {
-      const je = await manufacturingCostingService.postCompletion(ctx, tx, {
-        orderNumber: order.orderNumber,
-        sourceYearId: order.sourceYearId ?? undefined,
-        totalBatchCost: totalBatch,
-        materialCost,
-        laborOverheadCost: roundTo4(laborCost + overheadCost),
-        completionDate,
-      });
+      let completionJournalEntryId: string | null = null;
+      if (useUnifiedIssue) {
+        // Unified issue already Dr destination inventory (+ expenses) / Cr raw inventory for materials.
+        // Closing JE only books labor/overhead into finished goods — avoid double-counting WIP materials.
+        if (laborOverheadTotal > 0) {
+          const je = await manufacturingCostingService.postCompletion(ctx, tx, {
+            productionOrderId: orderId,
+            orderNumber: order.orderNumber,
+            sourceYearId: order.sourceYearId ?? undefined,
+            totalBatchCost: laborOverheadTotal,
+            materialCost: 0,
+            laborOverheadCost: laborOverheadTotal,
+            completionDate,
+          });
+          completionJournalEntryId = je.id;
+        }
+      } else {
+        const je = await manufacturingCostingService.postCompletion(ctx, tx, {
+          productionOrderId: orderId,
+          orderNumber: order.orderNumber,
+          sourceYearId: order.sourceYearId ?? undefined,
+          totalBatchCost: totalBatch,
+          materialCost,
+          laborOverheadCost: laborOverheadTotal,
+          completionDate,
+        });
+        completionJournalEntryId = je.id;
+      }
 
-      await manufacturingCostingService.receiveFinishedGoodsInTx(tx, {
-        companyId: ctx.companyId,
-        branchId: ctx.branchId ?? undefined,
-        warehouseId: order.warehouseIdFinished,
-        itemId: order.finishedItemId,
-        quantity: actualQuantity,
-        unitCost,
-        orderNumber: order.orderNumber,
-        sourceYearId: order.sourceYearId ?? undefined,
-        documentDate: completionDate,
-      });
+      const receiptAtIssue = finishedReceiptAtIssueFromMetadata(order.processMetadata);
+      const baselineQty = receiptAtIssue?.quantity ?? 0;
+      const deltaQty = roundTo4(actualQuantity - baselineQty);
+
+      if (!receiptAtIssue) {
+        await manufacturingCostingService.receiveFinishedGoodsInTx(tx, {
+          companyId: ctx.companyId,
+          branchId: ctx.branchId ?? undefined,
+          warehouseId: order.warehouseIdFinished,
+          itemId: order.finishedItemId,
+          quantity: actualQuantity,
+          unitCost,
+          orderNumber: order.orderNumber,
+          sourceYearId: order.sourceYearId ?? undefined,
+          documentDate: completionDate,
+        });
+      } else if (Math.abs(deltaQty) > 0.0001) {
+        if (deltaQty > 0) {
+          await manufacturingCostingService.receiveFinishedGoodsInTx(tx, {
+            companyId: ctx.companyId,
+            branchId: ctx.branchId ?? undefined,
+            warehouseId: order.warehouseIdFinished,
+            itemId: order.finishedItemId,
+            quantity: deltaQty,
+            unitCost,
+            orderNumber: order.orderNumber,
+            sourceYearId: order.sourceYearId ?? undefined,
+            documentDate: completionDate,
+          });
+        } else {
+          await stockMovementService.postMovementInTx(tx, {
+            companyId: ctx.companyId,
+            branchId: ctx.branchId ?? undefined,
+            warehouseId: order.warehouseIdFinished,
+            itemId: order.finishedItemId,
+            quantityDelta: deltaQty,
+            unitCost,
+            movementType: 'PROD_RECEIPT_ADJUST',
+            sourceType: 'MO',
+            sourceNumber: order.orderNumber,
+            sourceYearId: order.sourceYearId ?? undefined,
+            documentDate: completionDate,
+          });
+        }
+      }
 
       return tx.productionOrder.update({
         where: { id: orderId },
@@ -479,7 +753,7 @@ export class ProductionOrderService {
           status: 'COMPLETED',
           actualQuantity: new Decimal(actualQuantity),
           unitCost: new Decimal(unitCost),
-          completionJournalEntryId: je.id,
+          completionJournalEntryId,
           completedAt: completionDate,
         },
       });
@@ -497,23 +771,25 @@ export class ProductionOrderService {
     if (order.status !== 'COMPLETED') {
       throw new AppError(400, 'Only a COMPLETED order has a completion to unpost');
     }
-    if (!order.completionJournalEntryId) {
-      throw new AppError(400, 'Order has no completion journal entry to reverse');
-    }
-
     return prisma.$transaction(async (tx) => {
-      await journalPostingService.reverseJournalEntryInTx(tx, ctx, order.completionJournalEntryId!, {
-        reason: 'Production completion unposted',
-      });
+      if (order.completionJournalEntryId) {
+        await journalPostingService.reverseJournalEntryInTx(tx, ctx, order.completionJournalEntryId, {
+          reason: 'Production completion unposted',
+        });
+      }
 
+      const receiptAtIssue = finishedReceiptAtIssueFromMetadata(order.processMetadata);
       const qty = Number(order.actualQuantity ?? 0);
-      if (qty > 0) {
+      const baselineQty = receiptAtIssue?.quantity ?? qty;
+      const deltaFromComplete = roundTo4(qty - baselineQty);
+
+      if (Math.abs(deltaFromComplete) > 0.0001) {
         await stockMovementService.postMovementInTx(tx, {
           companyId: ctx.companyId,
           branchId: ctx.branchId ?? undefined,
           warehouseId: order.warehouseIdFinished,
           itemId: order.finishedItemId,
-          quantityDelta: -qty,
+          quantityDelta: -deltaFromComplete,
           unitCost: Number(order.unitCost ?? 0),
           movementType: 'PROD_RECEIPT_REVERSAL',
           sourceType: 'MO',
@@ -521,21 +797,28 @@ export class ProductionOrderService {
           sourceYearId: order.sourceYearId ?? undefined,
           documentDate: new Date(),
         });
+        await itemCostService.removeCostHistoryBySourceInTx(tx, {
+          companyId: ctx.companyId,
+          itemId: order.finishedItemId,
+          sourceType: 'MO',
+          sourceNumber: order.orderNumber,
+          sourceYearId: order.sourceYearId ?? String(new Date().getUTCFullYear()),
+        });
       }
-      await itemCostService.removeCostHistoryBySourceInTx(tx, {
-        companyId: ctx.companyId,
-        itemId: order.finishedItemId,
-        sourceType: 'MO',
-        sourceNumber: order.orderNumber,
-        sourceYearId: order.sourceYearId ?? String(new Date().getUTCFullYear()),
-      });
 
       return tx.productionOrder.update({
         where: { id: orderId },
         data: {
           status: 'IN_PROGRESS',
-          actualQuantity: null,
-          unitCost: null,
+          ...(receiptAtIssue
+            ? {
+                actualQuantity: new Decimal(receiptAtIssue.quantity),
+                unitCost: new Decimal(receiptAtIssue.unitCost),
+              }
+            : {
+                actualQuantity: null,
+                unitCost: null,
+              }),
           completionJournalEntryId: null,
           completedAt: null,
         },
@@ -599,6 +882,31 @@ export class ProductionOrderService {
           });
         }
       }
+
+      const receiptAtIssue = finishedReceiptAtIssueFromMetadata(order.processMetadata);
+      if (receiptAtIssue && receiptAtIssue.quantity > 0) {
+        await stockMovementService.postMovementInTx(tx, {
+          companyId: ctx.companyId,
+          branchId: ctx.branchId ?? undefined,
+          warehouseId: order.warehouseIdFinished,
+          itemId: order.finishedItemId,
+          quantityDelta: -receiptAtIssue.quantity,
+          unitCost: receiptAtIssue.unitCost,
+          movementType: 'PROD_RECEIPT_REVERSAL',
+          sourceType: 'MO',
+          sourceNumber: order.orderNumber,
+          sourceYearId: order.sourceYearId ?? undefined,
+          documentDate: new Date(),
+        });
+        await itemCostService.removeCostHistoryBySourceInTx(tx, {
+          companyId: ctx.companyId,
+          itemId: order.finishedItemId,
+          sourceType: 'MO',
+          sourceNumber: order.orderNumber,
+          sourceYearId: order.sourceYearId ?? String(new Date().getUTCFullYear()),
+        });
+      }
+
       await tx.productionMaterialIssue.deleteMany({ where: { productionOrderId: orderId } });
 
       return tx.productionOrder.update({
@@ -608,6 +916,9 @@ export class ProductionOrderService {
           totalMaterialCost: new Decimal(0),
           materialsIssueJournalEntryId: null,
           additionalCostsJournalEntryId: null,
+          actualQuantity: null,
+          unitCost: null,
+          processMetadata: withoutFinishedReceiptAtIssueMetadata(order.processMetadata),
         },
       });
     });

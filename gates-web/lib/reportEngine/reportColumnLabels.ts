@@ -136,6 +136,7 @@ export const COLUMN_LABELS_AR: Record<string, string> = {
   counterpartAccount: 'الحساب المقابل',
   costCenterName: 'مركز التكلفة',
   entryLockStatus: 'موقف التأييد',
+  supportStatus: 'موقف التأييد',
   postingPosition: 'موقف الترحيل',
   balance: 'الرصيد',
   chequeNumber: 'رقم الشيك',

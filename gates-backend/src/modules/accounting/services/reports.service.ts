@@ -28,6 +28,10 @@ import {
 } from '../utils/paper-report-where';
 import { loadCurrencyCatalog, moneyInReportCurrency } from '../utils/company-fx-rate';
 import { buildSafeMovementRows, type SafeLedgerLine } from './safe-movement-sheet';
+import {
+  journalApprovalStatusLabel,
+  journalEntryIsApprovedFlag,
+} from '../utils/journal-approval-status';
 import { buildCostCenterBudgetRows } from './cost-center-budget';
 
 export interface ReportFilters {
@@ -600,7 +604,8 @@ export class ReportsService {
             row.credit = Number(line.creditBase ?? line.credit ?? 0);
             row.entryCurrency = line.currencyCode || entry.currencyCode;
             row.entryExchangeRate = Number(line.exchangeRate ?? entry.exchangeRate ?? 1);
-            row.approvalStatus = entry.isApproved ? 'مؤيد' : 'غير مؤيد';
+            row.journalEntryIsApproved = journalEntryIsApprovedFlag(entry.isApproved);
+            row.approvalStatus = journalApprovalStatusLabel(entry.isApproved);
             row.postingPosition = entry.isPosted ? 'مرحّل' : 'غير مرحّل';
             row.sourceType = entry.sourceType;
             row.sourceKind = entry.sourceKind;
@@ -2346,7 +2351,7 @@ export class ReportsService {
         const debit = roundTo4(Number(line.debitBase || 0));
         const credit = roundTo4(Number(line.creditBase || 0));
         const entry = line.journalEntry;
-        const supported = Boolean(entry?.isApproved);
+        const supported = journalEntryIsApprovedFlag(entry?.isApproved);
         return {
           entryDate: entry?.date,
           account: accountDisplayLabel(line.account?.code, line.account?.arabicName),
@@ -2363,7 +2368,8 @@ export class ReportsService {
           costCenterName: line.costCenter
             ? accountDisplayLabel(line.costCenter.code, line.costCenter.arabicName)
             : '',
-          supportStatus: supported ? 'مؤيد' : 'غير مؤيد',
+          journalEntryIsApproved: supported,
+          supportStatus: journalApprovalStatusLabel(entry?.isApproved),
           journalEntryId: entry?.id,
         };
       });

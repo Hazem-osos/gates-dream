@@ -7,6 +7,10 @@ import {
 } from './reportFormatters';
 import { accountTypeLabel, labelForAutoColumn } from './reportColumnLabels';
 import { journalSourceLabelFromRow } from '../accounting/journal-source';
+import {
+  JOURNAL_APPROVAL_COLUMN_IDS,
+  journalApprovalStatusFromRow,
+} from '../accounting/journal-approval-status';
 
 export type ReportColumnDef<T extends Record<string, unknown> = Record<string, unknown>> = {
   id: string;
@@ -1118,6 +1122,16 @@ export function getReportColumnsForPath(
       ? {
           getValue: (row: Record<string, unknown>) =>
             row.rowKind === 'total' || row.rowKind === 'opening' ? '' : journalSourceLabelFromRow(row),
+        }
+      : {}),
+    ...(JOURNAL_APPROVAL_COLUMN_IDS.has(key)
+      ? {
+          getValue: (row: Record<string, unknown>) => {
+            if (row.rowKind === 'total' || row.rowKind === 'opening' || row.isGroup === true) {
+              return '';
+            }
+            return journalApprovalStatusFromRow(row);
+          },
         }
       : {}),
   }));

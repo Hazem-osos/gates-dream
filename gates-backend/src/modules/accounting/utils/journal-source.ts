@@ -65,7 +65,9 @@ export function isSourcedJournalEntry(row: {
   if (sourceType && sourceType !== 'MANUAL' && !JOURNAL_OWNED_KINDS.has(sourceType as JournalSourceType)) {
     return true;
   }
+  const sourceFamily = String(row.sourceType ?? '').trim().toUpperCase().split('-')[0];
   const entryType = String(row.entryType ?? '').trim().toUpperCase();
+  if (sourceFamily === 'MO' || entryType.startsWith('PROD')) return true;
   if (!entryType || entryType === 'MANUAL' || entryType === 'OPENING_BALANCE') return false;
   if (entryType === 'REVERSAL' || entryType === 'YEARCLOSE') return true;
   if (entryType.includes('COGS') || entryType.includes('RETURN')) return true;

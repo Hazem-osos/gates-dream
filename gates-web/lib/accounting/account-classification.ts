@@ -55,3 +55,63 @@ export function applyAccountTypeDefaults(
     accountNature: (current?.accountSide || suggestedSide) === 'دائن' ? 'CREDIT' as const : 'DEBIT' as const,
   };
 }
+
+export type AccountClassificationNode = {
+  id: string;
+  parentId?: string | null;
+  accountType?: string | null;
+  accountSide?: string | null;
+  accountNature?: string | null;
+};
+
+function accountSideFromNode(node: AccountClassificationNode): 'مدين' | 'دائن' | '' {
+  if (node.accountSide === 'دائن' || node.accountSide === 'مدين') return node.accountSide;
+  if (node.accountNature === 'CREDIT') return 'دائن';
+  if (node.accountNature === 'DEBIT') return 'مدين';
+  return '';
+}
+
+/** Walk parent chain until a GL type is found (sub-headers often inherit from root). */
+export function glClassificationInheritedFromAncestors(
+  start: AccountClassificationNode,
+  byId: Map<string, AccountClassificationNode>
+): {
+  accountType: GlAccountType | '';
+  statementType: StatementType;
+  accountSide: 'مدين' | 'دائن' | null;
+  accountNature: 'DEBIT' | 'CREDIT';
+} {
+  let current: AccountClassificationNode | undefined = start;
+  const visited = new Set<string>();
+  let sideFromChain: 'مدين' | 'دائن' | '' = '';
+
+  while (current && !visited.has(current.id)) {
+    visited.add(current.id);
+    const side = accountSideFromNode(current);
+    if (side) sideFromChain = side;
+    const normalized = normalizeGlAccountType(current.accountType);
+    if (normalized) {
+      const typed = applyAccountTypeDefaults(normalized, {
+        statementType: statementTypeFromAccountType(normalized),
+        accountSide: sideFromChain,
+      });
+      const finalSide = (typed.accountSide || sideFromChain || null) as 'مدين' | 'دائن' | null;
+      return {
+        accountType: typed.accountType,
+        statementType: typed.statementType,
+        accountSide: finalSide,
+        accountNature: finalSide === 'دائن' ? 'CREDIT' : 'DEBIT',
+      };
+    }
+    const parentId = String(current.parentId ?? '').trim();
+    current = parentId ? byId.get(parentId) : undefined;
+  }
+
+  const fallbackSide = sideFromChain || null;
+  return {
+    accountType: '',
+    statementType: 'BALANCE_SHEET',
+    accountSide: fallbackSide,
+    accountNature: fallbackSide === 'دائن' ? 'CREDIT' : 'DEBIT',
+  };
+}

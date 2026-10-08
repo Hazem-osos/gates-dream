@@ -17,6 +17,17 @@ import { scopedItemQuantityWhere } from '../utils/item-quantity-tenant';
 import { acquireUniqueKey, releaseUniqueKeyIfUnused, UNIQUE_KINDS } from '../../../shared/database/company-unique-key';
 import { resolveItemBarcode } from '../utils/item-barcode-default';
 
+function itemListTextSearchOr(term: string) {
+  const q = term.trim();
+  if (!q) return [];
+  return [
+    { arabicName: { contains: q } },
+    { englishName: { contains: q } },
+    { serial: { contains: q } },
+    { barcode: { contains: q } },
+  ];
+}
+
 async function openingStockCardFigures(companyId: string, itemId: string) {
   const docs = await prisma.openingStock.findMany({
     where: { companyId, isCancelled: false },
@@ -513,23 +524,18 @@ export class ItemService {
       };
 
       if (options.search) {
-        const prefix = options.search.trim();
-        const ftIds = await findFullTextIds('items', companyId, options.search);
-        const scoped = applyFullTextIds(where, ftIds);
-        if (scoped === 'empty') {
-          where.OR = [
-            { arabicName: { startsWith: prefix } },
-            { englishName: { startsWith: prefix } },
-            { serial: { startsWith: prefix } },
-            { barcode: { startsWith: prefix } },
-          ];
-        } else if (ftIds?.length) {
-          where.OR = [
-            { id: { in: ftIds } },
-            { arabicName: { startsWith: prefix } },
-            { englishName: { startsWith: prefix } },
-          ];
-          delete where.id;
+        const textOr = itemListTextSearchOr(options.search);
+        if (textOr.length > 0) {
+          const ftIds = await findFullTextIds('items', companyId, options.search);
+          const scoped = applyFullTextIds(where, ftIds);
+          if (scoped === 'empty') {
+            where.OR = textOr;
+          } else if (ftIds?.length) {
+            where.OR = [{ id: { in: ftIds } }, ...textOr];
+            delete where.id;
+          } else {
+            where.OR = textOr;
+          }
         }
       }
 

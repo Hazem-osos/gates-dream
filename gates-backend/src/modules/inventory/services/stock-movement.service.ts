@@ -364,6 +364,8 @@ export class StockMovementService {
       itemId?: string;
       warehouseId?: string;
       sourceDocumentId?: string;
+      sourceType?: string;
+      sourceNumber?: string;
       movementType?: string;
       startDate?: string;
       endDate?: string;
@@ -375,6 +377,8 @@ export class StockMovementService {
     if (opts.itemId) where.itemId = opts.itemId;
     if (opts.warehouseId) where.warehouseId = opts.warehouseId;
     if (opts.sourceDocumentId) where.sourceDocumentId = opts.sourceDocumentId;
+    if (opts.sourceType?.trim()) where.sourceType = opts.sourceType.trim();
+    if (opts.sourceNumber?.trim()) where.sourceNumber = opts.sourceNumber.trim();
     if (opts.movementType) where.movementType = opts.movementType;
     if (opts.startDate || opts.endDate) {
       const dateFilter: Record<string, Date> = {};

@@ -6,13 +6,28 @@ vi.mock('@/lib/feedback/toast', () => ({
 }));
 
 describe('finishDocumentSave', () => {
-  it('reopens saved document by default instead of clearing', () => {
+  it('clears for the next document by default', () => {
     const reset = vi.fn();
     const onOpen = vi.fn();
     finishDocumentSave({
       label: 'إذن',
       number: 'R-01',
       savedId: 'abc',
+      onOpen,
+      reset,
+    });
+    expect(onOpen).not.toHaveBeenCalled();
+    expect(reset).toHaveBeenCalled();
+  });
+
+  it('reopens saved document when cleared is false', () => {
+    const reset = vi.fn();
+    const onOpen = vi.fn();
+    finishDocumentSave({
+      label: 'إذن',
+      number: 'R-01',
+      savedId: 'abc',
+      cleared: false,
       onOpen,
       reset,
     });

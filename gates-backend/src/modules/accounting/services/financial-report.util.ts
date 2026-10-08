@@ -230,6 +230,42 @@ export function arrangeTrialBalanceTree<T extends TrialBalanceSourceRow>(
   return roots.flatMap((id) => walk(id, 0));
 }
 
+export type LedgerMovementSlice = {
+  accountId?: string;
+  debitBase: number;
+  creditBase: number;
+};
+
+/** Same account set as trial balance `maxDepth` under a selected root (rollup per row). */
+export function accountIdsForStatementLevel(
+  rootId: string,
+  tree: Array<{ id: string; parentId: string | null; code?: string }>,
+  openingByAccount: Map<string, number>,
+  movements: LedgerMovementSlice[],
+  maxLevel: number
+): string[] {
+  const subtreeIds = accountSubtreeIds(rootId, tree);
+  const rows: TrialBalanceSourceRow[] = subtreeIds.map((accountId) => {
+    const meta = tree.find((row) => row.id === accountId);
+    let periodDebit = 0;
+    let periodCredit = 0;
+    for (const line of movements) {
+      if (line.accountId !== accountId) continue;
+      periodDebit = roundTo4(periodDebit + line.debitBase);
+      periodCredit = roundTo4(periodCredit + line.creditBase);
+    }
+    return {
+      accountId,
+      code: meta?.code ?? '',
+      openingNet: openingByAccount.get(accountId) ?? 0,
+      periodDebit,
+      periodCredit,
+    };
+  });
+  const scoped = selectTrialBalanceRows(rows, { accountId: rootId, tree });
+  return arrangeTrialBalanceTree(scoped, tree, { maxDepth: maxLevel }).map((row) => row.accountId);
+}
+
 export function selectTrialBalanceRows<T extends TrialBalanceSourceRow>(
   rows: T[],
   input: {

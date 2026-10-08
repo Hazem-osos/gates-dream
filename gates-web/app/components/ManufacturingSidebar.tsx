@@ -11,10 +11,17 @@ interface ModuleItem {
 }
 
 interface ModuleWithChildren extends ModuleItem {
-  children: (ModuleItem | ModuleWithChildren)[];
+  children?: (ModuleItem | ModuleWithChildren)[];
 }
 
 export const manufacturingModules: ModuleWithChildren[] = [
+  {
+    key: 'manufacturing-dashboard',
+    icon: '',
+    label: 'التصنيع والإنتاج',
+    color: '#0E78AA',
+    href: '/manufacturing',
+  },
   {
     key: 'creations',
     icon: '',
@@ -22,6 +29,7 @@ export const manufacturingModules: ModuleWithChildren[] = [
     color: '#0E78AA',
     children: [
       { key: 'manufacturing-model', icon: '', label: 'نموذج التصنيع / قائمة المواد', color: '#0E78AA', href: '/manufacturing/creations/manufacturing-model' },
+      { key: 'manufacturing-plan', icon: '', label: 'خطة التصنيع', color: '#0E78AA', href: '/manufacturing/creations/manufacturing-plan' },
       { key: 'item-alternatives', icon: '', label: 'تعريف البدائل', color: '#0E78AA', href: '/manufacturing/creations/item-alternatives' },
     ]
   },
@@ -61,6 +69,8 @@ export const manufacturingModules: ModuleWithChildren[] = [
       { key: 'order-status', icon: '', label: 'مواقف أوامر التصنيع', color: '#0E78AA', href: '/manufacturing/reports/order-status' },
       { key: 'sales-order-tracking', icon: '', label: 'متابعة أوامر البيع', color: '#0E78AA', href: '/manufacturing/reports/sales-order-tracking' },
       { key: 'work-order-tracking', icon: '', label: 'متابعة أوامر الشغل', color: '#0E78AA', href: '/manufacturing/reports/work-order-tracking' },
+      { key: 'production-commitments', icon: '', label: 'التزامات الإنتاج والتسليم', color: '#0E78AA', href: '/manufacturing/reports/production-commitments' },
+      { key: 'cost-posting-summary', icon: '', label: 'ملخص التكاليف والترحيل', color: '#0E78AA', href: '/manufacturing/reports/cost-posting-summary' },
     ]
   },
 ];

@@ -313,4 +313,52 @@ router.post(
   }
 );
 
+router.post(
+  '/:id/cancel-completed',
+  authorize({ resource: 'invoice', action: 'edit' }),
+  async (req: AuthRequest, res: Response) => {
+    const companyId = req.companyId ?? req.tenantId;
+    if (!companyId) {
+      return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
+    }
+    try {
+      const ctx = postingContext(req);
+      const data = await productionOrderService.cancelCompletedOrder(
+        ctx,
+        companyId,
+        req.params.id
+      );
+      return void res.json({ status: 'success', data });
+    } catch (e) {
+      const status = e instanceof AppError ? e.statusCode : 500;
+      return void res.status(status).json({
+        status: 'error',
+        message: e instanceof Error ? e.message : 'Cancel completed production order failed',
+      });
+    }
+  }
+);
+
+router.delete(
+  '/:id',
+  authorize({ resource: 'invoice', action: 'edit' }),
+  async (req: AuthRequest, res: Response) => {
+    const companyId = req.companyId ?? req.tenantId;
+    if (!companyId) {
+      return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
+    }
+    try {
+      const ctx = postingContext(req);
+      const data = await productionOrderService.permanentDelete(ctx, companyId, req.params.id);
+      return void res.json({ status: 'success', data });
+    } catch (e) {
+      const status = e instanceof AppError ? e.statusCode : 500;
+      return void res.status(status).json({
+        status: 'error',
+        message: e instanceof Error ? e.message : 'Delete production order failed',
+      });
+    }
+  }
+);
+
 export default router;

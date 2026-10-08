@@ -16,12 +16,19 @@ interface ModuleItem {
 }
 
 interface ModuleWithChildren extends ModuleItem {
-  children: (ModuleItem | ModuleWithChildren)[];
+  children?: (ModuleItem | ModuleWithChildren)[];
 }
 
 const C = '#0E78AA';
 
 export const inventoryModules: ModuleWithChildren[] = [
+  {
+    key: 'inventory-dashboard',
+    icon: '',
+    label: 'لوحة المخازن',
+    color: C,
+    href: '/inventory',
+  },
   {
     key: 'guide',
     icon: '',
@@ -45,6 +52,7 @@ export const inventoryModules: ModuleWithChildren[] = [
         label: 'التعريفات',
         color: C,
         children: [
+          { key: 'item-card', icon: '', label: 'بطاقة الصنف', color: C, href: '/inventory/creations/item-card' },
           { key: 'price-lists', icon: '', label: 'قوائم الأسعار', color: C, href: '/inventory/creations/price-lists' },
           { key: 'order-limit-items', icon: '', label: 'حد الطلب للأصناف', color: C, href: '/inventory/creations/order-limit-items' },
           { key: 'customer-contract', icon: '', label: 'تعاقد عميل', color: C, href: '/inventory/creations/customer-contract' },
@@ -84,6 +92,7 @@ export const inventoryModules: ModuleWithChildren[] = [
           { key: 'stocktaking', icon: '', label: 'جرد مخزني', color: C, href: '/inventory/operations/stocktaking' },
           { key: 'item-reservation', icon: '', label: 'حجز الأصناف', color: C, href: '/inventory/operations/item-reservation' },
           { key: 'opening-stock', icon: '', label: 'بضاعة أول المدة', color: C, href: '/inventory/operations/opening-stock' },
+          { key: 'adjustment', icon: '', label: 'تسوية مخزنية', color: C, href: '/inventory/operations/adjustment' },
         ],
       },
       {
@@ -108,6 +117,13 @@ export const inventoryModules: ModuleWithChildren[] = [
           { key: 'supply-order', icon: '', label: 'أمر توريد', color: C, href: '/inventory/operations/supply-order' },
           { key: 'sales-invoice', icon: '', label: 'فاتورة مبيعات', color: C, href: '/inventory/operations/sales-invoice', badge: { text: 'يومي', tone: 'info' } },
           { key: 'sales-returns', icon: '', label: 'مردودات مبيعات', color: C, href: '/inventory/operations/sales-returns' },
+          {
+            key: 'invoice-installments',
+            icon: '',
+            label: 'تتبع أقساط الفواتير',
+            color: C,
+            href: '/inventory/operations/invoice-installments',
+          },
         ],
       },
       {

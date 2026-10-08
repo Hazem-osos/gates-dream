@@ -18,6 +18,7 @@ export const extractsModules: ModuleNavNode[] = [
     children: [
       { key: 'contracting-dashboard', icon: '', label: 'لوحة المقاولات', color: '#0E78AA', href: '/contracting' },
       { key: 'contracting-tenders', icon: '', label: 'العطاءات', color: '#0E78AA', href: '/contracting/tenders' },
+      { key: 'contracting-tenders-new', icon: '', label: 'عطاء جديد', color: '#0E78AA', href: '/contracting/tenders/new' },
       { key: 'contracting-projects', icon: '', label: 'المشاريع', color: '#0E78AA', href: '/contracting/projects' },
       { key: 'contracting-reports', icon: '', label: 'التقارير', color: '#0E78AA', href: '/contracting/reports' },
       { key: 'subcontracts-home', icon: '', label: 'لوحة مقاولي الباطن', color: '#0E78AA', href: '/subcontracts' },
@@ -37,7 +38,18 @@ export const extractsModules: ModuleNavNode[] = [
         color: '#0E78AA',
         children: [
           { key: 'contracting-extracts', icon: '', label: 'أرشيف Wave3 (ContractExtract)', color: '#0E78AA', href: '/contracting/extracts', badge: { text: 'أرشيف', tone: 'warning' } },
-          { key: 'projects', icon: '', label: 'مشاريع المستخلصات (قديم)', color: '#0E78AA', href: '/extracts/operations/projects', badge: { text: 'قديم', tone: 'neutral' } },
+          {
+            key: 'projects',
+            icon: '',
+            label: 'مشاريع المستخلصات (قديم)',
+            color: '#0E78AA',
+            badge: { text: 'قديم', tone: 'neutral' },
+            children: [
+              { key: 'projects-home', icon: '', label: 'إدارة المشاريع', color: '#0E78AA', href: '/extracts/operations/projects' },
+              { key: 'projects-agenda-items', icon: '', label: 'عرض بنود الأعمال', color: '#0E78AA', href: '/extracts/operations/projects/agenda-items' },
+              { key: 'projects-maqaysa', icon: '', label: 'مقايسة المشروع', color: '#0E78AA', href: '/extracts/operations/projects/maqaysa' },
+            ],
+          },
         ],
       },
       { key: 'contractor', icon: '', label: 'تعريف المقاول', color: '#0E78AA', href: '/extracts/operations/contractor' },

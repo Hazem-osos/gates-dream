@@ -84,7 +84,7 @@ export type AccountReportFieldFlag =
     };
 
 export type AccountReportFilterFields = {
-  dates?: 'range' | 'to' | 'none';
+  dates?: 'range' | 'to' | 'none' | 'financialPositionCompare';
   datesTourId?: string;
   account?: AccountReportFieldFlag;
   costCenter?: AccountReportFieldFlag;
@@ -161,8 +161,13 @@ export function validateAccountReportFilters(
   values: AccountReportFilterValues,
   fields: AccountReportFilterFields
 ): string | null {
-  if (fields.dates === 'range' && (!values.fromDate || !values.toDate)) {
-    return 'يرجى اختيار تاريخ البداية والنهاية';
+  if (
+    (fields.dates === 'range' || fields.dates === 'financialPositionCompare') &&
+    (!values.fromDate || !values.toDate)
+  ) {
+    return fields.dates === 'financialPositionCompare'
+      ? 'يرجى اختيار تاريخ المركز المالي وتاريخ المقارنة'
+      : 'يرجى اختيار تاريخ البداية والنهاية';
   }
   if (fields.dates === 'to' && !values.toDate) {
     return 'يرجى اختيار التاريخ';
@@ -185,7 +190,7 @@ export function buildAccountReportQuery(
   fields: AccountReportFilterFields
 ): URLSearchParams {
   const params = new URLSearchParams();
-  if (fields.dates === 'range') {
+  if (fields.dates === 'range' || fields.dates === 'financialPositionCompare') {
     if (values.fromDate) params.set('fromDate', values.fromDate);
     if (values.toDate) params.set('toDate', values.toDate);
   } else if (fields.dates === 'to') {
@@ -258,7 +263,22 @@ export function renderAccountReportFields(
   const accountMeta = flagMeta(fields.account);
   const costCenterMeta = flagMeta(fields.costCenter);
 
-  if (fields.dates === 'range') {
+  if (fields.dates === 'financialPositionCompare') {
+    nodes.push(
+      <div key="dates" className="contents" data-tour-id={fields.datesTourId}>
+        <ReportFilterDate
+          label="تاريخ المركز المالي"
+          value={values.toDate}
+          onChange={(toDate) => patch({ toDate })}
+        />
+        <ReportFilterDate
+          label="تاريخ المقارنة"
+          value={values.fromDate}
+          onChange={(fromDate) => patch({ fromDate })}
+        />
+      </div>
+    );
+  } else if (fields.dates === 'range') {
     const dates = (
       <div key="dates" className="contents" data-tour-id={fields.datesTourId}>
         <ReportFilterDate

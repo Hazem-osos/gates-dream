@@ -33,6 +33,7 @@ import {
   type LoadedManufacturingProcess,
   type ProcessVarianceRow,
 } from '@/lib/manufacturing/process-from-bom';
+import { computeAdditionalCostsTotal } from '@/lib/manufacturing/bom-cost-distribution';
 
 type MfgItemOption = {
   id: string;
@@ -76,6 +77,8 @@ export type ManufacturingProcessLinesEditorProps = {
   finishedWarehouseId: string;
   bomEditHref?: string;
   materialCostFromOrder?: number;
+  /** عند true يُعرض إجمالي المواد المرحّل فعلياً بدل مجموع الأسطر */
+  usePostedMaterialTotal?: boolean;
   emptyProcessSeed: () => LoadedManufacturingProcess;
   /** Same tables as operation; adds منجز/متبقي on outputs when workOrderProgress is set */
   layoutMode?: 'operation' | 'work-order';
@@ -93,6 +96,7 @@ export function ManufacturingProcessLinesEditor({
   finishedWarehouseId,
   bomEditHref,
   materialCostFromOrder = 0,
+  usePostedMaterialTotal = false,
   emptyProcessSeed,
   layoutMode = 'operation',
   workOrderProgress,
@@ -144,6 +148,16 @@ export function ManufacturingProcessLinesEditor({
   const additionalCosts = process?.additionalCosts ?? [emptyProcessAdditionalRow()];
 
   const rawMaterialsTotal = raws.reduce((s, r) => s + (r.lineTotal || 0), 0);
+  const additionalCostsTotal = useMemo(
+    () =>
+      computeAdditionalCostsTotal(
+        additionalCosts.map((c) => ({
+          value: c.value,
+          manufacturedItemId: c.manufacturedItemId || undefined,
+        }))
+      ),
+    [additionalCosts]
+  );
 
   const varianceRows = useMemo(() => {
     if (!process) return [] as ProcessVarianceRow[];
@@ -567,7 +581,7 @@ export function ManufacturingProcessLinesEditor({
                   الإجمالي
                 </td>
                 <td className={cn(mfgTdClass, 'tabular-nums')}>
-                  {materialCostFromOrder > 0
+                  {usePostedMaterialTotal && materialCostFromOrder > 0
                     ? fmt(materialCostFromOrder)
                     : rawMaterialsTotal > 0
                       ? fmt(rawMaterialsTotal)
@@ -728,6 +742,13 @@ export function ManufacturingProcessLinesEditor({
                 </td>
               </tr>
             ))}
+            <tr className={cn(mfgTrClass, 'bg-[#F8FBFD] font-semibold')}>
+              <td className={mfgTdClass}>إجمالي التكلفة الإضافية</td>
+              <td className={cn(mfgTdClass, 'tabular-nums text-[#0A3D5E]')}>
+                {additionalCostsTotal > 0 ? fmt(additionalCostsTotal) : '—'}
+              </td>
+              <td colSpan={4} className={mfgTdClass} />
+            </tr>
           </tbody>
         </table>
       </MfgTableCard>

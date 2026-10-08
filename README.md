@@ -37,6 +37,18 @@ Required on **gates-web** (mark `BACKEND_PROXY_TARGET` as **available at build t
 
 Deploy **backend first** (MySQL must be running). Create the company and users from the app — do not run seed on Railway.
 
+### CLI deploy (monorepo)
+
+From the repo root, **do not** run plain `railway up` — Railway will mix `gates-web` and `gates-backend` and fail (`Missing script: "build"`). Use the scripts that pass `--path-as-root`:
+
+```bash
+cd gates-backend && npm run railway:deploy:backend
+cd gates-backend && npm run railway:deploy:workers
+cd gates-web && npm run railway:deploy
+```
+
+`railway redeploy` only restarts the **previous image**; it does not ship new code from Git.
+
 ### Tester login
 
 - URL: the `gates-web` public Railway URL

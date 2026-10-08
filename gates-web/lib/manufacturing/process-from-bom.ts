@@ -256,14 +256,20 @@ export function buildLoadedProcessFromOrderMetadata(
   if (Array.isArray(rawSnap) && rawSnap.length > 0) {
     fromBom.raws = rawSnap.map((r) => {
       const qty = round4(num(r.quantity));
-      const unitPrice = num(r.unitPrice);
+      const storedTotal = round4(num(r.lineTotal));
+      let unitPrice = num(r.unitPrice);
+      let lineTotal =
+        storedTotal > 0 ? storedTotal : round4(qty * unitPrice);
+      if (unitPrice <= 0 && qty > 0 && lineTotal > 0) {
+        unitPrice = round4(lineTotal / qty);
+      }
       return {
         itemId: r.rawItemId,
         itemName: r.itemName ?? nameFor(r.rawItemId),
         quantity: qty,
         unit: '—',
         unitPrice,
-        lineTotal: round4(num(r.lineTotal) || qty * unitPrice),
+        lineTotal,
         warehouseId: r.warehouseId ?? fromBom.fromWarehouseId,
         manufacturedItemId: r.manufacturedItemId ?? '',
       };

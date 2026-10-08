@@ -1,8 +1,11 @@
 'use client';
 
 import type { KeyboardEvent, ReactNode } from 'react';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
+import { ColumnResizeHandle } from '@/components/grid/ColumnResizeHandle';
+import { ResizableColGroup } from '@/components/grid/ResizableColGroup';
+import { useResizableColumns } from '@/components/grid/useResizableColumns';
 import { DASH_LABEL, DASH_NUM, DASH_PANEL } from './tokens';
 import { DashboardEmptyState } from './DashboardEmptyState';
 
@@ -24,6 +27,7 @@ export function DataGridDense<T extends { id: string }>({
   emptyActionLabel,
   onRowOpen,
   footer,
+  resizableColumns,
 }: {
   title: string;
   rows: T[];
@@ -34,8 +38,15 @@ export function DataGridDense<T extends { id: string }>({
   emptyActionLabel?: string;
   onRowOpen?: (row: T) => void;
   footer?: ReactNode;
+  resizableColumns?: boolean;
 }) {
   const [active, setActive] = useState(0);
+  const columnIds = useMemo(() => columns.map((c) => c.id), [columns]);
+  const { startResize, colGroup } = useResizableColumns(columnIds, {
+    storageKey: `gates-cols:dense:${title}`,
+    enabled: resizableColumns !== false,
+    defaultWidth: 110,
+  });
 
   const onKey = (e: KeyboardEvent<HTMLTableElement>) => {
     if (e.key === 'ArrowDown') {
@@ -55,7 +66,12 @@ export function DataGridDense<T extends { id: string }>({
         <h2 className="text-sm font-semibold text-slate-900">{title}</h2>
       </div>
       <div className="overflow-auto">
-        <table className="w-full border-collapse text-xs" tabIndex={0} onKeyDown={onKey}>
+        <table
+          className={cn('border-collapse text-xs', colGroup ? 'w-full table-fixed' : 'w-full')}
+          tabIndex={0}
+          onKeyDown={onKey}
+        >
+          <ResizableColGroup columns={colGroup} />
           <thead>
             <tr className="border-b border-slate-100 bg-slate-50/80">
               {columns.map((c) => (
@@ -63,12 +79,15 @@ export function DataGridDense<T extends { id: string }>({
                   key={c.id}
                   className={cn(
                     DASH_LABEL,
-                    'px-3 py-2 text-right font-medium',
+                    'relative px-3 py-2 text-right font-medium',
                     c.numeric && 'text-left',
                     c.className
                   )}
                 >
                   {c.header}
+                  {resizableColumns !== false ? (
+                    <ColumnResizeHandle onMouseDown={(event) => startResize(c.id, event)} />
+                  ) : null}
                 </th>
               ))}
             </tr>

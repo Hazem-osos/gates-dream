@@ -51,7 +51,7 @@ export function WorkflowStepper({
               <span
                 className={cn(
                   'truncate text-xs font-semibold',
-                  current ? 'text-slate-900' : 'text-slate-500'
+                  current || done ? 'text-slate-900' : 'text-slate-500'
                 )}
               >
                 {step.label}

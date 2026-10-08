@@ -7,9 +7,9 @@ export default function AccountsBalancePage() {
     <AccountReportFilterPage
       urlPath="/accounting/account-reports/balances/accounts-balance"
       icon="📈"
-      subtitle="المركز المالي خلال الفترة."
+      subtitle="أرصدة في تاريخ المركز المالي مقارنة بتاريخ آخر."
       fields={{
-        dates: 'range',
+        dates: 'financialPositionCompare',
         account: true,
         costCenter: true,
         currency: true,

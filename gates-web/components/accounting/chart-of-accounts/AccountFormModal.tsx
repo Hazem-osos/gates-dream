@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Landmark } from 'lucide-react';
 import {
   CompactFormField,
@@ -26,9 +26,11 @@ import {
 import {
   GL_ACCOUNT_TYPE_OPTIONS,
   applyAccountTypeDefaults,
+  glClassificationInheritedFromAncestors,
   normalizeGlAccountType,
   statementTypeFromAccountType,
 } from '@/lib/accounting/account-classification';
+import { useAccountsQuery } from '@/lib/hooks/useMasterDataQueries';
 import { bumpTrailingCode, isCodeAfter } from '@/lib/masters/nextNumericSerial';
 import { useApiQuery } from '@/lib/hooks/useApi';
 
@@ -115,6 +117,14 @@ export function AccountFormModal({
   );
   const currencies = currenciesRes?.data ?? [];
   const effectiveCreateKind = pickerMode ? 'POSTING' : createKind;
+  const { data: accountsRes } = useAccountsQuery('', 1000, { leafOnly: false, enabled: open });
+  const accountById = useMemo(() => {
+    const map = new Map<string, { id: string; parentId?: string | null; accountType?: string | null }>();
+    for (const row of accountsRes?.data ?? []) {
+      map.set(row.id, row);
+    }
+    return map;
+  }, [accountsRes?.data]);
 
   useEffect(() => {
     if (!open) {
@@ -155,6 +165,23 @@ export function AccountFormModal({
   }, [open, mode, initial?.id, parentAccount?.id, createKind, lockAsRoot, lockParent, autoNumbering, refetchSuggest, pickerMode, initialArabicName, effectiveCreateKind]);
 
   useEffect(() => {
+    if (!open || mode !== 'create' || accountById.size === 0) return;
+    const pid = form.parentId;
+    if (!pid || normalizeGlAccountType(form.accountType)) return;
+    const parent = accountById.get(pid);
+    if (!parent) return;
+    const inherited = glClassificationInheritedFromAncestors(parent, accountById);
+    if (!inherited.accountType) return;
+    setForm((f) => ({
+      ...f,
+      accountType: inherited.accountType,
+      statementType: inherited.statementType,
+      accountSide: f.accountSide || inherited.accountSide,
+      accountNature: inherited.accountNature,
+    }));
+  }, [open, mode, accountById, form.parentId, form.accountType]);
+
+  useEffect(() => {
     if (!open || !autoNumbering) return;
     const code = suggestRes?.data?.code;
     if (!code) return;
@@ -173,10 +200,28 @@ export function AccountFormModal({
   const handleParentChange = (nextId: string) => {
     setParentTouched(true);
     const next = nextId || null;
+    const parent = next ? accountById.get(next) : undefined;
+    const inherited = parent ? glClassificationInheritedFromAncestors(parent, accountById) : null;
     setForm((f) => ({
       ...f,
       parentId: next,
       ...(mode === 'edit' && next === initialParentId && initial ? { code: initial.code } : {}),
+      ...(next && inherited
+        ? {
+            accountType: inherited.accountType || f.accountType,
+            statementType: inherited.accountType ? inherited.statementType : f.statementType,
+            accountSide: inherited.accountSide ?? f.accountSide,
+            accountNature: inherited.accountNature,
+            accountKind: pickerMode ? 'POSTING' : f.accountKind,
+          }
+        : !next
+          ? {
+              accountType: '',
+              statementType: 'BALANCE_SHEET' as const,
+              accountSide: null,
+              accountKind: 'HEADER' as const,
+            }
+          : {}),
     }));
   };
 

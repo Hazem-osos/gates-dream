@@ -22,6 +22,7 @@ import { PageDraftRestoreBanner } from '@/components/erp/PageDraftRestoreBanner'
 import { useApiQuery, useApiMutation, useInvalidateQuery } from '@/lib/hooks/useApi';
 import type { ApiError } from '@/lib/api/types';
 import { dispatchAcademyTrigger } from '@/lib/onboarding/tourCheckpoints';
+import { finishDocumentSave } from '@/lib/documents/finish-save';
 import ErrorToast from '@/components/ErrorToast';
 import SuccessToast from '@/components/SuccessToast';
 import { toast, toastVersionConflict } from '@/lib/feedback/toast';
@@ -72,9 +73,12 @@ import {
 import { costCenterRuleFromAccount } from '@/lib/accounting/cost-center-rule';
 import { useCompanyBaseCurrency } from '@/lib/hooks/useCompanyBaseCurrency';
 import {
+  journalShouldAutoPostOnSave,
   postJournalAfterSave,
   useRepostAfterUnpost,
 } from '@/lib/accounting/ensure-posted-after-save';
+import type { TransactionSettings } from '@/lib/transaction-settings/types';
+import { useAccountingSettings } from '@/lib/hooks/useAccountingSettings';
 import { resolvePostedFlag } from '@/lib/documents/posting-trust';
 import { DocumentCurrencyRateFields } from '@/components/accounting/DocumentCurrencyRateFields';
 import { ShowFxColumnsField } from '@/components/accounting/ShowFxColumnsField';
@@ -221,6 +225,16 @@ function CreateJournalEntryFormInner() {
   const lastHydratedKeyRef = useRef<string | null>(null);
   const [headerRateOverride, setHeaderRateOverride] = useState<number | null>(null);
   const { markUnpostedForEdit, consumeShouldRepost, resetKeepPosted } = useRepostAfterUnpost();
+
+  const { data: journalTxSettingsRes } = useApiQuery<TransactionSettings>(
+    ['transaction-settings', 'JOURNAL_ENTRY'],
+    '/transaction-settings/JOURNAL_ENTRY'
+  );
+  const { data: accountingSettingsRes } = useAccountingSettings();
+  const journalAutoPostOnSave = journalShouldAutoPostOnSave(
+    journalTxSettingsRes?.data,
+    accountingSettingsRes?.data?.general?.autoPostGl
+  );
 
   useEffect(() => {
     const id = journalEntryIdFromUrl?.trim();
@@ -413,25 +427,50 @@ function CreateJournalEntryFormInner() {
     'POST',
     {
       onSuccess: (res) => {
-        const message = isCyclic ? 'تم حفظ القيد وإضافته للقيود الدورية' : 'تم حفظ القيد بنجاح';
         const created = res?.data;
         clearDraft();
         invalidateQuery(['journal-entries']);
         invalidateQuery(['recurring-journal-entries']);
         invalidateQuery(['journal-entry-next-number']);
-        if (created?.id) {
-          const posted = Boolean(created.isPosted);
-          lastHydratedKeyRef.current = `${created.id}:${created.version ?? 0}:0`;
-          skipUrlHydrateRef.current = true;
-          setSavedJournalEntryId(created.id);
-          setLoadedVersion(created.version);
-          setIsPosted(posted);
-          setVoucherStatus(posted ? 'مرحل' : 'غير مرحل');
-          if (posted) lockToView();
-          else setMode('edit');
-          router.replace(`/accounting/operations/journal-entry?id=${created.id}`, { scroll: false });
+        if (!created?.id) {
+          setSuccess(isCyclic ? 'تم حفظ القيد وإضافته للقيود الدورية' : 'تم حفظ القيد بنجاح');
+          return;
         }
-        setSuccess(message);
+
+        const label = isCyclic ? 'قيد دوري' : 'قيد يومية';
+        const number = created.voucherNumber || created.legacyGlNum;
+
+        const finishCreate = (posted: boolean) => {
+          finishDocumentSave({
+            label,
+            number,
+            posted,
+            savedId: created.id,
+            onOpen: (savedId) => openJournal(savedId),
+            reset: () => startNewEntry(),
+          });
+        };
+
+        if (!created.isPosted && journalAutoPostOnSave) {
+          void postJournalAfterSave(created.id)
+            .then((result) => {
+              invalidateQuery(['journal-entry', created.id]);
+              invalidateTreasuryFundBalances(invalidateQuery);
+              finishCreate(result === 'posted');
+            })
+            .catch((error: ApiError) => {
+              setError(error.message || 'تم الحفظ لكن تعذر ترحيل القيد');
+              openJournal(created.id);
+              setSavedJournalEntryId(created.id);
+              setLoadedVersion(created.version);
+              setIsPosted(false);
+              setVoucherStatus('غير مرحل');
+              setMode('edit');
+            });
+          return;
+        }
+
+        finishCreate(Boolean(created.isPosted));
       },
       onError: (error: ApiError) => {
         setError(error.message || 'حدث خطأ أثناء الحفظ');
@@ -449,7 +488,9 @@ function CreateJournalEntryFormInner() {
         invalidateQuery(['recurring-journal-entries']);
         invalidateQuery(['journal-entry-next-number']);
         invalidateQuery(['journal-entry', id]);
-        if (consumeShouldRepost() && id) {
+        const shouldPostAfterSave =
+          id && (journalAutoPostOnSave || consumeShouldRepost()) && !isPosted;
+        if (shouldPostAfterSave && id) {
           void postJournalAfterSave(id)
             .then((result) => {
               invalidateQuery(['journal-entries']);

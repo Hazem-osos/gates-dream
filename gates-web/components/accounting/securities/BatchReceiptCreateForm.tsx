@@ -414,13 +414,6 @@ export function BatchReceiptCreateForm({
         standardActions={{
           hasDocument: false,
           hidePostActions: true,
-          extraItems: [
-            {
-              id: 'distribute',
-              label: 'توزيع مبالغ',
-              onClick: () => setShowDistribute(true),
-            },
-          ],
         }}
       />
 
@@ -529,10 +522,10 @@ export function BatchReceiptCreateForm({
               <AccountSelect
                 value={partyId}
                 onChange={applyParty}
-                leafOnly={false}
+                leafOnly
                 className={opening ? openingPartyClass : undefined}
-                placeholder="اختر أي حساب من الشجرة..."
-                emptyLabel="اختر أي حساب من الشجرة..."
+                placeholder="اختر حساب حركة من الدليل..."
+                emptyLabel="اختر حساب حركة..."
               />
             )}
             {errors.partyId ? (

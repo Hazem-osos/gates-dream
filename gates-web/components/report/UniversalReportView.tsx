@@ -55,12 +55,19 @@ import { ItemMovementSheet } from '@/components/report/ItemMovementSheet';
 import { ExpiryDateSheet } from '@/components/report/ExpiryDateSheet';
 import { MonthlyItemSalesSheet } from '@/components/report/MonthlyItemSalesSheet';
 import { ColumnValueMenu } from '@/components/grid/ColumnValueMenu';
+import { ColumnResizeHandle } from '@/components/grid/ColumnResizeHandle';
+import { ResizableColGroup } from '@/components/grid/ResizableColGroup';
+import { useResizableColumns } from '@/components/grid/useResizableColumns';
 import {
   ItemsAnalyticalMovementSheet,
   readItemsAnalyticalSheet,
 } from '@/components/report/ItemsAnalyticalMovementSheet';
 import { StockTransferSheet } from '@/components/report/StockTransferSheet';
 import { ReportScrollViewport } from '@/components/report/ReportScrollViewport';
+import {
+  JOURNAL_APPROVAL_COLUMN_IDS,
+  journalApprovalStatusFromRow,
+} from '@/lib/accounting/journal-approval-status';
 
 export type UniversalReportViewProps = {
   title: string;
@@ -90,6 +97,13 @@ export type UniversalReportViewProps = {
     totalPages: number;
     total: number;
     onPage: (page: number) => void;
+    /** e.g. صنف، فاتورة */
+    rowUnit?: string;
+    pageSize?: number;
+    pageSizeOptions?: number[];
+    onPageSizeChange?: (size: number) => void;
+    onShowAll?: () => void;
+    showAllMax?: number;
   };
 };
 
@@ -101,6 +115,10 @@ type ColumnFilter =
 
 type ColumnSort = { columnId: string; direction: 'asc' | 'desc' };
 function cellText(row: Record<string, unknown>, col: ReportColumnDef): string {
+  if (JOURNAL_APPROVAL_COLUMN_IDS.has(col.id)) {
+    const label = journalApprovalStatusFromRow(row);
+    return label || '—';
+  }
   const raw = getRowCellValue(row, col);
   const currency = typeof row.currencyCode === 'string' ? row.currencyCode : 'ج.م';
   const { text, badge } = formatReportCell(raw, col.format ?? 'text', {
@@ -285,6 +303,46 @@ function cellMatchesText(row: Record<string, unknown>, col: ReportColumnDef, que
   return suffix != null && Number(suffix[1]) === Number(q);
 }
 
+function applyColumnFiltersToRows(
+  rows: Record<string, unknown>[],
+  columnFilters: Record<string, ColumnFilter>,
+  columns: ReportColumnDef[]
+): Record<string, unknown>[] {
+  const active = Object.entries(columnFilters).filter(([, filter]) => columnFilterActive(filter));
+  if (!active.length) return rows;
+
+  const approvalEntry = active.find(([columnId]) => JOURNAL_APPROVAL_COLUMN_IDS.has(columnId));
+  let scoped = rows;
+  let rest = active;
+
+  if (approvalEntry) {
+    const [columnId, filter] = approvalEntry;
+    const col = columns.find((column) => column.id === columnId);
+    if (col) {
+      const passingEntries = new Set<string>();
+      for (const row of rows) {
+        const entryId = String(row.journalEntryId ?? '');
+        if (entryId && rowPassesColumn(row, col, filter)) passingEntries.add(entryId);
+      }
+      scoped = rows.filter((row) => {
+        const entryId = String(row.journalEntryId ?? '');
+        if (!entryId) return rowPassesColumn(row, col, filter);
+        return passingEntries.has(entryId);
+      });
+    }
+    rest = active.filter(([columnId]) => columnId !== approvalEntry[0]);
+  }
+
+  if (!rest.length) return scoped;
+  return scoped.filter((row) =>
+    rest.every(([columnId, filter]) => {
+      const col = columns.find((column) => column.id === columnId);
+      if (!col) return true;
+      return rowPassesColumn(row, col, filter);
+    })
+  );
+}
+
 function rowPassesColumn(
   row: Record<string, unknown>,
   col: ReportColumnDef,
@@ -403,6 +461,12 @@ function ReportTable({
     return map;
   }, [columns, sourceRows]);
 
+  const columnIds = useMemo(() => columns.map((col) => col.id), [columns]);
+  const { startResize, colGroup } = useResizableColumns(columnIds, {
+    storageKey: registryPath ? `gates-cols:report:${registryPath}` : `gates-cols:report:${columnIds.join('|')}`,
+    defaultWidth: 132,
+  });
+
   if (!columns.length) {
     return <p className="text-center text-slate-600 py-6">لا توجد أعمدة للعرض.</p>;
   }
@@ -427,7 +491,10 @@ function ReportTable({
   return (
     <div>
     <ReportScrollViewport className="rounded-xl border border-slate-200 bg-white report-print-table-wrap">
-      <table className="w-full text-sm text-center report-print-table">
+      <table
+        className={`text-sm text-center report-print-table ${colGroup ? 'w-full table-fixed' : 'w-full'}`}
+      >
+        <ResizableColGroup columns={colGroup} />
         <thead>
           <tr>
             {columns.map((col, colIndex) => {
@@ -437,7 +504,7 @@ function ReportTable({
               return (
                 <th
                   key={col.id}
-                  className={`bg-[#1787B8] p-0 font-medium whitespace-nowrap text-white no-print:bg-[#1787B8] ${
+                  className={`relative bg-[#1787B8] p-0 font-medium whitespace-nowrap text-white no-print:bg-[#1787B8] ${
                     colIndex === 0 ? 'min-w-[7rem]' : ''
                   }`}
                 >
@@ -462,6 +529,9 @@ function ReportTable({
                       {sortedMark ? <span className="text-[10px] text-amber-200">{sortedMark}</span> : null}
                     </span>
                   )}
+                  <span className="no-print">
+                    <ColumnResizeHandle onMouseDown={(event) => startResize(col.id, event)} />
+                  </span>
                 </th>
               );
             })}
@@ -843,17 +913,7 @@ export function UniversalReportView({
   }, [gridKey, columnFilters, columnSort, gridReady]);
 
   const filteredRows = useMemo(() => {
-    const active = Object.entries(columnFilters).filter(([, filter]) => columnFilterActive(filter));
-    const matched = !active.length
-      ? rows
-      : rows.filter((row) => {
-          const checks = active.map(([columnId, filter]) => {
-            const col = displayColumns.find((column) => column.id === columnId);
-            if (!col) return true;
-            return rowPassesColumn(row, col, filter);
-          });
-          return checks.every(Boolean);
-        });
+    const matched = applyColumnFiltersToRows(rows, columnFilters, displayColumns);
     return sortReportRows(matched, displayColumns, columnSort);
   }, [rows, columnFilters, displayColumns, columnSort]);
 
@@ -1320,11 +1380,39 @@ export function UniversalReportView({
           {pagination && pagination.total > 0 ? (
             <div className="mt-3 flex flex-wrap items-center justify-between gap-3 no-print">
               <span className="text-sm text-slate-600">
-                {pagination.total} فاتورة — الصفحة {pagination.page} من {Math.max(pagination.totalPages, 1)}
+                {pagination.total} {pagination.rowUnit ?? 'فاتورة'} — الصفحة {pagination.page} من{' '}
+                {Math.max(pagination.totalPages, 1)}
+                {pagination.pageSize ? ` · ${pagination.pageSize} في الصفحة` : null}
                 {' · '}
                 الإجمالي لكل النتائج المطابقة للمرشحات
               </span>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                {pagination.pageSizeOptions?.length && pagination.onPageSizeChange ? (
+                  <label className="flex items-center gap-1.5 text-sm text-slate-700">
+                    <span className="text-slate-500">عرض</span>
+                    <select
+                      className="rounded-lg border border-slate-200 bg-white px-2 py-1 text-sm"
+                      value={pagination.pageSize ?? pagination.pageSizeOptions[0]}
+                      onChange={(e) => pagination.onPageSizeChange?.(Number(e.target.value))}
+                    >
+                      {pagination.pageSizeOptions.map((size) => (
+                        <option key={size} value={size}>
+                          {size}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ) : null}
+                {pagination.onShowAll ? (
+                  <button
+                    type="button"
+                    className="rounded-full bg-sky-100 px-3 py-1 text-sm font-medium text-sky-900 hover:bg-sky-200"
+                    onClick={pagination.onShowAll}
+                  >
+                    عرض كل الأصناف
+                    {pagination.showAllMax ? ` (حتى ${pagination.showAllMax.toLocaleString('ar-EG')})` : ''}
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   className="rounded-full bg-slate-100 px-3 py-1 text-sm text-slate-800 disabled:opacity-40"

@@ -20,7 +20,7 @@ import {
 } from './cash-transaction.service';
 import type { TreasuryPostingContext } from '../types/treasury.types';
 import { cashDisbursementWorkflowService } from './cash-disbursement-workflow.service';
-import { splitVoucherLineTotals } from '../types/vouchers.dto';
+import { lineBaseAmount, splitVoucherLineTotals } from '../types/vouchers.dto';
 import { asFxRate } from '../../accounting/utils/company-fx-rate';
 import { contractingCertificateBalanceService } from '../../contracting/settlement/contracting-certificate-balance.service';
 import { cashOffsetInHeaderCurrency, postedCashFundAmount } from './cash-fund-amount';
@@ -100,6 +100,95 @@ export class TreasuryPostingService {
     return row;
   }
 
+  /**
+   * Legacy cash/bank vouchers: one treasury leg per contra line (not one net cash line).
+   */
+  private buildSplitCashVoucherLines(
+    tx: CashTx,
+    cashAccountId: string,
+    kind: 'RECEIPT' | 'PAYMENT',
+    resolvePartner: () => JournalPartner
+  ): { lines: JournalEntryLineData[]; amount: number } {
+    const voucherLines = tx.lines ?? [];
+    const headerRate = asFxRate(tx.exchangeRate, 1);
+    const hasCreditLeg =
+      kind === 'RECEIPT' &&
+      voucherLines.some((row) => (row as { entrySide?: string }).entrySide === 'CREDIT');
+    const lines: JournalEntryLineData[] = [];
+    let lineOrder = 1;
+
+    for (const line of voucherLines) {
+      const rate = asFxRate(line.exchangeRate ?? tx.exchangeRate, 1);
+      const lineAmount = Number(line.amount);
+      const lineBase = lineBaseAmount({ amount: lineAmount, exchangeRate: rate });
+      const cashDocAmount = cashOffsetInHeaderCurrency(lineBase, headerRate);
+      const { partnerId, partnerType } = resolvePartner();
+
+      const contraSide: 'DEBIT' | 'CREDIT' =
+        kind === 'RECEIPT'
+          ? (line as { entrySide?: string }).entrySide === 'DEBIT' && hasCreditLeg
+            ? 'DEBIT'
+            : 'CREDIT'
+          : (line as { entrySide?: string }).entrySide === 'CREDIT'
+            ? 'CREDIT'
+            : 'DEBIT';
+      const cashSide: 'DEBIT' | 'CREDIT' = contraSide === 'DEBIT' ? 'CREDIT' : 'DEBIT';
+
+      const contraRow: JournalEntryLineData = {
+        accountId: line.accountId,
+        debit: contraSide === 'DEBIT' ? lineAmount : 0,
+        credit: contraSide === 'CREDIT' ? lineAmount : 0,
+        lineOrder: 0,
+        costCenterId: line.costCenterId ?? undefined,
+        description: line.description ?? undefined,
+        currencyCode: line.currencyCode || tx.currencyCode,
+        exchangeRate: rate,
+        partnerId,
+        partnerType,
+      };
+      const cashRow: JournalEntryLineData = {
+        accountId: cashAccountId,
+        debit: cashSide === 'DEBIT' ? cashDocAmount : 0,
+        credit: cashSide === 'CREDIT' ? cashDocAmount : 0,
+        lineOrder: 0,
+        currencyCode: tx.currencyCode,
+        exchangeRate: headerRate,
+      };
+
+      if (kind === 'RECEIPT') {
+        const first = cashSide === 'DEBIT' ? cashRow : contraRow;
+        const second = cashSide === 'DEBIT' ? contraRow : cashRow;
+        lines.push({ ...first, lineOrder: lineOrder++ }, { ...second, lineOrder: lineOrder++ });
+      } else {
+        const first = contraSide === 'DEBIT' ? contraRow : cashRow;
+        const second = contraSide === 'DEBIT' ? cashRow : contraRow;
+        lines.push({ ...first, lineOrder: lineOrder++ }, { ...second, lineOrder: lineOrder++ });
+      }
+    }
+
+    const { netCash } = splitVoucherLineTotals(
+      voucherLines.map((line) => ({
+        amount: Number(line.amount),
+        exchangeRate: line.exchangeRate != null ? Number(line.exchangeRate) : headerRate,
+        entrySide: line.entrySide ?? undefined,
+      })),
+      kind
+    );
+    if (netCash <= 0) {
+      throw new AppError(
+        422,
+        tx.bankAccountId
+          ? kind === 'RECEIPT'
+            ? 'صافي المضاف للبنك يجب أن يكون أكبر من صفر'
+            : 'صافي المخصوم من البنك يجب أن يكون أكبر من صفر'
+          : kind === 'RECEIPT'
+            ? 'صافي المقبوض بالخزنة يجب أن يكون أكبر من صفر'
+            : 'صافي المنصرف من الخزنة يجب أن يكون أكبر من صفر'
+      );
+    }
+    return { lines, amount: netCash };
+  }
+
   private async resolveSourceYearId(
     db: Prisma.TransactionClient,
     ctx: TreasuryPostingContext,
@@ -133,67 +222,9 @@ export class TreasuryPostingService {
 
     const voucherLines = tx.lines ?? [];
     if (voucherLines.length > 0) {
-      const debitLegs: JournalEntryLineData[] = [];
-      const creditLegs: JournalEntryLineData[] = [];
-      const hasCreditLeg = voucherLines.some(
-        (row) => (row as { entrySide?: string }).entrySide === 'CREDIT'
+      return this.buildSplitCashVoucherLines(tx, destAccountId, 'RECEIPT', () =>
+        resolveReceiptJournalPartner(tx)
       );
-      let order = 2;
-      for (const line of voucherLines) {
-        const rate = asFxRate(line.exchangeRate ?? tx.exchangeRate, 1);
-        const lineAmount = Number(line.amount);
-        const side =
-          (line as { entrySide?: string }).entrySide === 'DEBIT' && hasCreditLeg ? 'DEBIT' : 'CREDIT';
-        const { partnerId, partnerType } = resolveReceiptJournalPartner(tx);
-        const row: JournalEntryLineData = {
-          accountId: line.accountId,
-          debit: side === 'DEBIT' ? lineAmount : 0,
-          credit: side === 'CREDIT' ? lineAmount : 0,
-          lineOrder: order,
-          costCenterId: line.costCenterId ?? undefined,
-          description: line.description ?? undefined,
-          currencyCode: line.currencyCode || tx.currencyCode,
-          exchangeRate: rate,
-          partnerId,
-          partnerType,
-        };
-        order += 1;
-        if (side === 'DEBIT') debitLegs.push(row);
-        else creditLegs.push(row);
-      }
-      const debitTotal = roundTo4(
-        debitLegs.reduce((sum, line) => sum + roundTo4(line.debit * asFxRate(line.exchangeRate, 1)), 0)
-      );
-      const creditTotal = roundTo4(
-        creditLegs.reduce((sum, line) => sum + roundTo4(line.credit * asFxRate(line.exchangeRate, 1)), 0)
-      );
-      const netCashBase = roundTo4(creditTotal - debitTotal);
-      const headerRate = asFxRate(tx.exchangeRate, 1);
-      const cashAmount = cashOffsetInHeaderCurrency(netCashBase, headerRate);
-      if (netCashBase <= 0 || cashAmount <= 0) {
-        throw new AppError(
-          422,
-          tx.bankAccountId
-            ? 'صافي المضاف للبنك يجب أن يكون أكبر من صفر'
-            : 'صافي المقبوض بالخزنة يجب أن يكون أكبر من صفر'
-        );
-      }
-      let lineOrder = 1;
-      return {
-        amount: netCashBase,
-        lines: [
-          {
-            accountId: destAccountId,
-            debit: cashAmount,
-            credit: 0,
-            lineOrder: lineOrder++,
-            currencyCode: tx.currencyCode,
-            exchangeRate: headerRate,
-          },
-          ...debitLegs.map((line) => ({ ...line, lineOrder: lineOrder++ })),
-          ...creditLegs.map((line) => ({ ...line, lineOrder: lineOrder++ })),
-        ],
-      };
     }
 
     const creditAccountId = await treasuryAccountResolverService.resolvePartyAccountId({
@@ -250,62 +281,9 @@ export class TreasuryPostingService {
 
     const voucherLines = tx.lines ?? [];
     if (voucherLines.length > 0) {
-      const debitLegs: JournalEntryLineData[] = [];
-      const creditLegs: JournalEntryLineData[] = [];
-      let order = 1;
-      for (const line of voucherLines) {
-        const rate = asFxRate(line.exchangeRate ?? tx.exchangeRate, 1);
-        const lineAmount = Number(line.amount);
-        const side = (line as { entrySide?: string }).entrySide === 'CREDIT' ? 'CREDIT' : 'DEBIT';
-        const { partnerId, partnerType } = resolvePaymentJournalPartner(tx);
-        const row: JournalEntryLineData = {
-          accountId: line.accountId,
-          debit: side === 'DEBIT' ? lineAmount : 0,
-          credit: side === 'CREDIT' ? lineAmount : 0,
-          lineOrder: order,
-          costCenterId: line.costCenterId ?? undefined,
-          description: line.description ?? undefined,
-          currencyCode: line.currencyCode || tx.currencyCode,
-          exchangeRate: rate,
-          partnerId,
-          partnerType,
-        };
-        order += 1;
-        if (side === 'CREDIT') creditLegs.push(row);
-        else debitLegs.push(row);
-      }
-      const debitTotal = roundTo4(
-        debitLegs.reduce((sum, line) => sum + roundTo4(line.debit * asFxRate(line.exchangeRate, 1)), 0)
+      return this.buildSplitCashVoucherLines(tx, sourceAccountId, 'PAYMENT', () =>
+        resolvePaymentJournalPartner(tx)
       );
-      const creditTotal = roundTo4(
-        creditLegs.reduce((sum, line) => sum + roundTo4(line.credit * asFxRate(line.exchangeRate, 1)), 0)
-      );
-      const netCashBase = roundTo4(debitTotal - creditTotal);
-      const headerRate = asFxRate(tx.exchangeRate, 1);
-      const cashAmount = cashOffsetInHeaderCurrency(netCashBase, headerRate);
-      if (netCashBase <= 0 || cashAmount <= 0) {
-        throw new AppError(
-          422,
-          tx.bankAccountId
-            ? 'صافي المخصوم من البنك يجب أن يكون أكبر من صفر'
-            : 'صافي المنصرف من الخزنة يجب أن يكون أكبر من صفر'
-        );
-      }
-      return {
-        amount: netCashBase,
-        lines: [
-          ...debitLegs,
-          ...creditLegs,
-          {
-            accountId: sourceAccountId,
-            debit: 0,
-            credit: cashAmount,
-            lineOrder: order,
-            currencyCode: tx.currencyCode,
-            exchangeRate: headerRate,
-          },
-        ],
-      };
     }
 
     const debitAccountId = await treasuryAccountResolverService.resolvePartyAccountId({

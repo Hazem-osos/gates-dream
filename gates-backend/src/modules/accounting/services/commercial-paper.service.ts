@@ -173,6 +173,7 @@ export class CommercialPaperService {
           data: {
             companyId,
             branchId: branchId ?? undefined,
+            serial: receiptNumber,
             receiptNumber,
             date: issueDate,
             hijriDate: hijriIssueDate,
@@ -298,6 +299,7 @@ export class CommercialPaperService {
           data: {
             companyId,
             branchId: branchId ?? undefined,
+            serial: paymentNumber,
             paymentNumber,
             date: issueDate,
             hijriDate: hijriIssueDate,

@@ -5,6 +5,7 @@ import { roundTo4, amountsEqualAt4 } from '../../../shared/utils/decimal-round';
 import { fiscalYearService } from '../../platform/services/fiscal-year.service';
 import { SYSTEM_GL_CODES } from '../data/system-account-map';
 import {
+  accountIdsForStatementLevel,
   arrangeTrialBalanceTree,
   buildCostCenterProfitability,
   buildMonthlyPerformance,
@@ -18,6 +19,10 @@ import {
 } from './financial-report.util';
 import { rebuildCompanyBalances } from './ledger-balance.service';
 import { voucherFundBySourceId } from '../utils/voucher-fund';
+import {
+  journalApprovalStatusLabel,
+  journalEntryIsApprovedFlag,
+} from '../utils/journal-approval-status';
 
 export interface FinancialReportBaseParams {
   companyId: string;
@@ -181,25 +186,6 @@ function accountPathLabel(
     current = current.parentId ? accountById.get(current.parentId) : undefined;
   }
   return parts.join(' › ');
-}
-
-function accountIdsAtRelativeLevel(
-  rootId: string,
-  accounts: Array<{ id: string; parentId: string | null }>,
-  level: number
-): string[] {
-  if (level <= 1) return [rootId];
-  let frontier = [rootId];
-  for (let depth = 1; depth < level; depth += 1) {
-    const next: string[] = [];
-    for (const id of frontier) {
-      for (const account of accounts) {
-        if (account.parentId === id) next.push(account.id);
-      }
-    }
-    frontier = next;
-  }
-  return frontier;
 }
 
 function accountStatementLineFilters(
@@ -652,10 +638,6 @@ export class FinancialReportService {
     });
     const accountIds = subtreeAccountIds(account.id, tree);
     const accountById = new Map(tree.map((row) => [row.id, row]));
-    const levelNodes =
-      params.level && params.level > 0
-        ? accountIdsAtRelativeLevel(account.id, tree, params.level)
-        : null;
     const accountIdSql = Prisma.join(accountIds);
 
     let currency: { code: string; arabicName: string } | null = null;
@@ -827,7 +809,8 @@ export class FinancialReportService {
         exchangeRate: roundTo4(Number(line.exchangeRate ?? 1)),
         counterpartAccount: line.counterpartAccount,
         costCenterName: line.costCenterName,
-        entryLockStatus: postedFlag(line.isApproved) ? 'مؤيد' : 'غير مؤيد',
+        journalEntryIsApproved: journalEntryIsApprovedFlag(line.isApproved),
+        entryLockStatus: journalApprovalStatusLabel(line.isApproved),
         postingPosition: ledgerPostingStatusLabel(line.postingStatus, postedFlag(line.isPosted)),
       };
     });
@@ -836,6 +819,17 @@ export class FinancialReportService {
     for (const id of accountIds) openingNet = roundTo4(openingNet + (openingByAccount.get(id) ?? 0));
     let periodNet = 0;
     for (const line of transactions) periodNet = roundTo4(periodNet + line.debitBase - line.creditBase);
+
+    const levelNodes =
+      params.level && params.level > 0
+        ? accountIdsForStatementLevel(
+            account.id,
+            tree,
+            openingByAccount,
+            transactions,
+            params.level
+          )
+        : null;
 
     const visibleTransactions = levelNodes
       ? levelSummaryRows(levelNodes, accountById, transactions, openingByAccount, tree)
@@ -874,10 +868,6 @@ export class FinancialReportService {
 
     const centerById = new Map(centers.map((row) => [row.id, row]));
     const centerIds = subtreeAccountIds(center.id, centers);
-    const levelNodes =
-      params.level && params.level > 0
-        ? accountIdsAtRelativeLevel(center.id, centers, params.level)
-        : null;
     const centerIdSql = Prisma.join(centerIds);
 
     const accounts = await prisma.account.findMany({
@@ -1052,7 +1042,8 @@ export class FinancialReportService {
         exchangeRate: roundTo4(Number(line.exchangeRate ?? 1)),
         counterpartAccount: line.counterpartAccount,
         costCenterName: accountLabel,
-        entryLockStatus: postedFlag(line.isApproved) ? 'مؤيد' : 'غير مؤيد',
+        journalEntryIsApproved: journalEntryIsApprovedFlag(line.isApproved),
+        entryLockStatus: journalApprovalStatusLabel(line.isApproved),
         postingPosition: ledgerPostingStatusLabel(line.postingStatus, postedFlag(line.isPosted)),
       };
     });
@@ -1061,6 +1052,17 @@ export class FinancialReportService {
     for (const id of centerIds) openingNet = roundTo4(openingNet + (openingByCenter.get(id) ?? 0));
     let periodNet = 0;
     for (const line of transactions) periodNet = roundTo4(periodNet + line.debitBase - line.creditBase);
+
+    const levelNodes =
+      params.level && params.level > 0
+        ? accountIdsForStatementLevel(
+            center.id,
+            centers,
+            openingByCenter,
+            transactions,
+            params.level
+          )
+        : null;
 
     const visibleTransactions = levelNodes
       ? levelSummaryRows(levelNodes, centerById, transactions, openingByCenter, centers)

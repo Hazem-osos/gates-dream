@@ -2847,7 +2847,7 @@ export class InventoryReportsService {
   ): Promise<InventoryReportResult> {
     const companyId = filters.companyId;
     const page = Math.max(1, options.page ?? 1);
-    const limit = Math.min(1000, Math.max(1, options.limit ?? 1000));
+    const limit = Math.min(5000, Math.max(1, options.limit ?? 1000));
     const skip = (page - 1) * limit;
     const historical = Boolean(filters.toDate) && !usesLiveWarehouseBalances(filters.toDate);
     const showEmpty = countFlag(filters.showEmpty, false);

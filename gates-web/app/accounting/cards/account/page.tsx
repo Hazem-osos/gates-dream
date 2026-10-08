@@ -27,6 +27,7 @@ import { useQuickCreateHost } from '@/lib/quick-create/useQuickCreateTab';
 import {
   GL_ACCOUNT_TYPE_OPTIONS,
   applyAccountTypeDefaults,
+  glClassificationInheritedFromAncestors,
   normalizeGlAccountType,
   statementTypeFromAccountType,
 } from '@/lib/accounting/account-classification';
@@ -182,6 +183,11 @@ function InputDesign() {
   );
   const headerAccounts = accountsResponse?.data || [];
   const accounts = browseAccountsResponse?.data || [];
+  const accountById = React.useMemo(() => {
+    const map = new Map<string, Account>();
+    for (const row of accounts) map.set(row.id, row);
+    return map;
+  }, [accounts]);
   const blockedParentIds = React.useMemo(
     () => (selectedId ? new Set(collectAccountFamilyIds(accounts, selectedId)) : new Set<string>()),
     [accounts, selectedId]
@@ -358,16 +364,27 @@ function InputDesign() {
               value={formData.parentId}
               onChange={(e) => {
                 const parentId = e.target.value;
-                const parent = headerAccounts.find((account) => account.id === parentId);
-                const inheritedSide =
-                  parent?.accountSide ||
-                  (parent?.accountNature === 'CREDIT' ? 'دائن' : parent?.accountNature === 'DEBIT' ? 'مدين' : '');
-                const inheritedType = normalizeGlAccountType(parent?.accountType);
+                const parent = parentId ? accountById.get(parentId) ?? headerAccounts.find((a) => a.id === parentId) : undefined;
+                const inherited = parent
+                  ? glClassificationInheritedFromAncestors(parent, accountById)
+                  : null;
                 setFormData((prev) => {
-                  const nextSide = prev.accountSide || inheritedSide;
-                  const typed = inheritedType
-                    ? applyAccountTypeDefaults(inheritedType, {
-                        statementType: prev.statementType,
+                  if (!parentId) {
+                    return {
+                      ...prev,
+                      parentId: '',
+                      accountKind: 'HEADER',
+                      accountType: '',
+                      statementType: 'BALANCE_SHEET',
+                    };
+                  }
+                  const nextSide =
+                    inherited?.accountSide ||
+                    prev.accountSide ||
+                    (parent?.accountNature === 'CREDIT' ? 'دائن' : parent?.accountNature === 'DEBIT' ? 'مدين' : '');
+                  const typed = inherited?.accountType
+                    ? applyAccountTypeDefaults(inherited.accountType, {
+                        statementType: inherited.statementType,
                         accountSide: nextSide,
                       })
                     : null;
@@ -377,10 +394,10 @@ function InputDesign() {
                     code: selectedId && parentId === loadedParentId ? loadedCode : prev.code,
                     accountKind: parentId ? (prev.parentId ? prev.accountKind : 'POSTING') : 'HEADER',
                     accountSide: nextSide,
-                    accountNature: nextSide === 'دائن' ? 'CREDIT' : 'DEBIT',
-                    accountType: prev.accountType || typed?.accountType || '',
-                    statementType: prev.accountType
-                      ? prev.statementType
+                    accountNature: typed?.accountNature ?? (nextSide === 'دائن' ? 'CREDIT' : 'DEBIT'),
+                    accountType: inherited?.accountType || typed?.accountType || '',
+                    statementType: inherited?.accountType
+                      ? inherited.statementType
                       : typed?.statementType ?? prev.statementType,
                   };
                 });

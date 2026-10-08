@@ -37,19 +37,29 @@ import {
 import { stashMfgOperationPrefill } from '@/lib/manufacturing/mfg-operation-prefill';
 import {
   bomPlansFromProductionRows,
-  buildProductionPlanRows,
+  buildProductionPlanRowsFromBomPlans,
   mergePlanningMeta,
   parseWorkOrderPlanningMeta,
   resolveBomForFinishedItem,
   type ProductionPlanRow,
 } from '@/lib/manufacturing/work-order-planning';
 import { workOrderWarehousesFromMetadata } from '@/lib/manufacturing/hydrate-from-work-order';
+import {
+  hasMfgRawStockShortage,
+  mfgQuantityCheckButtonClass,
+  MFG_QUANTITY_SHORTAGE_HINT_AR,
+} from '@/lib/manufacturing/mfg-quantity-check-ui';
 import { cn } from '@/lib/utils';
 import { StatusBadge } from '@/components/ui';
 import {
   manufacturingWorkOrderStatusLabel,
   workOrderStatusTone,
 } from '@/lib/manufacturing/work-order-status';
+import {
+  DocumentModeProvider,
+  useDocumentMode,
+} from '@/components/common/document-shell';
+import { confirmAction } from '@/lib/feedback/confirm';
 
 type BomListItem = {
   id: string;
@@ -123,15 +133,45 @@ function emptyProductionRow(): ProductionPlanRow {
   };
 }
 
+type SalesLineRow = {
+  id: string;
+  itemId: string;
+  itemName: string;
+  lineDescription: string;
+  plannedQuantity: string;
+};
+
+function emptySalesLineRow(): SalesLineRow {
+  return {
+    id: newRowId(),
+    itemId: '',
+    itemName: '',
+    lineDescription: '',
+    plannedQuantity: '1',
+  };
+}
+
+function salesLinesFromWorkOrder(wo: WorkOrderDetail): SalesLineRow[] {
+  return (wo.lines ?? []).map((line, index) => ({
+    id: `sl-${index}-${line.itemId}`,
+    itemId: line.itemId,
+    itemName: line.item?.arabicName ?? line.itemId,
+    lineDescription: line.lineDescription?.trim() ?? '',
+    plannedQuantity: String(line.plannedQuantity ?? ''),
+  }));
+}
+
 function num(v: string | number | null | undefined): number {
   return Number(v ?? 0);
 }
 
 export default function ProductionPlanningPage() {
   return (
-    <Suspense fallback={<p className="p-6 text-sm text-slate-500">جاري التحميل…</p>}>
-      <ProductionPlanningInner />
-    </Suspense>
+    <DocumentModeProvider initialMode="create">
+      <Suspense fallback={<p className="p-6 text-sm text-slate-500">جاري التحميل…</p>}>
+        <ProductionPlanningInner />
+      </Suspense>
+    </DocumentModeProvider>
   );
 }
 
@@ -140,20 +180,23 @@ function ProductionPlanningInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const invalidateQuery = useInvalidateQuery();
+  const { unlockForEdit, lockToView, isReadOnly } = useDocumentMode();
 
   const [workOrderId, setWorkOrderId] = useState<string | null>(null);
+  const [draftNew, setDraftNew] = useState(false);
+  const [lineRows, setLineRows] = useState<SalesLineRow[]>([]);
   const [planRows, setPlanRows] = useState<ProductionPlanRow[]>([]);
-  const [showManualCreate, setShowManualCreate] = useState(false);
-  const [manualDescription, setManualDescription] = useState('');
-  const [manualWorkDate, setManualWorkDate] = useState(() => new Date().toISOString().slice(0, 10));
-  const [manualLines, setManualLines] = useState<ProductionPlanRow[]>([emptyProductionRow()]);
-  const [manualSerial, setManualSerial] = useState('');
+  const [draftDescription, setDraftDescription] = useState('');
+  const [draftWorkDate, setDraftWorkDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [draftOrderNumber, setDraftOrderNumber] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [showBrowse, setShowBrowse] = useState(false);
   const [checkProcess, setCheckProcess] = useState<LoadedManufacturingProcess | null>(null);
   const [showQtyCheck, setShowQtyCheck] = useState(false);
+  const [qtyShortageByRowId, setQtyShortageByRowId] = useState<Record<string, boolean>>({});
+  const [qtyCheckEmphasizeShortages, setQtyCheckEmphasizeShortages] = useState(false);
   const loadedIdRef = useRef<string | null>(null);
 
   const { data: bomsRes } = useApiQuery<BomListItem[]>(
@@ -164,8 +207,8 @@ function ProductionPlanningInner() {
   const bomById = useMemo(() => new Map(boms.map((b) => [b.id, b])), [boms]);
 
   useManufacturingWorkOrderSerial({
-    enabled: showManualCreate && !workOrderId,
-    setSerial: setManualSerial,
+    enabled: draftNew && !workOrderId,
+    setSerial: setDraftOrderNumber,
   });
 
   const { data: woRes, isLoading: woLoading } = useApiQuery<WorkOrderDetail>(
@@ -179,13 +222,31 @@ function ProductionPlanningInner() {
     workOrder?.status === 'COMPLETED' ||
     workOrder?.status === 'CANCELLED' ||
     workOrder?.status === 'CLOSED';
+  const fieldsLocked = planningLocked || (isReadOnly && Boolean(workOrderId) && !draftNew);
 
   const { data: progressRes, refetch: refetchProgress } = useApiQuery<WorkOrderProgress>(
     ['manufacturing-work-order-progress', workOrderId],
     `/manufacturing/work-orders/${workOrderId}/progress`,
     undefined,
-    { enabled: Boolean(workOrderId) }
+    {
+      enabled: Boolean(workOrderId),
+      refetchOnWindowFocus: true,
+    }
   );
+
+  useEffect(() => {
+    if (!workOrderId) return;
+    const refresh = () => void refetchProgress();
+    window.addEventListener('focus', refresh);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') refresh();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      window.removeEventListener('focus', refresh);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [workOrderId, refetchProgress]);
   const progress = progressRes?.data ?? null;
   const progressByBomId = useMemo(
     () => new Map((progress?.bomRows ?? []).map((r) => [r.bomId, r])),
@@ -212,13 +273,10 @@ function ProductionPlanningInner() {
     }
   );
 
-  function syncPlanRowsFromWorkOrder(wo: WorkOrderDetail) {
-    const meta = parseWorkOrderPlanningMeta(wo.processMetadata ?? null);
-    setPlanRows(buildProductionPlanRows(wo.lines, boms, meta));
-  }
-
   function applyWorkOrderToForm(wo: WorkOrderDetail) {
-    syncPlanRowsFromWorkOrder(wo);
+    setLineRows(salesLinesFromWorkOrder(wo));
+    const meta = parseWorkOrderPlanningMeta(wo.processMetadata ?? null);
+    setPlanRows(buildProductionPlanRowsFromBomPlans(boms, meta));
   }
 
   useEffect(() => {
@@ -233,8 +291,10 @@ function ProductionPlanningInner() {
     if (!workOrder?.id || loadedIdRef.current === workOrder.id) return;
     loadedIdRef.current = workOrder.id;
     planSyncKeyRef.current = null;
+    setDraftNew(false);
     applyWorkOrderToForm(workOrder);
-  }, [workOrder]);
+    lockToView();
+  }, [workOrder, lockToView]);
 
   useEffect(() => {
     if (!workOrder?.id || !boms.length) return;
@@ -242,11 +302,15 @@ function ProductionPlanningInner() {
     if (planSyncKeyRef.current === key) return;
     planSyncKeyRef.current = key;
     if (loadedIdRef.current === workOrder.id) {
-      syncPlanRowsFromWorkOrder(workOrder);
+      const meta = parseWorkOrderPlanningMeta(workOrder.processMetadata ?? null);
+      setPlanRows(buildProductionPlanRowsFromBomPlans(boms, meta));
     }
   }, [workOrder, boms]);
 
-  const canEditLineItems = Boolean(workOrder && !workOrder.salesOrderInvoiceId && !planningLocked);
+  const canEditLineItems = Boolean(
+    (draftNew || (workOrder && !workOrder.salesOrderInvoiceId)) && !fieldsLocked
+  );
+  const showWorkOrderForm = draftNew || Boolean(workOrderId);
 
   const createWorkOrderMutation = useApiMutation<WorkOrderDetail, Record<string, unknown>>(
     '/manufacturing/work-orders',
@@ -279,11 +343,11 @@ function ProductionPlanningInner() {
               ? 'COMPLETED'
               : 'CONFIRMED',
       processMetadata,
-      lines: planRows
+      lines: lineRows
         .filter((r) => r.itemId)
         .map((row, index) => ({
           itemId: row.itemId,
-          plannedQuantity: Math.max(0, Number(row.modelCount) || 0),
+          plannedQuantity: Math.max(0, Number(row.plannedQuantity) || 0),
           completedQuantity: 0,
           lineDescription: row.lineDescription?.trim() || null,
           lineOrder: index + 1,
@@ -294,20 +358,21 @@ function ProductionPlanningInner() {
   async function handleSave() {
     setError(null);
     setSuccess(null);
+    if (draftNew) {
+      await handleCreateFromDraft();
+      return;
+    }
     if (!workOrderId || !workOrder) {
       setError('افتح أمر شغل من القائمة أو من أمر البيع');
       return;
     }
-    if (planRows.some((r) => r.itemId && !r.bomId)) {
-      setError('بعض الأصناف بلا نموذج تصنيع — عرّف نموذجاً للصنف التام أولاً');
+    const activePlans = planRows.filter((r) => r.bomId);
+    if (!activePlans.length) {
+      setError('أضف نموذج تصنيع واحداً على الأقل في التخطيط الإنتاجي');
       return;
     }
-    if (
-      planRows.some(
-        (r) => r.itemId && (!Number.isFinite(Number(r.modelCount)) || Number(r.modelCount) <= 0)
-      )
-    ) {
-      setError('أدخل كمية صحيحة لكل صنف');
+    if (activePlans.some((r) => !Number.isFinite(Number(r.modelCount)) || Number(r.modelCount) <= 0)) {
+      setError('أدخل كمية صحيحة لكل نموذج في التخطيط');
       return;
     }
     await saveMutation.mutateAsync(buildSavePayload());
@@ -315,6 +380,41 @@ function ProductionPlanningInner() {
 
   function patchPlanRow(index: number, patch: Partial<ProductionPlanRow>) {
     setPlanRows((prev) => prev.map((r, i) => (i === index ? { ...r, ...patch } : r)));
+  }
+
+  function patchSalesLineRow(index: number, patch: Partial<SalesLineRow>) {
+    setLineRows((prev) => prev.map((r, i) => (i === index ? { ...r, ...patch } : r)));
+  }
+
+  const canEditPlanning = !planningLocked && !fieldsLocked;
+
+  function patchPlanRowBom(index: number, bomId: string) {
+    const bom = bomById.get(bomId);
+    if (!bom) {
+      patchPlanRow(index, {
+        bomId: '',
+        bomName: '',
+        itemId: '',
+        itemName: '',
+        lineDescription: '',
+      });
+      return;
+    }
+    patchPlanRow(index, {
+      bomId: bom.id,
+      bomName: bom.name,
+      itemId: bom.finishedItemId ?? bom.finishedItem?.id ?? '',
+      itemName: bom.finishedItem?.arabicName ?? '',
+      lineDescription: bom.formMetadata?.description?.trim() ?? '',
+    });
+  }
+
+  function addPlanRow() {
+    setPlanRows((prev) => [...prev, emptyProductionRow()]);
+  }
+
+  function removePlanRow(index: number) {
+    setPlanRows((prev) => prev.filter((_, i) => i !== index));
   }
 
   function resolveRowBom(itemId: string) {
@@ -325,9 +425,9 @@ function ProductionPlanningInner() {
     };
   }
 
-  async function handleCreateManualWorkOrder() {
+  async function handleCreateFromDraft() {
     setError(null);
-    const lines = manualLines.filter((l) => l.itemId && Number(l.modelCount) > 0);
+    const lines = lineRows.filter((l) => l.itemId && Number(l.plannedQuantity) > 0);
     if (!lines.length) {
       setError('أضف صنفاً واحداً على الأقل');
       return;
@@ -336,25 +436,83 @@ function ProductionPlanningInner() {
       setError('بعض الأصناف بلا نموذج تصنيع مرتبط');
       return;
     }
-    const bomPlans = bomPlansFromProductionRows(lines);
+    if (planRows.some((r) => r.itemId && !r.bomId)) {
+      setError('بعض الأصناف بلا نموذج تصنيع — عرّف نموذجاً للصنف التام أولاً');
+      return;
+    }
+    let plans = planRows.filter((r) => r.itemId);
+    if (!plans.length) {
+      plans = lines.map((l) => ({
+        ...emptyProductionRow(),
+        itemId: l.itemId,
+        itemName: l.itemName,
+        lineDescription: l.lineDescription,
+        modelCount: l.plannedQuantity,
+        ...resolveRowBom(l.itemId),
+      }));
+    }
+    const bomPlans = bomPlansFromProductionRows(plans);
     const res = await createWorkOrderMutation.mutateAsync({
-      orderNumber: manualSerial || undefined,
-      description: manualDescription.trim() || 'أمر شغل يدوي',
-      workDate: manualWorkDate,
+      orderNumber: draftOrderNumber || undefined,
+      description: draftDescription.trim() || 'أمر شغل يدوي',
+      workDate: draftWorkDate,
       modelQuantity: bomPlans[0]?.modelCount ?? 1,
       status: 'CONFIRMED',
       processMetadata: { bomPlans },
       lines: lines.map((l, i) => ({
         itemId: l.itemId,
-        plannedQuantity: Number(l.modelCount),
+        plannedQuantity: Number(l.plannedQuantity),
         lineDescription: l.lineDescription?.trim() || null,
         lineOrder: i + 1,
       })),
     });
     if (res.data?.id) {
-      setShowManualCreate(false);
+      setDraftNew(false);
       openWorkOrder(res.data.id);
       setSuccess('تم إنشاء أمر الشغل');
+    }
+  }
+
+  function handleStartNewDraft() {
+    setWorkOrderId(null);
+    loadedIdRef.current = null;
+    planSyncKeyRef.current = null;
+    setDraftNew(true);
+    setLineRows([emptySalesLineRow()]);
+    setPlanRows([]);
+    setDraftDescription('');
+    setDraftWorkDate(new Date().toISOString().slice(0, 10));
+    setDraftOrderNumber('');
+    setError(null);
+    setSuccess(null);
+    unlockForEdit();
+    router.replace('/manufacturing/operations/production-planning');
+  }
+
+  async function handleCancelWorkOrder() {
+    if (!workOrderId || !workOrder) return;
+    const ok = await confirmAction({
+      message: 'إلغاء أمر الشغل ووسمه «ملغي»؟',
+      confirmLabel: 'إلغاء أمر الشغل',
+      tone: 'danger',
+    });
+    if (!ok) return;
+    setError(null);
+    setSuccess(null);
+    setBusy(true);
+    try {
+      const res = await apiClient.post<WorkOrderDetail>(
+        `/manufacturing/work-orders/${workOrderId}/cancel`
+      );
+      invalidateQuery(['manufacturing-work-order', workOrderId]);
+      invalidateQuery(['manufacturing-work-orders-list']);
+      if (res.data) applyWorkOrderToForm(res.data);
+      setSuccess('تم إلغاء أمر الشغل');
+      lockToView();
+    } catch (err) {
+      setError((err as ApiError).message || 'تعذر إلغاء أمر الشغل');
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -365,6 +523,49 @@ function ProductionPlanningInner() {
     const res = await apiClient.get<BomForProcess>(`/manufacturing/boms/${row.bomId}`);
     return buildLoadedProcessFromBom(res.data, qty);
   }
+
+  const planRowsShortageKey = useMemo(
+    () =>
+      planRows
+        .map((r) => `${r.id}:${r.bomId}:${r.modelCount}`)
+        .join('|'),
+    [planRows]
+  );
+
+  useEffect(() => {
+    if (!workOrder || planRows.length === 0) {
+      setQtyShortageByRowId({});
+      return;
+    }
+    const whMeta = workOrderWarehousesFromMetadata({
+      processMetadata: workOrder.processMetadata,
+      id: workOrder.id,
+      orderNumber: workOrder.orderNumber,
+      bomId: workOrder.bomId,
+      modelQuantity: workOrder.modelQuantity,
+    });
+    let cancelled = false;
+    void (async () => {
+      const next: Record<string, boolean> = {};
+      for (const row of planRows) {
+        if (!row.bomId) {
+          next[row.id] = false;
+          continue;
+        }
+        try {
+          const loaded = await loadBomProcess(row);
+          const wh = loaded?.fromWarehouseId || whMeta.fromWarehouseId;
+          next[row.id] = await hasMfgRawStockShortage(loaded, wh);
+        } catch {
+          next[row.id] = false;
+        }
+      }
+      if (!cancelled) setQtyShortageByRowId(next);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [workOrder, planRowsShortageKey]);
 
   async function handleCheckRow(row: ProductionPlanRow) {
     setError(null);
@@ -380,6 +581,7 @@ function ProductionPlanningInner() {
         return;
       }
       setCheckProcess(loaded);
+      setQtyCheckEmphasizeShortages(Boolean(qtyShortageByRowId[row.id]));
       setShowQtyCheck(true);
     } catch (err) {
       setError((err as ApiError).message || 'تعذر فحص الكميات');
@@ -461,6 +663,7 @@ function ProductionPlanningInner() {
   function openWorkOrder(id: string) {
     setShowBrowse(false);
     loadedIdRef.current = null;
+    setDraftNew(false);
     setWorkOrderId(id);
     setError(null);
     setSuccess(null);
@@ -476,17 +679,38 @@ function ProductionPlanningInner() {
   return (
     <ManufacturingPageChrome
       title="أمر الشغل"
-      docNumber={workOrder?.orderNumber}
-      currentId={workOrderId}
+      docNumber={draftNew ? draftOrderNumber || undefined : workOrder?.orderNumber}
+      currentId={draftNew ? null : workOrderId}
       favoriteHref="/manufacturing/operations/production-planning"
       onSave={() => void handleSave()}
-      savePending={saveMutation.isPending || busy}
-      canSave={Boolean(workOrder)}
-      saveLabel="حفظ أمر الشغل"
+      savePending={saveMutation.isPending || createWorkOrderMutation.isPending || busy}
+      canSave={Boolean(draftNew || workOrder) && !fieldsLocked}
+      saveLabel={draftNew ? 'حفظ أمر الشغل' : 'حفظ أمر الشغل'}
       onBrowseList={() => setShowBrowse(true)}
       browseListLabel="أوامر الشغل"
-      statusLabel={workOrder ? manufacturingWorkOrderStatusLabel(workOrder.status) : 'جديد'}
+      statusLabel={
+        draftNew ? 'جديد' : workOrder ? manufacturingWorkOrderStatusLabel(workOrder.status) : 'جديد'
+      }
       statusTone={workOrder ? workOrderStatusTone(workOrder.status) : 'info'}
+      standardActions={{
+        hasDocument: Boolean(workOrderId),
+        isCancelled: workOrder?.status === 'CANCELLED',
+        hidePostActions: true,
+        allowEditWhenPosted: true,
+        onNew: handleStartNewDraft,
+        newLabel: 'أمر شغل جديد',
+        onEdit: () => unlockForEdit(),
+        onVoid:
+          workOrderId &&
+          workOrder &&
+          workOrder.status !== 'CANCELLED' &&
+          workOrder.status !== 'COMPLETED' &&
+          workOrder.status !== 'CLOSED'
+            ? () => void handleCancelWorkOrder()
+            : undefined,
+        voidLabel: 'إلغاء أمر الشغل',
+        editLockedHint: fieldsLocked ? 'اضغط «تعديل» من القائمة أو الأمر مغلق/ملغي' : undefined,
+      }}
       extraActions={
         workOrder && !planningLocked ? (
           <Button
@@ -511,184 +735,29 @@ function ProductionPlanningInner() {
           {success}
         </p>
       ) : null}
-      {!workOrderId ? (
+      {!showWorkOrderForm ? (
         <FormSectionCard title="أمر الشغل">
           <p className="text-sm text-slate-600">
-            من أمر البيع: «إنشاء أمر شغل» ثم افتحه هنا. أو أنشئ أمر شغل يدوياً بدون أمر بيع.
+            من أمر البيع: «إنشاء أمر شغل» ثم افتحه هنا، أو اختر أمراً سابقاً، أو أنشئ أمر شغل جديد بنفس
+            شاشة التحميل.
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
             <Button type="button" size="sm" onClick={() => setShowBrowse(true)}>
               اختيار أمر شغل
             </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="secondary"
-              onClick={() => {
-                setShowManualCreate((v) => !v);
-                setError(null);
-              }}
-            >
-              أمر شغل يدوي
+            <Button type="button" size="sm" variant="secondary" onClick={() => handleStartNewDraft()}>
+              أمر شغل جديد
             </Button>
           </div>
-          {showManualCreate ? (
-            <div className="mt-4 space-y-3 rounded-xl border border-[#D6EAF3] bg-[#F8FBFD] p-4">
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <CompactFormField label="رقم الأمر">
-                  <input className={compactControlClass} value={manualSerial} readOnly />
-                </CompactFormField>
-                <CompactFormField label="تاريخ الأمر">
-                  <input
-                    type="date"
-                    className={compactControlClass}
-                    value={manualWorkDate}
-                    onChange={(e) => setManualWorkDate(e.target.value)}
-                  />
-                </CompactFormField>
-                <CompactFormField label="الشرح" className="sm:col-span-2">
-                  <input
-                    className={compactControlClass}
-                    value={manualDescription}
-                    onChange={(e) => setManualDescription(e.target.value)}
-                    placeholder="وصف أمر الشغل"
-                  />
-                </CompactFormField>
-              </div>
-              <table className={mfgTableClass}>
-                <thead className={mfgTheadClass}>
-                  <tr>
-                    <th className={mfgThClass}>الصنف</th>
-                    <th className={mfgThClass}>الكمية المطلوبة</th>
-                    <th className={mfgThClass}>المواصفات</th>
-                    <th className={mfgThClass}>نموذج التصنيع</th>
-                    <th className={mfgThClass} />
-                  </tr>
-                </thead>
-                <tbody>
-                  {manualLines.map((row, index) => {
-                    const bom = row.itemId ? resolveRowBom(row.itemId) : { bomId: '', bomName: '' };
-                    return (
-                      <tr key={row.id} className={mfgTrClass}>
-                        <td className={mfgTdClass}>
-                          <ItemSelect
-                            value={row.itemId}
-                            onChange={(id) => {
-                              const b = resolveRowBom(id);
-                              setManualLines((prev) =>
-                                prev.map((r, i) =>
-                                  i === index
-                                    ? {
-                                        ...r,
-                                        itemId: id,
-                                        bomId: b.bomId,
-                                        bomName: b.bomName,
-                                      }
-                                    : r
-                                )
-                              );
-                            }}
-                            onItemResolved={(item) => {
-                              if (!item) return;
-                              const b = resolveRowBom(item.id);
-                              setManualLines((prev) =>
-                                prev.map((r, i) =>
-                                  i === index
-                                    ? {
-                                        ...r,
-                                        itemId: item.id,
-                                        itemName: item.arabicName,
-                                        bomId: b.bomId,
-                                        bomName: b.bomName,
-                                      }
-                                    : r
-                                )
-                              );
-                            }}
-                          />
-                        </td>
-                        <td className={mfgTdClass}>
-                          <input
-                            type="number"
-                            min={0}
-                            className={compactControlClass}
-                            value={row.modelCount}
-                            onChange={(e) =>
-                              setManualLines((prev) =>
-                                prev.map((r, i) =>
-                                  i === index ? { ...r, modelCount: e.target.value } : r
-                                )
-                              )
-                            }
-                          />
-                        </td>
-                        <td className={mfgTdClass}>
-                          <input
-                            className={compactControlClass}
-                            value={row.lineDescription}
-                            onChange={(e) =>
-                              setManualLines((prev) =>
-                                prev.map((r, i) =>
-                                  i === index ? { ...r, lineDescription: e.target.value } : r
-                                )
-                              )
-                            }
-                          />
-                        </td>
-                        <td className={mfgTdClass}>
-                          <span className="text-xs text-slate-600">
-                            {row.itemId ? bom.bomName : '—'}
-                          </span>
-                        </td>
-                        <td className={mfgTdClass}>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="ghost"
-                            disabled={manualLines.length <= 1}
-                            onClick={() =>
-                              setManualLines((prev) => prev.filter((_, i) => i !== index))
-                            }
-                          >
-                            <Trash2 className="h-4 w-4 text-rose-600" />
-                          </Button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="secondary"
-                  onClick={() => setManualLines((prev) => [...prev, emptyProductionRow()])}
-                >
-                  <Plus className="ms-1 h-4 w-4" />
-                  إضافة صنف
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  className="bg-[#0E78AA] hover:bg-[#0B6188]"
-                  disabled={createWorkOrderMutation.isPending || busy}
-                  onClick={() => void handleCreateManualWorkOrder()}
-                >
-                  حفظ أمر الشغل
-                </Button>
-              </div>
-            </div>
-          ) : null}
         </FormSectionCard>
-      ) : woLoading && !workOrder ? (
+      ) : workOrderId && woLoading && !workOrder ? (
         <p className="text-sm text-slate-500">جاري تحميل أمر الشغل…</p>
-      ) : !workOrder ? (
+      ) : workOrderId && !workOrder ? (
         <p className="text-sm text-rose-600">تعذر تحميل أمر الشغل</p>
       ) : (
         <>
           <FormSectionCard title="بيانات أمر الشغل">
-            {progress ? (
+            {progress && !draftNew ? (
               <div className="mb-4 space-y-2">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <StatusBadge
@@ -711,95 +780,98 @@ function ProductionPlanningInner() {
                   {progress.remainingTotal.toLocaleString('ar-EG')} · مطلوب{' '}
                   {progress.requiredTotal.toLocaleString('ar-EG')}
                 </p>
+                <p className="text-xs text-slate-500">
+                  «منفّذ» يزيد بعد «إنهاء» أمر التصنيع. أمر محفوظ أو قيد التنفيذ (صرف خامات) يظهر في «قيد
+                  التنفيذ».
+                </p>
               </div>
             ) : null}
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <CompactFormField label="رقم أمر الشغل">
-                <input className={compactControlClass} value={workOrder.orderNumber} readOnly />
-              </CompactFormField>
-              <CompactFormField label="تاريخ الأمر">
                 <input
                   className={compactControlClass}
-                  value={String(workOrder.workDate).slice(0, 10)}
+                  value={draftNew ? draftOrderNumber : workOrder?.orderNumber ?? ''}
                   readOnly
                 />
               </CompactFormField>
+              <CompactFormField label="تاريخ الأمر">
+                <input
+                  type={draftNew ? 'date' : undefined}
+                  className={compactControlClass}
+                  value={
+                    draftNew
+                      ? draftWorkDate
+                      : String(workOrder?.workDate ?? '').slice(0, 10)
+                  }
+                  readOnly={!draftNew}
+                  onChange={
+                    draftNew
+                      ? (e) => setDraftWorkDate(e.target.value)
+                      : undefined
+                  }
+                />
+              </CompactFormField>
               <CompactFormField label="أمر البيع">
-                {salesOrderId ? (
+                {!draftNew && salesOrderId ? (
                   <Link
                     href={`/manufacturing/operations/sales-order?orderId=${encodeURIComponent(salesOrderId)}`}
                     className="flex h-9 items-center text-sm font-semibold text-[#0E78AA] underline-offset-2 hover:underline"
                   >
                     {planningMeta.salesOrderNumber ||
-                      workOrder.salesOrder?.invoiceNumber ||
+                      workOrder?.salesOrder?.invoiceNumber ||
                       'فتح أمر البيع'}
                   </Link>
                 ) : (
                   <span className="text-sm text-slate-500">—</span>
                 )}
               </CompactFormField>
+              {draftNew ? (
+                <CompactFormField label="الشرح" className="sm:col-span-2 lg:col-span-4">
+                  <input
+                    className={compactControlClass}
+                    value={draftDescription}
+                    onChange={(e) => setDraftDescription(e.target.value)}
+                    placeholder="وصف أمر الشغل"
+                    disabled={fieldsLocked}
+                  />
+                </CompactFormField>
+              ) : null}
             </div>
-            {workOrder.description ? (
+            {!draftNew && workOrder?.description ? (
               <p className="mt-2 text-xs text-slate-600">{workOrder.description}</p>
             ) : null}
           </FormSectionCard>
 
-          <MfgTableCard
-            title="التخطيط الإنتاجي"
-            scrollViewport
-            toolbar={
-              <Link
-                href="/manufacturing/creations/manufacturing-model"
-                target="_blank"
-                className="text-xs font-semibold text-[#0E78AA] underline-offset-2 hover:underline"
-              >
-                تعريف نموذج تصنيع لصنف تام
-              </Link>
-            }
-          >
+          <MfgTableCard title="أصناف أمر البيع" scrollViewport>
             <div className={mfgTableScrollViewportClass}>
               <table className={mfgTableClass}>
                 <thead className={mfgTheadClass}>
                   <tr>
                     <th className={mfgThClass}>الصنف</th>
                     <th className={mfgThClass}>المواصفات</th>
-                    <th className={mfgThClass}>نموذج التصنيع</th>
-                    <th className={cn(mfgThClass, 'w-28')}>الكمية المطلوبة</th>
-                    <th className={mfgThClass}>منفّذ</th>
-                    <th className={mfgThClass}>متبقي</th>
-                    <th className={mfgThClass}>%</th>
-                    <th className={cn(mfgThClass, 'w-52')}>إجراءات</th>
+                    <th className={cn(mfgThClass, 'w-32')}>الكمية المطلوبة</th>
+                    {canEditLineItems ? <th className={cn(mfgThClass, 'w-12')} /> : null}
                   </tr>
                 </thead>
                 <tbody>
-                  {planRows.length === 0 ? (
-                    <MfgEmptyRow colSpan={8}>لا توجد أصناف في أمر الشغل</MfgEmptyRow>
+                  {lineRows.length === 0 ? (
+                    <MfgEmptyRow colSpan={canEditLineItems ? 4 : 3}>
+                      لا توجد أصناف في أمر الشغل
+                    </MfgEmptyRow>
                   ) : (
-                    planRows.map((row, rowIndex) => {
-                      const bomProgress = row.bomId ? progressByBomId.get(row.bomId) : undefined;
-                      return (
+                    lineRows.map((row, rowIndex) => (
                       <tr key={row.id} className={mfgTrClass}>
                         <td className={mfgTdClass}>
                           {canEditLineItems ? (
                             <ItemSelect
                               value={row.itemId}
-                              disabled={planningLocked}
-                              onChange={(id) => {
-                                const b = resolveRowBom(id);
-                                patchPlanRow(rowIndex, {
-                                  itemId: id,
-                                  bomId: b.bomId,
-                                  bomName: b.bomName,
-                                });
-                              }}
+                              disabled={fieldsLocked}
+                              onChange={(id) => patchSalesLineRow(rowIndex, { itemId: id })}
                               onItemResolved={(item) => {
                                 if (!item) return;
-                                const b = resolveRowBom(item.id);
-                                patchPlanRow(rowIndex, {
+                                patchSalesLineRow(rowIndex, {
                                   itemId: item.id,
                                   itemName: item.arabicName,
-                                  bomId: b.bomId,
-                                  bomName: b.bomName,
                                 });
                               }}
                             />
@@ -812,9 +884,9 @@ function ProductionPlanningInner() {
                             <input
                               className={compactControlClass}
                               value={row.lineDescription}
-                              disabled={planningLocked}
+                              disabled={fieldsLocked}
                               onChange={(e) =>
-                                patchPlanRow(rowIndex, { lineDescription: e.target.value })
+                                patchSalesLineRow(rowIndex, { lineDescription: e.target.value })
                               }
                             />
                           ) : (
@@ -822,77 +894,42 @@ function ProductionPlanningInner() {
                           )}
                         </td>
                         <td className={mfgTdClass}>
-                          <span
-                            className={`text-sm ${row.bomId ? 'text-[#0A3D5E]' : 'text-rose-600'}`}
-                          >
-                            {row.bomName || '—'}
-                          </span>
+                          {canEditLineItems ? (
+                            <input
+                              type="number"
+                              min={0}
+                              step="any"
+                              className={compactControlClass}
+                              value={row.plannedQuantity}
+                              disabled={fieldsLocked}
+                              onChange={(e) =>
+                                patchSalesLineRow(rowIndex, { plannedQuantity: e.target.value })
+                              }
+                            />
+                          ) : (
+                            <span className="text-sm font-medium">
+                              {num(row.plannedQuantity).toLocaleString('ar-EG')}
+                            </span>
+                          )}
                         </td>
-                        <td className={mfgTdClass}>
-                          <input
-                            type="number"
-                            min={0}
-                            step="any"
-                            className={compactControlClass}
-                            value={row.modelCount}
-                            disabled={planningLocked}
-                            onChange={(e) =>
-                              patchPlanRow(rowIndex, { modelCount: e.target.value })
-                            }
-                          />
-                        </td>
-                        <td className={mfgTdClass}>
-                          {(bomProgress?.completedQuantity ?? 0).toLocaleString('ar-EG')}
-                        </td>
-                        <td className={mfgTdClass}>
-                          {bomProgress
-                            ? bomProgress.remainingQuantity.toLocaleString('ar-EG')
-                            : '—'}
-                        </td>
-                        <td className={mfgTdClass}>
-                          {bomProgress
-                            ? `${bomProgress.percentComplete.toLocaleString('ar-EG')}%`
-                            : '—'}
-                        </td>
-                        <td className={mfgTdClass}>
-                          <div className="flex flex-wrap gap-1">
+                        {canEditLineItems ? (
+                          <td className={mfgTdClass}>
                             <Button
                               type="button"
                               size="sm"
-                              variant="secondary"
-                              disabled={busy || planningLocked}
-                              onClick={() => void handleCheckRow(row)}
+                              variant="ghost"
+                              disabled={lineRows.length <= 1 || fieldsLocked}
+                              onClick={() =>
+                                setLineRows((prev) => prev.filter((_, i) => i !== rowIndex))
+                              }
+                              aria-label="حذف السطر"
                             >
-                              فحص الكميات
+                              <Trash2 className="h-4 w-4 text-rose-600" />
                             </Button>
-                            <Button
-                              type="button"
-                              size="sm"
-                              className="bg-[#0E78AA] hover:bg-[#0B6188]"
-                              disabled={busy || planningLocked}
-                              onClick={() => void handleManufacture(row)}
-                            >
-                              تصنيع
-                            </Button>
-                            {canEditLineItems ? (
-                              <Button
-                                type="button"
-                                size="sm"
-                                variant="ghost"
-                                disabled={planRows.length <= 1 || planningLocked}
-                                onClick={() =>
-                                  setPlanRows((prev) => prev.filter((r) => r.id !== row.id))
-                                }
-                                aria-label="حذف السطر"
-                              >
-                                <Trash2 className="h-4 w-4 text-rose-600" />
-                              </Button>
-                            ) : null}
-                          </div>
-                        </td>
+                          </td>
+                        ) : null}
                       </tr>
-                    );
-                    })
+                    ))
                   )}
                 </tbody>
               </table>
@@ -903,7 +940,7 @@ function ProductionPlanningInner() {
                   type="button"
                   size="sm"
                   variant="secondary"
-                  onClick={() => setPlanRows((prev) => [...prev, emptyProductionRow()])}
+                  onClick={() => setLineRows((prev) => [...prev, emptySalesLineRow()])}
                 >
                   <Plus className="ms-1 h-4 w-4" />
                   إضافة صنف
@@ -911,14 +948,209 @@ function ProductionPlanningInner() {
               </div>
             ) : null}
           </MfgTableCard>
+
+          <div className="mt-4">
+            <MfgTableCard
+              title="التخطيط الإنتاجي"
+              scrollViewport
+              toolbar={
+                <Link
+                  href="/manufacturing/creations/manufacturing-model"
+                  target="_blank"
+                  className="text-xs font-semibold text-[#0E78AA] underline-offset-2 hover:underline"
+                >
+                  تعريف نموذج تصنيع/قائمة مواد
+                </Link>
+              }
+            >
+              <div className={mfgTableScrollViewportClass}>
+                <table className={mfgTableClass}>
+                  <thead className={mfgTheadClass}>
+                    <tr>
+                      <th className={mfgThClass}>نموذج التصنيع</th>
+                      <th className={mfgThClass}>الصنف التام</th>
+                      <th className={cn(mfgThClass, 'w-28')}>الكمية</th>
+                      <th className={mfgThClass}>قيد التنفيذ</th>
+                      <th className={mfgThClass}>منفّذ</th>
+                      <th className={mfgThClass}>متبقي</th>
+                      <th className={mfgThClass}>%</th>
+                      <th className={cn(mfgThClass, 'w-52')}>إجراءات</th>
+                      {canEditPlanning ? <th className={cn(mfgThClass, 'w-12')} /> : null}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {planRows.length === 0 ? (
+                      <MfgEmptyRow colSpan={canEditPlanning ? 9 : 8}>
+                        لا توجد نماذج في الخطة — اضغط «إضافة نموذج» واختر نموذج التصنيع والكمية
+                      </MfgEmptyRow>
+                    ) : (
+                      planRows.map((row, rowIndex) => {
+                        const bomProgress = row.bomId ? progressByBomId.get(row.bomId) : undefined;
+                        const bomMeta = row.bomId ? bomById.get(row.bomId) : undefined;
+                        const specs =
+                          row.lineDescription?.trim() ||
+                          bomMeta?.formMetadata?.description?.trim() ||
+                          '—';
+                        return (
+                          <tr key={row.id} className={mfgTrClass}>
+                            <td className={mfgTdClass}>
+                              {canEditPlanning ? (
+                                <select
+                                  className={compactControlClass}
+                                  value={row.bomId}
+                                  onChange={(e) => patchPlanRowBom(rowIndex, e.target.value)}
+                                >
+                                  <option value="">— اختر نموذج التصنيع —</option>
+                                  {boms.map((b) => (
+                                    <option key={b.id} value={b.id}>
+                                      {b.name}
+                                    </option>
+                                  ))}
+                                </select>
+                              ) : (
+                                <span
+                                  className={`text-sm ${row.bomId ? 'text-[#0A3D5E]' : 'text-rose-600'}`}
+                                >
+                                  {row.bomName || '—'}
+                                </span>
+                              )}
+                            </td>
+                            <td className={mfgTdClass}>
+                              <span className="text-sm text-[#0A3D5E]">
+                                {row.itemName || (row.bomId ? '—' : '')}
+                              </span>
+                              {canEditPlanning ? (
+                                <input
+                                  className={cn(compactControlClass, 'mt-1 text-xs')}
+                                  placeholder="ملاحظات / مواصفات"
+                                  value={row.lineDescription}
+                                  onChange={(e) =>
+                                    patchPlanRow(rowIndex, { lineDescription: e.target.value })
+                                  }
+                                />
+                              ) : specs !== '—' ? (
+                                <p className="mt-0.5 text-xs text-slate-500">{specs}</p>
+                              ) : null}
+                            </td>
+                            <td className={mfgTdClass}>
+                              <input
+                                type="number"
+                                min={0}
+                                step="any"
+                                className={compactControlClass}
+                                value={row.modelCount}
+                                disabled={!canEditPlanning}
+                                onChange={(e) =>
+                                  patchPlanRow(rowIndex, { modelCount: e.target.value })
+                                }
+                              />
+                            </td>
+                            <td className={mfgTdClass}>
+                              <span
+                                className={
+                                  (bomProgress?.inProgressQuantity ?? 0) > 0
+                                    ? 'font-semibold text-amber-800'
+                                    : 'text-slate-600'
+                                }
+                              >
+                                {(bomProgress?.inProgressQuantity ?? 0).toLocaleString('ar-EG')}
+                              </span>
+                            </td>
+                            <td className={mfgTdClass}>
+                              <span
+                                className={
+                                  (bomProgress?.completedQuantity ?? 0) > 0
+                                    ? 'font-semibold text-emerald-800'
+                                    : ''
+                                }
+                              >
+                                {(bomProgress?.completedQuantity ?? 0).toLocaleString('ar-EG')}
+                              </span>
+                            </td>
+                            <td className={mfgTdClass}>
+                              {bomProgress
+                                ? bomProgress.remainingQuantity.toLocaleString('ar-EG')
+                                : '—'}
+                            </td>
+                            <td className={mfgTdClass}>
+                              {bomProgress
+                                ? `${bomProgress.percentComplete.toLocaleString('ar-EG')}%`
+                                : '—'}
+                            </td>
+                            <td className={mfgTdClass}>
+                              <div className="flex min-w-[11rem] flex-col items-stretch gap-1">
+                                {qtyShortageByRowId[row.id] ? (
+                                  <p className="text-xs font-semibold leading-snug text-rose-600">
+                                    {MFG_QUANTITY_SHORTAGE_HINT_AR}
+                                  </p>
+                                ) : null}
+                                <div className="flex flex-wrap gap-1">
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="secondary"
+                                  disabled={busy || planningLocked || !row.bomId}
+                                  className={mfgQuantityCheckButtonClass(
+                                    Boolean(qtyShortageByRowId[row.id])
+                                  )}
+                                  onClick={() => void handleCheckRow(row)}
+                                >
+                                  فحص الكميات
+                                </Button>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  className="bg-[#0E78AA] hover:bg-[#0B6188]"
+                                  disabled={busy || planningLocked || !row.bomId}
+                                  onClick={() => void handleManufacture(row)}
+                                >
+                                  تصنيع
+                                </Button>
+                                </div>
+                              </div>
+                            </td>
+                            {canEditPlanning ? (
+                              <td className={mfgTdClass}>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => removePlanRow(rowIndex)}
+                                  aria-label="حذف السطر"
+                                >
+                                  <Trash2 className="h-4 w-4 text-rose-600" />
+                                </Button>
+                              </td>
+                            ) : null}
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+              {canEditPlanning ? (
+                <div className="border-t border-[#E6F0F7] px-4 py-2">
+                  <Button type="button" size="sm" variant="secondary" onClick={addPlanRow}>
+                    <Plus className="ms-1 h-4 w-4" />
+                    إضافة نموذج
+                  </Button>
+                </div>
+              ) : null}
+            </MfgTableCard>
+          </div>
         </>
       )}
 
       <ManufacturingQuantityCheckDialog
         open={showQtyCheck}
-        onClose={() => setShowQtyCheck(false)}
+        onClose={() => {
+          setShowQtyCheck(false);
+          setQtyCheckEmphasizeShortages(false);
+        }}
         rows={checkProcess?.raws ?? []}
         defaultWarehouseId={checkProcess?.fromWarehouseId ?? ''}
+        emphasizeShortages={qtyCheckEmphasizeShortages}
       />
 
       <DocumentBrowseDrawer

@@ -8,6 +8,9 @@ import { TableSkeleton } from './TableSkeleton';
 import { TablePagination, type TablePaginationProps } from './TablePagination';
 import { TableExportActions } from './TableExportActions';
 import { ColumnValueMenu } from '@/components/grid/ColumnValueMenu';
+import { ColumnResizeHandle } from '@/components/grid/ColumnResizeHandle';
+import { ResizableColGroup } from '@/components/grid/ResizableColGroup';
+import { useResizableColumns } from '@/components/grid/useResizableColumns';
 import {
   appTableColumnsToExport,
   type ExportColumnDef,
@@ -46,6 +49,9 @@ export interface AppTableProps<T extends object> {
   virtualizeThreshold?: number;
   defaultSort?: { id: string; dir: 'asc' | 'desc' };
   onSortChange?: (sort: { id: string; dir: 'asc' | 'desc' }) => void;
+  /** Persist column widths in localStorage (defaults to export file name or column ids). */
+  columnWidthStorageKey?: string;
+  resizableColumns?: boolean;
 }
 
 function formatCellValue(value: unknown, numeric?: boolean): React.ReactNode {
@@ -157,8 +163,18 @@ export function AppTable<T extends object>({
   virtualizeThreshold = 40,
   defaultSort,
   onSortChange,
+  columnWidthStorageKey,
+  resizableColumns = true,
 }: AppTableProps<T>) {
   const mounted = useClientMounted();
+  const columnIds = React.useMemo(() => columns.map((col) => col.id), [columns]);
+  const widthStorageKey =
+    columnWidthStorageKey ??
+    (exportFileName ? `gates-cols:app-table:${exportFileName}` : `gates-cols:app-table:${columnIds.join('|')}`);
+  const { startResize, colGroup, getWidth } = useResizableColumns(columnIds, {
+    storageKey: widthStorageKey,
+    enabled: resizableColumns,
+  });
   const defaultSortId =
     defaultSort?.id ??
     columns.find((col) => /^(serial|code|num|number)$/.test(col.id) && columnSortable(col))?.id ??
@@ -251,8 +267,9 @@ export function AppTable<T extends object>({
       return (
         <td
           key={col.id}
+          style={colGroup ? { width: getWidth(col.id), maxWidth: getWidth(col.id) } : undefined}
           className={cn(
-            'max-w-[280px] truncate px-3 h-10 text-slate-700 border-e border-[#E8F1F6] last:border-e-0',
+            'max-w-none truncate px-3 h-10 text-slate-700 border-e border-[#E8F1F6] last:border-e-0',
             col.align === 'end' && 'text-left',
             col.align === 'center' && 'text-center',
             col.align !== 'end' && col.align !== 'center' && 'text-right',
@@ -285,9 +302,10 @@ export function AppTable<T extends object>({
           return (
           <th
             key={col.id}
+            style={colGroup ? { width: getWidth(col.id), maxWidth: getWidth(col.id) } : undefined}
             aria-sort={active ? (sort?.dir === 'asc' ? 'ascending' : 'descending') : 'none'}
             className={cn(
-              'px-3 text-xs font-semibold tracking-wider whitespace-nowrap border-e border-white/20 last:border-e-0',
+              'relative px-3 text-xs font-semibold tracking-wider whitespace-nowrap border-e border-white/20 last:border-e-0',
               stickyHeader && colIndex === 0 && 'sticky right-0 z-[40] min-w-[6rem]',
               col.align === 'end' && 'text-left',
               col.align === 'center' && 'text-center',
@@ -325,6 +343,9 @@ export function AppTable<T extends object>({
                 <span className={cn('text-[10px]', filtering ? 'text-amber-200' : 'text-white/70')}>▾</span>
               ) : null}
             </span>
+            {resizableColumns ? (
+              <ColumnResizeHandle onMouseDown={(event) => startResize(col.id, event)} />
+            ) : null}
           </th>
           );
         })}
@@ -433,7 +454,13 @@ export function AppTable<T extends object>({
           stickyHeader && 'report-scroll-viewport'
         )}
       >
-        <table className="w-max min-w-full border-collapse text-sm">
+        <table
+          className={cn(
+            'min-w-full border-collapse text-sm',
+            colGroup ? 'w-full table-fixed' : 'w-max'
+          )}
+        >
+          <ResizableColGroup columns={colGroup} />
           {header}
           {body}
         </table>

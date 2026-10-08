@@ -98,6 +98,13 @@ const leaveChildren: HrNavItem[] = [
 const payrollChildren: HrNavItem[] = [
   { key: 'payroll-hcm-dashboard', label: 'عمليات الرواتب (HCM)', href: '/hr/payroll/dashboard' },
   { key: 'payroll-hcm-runs', label: 'مسيرات PayrollRun', href: '/hr/payroll/runs' },
+  { key: 'payroll-hcm-inputs', label: 'مدخلات لمرة واحدة', href: '/hr/payroll/inputs' },
+  { key: 'payroll-hcm-components', label: 'مكونات الراتب', href: '/hr/payroll/components' },
+  { key: 'payroll-hcm-compensation', label: 'تعويضات الموظف', href: '/hr/payroll/compensation' },
+  { key: 'payroll-hcm-rules', label: 'قواعد الرواتب', href: '/hr/payroll/rules' },
+  { key: 'payroll-hcm-localization', label: 'توطين الرواتب', href: '/hr/payroll/localization' },
+  { key: 'payroll-hcm-gl-mapping', label: 'ربط حسابات GL', href: '/hr/payroll/gl-mapping' },
+  { key: 'payroll-hcm-reports', label: 'تقارير الرواتب (HCM)', href: '/hr/payroll/reports' },
   { key: 'monthly-salaries', label: 'الرواتب الشهرية (Legacy)', href: '/hr/monthly-salaries' },
   { key: 'monthly-salaries-disbursement', label: 'صرف الرواتب', href: '/hr/monthly-salaries-disbursement' },
   { key: 'annual-leave-entitlements-clearance', label: 'تصفية مستحقات الإجازة', href: '/hr/annual-leave-entitlements-clearance' },
@@ -111,6 +118,18 @@ const payrollChildren: HrNavItem[] = [
 const reportChildren: HrNavItem[] = [
   { key: 'reports-hub', label: 'كل التقارير', href: '/hr/reports' },
   { key: 'employee-data-report', label: 'بيانات الموظفين', href: '/hr/employee-data-report' },
+  { key: 'employee-penalties-report', label: 'جزاءات الموظفين', href: '/hr/employee-penalties-report' },
+  { key: 'employee-rewards-report', label: 'مكافآت الموظفين', href: '/hr/employee-rewards-report' },
+  { key: 'employee-warnings-report', label: 'إنذارات الموظفين', href: '/hr/employee-warnings-report' },
+  { key: 'employee-loans-report', label: 'قروض الموظفين', href: '/hr/employee-loans-report' },
+  { key: 'employee-courses-report', label: 'دورات الموظفين', href: '/hr/employee-courses-report' },
+  { key: 'employee-promotions-report', label: 'ترقيات الموظفين', href: '/hr/employee-promotions-report' },
+  { key: 'employee-transfer-report', label: 'نقل الموظفين', href: '/hr/employee-transfer-report' },
+  { key: 'employee-secondment-report', label: 'إنتداب الموظفين', href: '/hr/employee-secondment-report' },
+  { key: 'employee-suspensions-report', label: 'إيقافات الموظفين', href: '/hr/employee-suspensions-report' },
+  { key: 'employee-termination-report', label: 'إنهاء خدمة الموظفين', href: '/hr/employee-termination-report' },
+  { key: 'employee-recommendations-report', label: 'توصيات الموظفين', href: '/hr/employee-recommendations-report' },
+  { key: 'housing-allowance-report', label: 'بدل السكن', href: '/hr/housing-allowance-report' },
   { key: 'payroll-report', label: 'الرواتب', href: '/hr/payroll-report' },
   { key: 'leave-entitlements-report', label: 'مستحقات الإجازات', href: '/hr/leave-entitlements-report' },
   { key: 'end-of-service-report', label: 'نهاية الخدمة', href: '/hr/end-of-service-report' },
@@ -118,6 +137,7 @@ const reportChildren: HrNavItem[] = [
 
 /** HR sidebar navigation — grouped; Lucide icons only. */
 export const hrModules: HrNavItem[] = [
+  { key: 'hr-dashboard', label: 'لوحة الموارد البشرية', href: '/hr', icon: BarChart3, color: '#0E78AA' },
   { key: 'hr-settings', label: 'إعدادات شؤون الموظفين', href: '/hr/settings', icon: Settings, color: '#0E78AA' },
   {
     key: 'basic-data',

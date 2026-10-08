@@ -12,8 +12,8 @@ export type FinishDocumentSaveInput = {
   /** Clears the form for a new document when `cleared` is true or there is no saved id to reopen. */
   reset: () => void;
   /**
-   * When true, always run `reset` after save (empty screen for the next document).
-   * When false or omitted and `savedId` + `onOpen` are set, reopen the saved record instead of clearing.
+   * When true (default), clear the form for the next document after save.
+   * When false and `savedId` + `onOpen` are set, reopen the saved record instead.
    */
   cleared?: boolean;
   /** Reopen the document that was just saved. */
@@ -24,13 +24,14 @@ export type FinishDocumentSaveInput = {
 
 /**
  * After حفظ or حفظ وترحيل: toast, clear browser draft, then stay on the saved
- * document (default) or clear the screen when `cleared: true`.
+ * document when `cleared: false`, or clear the screen for the next one (default).
  */
 export function finishDocumentSave(input: FinishDocumentSaveInput) {
   const num = String(input.number ?? '').trim() || '—';
   const verb = input.posted ? 'تم حفظ وترحيل' : 'تم حفظ';
   const id = input.savedId?.trim() || '';
-  const stayOnSaved = Boolean(id && input.onOpen && input.cleared !== true);
+  const cleared = input.cleared ?? true;
+  const stayOnSaved = Boolean(id && input.onOpen && !cleared);
 
   toast.success(`${verb} ${input.label}`, {
     description: stayOnSaved

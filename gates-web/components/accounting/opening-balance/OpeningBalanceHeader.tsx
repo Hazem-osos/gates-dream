@@ -145,10 +145,11 @@ export function OpeningBalanceHeader({
               <label className={erpLabelClass}>رقم القيد</label>
               <input
                 className={erpInputClass}
-                placeholder="OB-2026"
+                placeholder="00000001"
                 value={entryNumber}
                 disabled={readOnly}
-                onChange={(e) => onEntryNumberChange(e.target.value)}
+                inputMode="numeric"
+                onChange={(e) => onEntryNumberChange(e.target.value.replace(/\D/g, '').slice(0, 8))}
               />
             </div>
             <div className="lg:col-span-2">

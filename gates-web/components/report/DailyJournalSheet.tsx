@@ -32,7 +32,7 @@ function dayKey(value: unknown): string {
 function dayLabel(key: string): string {
   const date = new Date(`${key}T12:00:00`);
   if (Number.isNaN(date.getTime())) return key;
-  return date.toLocaleDateString('ar-EG', { day: '2-digit', month: '2-digit', year: '2-digit' });
+  return date.toLocaleDateString('ar-EG', { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 
 function accountName(row: Row): string {
@@ -124,7 +124,10 @@ export function DailyJournalSheet({ rows, mode }: { rows: Row[]; mode: 'day' | '
                 {block.lines.map((row, index) => (
                   <tr key={`${blockIndex}-${index}`} className={index % 2 === 0 ? 'bg-sky-50/50' : 'bg-white'}>
                     {index === 0 ? (
-                      <td rowSpan={block.lines.length} className="border border-slate-300 bg-emerald-50 px-2 py-1 text-center align-middle font-semibold">
+                      <td
+                        rowSpan={block.lines.length}
+                        className="min-w-[7.5rem] whitespace-nowrap border border-slate-300 bg-emerald-50 px-2 py-1 text-center align-middle font-semibold tabular-nums"
+                      >
                         {block.label}
                       </td>
                     ) : null}

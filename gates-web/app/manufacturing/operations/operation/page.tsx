@@ -27,6 +27,11 @@ import {
   findMfgRawStockShortages,
   formatMfgShortageBlock,
 } from '@/lib/manufacturing/mfg-raw-stock-shortages';
+import {
+  hasMfgRawStockShortage,
+  mfgQuantityCheckButtonClass,
+  MFG_QUANTITY_SHORTAGE_HINT_AR,
+} from '@/lib/manufacturing/mfg-quantity-check-ui';
 import { DocumentBrowseDrawer } from '@/components/erp/DocumentBrowseDrawer';
 import { ManufacturingQuantityCheckDialog } from '@/components/manufacturing/ManufacturingQuantityCheckDialog';
 import {
@@ -75,6 +80,8 @@ import {
   isWorkOrderSelectableForProductionOrder,
   manufacturingWorkOrderStatusLabel,
 } from '@/lib/manufacturing/work-order-status';
+import { confirmAction } from '@/lib/feedback/confirm';
+import { ManufacturingProductionOrderBottomSplit } from '@/components/manufacturing/ManufacturingProductionOrderBottomSplit';
 
 interface BomLine {
   id?: string;
@@ -105,6 +112,8 @@ interface ProductionOrder {
   totalOverheadCost: string | number;
   unitCost: string | number;
   materialsIssueJournalEntryId: string | null;
+  laborOverheadJournalEntryId?: string | null;
+  additionalCostsJournalEntryId?: string | null;
   completionJournalEntryId: string | null;
   processMetadata?: Record<string, unknown> | null;
   bom?: { id: string; name: string };
@@ -200,6 +209,7 @@ function ManufacturingOperationPageInner() {
   const [numberOfModels, setNumberOfModels] = useState('1');
   const [loadedProcess, setLoadedProcess] = useState<LoadedManufacturingProcess | null>(null);
   const [showQtyCheck, setShowQtyCheck] = useState(false);
+  const [qtyCheckInsufficient, setQtyCheckInsufficient] = useState(false);
   const [showTransferPick, setShowTransferPick] = useState(false);
   const [order, setOrder] = useState<ProductionOrder | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -207,12 +217,14 @@ function ManufacturingOperationPageInner() {
   const [busy, setBusy] = useState(false);
   const [showPreviousDrawer, setShowPreviousDrawer] = useState(false);
   const [showWorkOrderPicker, setShowWorkOrderPicker] = useState(false);
+  const [bottomSplitTab, setBottomSplitTab] = useState('gl');
   const [manufacturingWorkOrderId, setManufacturingWorkOrderId] = useState('');
   const [linkedWorkOrderNumber, setLinkedWorkOrderNumber] = useState('');
   const skipDraftApplyRef = useRef(false);
   const processReloadPendingRef = useRef(false);
   const workOrderDeepLinkRef = useRef<string | null>(null);
   const workOrderAutoDescriptionRef = useRef('');
+  const costEnrichForOrderRef = useRef<string | null>(null);
 
   const { data: accountingSettingsRes } = useAccountingSettings();
   const preventNegativeStock =
@@ -627,6 +639,44 @@ function ManufacturingOperationPageInner() {
     applyLoadedProcessHeaderFields,
   ]);
 
+  const materialsAlreadyIssued = Boolean(order?.materialsIssueJournalEntryId);
+  const quantityCheckUsesPostedSnapshot =
+    order?.status === 'COMPLETED' || materialsAlreadyIssued;
+
+  useEffect(() => {
+    if (!loadedProcess?.raws?.length) {
+      setQtyCheckInsufficient(false);
+      return;
+    }
+    if (quantityCheckUsesPostedSnapshot) {
+      setQtyCheckInsufficient(false);
+      return;
+    }
+    const wh = fromWarehouse || loadedProcess.fromWarehouseId || '';
+    let cancelled = false;
+    void hasMfgRawStockShortage(loadedProcess, wh).then((insufficient) => {
+      if (!cancelled) setQtyCheckInsufficient(insufficient);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [loadedProcess, fromWarehouse, quantityCheckUsesPostedSnapshot]);
+
+  useEffect(() => {
+    if (!order?.id || !loadedProcess?.raws?.length) return;
+    if (!itemsResponse?.data?.length) return;
+    const needsCostFill = loadedProcess.raws.some(
+      (r) => r.itemId.trim() && r.lineTotal <= 0 && r.unitPrice <= 0
+    );
+    if (!needsCostFill) {
+      costEnrichForOrderRef.current = order.id;
+      return;
+    }
+    if (costEnrichForOrderRef.current === order.id) return;
+    costEnrichForOrderRef.current = order.id;
+    setLoadedProcess(enrichLoadedProcessWithItemCosts(loadedProcess, resolveItemAverageCost));
+  }, [order?.id, loadedProcess, itemsResponse?.data, resolveItemAverageCost]);
+
   const laborCost = loadedProcess?.laborCost ?? num(bom?.standardLaborCost) * scale;
   const overheadCost = loadedProcess?.overheadCost ?? num(bom?.standardOverheadCost) * scale;
 
@@ -669,7 +719,8 @@ function ManufacturingOperationPageInner() {
     };
   }, [processForCostEstimate]);
 
-  const materialCostFromOrder = num(order?.totalMaterialCost);
+  const materialCostFromOrder =
+    materialsAlreadyIssued ? num(order?.totalMaterialCost) : 0;
   const materialCost =
     materialCostFromOrder > 0 ? materialCostFromOrder : estimatedProcessCosts.materials;
 
@@ -771,6 +822,7 @@ function ManufacturingOperationPageInner() {
         setOrder(updated);
         setSerial(updated.orderNumber);
         setSuccess('تم تحديث أمر التصنيع');
+        clearDraft();
         invalidateQuery(['manufacturing-orders']);
         if (manufacturingWorkOrderId) {
           invalidateQuery(['manufacturing-work-order-progress', manufacturingWorkOrderId]);
@@ -906,7 +958,7 @@ function ManufacturingOperationPageInner() {
         ...r,
         itemName: itemNameById.get(r.itemId) ?? r.itemName,
       }));
-      setLoadedProcess(loaded);
+      setLoadedProcess(enrichLoadedProcessWithItemCosts(loaded, resolveItemAverageCost));
     } catch {
       setLoadedProcess(null);
     }
@@ -915,6 +967,7 @@ function ManufacturingOperationPageInner() {
   async function openPreviousOrder(orderId: string) {
     resetFeedback();
     setShowPreviousDrawer(false);
+    costEnrichForOrderRef.current = null;
     setBusy(true);
     try {
       const res = await apiClient.get<ProductionOrder>(`/manufacturing/orders/${orderId}`);
@@ -1007,7 +1060,10 @@ function ManufacturingOperationPageInner() {
       setError('اضغط «تحميل» من النموذج أو أدخل أصنافاً ناتجة/خامات يدوياً');
       return null;
     }
-    if (!(await ensureRawStockAllowsPost())) return null;
+    const materialsAlreadyIssued = Boolean(order?.materialsIssueJournalEntryId);
+    if (preventNegativeStock && !materialsAlreadyIssued) {
+      if (!(await ensureRawStockAllowsPost())) return null;
+    }
 
     const processMetadata = {
       description: description.trim() || undefined,
@@ -1099,7 +1155,14 @@ function ManufacturingOperationPageInner() {
 
   async function handleSave() {
     resetFeedback();
-    await persistOrder();
+    const saved = await persistOrder();
+    if (saved) {
+      setOrder(saved);
+      if (loadedProcess) {
+        setLoadedProcess(enrichLoadedProcessWithItemCosts(loadedProcess, resolveItemAverageCost));
+      }
+      setSuccess('تم تحديث أمر التصنيع');
+    }
   }
 
   async function openTransfer(kind: 'raw' | 'finished', quantityMode: 'full' | 'shortage' = 'full') {
@@ -1202,7 +1265,7 @@ function ManufacturingOperationPageInner() {
         );
         setOrder(withCosts.data);
       }
-      setSuccess('تم بدء التنفيذ — صرف الخامات من المخزن والقيد المحاسبي');
+      setSuccess('تم بدء التنفيذ — صرف الخامات واستلام المنتج النهائي في مخزن الوجهة والقيد المحاسبي');
     } catch (err) {
       setError((err as ApiError).message || 'تعذر بدء التنفيذ');
     } finally {
@@ -1211,28 +1274,145 @@ function ManufacturingOperationPageInner() {
   }
 
   const orderLocked = !!order && order.status === 'CANCELLED';
-  const orderExecutionLocked =
-    !!order &&
-    (order.status === 'IN_PROGRESS' ||
-      order.status === 'COMPLETED' ||
-      Boolean(order.materialsIssueJournalEntryId));
+  const orderExecutionLocked = !!order && order.status === 'COMPLETED';
 
   const canEditOrder = !order || (order.status !== 'CANCELLED' && !orderExecutionLocked);
 
   const fieldsDisabled = !canEditOrder;
 
   async function handleCancelOrder() {
-    if (!order?.id) return;
+    if (!order?.id || order.status === 'CANCELLED') return;
+    const ok = await confirmAction({
+      message:
+        'إلغاء أمر التصنيع ووسمه «ملغي» فقط — القيود المحاسبية وحركات المخزون تبقى كما هي. لعكس التأثيرات استخدم «فك صرف الخامات» أو «فك إتمام التصنيع» من القائمة أولاً إن لزم. متابعة؟',
+      confirmLabel: 'إلغاء الأمر',
+      tone: 'danger',
+    });
+    if (!ok) return;
     resetFeedback();
     setBusy(true);
     try {
       const res = await apiClient.post<ProductionOrder>(`/manufacturing/orders/${order.id}/cancel`);
       setOrder(res.data);
-      setSuccess('تم إلغاء أمر التصنيع');
+      setSuccess('تم إلغاء أمر التصنيع — التأثيرات المحاسبية والمخزنية لم تُعكَس');
       lockToView();
       invalidateQuery(['manufacturing-orders']);
+      if (manufacturingWorkOrderId) {
+        invalidateQuery(['manufacturing-work-order-progress', manufacturingWorkOrderId]);
+        void refetchWorkOrderProgress();
+      }
     } catch (err) {
       setError((err as ApiError).message || 'تعذر إلغاء الأمر');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleUnpostMaterials() {
+    if (!order?.id || !order.materialsIssueJournalEntryId) return;
+    const ok = await confirmAction({
+      message:
+        'فك صرف الخامات: عكس قيد الصرف وحركات المخزن وإرجاع الأمر إلى «تم التأكيد». بعدها يمكن تعديل الخامات والكميات ثم إعادة «بدء التنفيذ».',
+      confirmLabel: 'فك صرف الخامات',
+      tone: 'danger',
+    });
+    if (!ok) return;
+    resetFeedback();
+    setBusy(true);
+    try {
+      const res = await apiClient.post<ProductionOrder>(
+        `/manufacturing/orders/${order.id}/unpost-materials`
+      );
+      setOrder(res.data);
+      setSuccess('تم فك صرف الخامات — يمكنك التعديل ثم بدء التنفيذ من جديد');
+      unlockForEdit();
+      invalidateQuery(['manufacturing-orders']);
+    } catch (err) {
+      setError((err as ApiError).message || 'تعذر فك صرف الخامات');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleUnpostCosts() {
+    if (!order?.id || !order.laborOverheadJournalEntryId) return;
+    const ok = await confirmAction({
+      message: 'فك قيد الأجور والمصاريف الإضافية مع عكس القيد المحاسبي. متابعة؟',
+      confirmLabel: 'فك الأجور والمصاريف',
+      tone: 'danger',
+    });
+    if (!ok) return;
+    resetFeedback();
+    setBusy(true);
+    try {
+      const res = await apiClient.post<ProductionOrder>(
+        `/manufacturing/orders/${order.id}/unpost-costs`
+      );
+      setOrder(res.data);
+      setSuccess('تم فك قيد الأجور والمصاريف');
+      unlockForEdit();
+    } catch (err) {
+      setError((err as ApiError).message || 'تعذر فك الأجور والمصاريف');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleRevertToInProgress() {
+    if (!order?.id || order.status !== 'COMPLETED') return;
+    const ok = await confirmAction({
+      message:
+        'إرجاع الأمر إلى «قيد التنفيذ» مع عكس قيد الإتمام وحركة استلام المنتج التام. متابعة؟',
+      confirmLabel: 'ارجع إلى قيد التنفيذ',
+    });
+    if (!ok) return;
+    resetFeedback();
+    setBusy(true);
+    try {
+      const res = await apiClient.post<ProductionOrder>(
+        `/manufacturing/orders/${order.id}/unpost-completion`
+      );
+      setOrder(res.data);
+      setSuccess('تم إرجاع الأمر إلى قيد التنفيذ');
+      unlockForEdit();
+      invalidateQuery(['manufacturing-orders']);
+      if (manufacturingWorkOrderId) {
+        invalidateQuery(['manufacturing-work-order-progress', manufacturingWorkOrderId]);
+        void refetchWorkOrderProgress();
+      }
+    } catch (err) {
+      setError((err as ApiError).message || 'تعذر إرجاع الأمر');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handlePermanentDelete() {
+    if (!order?.id) return;
+    if (order.status === 'COMPLETED') {
+      setError('لا يمكن حذف أمر منتهي — استخدم «إلغاء الأمر»');
+      return;
+    }
+    const ok = await confirmAction({
+      message:
+        'حذف أمر التصنيع نهائياً من النظام. إن كان قد بدأ تنفيذه سيتم فك الترحيلات أولاً. متابعة؟',
+      confirmLabel: 'حذف نهائي',
+      tone: 'danger',
+    });
+    if (!ok) return;
+    resetFeedback();
+    setBusy(true);
+    try {
+      await apiClient.delete(`/manufacturing/orders/${order.id}`);
+      setSuccess('تم حذف أمر التصنيع');
+      clearDraft();
+      handleNewOrder();
+      invalidateQuery(['manufacturing-orders']);
+      if (manufacturingWorkOrderId) {
+        invalidateQuery(['manufacturing-work-order-progress', manufacturingWorkOrderId]);
+      }
+    } catch (err) {
+      setError((err as ApiError).message || 'تعذر حذف الأمر');
     } finally {
       setBusy(false);
     }
@@ -1254,6 +1434,13 @@ function ManufacturingOperationPageInner() {
     if (!order) return setError('احفظ أمر التصنيع قبل الإنهاء');
     setBusy(true);
     try {
+      let activeOrder = order;
+      if (canEditOrder && loadedProcess && processHasLineContent(loadedProcess)) {
+        const saved = await persistOrder();
+        if (!saved) return;
+        activeOrder = saved;
+        setOrder(saved);
+      }
       const finishedItemId = bom?.finishedItemId;
       const primaryOutput =
         loadedProcess?.outputs.find((o) => o.itemId === finishedItemId) ??
@@ -1263,8 +1450,11 @@ function ManufacturingOperationPageInner() {
         setError('كمية الصنف الناتج غير صالحة للإنهاء');
         return;
       }
+      if (preventNegativeStock && !activeOrder.materialsIssueJournalEntryId) {
+        if (!(await ensureRawStockAllowsPost())) return;
+      }
       const completed = await apiClient.post<ProductionOrder>(
-        `/manufacturing/orders/${order.id}/complete`,
+        `/manufacturing/orders/${activeOrder.id}/complete`,
         { actualQuantity }
       );
       setOrder(completed.data);
@@ -1272,7 +1462,7 @@ function ManufacturingOperationPageInner() {
         invalidateQuery(['manufacturing-work-order-progress', manufacturingWorkOrderId]);
         void refetchWorkOrderProgress();
       }
-      setSuccess('تم إنهاء الأمر — استلام المنتجات في مخزن المواد النهائية والقيد');
+      setSuccess('تم إنهاء الأمر — إقفال التكاليف والقيد المحاسبي (المنتج النهائي دخل المخزن عند بدء التنفيذ)');
     } catch (err) {
       setError((err as ApiError).message || 'تعذر إنهاء التصنيع');
     } finally {
@@ -1307,21 +1497,22 @@ function ManufacturingOperationPageInner() {
         orderLocked
           ? 'لا يمكن تعديل أمر ملغي — افتح أمرًا جديدًا'
           : orderExecutionLocked
-            ? 'لا يمكن تعديل أمر بعد بدء التنفيذ'
+            ? 'لا يمكن تعديل أمر منتهي — استخدم الإجراءات من القائمة'
             : undefined
       }
       onBrowseList={() => setShowPreviousDrawer(true)}
       standardActions={{
         hasDocument: Boolean(order?.id),
-        isPosted: orderLocked || orderExecutionLocked,
+        isPosted: false,
         isCancelled: order?.status === 'CANCELLED',
+        allowEditWhenPosted: true,
         onNew: handleNewOrder,
         newLabel: 'أمر جديد',
         onEdit: () => unlockForEdit(),
         onDuplicate: order?.id ? () => void loadOrderAsNewDraft(order.id) : undefined,
         duplicateLabel: 'نسخ كمسودة',
         onVoid:
-          order?.id && (order.status === 'DRAFT' || order.status === 'RELEASED')
+          order?.id && order.status !== 'CANCELLED'
             ? () => void handleCancelOrder()
             : undefined,
         voidLabel: 'إلغاء الأمر',
@@ -1329,8 +1520,58 @@ function ManufacturingOperationPageInner() {
         editLockedHint: orderLocked
           ? 'لا يمكن تعديل أمر ملغي'
           : orderExecutionLocked
-            ? 'الأمر قيد التنفيذ أو منتهي — الجداول للعرض فقط'
+            ? 'الأمر منتهي — التعديل من القائمة بعد إرجاعه لقيد التنفيذ إن لزم'
             : undefined,
+        extraItems: [
+          ...(order?.id && order.status === 'COMPLETED'
+            ? [
+                {
+                  id: 'revert-in-progress',
+                  label: 'فك إتمام التصنيع (إرجاع لقيد التنفيذ)',
+                  onClick: () => void handleRevertToInProgress(),
+                  disabled: busy,
+                },
+              ]
+            : []),
+          ...(order?.id &&
+          order.status === 'IN_PROGRESS' &&
+          order.laborOverheadJournalEntryId &&
+          !order.completionJournalEntryId
+            ? [
+                {
+                  id: 'unpost-costs',
+                  label: 'فك الأجور والمصاريف',
+                  onClick: () => void handleUnpostCosts(),
+                  disabled: busy,
+                },
+              ]
+            : []),
+          ...(order?.id &&
+          order.status === 'IN_PROGRESS' &&
+          order.materialsIssueJournalEntryId &&
+          !order.laborOverheadJournalEntryId &&
+          !order.completionJournalEntryId
+            ? [
+                {
+                  id: 'unpost-materials',
+                  label: 'فك صرف الخامات',
+                  onClick: () => void handleUnpostMaterials(),
+                  disabled: busy,
+                },
+              ]
+            : []),
+          ...(order?.id && order.status !== 'COMPLETED'
+            ? [
+                {
+                  id: 'permanent-delete',
+                  label: 'حذف نهائي',
+                  onClick: () => void handlePermanentDelete(),
+                  disabled: busy,
+                  destructive: true,
+                },
+              ]
+            : []),
+        ],
       }}
       extraActions={
         <div className="flex flex-wrap items-center gap-2">
@@ -1361,6 +1602,39 @@ function ManufacturingOperationPageInner() {
       }
     >
       <DocumentReadOnlyBanner />
+      {order?.materialsIssueJournalEntryId && order.status === 'IN_PROGRESS' ? (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+          <p className="font-semibold">قيود التصنيع المرحّلة</p>
+          <ul className="mt-1 list-inside list-disc space-y-0.5 text-xs">
+            <li>
+              صرف الخامات: قيد{' '}
+              {order.additionalCostsJournalEntryId ? 'موحّد (مخزن + تكاليف إضافية)' : 'WIP / مخزن خام'}{' '}
+              — رقم القيد: {order.materialsIssueJournalEntryId.slice(0, 8)}…
+            </li>
+            {order.laborOverheadJournalEntryId ? (
+              <li>أجور ومصاريف: {order.laborOverheadJournalEntryId.slice(0, 8)}…</li>
+            ) : null}
+            <li>
+              لتعديل الخامات أو الكميات: القائمة (⋯) → «فك صرف الخامات» (يُلغى القيد ويُعاد المخزن) ثم عدّل
+              وأعد «بدء التنفيذ».
+            </li>
+            <li>
+              «بدء التنفيذ»: صرف خامات + استلام المنتج النهائي. «إنهاء»: إقفال التكاليف والقيد — للتراجع: فك
+              الإتمام ثم فك الأجور ثم فك الصرف.
+            </li>
+          </ul>
+        </div>
+      ) : null}
+      {order?.status === 'COMPLETED' ? (
+        <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800">
+          <p className="font-semibold">أمر منتهي</p>
+          <p className="mt-1 text-xs">
+            لإغلاق الأمر إدارياً: القائمة (⋯) → «إلغاء الأمر» (بدون عكس قيود أو مخزون). لعكس التأثيرات استخدم فك
+            الإتمام / فك الأجور / فك الصرف. للتعديل
+            فقط: «فك إتمام التصنيع» أولاً.
+          </p>
+        </div>
+      ) : null}
       <DocumentBrowseDrawer
         open={showPreviousDrawer}
         onClose={() => setShowPreviousDrawer(false)}
@@ -1533,66 +1807,77 @@ function ManufacturingOperationPageInner() {
             </Link>
           </div>
         ) : null}
-        <CompactFormField label="نموذج التصنيع" required>
-          <select
-            value={model}
-            onChange={(e) => {
-              const next = e.target.value;
-              setModel(next);
-              setOrder(null);
-              setLoadedProcess(null);
-              processReloadPendingRef.current = true;
-              const plan = linkedWorkOrderRes?.data
-                ? getBomPlan(linkedWorkOrderRes.data.processMetadata ?? null, next)
-                : undefined;
-              if (plan?.modelCount) {
-                const row = workOrderProgressRes?.data?.bomRows?.find((r) => r.bomId === next);
-                const draftOther = manufacturingWorkOrderId
-                  ? sumDraftPlannedForBom(
-                      previousOrders.map((o) => ({
-                        id: o.id,
-                        bomId: o.bomId ?? o.bom?.id,
-                        status: o.status,
-                        plannedQuantity: o.plannedQuantity,
-                        manufacturingWorkOrderId: o.manufacturingWorkOrderId,
-                      })),
-                      manufacturingWorkOrderId,
-                      next,
-                      order?.id
-                    )
-                  : 0;
-                const maxForBom = computeMaxManufacturingQuantity(row, {
-                  currentOrder: order
-                    ? {
-                        id: order.id,
-                        status: order.status,
-                        plannedQuantity: order.plannedQuantity,
-                      }
-                    : null,
-                  draftReservedOther: draftOther,
-                });
-                const defaultQty =
-                  maxForBom != null ? Math.min(plan.modelCount, maxForBom) : plan.modelCount;
-                setNumberOfModels(String(defaultQty > 0 ? defaultQty : plan.modelCount));
-              }
-            }}
-            disabled={fieldsDisabled}
-            className={compactControlClass}
-          >
-            <option value="">اختر النموذج</option>
-            {selectableBoms.map((b) => {
-              const plan = linkedWorkOrderRes?.data
-                ? getBomPlan(linkedWorkOrderRes.data.processMetadata ?? null, b.id)
-                : undefined;
-              return (
-                <option key={b.id} value={b.id}>
-                  {b.name}
-                  {b.finishedItem ? ` — ${b.finishedItem.arabicName}` : ''}
-                  {plan?.modelCount ? ` · كمية: ${plan.modelCount}` : ''}
-                </option>
-              );
-            })}
-          </select>
+        <CompactFormField label="نموذج التصنيع" required className="sm:col-span-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              value={model}
+              onChange={(e) => {
+                const next = e.target.value;
+                setModel(next);
+                setOrder(null);
+                setLoadedProcess(null);
+                processReloadPendingRef.current = true;
+                const plan = linkedWorkOrderRes?.data
+                  ? getBomPlan(linkedWorkOrderRes.data.processMetadata ?? null, next)
+                  : undefined;
+                if (plan?.modelCount) {
+                  const row = workOrderProgressRes?.data?.bomRows?.find((r) => r.bomId === next);
+                  const draftOther = manufacturingWorkOrderId
+                    ? sumDraftPlannedForBom(
+                        previousOrders.map((o) => ({
+                          id: o.id,
+                          bomId: o.bomId ?? o.bom?.id,
+                          status: o.status,
+                          plannedQuantity: o.plannedQuantity,
+                          manufacturingWorkOrderId: o.manufacturingWorkOrderId,
+                        })),
+                        manufacturingWorkOrderId,
+                        next,
+                        order?.id
+                      )
+                    : 0;
+                  const maxForBom = computeMaxManufacturingQuantity(row, {
+                    currentOrder: order
+                      ? {
+                          id: order.id,
+                          status: order.status,
+                          plannedQuantity: order.plannedQuantity,
+                        }
+                      : null,
+                    draftReservedOther: draftOther,
+                  });
+                  const defaultQty =
+                    maxForBom != null ? Math.min(plan.modelCount, maxForBom) : plan.modelCount;
+                  setNumberOfModels(String(defaultQty > 0 ? defaultQty : plan.modelCount));
+                }
+              }}
+              disabled={fieldsDisabled}
+              className={cn(compactControlClass, 'min-w-[10rem] max-w-md flex-1')}
+            >
+              <option value="">اختر النموذج</option>
+              {selectableBoms.map((b) => {
+                const plan = linkedWorkOrderRes?.data
+                  ? getBomPlan(linkedWorkOrderRes.data.processMetadata ?? null, b.id)
+                  : undefined;
+                return (
+                  <option key={b.id} value={b.id}>
+                    {b.name}
+                    {b.finishedItem ? ` — ${b.finishedItem.arabicName}` : ''}
+                    {plan?.modelCount ? ` · كمية: ${plan.modelCount}` : ''}
+                  </option>
+                );
+              })}
+            </select>
+            <Button
+              type="button"
+              size="sm"
+              className="shrink-0 bg-[#0E78AA] hover:bg-[#0B6188]"
+              disabled={fieldsDisabled || !model}
+              onClick={handleLoadFromModel}
+            >
+              تحميل
+            </Button>
+          </div>
         </CompactFormField>
         <CompactFormField label="المرحلة" value={stage} onChange={(e) => setStage(e.target.value)} />
         <CompactFormField label="من مخزن (حركة)" required>
@@ -1673,22 +1958,27 @@ function ManufacturingOperationPageInner() {
           readOnly={fieldsDisabled}
         />
         <CompactFormField label="العملة" value="الجنية المصري" readOnly />
-        <div className="flex flex-wrap items-end gap-2 sm:col-span-2 lg:col-span-3">
+        <div className="flex flex-col items-start gap-1 sm:col-span-2 lg:col-span-3">
+          {qtyCheckInsufficient ? (
+            <p className="text-xs font-semibold leading-snug text-rose-600">
+              {MFG_QUANTITY_SHORTAGE_HINT_AR}
+            </p>
+          ) : null}
+          <div className="flex flex-wrap items-end gap-2">
           <Button
             type="button"
             size="sm"
-            className="bg-[#0E78AA] hover:bg-[#0B6188]"
-            disabled={fieldsDisabled || !model}
-            onClick={handleLoadFromModel}
+            variant="secondary"
+            disabled={!loadedProcess}
+            className={mfgQuantityCheckButtonClass(qtyCheckInsufficient)}
+            onClick={() => setShowQtyCheck(true)}
           >
-            تحميل
-          </Button>
-          <Button type="button" size="sm" variant="secondary" disabled={!loadedProcess} onClick={() => setShowQtyCheck(true)}>
             فحص الكميات
           </Button>
           <Button type="button" size="sm" variant="secondary" disabled={!loadedProcess} onClick={() => setShowTransferPick(true)}>
             تحويل الكميات
           </Button>
+          </div>
         </div>
         {order ? (
           <>
@@ -1733,19 +2023,32 @@ function ManufacturingOperationPageInner() {
         fromWarehouse={fromWarehouse}
         finishedWarehouseId={finishedWarehouseId}
         bomEditHref={bomEditHref}
-        materialCostFromOrder={materialCost}
+        materialCostFromOrder={num(order?.totalMaterialCost)}
+        usePostedMaterialTotal={materialsAlreadyIssued}
         emptyProcessSeed={emptyProcessSeed}
       />
 
       <CostRollupCard slices={costSlices} />
+
+      <ManufacturingProductionOrderBottomSplit
+        order={order}
+        costSlices={costSlices}
+        loadedProcess={loadedProcess}
+        fromWarehouseId={fromWarehouse || loadedProcess?.fromWarehouseId || ''}
+        finishedWarehouseId={finishedWarehouseId}
+        activeTabId={bottomSplitTab}
+        onActiveTabChange={setBottomSplitTab}
+      />
 
       <ManufacturingQuantityCheckDialog
         open={showQtyCheck}
         onClose={() => setShowQtyCheck(false)}
         rows={loadedProcess?.raws ?? []}
         defaultWarehouseId={fromWarehouse || loadedProcess?.fromWarehouseId || ''}
+        materialsAlreadyIssued={quantityCheckUsesPostedSnapshot}
+        emphasizeShortages={qtyCheckInsufficient && !quantityCheckUsesPostedSnapshot}
         onTransferShortages={
-          loadedProcess
+          loadedProcess && !quantityCheckUsesPostedSnapshot
             ? () => void openTransfer('raw', 'shortage')
             : undefined
         }

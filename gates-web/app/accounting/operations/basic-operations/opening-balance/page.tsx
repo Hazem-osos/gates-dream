@@ -102,8 +102,10 @@ type OpeningBalanceMeta = {
   openingDate: string;
   hijriDate?: string | null;
   fiscalYearName?: string | null;
+  fiscalYearId?: string | null;
   journalEntryId?: string | null;
   isCancelled?: boolean;
+  nextEntryNumber?: string | null;
 };
 
 type OpeningPaperGroup = {
@@ -141,6 +143,7 @@ type JournalEntryDetail = {
   hijriDate?: string | null;
   description?: string | null;
   voucherNumber?: string | null;
+  legacyGlNum?: string | null;
   isPosted?: boolean;
   isCancelled?: boolean;
   currencyCode?: string;
@@ -163,8 +166,76 @@ function todayIso() {
   return new Date().toISOString().split('T')[0];
 }
 
-function defaultEntryNumber() {
-  return `OB-${new Date().getFullYear()}`;
+const OPENING_ENTRY_NUMBER_PLACEHOLDER = '00000001';
+
+function defaultEntryNumber(nextFromApi?: string | null) {
+  const trimmed = nextFromApi?.trim();
+  if (trimmed && /^\d+$/.test(trimmed)) return trimmed.padStart(8, '0').slice(-8);
+  return OPENING_ENTRY_NUMBER_PLACEHOLDER;
+}
+
+function openingVoucherNumberForSave(entryNumber: string | undefined): string | undefined {
+  const trimmed = entryNumber?.trim() ?? '';
+  if (!/^\d+$/.test(trimmed)) return undefined;
+  return trimmed.padStart(8, '0').slice(-8);
+}
+
+function isInventoryOpeningAccount(
+  accountId: string,
+  defaultStockAccountId: string | null,
+  accounts: Array<{ id: string; code: string; arabicName: string }>
+) {
+  if (!accountId) return false;
+  if (defaultStockAccountId && accountId === defaultStockAccountId) return true;
+  const account = accounts.find((a) => a.id === accountId);
+  if (!account) return false;
+  const code = (account.code || '').replace(/\s/g, '');
+  const name = account.arabicName || '';
+  return code.startsWith('123') || name.includes('بضاعة أول المدة') || name.includes('مخزون');
+}
+
+function mergeOpeningStockGroupsByAccount(
+  groups: OpeningStockValuationGroup[]
+): Array<{ accountId: string; valuation: number; warehouseLabel: string }> {
+  const merged = new Map<string, { accountId: string; valuation: number; names: string[] }>();
+  for (const group of groups) {
+    const value = Number(group.valuation) || 0;
+    if (!group.accountId || value <= 0) continue;
+    const prev = merged.get(group.accountId);
+    const name = group.warehouseName?.trim() || group.warehouseId;
+    if (prev) {
+      prev.valuation += value;
+      if (!prev.names.includes(name)) prev.names.push(name);
+    } else {
+      merged.set(group.accountId, { accountId: group.accountId, valuation: value, names: [name] });
+    }
+  }
+  return [...merged.values()].map((row) => ({
+    accountId: row.accountId,
+    valuation: row.valuation,
+    warehouseLabel: row.names.join('، '),
+  }));
+}
+
+/** Drop auto inventory legs before re-importing debits from opening stock. */
+function withoutAutoOpeningInventoryLines(
+  current: EditableJournalLine[],
+  defaultStockAccountId: string | null,
+  accounts: Array<{ id: string; code: string; arabicName: string }>
+): EditableJournalLine[] {
+  return current.filter((line) => {
+    const desc = (line.description || '').trim();
+    if (desc.startsWith(INVENTORY_SYNC_DESCRIPTION)) return false;
+    if (desc.startsWith('بضاعة أول المدة —')) return false;
+    if (
+      Number(line.debit) > 0 &&
+      isInventoryOpeningAccount(line.accountId, defaultStockAccountId, accounts) &&
+      desc.includes('بضاعة أول المدة')
+    ) {
+      return false;
+    }
+    return true;
+  });
 }
 
 export default function OpeningBalancePage() {
@@ -336,6 +407,14 @@ function OpeningBalancePageInner() {
   }, [openingMeta?.openingDate, openingMeta?.hijriDate, setValue]);
 
   useEffect(() => {
+    if (savedJournalEntryId || !openingMeta?.nextEntryNumber) return;
+    const current = getValues('entryNumber')?.trim() ?? '';
+    if (!current || /^OB-/i.test(current)) {
+      setValue('entryNumber', defaultEntryNumber(openingMeta.nextEntryNumber), { shouldDirty: false });
+    }
+  }, [getValues, openingMeta?.nextEntryNumber, savedJournalEntryId, setValue]);
+
+  useEffect(() => {
     if (!openingMetaError) return;
     setError(openingMetaError.message || 'تعذر تحديد تاريخ الرصيد الافتتاحي');
   }, [openingMetaError]);
@@ -357,7 +436,10 @@ function OpeningBalancePageInner() {
     const locked = openingMeta?.openingDate;
     reset({
       isPosted: posted,
-      entryNumber: loadedJournalEntry.voucherNumber || defaultEntryNumber(),
+      entryNumber:
+        loadedJournalEntry.voucherNumber ||
+        loadedJournalEntry.legacyGlNum ||
+        defaultEntryNumber(openingMeta?.nextEntryNumber),
       description: loadedJournalEntry.description || '',
       currency: 'جنية مصري',
       date: locked || todayIso(),
@@ -433,6 +515,10 @@ function OpeningBalancePageInner() {
       successMessage: 'تم حفظ القيد الافتتاحي',
       onSuccess: (res) => {
         const id = res?.data?.id;
+        const savedNumber = res?.data?.voucherNumber || res?.data?.legacyGlNum;
+        if (savedNumber) {
+          setValue('entryNumber', String(savedNumber), { shouldDirty: false });
+        }
         invalidateQuery(['journal-entries']);
         invalidateQuery(['opening-balance-meta']);
         clearDraft();
@@ -561,7 +647,7 @@ function OpeningBalancePageInner() {
       date: new Date(`${dateIso}T00:00:00.000Z`).toISOString(),
       hijriDate: openingMeta?.hijriDate || values.hijriDate || toHijriDate(dateIso) || undefined,
       description: values.description.trim(),
-      voucherNumber: values.entryNumber || undefined,
+      voucherNumber: openingVoucherNumberForSave(values.entryNumber),
       currencyCode,
       entryType: OPENING_ENTRY_TYPE,
       lines: linesRef.current
@@ -698,37 +784,7 @@ function OpeningBalancePageInner() {
       setError('القيد ملغي. استرجعه من قائمة (...) قبل الترحيل.');
       return;
     }
-    let nextLines = linesRef.current;
-    try {
-      const res = await apiClient.get<OpeningPapersTotal>('/accounting/securities-receipts/opening-total');
-      const groups = res.data?.lines ?? [];
-      nextLines = [
-        ...withoutOpeningPaperLines(linesRef.current),
-        ...openingPaperJournalLines(
-          groups,
-          defaultCurrency?.id,
-          Number(defaultCurrency?.exchangeRate) || 1
-        ),
-      ];
-      linesRef.current = nextLines;
-      setLines(nextLines);
-    } catch (err) {
-      const apiErr = err as ApiError;
-      setError(apiErr.message || 'تعذر تحديث شيكات الأوراق السابقة قبل الترحيل');
-      return;
-    }
-    const filled = nextLines.filter(
-      (line) => line.accountId || Number(line.debit) || Number(line.credit)
-    );
-    const debit = filled.reduce((sum, line) => sum + toBaseAmount(line.debit, line.exchangeRate), 0);
-    const credit = filled.reduce((sum, line) => sum + toBaseAmount(line.credit, line.exchangeRate), 0);
-    if (Math.abs(debit - credit) > 0.01) {
-      const message =
-        'اتحدثت شيكات الأوراق السابقة والقيد بقى غير متزن. ظبّط الطرف المقابل ثم رحّل تاني.';
-      setError(message);
-      toast.error('القيد غير متزن', { id: 'gates-form-error', description: message, duration: 6000 });
-      return;
-    }
+    if (!validateLines()) return;
     if (!savedJournalEntryId) {
       postAfterSaveRef.current = true;
       void handleSubmit(onSave, (errs) => {
@@ -747,7 +803,7 @@ function OpeningBalancePageInner() {
       await apiClient.post(`/accounting/journal-entries/${savedJournalEntryId}/post`, {});
       setIsPosted(true);
       lockToView();
-      setSuccess('تم ترحيل قيد الرصيد الافتتاحي بعد تحديث شيكات الأوراق السابقة');
+      setSuccess('تم ترحيل قيد الرصيد الافتتاحي');
       invalidateQuery(['journal-entries']);
       invalidateQuery(['opening-balance-meta']);
       invalidateQuery(['journal-entry', savedJournalEntryId]);
@@ -766,7 +822,7 @@ function OpeningBalancePageInner() {
     const dateIso = openingMeta?.openingDate || todayIso();
     reset({
       isPosted: false,
-      entryNumber: defaultEntryNumber(),
+      entryNumber: defaultEntryNumber(openingMeta?.nextEntryNumber),
       description: '',
       currency: 'جنية مصري',
       date: dateIso,
@@ -794,7 +850,7 @@ function OpeningBalancePageInner() {
     resetKeepPosted();
     setIsPosted(false);
     setLoadedVersion(undefined);
-    setValue('entryNumber', defaultEntryNumber());
+    setValue('entryNumber', defaultEntryNumber(openingMeta?.nextEntryNumber));
     setValue('date', dateIso);
     setValue('hijriDate', openingMeta?.hijriDate || toHijriDate(dateIso));
     setValue('isPosted', false);
@@ -816,33 +872,38 @@ function OpeningBalancePageInner() {
         setError('تعذر قراءة قيمة بضاعة أول المدة');
         return;
       }
-      if (!data.defaultStockAccountId) {
-        setError('لم يتم تحديد حساب مخزون بضاعة أول المدة. اضبط حساب المخزون من إعدادات الشركة.');
+      if (!Number(data.totalValuation) || Number(data.totalValuation) <= 0) {
+        setError('لا توجد بضاعة أول المدة مرحّلة.');
         return;
       }
 
-      const groups =
+      const rawGroups =
         data.groups?.filter((row) => row.accountId && Number(row.valuation) > 0) ?? [];
-      if (!groups.length) {
-        setError('لا توجد بضاعة أول المدة مرحّلة لأي مخزن.');
+      const mergedGroups = mergeOpeningStockGroupsByAccount(rawGroups);
+      if (!mergedGroups.length) {
+        setError(
+          'لم يُربط حساب مخزون بمخازن بضاعة أول المدة. عيّن حساب المخزون لكل مخزن من دليل المخازن ثم أعد ترحيل الكشف.'
+        );
         return;
       }
 
-      const withoutInventorySync = lines.filter(
-        (line) => !(line.description || '').startsWith(INVENTORY_SYNC_DESCRIPTION)
+      const nextLines = withoutAutoOpeningInventoryLines(
+        lines,
+        data.defaultStockAccountId,
+        accounts
       );
-      const imported: EditableJournalLine[] = groups.map((group) => ({
+      const imported: EditableJournalLine[] = mergedGroups.map((group) => ({
         accountId: group.accountId,
-        description: `${INVENTORY_SYNC_DESCRIPTION} — ${group.warehouseName}`,
-        debit: Number(group.valuation) || 0,
+        description: `${INVENTORY_SYNC_DESCRIPTION} — ${group.warehouseLabel}`,
+        debit: group.valuation,
         credit: 0,
         currencyId: defaultCurrency?.id,
         exchangeRate: Number(defaultCurrency?.exchangeRate) || 1,
         costCenterId: '',
       }));
-      setLines([...withoutInventorySync, ...imported]);
+      setLines([...nextLines, ...imported]);
       setSuccess(
-        `تم تحميل بضاعة أول المدة على ${groups.length} طرف (مخزن): ${Number(data.totalValuation).toLocaleString('ar-EG')} ${companyBaseCurrency} (${data.itemsCount} صنف)`
+        `تم تحديث بضاعة أول المدة على ${mergedGroups.length} حساب مخزن: ${Number(data.totalValuation).toLocaleString('ar-EG')} ${companyBaseCurrency} (${data.itemsCount} صنف — ${data.warehousesCount} مخزن)`
       );
     } catch (err) {
       const apiErr = err as ApiError;

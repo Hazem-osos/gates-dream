@@ -11,9 +11,8 @@ const HIDDEN_PREFIXES = [
   '/accounting/account-reports/analysis/operations-analysis',
   '/accounting/guide/cost-center-search',
   '/accounting/cards/delegate-group',
-  // No Stage / ManufacturingPlan models — pages were relabeled BOM/order lists
+  // BOM list placeholder — use نموذج التصنيع for stages
   '/manufacturing/creations/manufacturing-stages',
-  '/manufacturing/creations/manufacturing-plan',
   '/real-estate-investment/create/sales-employees',
   '/real-estate-investment/create/marketing-channels',
   '/real-estate-investment/create/unit-sale-others',

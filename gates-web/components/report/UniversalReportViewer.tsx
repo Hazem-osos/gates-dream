@@ -151,6 +151,11 @@ const PAGED_INVOICE_REPORTS = new Set([
 ]);
 const SALES_REPORT_PAGE_SIZE = '50';
 
+const PAGED_INVENTORY_COUNT_REPORTS = new Set(['inventory/reports/inventory-reports']);
+const INVENTORY_COUNT_PAGE_SIZE_OPTIONS = [50, 100, 250, 500, 1000] as const;
+const INVENTORY_COUNT_DEFAULT_PAGE_SIZE = 100;
+const INVENTORY_COUNT_SHOW_ALL_LIMIT = 5000;
+
 function readSavedReportPage(registryPath: string, filterKey: string): number {
   if (typeof window === 'undefined') return 1;
   try {
@@ -241,8 +246,12 @@ export function UniversalReportViewer({
 
   const paramsKey = useMemo(() => JSON.stringify(params), [params]);
   const invoicePaged = PAGED_INVOICE_REPORTS.has(registryPath);
+  const inventoryCountPaged = PAGED_INVENTORY_COUNT_REPORTS.has(registryPath);
   const [page, setPage] = useState(() => (invoicePaged ? readSavedReportPage(registryPath, paramsKey) : 1));
+  const [inventoryPage, setInventoryPage] = useState(1);
+  const [inventoryPageSize, setInventoryPageSize] = useState(INVENTORY_COUNT_DEFAULT_PAGE_SIZE);
   const prevFilterKey = useRef(paramsKey);
+  const prevInventoryParamsKey = useRef(paramsKey);
   useEffect(() => {
     if (!invoicePaged) return;
     if (prevFilterKey.current === paramsKey) return;
@@ -250,13 +259,27 @@ export function UniversalReportViewer({
     setPage(readSavedReportPage(registryPath, paramsKey));
   }, [invoicePaged, paramsKey, registryPath]);
   useEffect(() => {
+    if (!inventoryCountPaged) return;
+    if (prevInventoryParamsKey.current === paramsKey) return;
+    prevInventoryParamsKey.current = paramsKey;
+    setInventoryPage(1);
+    setInventoryPageSize(INVENTORY_COUNT_DEFAULT_PAGE_SIZE);
+  }, [inventoryCountPaged, paramsKey]);
+  useEffect(() => {
     if (!invoicePaged || !paramsReady || !params.fromDate) return;
     writeSavedReportPage(registryPath, paramsKey, page);
   }, [invoicePaged, paramsReady, params.fromDate, registryPath, paramsKey, page]);
   const requestParams = useMemo(() => {
-    if (!invoicePaged) return params;
-    return { ...params, page: String(page), limit: SALES_REPORT_PAGE_SIZE };
-  }, [invoicePaged, params, page]);
+    if (invoicePaged) return { ...params, page: String(page), limit: SALES_REPORT_PAGE_SIZE };
+    if (inventoryCountPaged) {
+      return {
+        ...params,
+        page: String(inventoryPage),
+        limit: String(inventoryPageSize),
+      };
+    }
+    return params;
+  }, [invoicePaged, inventoryCountPaged, params, page, inventoryPage, inventoryPageSize]);
   const requestKey = useMemo(() => JSON.stringify(requestParams), [requestParams]);
 
   const userId = rawParams.userId?.trim() || '';
@@ -476,8 +499,28 @@ export function UniversalReportViewer({
               totalPages: pagination.totalPages,
               total: pagination.total,
               onPage: setPage,
+              rowUnit: 'فاتورة',
             }
-          : undefined
+          : inventoryCountPaged && pagination
+            ? {
+                page: pagination.page,
+                totalPages: pagination.totalPages,
+                total: pagination.total,
+                onPage: setInventoryPage,
+                rowUnit: 'صنف',
+                pageSize: inventoryPageSize,
+                pageSizeOptions: [...INVENTORY_COUNT_PAGE_SIZE_OPTIONS],
+                onPageSizeChange: (size) => {
+                  setInventoryPage(1);
+                  setInventoryPageSize(size);
+                },
+                showAllMax: INVENTORY_COUNT_SHOW_ALL_LIMIT,
+                onShowAll: () => {
+                  setInventoryPage(1);
+                  setInventoryPageSize(INVENTORY_COUNT_SHOW_ALL_LIMIT);
+                },
+              }
+            : undefined
       }
       compareRows={comparePayload.rows}
       compareSummary={comparePayload.summary}

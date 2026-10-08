@@ -4,8 +4,6 @@ import { useMemo, useState } from 'react';
 import { useApiQuery } from '@/lib/hooks/useApi';
 import {
   comparisonQuery,
-  fiscalYearLabel,
-  periodYearLabel,
   stripCompareParam,
   type FiscalYearOption,
 } from '@/lib/reports/compareFiscalYear';
@@ -73,46 +71,52 @@ function rowKey(row: SheetRow) {
   return `${row.code}|${row.arabicName}`;
 }
 
+const POSITION_BALANCE_HEADER = 'الأرصدة في تاريخ المركز المالي';
+const COMPARISON_BALANCE_HEADER = 'الأرصدة في تاريخ المقارنة';
+
 export function AccountsBalanceSheet({ query }: { query: Record<string, string> }) {
   const [showNotes, setShowNotes] = useState(false);
-  const asOf = query.asOfDate || query.toDate || '';
+  const positionDate = (query.asOfDate || query.toDate || '').slice(0, 10);
+  const comparisonDate = (query.fromDate || '').slice(0, 10);
   const { data: yearsRes } = useApiQuery<FiscalYearOption[]>(
     ['company-fiscal-years', 'report-compare'],
     '/company/fiscal-years',
     { page: 1, limit: 100 },
-    { enabled: Boolean(asOf) }
+    { enabled: Boolean(positionDate) }
   );
   const years = yearsRes?.data ?? [];
   const compareYear = years.find((year) => year.id === query.compareFiscalYearId);
-  const opening = compareYear ? compareYear.endDate.slice(0, 10) : asOf ? openingIso(asOf) : '';
-  const currentYearLabel = periodYearLabel(years, query.fromDate, asOf);
-  const compareYearLabel = compareYear ? fiscalYearLabel(compareYear) : '';
+  const comparisonAsOf = compareYear
+    ? compareYear.endDate.slice(0, 10)
+    : comparisonDate || (positionDate ? openingIso(positionDate) : '');
+  const showComparisonColumn = Boolean(comparisonAsOf) && comparisonAsOf !== positionDate;
 
   const currentParams = useMemo(() => {
     const next = stripCompareParam(query);
-    if (asOf) next.asOfDate = asOf;
+    if (positionDate) next.asOfDate = positionDate;
     return next;
-  }, [asOf, query]);
+  }, [positionDate, query]);
 
-  const openingParams = useMemo(() => {
+  const comparisonParams = useMemo(() => {
     if (compareYear) return comparisonQuery(query, compareYear);
     const next = stripCompareParam(query);
-    if (opening) next.asOfDate = opening;
+    if (comparisonAsOf) next.asOfDate = comparisonAsOf;
     delete next.toDate;
+    delete next.fromDate;
     return next;
-  }, [compareYear, opening, query]);
+  }, [compareYear, comparisonAsOf, query]);
 
   const current = useApiQuery<BalanceSheetPayload>(
     ['balance-sheet-statement', 'current', JSON.stringify(currentParams)],
     '/accounting/reports/balance-sheet',
     currentParams,
-    { enabled: Boolean(asOf) }
+    { enabled: Boolean(positionDate) }
   );
   const prior = useApiQuery<BalanceSheetPayload>(
-    ['balance-sheet-statement', 'opening', JSON.stringify(openingParams)],
+    ['balance-sheet-statement', 'comparison', JSON.stringify(comparisonParams)],
     '/accounting/reports/balance-sheet',
-    openingParams,
-    { enabled: Boolean(opening) && opening !== asOf }
+    comparisonParams,
+    { enabled: Boolean(comparisonAsOf) && comparisonAsOf !== positionDate }
   );
 
   const payload = current.data?.data;
@@ -134,7 +138,7 @@ export function AccountsBalanceSheet({ query }: { query: Record<string, string> 
     [assets, liabilities, openingByKey]
   );
 
-  if (!asOf) {
+  if (!positionDate) {
     return <p className="py-6 text-center text-sm text-slate-500">حدد تاريخ المركز المالي ثم اعرض التقرير.</p>;
   }
   if (current.isLoading) {
@@ -149,15 +153,17 @@ export function AccountsBalanceSheet({ query }: { query: Record<string, string> 
     return <p className="py-6 text-center text-sm text-slate-500">لا توجد أرصدة في هذا التاريخ.</p>;
   }
 
-  const closingLabel = compareYear ? currentYearLabel : formatHeaderDate(asOf);
-  const openingLabel = compareYear ? compareYearLabel : formatHeaderDate(opening);
+  const positionColumnLabel = `${POSITION_BALANCE_HEADER} (${formatHeaderDate(positionDate)})`;
+  const comparisonColumnLabel = showComparisonColumn
+    ? `${COMPARISON_BALANCE_HEADER} (${formatHeaderDate(comparisonAsOf)})`
+    : COMPARISON_BALANCE_HEADER;
 
   return (
     <div className="space-y-4" dir="rtl">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="text-right">
           <h2 className="text-base font-bold text-[#0A3D5E]">
-            المركز المالي في {closingLabel}
+            المركز المالي في {formatHeaderDate(positionDate)}
           </h2>
           <p className="mt-1 text-xs text-slate-500">العملة جنيه مصري</p>
         </div>
@@ -173,9 +179,19 @@ export function AccountsBalanceSheet({ query }: { query: Record<string, string> 
       </div>
 
       {showNotes ? (
-        <NotesView notes={notes} openingLabel={openingLabel} closingLabel={closingLabel} />
+        <NotesView
+          notes={notes}
+          positionLabel={positionColumnLabel}
+          comparisonLabel={comparisonColumnLabel}
+          showComparison={showComparisonColumn}
+        />
       ) : (
-        <StatementTable lines={lines} openingLabel={openingLabel} closingLabel={closingLabel} />
+        <StatementTable
+          lines={lines}
+          positionLabel={positionColumnLabel}
+          comparisonLabel={comparisonColumnLabel}
+          showComparison={showComparisonColumn}
+        />
       )}
     </div>
   );
@@ -183,13 +199,16 @@ export function AccountsBalanceSheet({ query }: { query: Record<string, string> 
 
 function StatementTable({
   lines,
-  openingLabel,
-  closingLabel,
+  positionLabel,
+  comparisonLabel,
+  showComparison,
 }: {
   lines: StatementLine[];
-  openingLabel: string;
-  closingLabel: string;
+  positionLabel: string;
+  comparisonLabel: string;
+  showComparison: boolean;
 }) {
+  const colSpan = showComparison ? 4 : 3;
   return (
     <div dir="rtl" className="report-scroll-viewport erp-scroll-x overflow-x-auto rounded-xl border border-[#D6EAF3] bg-white">
       <table className="w-full min-w-[720px] border-collapse text-sm text-[#0A3D5E]">
@@ -197,8 +216,10 @@ function StatementTable({
           <tr className="bg-[#F3F4F6] text-[#0A3D5E]">
             <th className="px-4 py-2.5 text-right font-semibold">البيان</th>
             <th className="w-28 px-3 py-2.5 text-center font-semibold">رقم الإيضاح</th>
-            <th className="w-40 px-3 py-2.5 text-center font-semibold">{openingLabel}</th>
-            <th className="w-40 px-3 py-2.5 text-center font-semibold">{closingLabel}</th>
+            <th className="w-44 px-3 py-2.5 text-center font-semibold">{positionLabel}</th>
+            {showComparison ? (
+              <th className="w-44 px-3 py-2.5 text-center font-semibold">{comparisonLabel}</th>
+            ) : null}
           </tr>
         </thead>
         <tbody>
@@ -206,7 +227,7 @@ function StatementTable({
             if (line.kind === 'header') {
               return (
                 <tr key={`${line.kind}-${line.name}-${index}`}>
-                  <td className="px-4 py-2 text-right font-bold text-red-700" colSpan={4}>
+                  <td className="px-4 py-2 text-right font-bold text-red-700" colSpan={colSpan}>
                     {line.name}
                   </td>
                 </tr>
@@ -217,8 +238,10 @@ function StatementTable({
               <tr key={`${line.kind}-${line.name}-${index}`} className={total ? 'bg-[#F3F4F6] font-bold' : undefined}>
                 <td className={`px-4 py-1.5 text-right ${total ? 'text-red-700' : ''}`}>{line.name}</td>
                 <td className="px-3 py-1.5 text-center">{line.note ?? ''}</td>
-                <td className="px-3 py-1.5 text-center tabular-nums">{money(line.opening)}</td>
                 <td className="px-3 py-1.5 text-center tabular-nums">{money(line.current)}</td>
+                {showComparison ? (
+                  <td className="px-3 py-1.5 text-center tabular-nums">{money(line.opening)}</td>
+                ) : null}
               </tr>
             );
           })}
@@ -230,12 +253,14 @@ function StatementTable({
 
 function NotesView({
   notes,
-  openingLabel,
-  closingLabel,
+  positionLabel,
+  comparisonLabel,
+  showComparison,
 }: {
   notes: NoteBlock[];
-  openingLabel: string;
-  closingLabel: string;
+  positionLabel: string;
+  comparisonLabel: string;
+  showComparison: boolean;
 }) {
   return (
     <div className="space-y-10 rounded-xl border border-[#D6EAF3] bg-white px-6 py-8">
@@ -245,33 +270,41 @@ function NotesView({
             إيضاح {block.note} {block.title}
           </h3>
           <p className="text-right text-xs leading-6 text-slate-600">
-            بلغ رصيد {block.title} في {closingLabel} مبلغ {money(block.current)} وفي {openingLabel} مبلغ{' '}
-            {money(block.opening)}
+            بلغ رصيد {block.title} {positionLabel} مبلغ {money(block.current)}
+            {showComparison ? ` و${comparisonLabel} مبلغ ${money(block.opening)}` : ''}
           </p>
           <table className="mr-0 ml-auto w-full max-w-xl border-collapse text-sm">
             <thead>
               <tr>
                 <th className="border-b border-slate-400 px-3 py-1 text-right font-semibold">البيان</th>
-                <th className="w-36 border-b border-slate-400 px-3 py-1 text-center font-semibold">{openingLabel}</th>
-                <th className="w-36 border-b border-slate-400 px-3 py-1 text-center font-semibold">{closingLabel}</th>
+                <th className="w-36 border-b border-slate-400 px-3 py-1 text-center font-semibold">{positionLabel}</th>
+                {showComparison ? (
+                  <th className="w-36 border-b border-slate-400 px-3 py-1 text-center font-semibold">
+                    {comparisonLabel}
+                  </th>
+                ) : null}
               </tr>
             </thead>
             <tbody>
               {block.rows.map((row) => (
                 <tr key={row.name}>
                   <td className="px-3 py-1 text-right">{row.name}</td>
-                  <td className="px-3 py-1 text-center tabular-nums">{money(row.opening, true)}</td>
                   <td className="px-3 py-1 text-center tabular-nums">{money(row.current, true)}</td>
+                  {showComparison ? (
+                    <td className="px-3 py-1 text-center tabular-nums">{money(row.opening, true)}</td>
+                  ) : null}
                 </tr>
               ))}
               <tr className="font-bold">
                 <td className="border-t-2 border-double border-slate-700 px-3 py-1.5 text-right">الإجمالي</td>
                 <td className="border-t-2 border-double border-slate-700 px-3 py-1.5 text-center tabular-nums">
-                  {money(block.opening, true)}
-                </td>
-                <td className="border-t-2 border-double border-slate-700 px-3 py-1.5 text-center tabular-nums">
                   {money(block.current, true)}
                 </td>
+                {showComparison ? (
+                  <td className="border-t-2 border-double border-slate-700 px-3 py-1.5 text-center tabular-nums">
+                    {money(block.opening, true)}
+                  </td>
+                ) : null}
               </tr>
             </tbody>
           </table>

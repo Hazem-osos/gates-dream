@@ -87,22 +87,31 @@ export async function syncOpeningStockIntoOpeningJournalInTx(
     },
   });
 
+  const aggregatedByAccount = new Map<string, number>();
+  for (const slice of params.glSlices) {
+    if (slice.value === 0) continue;
+    aggregatedByAccount.set(
+      slice.accountId,
+      roundTo4((aggregatedByAccount.get(slice.accountId) ?? 0) + slice.value)
+    );
+  }
+
   let lineOrder = await nextJournalLineOrder(tx, journal.id);
   const rows: Prisma.JournalEntryLineCreateManyInput[] = [];
 
-  for (const slice of params.glSlices) {
-    if (slice.value === 0) continue;
+  for (const [accountId, value] of aggregatedByAccount) {
+    if (value === 0) continue;
     rows.push({
       journalEntryId: journal.id,
       lineNumber: lineOrder,
       lineOrder,
-      accountId: slice.accountId,
-      debit: new Decimal(slice.value),
+      accountId,
+      debit: new Decimal(value),
       credit: new Decimal(0),
-      debitBase: new Decimal(slice.value),
+      debitBase: new Decimal(value),
       creditBase: new Decimal(0),
       exchangeRate: new Decimal(1),
-      description: slice.description,
+      description: 'بضاعة أول المدة — مخزون',
       descriptionAr: `${tag}|DR`,
     });
     lineOrder += 1;

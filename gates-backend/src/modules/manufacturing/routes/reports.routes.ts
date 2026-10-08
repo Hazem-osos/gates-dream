@@ -6,6 +6,8 @@ import { manufacturingReportsService } from '../services/reports.service';
 import { getProductionOrderStatusReport } from '../services/production-order-status-report.service';
 import { getSalesOrderTrackingReport } from '../services/sales-order-tracking-report.service';
 import { getWorkOrderTrackingReport } from '../services/work-order-tracking-report.service';
+import { getProductionCommitmentsReport } from '../services/production-commitments-report.service';
+import { getProductionCostPostingSummaryReport } from '../services/production-cost-posting-summary.service';
 import { logger } from '../../../shared/logger';
 import { AuthRequest } from '../../../shared/auth/types';
 import { startOfDayUtc, endOfDayUtc } from '../../../shared/utils/report-date';
@@ -363,6 +365,79 @@ router.get(
       return void res.status(500).json({
         status: 'error',
         message: error instanceof Error ? error.message : 'Failed to get work order tracking report',
+      });
+    }
+  }
+);
+
+/**
+ * GET /api/v1/manufacturing/reports/production-commitments
+ * لوحة التزامات الإنتاج والتسليم
+ */
+router.get(
+  '/production-commitments',
+  authorize({ resource: 'report', action: 'view' }),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const companyId = req.companyId || req.tenantId;
+      if (!companyId) {
+        return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
+      }
+      const fromDate = req.query.fromDate
+        ? parseRangeStart(req.query.fromDate, 'fromDate')
+        : undefined;
+      const toDate = req.query.toDate ? parseRangeEnd(req.query.toDate, 'toDate') : undefined;
+      const result = await getProductionCommitmentsReport({
+        companyId,
+        fromDate,
+        toDate,
+        invoiceNumber: (req.query.invoiceNumber as string) || undefined,
+        customerId: (req.query.customerId as string) || undefined,
+        includeCompleted: req.query.includeCompleted === 'true',
+      });
+      return void res.json({ status: 'success', data: result.data, summary: result.summary });
+    } catch (error) {
+      logger.error({ error }, 'production-commitments report failed');
+      return void res.status(500).json({
+        status: 'error',
+        message: error instanceof Error ? error.message : 'Failed to get production commitments report',
+      });
+    }
+  }
+);
+
+/**
+ * GET /api/v1/manufacturing/reports/cost-posting-summary
+ * ملخص تكاليف الإنتاج والترحيل المحاسبي
+ */
+router.get(
+  '/cost-posting-summary',
+  authorize({ resource: 'report', action: 'view' }),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const companyId = req.companyId || req.tenantId;
+      if (!companyId) {
+        return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
+      }
+      const fromDate = req.query.fromDate
+        ? parseRangeStart(req.query.fromDate, 'fromDate')
+        : undefined;
+      const toDate = req.query.toDate ? parseRangeEnd(req.query.toDate, 'toDate') : undefined;
+      const result = await getProductionCostPostingSummaryReport({
+        companyId,
+        fromDate,
+        toDate,
+        warehouseIdRaw: (req.query.warehouseIdRaw as string) || undefined,
+        warehouseIdFinished: (req.query.warehouseIdFinished as string) || undefined,
+        costCenter: (req.query.costCenter as string) || undefined,
+        postedOnly: req.query.postedOnly === 'true',
+      });
+      return void res.json({ status: 'success', data: result.data, summary: result.summary });
+    } catch (error) {
+      logger.error({ error }, 'cost-posting-summary report failed');
+      return void res.status(500).json({
+        status: 'error',
+        message: error instanceof Error ? error.message : 'Failed to get cost posting summary report',
       });
     }
   }

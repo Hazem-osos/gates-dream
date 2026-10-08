@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useForm, type FieldErrors, type Resolver } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -8,7 +8,6 @@ import { z } from 'zod';
 import { Files } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { formActionButtonClass } from '@/components/ui/forms/formTokens';
-import { SimpleDropdownMenu } from '@/components/inventory/SimpleDropdownMenu';
 import { ErpDocumentLayout } from '@/components/erp/ErpDocumentLayout';
 import { ErpDocumentPageHeader } from '@/components/erp/ErpDocumentPageHeader';
 import { ErpDocumentBottomSplit } from '@/components/erp/ErpDocumentBottomSplit';
@@ -177,6 +176,10 @@ function emptyForm(
     department: '',
     refNumber: '',
   };
+}
+
+function resolvedPaperSerial(record: SecuritiesPaperRecord): string {
+  return String(record.serial || record.receiptNumber || record.paymentNumber || '').trim();
 }
 
 function paperDraftHasEntry(values: FormValues): boolean {
@@ -378,57 +381,64 @@ function SecuritiesPaperEngineInner({ kind }: Props) {
     }
   }, [companyBaseCurrency, currencies, currencyId, setValue]);
 
+  const hydrateFromRecord = useCallback(
+    (record: SecuritiesPaperRecord) => {
+      setLoaded(record);
+      const partyIsSupplier = Boolean(record.supplierId);
+      const partyIsCustomer = Boolean(record.customerId);
+      const name = paperPartyDisplayName(record);
+      const issue = isoDateOnly(record.date) || todayIso();
+      const due = isoDateOnly(record.dueDate);
+      reset({
+        ...emptyForm(currencies, kind, defaultAccountId),
+        date: issue,
+        hijriDate: record.hijriDate || toHijri(issue),
+        dueDate: due,
+        dueHijriDate: toHijri(due),
+        currencyId:
+          currencies.find((c) => c.code === record.currencyCode)?.id ||
+          defaultCurrencyId(currencies, companyBaseCurrency),
+        exchangeRate: rateForCurrency(
+          record.currencyCode,
+          companyBaseCurrency,
+          currencies.find((c) => c.code === record.currencyCode)?.exchangeRate
+        ),
+        partyType: record.partyAccountId && !partyIsCustomer && !partyIsSupplier
+          ? 'account'
+          : partyIsSupplier
+            ? 'supplier'
+            : partyIsCustomer
+              ? 'customer'
+              : kind === 'payment'
+                ? 'supplier'
+                : 'customer',
+        partyId: record.supplierId || record.customerId || record.partyAccountId || '',
+        accountId: record.destinationAccountId || defaultAccountId || '',
+        depositInBank: Boolean(record.depositAccountId),
+        depositAccountId: record.depositAccountId || '',
+        bankIssueDate: isoDateOnly(record.depositDate),
+        bankHijriDate: toHijri(isoDateOnly(record.depositDate)),
+        securityType: (record.securityType as FormValues['securityType']) || 'check',
+        serial: resolvedPaperSerial(record),
+        documentNumber: record.paymentNumber || record.receiptNumber || '',
+        securityNumber: record.securityNumber || '',
+        description: record.description || '',
+        partyName: name,
+        entityName: record.entityName || record.entity?.arabicName || '',
+        entityId: record.entityId || record.entity?.id || '',
+        bankName: (kind === 'payment' ? record.payeeBank : record.issuerBank) || '',
+        amount: record.amount != null ? String(record.amount) : '',
+      });
+      setAllocations(parsePaperAllocations(record.invoiceAllocations));
+    },
+    [companyBaseCurrency, currencies, defaultAccountId, kind, reset]
+  );
+
   useEffect(() => {
     const record = recordResponse?.data;
     if (!record || !selectedId || record.id !== selectedId) return;
-    setLoaded(record);
-    const partyIsSupplier = Boolean(record.supplierId);
-    const partyIsCustomer = Boolean(record.customerId);
-    const name = paperPartyDisplayName(record);
-    const issue = isoDateOnly(record.date) || todayIso();
-    const due = isoDateOnly(record.dueDate);
-    reset({
-      ...emptyForm(currencies, kind),
-      date: issue,
-      hijriDate: record.hijriDate || toHijri(issue),
-      dueDate: due,
-      dueHijriDate: toHijri(due),
-      currencyId:
-        currencies.find((c) => c.code === record.currencyCode)?.id ||
-        defaultCurrencyId(currencies, companyBaseCurrency),
-      exchangeRate: rateForCurrency(
-        record.currencyCode,
-        companyBaseCurrency,
-        currencies.find((c) => c.code === record.currencyCode)?.exchangeRate
-      ),
-      partyType: record.partyAccountId && !partyIsCustomer && !partyIsSupplier
-        ? 'account'
-        : partyIsSupplier
-          ? 'supplier'
-          : partyIsCustomer
-            ? 'customer'
-            : kind === 'payment'
-              ? 'supplier'
-              : 'customer',
-      partyId: record.supplierId || record.customerId || record.partyAccountId || '',
-      accountId: record.destinationAccountId || '',
-      depositInBank: Boolean(record.depositAccountId),
-      depositAccountId: record.depositAccountId || '',
-      bankIssueDate: isoDateOnly(record.depositDate),
-      bankHijriDate: toHijri(isoDateOnly(record.depositDate)),
-      securityType: (record.securityType as FormValues['securityType']) || 'check',
-      serial: record.serial || '',
-      documentNumber: record.paymentNumber || record.receiptNumber || '',
-      securityNumber: record.securityNumber || '',
-      description: record.description || '',
-      partyName: name,
-      entityName: record.entityName || record.entity?.arabicName || '',
-      entityId: record.entityId || record.entity?.id || '',
-      bankName: (kind === 'payment' ? record.payeeBank : record.issuerBank) || '',
-      amount: record.amount != null ? String(record.amount) : '',
-    });
-    setAllocations(parsePaperAllocations(record.invoiceAllocations));
-  }, [recordResponse?.data, selectedId, currencies, companyBaseCurrency, kind, reset]);
+    hydrateFromRecord(record);
+  }, [recordResponse?.data, selectedId, hydrateFromRecord]);
 
   const applyParty = (id: string, name?: string, type?: 'customer' | 'supplier') => {
     setValue('partyType', type || (kind === 'payment' ? 'supplier' : 'customer'), { shouldValidate: false });
@@ -456,21 +466,45 @@ function SecuritiesPaperEngineInner({ kind }: Props) {
 
   const createMutation = useApiMutation<SecuritiesPaperRecord, Record<string, unknown>>(apiPath, 'POST', {
     showSuccessToast: false,
-    onSuccess: () => {
-      const message =
-        kind === 'payment'
-          ? 'تم حفظ ورقة المدفوعات وإنشاء قيد التحرير'
-          : 'تم حفظ ورقة المقبوضات وإنشاء قيد التحرير';
+    onSuccess: (res) => {
+      const created = res?.data;
       resetKeepPosted();
       clearDraft();
-      resetNewRef.current();
-      setSuccess(message);
+      if (!created?.id) {
+        setSuccess(
+          kind === 'payment'
+            ? 'تم حفظ ورقة المدفوعات وإنشاء قيد التحرير'
+            : 'تم حفظ ورقة المقبوضات وإنشاء قيد التحرير'
+        );
+        return;
+      }
+      applyLoaded(created, created.id);
+      hydrateFromRecord(created);
+      router.replace(`${favoriteHref}?id=${created.id}`, { scroll: false });
+      const posted = Boolean(created.isPosted);
+      setSuccess(
+        posted
+          ? kind === 'payment'
+            ? 'تم حفظ ورقة المدفوعات وترحيل قيد التحرير'
+            : 'تم حفظ ورقة المقبوضات وترحيل قيد التحرير'
+          : kind === 'payment'
+            ? 'تم حفظ ورقة المدفوعات وإنشاء قيد التحرير'
+            : 'تم حفظ ورقة المقبوضات وإنشاء قيد التحرير'
+      );
+      lockToView();
     },
     onError: (err: ApiError) => setError(err.message || 'حدث خطأ أثناء الحفظ'),
   });
 
   const status = securitiesPaperStatus(loaded);
-  const docNumber = securityNumber || documentNumber || loaded?.securityNumber || '';
+  const serialWatch = watch('serial');
+  const docNumber =
+    serialWatch ||
+    (loaded ? resolvedPaperSerial(loaded) : '') ||
+    securityNumber ||
+    documentNumber ||
+    loaded?.securityNumber ||
+    '';
   const amountNum = parseFloat(String(amountWatch || '').replace(/,/g, '')) || 0;
   const multiCollected = (loaded?.multiCollectionLines ?? []).reduce(
     (sum, row) => sum + (Number(row.amount) || 0),
@@ -844,16 +878,16 @@ function SecuritiesPaperEngineInner({ kind }: Props) {
         onBrowseList={() => setShowList(true)}
         browseListLabel="السابق"
         extraActions={
-          <SimpleDropdownMenu
-            align="right"
-            trigger={
-              <Button type="button" variant="secondary" size="sm" className={`${formActionButtonClass} gap-1.5`}>
-                <Files className="h-3.5 w-3.5" />
-                إنشاء عدة أوراق
-              </Button>
-            }
-            items={[{ id: 'bulk', label: 'إنشاء عدة أوراق', onClick: () => router.push(bulkHref) }]}
-          />
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            className={`${formActionButtonClass} gap-1.5`}
+            onClick={() => router.push(bulkHref)}
+          >
+            <Files className="h-3.5 w-3.5" />
+            إنشاء عدة أوراق
+          </Button>
         }
         standardActions={{
           hasDocument: Boolean(selectedId || loaded?.id),

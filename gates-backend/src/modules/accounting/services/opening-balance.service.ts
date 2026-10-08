@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client';
 import prisma from '../../../shared/database/prisma';
 import { AppError } from '../../../shared/middleware/error-handler';
 import { toHijriDate } from '../../../shared/utils/hijri-date';
+import { documentSequenceService } from '../../platform/services/document-sequence.service';
 
 export const OPENING_BALANCE_ENTRY_TYPE = 'OPENING_BALANCE';
 
@@ -43,6 +44,83 @@ export function allowsOpeningDocumentDate(row: {
 
 export function openingJournalSlotKey(companyId: string): string {
   return `${companyId}|OPENING_BALANCE`;
+}
+
+/** Company-wide opening journal serial — not the daily GL (`docType: GL`) sequence. */
+export const OPENING_JOURNAL_DOC_TYPE = 'OPENING_BALANCE';
+
+export function formatOpeningJournalNumber(value: number): string {
+  return String(value).padStart(8, '0');
+}
+
+function parseOpeningJournalSerial(raw: string | null | undefined): number {
+  const digits = String(raw ?? '').trim();
+  if (!/^\d+$/.test(digits)) return 0;
+  const n = Number.parseInt(digits, 10);
+  return Number.isFinite(n) ? n : 0;
+}
+
+async function maxExistingOpeningJournalSerial(
+  companyId: string,
+  tx?: Prisma.TransactionClient
+): Promise<number> {
+  const db = tx ?? prisma;
+  const rows = await db.journalEntry.findMany({
+    where: companyOpeningJournalWhere(companyId),
+    select: { legacyGlNum: true, voucherNumber: true },
+  });
+  let max = 0;
+  for (const row of rows) {
+    max = Math.max(
+      max,
+      parseOpeningJournalSerial(row.legacyGlNum),
+      parseOpeningJournalSerial(row.voucherNumber)
+    );
+  }
+  return max;
+}
+
+export async function peekNextOpeningJournalNumber(companyId: string): Promise<string> {
+  const seq = await prisma.documentSequence.findFirst({
+    where: {
+      companyId,
+      branchId: null,
+      fiscalYearId: null,
+      docType: OPENING_JOURNAL_DOC_TYPE,
+    },
+    select: { lastNumber: true, padding: true },
+  });
+  const padding = seq?.padding ?? 8;
+  const existingMax = await maxExistingOpeningJournalSerial(companyId);
+  const next = seq ? Math.max(Number(seq.lastNumber) + 1, existingMax + 1, 1) : Math.max(existingMax + 1, 1);
+  return String(next).padStart(padding, '0');
+}
+
+export async function nextOpeningJournalNumberInTx(
+  tx: Prisma.TransactionClient,
+  companyId: string
+): Promise<string> {
+  return documentSequenceService.nextNumberInTx(tx, {
+    companyId,
+    branchId: null,
+    fiscalYearId: null,
+    docType: OPENING_JOURNAL_DOC_TYPE,
+    scope: 'C',
+    startNumber: 1,
+    padding: 8,
+    seedFromExisting: () => maxExistingOpeningJournalSerial(companyId, tx),
+    isAvailable: async (candidate) => {
+      const clash = await tx.journalEntry.findFirst({
+        where: {
+          companyId,
+          deletedAt: null,
+          OR: [{ voucherNumber: candidate }, { legacyGlNum: candidate }],
+        },
+        select: { id: true },
+      });
+      return !clash;
+    },
+  });
 }
 
 export const OPENING_JOURNAL_UNPOST_FIRST_MESSAGE =
@@ -195,6 +273,8 @@ export class OpeningBalanceService {
         orderBy: { createdAt: 'desc' },
       }));
 
+    const nextEntryNumber = await peekNextOpeningJournalNumber(companyId);
+
     return {
       openingDate: meta.openingDateIso,
       hijriDate: meta.hijriDate,
@@ -204,6 +284,7 @@ export class OpeningBalanceService {
       journalEntryId: existing?.id ?? null,
       isPosted: Boolean(existing && !existing.isCancelled && (existing.isPosted || existing.postingStatus === 'Post')),
       isCancelled: existing?.isCancelled ?? false,
+      nextEntryNumber,
       lines: existing?.lines ?? [],
     };
   }
