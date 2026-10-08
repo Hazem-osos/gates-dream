@@ -41,6 +41,8 @@ type AppTabsContextValue = {
   pinCurrentTab: () => void;
   openAppTab: (href: string) => void;
   openFreshPage: (href: string) => void;
+  /** Tab bar: restore saved href, no «fresh» remount. */
+  switchToOpenTab: (href: string) => void;
 };
 
 const AppTabsContext = createContext<AppTabsContextValue | null>(null);
@@ -135,13 +137,40 @@ export function AppTabsProvider({ children }: { children: ReactNode }) {
     setFreshNonceByPath((prev) => ({ ...prev, [path]: (prev[path] ?? 0) + 1 }));
   }, []);
 
+  const switchToOpenTab = useCallback(
+    (href: string) => {
+      probeCount('openAppTab', { href, via: 'switchToOpenTab' });
+      flushPageDrafts();
+      pinCurrentWindowHref();
+      const dest = resolveAppTabHref(href);
+      const { path } = splitTabHref(dest);
+      rememberTabHref(path, dest);
+      if (dest.includes('?')) {
+        rememberTabSearch(path, dest.slice(dest.indexOf('?') + 1));
+      }
+      setTabs((prev) => {
+        const index = prev.findIndex((tab) => tab.path === path);
+        if (index === -1) return [...prev, toTab(dest)];
+        const current = prev[index];
+        if (current.href === dest) return prev;
+        return prev.map((tab, i) => (i === index ? { ...tab, href: dest } : tab));
+      });
+      const current = typeof window !== 'undefined' ? currentAppTabHref() : '';
+      if (dest !== current) {
+        probeCount('router.push');
+        probeNavUrl(current, dest);
+        router.push(dest, { scroll: false });
+      }
+    },
+    [router]
+  );
+
   const openAppTab = useCallback(
     (href: string) => {
       probeCount('openAppTab', { href });
       flushPageDrafts();
       pinCurrentTab();
       const dest = resolveAppTabHref(href);
-      if (typeof window !== 'undefined' && dest === currentAppTabHref()) return;
       const path = splitTabHref(dest).path;
       const fresh = dest === path;
       if (fresh) {
@@ -166,7 +195,6 @@ export function AppTabsProvider({ children }: { children: ReactNode }) {
       flushPageDrafts();
       pinCurrentTab();
       const dest = resolveAppTabHref(href);
-      if (typeof window !== 'undefined' && dest === currentAppTabHref()) return;
       const path = splitTabHref(dest).path;
       rememberFreshPage(path);
       remountPage(path);
@@ -205,8 +233,9 @@ export function AppTabsProvider({ children }: { children: ReactNode }) {
       pinCurrentTab,
       openAppTab,
       openFreshPage,
+      switchToOpenTab,
     }),
-    [tabs, justOpenedPath, freshNonceByPath, addBackgroundTab, closeTab, hrefForTab, pinCurrentTab, openAppTab, openFreshPage]
+    [tabs, justOpenedPath, freshNonceByPath, addBackgroundTab, closeTab, hrefForTab, pinCurrentTab, openAppTab, openFreshPage, switchToOpenTab]
   );
 
   return <AppTabsContext.Provider value={value}>{children}</AppTabsContext.Provider>;
