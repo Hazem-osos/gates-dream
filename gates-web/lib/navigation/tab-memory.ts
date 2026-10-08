@@ -82,16 +82,38 @@ export function currentAppTabHref(): string {
   return search ? `${path}?${search}` : path;
 }
 
-/** If App Router soft navigation stalls (2nd sidebar click), force a full load. */
-export function scheduleHardNavigationFallback(href: string, delayMs = 480) {
+let hardNavFallbackTimer: ReturnType<typeof window.setTimeout> | null = null;
+let hardNavFallbackTargetPath = '';
+
+/** Call when App Router pathname updates — cancels pending full-page fallback. */
+export function cancelHardNavigationFallback() {
+  if (hardNavFallbackTimer !== null) {
+    window.clearTimeout(hardNavFallbackTimer);
+    hardNavFallbackTimer = null;
+  }
+  hardNavFallbackTargetPath = '';
+}
+
+/**
+ * Last resort when client navigation never updates the route (rare).
+ * Uses path-only match and a longer delay so normal soft nav is not replaced by reload.
+ */
+export function scheduleHardNavigationFallback(href: string, delayMs = 2400) {
   if (typeof window === 'undefined') return;
+  cancelHardNavigationFallback();
   const target = resolveAppTabHref(href);
-  const started = currentAppTabHref();
-  if (started === target) return;
-  window.setTimeout(() => {
-    if (currentAppTabHref() !== target) {
+  const targetPath = splitTabHref(target).path;
+  const startedPath = normalizeAppPath(window.location.pathname);
+  if (startedPath === targetPath) return;
+
+  hardNavFallbackTargetPath = targetPath;
+  hardNavFallbackTimer = window.setTimeout(() => {
+    hardNavFallbackTimer = null;
+    const nowPath = normalizeAppPath(window.location.pathname);
+    if (nowPath !== hardNavFallbackTargetPath) {
       window.location.assign(target);
     }
+    hardNavFallbackTargetPath = '';
   }, delayMs);
 }
 

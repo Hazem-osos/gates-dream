@@ -3,6 +3,7 @@
 import type { ComponentProps, MouseEvent, ReactNode } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useAppTabs } from '@/app/components/AppTabsContext';
 import { useInstantPrefetch } from '@/lib/hooks/useInstantPrefetch';
 import { flushPageDrafts } from '@/lib/drafts/page-drafts';
 import {
@@ -28,6 +29,7 @@ export function PrefetchNavLink({
   ...rest
 }: PrefetchNavLinkProps) {
   const pathname = usePathname();
+  const tabs = useAppTabs();
   const { getPrefetchHandlers } = useInstantPrefetch();
   const prefetch = getPrefetchHandlers(href);
 
@@ -36,6 +38,7 @@ export function PrefetchNavLink({
     if (event.defaultPrevented) return;
     flushPageDrafts();
     pinCurrentWindowHref();
+    tabs?.trackTabForHref(href);
     const { path } = splitTabHref(href);
     if (normalizeAppPath(pathname) === path) {
       rememberFreshPage(path);

@@ -24,6 +24,7 @@ import {
   rememberTabSearch,
   rememberFreshPage,
   resolveAppTabHref,
+  cancelHardNavigationFallback,
   scheduleHardNavigationFallback,
   splitTabHref,
   type PersistedAppTab,
@@ -43,6 +44,8 @@ type AppTabsContextValue = {
   pinCurrentTab: () => void;
   openAppTab: (href: string) => void;
   openFreshPage: (href: string) => void;
+  /** Sidebar / Link: add tab immediately when navigation starts */
+  trackTabForHref: (href: string) => void;
 };
 
 const AppTabsContext = createContext<AppTabsContextValue | null>(null);
@@ -66,6 +69,7 @@ function TabUrlSync({
 
   useEffect(() => {
     if (!pathname) return;
+    cancelHardNavigationFallback();
     const path = normalizeAppPath(pathname);
     const href = searchString ? `${path}?${searchString}` : path;
     upsertTab(href);
@@ -111,10 +115,10 @@ function AppTabsProviderInner({ children }: { children: ReactNode }) {
       const index = prev.findIndex((tab) => tab.path === next.path);
       if (index === -1) {
         const row = { ...next };
-        if (prev.length >= MAX_OPEN_TABS) {
-          return [...prev.slice(1), row];
-        }
-        return [...prev, row];
+        const merged =
+          prev.length >= MAX_OPEN_TABS ? [...prev.slice(1), row] : [...prev, row];
+        persistOpenTabs(merged);
+        return merged;
       }
       const current = prev[index];
       const incomingBare = next.href === next.path;
@@ -126,8 +130,13 @@ function AppTabsProviderInner({ children }: { children: ReactNode }) {
         existingHasDoc;
       const href = keepExistingHref ? current.href : next.href;
       if (!keepExistingHref) rememberTabHref(next.path, href);
-      if (current.label === next.label && current.href === href) return prev;
-      return prev.map((tab, i) => (i === index ? { ...next, href } : tab));
+      if (current.label === next.label && current.href === href) {
+        persistOpenTabs(prev);
+        return prev;
+      }
+      const mapped = prev.map((tab, i) => (i === index ? { ...next, href } : tab));
+      persistOpenTabs(mapped);
+      return mapped;
     });
   }, []);
 
@@ -146,7 +155,11 @@ function AppTabsProviderInner({ children }: { children: ReactNode }) {
   const closeTab = useCallback((path: string) => {
     const normalized = normalizeAppPath(path);
     probeCount('tab state updates');
-    setTabs((prev) => prev.filter((tab) => tab.path !== normalized));
+    setTabs((prev) => {
+      const next = prev.filter((tab) => tab.path !== normalized);
+      persistOpenTabs(next);
+      return next;
+    });
   }, []);
 
   const hrefForTab = useCallback(
@@ -188,9 +201,10 @@ function AppTabsProviderInner({ children }: { children: ReactNode }) {
       window.setTimeout(() => {
         setJustOpenedPath((current) => (current === path ? null : current));
       }, 1600);
+      upsertTab(dest);
       pushRoute(dest);
     },
-    [pushRoute]
+    [pushRoute, upsertTab]
   );
 
   const openFreshPage = useCallback(
@@ -201,15 +215,19 @@ function AppTabsProviderInner({ children }: { children: ReactNode }) {
       const dest = resolveAppTabHref(href);
       const path = splitTabHref(dest).path;
       rememberFreshPage(path);
+      upsertTab(dest, { fresh: true });
       pushRoute(dest);
     },
-    [pushRoute]
+    [pushRoute, upsertTab]
   );
 
-  useEffect(() => {
-    const handle = window.setTimeout(() => persistOpenTabs(tabs), 120);
-    return () => window.clearTimeout(handle);
-  }, [tabs]);
+  const trackTabForHref = useCallback(
+    (href: string) => {
+      const dest = resolveAppTabHref(href);
+      upsertTab(dest);
+    },
+    [upsertTab]
+  );
 
   const value = useMemo(
     () => ({
@@ -222,8 +240,9 @@ function AppTabsProviderInner({ children }: { children: ReactNode }) {
       pinCurrentTab,
       openAppTab,
       openFreshPage,
+      trackTabForHref,
     }),
-    [tabs, justOpenedPath, freshNonceByPath, addBackgroundTab, closeTab, hrefForTab, pinCurrentTab, openAppTab, openFreshPage]
+    [tabs, justOpenedPath, freshNonceByPath, addBackgroundTab, closeTab, hrefForTab, pinCurrentTab, openAppTab, openFreshPage, trackTabForHref]
   );
 
   return (
