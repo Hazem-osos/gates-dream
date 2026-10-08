@@ -7,6 +7,7 @@ import { apiClient } from '@/lib/api/client';
 import { clearTenantContext } from '@/lib/tenant/tenant-context-storage';
 import { clearPersistedOnboardingStatus } from '@/lib/onboarding/onboarding-status-cache';
 import { clearConditionalGetCache } from '@/lib/api/conditional-get-cache';
+import { clearTabSessionStorage } from '@/lib/navigation/tab-memory';
 
 /**
  * Clears the token, cookie and tenant selection, then sends the user to login.
@@ -28,6 +29,7 @@ export default function LogoutPage() {
       clearTenantContext();
       clearPersistedOnboardingStatus();
       clearConditionalGetCache();
+      clearTabSessionStorage();
       queryClient.clear();
       router.replace('/login');
       router.refresh();

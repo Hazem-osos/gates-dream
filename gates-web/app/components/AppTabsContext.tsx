@@ -20,6 +20,8 @@ import {
   rememberTabHref,
   rememberTabSearch,
   rememberFreshPage,
+  currentAppTabHref,
+  migrateTabHref,
   resolveAppTabHref,
   splitTabHref,
   type PersistedAppTab,
@@ -46,13 +48,15 @@ const AppTabsContext = createContext<AppTabsContextValue | null>(null);
 export { splitTabHref };
 
 function toTab(input: string): AppTab {
-  const { path, href } = splitTabHref(input);
+  const href = migrateTabHref(input);
+  const { path } = splitTabHref(href);
   return { path, href, label: resolveTabLabel(path) };
 }
 
 export function AppTabsProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const searchString = searchParams.toString();
   const router = useRouter();
   const [tabs, setTabs] = useState<AppTab[]>([]);
   const [justOpenedPath, setJustOpenedPath] = useState<string | null>(null);
@@ -137,6 +141,7 @@ export function AppTabsProvider({ children }: { children: ReactNode }) {
       flushPageDrafts();
       pinCurrentTab();
       const dest = resolveAppTabHref(href);
+      if (typeof window !== 'undefined' && dest === currentAppTabHref()) return;
       const path = splitTabHref(dest).path;
       const fresh = dest === path;
       if (fresh) {
@@ -161,6 +166,7 @@ export function AppTabsProvider({ children }: { children: ReactNode }) {
       flushPageDrafts();
       pinCurrentTab();
       const dest = resolveAppTabHref(href);
+      if (typeof window !== 'undefined' && dest === currentAppTabHref()) return;
       const path = splitTabHref(dest).path;
       rememberFreshPage(path);
       remountPage(path);
@@ -178,15 +184,15 @@ export function AppTabsProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!pathname) return;
-    const search = searchParams.toString();
-    const href = search ? `${normalizeAppPath(pathname)}?${search}` : pathname;
+    const path = normalizeAppPath(pathname);
+    const href = searchString ? `${path}?${searchString}` : path;
     upsertTab(href);
     const label = resolveTabLabel(normalizeAppPath(pathname));
     document.title = `${label} | GATES`;
     return () => {
       pinCurrentWindowHref();
     };
-  }, [pathname, searchParams, upsertTab]);
+  }, [pathname, searchString, upsertTab]);
 
   const value = useMemo(
     () => ({

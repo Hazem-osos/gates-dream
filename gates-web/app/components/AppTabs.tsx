@@ -5,9 +5,6 @@ import { IoClose } from "react-icons/io5";
 import { normalizeAppPath } from '@/lib/navigation/app-module-root';
 import { resolveTabLabel } from '@/lib/navigation/tab-labels';
 import { useAppTabs } from './AppTabsContext';
-import { flushPageDrafts } from '@/lib/drafts/page-drafts';
-import { probeCount, probeNavUrl } from '@/lib/debug/gates-crash-probe';
-
 export default function AppTabs() {
   const pathname = usePathname();
   const router = useRouter();
@@ -36,10 +33,10 @@ export default function AppTabs() {
     return () => document.removeEventListener('mousedown', onPointer);
   }, [menuOpen]);
 
-  const goTo = (dest: string) => {
-    probeCount('router.push');
-    probeNavUrl(`${window.location.pathname}${window.location.search}`, dest);
-    router.push(dest);
+  const activateTab = (dest: string) => {
+    const href = dest || '/';
+    if (ctx?.openAppTab) ctx.openAppTab(href);
+    else router.push(href);
   };
 
   const closeTab = (path: string, e?: ReactMouseEvent) => {
@@ -50,10 +47,10 @@ export default function AppTabs() {
     if (path === activeTab) {
       if (remaining.length > 0) {
         const last = remaining[remaining.length - 1];
-        goTo(last.href || last.path);
+        activateTab(last.href || last.path);
       } else {
         const currentRoot = pathname.split('/')[1];
-        goTo(currentRoot ? `/${currentRoot}` : '/');
+        activateTab(currentRoot ? `/${currentRoot}` : '/');
       }
     }
   };
@@ -90,13 +87,7 @@ export default function AppTabs() {
                 type="button"
                 ref={isActive ? activeTabRef : undefined}
                 title={label}
-                onClick={() => {
-                  if (tab.path !== activeTab) {
-                    flushPageDrafts();
-                    ctx?.pinCurrentTab();
-                  }
-                  goTo(tab.href || tab.path);
-                }}
+                onClick={() => activateTab(tab.href || tab.path)}
                 className={`relative flex shrink-0 items-center gap-2 px-3 py-2 rounded-2xl text-sm transition-all backdrop-blur-sm
                   ${isActive
                     ? 'bg-gradient-to-r from-[#0E78AA] to-[#1787B8] text-white shadow-md hover:shadow-lg'
@@ -158,11 +149,7 @@ export default function AppTabs() {
                             type="button"
                             className="min-w-0 flex-1 truncate px-2 py-1.5 text-right text-sm text-[#094C6B]"
                             onClick={() => {
-                              if (tab.path !== activeTab) {
-                                flushPageDrafts();
-                                ctx?.pinCurrentTab();
-                              }
-                              goTo(tab.href || tab.path);
+                              activateTab(tab.href || tab.path);
                               setMenuOpen(false);
                             }}
                           >

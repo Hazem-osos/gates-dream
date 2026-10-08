@@ -397,7 +397,7 @@ export default function Sidebar({ collapsed = false }: { collapsed?: boolean }) 
   const router = useRouter();
   const { profiles } = useSidebarDocumentProfiles();
   const handleLogout = () => {
-    router.push('/logout');
+    window.location.assign('/logout');
   };
 
   const currentModules = useMemo(() => {

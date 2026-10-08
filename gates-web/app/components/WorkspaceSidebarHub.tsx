@@ -120,7 +120,7 @@ export function WorkspaceSidebarHub({ collapsed = false }: Props) {
           type="button"
           title={t('common.logout')}
           className="mb-2 flex h-10 w-10 items-center justify-center rounded-xl text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40"
-          onClick={() => router.push('/logout')}
+          onClick={() => window.location.assign('/logout')}
         >
           <LogOut className="h-5 w-5" />
         </button>
@@ -275,7 +275,7 @@ export function WorkspaceSidebarHub({ collapsed = false }: Props) {
           <button
             type="button"
             className="flex w-full items-center justify-center gap-2 rounded-xl bg-rose-50/70 px-4 py-2 text-sm font-semibold text-rose-600 transition-colors hover:bg-rose-100 dark:bg-rose-950/30 dark:text-rose-400 dark:hover:bg-rose-950/50"
-            onClick={() => router.push('/logout')}
+            onClick={() => window.location.assign('/logout')}
           >
             <LogOut className="h-4 w-4" />
             {t('common.logout')}

@@ -41,8 +41,12 @@ export default function SettingsSidebar({
   const { openAcademy } = useProductTourContext();
 
   const go = (path: string) => {
-    router.push(path);
     onClose();
+    if (path === '/logout') {
+      window.location.assign(path);
+      return;
+    }
+    router.push(path);
   };
 
   return (
