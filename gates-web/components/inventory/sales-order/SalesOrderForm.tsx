@@ -909,6 +909,7 @@ export function SalesOrderForm({ context = 'inventory' }: SalesOrderFormProps) {
             warehouseId={warehouseId}
             mode={isManufacturing ? 'manufacturing' : 'full'}
             disabled={Boolean(loaded?.isCancelled || loaded?.convertedInvoiceId)}
+            onImageError={(message) => setError(message)}
           />
         </div>
 

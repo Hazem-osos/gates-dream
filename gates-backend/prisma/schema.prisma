@@ -4618,7 +4618,7 @@ model InvoiceLine {
   expiryDate              DateTime?
   productionDate          DateTime?
   serialNumbers           String?   @db.Text
-  lineNotes               String?   @db.Text
+  lineNotes               String?   @db.LongText
   taxExemptionReason      String?
   /// Per-line issue/receipt warehouse. Falls back to Invoice.warehouseId when null.
   warehouseId             String?

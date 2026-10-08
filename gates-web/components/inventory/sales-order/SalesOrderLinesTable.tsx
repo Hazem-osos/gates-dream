@@ -1,6 +1,7 @@
 'use client';
 
-import { useRef, type ChangeEvent } from 'react';
+import { useRef, useState, type ChangeEvent } from 'react';
+import { readImageFileAsDataUrl } from '@/lib/images/read-image-file';
 import { Trash2 } from 'lucide-react';
 import { ItemSelect } from '@/app/components/form/ItemSelect';
 import { UniversalDataGrid } from '@/components/ui/data-entry-grid';
@@ -20,6 +21,7 @@ type Props = {
   onChange: (lines: CommercialDocumentLine[]) => void;
   disabled?: boolean;
   warehouseId?: string;
+  onImageError?: (message: string) => void;
   /** Manufacturing sales order: items + qty + specs only (no pricing / tax grid). */
   mode?: 'full' | 'manufacturing';
 };
@@ -28,22 +30,18 @@ function formatMoney(value: number) {
   return value.toLocaleString('ar-EG', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-function readImageFile(file: File, onDone: (dataUrl: string) => void) {
-  const reader = new FileReader();
-  reader.onload = () => onDone(String(reader.result ?? ''));
-  reader.readAsDataURL(file);
-}
-
 export function SalesOrderLinesTable({
   lines,
   onChange,
   disabled,
   warehouseId,
+  onImageError,
   mode = 'full',
 }: Props) {
   const manufacturingMode = mode === 'manufacturing';
   const fileRef = useRef<HTMLInputElement>(null);
   const imageRowRef = useRef(0);
+  const [imageBusy, setImageBusy] = useState(false);
 
   const updateLine = (index: number, patch: Partial<CommercialDocumentLine>) => {
     onChange(lines.map((line, i) => (i === index ? { ...line, ...patch } : line)));
@@ -67,9 +65,17 @@ export function SalesOrderLinesTable({
   const onFileChange = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = '';
-    if (!file) return;
+    if (!file || imageBusy) return;
     const index = imageRowRef.current;
-    readImageFile(file, (dataUrl) => updateLine(index, { imageUrl: dataUrl }));
+    setImageBusy(true);
+    void readImageFileAsDataUrl(file)
+      .then((dataUrl) => updateLine(index, { imageUrl: dataUrl }))
+      .catch((err: unknown) => {
+        const message =
+          err instanceof Error ? err.message : 'تعذر رفع الصورة — استخدم صورة أصغر (JPG/PNG)';
+        onImageError?.(message);
+      })
+      .finally(() => setImageBusy(false));
   };
 
   return (
@@ -184,7 +190,7 @@ export function SalesOrderLinesTable({
                   className="text-xs text-[#0E78AA] underline"
                   onClick={() => pickImage(index)}
                 >
-                  {line.imageUrl ? 'تغيير' : 'رفع'}
+                  {imageBusy ? '…' : line.imageUrl ? 'تغيير' : 'رفع'}
                 </button>
               </div>
             );
