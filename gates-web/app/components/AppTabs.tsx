@@ -6,7 +6,6 @@ import { normalizeAppPath } from '@/lib/navigation/app-module-root';
 import { resolveTabLabel } from '@/lib/navigation/tab-labels';
 import { useAppTabs } from './AppTabsContext';
 import { flushPageDrafts } from '@/lib/drafts/page-drafts';
-import { pinCurrentWindowHref, resolveAppTabHref } from '@/lib/navigation/tab-memory';
 import { probeCount, probeNavUrl } from '@/lib/debug/gates-crash-probe';
 
 export default function AppTabs() {
@@ -43,13 +42,6 @@ export default function AppTabs() {
     router.push(dest);
   };
 
-  const activateTab = (path: string, href?: string) => {
-    const dest = resolveAppTabHref(href || ctx?.hrefForTab(path) || path || '/');
-    flushPageDrafts();
-    pinCurrentWindowHref();
-    goTo(dest);
-  };
-
   const closeTab = (path: string, e?: ReactMouseEvent) => {
     e?.stopPropagation();
     e?.preventDefault();
@@ -58,10 +50,10 @@ export default function AppTabs() {
     if (path === activeTab) {
       if (remaining.length > 0) {
         const last = remaining[remaining.length - 1];
-        activateTab(last.path, last.href);
+        goTo(last.href || last.path);
       } else {
         const currentRoot = pathname.split('/')[1];
-        activateTab(currentRoot ? `/${currentRoot}` : '/');
+        goTo(currentRoot ? `/${currentRoot}` : '/');
       }
     }
   };
@@ -76,7 +68,7 @@ export default function AppTabs() {
   const tabLabel = (path: string, fallback?: string) => resolveTabLabel(path) || fallback || path;
 
   return (
-    <div className="relative z-50" style={{ direction: 'rtl' }}>
+    <div className="relative z-30" style={{ direction: 'rtl' }}>
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
         <div className="absolute -left-8 -top-6 w-40 h-40 rounded-full blur-2xl" style={{ background: 'radial-gradient(circle, rgba(14,121,170,0.15) 0%, rgba(14,121,170,0) 60%)' }} />
         <div className="absolute right-8 -bottom-10 w-48 h-48 rounded-full blur-3xl" style={{ background: 'radial-gradient(circle, rgba(23,135,184,0.15) 0%, rgba(23,135,184,0) 60%)' }} />
@@ -93,44 +85,48 @@ export default function AppTabs() {
             const justOpened = justOpenedPath === tab.path && !isActive;
             const label = tabLabel(tab.path, tab.label);
             return (
-              <div
+              <button
                 key={tab.path}
-                className={`relative flex shrink-0 items-center gap-1 rounded-2xl text-sm transition-all backdrop-blur-sm
+                type="button"
+                ref={isActive ? activeTabRef : undefined}
+                title={label}
+                onClick={() => {
+                  if (tab.path !== activeTab) {
+                    flushPageDrafts();
+                    ctx?.pinCurrentTab();
+                  }
+                  goTo(tab.href || tab.path);
+                }}
+                className={`relative flex shrink-0 items-center gap-2 px-3 py-2 rounded-2xl text-sm transition-all backdrop-blur-sm
                   ${isActive
-                    ? 'bg-gradient-to-r from-[#0E78AA] to-[#1787B8] text-white shadow-md'
+                    ? 'bg-gradient-to-r from-[#0E78AA] to-[#1787B8] text-white shadow-md hover:shadow-lg'
                     : justOpened
                       ? 'bg-white text-[#0E78AA] ring-2 ring-[#0E78AA] shadow-md'
-                      : 'bg-white/70 text-[#094C6B] ring-1 ring-[#D6EAF3] shadow-sm'}
+                      : 'bg-white/70 text-[#094C6B] ring-1 ring-[#D6EAF3] hover:bg-white shadow-sm hover:shadow-md'}
                 `}
               >
-                <button
-                  type="button"
-                  ref={isActive ? activeTabRef : undefined}
-                  title={label}
-                  onClick={() => activateTab(tab.path, tab.href)}
-                  className={`flex max-w-[11rem] items-center gap-2 py-2 pe-1 ps-3 text-sm ${
-                    isActive ? 'text-white' : 'text-inherit hover:text-[#0E78AA]'
-                  }`}
-                >
-                  <span className="truncate font-medium">{label}</span>
-                </button>
-                <button
-                  type="button"
+                <span className="max-w-[9.5rem] truncate font-medium">{label}</span>
+                <span
+                  role="button"
+                  tabIndex={0}
                   aria-label={`إغلاق ${label}`}
-                  className={`me-1.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full ${
+                  className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full ${
                     isActive ? 'text-white/80 hover:bg-white/20 hover:text-white' : 'text-gray-400 hover:bg-slate-100 hover:text-gray-700'
                   }`}
                   onClick={(e) => closeTab(tab.path, e)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') closeTab(tab.path);
+                  }}
                 >
                   <IoClose className="h-4 w-4" />
-                </button>
+                </span>
                 {isActive && (
                   <>
-                    <span className="pointer-events-none absolute -bottom-1 left-3 right-3 h-0.5 bg-white/80 rounded-full" />
+                    <span className="absolute -bottom-1 left-3 right-3 h-0.5 bg-white/80 rounded-full" />
                     <span className="pointer-events-none absolute inset-0 rounded-2xl bg-white/10" />
                   </>
                 )}
-              </div>
+              </button>
             );
           })}
         </div>
@@ -162,7 +158,11 @@ export default function AppTabs() {
                             type="button"
                             className="min-w-0 flex-1 truncate px-2 py-1.5 text-right text-sm text-[#094C6B]"
                             onClick={() => {
-                              activateTab(tab.path, tab.href);
+                              if (tab.path !== activeTab) {
+                                flushPageDrafts();
+                                ctx?.pinCurrentTab();
+                              }
+                              goTo(tab.href || tab.path);
                               setMenuOpen(false);
                             }}
                           >

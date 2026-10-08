@@ -20,7 +20,6 @@ import {
   rememberTabHref,
   rememberTabSearch,
   rememberFreshPage,
-  migrateTabHref,
   resolveAppTabHref,
   splitTabHref,
   type PersistedAppTab,
@@ -47,15 +46,13 @@ const AppTabsContext = createContext<AppTabsContextValue | null>(null);
 export { splitTabHref };
 
 function toTab(input: string): AppTab {
-  const href = migrateTabHref(input);
-  const { path } = splitTabHref(href);
+  const { path, href } = splitTabHref(input);
   return { path, href, label: resolveTabLabel(path) };
 }
 
 export function AppTabsProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const searchString = searchParams.toString();
   const router = useRouter();
   const [tabs, setTabs] = useState<AppTab[]>([]);
   const [justOpenedPath, setJustOpenedPath] = useState<string | null>(null);
@@ -130,15 +127,23 @@ export function AppTabsProvider({ children }: { children: ReactNode }) {
     upsertTab(`${window.location.pathname}${window.location.search}`);
   }, [upsertTab]);
 
-  const navigateToHref = useCallback(
-    (href: string, opts?: { fresh?: boolean }) => {
+  const remountPage = useCallback((path: string) => {
+    setFreshNonceByPath((prev) => ({ ...prev, [path]: (prev[path] ?? 0) + 1 }));
+  }, []);
+
+  const openAppTab = useCallback(
+    (href: string) => {
+      probeCount('openAppTab', { href });
+      flushPageDrafts();
+      pinCurrentTab();
       const dest = resolveAppTabHref(href);
       const path = splitTabHref(dest).path;
-      flushPageDrafts();
-      pinCurrentWindowHref();
-      if (opts?.fresh ?? dest === path) {
+      const fresh = dest === path;
+      if (fresh) {
         rememberFreshPage(path);
+        remountPage(path);
       }
+      upsertTab(dest, { fresh });
       setJustOpenedPath(path);
       window.setTimeout(() => {
         setJustOpenedPath((current) => (current === path ? null : current));
@@ -147,23 +152,24 @@ export function AppTabsProvider({ children }: { children: ReactNode }) {
       probeNavUrl(`${window.location.pathname}${window.location.search}`, dest);
       router.push(dest);
     },
-    [router]
-  );
-
-  const openAppTab = useCallback(
-    (href: string) => {
-      probeCount('openAppTab', { href });
-      navigateToHref(href);
-    },
-    [navigateToHref]
+    [pinCurrentTab, remountPage, router, upsertTab]
   );
 
   const openFreshPage = useCallback(
     (href: string) => {
       probeCount('openFreshPage', { href });
-      navigateToHref(href, { fresh: true });
+      flushPageDrafts();
+      pinCurrentTab();
+      const dest = resolveAppTabHref(href);
+      const path = splitTabHref(dest).path;
+      rememberFreshPage(path);
+      remountPage(path);
+      upsertTab(dest, { fresh: true });
+      probeCount('router.push');
+      probeNavUrl(`${window.location.pathname}${window.location.search}`, dest);
+      router.push(dest);
     },
-    [navigateToHref]
+    [pinCurrentTab, remountPage, router, upsertTab]
   );
 
   useEffect(() => {
@@ -172,15 +178,15 @@ export function AppTabsProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!pathname) return;
-    const path = normalizeAppPath(pathname);
-    const href = searchString ? `${path}?${searchString}` : path;
+    const search = searchParams.toString();
+    const href = search ? `${normalizeAppPath(pathname)}?${search}` : pathname;
     upsertTab(href);
     const label = resolveTabLabel(normalizeAppPath(pathname));
     document.title = `${label} | GATES`;
     return () => {
       pinCurrentWindowHref();
     };
-  }, [pathname, searchString, upsertTab]);
+  }, [pathname, searchParams, upsertTab]);
 
   const value = useMemo(
     () => ({

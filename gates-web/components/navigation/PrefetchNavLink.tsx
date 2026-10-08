@@ -1,23 +1,16 @@
 'use client';
 
-import type { ComponentProps, MouseEvent, ReactNode } from 'react';
-import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import type { AnchorHTMLAttributes, MouseEvent, ReactNode } from 'react';
 import { useInstantPrefetch } from '@/lib/hooks/useInstantPrefetch';
+import { useAppTabs } from '@/app/components/AppTabsContext';
 import { flushPageDrafts } from '@/lib/drafts/page-drafts';
-import {
-  pinCurrentWindowHref,
-  rememberFreshPage,
-  splitTabHref,
-} from '@/lib/navigation/tab-memory';
-import { normalizeAppPath } from '@/lib/navigation/app-module-root';
 
-type PrefetchNavLinkProps = Omit<ComponentProps<typeof Link>, 'href'> & {
+type PrefetchNavLinkProps = AnchorHTMLAttributes<HTMLAnchorElement> & {
   href: string;
   children: ReactNode;
 };
 
-/** Sidebar link: Next.js client navigation + draft flush; tabs sync from pathname. */
+/** Sidebar / palette anchor with hover+focus route and API prefetch. */
 export function PrefetchNavLink({
   href,
   children,
@@ -26,9 +19,9 @@ export function PrefetchNavLink({
   onClick,
   ...rest
 }: PrefetchNavLinkProps) {
-  const pathname = usePathname();
   const { getPrefetchHandlers } = useInstantPrefetch();
   const prefetch = getPrefetchHandlers(href);
+  const tabs = useAppTabs();
 
   const handleClick = (event: MouseEvent<HTMLAnchorElement>) => {
     onClick?.(event);
@@ -36,16 +29,15 @@ export function PrefetchNavLink({
     if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) {
       return;
     }
+    if (!tabs) return;
+
+    event.preventDefault();
     flushPageDrafts();
-    pinCurrentWindowHref();
-    const { path } = splitTabHref(href);
-    if (normalizeAppPath(pathname) === path) {
-      rememberFreshPage(path);
-    }
+    tabs.openFreshPage(href);
   };
 
   return (
-    <Link
+    <a
       href={href}
       {...rest}
       onClick={handleClick}
@@ -59,6 +51,6 @@ export function PrefetchNavLink({
       }}
     >
       {children}
-    </Link>
+    </a>
   );
 }
