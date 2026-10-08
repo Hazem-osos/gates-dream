@@ -6,7 +6,7 @@ import { normalizeAppPath } from '@/lib/navigation/app-module-root';
 import { resolveTabLabel } from '@/lib/navigation/tab-labels';
 import { useAppTabs } from './AppTabsContext';
 import { flushPageDrafts } from '@/lib/drafts/page-drafts';
-import { pinCurrentWindowHref, resolveAppTabHref, scheduleHardNavigationFallback } from '@/lib/navigation/tab-memory';
+import { pinCurrentWindowHref, resolveAppTabHref } from '@/lib/navigation/tab-memory';
 import { probeCount, probeNavUrl } from '@/lib/debug/gates-crash-probe';
 
 export default function AppTabs() {
@@ -42,7 +42,6 @@ export default function AppTabs() {
     probeCount('router.push');
     probeNavUrl(`${window.location.pathname}${window.location.search}`, target);
     router.push(target);
-    scheduleHardNavigationFallback(target);
   };
 
   const closeTab = (path: string, e?: ReactMouseEvent) => {

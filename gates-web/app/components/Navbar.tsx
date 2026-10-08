@@ -16,7 +16,6 @@ import {
   getAppModulePath,
 } from '@/lib/navigation/app-modules';
 import { useInstantPrefetch } from '@/lib/hooks/useInstantPrefetch';
-import { scheduleHardNavigationFallback } from '@/lib/navigation/tab-memory';
 import { useAppTabs } from '@/app/components/AppTabsContext';
 import { useI18n } from '@/lib/i18n';
 
@@ -91,7 +90,6 @@ export default function Navbar({ rightSidebarOpen = false, setRightSidebarOpen, 
     if (path) {
       tabs?.trackTabForHref(path);
       router.push(path);
-      scheduleHardNavigationFallback(path);
       setShowMenuRow?.(false);
       return;
     }

@@ -23,9 +23,8 @@ import {
   rememberTabHref,
   rememberTabSearch,
   rememberFreshPage,
+  internalAppHrefFromAnchor,
   resolveAppTabHref,
-  cancelHardNavigationFallback,
-  scheduleHardNavigationFallback,
   splitTabHref,
   type PersistedAppTab,
 } from '@/lib/navigation/tab-memory';
@@ -69,7 +68,6 @@ function TabUrlSync({
 
   useEffect(() => {
     if (!pathname) return;
-    cancelHardNavigationFallback();
     const path = normalizeAppPath(pathname);
     const href = searchString ? `${path}?${searchString}` : path;
     upsertTab(href);
@@ -184,7 +182,6 @@ function AppTabsProviderInner({ children }: { children: ReactNode }) {
       probeCount('router.push');
       probeNavUrl(`${window.location.pathname}${window.location.search}`, dest);
       router.push(dest);
-      scheduleHardNavigationFallback(dest);
     },
     [router]
   );
@@ -228,6 +225,26 @@ function AppTabsProviderInner({ children }: { children: ReactNode }) {
     },
     [upsertTab]
   );
+
+  useEffect(() => {
+    const onDocumentClick = (event: MouseEvent) => {
+      if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+        return;
+      }
+      if (event.button !== 0) return;
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      const anchor = target.closest('a');
+      if (!(anchor instanceof HTMLAnchorElement)) return;
+      const dest = internalAppHrefFromAnchor(anchor);
+      if (!dest) return;
+      flushPageDrafts();
+      pinCurrentWindowHref();
+      upsertTab(dest);
+    };
+    document.addEventListener('click', onDocumentClick, true);
+    return () => document.removeEventListener('click', onDocumentClick, true);
+  }, [upsertTab]);
 
   const value = useMemo(
     () => ({

@@ -6,12 +6,7 @@ import { usePathname } from 'next/navigation';
 import { useAppTabs } from '@/app/components/AppTabsContext';
 import { useInstantPrefetch } from '@/lib/hooks/useInstantPrefetch';
 import { flushPageDrafts } from '@/lib/drafts/page-drafts';
-import {
-  pinCurrentWindowHref,
-  rememberFreshPage,
-  scheduleHardNavigationFallback,
-  splitTabHref,
-} from '@/lib/navigation/tab-memory';
+import { pinCurrentWindowHref, rememberFreshPage, splitTabHref } from '@/lib/navigation/tab-memory';
 import { normalizeAppPath } from '@/lib/navigation/app-module-root';
 
 type PrefetchNavLinkProps = Omit<ComponentProps<typeof Link>, 'href'> & {
@@ -42,8 +37,6 @@ export function PrefetchNavLink({
     const { path } = splitTabHref(href);
     if (normalizeAppPath(pathname) === path) {
       rememberFreshPage(path);
-    } else {
-      scheduleHardNavigationFallback(href);
     }
   };
 

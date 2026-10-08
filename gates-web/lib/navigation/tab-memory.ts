@@ -75,47 +75,23 @@ export function pinCurrentWindowHref() {
   rememberTabSearch(path, search);
 }
 
-export function currentAppTabHref(): string {
-  if (typeof window === 'undefined') return '';
-  const path = normalizeAppPath(window.location.pathname);
-  const search = window.location.search.replace(/^\?/, '');
-  return search ? `${path}?${search}` : path;
-}
-
-type HardNavFallbackTimer = ReturnType<typeof globalThis.setTimeout>;
-let hardNavFallbackTimer: HardNavFallbackTimer | null = null;
-let hardNavFallbackTargetPath = '';
-
-/** Call when App Router pathname updates — cancels pending full-page fallback. */
-export function cancelHardNavigationFallback() {
-  if (hardNavFallbackTimer !== null) {
-    globalThis.clearTimeout(hardNavFallbackTimer);
-    hardNavFallbackTimer = null;
+/** Same-origin in-app href from a clicked anchor, or null if not a client route change. */
+export function internalAppHrefFromAnchor(anchor: HTMLAnchorElement): string | null {
+  if (anchor.target === '_blank' || anchor.hasAttribute('download')) return null;
+  const raw = anchor.getAttribute('href');
+  if (!raw || raw.startsWith('#') || raw.startsWith('mailto:') || raw.startsWith('tel:')) {
+    return null;
   }
-  hardNavFallbackTargetPath = '';
-}
-
-/**
- * Last resort when client navigation never updates the route (rare).
- * Uses path-only match and a longer delay so normal soft nav is not replaced by reload.
- */
-export function scheduleHardNavigationFallback(href: string, delayMs = 2400) {
-  if (typeof window === 'undefined') return;
-  cancelHardNavigationFallback();
-  const target = resolveAppTabHref(href);
-  const targetPath = splitTabHref(target).path;
-  const startedPath = normalizeAppPath(window.location.pathname);
-  if (startedPath === targetPath) return;
-
-  hardNavFallbackTargetPath = targetPath;
-  hardNavFallbackTimer = globalThis.setTimeout(() => {
-    hardNavFallbackTimer = null;
-    const nowPath = normalizeAppPath(window.location.pathname);
-    if (nowPath !== hardNavFallbackTargetPath) {
-      window.location.assign(target);
-    }
-    hardNavFallbackTargetPath = '';
-  }, delayMs);
+  try {
+    const url = new URL(raw, window.location.href);
+    if (url.origin !== window.location.origin) return null;
+    const dest = `${normalizeAppPath(url.pathname)}${url.search}`;
+    const here = `${normalizeAppPath(window.location.pathname)}${window.location.search}`;
+    if (dest === here) return null;
+    return dest;
+  } catch {
+    return null;
+  }
 }
 
 /** Explicit `?id=` / query wins. Bare paths stay new — do not restore the last document. */
