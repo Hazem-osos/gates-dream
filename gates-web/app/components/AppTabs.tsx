@@ -6,6 +6,7 @@ import { normalizeAppPath } from '@/lib/navigation/app-module-root';
 import { resolveTabLabel } from '@/lib/navigation/tab-labels';
 import { useAppTabs } from './AppTabsContext';
 import { flushPageDrafts } from '@/lib/drafts/page-drafts';
+import { pinCurrentWindowHref, resolveAppTabHref } from '@/lib/navigation/tab-memory';
 import { probeCount, probeNavUrl } from '@/lib/debug/gates-crash-probe';
 
 export default function AppTabs() {
@@ -43,11 +44,9 @@ export default function AppTabs() {
   };
 
   const activateTab = (path: string, href?: string) => {
-    const dest = href || ctx?.hrefForTab(path) || path || '/';
-    if (path !== activeTab) {
-      flushPageDrafts();
-      ctx?.pinCurrentTab();
-    }
+    const dest = resolveAppTabHref(href || ctx?.hrefForTab(path) || path || '/');
+    flushPageDrafts();
+    pinCurrentWindowHref();
     goTo(dest);
   };
 

@@ -130,23 +130,15 @@ export function AppTabsProvider({ children }: { children: ReactNode }) {
     upsertTab(`${window.location.pathname}${window.location.search}`);
   }, [upsertTab]);
 
-  const remountPage = useCallback((path: string) => {
-    setFreshNonceByPath((prev) => ({ ...prev, [path]: (prev[path] ?? 0) + 1 }));
-  }, []);
-
-  const openAppTab = useCallback(
-    (href: string) => {
-      probeCount('openAppTab', { href });
-      flushPageDrafts();
-      pinCurrentTab();
+  const navigateToHref = useCallback(
+    (href: string, opts?: { fresh?: boolean }) => {
       const dest = resolveAppTabHref(href);
       const path = splitTabHref(dest).path;
-      const fresh = dest === path;
-      if (fresh) {
+      flushPageDrafts();
+      pinCurrentWindowHref();
+      if (opts?.fresh ?? dest === path) {
         rememberFreshPage(path);
-        remountPage(path);
       }
-      upsertTab(dest, { fresh });
       setJustOpenedPath(path);
       window.setTimeout(() => {
         setJustOpenedPath((current) => (current === path ? null : current));
@@ -155,24 +147,23 @@ export function AppTabsProvider({ children }: { children: ReactNode }) {
       probeNavUrl(`${window.location.pathname}${window.location.search}`, dest);
       router.push(dest);
     },
-    [pinCurrentTab, remountPage, router, upsertTab]
+    [router]
+  );
+
+  const openAppTab = useCallback(
+    (href: string) => {
+      probeCount('openAppTab', { href });
+      navigateToHref(href);
+    },
+    [navigateToHref]
   );
 
   const openFreshPage = useCallback(
     (href: string) => {
       probeCount('openFreshPage', { href });
-      flushPageDrafts();
-      pinCurrentTab();
-      const dest = resolveAppTabHref(href);
-      const path = splitTabHref(dest).path;
-      rememberFreshPage(path);
-      remountPage(path);
-      upsertTab(dest, { fresh: true });
-      probeCount('router.push');
-      probeNavUrl(`${window.location.pathname}${window.location.search}`, dest);
-      router.push(dest);
+      navigateToHref(href, { fresh: true });
     },
-    [pinCurrentTab, remountPage, router, upsertTab]
+    [navigateToHref]
   );
 
   useEffect(() => {
