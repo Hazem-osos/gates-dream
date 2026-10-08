@@ -19,7 +19,9 @@ import {
   markWorkOrderInProgressIfNeeded,
 } from '../utils/work-order-progress';
 import {
+  finishedOutputBaselineAfterIssue,
   finishedReceiptAtIssueFromMetadata,
+  mergeProcessMetadataPreservingIssueReceipt,
   primaryFinishedOutputQuantity,
   withFinishedReceiptAtIssueMetadata,
   withoutFinishedReceiptAtIssueMetadata,
@@ -208,7 +210,10 @@ export class ProductionOrderService {
           plannedQuantity: new Decimal(input.plannedQuantity),
           warehouseIdRaw: input.warehouseIdRaw,
           warehouseIdFinished: input.warehouseIdFinished,
-          processMetadata: input.processMetadata ?? undefined,
+          processMetadata: mergeProcessMetadataPreservingIssueReceipt(
+            order.processMetadata,
+            input.processMetadata ?? undefined
+          ),
         },
         include: {
           bom: { include: { lines: true } },
@@ -701,11 +706,10 @@ export class ProductionOrderService {
         completionJournalEntryId = je.id;
       }
 
-      const receiptAtIssue = finishedReceiptAtIssueFromMetadata(order.processMetadata);
-      const baselineQty = receiptAtIssue?.quantity ?? 0;
+      const baselineQty = finishedOutputBaselineAfterIssue(order);
       const deltaQty = roundTo4(actualQuantity - baselineQty);
 
-      if (!receiptAtIssue) {
+      if (baselineQty <= 0 && actualQuantity > 0) {
         await manufacturingCostingService.receiveFinishedGoodsInTx(tx, {
           companyId: ctx.companyId,
           branchId: ctx.branchId ?? undefined,

@@ -60,3 +60,35 @@ export function withoutFinishedReceiptAtIssueMetadata(meta: unknown): Record<str
   delete next.finishedReceiptAtIssue;
   return next;
 }
+
+/** Quantity already received into finished-goods warehouse at «بدء التنفيذ». */
+export function finishedOutputBaselineAfterIssue(order: {
+  processMetadata?: unknown;
+  materialsIssueJournalEntryId?: string | null;
+  actualQuantity?: unknown;
+}): number {
+  const receiptAtIssue = finishedReceiptAtIssueFromMetadata(order.processMetadata);
+  if (receiptAtIssue) return receiptAtIssue.quantity;
+  if (order.materialsIssueJournalEntryId) {
+    const issued = Number(order.actualQuantity ?? 0);
+    if (Number.isFinite(issued) && issued > 0) return roundTo4(issued);
+  }
+  return 0;
+}
+
+/** Client updates often rebuild processMetadata — keep issue-time receipt marker. */
+export function mergeProcessMetadataPreservingIssueReceipt(
+  existing: unknown,
+  incoming: Record<string, unknown> | undefined
+): Record<string, unknown> | undefined {
+  if (!incoming) {
+    if (!existing || typeof existing !== 'object' || Array.isArray(existing)) return undefined;
+    return { ...(existing as Record<string, unknown>) };
+  }
+  const receipt = finishedReceiptAtIssueFromMetadata(existing);
+  const merged: Record<string, unknown> = { ...incoming };
+  if (receipt && !finishedReceiptAtIssueFromMetadata(incoming)) {
+    return withFinishedReceiptAtIssueMetadata(merged, receipt);
+  }
+  return merged;
+}

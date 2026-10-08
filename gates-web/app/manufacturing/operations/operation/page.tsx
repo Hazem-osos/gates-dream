@@ -1065,8 +1065,16 @@ function ManufacturingOperationPageInner() {
       if (!(await ensureRawStockAllowsPost())) return null;
     }
 
+    const preservedReceiptAtIssue =
+      order?.processMetadata &&
+      typeof order.processMetadata === 'object' &&
+      !Array.isArray(order.processMetadata)
+        ? (order.processMetadata as Record<string, unknown>).finishedReceiptAtIssue
+        : undefined;
+
     const processMetadata = {
       description: description.trim() || undefined,
+      ...(preservedReceiptAtIssue ? { finishedReceiptAtIssue: preservedReceiptAtIssue } : {}),
       ...(loadedProcess
         ? {
           stage: loadedProcess.stage,
