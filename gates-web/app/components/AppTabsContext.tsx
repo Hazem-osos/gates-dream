@@ -8,7 +8,6 @@ import {
   useMemo,
   useRef,
   useState,
-  Suspense,
   type ReactNode,
 } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
@@ -23,7 +22,6 @@ import {
   rememberTabHref,
   rememberTabSearch,
   rememberFreshPage,
-  internalAppHrefFromAnchor,
   resolveAppTabHref,
   splitTabHref,
   type PersistedAppTab,
@@ -43,8 +41,6 @@ type AppTabsContextValue = {
   pinCurrentTab: () => void;
   openAppTab: (href: string) => void;
   openFreshPage: (href: string) => void;
-  /** Sidebar / Link: add tab immediately when navigation starts */
-  trackTabForHref: (href: string) => void;
 };
 
 const AppTabsContext = createContext<AppTabsContextValue | null>(null);
@@ -56,32 +52,10 @@ function toTab(input: string): AppTab {
   return { path, href, label: resolveTabLabel(path) };
 }
 
-function TabUrlSync({
-  pathname,
-  upsertTab,
-}: {
-  pathname: string | null;
-  upsertTab: (input: string, opts?: { background?: boolean; fresh?: boolean }) => void;
-}) {
+export function AppTabsProvider({ children }: { children: ReactNode }) {
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   const searchString = searchParams.toString();
-
-  useEffect(() => {
-    if (!pathname) return;
-    const path = normalizeAppPath(pathname);
-    const href = searchString ? `${path}?${searchString}` : path;
-    upsertTab(href);
-    document.title = `${resolveTabLabel(path)} | GATES`;
-    return () => {
-      pinCurrentWindowHref();
-    };
-  }, [pathname, searchString, upsertTab]);
-
-  return null;
-}
-
-function AppTabsProviderInner({ children }: { children: ReactNode }) {
-  const pathname = usePathname();
   const router = useRouter();
   const [tabs, setTabs] = useState<AppTab[]>([]);
   const [justOpenedPath, setJustOpenedPath] = useState<string | null>(null);
@@ -95,7 +69,7 @@ function AppTabsProviderInner({ children }: { children: ReactNode }) {
     hydratedRef.current = true;
     const stored = loadOpenTabs();
     if (stored.length) {
-      setTabs(stored.slice(0, MAX_OPEN_TABS));
+      setTabs((prev) => (prev.length ? prev : stored.slice(0, MAX_OPEN_TABS)));
     }
   }, []);
 
@@ -113,10 +87,10 @@ function AppTabsProviderInner({ children }: { children: ReactNode }) {
       const index = prev.findIndex((tab) => tab.path === next.path);
       if (index === -1) {
         const row = { ...next };
-        const merged =
-          prev.length >= MAX_OPEN_TABS ? [...prev.slice(1), row] : [...prev, row];
-        persistOpenTabs(merged);
-        return merged;
+        if (prev.length >= MAX_OPEN_TABS) {
+          return [...prev.slice(1), row];
+        }
+        return [...prev, row];
       }
       const current = prev[index];
       const incomingBare = next.href === next.path;
@@ -128,13 +102,8 @@ function AppTabsProviderInner({ children }: { children: ReactNode }) {
         existingHasDoc;
       const href = keepExistingHref ? current.href : next.href;
       if (!keepExistingHref) rememberTabHref(next.path, href);
-      if (current.label === next.label && current.href === href) {
-        persistOpenTabs(prev);
-        return prev;
-      }
-      const mapped = prev.map((tab, i) => (i === index ? { ...next, href } : tab));
-      persistOpenTabs(mapped);
-      return mapped;
+      if (current.label === next.label && current.href === href) return prev;
+      return prev.map((tab, i) => (i === index ? { ...next, href } : tab));
     });
   }, []);
 
@@ -153,11 +122,7 @@ function AppTabsProviderInner({ children }: { children: ReactNode }) {
   const closeTab = useCallback((path: string) => {
     const normalized = normalizeAppPath(path);
     probeCount('tab state updates');
-    setTabs((prev) => {
-      const next = prev.filter((tab) => tab.path !== normalized);
-      persistOpenTabs(next);
-      return next;
-    });
+    setTabs((prev) => prev.filter((tab) => tab.path !== normalized));
   }, []);
 
   const hrefForTab = useCallback(
@@ -176,75 +141,65 @@ function AppTabsProviderInner({ children }: { children: ReactNode }) {
     upsertTab(`${window.location.pathname}${window.location.search}`);
   }, [upsertTab]);
 
-  const pushRoute = useCallback(
-    (href: string) => {
-      const dest = resolveAppTabHref(href);
-      probeCount('router.push');
-      probeNavUrl(`${window.location.pathname}${window.location.search}`, dest);
-      router.push(dest);
-    },
-    [router]
-  );
+  const remountPage = useCallback((path: string) => {
+    setFreshNonceByPath((prev) => ({ ...prev, [path]: (prev[path] ?? 0) + 1 }));
+  }, []);
 
   const openAppTab = useCallback(
     (href: string) => {
       probeCount('openAppTab', { href });
       flushPageDrafts();
-      pinCurrentWindowHref();
+      pinCurrentTab();
       const dest = resolveAppTabHref(href);
       const path = splitTabHref(dest).path;
-      if (dest === path) rememberFreshPage(path);
+      const fresh = dest === path;
+      if (fresh) {
+        rememberFreshPage(path);
+        remountPage(path);
+      }
+      upsertTab(dest, { fresh });
       setJustOpenedPath(path);
       window.setTimeout(() => {
         setJustOpenedPath((current) => (current === path ? null : current));
       }, 1600);
-      upsertTab(dest);
-      pushRoute(dest);
+      probeCount('router.push');
+      probeNavUrl(`${window.location.pathname}${window.location.search}`, dest);
+      router.push(dest);
     },
-    [pushRoute, upsertTab]
+    [pinCurrentTab, remountPage, router, upsertTab]
   );
 
   const openFreshPage = useCallback(
     (href: string) => {
       probeCount('openFreshPage', { href });
       flushPageDrafts();
-      pinCurrentWindowHref();
+      pinCurrentTab();
       const dest = resolveAppTabHref(href);
       const path = splitTabHref(dest).path;
       rememberFreshPage(path);
+      remountPage(path);
       upsertTab(dest, { fresh: true });
-      pushRoute(dest);
+      probeCount('router.push');
+      probeNavUrl(`${window.location.pathname}${window.location.search}`, dest);
+      router.push(dest);
     },
-    [pushRoute, upsertTab]
-  );
-
-  const trackTabForHref = useCallback(
-    (href: string) => {
-      const dest = resolveAppTabHref(href);
-      upsertTab(dest);
-    },
-    [upsertTab]
+    [pinCurrentTab, remountPage, router, upsertTab]
   );
 
   useEffect(() => {
-    const onDocumentClick = (event: MouseEvent) => {
-      if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
-        return;
-      }
-      if (event.button !== 0) return;
-      const target = event.target;
-      if (!(target instanceof Element)) return;
-      const anchor = target.closest('a');
-      if (!(anchor instanceof HTMLAnchorElement)) return;
-      const dest = internalAppHrefFromAnchor(anchor);
-      if (!dest) return;
-      flushPageDrafts();
+    persistOpenTabs(tabs);
+  }, [tabs]);
+
+  useEffect(() => {
+    if (!pathname) return;
+    const path = normalizeAppPath(pathname);
+    const href = searchString ? `${path}?${searchString}` : path;
+    upsertTab(href);
+    document.title = `${resolveTabLabel(path)} | GATES`;
+    return () => {
       pinCurrentWindowHref();
-      upsertTab(dest);
     };
-    document.addEventListener('click', onDocumentClick, true);
-    return () => document.removeEventListener('click', onDocumentClick, true);
-  }, [upsertTab]);
+  }, [pathname, searchString, upsertTab]);
 
   const value = useMemo(
     () => ({
@@ -257,23 +212,11 @@ function AppTabsProviderInner({ children }: { children: ReactNode }) {
       pinCurrentTab,
       openAppTab,
       openFreshPage,
-      trackTabForHref,
     }),
-    [tabs, justOpenedPath, freshNonceByPath, addBackgroundTab, closeTab, hrefForTab, pinCurrentTab, openAppTab, openFreshPage, trackTabForHref]
+    [tabs, justOpenedPath, freshNonceByPath, addBackgroundTab, closeTab, hrefForTab, pinCurrentTab, openAppTab, openFreshPage]
   );
 
-  return (
-    <AppTabsContext.Provider value={value}>
-      <Suspense fallback={null}>
-        <TabUrlSync pathname={pathname} upsertTab={upsertTab} />
-      </Suspense>
-      {children}
-    </AppTabsContext.Provider>
-  );
-}
-
-export function AppTabsProvider({ children }: { children: ReactNode }) {
-  return <AppTabsProviderInner>{children}</AppTabsProviderInner>;
+  return <AppTabsContext.Provider value={value}>{children}</AppTabsContext.Provider>;
 }
 
 export function useAppTabs(): AppTabsContextValue | null {

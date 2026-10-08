@@ -1,0 +1,7 @@
+ gates-web/app/components/AppTabs.tsx               |  58 ++++----
+ gates-web/app/components/AppTabsContext.tsx        | 154 +++++++++++++++------
+ gates-web/app/components/Navbar.tsx                |   3 +
+ gates-web/app/components/WorkspaceSidebarHub.tsx   |   8 +-
+ .../components/navigation/PrefetchNavLink.tsx      |  32 +++--
+ gates-web/lib/navigation/tab-memory.ts             |  46 +++++-
+ 6 files changed, 211 insertions(+), 90 deletions(-)

@@ -75,25 +75,6 @@ export function pinCurrentWindowHref() {
   rememberTabSearch(path, search);
 }
 
-/** Same-origin in-app href from a clicked anchor, or null if not a client route change. */
-export function internalAppHrefFromAnchor(anchor: HTMLAnchorElement): string | null {
-  if (anchor.target === '_blank' || anchor.hasAttribute('download')) return null;
-  const raw = anchor.getAttribute('href');
-  if (!raw || raw.startsWith('#') || raw.startsWith('mailto:') || raw.startsWith('tel:')) {
-    return null;
-  }
-  try {
-    const url = new URL(raw, window.location.href);
-    if (url.origin !== window.location.origin) return null;
-    const dest = `${normalizeAppPath(url.pathname)}${url.search}`;
-    const here = `${normalizeAppPath(window.location.pathname)}${window.location.search}`;
-    if (dest === here) return null;
-    return dest;
-  } catch {
-    return null;
-  }
-}
-
 /** Explicit `?id=` / query wins. Bare paths stay new — do not restore the last document. */
 export function resolveAppTabHref(href: string): string {
   const { href: normalized } = splitTabHref(href);

@@ -16,7 +16,6 @@ import {
   getAppModulePath,
 } from '@/lib/navigation/app-modules';
 import { useInstantPrefetch } from '@/lib/hooks/useInstantPrefetch';
-import { useAppTabs } from '@/app/components/AppTabsContext';
 import { useI18n } from '@/lib/i18n';
 
 interface NavbarProps {
@@ -46,7 +45,6 @@ export default function Navbar({ rightSidebarOpen = false, setRightSidebarOpen, 
   const { setOpen: setCommandOpen } = useCommandPalette();
   const { closeAcademy } = useProductTourContext();
   const { schedulePrefetch } = useInstantPrefetch();
-  const tabs = useAppTabs();
   const { t } = useI18n();
 
   const handleSidebarToggle = () => {
@@ -88,7 +86,6 @@ export default function Navbar({ rightSidebarOpen = false, setRightSidebarOpen, 
     setSelectedSection(sectionKey);
     const path = getAppModulePath(sectionKey);
     if (path) {
-      tabs?.trackTabForHref(path);
       router.push(path);
       setShowMenuRow?.(false);
       return;

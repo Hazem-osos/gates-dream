@@ -1,20 +1,16 @@
 'use client';
 
-import type { ComponentProps, MouseEvent, ReactNode } from 'react';
-import Link from 'next/link';
-import { usePathname } from 'next/navigation';
-import { useAppTabs } from '@/app/components/AppTabsContext';
+import type { AnchorHTMLAttributes, MouseEvent, ReactNode } from 'react';
 import { useInstantPrefetch } from '@/lib/hooks/useInstantPrefetch';
+import { useAppTabs } from '@/app/components/AppTabsContext';
 import { flushPageDrafts } from '@/lib/drafts/page-drafts';
-import { pinCurrentWindowHref, rememberFreshPage, splitTabHref } from '@/lib/navigation/tab-memory';
-import { normalizeAppPath } from '@/lib/navigation/app-module-root';
 
-type PrefetchNavLinkProps = Omit<ComponentProps<typeof Link>, 'href'> & {
+type PrefetchNavLinkProps = AnchorHTMLAttributes<HTMLAnchorElement> & {
   href: string;
   children: ReactNode;
 };
 
-/** Sidebar: native Next.js client navigation (no openFreshPage / preventDefault). */
+/** Sidebar: prefetch on hover/focus; navigate via openFreshPage (single router.push path). */
 export function PrefetchNavLink({
   href,
   children,
@@ -23,25 +19,25 @@ export function PrefetchNavLink({
   onClick,
   ...rest
 }: PrefetchNavLinkProps) {
-  const pathname = usePathname();
-  const tabs = useAppTabs();
   const { getPrefetchHandlers } = useInstantPrefetch();
   const prefetch = getPrefetchHandlers(href);
+  const tabs = useAppTabs();
 
   const handleClick = (event: MouseEvent<HTMLAnchorElement>) => {
     onClick?.(event);
     if (event.defaultPrevented) return;
-    flushPageDrafts();
-    pinCurrentWindowHref();
-    tabs?.trackTabForHref(href);
-    const { path } = splitTabHref(href);
-    if (normalizeAppPath(pathname) === path) {
-      rememberFreshPage(path);
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) {
+      return;
     }
+    if (!tabs) return;
+
+    event.preventDefault();
+    flushPageDrafts();
+    tabs.openFreshPage(href);
   };
 
   return (
-    <Link
+    <a
       href={href}
       {...rest}
       onClick={handleClick}
@@ -55,6 +51,6 @@ export function PrefetchNavLink({
       }}
     >
       {children}
-    </Link>
+    </a>
   );
 }

@@ -81,8 +81,8 @@ export function WorkspaceSidebarHub({ collapsed = false }: Props) {
 
   const navigate = (href: string) => {
     dispatchCollapseNavSidebar();
-    tabs?.trackTabForHref(href);
-    router.push(href);
+    if (tabs) tabs.openFreshPage(href);
+    else router.push(href);
   };
 
   const toggleGroup = (id: string) => {
