@@ -112,6 +112,7 @@ type WorkOrderProgress = {
 type WorkOrderListItem = {
   id: string;
   orderNumber: string;
+  status: string;
   description?: string | null;
   updatedAt: string;
   bom?: { name: string } | null;
@@ -1170,7 +1171,12 @@ function ProductionPlanningInner() {
                 onClick={() => openWorkOrder(wo.id)}
               >
                 <div className="min-w-0 text-sm">
-                  <p className="font-semibold text-[#0A3D5E]">{wo.orderNumber}</p>
+                  <p className="font-semibold text-[#0A3D5E]">
+                    {wo.orderNumber}
+                    {wo.status === 'CANCELLED' ? (
+                      <span className="ms-2 text-xs font-medium text-rose-600">ملغي</span>
+                    ) : null}
+                  </p>
                   <p className="text-xs text-slate-500">{wo.description || '—'}</p>
                 </div>
                 <span className="text-xs text-slate-400">

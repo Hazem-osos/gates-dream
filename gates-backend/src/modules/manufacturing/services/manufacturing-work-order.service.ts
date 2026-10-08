@@ -140,7 +140,7 @@ function mapLineCreates(lines: ReturnType<typeof normalizeLines>) {
 export class ManufacturingWorkOrderService {
   async list(companyId: string, limit = 100) {
     return prisma.manufacturingWorkOrder.findMany({
-      where: { companyId, status: { not: 'CANCELLED' } },
+      where: { companyId },
       orderBy: { updatedAt: 'desc' },
       take: Math.min(Math.max(limit, 1), 500),
       include: {
