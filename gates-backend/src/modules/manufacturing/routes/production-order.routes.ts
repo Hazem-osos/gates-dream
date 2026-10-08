@@ -301,7 +301,8 @@ router.post(
       return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     }
     try {
-      const data = await productionOrderService.cancel(companyId, req.params.id);
+      const ctx = postingContext(req);
+      const data = await productionOrderService.cancel(ctx, companyId, req.params.id);
       return void res.json({ status: 'success', data });
     } catch (e) {
       const status = e instanceof AppError ? e.statusCode : 500;

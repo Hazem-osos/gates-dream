@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/library';
 import prisma from '../../../shared/database/prisma';
 import { AppError } from '../../../shared/middleware/error-handler';
@@ -26,6 +27,8 @@ import {
   withFinishedReceiptAtIssueMetadata,
   withoutFinishedReceiptAtIssueMetadata,
 } from '../utils/production-order-finished-output';
+
+const MO_STOCK_MOVEMENT_TYPES = ['PROD_ISSUE', 'PROD_RECEIPT', 'PROD_RECEIPT_ADJUST'] as const;
 
 export interface CreateProductionOrderInput {
   orderNumber: string;
@@ -269,125 +272,95 @@ export class ProductionOrderService {
     });
   }
 
-  /**
-   * إلغاء إداري: الحالة CANCELLED فقط — بدون عكس قيود أو مخزون.
-   * لعكس التأثيرات: فك الإتمام / فك الأجور / فك صرف الخامات من القائمة.
-   */
-  async cancel(companyId: string, orderId: string) {
-    const order = await this.getById(companyId, orderId);
-    if (order.status === 'CANCELLED') {
-      throw new AppError(400, 'أمر التصنيع ملغي بالفعل');
-    }
-    return prisma.productionOrder.update({
-      where: { id: orderId },
-      data: { status: 'CANCELLED' },
-    });
-  }
-
-  /**
-   * إلغاء أمر منتهي: عكس مخزون + إلغاء قيود المصدر (ملغي وغير مرحّل).
-   * القيود تبقى مربوطة بأمر التصنيع — لا تعديل يدوي من قيد اليومية.
-   */
-  async cancelCompletedOrder(ctx: JournalPostingContext, companyId: string, orderId: string) {
-    const order = await this.getById(companyId, orderId);
-    if (order.status === 'CANCELLED') {
-      throw new AppError(400, 'أمر التصنيع ملغي بالفعل');
-    }
-    if (order.status !== 'COMPLETED') {
-      throw new AppError(422, 'إلغاء الأمر المتاح للأوامر المنتهية فقط');
-    }
-
-    const journalEntryIds = [
+  private moJournalEntryIds(order: {
+    completionJournalEntryId: string | null;
+    laborOverheadJournalEntryId: string | null;
+    materialsIssueJournalEntryId: string | null;
+    additionalCostsJournalEntryId: string | null;
+  }) {
+    return [
       order.completionJournalEntryId,
       order.laborOverheadJournalEntryId,
       order.materialsIssueJournalEntryId,
       order.additionalCostsJournalEntryId,
     ];
+  }
+
+  private async voidManufacturingStockForOrderInTx(
+    tx: Prisma.TransactionClient,
+    companyId: string,
+    order: { orderNumber: string; finishedItemId: string; sourceYearId: string | null }
+  ) {
+    await stockMovementService.voidSourceMovementsInTx(
+      tx,
+      companyId,
+      'MO',
+      order.orderNumber,
+      [...MO_STOCK_MOVEMENT_TYPES]
+    );
+    await itemCostService.removeCostHistoryBySourceInTx(tx, {
+      companyId,
+      itemId: order.finishedItemId,
+      sourceType: 'MO',
+      sourceNumber: order.orderNumber,
+      sourceYearId: order.sourceYearId ?? String(new Date().getUTCFullYear()),
+    });
+  }
+
+  private async cancelManufacturingJournalsInTx(
+    tx: Prisma.TransactionClient,
+    ctx: JournalPostingContext,
+    companyId: string,
+    orderId: string,
+    order: {
+      orderNumber: string;
+      completionJournalEntryId: string | null;
+      laborOverheadJournalEntryId: string | null;
+      materialsIssueJournalEntryId: string | null;
+      additionalCostsJournalEntryId: string | null;
+    }
+  ) {
+    await journalPostingService.cascadeSourceJournalInTx(
+      tx,
+      companyId,
+      this.moJournalEntryIds(order),
+      'cancel',
+      ctx.userId,
+      {
+        sourceId: orderId,
+        sourceType: 'MO',
+        sourceNumber: order.orderNumber,
+      }
+    );
+  }
+
+  /**
+   * إلغاء الأمر: ملغي + قيود ملغاة (بدون قيود عكسية) + إلغاء حركات المخزن الأصلية
+   * (بدون حركات إضافة عكسية). يظهر في السابق. الحذف النهائي يزيل السجل والقيود.
+   */
+  async cancel(ctx: JournalPostingContext, companyId: string, orderId: string) {
+    const order = await this.getById(companyId, orderId);
+    if (order.status === 'CANCELLED') {
+      throw new AppError(400, 'أمر التصنيع ملغي بالفعل');
+    }
+
+    const hasPostings = Boolean(
+      order.materialsIssueJournalEntryId ||
+        order.laborOverheadJournalEntryId ||
+        order.completionJournalEntryId
+    );
+
+    if (!hasPostings) {
+      return prisma.productionOrder.update({
+        where: { id: orderId },
+        data: { status: 'CANCELLED' },
+      });
+    }
 
     return prisma.$transaction(async (tx) => {
-      const receiptAtIssue = finishedReceiptAtIssueFromMetadata(order.processMetadata);
-      const qty = Number(order.actualQuantity ?? 0);
-      const baselineQty = receiptAtIssue?.quantity ?? qty;
-      const deltaFromComplete = roundTo4(qty - baselineQty);
-
-      if (Math.abs(deltaFromComplete) > 0.0001) {
-        await stockMovementService.postMovementInTx(tx, {
-          companyId,
-          branchId: ctx.branchId ?? undefined,
-          warehouseId: order.warehouseIdFinished,
-          itemId: order.finishedItemId,
-          quantityDelta: -deltaFromComplete,
-          unitCost: Number(order.unitCost ?? 0),
-          movementType: 'PROD_RECEIPT_REVERSAL',
-          sourceType: 'MO',
-          sourceNumber: order.orderNumber,
-          sourceYearId: order.sourceYearId ?? undefined,
-          documentDate: new Date(),
-        });
-        await itemCostService.removeCostHistoryBySourceInTx(tx, {
-          companyId,
-          itemId: order.finishedItemId,
-          sourceType: 'MO',
-          sourceNumber: order.orderNumber,
-          sourceYearId: order.sourceYearId ?? String(new Date().getUTCFullYear()),
-        });
-      }
-
-      for (const issue of order.materialIssues) {
-        for (const line of issue.lines) {
-          await stockMovementService.postMovementInTx(tx, {
-            companyId,
-            branchId: ctx.branchId ?? undefined,
-            warehouseId: order.warehouseIdRaw,
-            itemId: line.rawItemId,
-            quantityDelta: Number(line.quantity),
-            unitCost: Number(line.unitCost),
-            movementType: 'PROD_ISSUE_REVERSAL',
-            sourceType: 'MO',
-            sourceNumber: order.orderNumber,
-            sourceYearId: order.sourceYearId ?? undefined,
-            documentDate: new Date(),
-          });
-        }
-      }
-
-      if (receiptAtIssue && receiptAtIssue.quantity > 0) {
-        await stockMovementService.postMovementInTx(tx, {
-          companyId,
-          branchId: ctx.branchId ?? undefined,
-          warehouseId: order.warehouseIdFinished,
-          itemId: order.finishedItemId,
-          quantityDelta: -receiptAtIssue.quantity,
-          unitCost: receiptAtIssue.unitCost,
-          movementType: 'PROD_RECEIPT_REVERSAL',
-          sourceType: 'MO',
-          sourceNumber: order.orderNumber,
-          sourceYearId: order.sourceYearId ?? undefined,
-          documentDate: new Date(),
-        });
-        await itemCostService.removeCostHistoryBySourceInTx(tx, {
-          companyId,
-          itemId: order.finishedItemId,
-          sourceType: 'MO',
-          sourceNumber: order.orderNumber,
-          sourceYearId: order.sourceYearId ?? String(new Date().getUTCFullYear()),
-        });
-      }
-
+      await this.voidManufacturingStockForOrderInTx(tx, companyId, order);
       await tx.productionMaterialIssue.deleteMany({ where: { productionOrderId: orderId } });
-
-      await journalPostingService.cascadeSourceJournalInTx(
-        tx,
-        companyId,
-        journalEntryIds,
-        'cancel',
-        ctx.userId,
-        {
-          sourceId: orderId,
-          sourceType: 'MO',
-          sourceNumber: order.orderNumber,
-        }
-      );
+      await this.cancelManufacturingJournalsInTx(tx, ctx, companyId, orderId, order);
 
       return tx.productionOrder.update({
         where: { id: orderId },
@@ -409,6 +382,11 @@ export class ProductionOrderService {
     });
   }
 
+  /** Route alias — same as cancel() for completed / in-progress orders. */
+  async cancelCompletedOrder(ctx: JournalPostingContext, companyId: string, orderId: string) {
+    return this.cancel(ctx, companyId, orderId);
+  }
+
   /** حذف نهائي — غير متاح للأوامر المنتهية (استخدم الإلغاء). */
   async permanentDelete(ctx: JournalPostingContext, companyId: string, orderId: string) {
     const order = await this.getById(companyId, orderId);
@@ -416,17 +394,7 @@ export class ProductionOrderService {
       throw new AppError(422, 'لا يمكن حذف أمر منتهي — استخدم «إلغاء الأمر» من القائمة');
     }
     if (order.status !== 'CANCELLED') {
-      if (order.completionJournalEntryId) {
-        await this.unpostCompletion(ctx, orderId);
-      }
-      const mid = await this.getById(companyId, orderId);
-      if (mid.laborOverheadJournalEntryId) {
-        await this.unpostLaborOverhead(ctx, orderId);
-      }
-      const mid2 = await this.getById(companyId, orderId);
-      if (mid2.materialsIssueJournalEntryId) {
-        await this.unpostMaterialIssue(ctx, orderId);
-      }
+      await this.cancel(ctx, companyId, orderId);
     }
     await prisma.productionOrder.delete({ where: { id: orderId } });
     return { id: orderId, deleted: true as const };
@@ -494,6 +462,7 @@ export class ProductionOrderService {
           movementType: 'PROD_ISSUE',
           sourceType: 'MO',
           sourceNumber: order.orderNumber,
+          sourceDocumentId: orderId,
           sourceYearId: order.sourceYearId ?? undefined,
           documentDate: issueDate,
         });
@@ -568,6 +537,7 @@ export class ProductionOrderService {
           quantity: outputQty,
           unitCost: provisionalUnitCost,
           orderNumber: order.orderNumber,
+          productionOrderId: orderId,
           sourceYearId: order.sourceYearId ?? undefined,
           documentDate: issueDate,
         });
@@ -718,6 +688,7 @@ export class ProductionOrderService {
           quantity: actualQuantity,
           unitCost,
           orderNumber: order.orderNumber,
+          productionOrderId: orderId,
           sourceYearId: order.sourceYearId ?? undefined,
           documentDate: completionDate,
         });
@@ -731,6 +702,7 @@ export class ProductionOrderService {
             quantity: deltaQty,
             unitCost,
             orderNumber: order.orderNumber,
+            productionOrderId: orderId,
             sourceYearId: order.sourceYearId ?? undefined,
             documentDate: completionDate,
           });
@@ -745,6 +717,7 @@ export class ProductionOrderService {
             movementType: 'PROD_RECEIPT_ADJUST',
             sourceType: 'MO',
             sourceNumber: order.orderNumber,
+            sourceDocumentId: orderId,
             sourceYearId: order.sourceYearId ?? undefined,
             documentDate: completionDate,
           });
@@ -777,38 +750,29 @@ export class ProductionOrderService {
     }
     return prisma.$transaction(async (tx) => {
       if (order.completionJournalEntryId) {
-        await journalPostingService.reverseJournalEntryInTx(tx, ctx, order.completionJournalEntryId, {
-          reason: 'Production completion unposted',
-        });
+        await journalPostingService.cascadeSourceJournalInTx(
+          tx,
+          ctx.companyId,
+          [order.completionJournalEntryId],
+          'cancel',
+          ctx.userId,
+          {
+            sourceId: orderId,
+            sourceType: 'MO',
+            sourceNumber: order.orderNumber,
+          }
+        );
       }
+
+      await stockMovementService.voidSourceMovementsInTx(
+        tx,
+        ctx.companyId,
+        'MO',
+        order.orderNumber,
+        ['PROD_RECEIPT_ADJUST']
+      );
 
       const receiptAtIssue = finishedReceiptAtIssueFromMetadata(order.processMetadata);
-      const qty = Number(order.actualQuantity ?? 0);
-      const baselineQty = receiptAtIssue?.quantity ?? qty;
-      const deltaFromComplete = roundTo4(qty - baselineQty);
-
-      if (Math.abs(deltaFromComplete) > 0.0001) {
-        await stockMovementService.postMovementInTx(tx, {
-          companyId: ctx.companyId,
-          branchId: ctx.branchId ?? undefined,
-          warehouseId: order.warehouseIdFinished,
-          itemId: order.finishedItemId,
-          quantityDelta: -deltaFromComplete,
-          unitCost: Number(order.unitCost ?? 0),
-          movementType: 'PROD_RECEIPT_REVERSAL',
-          sourceType: 'MO',
-          sourceNumber: order.orderNumber,
-          sourceYearId: order.sourceYearId ?? undefined,
-          documentDate: new Date(),
-        });
-        await itemCostService.removeCostHistoryBySourceInTx(tx, {
-          companyId: ctx.companyId,
-          itemId: order.finishedItemId,
-          sourceType: 'MO',
-          sourceNumber: order.orderNumber,
-          sourceYearId: order.sourceYearId ?? String(new Date().getUTCFullYear()),
-        });
-      }
 
       return tx.productionOrder.update({
         where: { id: orderId },
@@ -840,9 +804,18 @@ export class ProductionOrderService {
     }
 
     return prisma.$transaction(async (tx) => {
-      await journalPostingService.reverseJournalEntryInTx(tx, ctx, order.laborOverheadJournalEntryId!, {
-        reason: 'Production labor/overhead unposted',
-      });
+      await journalPostingService.cascadeSourceJournalInTx(
+        tx,
+        ctx.companyId,
+        [order.laborOverheadJournalEntryId],
+        'cancel',
+        ctx.userId,
+        {
+          sourceId: orderId,
+          sourceType: 'MO',
+          sourceNumber: order.orderNumber,
+        }
+      );
 
       return tx.productionOrder.update({
         where: { id: orderId },
@@ -865,51 +838,33 @@ export class ProductionOrderService {
     }
 
     return prisma.$transaction(async (tx) => {
-      await journalPostingService.reverseJournalEntryInTx(tx, ctx, order.materialsIssueJournalEntryId!, {
-        reason: 'Production material issue unposted',
-      });
-
-      for (const issue of order.materialIssues) {
-        for (const line of issue.lines) {
-          await stockMovementService.postMovementInTx(tx, {
-            companyId: ctx.companyId,
-            branchId: ctx.branchId ?? undefined,
-            warehouseId: order.warehouseIdRaw,
-            itemId: line.rawItemId,
-            quantityDelta: Number(line.quantity),
-            unitCost: Number(line.unitCost),
-            movementType: 'PROD_ISSUE_REVERSAL',
-            sourceType: 'MO',
-            sourceNumber: order.orderNumber,
-            sourceYearId: order.sourceYearId ?? undefined,
-            documentDate: new Date(),
-          });
+      await journalPostingService.cascadeSourceJournalInTx(
+        tx,
+        ctx.companyId,
+        [order.materialsIssueJournalEntryId, order.additionalCostsJournalEntryId],
+        'cancel',
+        ctx.userId,
+        {
+          sourceId: orderId,
+          sourceType: 'MO',
+          sourceNumber: order.orderNumber,
         }
-      }
+      );
 
-      const receiptAtIssue = finishedReceiptAtIssueFromMetadata(order.processMetadata);
-      if (receiptAtIssue && receiptAtIssue.quantity > 0) {
-        await stockMovementService.postMovementInTx(tx, {
-          companyId: ctx.companyId,
-          branchId: ctx.branchId ?? undefined,
-          warehouseId: order.warehouseIdFinished,
-          itemId: order.finishedItemId,
-          quantityDelta: -receiptAtIssue.quantity,
-          unitCost: receiptAtIssue.unitCost,
-          movementType: 'PROD_RECEIPT_REVERSAL',
-          sourceType: 'MO',
-          sourceNumber: order.orderNumber,
-          sourceYearId: order.sourceYearId ?? undefined,
-          documentDate: new Date(),
-        });
-        await itemCostService.removeCostHistoryBySourceInTx(tx, {
-          companyId: ctx.companyId,
-          itemId: order.finishedItemId,
-          sourceType: 'MO',
-          sourceNumber: order.orderNumber,
-          sourceYearId: order.sourceYearId ?? String(new Date().getUTCFullYear()),
-        });
-      }
+      await stockMovementService.voidSourceMovementsInTx(
+        tx,
+        ctx.companyId,
+        'MO',
+        order.orderNumber,
+        ['PROD_ISSUE', 'PROD_RECEIPT']
+      );
+      await itemCostService.removeCostHistoryBySourceInTx(tx, {
+        companyId: ctx.companyId,
+        itemId: order.finishedItemId,
+        sourceType: 'MO',
+        sourceNumber: order.orderNumber,
+        sourceYearId: order.sourceYearId ?? String(new Date().getUTCFullYear()),
+      });
 
       await tx.productionMaterialIssue.deleteMany({ where: { productionOrderId: orderId } });
 

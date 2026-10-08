@@ -285,7 +285,7 @@ function ManufacturingOperationPageInner() {
     const filtered = boms.filter((b) => allowed.has(b.id));
     return filtered.length > 0 ? filtered : boms;
   }, [boms, manufacturingWorkOrderId, linkedWorkOrderRes?.data]);
-  const previousOrders = (ordersResponse?.data ?? []).filter((o) => o.status !== 'CANCELLED');
+  const previousOrders = ordersResponse?.data ?? [];
   const workOrdersForPick = useMemo(
     () =>
       (workOrdersResponse?.data ?? []).filter((w) =>
@@ -1292,7 +1292,7 @@ function ManufacturingOperationPageInner() {
     if (!order?.id || order.status === 'CANCELLED') return;
     const ok = await confirmAction({
       message:
-        'إلغاء أمر التصنيع ووسمه «ملغي» فقط — القيود المحاسبية وحركات المخزون تبقى كما هي. لعكس التأثيرات استخدم «فك صرف الخامات» أو «فك إتمام التصنيع» من القائمة أولاً إن لزم. متابعة؟',
+        'إلغاء أمر التصنيع: الحالة «ملغي»، إلغاء القيود المرتبطة (بدون قيود عكسية)، وإلغاء حركات المخزن الأصلية (بدون حركات إضافة عكسية). يبقى الأمر في السابق. الحذف النهائي يزيل السجل. متابعة؟',
       confirmLabel: 'إلغاء الأمر',
       tone: 'danger',
     });
@@ -1302,7 +1302,7 @@ function ManufacturingOperationPageInner() {
     try {
       const res = await apiClient.post<ProductionOrder>(`/manufacturing/orders/${order.id}/cancel`);
       setOrder(res.data);
-      setSuccess('تم إلغاء أمر التصنيع — التأثيرات المحاسبية والمخزنية لم تُعكَس');
+      setSuccess('تم إلغاء أمر التصنيع — القيود ملغاة ويظهر الأمر في السابق');
       lockToView();
       invalidateQuery(['manufacturing-orders']);
       if (manufacturingWorkOrderId) {
@@ -1320,8 +1320,8 @@ function ManufacturingOperationPageInner() {
     if (!order?.id || !order.materialsIssueJournalEntryId) return;
     const ok = await confirmAction({
       message:
-        'فك صرف الخامات: عكس قيد الصرف وحركات المخزن وإرجاع الأمر إلى «تم التأكيد». بعدها يمكن تعديل الخامات والكميات ثم إعادة «بدء التنفيذ».',
-      confirmLabel: 'فك صرف الخامات',
+        'إلغاء صرف الخامات: إلغاء قيد الصرف وحركات الصرف/استلام المنتج (بدون حركات مخزنية عكسية) وإرجاع الأمر إلى «تم التأكيد». بعدها يمكن التعديل ثم «بدء التنفيذ» من جديد.',
+      confirmLabel: 'إلغاء صرف الخامات',
       tone: 'danger',
     });
     if (!ok) return;
@@ -1332,7 +1332,7 @@ function ManufacturingOperationPageInner() {
         `/manufacturing/orders/${order.id}/unpost-materials`
       );
       setOrder(res.data);
-      setSuccess('تم فك صرف الخامات — يمكنك التعديل ثم بدء التنفيذ من جديد');
+      setSuccess('تم إلغاء صرف الخامات — يمكنك التعديل ثم بدء التنفيذ من جديد');
       unlockForEdit();
       invalidateQuery(['manufacturing-orders']);
     } catch (err) {
@@ -1370,7 +1370,7 @@ function ManufacturingOperationPageInner() {
     if (!order?.id || order.status !== 'COMPLETED') return;
     const ok = await confirmAction({
       message:
-        'إرجاع الأمر إلى «قيد التنفيذ» مع عكس قيد الإتمام وحركة استلام المنتج التام. متابعة؟',
+        'إرجاع الأمر إلى «قيد التنفيذ» مع إلغاء قيد الإتمام (بدون حركات مخزنية عكسية). متابعة؟',
       confirmLabel: 'ارجع إلى قيد التنفيذ',
     });
     if (!ok) return;
@@ -1562,7 +1562,7 @@ function ManufacturingOperationPageInner() {
             ? [
                 {
                   id: 'unpost-materials',
-                  label: 'فك صرف الخامات',
+                  label: 'إلغاء صرف الخامات',
                   onClick: () => void handleUnpostMaterials(),
                   disabled: busy,
                 },
@@ -1623,7 +1623,7 @@ function ManufacturingOperationPageInner() {
               <li>أجور ومصاريف: {order.laborOverheadJournalEntryId.slice(0, 8)}…</li>
             ) : null}
             <li>
-              لتعديل الخامات أو الكميات: القائمة (⋯) → «فك صرف الخامات» (يُلغى القيد ويُعاد المخزن) ثم عدّل
+              لتعديل الخامات أو الكميات: القائمة (⋯) → «إلغاء صرف الخامات» ثم عدّل
               وأعد «بدء التنفيذ».
             </li>
             <li>

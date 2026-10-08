@@ -449,6 +449,57 @@ export class StockMovementService {
       pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
     };
   }
+
+  /**
+   * Void posted movements for a source document without creating reversal rows.
+   * Adjusts warehouse balances and deletes the original ledger lines.
+   */
+  async voidSourceMovementsInTx(
+    tx: Prisma.TransactionClient,
+    companyId: string,
+    sourceType: string,
+    sourceNumber: string,
+    movementTypes: string[]
+  ): Promise<void> {
+    if (!movementTypes.length) return;
+    const movements = await tx.inventoryMovement.findMany({
+      where: {
+        companyId,
+        sourceType,
+        sourceNumber,
+        movementType: { in: movementTypes },
+      },
+    });
+    const touched = new Map<string, { itemId: string; warehouseId: string; locationId: string | null }>();
+    for (const movement of movements) {
+      const delta = movement.quantityDelta.toNumber();
+      if (delta !== 0) {
+        await lockWarehouseBalanceInTx(tx, companyId, movement.itemId, movement.warehouseId);
+        await adjustStockInTx(tx, {
+          companyId,
+          itemId: movement.itemId,
+          warehouseId: movement.warehouseId,
+          deltaQty: -delta,
+        });
+      }
+      const key = `${movement.itemId}\0${movement.warehouseId}\0${movement.locationId ?? ''}`;
+      touched.set(key, {
+        itemId: movement.itemId,
+        warehouseId: movement.warehouseId,
+        locationId: movement.locationId,
+      });
+      await tx.inventoryMovement.delete({ where: { id: movement.id } });
+    }
+    for (const row of touched.values()) {
+      await reconcileWarehouseQuantityTripleInTx(
+        tx,
+        companyId,
+        row.itemId,
+        row.warehouseId,
+        row.locationId
+      );
+    }
+  }
 }
 
 export const stockMovementService = new StockMovementService();
