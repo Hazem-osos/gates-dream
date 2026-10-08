@@ -287,7 +287,7 @@ export function ManufacturingMovementsReportResults({
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((row) => {
+                  {rows.map((row, rowIndex) => {
                     const open = expandedIds.has(row.id);
                     return (
                       <Fragment key={row.id}>
@@ -317,7 +317,7 @@ export function ManufacturingMovementsReportResults({
                           {columns.map((col) => (
                             <td key={col.id} className={mfgTdClass}>
                               {col.cell
-                                ? col.cell(row)
+                                ? col.cell(row, rowIndex)
                                 : col.accessor != null
                                   ? String((row as Record<string, unknown>)[col.accessor as string] ?? '')
                                   : ''}
