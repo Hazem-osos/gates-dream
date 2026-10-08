@@ -129,6 +129,24 @@ export function currentAppTabHref(): string {
   return search ? `${path}?${search}` : path;
 }
 
+type AppRouterLike = { push: (href: string, options?: { scroll?: boolean }) => void };
+
+/**
+ * Client navigate with a hard fallback when App Router soft navigation stalls
+ * (tabs update but pathname never changes).
+ */
+export function pushAppRoute(router: AppRouterLike, dest: string, opts?: { fallbackMs?: number }) {
+  const target = resolveAppTabHref(dest);
+  router.push(target, { scroll: false });
+  if (typeof window === 'undefined') return;
+  const ms = opts?.fallbackMs ?? 280;
+  window.setTimeout(() => {
+    if (resolveAppTabHref(currentAppTabHref()) !== target) {
+      window.location.assign(target);
+    }
+  }, ms);
+}
+
 /** Pin the page you are leaving, then go to the destination as given. */
 export function destinationAppTabHref(href: string): string {
   probeCount('destinationAppTabHref', { href });

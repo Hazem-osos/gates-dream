@@ -16,6 +16,8 @@ import {
   getAppModulePath,
 } from '@/lib/navigation/app-modules';
 import { useInstantPrefetch } from '@/lib/hooks/useInstantPrefetch';
+import { flushPageDrafts } from '@/lib/drafts/page-drafts';
+import { pinCurrentWindowHref, pushAppRoute } from '@/lib/navigation/tab-memory';
 import { useI18n } from '@/lib/i18n';
 
 interface NavbarProps {
@@ -86,7 +88,9 @@ export default function Navbar({ rightSidebarOpen = false, setRightSidebarOpen, 
     setSelectedSection(sectionKey);
     const path = getAppModulePath(sectionKey);
     if (path) {
-      router.push(path);
+      flushPageDrafts();
+      pinCurrentWindowHref();
+      pushAppRoute(router, path);
       setShowMenuRow?.(false);
       return;
     }

@@ -22,6 +22,7 @@ import {
   rememberFreshPage,
   currentAppTabHref,
   migrateTabHref,
+  pushAppRoute,
   resolveAppTabHref,
   splitTabHref,
   type PersistedAppTab,
@@ -155,12 +156,9 @@ export function AppTabsProvider({ children }: { children: ReactNode }) {
         if (current.href === dest) return prev;
         return prev.map((tab, i) => (i === index ? { ...tab, href: dest } : tab));
       });
-      const current = typeof window !== 'undefined' ? currentAppTabHref() : '';
-      if (dest !== current) {
-        probeCount('router.push');
-        probeNavUrl(current, dest);
-        router.push(dest, { scroll: false });
-      }
+      probeCount('router.push');
+      probeNavUrl(typeof window !== 'undefined' ? currentAppTabHref() : '', dest);
+      pushAppRoute(router, dest);
     },
     [router]
   );
@@ -169,7 +167,7 @@ export function AppTabsProvider({ children }: { children: ReactNode }) {
     (href: string) => {
       probeCount('openAppTab', { href });
       flushPageDrafts();
-      pinCurrentTab();
+      pinCurrentWindowHref();
       const dest = resolveAppTabHref(href);
       const path = splitTabHref(dest).path;
       const fresh = dest === path;
@@ -184,26 +182,27 @@ export function AppTabsProvider({ children }: { children: ReactNode }) {
       }, 1600);
       probeCount('router.push');
       probeNavUrl(`${window.location.pathname}${window.location.search}`, dest);
-      router.push(dest);
+      pushAppRoute(router, dest);
     },
-    [pinCurrentTab, remountPage, router, upsertTab]
+    [remountPage, router, upsertTab]
   );
 
   const openFreshPage = useCallback(
     (href: string) => {
       probeCount('openFreshPage', { href });
       flushPageDrafts();
-      pinCurrentTab();
+      pinCurrentWindowHref();
       const dest = resolveAppTabHref(href);
       const path = splitTabHref(dest).path;
-      rememberFreshPage(path);
-      remountPage(path);
-      upsertTab(dest, { fresh: true });
+      if (dest === path) {
+        rememberFreshPage(path);
+        remountPage(path);
+      }
       probeCount('router.push');
       probeNavUrl(`${window.location.pathname}${window.location.search}`, dest);
-      router.push(dest);
+      pushAppRoute(router, dest);
     },
-    [pinCurrentTab, remountPage, router, upsertTab]
+    [remountPage, router]
   );
 
   useEffect(() => {
