@@ -53,6 +53,7 @@ function toTab(input: string): AppTab {
 export function AppTabsProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const searchString = searchParams.toString();
   const router = useRouter();
   const [tabs, setTabs] = useState<AppTab[]>([]);
   const [justOpenedPath, setJustOpenedPath] = useState<string | null>(null);
@@ -127,23 +128,14 @@ export function AppTabsProvider({ children }: { children: ReactNode }) {
     upsertTab(`${window.location.pathname}${window.location.search}`);
   }, [upsertTab]);
 
-  const remountPage = useCallback((path: string) => {
-    setFreshNonceByPath((prev) => ({ ...prev, [path]: (prev[path] ?? 0) + 1 }));
-  }, []);
-
   const openAppTab = useCallback(
     (href: string) => {
       probeCount('openAppTab', { href });
       flushPageDrafts();
-      pinCurrentTab();
+      pinCurrentWindowHref();
       const dest = resolveAppTabHref(href);
       const path = splitTabHref(dest).path;
-      const fresh = dest === path;
-      if (fresh) {
-        rememberFreshPage(path);
-        remountPage(path);
-      }
-      upsertTab(dest, { fresh });
+      if (dest === path) rememberFreshPage(path);
       setJustOpenedPath(path);
       window.setTimeout(() => {
         setJustOpenedPath((current) => (current === path ? null : current));
@@ -152,24 +144,22 @@ export function AppTabsProvider({ children }: { children: ReactNode }) {
       probeNavUrl(`${window.location.pathname}${window.location.search}`, dest);
       router.push(dest);
     },
-    [pinCurrentTab, remountPage, router, upsertTab]
+    [router]
   );
 
   const openFreshPage = useCallback(
     (href: string) => {
       probeCount('openFreshPage', { href });
       flushPageDrafts();
-      pinCurrentTab();
+      pinCurrentWindowHref();
       const dest = resolveAppTabHref(href);
       const path = splitTabHref(dest).path;
       rememberFreshPage(path);
-      remountPage(path);
-      upsertTab(dest, { fresh: true });
       probeCount('router.push');
       probeNavUrl(`${window.location.pathname}${window.location.search}`, dest);
       router.push(dest);
     },
-    [pinCurrentTab, remountPage, router, upsertTab]
+    [router]
   );
 
   useEffect(() => {
@@ -178,15 +168,15 @@ export function AppTabsProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!pathname) return;
-    const search = searchParams.toString();
-    const href = search ? `${normalizeAppPath(pathname)}?${search}` : pathname;
+    const path = normalizeAppPath(pathname);
+    const href = searchString ? `${path}?${searchString}` : path;
     upsertTab(href);
-    const label = resolveTabLabel(normalizeAppPath(pathname));
+    const label = resolveTabLabel(path);
     document.title = `${label} | GATES`;
     return () => {
       pinCurrentWindowHref();
     };
-  }, [pathname, searchParams, upsertTab]);
+  }, [pathname, searchString, upsertTab]);
 
   const value = useMemo(
     () => ({

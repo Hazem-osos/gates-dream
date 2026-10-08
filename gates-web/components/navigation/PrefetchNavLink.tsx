@@ -29,10 +29,10 @@ export function PrefetchNavLink({
     if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0) {
       return;
     }
+    flushPageDrafts();
     if (!tabs) return;
 
     event.preventDefault();
-    flushPageDrafts();
     tabs.openFreshPage(href);
   };
 

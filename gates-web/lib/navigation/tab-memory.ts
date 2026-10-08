@@ -130,9 +130,15 @@ export function loadOpenTabs(): PersistedAppTab[] {
     if (!raw) return [];
     const parsed = JSON.parse(raw) as PersistedAppTab[];
     if (!Array.isArray(parsed)) return [];
-    return parsed.filter(
+    const filtered = parsed.filter(
       (tab) => tab && typeof tab.path === 'string' && typeof tab.href === 'string'
     );
+    const byPath = new Map<string, PersistedAppTab>();
+    for (const tab of filtered) {
+      const path = normalizeAppPath(tab.path);
+      if (!byPath.has(path)) byPath.set(path, { ...tab, path });
+    }
+    return [...byPath.values()];
   } catch {
     return [];
   }
