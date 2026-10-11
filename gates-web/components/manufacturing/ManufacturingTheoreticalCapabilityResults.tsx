@@ -42,7 +42,7 @@ export function ManufacturingTheoreticalCapabilityResults({
   const { data: response, isLoading, isError } = useApiQuery<ReportRow[]>(
     ['mfg-theoretical-capability', query],
     '/manufacturing/reports/theoretical-capability',
-    { ...query, limit: '500' }
+    { ...query, limit: 500 }
   );
 
   const rows = response?.data ?? [];
