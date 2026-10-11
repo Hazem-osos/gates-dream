@@ -235,6 +235,7 @@ router.get(
         fromDate,
         toDate,
         status: (req.query.status as string) || undefined,
+        showCancelled: req.query.showCancelled === 'true',
         bomId: (req.query.bomId as string) || undefined,
         warehouseIdRaw: (req.query.warehouseIdRaw as string) || undefined,
         warehouseIdFinished: (req.query.warehouseIdFinished as string) || undefined,
@@ -276,6 +277,7 @@ router.get(
       const filters = {
         companyId,
         warehouseId: req.query.warehouseId as string | undefined,
+        itemId: (req.query.itemId as string) || (req.query.rawItemId as string) || undefined,
         branchId: req.query.branchId as string | undefined,
       };
 
@@ -324,6 +326,8 @@ router.get(
         toDate,
         invoiceNumber: (req.query.invoiceNumber as string) || undefined,
         customerId: (req.query.customerId as string) || undefined,
+        itemId: (req.query.itemId as string) || undefined,
+        warehouseId: (req.query.warehouseId as string) || undefined,
       });
       return void res.json({ status: 'success', data: result.data, summary: result.summary });
     } catch (error) {

@@ -244,109 +244,17 @@ export class ManufacturingReportsService {
     options: ManufacturingReportOptions = {}
   ): Promise<ManufacturingReportResult> {
     try {
-      const { companyId, warehouseId } = filters;
-      const { page = 1, limit = 100 } = options;
-
-      const assemblies = await prisma.assembly.findMany({
-        where: {
-          companyId,
-          isPosted: true,
-          isCancelled: false,
-          ...(warehouseId ? { warehouseId } : {}),
+      const { getTheoreticalCapabilityReport } = await import(
+        './theoretical-capability-report.service'
+      );
+      return getTheoreticalCapabilityReport(
+        {
+          companyId: filters.companyId,
+          warehouseId: filters.warehouseId,
+          itemId: filters.itemId,
         },
-        include: {
-          lines: {
-            include: {
-              assembledItem: {
-                select: {
-                  id: true,
-                  serial: true,
-                  arabicName: true,
-                },
-              },
-            },
-          },
-        },
-      });
-
-      const bomByItem = await this.loadBomStandardsByFinishedItem(companyId);
-
-      const itemCapability = new Map<string, any>();
-
-      assemblies.forEach((assembly) => {
-        assembly.lines.forEach((line) => {
-          const lineItemId = line.assembledItemId;
-          if (!itemCapability.has(lineItemId)) {
-            itemCapability.set(lineItemId, {
-              itemId: lineItemId,
-              itemName: line.assembledItem?.arabicName,
-              itemCode: line.assembledItem?.serial,
-              totalProduced: 0,
-              productionCount: 0,
-              averageProduction: 0,
-              theoreticalCapacity: 0,
-            });
-          }
-
-          const capability = itemCapability.get(lineItemId);
-          capability.totalProduced += Number(line.assembledQuantity || 0);
-          capability.productionCount += 1;
-        });
-      });
-
-      // Also surface finished items that have a BOM but no assembly history yet
-      const missingBomItemIds = [...bomByItem.keys()].filter((id) => !itemCapability.has(id));
-      if (missingBomItemIds.length > 0) {
-        const items = await prisma.item.findMany({
-          where: { companyId, id: { in: missingBomItemIds } },
-          select: { id: true, serial: true, arabicName: true },
-        });
-        for (const item of items) {
-          const bom = bomByItem.get(item.id);
-          itemCapability.set(item.id, {
-            itemId: item.id,
-            itemName: item.arabicName,
-            itemCode: item.serial,
-            totalProduced: 0,
-            productionCount: 0,
-            averageProduction: 0,
-            theoreticalCapacity: bom?.baseQuantity ?? 0,
-          });
-        }
-      }
-
-      const capabilityData = Array.from(itemCapability.values()).map((cap) => {
-        cap.averageProduction =
-          cap.productionCount > 0 ? cap.totalProduced / cap.productionCount : 0;
-        const bom = bomByItem.get(cap.itemId);
-        // BOM base quantity = theoretical capacity; otherwise actual average (variance 0)
-        cap.theoreticalCapacity = bom ? bom.baseQuantity : cap.averageProduction;
-        cap.utilizationPercent =
-          cap.theoreticalCapacity > 0
-            ? (cap.averageProduction / cap.theoreticalCapacity) * 100
-            : 0;
-        return cap;
-      });
-
-      const skip = (page - 1) * limit;
-      const paginatedData = capabilityData.slice(skip, skip + limit);
-
-      return {
-        data: paginatedData,
-        summary: {
-          totalItems: capabilityData.length,
-          totalProduced: capabilityData.reduce((sum, c) => sum + c.totalProduced, 0),
-          averageUtilization: capabilityData.length > 0
-            ? capabilityData.reduce((sum, c) => sum + c.utilizationPercent, 0) / capabilityData.length
-            : 0,
-        },
-        pagination: {
-          page,
-          limit,
-          total: capabilityData.length,
-          totalPages: Math.ceil(capabilityData.length / limit),
-        },
-      };
+        { page: options.page, limit: options.limit }
+      );
     } catch (error) {
       logger.error({ error, filters, options }, 'Error generating theoretical capability report');
       throw error;

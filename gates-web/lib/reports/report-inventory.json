@@ -1887,30 +1887,6 @@
       "status": "active"
     },
     {
-      "rel": "manufacturing/reports/invoice-variance",
-      "urlPath": "/manufacturing/reports/invoice-variance",
-      "kind": "filter",
-      "module": "manufacturing",
-      "reportKey": "invoice-variance",
-      "titleAr": "إنحراف فواتير التصنيع",
-      "previewPath": "/manufacturing/reports/invoice-variance/preview",
-      "filterPath": "/manufacturing/reports/invoice-variance",
-      "hasPreviewPair": true,
-      "status": "active"
-    },
-    {
-      "rel": "manufacturing/reports/invoice-variance/preview",
-      "urlPath": "/manufacturing/reports/invoice-variance/preview",
-      "kind": "preview",
-      "module": "manufacturing",
-      "reportKey": "invoice-variance",
-      "titleAr": "إنحراف فواتير التصنيع",
-      "previewPath": "/manufacturing/reports/invoice-variance/preview",
-      "filterPath": "/manufacturing/reports/invoice-variance",
-      "hasPreviewPair": true,
-      "status": "active"
-    },
-    {
       "rel": "manufacturing/reports/manufacturing-movements",
       "urlPath": "/manufacturing/reports/manufacturing-movements",
       "kind": "filter",

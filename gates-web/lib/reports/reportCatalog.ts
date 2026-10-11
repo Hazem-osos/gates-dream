@@ -1747,28 +1747,6 @@ const GENERATED: ReportCatalogEntry[] = [
     "filterPath": "/manufacturing/reports/cost-variance"
   },
   {
-    "urlPath": "/manufacturing/reports/invoice-variance",
-    "registryPath": "manufacturing/reports/invoice-variance",
-    "reportKey": "invoice-variance",
-    "titleAr": "إنحراف فواتير التصنيع",
-    "module": "manufacturing",
-    "kind": "filter",
-    "status": "active",
-    "previewPath": "/manufacturing/reports/invoice-variance/preview",
-    "filterPath": "/manufacturing/reports/invoice-variance"
-  },
-  {
-    "urlPath": "/manufacturing/reports/invoice-variance/preview",
-    "registryPath": "manufacturing/reports/invoice-variance",
-    "reportKey": "invoice-variance",
-    "titleAr": "إنحراف فواتير التصنيع",
-    "module": "manufacturing",
-    "kind": "preview",
-    "status": "active",
-    "previewPath": "/manufacturing/reports/invoice-variance/preview",
-    "filterPath": "/manufacturing/reports/invoice-variance"
-  },
-  {
     "urlPath": "/manufacturing/reports/manufacturing-movements",
     "registryPath": "manufacturing/reports/manufacturing-movements",
     "reportKey": "manufacturing-movements",
@@ -4344,28 +4322,6 @@ export const REPORT_CATALOG_BY_URL: Record<string, ReportCatalogEntry> = {
     "status": "active",
     "previewPath": "/manufacturing/reports/cost-variance/preview",
     "filterPath": "/manufacturing/reports/cost-variance"
-  },
-  "/manufacturing/reports/invoice-variance": {
-    "urlPath": "/manufacturing/reports/invoice-variance",
-    "registryPath": "manufacturing/reports/invoice-variance",
-    "reportKey": "invoice-variance",
-    "titleAr": "إنحراف فواتير التصنيع",
-    "module": "manufacturing",
-    "kind": "filter",
-    "status": "active",
-    "previewPath": "/manufacturing/reports/invoice-variance/preview",
-    "filterPath": "/manufacturing/reports/invoice-variance"
-  },
-  "/manufacturing/reports/invoice-variance/preview": {
-    "urlPath": "/manufacturing/reports/invoice-variance/preview",
-    "registryPath": "manufacturing/reports/invoice-variance",
-    "reportKey": "invoice-variance",
-    "titleAr": "إنحراف فواتير التصنيع",
-    "module": "manufacturing",
-    "kind": "preview",
-    "status": "active",
-    "previewPath": "/manufacturing/reports/invoice-variance/preview",
-    "filterPath": "/manufacturing/reports/invoice-variance"
   },
   "/manufacturing/reports/manufacturing-movements": {
     "urlPath": "/manufacturing/reports/manufacturing-movements",

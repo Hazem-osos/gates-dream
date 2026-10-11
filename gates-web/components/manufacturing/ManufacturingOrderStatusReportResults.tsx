@@ -31,6 +31,7 @@ type ReportRow = {
   materialsPosted: boolean;
   completionPosted: boolean;
   createdAt: string;
+  updatedAt: string;
   completedAt: string | null;
 };
 
@@ -49,10 +50,19 @@ function toneForStatus(status: string) {
   return 'warning' as const;
 }
 
+function formatReportDate(iso: string | null | undefined) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleDateString('ar-EG');
+}
+
 export function ManufacturingOrderStatusReportResults({
   query,
+  showCancelledSummary = false,
 }: {
   query: Record<string, string>;
+  showCancelledSummary?: boolean;
 }) {
   const { data: response, isLoading, isError } = useApiQuery<ReportRow[]>(
     ['manufacturing-order-status-report', query],
@@ -78,7 +88,9 @@ export function ManufacturingOrderStatusReportResults({
           <MfgMetric label="تم التأكيد" value={summary.confirmed} tone="warn" />
           <MfgMetric label="قيد التنفيذ" value={summary.inProgress} />
           <MfgMetric label="منتهي" value={summary.completed} tone="ok" />
-          <MfgMetric label="ملغي" value={summary.cancelled} tone="bad" />
+          {showCancelledSummary ? (
+            <MfgMetric label="ملغي" value={summary.cancelled} tone="bad" />
+          ) : null}
         </div>
       ) : null}
 
@@ -96,14 +108,15 @@ export function ManufacturingOrderStatusReportResults({
               <th className={mfgThClass}>مخزن النهائي</th>
               <th className={mfgThClass}>المرحلة</th>
               <th className={mfgThClass}>صرف خامات</th>
-              <th className={mfgThClass}>إنهاء</th>
+              <th className={mfgThClass}>إنهاء التصنيع</th>
+              <th className={mfgThClass}>انتهاء الإلغاء</th>
               <th className={mfgThClass}>فتح</th>
             </tr>
           </thead>
           <tbody>
             {rows.length === 0 ? (
               <tr>
-                <td colSpan={12} className="px-4 py-10 text-center text-sm text-slate-500">
+                <td colSpan={13} className="px-4 py-10 text-center text-sm text-slate-500">
                   لا توجد أوامر مطابقة للمرشحات
                 </td>
               </tr>
@@ -129,7 +142,12 @@ export function ManufacturingOrderStatusReportResults({
                   <td className={mfgTdClass}>{row.warehouseFinishedName || '—'}</td>
                   <td className={mfgTdClass}>{row.stage || '—'}</td>
                   <td className={mfgTdClass}>{row.materialsPosted ? 'نعم' : '—'}</td>
-                  <td className={mfgTdClass}>{row.completionPosted ? 'نعم' : '—'}</td>
+                  <td className={mfgTdClass}>
+                    {row.status === 'CANCELLED' ? '—' : row.completionPosted ? 'نعم' : '—'}
+                  </td>
+                  <td className={mfgTdClass}>
+                    {row.status === 'CANCELLED' ? formatReportDate(row.updatedAt) : '—'}
+                  </td>
                   <td className={mfgTdClass}>
                     <Link
                       href={`/manufacturing/operations/operation?orderId=${row.id}`}

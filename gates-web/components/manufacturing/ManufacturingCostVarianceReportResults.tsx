@@ -108,16 +108,93 @@ function OperationDetailsTable({ operations }: { operations: CostVarianceOperati
   );
 }
 
+function ItemVarianceSection({
+  title,
+  lines,
+  isLoading,
+  selectedKey,
+  onSelectKey,
+  exportFileName,
+  emptyTitle,
+  detailTitle,
+}: {
+  title: string;
+  lines: CostVarianceItemLine[];
+  isLoading: boolean;
+  selectedKey: string | null;
+  onSelectKey: (key: string | null) => void;
+  exportFileName: string;
+  emptyTitle: string;
+  detailTitle: string;
+}) {
+  const itemColumns: AppTableColumn<CostVarianceItemLine>[] = useMemo(
+    () => [
+      { id: 'itemCode', header: 'رقم الصنف', accessor: 'itemCode' },
+      { id: 'itemName', header: 'اسم الصنف', accessor: 'itemName' },
+      { id: 'unit', header: 'الوحدة', accessor: 'unit' },
+      { id: 'standardQuantity', header: 'الكمية المعيارية', accessor: 'standardQuantity', numeric: true, align: 'end' },
+      { id: 'actualQuantity', header: 'الكمية الفعلية', accessor: 'actualQuantity', numeric: true, align: 'end' },
+      { id: 'quantityVariance', header: 'انحراف الكميات', accessor: 'quantityVariance', numeric: true, align: 'end' },
+      { id: 'totalPrice', header: 'اجمالي السعر', accessor: 'totalPrice', numeric: true, align: 'end' },
+      { id: 'variancePercent', header: 'نسبة الانحراف', accessor: 'variancePercent', numeric: true, align: 'end' },
+    ],
+    []
+  );
+
+  return (
+    <div className="space-y-4">
+      <MfgTableCard title={title}>
+        <AppTable
+          columns={itemColumns}
+          data={lines}
+          isLoading={isLoading}
+          getRowKey={(row) => row.lineKey}
+          onRowClick={(row) => onSelectKey(selectedKey === row.lineKey ? null : row.lineKey)}
+          rowClassName={(row) => cn(selectedKey === row.lineKey && 'bg-[#E8F4FA]')}
+          exportFileName={exportFileName}
+          emptyTitle={emptyTitle}
+        />
+        {lines.length > 0 ? (
+          <div className="grid grid-cols-2 gap-px border-t border-[#D6EAF3] bg-[#EEF5F9] sm:grid-cols-6">
+            <div className={cn(mfgTdClass, 'bg-[#E8F4FA] font-bold')}>الإجماليات</div>
+            <div className={cn(mfgTdClass, 'bg-white tabular-nums font-semibold')}>
+              {fmt(lines.reduce((s, r) => s + r.standardQuantity, 0), 2)}
+            </div>
+            <div className={cn(mfgTdClass, 'bg-white tabular-nums font-semibold')}>
+              {fmt(lines.reduce((s, r) => s + r.actualQuantity, 0), 2)}
+            </div>
+            <div className={cn(mfgTdClass, 'bg-white tabular-nums font-semibold text-rose-700')}>
+              {fmt(lines.reduce((s, r) => s + r.quantityVariance, 0))}
+            </div>
+            <div className={cn(mfgTdClass, 'bg-white tabular-nums font-semibold text-rose-700')}>
+              {fmt(lines.reduce((s, r) => s + r.totalPrice, 0))}
+            </div>
+            <div className={cn(mfgTdClass, 'bg-white')} />
+          </div>
+        ) : null}
+      </MfgTableCard>
+      {selectedKey ? (
+        <MfgTableCard title={detailTitle}>
+          <OperationDetailsTable operations={lines.find((l) => l.lineKey === selectedKey)?.operations ?? []} />
+        </MfgTableCard>
+      ) : null}
+    </div>
+  );
+}
+
 export function ManufacturingCostVarianceReportResults({
   query,
-  showItems,
+  showManufactured,
+  showRaw,
   showAdditional,
 }: {
   query: Record<string, string>;
-  showItems: boolean;
+  showManufactured: boolean;
+  showRaw: boolean;
   showAdditional: boolean;
 }) {
-  const [selectedItemKey, setSelectedItemKey] = useState<string | null>(null);
+  const [selectedManufacturedKey, setSelectedManufacturedKey] = useState<string | null>(null);
+  const [selectedRawKey, setSelectedRawKey] = useState<string | null>(null);
   const [selectedAdditionalKey, setSelectedAdditionalKey] = useState<string | null>(null);
 
   const { data: response, isLoading, isError } = useApiQuery<CostVariancePayload[]>(
@@ -135,24 +212,12 @@ export function ManufacturingCostVarianceReportResults({
 
   const summary = response?.summary as unknown as ReportSummary | undefined;
 
-  const itemColumns: AppTableColumn<CostVarianceItemLine>[] = useMemo(
-    () => [
-      { id: 'itemCode', header: 'رقم الصنف', accessor: 'itemCode' },
-      { id: 'itemName', header: 'اسم الصنف', accessor: 'itemName' },
-      { id: 'unit', header: 'الوحدة', accessor: 'unit' },
-      {
-        id: 'lineKind',
-        header: 'النوع',
-        cell: (row) => (row.lineKind === 'manufactured' ? 'مصنّع' : 'أولية'),
-      },
-      { id: 'standardQuantity', header: 'الكمية المعيارية', accessor: 'standardQuantity', numeric: true, align: 'end' },
-      { id: 'actualQuantity', header: 'الكمية الفعلية', accessor: 'actualQuantity', numeric: true, align: 'end' },
-      { id: 'quantityVariance', header: 'انحراف الكميات', accessor: 'quantityVariance', numeric: true, align: 'end' },
-      { id: 'totalPrice', header: 'اجمالي السعر', accessor: 'totalPrice', numeric: true, align: 'end' },
-      { id: 'variancePercent', header: 'نسبة الانحراف', accessor: 'variancePercent', numeric: true, align: 'end' },
-    ],
-    []
+  const itemLines = payload?.itemLines;
+  const manufacturedLines = useMemo(
+    () => (itemLines ?? []).filter((l) => l.lineKind === 'manufactured'),
+    [itemLines]
   );
+  const rawLines = useMemo(() => (itemLines ?? []).filter((l) => l.lineKind === 'raw'), [itemLines]);
 
   const additionalColumns: AppTableColumn<CostVarianceAdditionalLine>[] = useMemo(
     () => [
@@ -173,7 +238,6 @@ export function ManufacturingCostVarianceReportResults({
     );
   }
 
-  const itemLines = showItems ? (payload?.itemLines ?? []) : [];
   const additionalLines = showAdditional ? (payload?.additionalLines ?? []) : [];
 
   return (
@@ -194,47 +258,30 @@ export function ManufacturingCostVarianceReportResults({
         </div>
       ) : null}
 
-      {showItems ? (
-        <MfgTableCard title="انحراف الأصناف (مصنّعة / أولية)">
-          <AppTable
-            columns={itemColumns}
-            data={itemLines}
-            isLoading={isLoading}
-            getRowKey={(row) => row.lineKey}
-            onRowClick={(row) =>
-              setSelectedItemKey((prev) => (prev === row.lineKey ? null : row.lineKey))
-            }
-            rowClassName={(row) => cn(selectedItemKey === row.lineKey && 'bg-[#E8F4FA]')}
-            exportFileName="cost-variance-items"
-            emptyTitle="لا توجد أصناف في الفترة"
-          />
-          {itemLines.length > 0 ? (
-            <div className="grid grid-cols-2 gap-px border-t border-[#D6EAF3] bg-[#EEF5F9] sm:grid-cols-6">
-              <div className={cn(mfgTdClass, 'bg-[#E8F4FA] font-bold')}>الإجماليات</div>
-              <div className={cn(mfgTdClass, 'bg-white tabular-nums font-semibold')}>
-                {fmt(itemLines.reduce((s, r) => s + r.standardQuantity, 0), 2)}
-              </div>
-              <div className={cn(mfgTdClass, 'bg-white tabular-nums font-semibold')}>
-                {fmt(itemLines.reduce((s, r) => s + r.actualQuantity, 0), 2)}
-              </div>
-              <div className={cn(mfgTdClass, 'bg-white tabular-nums font-semibold text-rose-700')}>
-                {fmt(itemLines.reduce((s, r) => s + r.quantityVariance, 0))}
-              </div>
-              <div className={cn(mfgTdClass, 'bg-white tabular-nums font-semibold text-rose-700')}>
-                {fmt(itemLines.reduce((s, r) => s + r.totalPrice, 0))}
-              </div>
-              <div className={cn(mfgTdClass, 'bg-white')} />
-            </div>
-          ) : null}
-        </MfgTableCard>
+      {showManufactured ? (
+        <ItemVarianceSection
+          title="انحراف الأصناف المصنعة"
+          lines={manufacturedLines}
+          isLoading={isLoading}
+          selectedKey={selectedManufacturedKey}
+          onSelectKey={setSelectedManufacturedKey}
+          exportFileName="cost-variance-manufactured"
+          emptyTitle="لا توجد أصناف مصنّعة في الفترة"
+          detailTitle="تفاصيل عمليات التصنيع — صنف مصنّع"
+        />
       ) : null}
 
-      {showItems && selectedItemKey ? (
-        <MfgTableCard title="تفاصيل عمليات التصنيع — صنف مختار">
-          <OperationDetailsTable
-            operations={itemLines.find((l) => l.lineKey === selectedItemKey)?.operations ?? []}
-          />
-        </MfgTableCard>
+      {showRaw ? (
+        <ItemVarianceSection
+          title="انحراف الأصناف الأولية"
+          lines={rawLines}
+          isLoading={isLoading}
+          selectedKey={selectedRawKey}
+          onSelectKey={setSelectedRawKey}
+          exportFileName="cost-variance-raw"
+          emptyTitle="لا توجد أصناف أولية في الفترة"
+          detailTitle="تفاصيل عمليات التصنيع — صنف أولي"
+        />
       ) : null}
 
       {showAdditional ? (

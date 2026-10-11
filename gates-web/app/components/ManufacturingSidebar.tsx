@@ -64,10 +64,9 @@ export const manufacturingModules: ModuleWithChildren[] = [
     children: [
       { key: 'theoretical-capability', icon: '', label: 'إمكانية التصنيع النظرية', color: '#0E78AA', href: '/manufacturing/reports/theoretical-capability' },
       { key: 'cost-variance', icon: '', label: 'إنحراف تكاليف التصنيع', color: '#0E78AA', href: '/manufacturing/reports/cost-variance' },
-      { key: 'invoice-variance', icon: '', label: 'إنحراف فواتير التصنيع', color: '#0E78AA', href: '/manufacturing/reports/invoice-variance' },
       { key: 'manufacturing-movements', icon: '', label: 'حركات التصنيع', color: '#0E78AA', href: '/manufacturing/reports/manufacturing-movements' },
       { key: 'order-status', icon: '', label: 'مواقف أوامر التصنيع', color: '#0E78AA', href: '/manufacturing/reports/order-status' },
-      { key: 'sales-order-tracking', icon: '', label: 'متابعة أوامر البيع', color: '#0E78AA', href: '/manufacturing/reports/sales-order-tracking' },
+      { key: 'sales-order-tracking', icon: '', label: 'تقرير أوامر البيع', color: '#0E78AA', href: '/manufacturing/reports/sales-order-tracking' },
       { key: 'work-order-tracking', icon: '', label: 'متابعة أوامر الشغل', color: '#0E78AA', href: '/manufacturing/reports/work-order-tracking' },
       { key: 'production-commitments', icon: '', label: 'التزامات الإنتاج والتسليم', color: '#0E78AA', href: '/manufacturing/reports/production-commitments' },
       { key: 'cost-posting-summary', icon: '', label: 'ملخص التكاليف والترحيل', color: '#0E78AA', href: '/manufacturing/reports/cost-posting-summary' },

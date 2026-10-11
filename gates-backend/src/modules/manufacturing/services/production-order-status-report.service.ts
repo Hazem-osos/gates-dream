@@ -6,6 +6,8 @@ export type ProductionOrderStatusReportFilters = {
   fromDate?: Date;
   toDate?: Date;
   status?: string;
+  /** When false and no explicit status filter, CANCELLED orders are excluded. */
+  showCancelled?: boolean;
   bomId?: string;
   warehouseIdRaw?: string;
   warehouseIdFinished?: string;
@@ -15,8 +17,24 @@ export type ProductionOrderStatusReportFilters = {
 export async function getProductionOrderStatusReport(
   filters: ProductionOrderStatusReportFilters
 ) {
-  const { companyId, fromDate, toDate, status, bomId, warehouseIdRaw, warehouseIdFinished, orderNumber } =
-    filters;
+  const {
+    companyId,
+    fromDate,
+    toDate,
+    status,
+    showCancelled = false,
+    bomId,
+    warehouseIdRaw,
+    warehouseIdFinished,
+    orderNumber,
+  } = filters;
+
+  const statusWhere =
+    status != null && status !== ''
+      ? { status }
+      : showCancelled
+        ? {}
+        : { status: { not: 'CANCELLED' } };
 
   const rows = await prisma.productionOrder.findMany({
     where: {
@@ -29,7 +47,7 @@ export async function getProductionOrderStatusReport(
             },
           }
         : {}),
-      ...(status ? { status } : {}),
+      ...statusWhere,
       ...(bomId ? { bomId } : {}),
       ...(warehouseIdRaw ? { warehouseIdRaw } : {}),
       ...(warehouseIdFinished ? { warehouseIdFinished } : {}),
@@ -69,6 +87,7 @@ export async function getProductionOrderStatusReport(
       materialsPosted: Boolean(row.materialsIssueJournalEntryId),
       completionPosted: Boolean(row.completionJournalEntryId),
       createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
       releasedAt: row.releasedAt,
       completedAt: row.completedAt,
     };

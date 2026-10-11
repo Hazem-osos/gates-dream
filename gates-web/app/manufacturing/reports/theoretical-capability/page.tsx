@@ -1,46 +1,54 @@
 'use client';
 
-import { reportDefaultDateRange } from '@/lib/reports/reportDefaultDates';
-
 import { useState } from 'react';
-import { InlineReportResults } from '@/components/report/InlineReportResults';
+import { ManufacturingTheoreticalCapabilityResults } from '@/components/manufacturing/ManufacturingTheoreticalCapabilityResults';
 import { ManufacturingReportChrome } from '@/components/manufacturing/ManufacturingReportChrome';
-import { ReportFilterDate, ReportFilterSection } from '@/components/report/reportFilterFields';
-
-const defaultFilters = () => ({
-  ...reportDefaultDateRange(),
-});
+import {
+  ReportFilterItemSelect,
+  ReportFilterSection,
+  ReportFilterWarehouseSelect,
+} from '@/components/report/reportFilterFields';
 
 export default function TheoreticalCapabilityPage() {
   const [previewQuery, setPreviewQuery] = useState<Record<string, string> | null>(null);
-  const [error, setError] = useState('');
-  const [filters, setFilters] = useState(defaultFilters);
-  const patch = (p: Partial<ReturnType<typeof defaultFilters>>) =>
-    setFilters((prev) => ({ ...prev, ...p }));
+  const [itemId, setItemId] = useState('');
+  const [warehouseId, setWarehouseId] = useState('');
 
   const handlePreview = () => {
-    if (!filters.fromDate || !filters.toDate) {
-      setError('يرجى اختيار تاريخ البداية والنهاية');
-      return;
-    }
-    const params = new URLSearchParams();
-    params.append('fromDate', filters.fromDate);
-    params.append('toDate', filters.toDate);
-    setPreviewQuery(Object.fromEntries(params));
+    const params: Record<string, string> = {};
+    if (itemId) params.itemId = itemId;
+    if (warehouseId) params.warehouseId = warehouseId;
+    setPreviewQuery(params);
   };
 
   return (
     <ManufacturingReportChrome
-      title="القدرة النظرية"
+      title="إمكانية التصنيع النظرية"
       onPreview={handlePreview}
-      onReset={() => { setFilters(defaultFilters()); setPreviewQuery(null); }}
-      error={error}
-      onClearError={() => setError('')}
-      below={previewQuery ? <InlineReportResults urlPath="/manufacturing/reports/theoretical-capability" query={previewQuery} /> : null}
+      onReset={() => {
+        setItemId('');
+        setWarehouseId('');
+        setPreviewQuery(null);
+      }}
+      below={
+        previewQuery ? (
+          <ManufacturingTheoreticalCapabilityResults query={previewQuery} />
+        ) : null
+      }
     >
-      <ReportFilterSection title="التواريخ">
-        <ReportFilterDate label="من تاريخ" value={filters.fromDate} onChange={(fromDate) => patch({ fromDate })} />
-        <ReportFilterDate label="إلى تاريخ" value={filters.toDate} onChange={(toDate) => patch({ toDate })} />
+      <ReportFilterSection title="المرشحات">
+        <ReportFilterItemSelect
+          label="الخامة"
+          value={itemId}
+          onChange={setItemId}
+          emptyLabel="كل الخامات في النماذج"
+        />
+        <ReportFilterWarehouseSelect
+          label="المخزن"
+          value={warehouseId}
+          onChange={setWarehouseId}
+          emptyLabel="كل المخازن"
+        />
       </ReportFilterSection>
     </ManufacturingReportChrome>
   );

@@ -1,7 +1,5 @@
-'use client';
-
-import CatalogReportPreviewPage from '@/components/report/CatalogReportPreviewPage';
+import { redirect } from 'next/navigation';
 
 export default function InvoiceVariancePreviewPage() {
-  return <CatalogReportPreviewPage />;
+  redirect('/manufacturing/reports/cost-variance');
 }

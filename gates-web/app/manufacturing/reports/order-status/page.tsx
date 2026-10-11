@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { ManufacturingOrderStatusReportResults } from '@/components/manufacturing/ManufacturingOrderStatusReportResults';
 import { ManufacturingReportChrome } from '@/components/manufacturing/ManufacturingReportChrome';
 import {
+  ReportFilterCheckbox,
   ReportFilterDate,
   ReportFilterField,
   ReportFilterSection,
@@ -34,6 +35,7 @@ const defaultFilters = () => ({
 export default function ManufacturingOrderStatusReportPage() {
   const [previewQuery, setPreviewQuery] = useState<Record<string, string> | null>(null);
   const [error, setError] = useState('');
+  const [showCancelled, setShowCancelled] = useState(false);
   const [filters, setFilters] = useState(defaultFilters);
   const patch = (p: Partial<ReturnType<typeof defaultFilters>>) =>
     setFilters((prev) => ({ ...prev, ...p }));
@@ -56,6 +58,7 @@ export default function ManufacturingOrderStatusReportPage() {
     if (filters.warehouseIdRaw) params.warehouseIdRaw = filters.warehouseIdRaw;
     if (filters.warehouseIdFinished) params.warehouseIdFinished = filters.warehouseIdFinished;
     if (filters.orderNumber.trim()) params.orderNumber = filters.orderNumber.trim();
+    params.showCancelled = showCancelled ? 'true' : 'false';
     setError('');
     setPreviewQuery(params);
   };
@@ -66,12 +69,18 @@ export default function ManufacturingOrderStatusReportPage() {
       onPreview={handlePreview}
       onReset={() => {
         setFilters(defaultFilters());
+        setShowCancelled(false);
         setPreviewQuery(null);
       }}
       error={error}
       onClearError={() => setError('')}
       below={
-        previewQuery ? <ManufacturingOrderStatusReportResults query={previewQuery} /> : null
+        previewQuery ? (
+          <ManufacturingOrderStatusReportResults
+            query={previewQuery}
+            showCancelledSummary={showCancelled || filters.status === 'CANCELLED'}
+          />
+        ) : null
       }
     >
       <ReportFilterSection title="التواريخ">
@@ -124,6 +133,12 @@ export default function ManufacturingOrderStatusReportPage() {
           />
         </ReportFilterField>
       </ReportFilterSection>
+      <ReportFilterCheckbox
+        id="order-status-show-cancelled"
+        label="إظهار الملغاة"
+        checked={showCancelled}
+        onChange={setShowCancelled}
+      />
     </ManufacturingReportChrome>
   );
 }

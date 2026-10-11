@@ -40,7 +40,6 @@ export default function CostVariancePage() {
   );
   const bomOptions = (bomsResponse?.data ?? []).map((b) => ({ value: b.id, label: b.name }));
 
-  const showItems = varManufactured || varRaw;
   const showAdditional = varAdditional;
 
   const varianceTypes = useMemo(() => {
@@ -91,7 +90,8 @@ export default function CostVariancePage() {
         previewQuery ? (
           <ManufacturingCostVarianceReportResults
             query={previewQuery}
-            showItems={showItems}
+            showManufactured={varManufactured}
+            showRaw={varRaw}
             showAdditional={showAdditional}
           />
         ) : null
