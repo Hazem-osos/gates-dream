@@ -107,6 +107,8 @@ router.get(
         toDate: req.query.toDate as string | undefined,
         skip: req.query.skip as number | undefined,
         take: req.query.take as number | undefined,
+        sortBy: req.query.sortBy as string | undefined,
+        sortDir: req.query.sortDir as 'asc' | 'desc' | undefined,
       });
 
       return void res.json({

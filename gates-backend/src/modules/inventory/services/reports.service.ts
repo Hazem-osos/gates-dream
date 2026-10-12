@@ -3048,7 +3048,7 @@ export class InventoryReportsService {
         inventoryCountRow({
           itemId: line.item.id,
           warehouseId: line.warehouseId,
-          warehouseName: showWarehouse ? line.warehouseName : '',
+          warehouseName: line.warehouseName,
           quantityOnHand: line.quantityOnHand,
           reservedQuantity: line.reservedQuantity,
           warehouseAverageCost: line.warehouseAverageCost,
@@ -3073,7 +3073,7 @@ export class InventoryReportsService {
       balanceWhere.AND = [{ OR: [{ quantityOnHand: { not: 0 } }, { reservedQuantity: { not: 0 } }] }];
     }
 
-    if (!historical && showWarehouse) {
+    if (!historical) {
       const [rows, balanceTotal] = await Promise.all([
         prisma.itemWarehouseBalance.findMany({
           where: balanceWhere,
@@ -3137,81 +3137,6 @@ export class InventoryReportsService {
       };
     }
 
-    if (!historical) {
-      const groups = await prisma.itemWarehouseBalance.groupBy({
-        by: ['itemId'],
-        where: balanceWhere,
-        _sum: { quantityOnHand: true, reservedQuantity: true },
-      });
-      const kept = groups.filter((row) =>
-        keepCountBalance(n(row._sum.quantityOnHand), n(row._sum.reservedQuantity), qtyFlags)
-      );
-      const pageGroups = kept.slice(skip, skip + limit);
-      const items = pageGroups.length
-        ? await prisma.item.findMany({
-            where: { companyId, id: { in: pageGroups.map((row) => row.itemId) } },
-            select: itemSelect,
-          })
-        : [];
-      const byId = new Map(items.map((row) => [row.id, row]));
-      const lines = pageGroups
-        .filter((row) => byId.has(row.itemId))
-        .map((row) => ({
-          item: byId.get(row.itemId),
-          warehouseId: '',
-          warehouseName: '',
-          quantityOnHand: n(row._sum.quantityOnHand),
-          reservedQuantity: n(row._sum.reservedQuantity),
-          warehouseAverageCost: 0,
-        }));
-      let total = kept.length;
-      if (showEmpty) {
-        const emptyWhere = {
-          ...itemWhere,
-          warehouseBalances: {
-            none: { companyId, ...(warehouseIds ? { warehouseId: { in: warehouseIds } } : {}) },
-          },
-        };
-        total += await prisma.item.count({ where: emptyWhere });
-        const room = limit - lines.length;
-        if (room > 0) {
-          const empties = await prisma.item.findMany({
-            where: emptyWhere,
-            skip: Math.max(0, skip - kept.length),
-            take: room,
-            orderBy: { arabicName: 'asc' },
-            select: itemSelect,
-          });
-          for (const item of empties) {
-            lines.push({
-              item,
-              warehouseId: '',
-              warehouseName: '',
-              quantityOnHand: 0,
-              reservedQuantity: 0,
-              warehouseAverageCost: 0,
-            });
-          }
-        }
-      }
-      const data = await paint(lines);
-      const grand = await this.summarizeInventoryCountBalances(balanceWhere, exchangeRate);
-      return {
-        data,
-        summary: {
-          totalItems: total,
-          totalQuantity: grand.totalQuantity,
-          totalValue: grand.totalValue,
-          columnTotals: grand.columnTotals,
-        },
-        pagination: {
-          page,
-          limit,
-          total,
-          totalPages: total === 0 ? 0 : Math.ceil(total / limit),
-        },
-      };
-    }
 
     const groups = await prisma.inventoryMovement.groupBy({
       by: ['itemId', 'warehouseId'],
@@ -3242,11 +3167,11 @@ export class InventoryReportsService {
     for (const row of groups) {
       const item = byId.get(row.itemId);
       if (!item) continue;
-      const key = showWarehouse ? `${row.itemId}\0${row.warehouseId}` : row.itemId;
+      const key = `${row.itemId}\0${row.warehouseId}`;
       const current = collapsed.get(key) ?? {
         item,
-        warehouseId: showWarehouse ? row.warehouseId : '',
-        warehouseName: showWarehouse ? warehouseName.get(row.warehouseId) ?? '' : '',
+        warehouseId: row.warehouseId,
+        warehouseName: warehouseName.get(row.warehouseId) ?? '',
         quantityOnHand: 0,
       };
       current.quantityOnHand += n(row._sum.quantityDelta);
@@ -3267,12 +3192,12 @@ export class InventoryReportsService {
         select: { itemId: true, warehouseId: true, reservedQuantity: true },
       });
       for (const row of balanceRows) {
-        const key = showWarehouse ? `${row.itemId}\0${row.warehouseId}` : row.itemId;
+        const key = `${row.itemId}\0${row.warehouseId}`;
         reservedByKey.set(key, (reservedByKey.get(key) ?? 0) + n(row.reservedQuantity));
       }
     }
     const allLines = collapsedLines.map((line) => {
-      const key = showWarehouse ? `${line.item.id}\0${line.warehouseId}` : line.item.id;
+      const key = `${line.item.id}\0${line.warehouseId}`;
       const reservedQuantity = reservedByKey.get(key) ?? 0;
       return {
         ...line,

@@ -177,7 +177,18 @@ export function AppTable<T extends object>({
   });
   const defaultSortId =
     defaultSort?.id ??
-    columns.find((col) => /^(serial|code|num|number)$/.test(col.id) && columnSortable(col))?.id ??
+    columns.find(
+      (col) =>
+        /^(serial|code|num|number|voucherNumber|planNumber|orderNumber|invoiceNumber|itemCode)$/i.test(
+          col.id
+        ) && columnSortable(col)
+    )?.id ??
+    columns.find(
+      (col) =>
+        typeof col.header === 'string' &&
+        /(الكود|كود|المسلسل|مسلسل|رقم|الرقم)/.test(col.header) &&
+        columnSortable(col)
+    )?.id ??
     columns.find((col) => columnSortable(col))?.id ??
     null;
   const [sort, setSort] = React.useState<{ id: string; dir: 'asc' | 'desc' } | null>(

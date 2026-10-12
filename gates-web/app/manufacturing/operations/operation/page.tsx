@@ -64,6 +64,7 @@ import {
 import { stashMfgTransferPrefill } from '@/lib/manufacturing/mfg-transfer-prefill';
 import { buildShortageTransferLines, shortageTransferError } from '@/lib/manufacturing/mfg-transfer-shortage';
 import { consumeMfgOperationPrefill } from '@/lib/manufacturing/mfg-operation-prefill';
+import { compareBrowseText } from '@/lib/browse/browse-list-sort';
 import { useDraftAutosave } from '@/lib/hooks/useDraftAutosave';
 import {
   DocumentModeProvider,
@@ -285,12 +286,17 @@ function ManufacturingOperationPageInner() {
     const filtered = boms.filter((b) => allowed.has(b.id));
     return filtered.length > 0 ? filtered : boms;
   }, [boms, manufacturingWorkOrderId, linkedWorkOrderRes?.data]);
-  const previousOrders = ordersResponse?.data ?? [];
+  const previousOrders = useMemo(() => {
+    const raw = ordersResponse?.data ?? [];
+    return [...raw].sort((a, b) =>
+      compareBrowseText(String(a.orderNumber ?? ''), String(b.orderNumber ?? ''))
+    );
+  }, [ordersResponse?.data]);
   const workOrdersForPick = useMemo(
     () =>
-      (workOrdersResponse?.data ?? []).filter((w) =>
-        isWorkOrderSelectableForProductionOrder(w.status)
-      ),
+      [...(workOrdersResponse?.data ?? [])]
+        .filter((w) => isWorkOrderSelectableForProductionOrder(w.status))
+        .sort((a, b) => compareBrowseText(String(a.orderNumber ?? ''), String(b.orderNumber ?? ''))),
     [workOrdersResponse?.data]
   );
 

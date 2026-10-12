@@ -1,9 +1,21 @@
 'use client';
 
 import { useState } from 'react';
-import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api/client';
+import {
+  PayrollReportDetailView,
+  PayrollReportRegisterView,
+  PayrollReportSummaryView,
+} from '@/components/hr/payroll/PayrollReportViews';
+
+const ROW_LEVEL_REPORTS = new Set([
+  'register',
+  'overtime',
+  'absence-leave',
+  'advance-recovery',
+  'employer-contributions',
+]);
 
 const REPORTS = [
   { key: 'summary', label: 'ملخص المسيرة' },
@@ -20,19 +32,6 @@ const REPORTS = [
   { key: 'reconciliation', label: 'تسوية محاسبية' },
 ];
 
-type RegisterReport = {
-  rows: Array<{ employeeId: string; employeeName: string; serial?: string; grossSalary: number; netSalary: number }>;
-  totals?: { gross: number; net: number };
-  page?: number;
-  pageSize?: number;
-  total?: number;
-};
-
-type SummaryReport = {
-  totals: { gross: number; net: number; employerContributions: number };
-  employeeCount: number;
-};
-
 export default function PayrollReportsPage() {
   const [runId, setRunId] = useState('');
   const [reportKey, setReportKey] = useState('summary');
@@ -42,8 +41,9 @@ export default function PayrollReportsPage() {
     queryKey: ['payroll-report', runId, reportKey, page],
     enabled: Boolean(runId),
     queryFn: async () => {
-      const qs =
-        reportKey === 'register' ? `?page=${page}&pageSize=50` : '';
+      const qs = ROW_LEVEL_REPORTS.has(reportKey)
+        ? `?page=${page}&pageSize=50`
+        : '';
       const res = await apiClient.get<unknown>(
         `/hr/payroll/runs/${runId}/reports/${reportKey}${qs}`
       );
@@ -93,82 +93,42 @@ export default function PayrollReportsPage() {
             تصدير CSV
           </button>
         )}
+        {ROW_LEVEL_REPORTS.has(reportKey) && reportKey !== 'register' && data && typeof data === 'object' && 'total' in (data as object) && (
+          <div className="flex gap-2 items-center">
+            <button type="button" className="border rounded px-2 py-1 disabled:opacity-50" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>
+              السابق
+            </button>
+            <span>صفحة {page}</span>
+            <button type="button" className="border rounded px-2 py-1" onClick={() => setPage((p) => p + 1)}>
+              التالي
+            </button>
+          </div>
+        )}
       </div>
 
       {report.isError && (
         <p className="text-sm text-destructive">تعذر تحميل التقرير — تحقق من الصلاحيات أو المعرّف.</p>
       )}
       {report.isFetching && <p className="text-sm">جاري التحميل…</p>}
+      {!report.isFetching && runId && data == null && !report.isError && (
+        <p className="text-sm text-muted-foreground">لا توجد بيانات لهذه المسيرة.</p>
+      )}
 
       {reportKey === 'summary' && data && (
-        <div className="grid md:grid-cols-4 gap-3 text-sm">
-          <div className="border rounded p-3">
-            الإجمالي: {(data as SummaryReport).totals.gross.toLocaleString()}
-          </div>
-          <div className="border rounded p-3">
-            الصافي: {(data as SummaryReport).totals.net.toLocaleString()}
-          </div>
-          <div className="border rounded p-3">
-            مساهمات ER: {(data as SummaryReport).totals.employerContributions.toLocaleString()}
-          </div>
-          <div className="border rounded p-3">
-            الموظفون: {(data as SummaryReport).employeeCount}
-          </div>
-        </div>
+        <PayrollReportSummaryView data={data as Parameters<typeof PayrollReportSummaryView>[0]['data']} />
       )}
 
       {reportKey === 'register' && data && (
-        <>
-          <div className="text-sm text-muted-foreground">
-            إجمالي السجل: {(data as RegisterReport).totals?.gross?.toLocaleString()} صافي{' '}
-            {(data as RegisterReport).totals?.net?.toLocaleString()}
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm border min-w-[640px]">
-              <thead>
-                <tr className="bg-muted">
-                  <th className="p-2 text-right">الرقم</th>
-                  <th className="p-2 text-right">الموظف</th>
-                  <th className="p-2 text-right">الإجمالي</th>
-                  <th className="p-2 text-right">الصافي</th>
-                  <th className="p-2 text-right" />
-                </tr>
-              </thead>
-              <tbody>
-                {(data as RegisterReport).rows.map((row) => (
-                  <tr key={row.employeeId} className="border-t">
-                    <td className="p-2">{row.serial ?? '—'}</td>
-                    <td className="p-2">{row.employeeName}</td>
-                    <td className="p-2">{row.grossSalary.toLocaleString()}</td>
-                    <td className="p-2">{row.netSalary.toLocaleString()}</td>
-                    <td className="p-2">
-                      <Link className="underline" href={`/hr/payroll/runs/${runId}/payslip/${row.employeeId}`}>
-                        قسيمة
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <div className="flex gap-2 text-sm">
-            <button type="button" className="border rounded px-2" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
-              السابق
-            </button>
-            <span>صفحة {page}</span>
-            <button type="button" className="border rounded px-2" onClick={() => setPage((p) => p + 1)}>
-              التالي
-            </button>
-          </div>
-        </>
+        <PayrollReportRegisterView
+          data={data as Parameters<typeof PayrollReportRegisterView>[0]['data']}
+          runId={runId}
+          page={page}
+          onPageChange={setPage}
+        />
       )}
 
       {data && reportKey !== 'summary' && reportKey !== 'register' && (
-        <div className="overflow-x-auto">
-          <pre className="text-xs bg-muted p-3 rounded max-h-[480px] overflow-auto">
-            {JSON.stringify(data, null, 2)}
-          </pre>
-        </div>
+        <PayrollReportDetailView reportKey={reportKey} data={data} />
       )}
     </div>
   );

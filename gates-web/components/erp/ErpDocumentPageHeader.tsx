@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useEffect, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { List, MoreHorizontal, Star } from 'lucide-react';
+import { List, MoreHorizontal, Printer, Star } from 'lucide-react';
 import { ScreenHelpButton } from '@/components/ai/ScreenHelpButton';
 import { Button } from '@/components/ui/button';
 import { DisabledActionHint } from '@/components/ui/DisabledActionHint';
@@ -169,6 +169,8 @@ export function ErpDocumentPageHeader({
         : undefined;
   const saveDisabled = Boolean(saveHint) || Boolean(savePending);
   const toolbarSlot = useDocumentToolbarSlot();
+  const moreMenuPrintItems = (moreMenuItems ?? []).filter((item) => item.id === 'print');
+  const moreMenuDropdownItems = (moreMenuItems ?? []).filter((item) => item.id !== 'print');
 
   useEffect(() => {
     publishAiScreenSession({
@@ -312,6 +314,21 @@ export function ErpDocumentPageHeader({
               {postLabel}
             </Button>
           )}
+          {moreMenuPrintItems.map((item) => (
+            <Button
+              key={item.id}
+              type="button"
+              variant="secondary"
+              size="sm"
+              className={`${formActionButtonClass} gap-1.5`}
+              disabled={item.disabled}
+              onClick={item.onClick}
+              data-tour="document-print"
+            >
+              <Printer className="h-3.5 w-3.5" aria-hidden />
+              {item.label}
+            </Button>
+          ))}
           {printMenuItems?.length ? (
             <SimpleDropdownMenu
               align="right"
@@ -344,7 +361,7 @@ export function ErpDocumentPageHeader({
                       },
                     ]
                   : []),
-                ...(moreMenuItems ?? []),
+                ...moreMenuDropdownItems,
               ]}
             />
           )}

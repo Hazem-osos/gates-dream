@@ -704,12 +704,18 @@ function TransferPageInner() {
   };
 
   const updateStockGridLine = (index: number, field: keyof StockVoucherLine, value: string | number) => {
-    if (field === 'unitPrice') return;
     replaceTransferLines((prev) => {
       const updatedLines = [...prev];
-      const row = { ...updatedLines[index], [field]: value };
+      const row = { ...updatedLines[index] };
       if (field === 'quantity') {
         row.quantity = Number(value) || 0;
+      } else if (field === 'unitPrice') {
+        row.unitPrice = Number(value) || 0;
+      } else if (field === 'itemId') {
+        row.itemId = String(value);
+        if (!String(value).trim()) row.unitPrice = 0;
+      } else {
+        (row as Record<string, unknown>)[field] = value;
       }
       updatedLines[index] = row;
       return updatedLines;

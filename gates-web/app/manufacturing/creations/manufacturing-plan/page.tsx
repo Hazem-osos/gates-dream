@@ -33,6 +33,7 @@ import { stashMfgOperationPrefill } from '@/lib/manufacturing/mfg-operation-pref
 import { stashMfgTransferPrefill } from '@/lib/manufacturing/mfg-transfer-prefill';
 import { buildShortageTransferLines, shortageTransferError } from '@/lib/manufacturing/mfg-transfer-shortage';
 import { bomStageFromFormMetadata } from '@/lib/manufacturing/bom-form-metadata';
+import { compareBrowseText } from '@/lib/browse/browse-list-sort';
 import { cn } from '@/lib/utils';
 import type { ApiError } from '@/lib/api/types';
 
@@ -138,7 +139,12 @@ export default function ManufacturingPlanPage() {
     '/manufacturing/plans',
     { enabled: showPreviousDrawer }
   );
-  const planList = plansListResponse?.data ?? [];
+  const planList = useMemo(() => {
+    const raw = plansListResponse?.data ?? [];
+    return [...raw].sort((a, b) =>
+      compareBrowseText(String(a.planNumber ?? ''), String(b.planNumber ?? ''))
+    );
+  }, [plansListResponse?.data]);
   const boms = bomsResponse?.data ?? [];
   const bomNameById = useMemo(() => new Map(boms.map((b) => [b.id, b.name])), [boms]);
 

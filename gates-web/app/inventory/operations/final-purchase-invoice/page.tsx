@@ -103,11 +103,17 @@ import {
   useDocumentMode,
 } from '@/components/common/document-shell';
 import { DocumentSourceLoadBar } from '@/components/invoices/DocumentSourceLoadBar';
+import { MultiStockPermitLoadControl } from '@/components/invoices/MultiStockPermitLoadControl';
 import {
   mergeSourceNote,
   sourceLineToPurchaseRow,
   type SourceHydratePayload,
 } from '@/lib/invoices/sourceDocument';
+import {
+  buildMultiSourceHydrateNote,
+  combineSourceHydrateLines,
+  type MultiStockPermitHydrateRequest,
+} from '@/lib/invoices/multi-source-hydrate';
 import {
   invoiceLineColumnsForStockPolicy,
   purchaseInvoiceSourceTypes,
@@ -898,6 +904,35 @@ function FinalPurchaseInvoicePageInner() {
     setSuccess(`تم تعبئة الفاتورة من ${payload.sourceNumber}`);
   }, [isSalesTaxInvoice, warehouseId]);
 
+  const handleMultiStockPermitHydrate = useCallback(
+    ({ payloads, lineMode, replaceExisting }: MultiStockPermitHydrateRequest) => {
+      const first = payloads[0];
+      if (first.supplierId) setSupplierId(first.supplierId);
+      if (first.warehouseId) setWarehouseId(first.warehouseId);
+      if (first.costCenterId) setCostCenterId(first.costCenterId);
+      if (first.currencyId) setCurrencyId(first.currencyId);
+      if (first.delegateId) setDelegateId(first.delegateId);
+      setSourceType(first.sourceType);
+      setSourceId(first.sourceId);
+      setSourceNumber(first.sourceNumber);
+      setDescription((prev) => mergeSourceNote(prev, buildMultiSourceHydrateNote(payloads)));
+
+      const wh = first.warehouseId || warehouseId;
+      const combined = combineSourceHydrateLines(
+        payloads.map((p) => p.lines),
+        lineMode
+      );
+      const newRows = combined.map((line) => {
+        const row = sourceLineToPurchaseRow(line, wh);
+        return isSalesTaxInvoice && !(Number(row.tax) > 0) ? { ...row, tax: 14 } : row;
+      });
+      const current = invoiceLines.filter((line) => Boolean(line.itemId));
+      setInvoiceLines(replaceExisting ? newRows : [...current, ...newRows]);
+      setSuccess(`تم تحميل ${payloads.length} مستند على الفاتورة`);
+    },
+    [invoiceLines, isSalesTaxInvoice, warehouseId]
+  );
+
   const handleNew = useCallback(() => {
     openInvoice(null);
     setInvoiceNumber('');
@@ -1624,21 +1659,30 @@ function FinalPurchaseInvoicePageInner() {
           unlockForEdit();
         }}
         toolbarLeading={
-          <DocumentSourceLoadBar
-            key={sourceBarKey}
-            hasExistingLines={invoiceLines.some((line) => Boolean(line.itemId))}
-            disabled={isPosted || isReadOnly}
-            allowedTypes={purchaseInvoiceSourceTypes(affectsStock)}
-            sourceType={sourceType}
-            sourceId={sourceId}
-            sourceNumber={sourceNumber}
-            onTypeChange={(type) => {
-              setSourceType(type);
-              setSourceId('');
-              setSourceNumber('');
-            }}
-            onHydrate={handleSourceHydrate}
-          />
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <DocumentSourceLoadBar
+              key={sourceBarKey}
+              hasExistingLines={invoiceLines.some((line) => Boolean(line.itemId))}
+              disabled={isPosted || isReadOnly}
+              allowedTypes={purchaseInvoiceSourceTypes(affectsStock)}
+              sourceType={sourceType}
+              sourceId={sourceId}
+              sourceNumber={sourceNumber}
+              onTypeChange={(type) => {
+                setSourceType(type);
+                setSourceId('');
+                setSourceNumber('');
+              }}
+              onHydrate={handleSourceHydrate}
+            />
+            {affectsStock ? (
+              <MultiStockPermitLoadControl
+                hasExistingLines={invoiceLines.some((line) => Boolean(line.itemId))}
+                disabled={isPosted || isReadOnly}
+                onApply={handleMultiStockPermitHydrate}
+              />
+            ) : null}
+          </div>
         }
       />
 

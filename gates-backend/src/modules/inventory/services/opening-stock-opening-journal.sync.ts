@@ -67,10 +67,9 @@ export async function syncOpeningStockIntoOpeningJournalInTx(
   });
 
   if (!journal) {
-    throw new AppError(
-      422,
-      'أنشئ قيد الرصيد الافتتاحي (مسودة) من المحاسبة أولاً، ثم رحّل بضاعة أول المدة لتضاف بنود المخزون إليه.'
-    );
+    // Stock can post before the company opening journal exists; accounting pulls
+    // posted valuation later via opening-balance «تحديث بضاعة أول المدة».
+    return null;
   }
   if (journal.isPosted) {
     throw new AppError(

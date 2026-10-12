@@ -19,7 +19,17 @@ export default function GlMappingPage() {
   const [onlyMissing, setOnlyMissing] = useState(false);
   const [draft, setDraft] = useState<Record<string, { expense?: string; payable?: string }>>({});
 
-  const { data, isLoading } = useQuery({
+  const configAudit = useQuery({
+    queryKey: ['payroll-config-audit-gl'],
+    queryFn: async () => {
+      const res = await apiClient.get<
+        Array<{ at: string; summary: string; action: string; entityCode?: string | null }>
+      >('/hr/payroll/config-audit?subjectType=HCM_PAYROLL_GL_MAPPING&limit=20');
+      return res.data ?? [];
+    },
+  });
+
+  const { data, isLoading, isError } = useQuery({
     queryKey: ['payroll-gl-mappings'],
     queryFn: async () => {
       const res = await apiClient.get<Row[]>('/hr/payroll/gl-mappings');
@@ -36,7 +46,10 @@ export default function GlMappingPage() {
         glPayableAccountId: d.payable ?? row.payableAccountId,
       });
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['payroll-gl-mappings'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['payroll-gl-mappings'] });
+      configAudit.refetch();
+    },
   });
 
   const rows = (data ?? []).filter((r) => !onlyMissing || r.status === 'MISSING');
@@ -48,6 +61,17 @@ export default function GlMappingPage() {
         <input type="checkbox" checked={onlyMissing} onChange={(e) => setOnlyMissing(e.target.checked)} />
         إظهار الناقص فقط
       </label>
+      <section className="border rounded p-4 text-sm mb-4">
+        <h3 className="font-semibold mb-2">سجل ربط الحسابات</h3>
+        {configAudit.isLoading ? <p>جاري التحميل…</p> : (
+          <ul className="text-xs space-y-1 max-h-32 overflow-auto">
+            {(configAudit.data ?? []).map((a) => (
+              <li key={`${a.at}-${a.summary}`}>{a.at} · {a.summary}</li>
+            ))}
+          </ul>
+        )}
+      </section>
+      {isError ? <p className="text-destructive text-sm">تعذر تحميل الربط.</p> : null}
       {isLoading ? (
         <p>جاري التحميل…</p>
       ) : (

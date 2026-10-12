@@ -49,6 +49,8 @@ export const assemblyQuerySchema = z.object({
   toDate: z.string().optional(),
   skip: z.coerce.number().int().min(0).optional(),
   take: z.coerce.number().int().min(1).max(200).optional(),
+  sortBy: z.enum(['number', 'date', 'amount']).optional(),
+  sortDir: z.enum(['asc', 'desc']).optional(),
 });
 
 export type CreateAssemblyInput = z.infer<typeof createAssemblySchema>;

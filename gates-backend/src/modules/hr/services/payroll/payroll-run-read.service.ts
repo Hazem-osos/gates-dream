@@ -176,7 +176,18 @@ export class PayrollRunReadService {
         employeeCount: run.items.length,
         negativeNetOverrideReason: run.negativeNetOverrideReason,
       },
-      reconciliation: recon,
+      reconciliation: includeAmounts
+        ? recon
+        : {
+            ...recon,
+            grossFromComponents: null,
+            deductionsFromComponents: null,
+            employerFromComponents: null,
+            netFromComponents: null,
+            headerGross: null,
+            headerNet: null,
+            amountsRedacted: true,
+          },
       glBlockers,
       auditTimeline,
       employees: run.items.map((item) => ({
@@ -188,8 +199,9 @@ export class PayrollRunReadService {
         costCenterIdSnapshot: item.components[0]?.costCenterIdSnapshot ?? item.employee.costCenterId,
         gross: includeAmounts ? Number(item.grossSalary) : null,
         net: includeAmounts ? Number(item.netSalary) : null,
-        compensationSegments:
-          snap?.employees?.[item.employeeId]?.compensation?.segments ?? [],
+        compensationSegments: includeAmounts
+          ? (snap?.employees?.[item.employeeId]?.compensation?.segments ?? [])
+          : [],
         components: includeAmounts
           ? item.components.map((c) => ({
               code: c.componentCode,

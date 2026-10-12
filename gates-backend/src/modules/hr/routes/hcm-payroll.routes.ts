@@ -2,6 +2,7 @@ import { Router, Response } from 'express';
 import { authenticate } from '../../../shared/middleware/auth.middleware';
 import { authorize } from '../../../shared/middleware/authorize.middleware';
 import { setTenantContext } from '../../../shared/middleware/tenant.middleware';
+import { asyncHandler } from '../../../shared/middleware/async-handler';
 import { AppError } from '../../../shared/middleware/error-handler';
 import type { AuthRequest } from '../../../shared/auth/types';
 import prisma from '../../../shared/database/prisma';
@@ -21,6 +22,12 @@ import { payrollPayComponentService } from '../services/payroll/payroll-pay-comp
 import { payrollCompensationComponentService } from '../services/payroll/payroll-compensation-component.service';
 import { payrollRuleAdminService } from '../services/payroll/payroll-rule-admin.service';
 import { payrollLocalizationAdminService } from '../services/payroll/payroll-localization-admin.service';
+import {
+  payrollConfigAuditService,
+  type PayrollConfigAuditSubject,
+} from '../services/payroll/payroll-config-audit.service';
+import type { PayrollReportListQuery } from '../services/payroll/payroll-reports.service';
+import { asPayrollApiData, redactSensitiveDeep } from '../services/payroll/payroll-response.serializer';
 
 const router = Router();
 
@@ -55,6 +62,17 @@ router.patch(
       glExpenseAccountId: body.glExpenseAccountId ?? undefined,
       glPayableAccountId: body.glPayableAccountId ?? undefined,
     });
+    if (req.user?.sub) {
+      await payrollConfigAuditService.record({
+        companyId: companyIdVal,
+        subjectType: 'HCM_PAYROLL_GL_MAPPING',
+        subjectId: req.params.id,
+        actorId: req.user.sub,
+        action: 'UPDATED',
+        summary: 'تحديث ربط حسابات مكون الراتب',
+        entityCode: data.code,
+      });
+    }
     res.json({ status: 'success', data });
   }
 );
@@ -102,14 +120,14 @@ router.patch(
 router.get(
   '/rules',
   authorize({ resource: 'payroll', action: 'view' }),
-  async (req: AuthRequest, res: Response) => {
+  asyncHandler(async (req: AuthRequest, res: Response) => {
     const rows = await prisma.hcmPayrollRule.findMany({
       where: { companyId: companyId(req) },
       include: { payComponent: { select: { code: true, componentType: true } } },
       orderBy: [{ phase: 'asc' }, { priority: 'asc' }],
     });
     res.json({ status: 'success', data: rows });
-  }
+  })
 );
 
 router.get('/rules/variable-catalog', authorize({ resource: 'payroll', action: 'view' }), (_req, res) => {
@@ -119,7 +137,7 @@ router.get('/rules/variable-catalog', authorize({ resource: 'payroll', action: '
 router.post(
   '/rules/validate',
   authorize({ resource: 'payroll', action: 'rules_manage' }),
-  async (req: AuthRequest, res: Response) => {
+  asyncHandler(async (req: AuthRequest, res: Response) => {
     const companyIdVal = companyId(req);
     const body = req.body as Record<string, unknown>;
     const result = await payrollRuleAdminService.validateAndCheckGraph(companyIdVal, {
@@ -132,22 +150,31 @@ router.post(
       priority: Number(body.priority ?? 100),
     });
     res.json({ status: 'success', data: result });
-  }
+  })
+);
+
+router.get(
+  '/rules/detail/:id',
+  authorize({ resource: 'payroll', action: 'view' }),
+  asyncHandler(async (req: AuthRequest, res: Response) => {
+    const row = await payrollRuleAdminService.getRuleById(companyId(req), req.params.id);
+    res.json({ status: 'success', data: row });
+  })
 );
 
 router.get(
   '/rules/:code/versions',
   authorize({ resource: 'payroll', action: 'view' }),
-  async (req: AuthRequest, res: Response) => {
+  asyncHandler(async (req: AuthRequest, res: Response) => {
     const rows = await payrollRuleAdminService.listVersions(companyId(req), req.params.code);
     res.json({ status: 'success', data: rows });
-  }
+  })
 );
 
 router.patch(
   '/rules/:id',
   authorize({ resource: 'payroll', action: 'rules_manage' }),
-  async (req: AuthRequest, res: Response) => {
+  asyncHandler(async (req: AuthRequest, res: Response) => {
     const companyIdVal = companyId(req);
     if (!(await canManagePayrollRules(req, companyIdVal))) {
       throw new AppError(403, 'Payroll rules manage permission required');
@@ -162,40 +189,59 @@ router.patch(
       conditionExpr: body.conditionExpr !== undefined ? (body.conditionExpr ? String(body.conditionExpr) : null) : undefined,
       formulaExpr: body.formulaExpr ? String(body.formulaExpr) : undefined,
       dependsOnCodes: Array.isArray(body.dependsOnCodes) ? (body.dependsOnCodes as string[]) : undefined,
+      roundingMode: body.roundingMode ? String(body.roundingMode) : undefined,
+      minAmount: body.minAmount !== undefined ? (body.minAmount != null ? Number(body.minAmount) : null) : undefined,
+      maxAmount: body.maxAmount !== undefined ? (body.maxAmount != null ? Number(body.maxAmount) : null) : undefined,
+      localizationKey:
+        body.localizationKey !== undefined
+          ? body.localizationKey
+            ? String(body.localizationKey)
+            : null
+          : undefined,
       isActive: body.isActive !== undefined ? Boolean(body.isActive) : undefined,
     });
+    if (req.user?.sub) {
+      await payrollConfigAuditService.record({
+        companyId: companyIdVal,
+        subjectType: 'HCM_PAYROLL_RULE',
+        subjectId: row.id,
+        actorId: req.user.sub,
+        action: 'UPDATED',
+        summary: `تحديث قاعدة ${row.code}`,
+        effectiveFrom: row.effectiveFrom.toISOString().slice(0, 10),
+        effectiveTo: row.effectiveTo ? row.effectiveTo.toISOString().slice(0, 10) : null,
+        entityCode: row.code,
+      });
+    }
     res.json({ status: 'success', data: row });
-  }
+  })
 );
 
 router.post(
   '/rules',
   authorize({ resource: 'payroll', action: 'rules_manage' }),
-  async (req: AuthRequest, res: Response) => {
+  asyncHandler(async (req: AuthRequest, res: Response) => {
     const companyIdVal = companyId(req);
     if (!(await canManagePayrollRules(req, companyIdVal))) {
       throw new AppError(403, 'Payroll rules manage permission required');
     }
     const body = req.body as Record<string, unknown>;
-    const payComponentId = String(body.payComponentId ?? '');
-    const formulaExpr = String(body.formulaExpr ?? '');
-    evaluatePayrollExpression(formulaExpr, { comp_basic: 1, period_days: 30 });
-
-    const row = await prisma.hcmPayrollRule.create({
-      data: {
-        companyId: companyIdVal,
-        payComponentId,
-        code: String(body.code ?? ''),
-        name: String(body.name ?? body.code),
-        phase: Number(body.phase ?? 10),
-        priority: Number(body.priority ?? 100),
-        effectiveFrom: new Date(String(body.effectiveFrom)),
-        effectiveTo: body.effectiveTo ? new Date(String(body.effectiveTo)) : null,
-        conditionExpr: body.conditionExpr ? String(body.conditionExpr) : null,
-        formulaExpr,
-        dependsOnCodes: body.dependsOnCodes ? JSON.stringify(body.dependsOnCodes) : null,
-        localizationKey: body.localizationKey ? String(body.localizationKey) : null,
-      },
+    const row = await payrollRuleAdminService.createRule(companyIdVal, {
+      payComponentId: String(body.payComponentId ?? ''),
+      code: String(body.code ?? ''),
+      name: String(body.name ?? body.code),
+      phase: Number(body.phase ?? 10),
+      priority: Number(body.priority ?? 100),
+      effectiveFrom: new Date(String(body.effectiveFrom)),
+      effectiveTo: body.effectiveTo ? new Date(String(body.effectiveTo)) : null,
+      conditionExpr: body.conditionExpr ? String(body.conditionExpr) : null,
+      formulaExpr: String(body.formulaExpr ?? ''),
+      roundingMode: body.roundingMode ? String(body.roundingMode) : 'HALF_UP_2',
+      minAmount: body.minAmount != null ? Number(body.minAmount) : null,
+      maxAmount: body.maxAmount != null ? Number(body.maxAmount) : null,
+      dependsOnCodes: Array.isArray(body.dependsOnCodes) ? (body.dependsOnCodes as string[]) : [],
+      localizationKey: body.localizationKey ? String(body.localizationKey) : null,
+      isActive: body.isActive !== false,
     });
     const allRules = await prisma.hcmPayrollRule.findMany({
       where: { companyId: companyIdVal },
@@ -210,14 +256,47 @@ router.post(
         dependsOn: r.dependsOnCodes ? (JSON.parse(r.dependsOnCodes) as string[]) : [],
       }))
     );
+    if (req.user?.sub) {
+      await payrollConfigAuditService.record({
+        companyId: companyIdVal,
+        subjectType: 'HCM_PAYROLL_RULE',
+        subjectId: row.id,
+        actorId: req.user.sub,
+        action: 'CREATED',
+        summary: `إنشاء قاعدة ${row.code}`,
+        effectiveFrom: row.effectiveFrom.toISOString().slice(0, 10),
+        effectiveTo: row.effectiveTo ? row.effectiveTo.toISOString().slice(0, 10) : null,
+        entityCode: row.code,
+      });
+    }
     res.status(201).json({ status: 'success', data: row });
+  })
+);
+
+router.get(
+  '/config-audit',
+  authorize({ resource: 'payroll', action: 'view' }),
+  async (req: AuthRequest, res: Response) => {
+    const subjectType = String(req.query.subjectType ?? '') as PayrollConfigAuditSubject;
+    if (
+      !['HCM_PAYROLL_RULE', 'HCM_PAYROLL_LOCALIZATION', 'HCM_PAYROLL_GL_MAPPING'].includes(
+        subjectType
+      )
+    ) {
+      throw new AppError(400, 'Invalid subjectType');
+    }
+    const rows = await payrollConfigAuditService.list(companyId(req), subjectType, {
+      subjectId: req.query.subjectId ? String(req.query.subjectId) : undefined,
+      limit: req.query.limit ? Number(req.query.limit) : 50,
+    });
+    res.json({ status: 'success', data: rows });
   }
 );
 
 router.post(
   '/rules/simulate',
   authorize({ resource: 'payroll', action: 'view' }),
-  async (req: AuthRequest, res: Response) => {
+  asyncHandler(async (req: AuthRequest, res: Response) => {
     const companyIdVal = companyId(req);
     const { employeeId, periodYear, periodMonth, formulaExpr, conditionExpr } = req.body as {
       employeeId: string;
@@ -237,8 +316,15 @@ router.post(
       conditionExpr ?? null,
       ctx
     );
-    res.json({ status: 'success', data: { ...result, contextSample: ctx.vars } });
-  }
+    const includeAmounts = await canViewPayrollAmounts(req, companyIdVal);
+    res.json({
+      status: 'success',
+      data: asPayrollApiData(
+        { ...result, contextSample: ctx.vars },
+        includeAmounts
+      ),
+    });
+  })
 );
 
 router.get(
@@ -250,22 +336,7 @@ router.get(
     const periodMonth = Number(req.query.periodMonth ?? new Date().getUTCMonth() + 1);
     const includeAmounts = await canViewPayrollAmounts(req, cid);
     const data = await payrollDashboardService.getMetrics(cid, periodYear, periodMonth);
-    if (!includeAmounts) {
-      return void res.json({
-        status: 'success',
-        data: {
-          ...data,
-          gross: null,
-          net: null,
-          deductions: null,
-          employerContributions: null,
-          unpostedPayroll: null,
-          unpaidPayroll: null,
-          amountsRedacted: true,
-        },
-      });
-    }
-    res.json({ status: 'success', data: { ...data, amountsRedacted: false } });
+    res.json({ status: 'success', data: asPayrollApiData(data, includeAmounts) });
   }
 );
 
@@ -324,26 +395,6 @@ router.patch(
   }
 );
 
-router.get(
-  '/runs/:id/reports/register',
-  authorize({ resource: 'payroll', action: 'view' }),
-  async (req: AuthRequest, res: Response) => {
-    const data = await payrollReportsService.payrollRegister(companyId(req), req.params.id);
-    if (!data) throw new AppError(404, 'Run not found');
-    res.json({ status: 'success', data });
-  }
-);
-
-router.get(
-  '/runs/:id/reports/component-summary',
-  authorize({ resource: 'payroll', action: 'view' }),
-  async (req: AuthRequest, res: Response) => {
-    const data = await payrollReportsService.componentSummary(companyId(req), req.params.id);
-    if (!data) throw new AppError(404, 'Run not found');
-    res.json({ status: 'success', data });
-  }
-);
-
 router.post(
   '/runs/preview',
   authorize({ resource: 'payroll', action: 'view' }),
@@ -356,18 +407,7 @@ router.post(
       Number(periodMonth)
     );
     const includeAmounts = await canViewPayrollAmounts(req, cid);
-    if (!includeAmounts) {
-      return void res.json({
-        status: 'success',
-        data: {
-          ...data,
-          totals: null,
-          blockers: data.blockers.map((b) => ({ ...b, messages: b.messages })),
-          amountsRedacted: true,
-        },
-      });
-    }
-    res.json({ status: 'success', data: { ...data, amountsRedacted: false } });
+    res.json({ status: 'success', data: asPayrollApiData(data, includeAmounts) });
   }
 );
 
@@ -389,7 +429,7 @@ router.get(
       },
       includeAmounts
     );
-    res.json({ status: 'success', data });
+    res.json({ status: 'success', data: asPayrollApiData(data, includeAmounts) });
   }
 );
 
@@ -400,7 +440,7 @@ router.get(
     const cid = companyId(req);
     const includeAmounts = await canViewPayrollAmounts(req, cid);
     const data = await payrollRunReadService.getRunReview(cid, req.params.id, includeAmounts);
-    res.json({ status: 'success', data });
+    res.json({ status: 'success', data: asPayrollApiData(data, includeAmounts) });
   }
 );
 
@@ -557,23 +597,35 @@ router.post(
   }
 );
 
+function parseReportQuery(query: Record<string, string | undefined>): PayrollReportListQuery {
+  return {
+    page: query.page ? Number(query.page) : undefined,
+    pageSize: query.pageSize ? Number(query.pageSize) : undefined,
+    employeeId: query.employeeId,
+    componentCode: query.componentCode,
+    branchId: query.branchId,
+    departmentId: query.departmentId,
+    costCenterId: query.costCenterId,
+  };
+}
+
 const reportHandlers: Record<
   string,
   (cid: string, runId: string, query: Record<string, string | undefined>) => Promise<unknown>
 > = {
   summary: (cid, runId) => payrollReportsService.payrollSummary(cid, runId),
   register: (cid, runId, query) =>
-    payrollReportsService.payrollRegister(cid, runId, {
-      page: query.page ? Number(query.page) : undefined,
-      pageSize: query.pageSize ? Number(query.pageSize) : undefined,
-    }),
+    payrollReportsService.payrollRegister(cid, runId, parseReportQuery(query)),
   'component-summary': (cid, runId) => payrollReportsService.componentSummary(cid, runId),
   'deduction-summary': (cid, runId) => payrollReportsService.deductionSummary(cid, runId),
-  overtime: (cid, runId) => payrollReportsService.overtimeReport(cid, runId),
-  'absence-leave': (cid, runId) => payrollReportsService.absenceLeaveReport(cid, runId),
-  'advance-recovery': (cid, runId) => payrollReportsService.advanceRecoveryReport(cid, runId),
-  'employer-contributions': (cid, runId) =>
-    payrollReportsService.employerContributionReport(cid, runId),
+  overtime: (cid, runId, query) =>
+    payrollReportsService.overtimeReport(cid, runId, parseReportQuery(query)),
+  'absence-leave': (cid, runId, query) =>
+    payrollReportsService.absenceLeaveReport(cid, runId, parseReportQuery(query)),
+  'advance-recovery': (cid, runId, query) =>
+    payrollReportsService.advanceRecoveryReport(cid, runId, parseReportQuery(query)),
+  'employer-contributions': (cid, runId, query) =>
+    payrollReportsService.employerContributionReport(cid, runId, parseReportQuery(query)),
   'by-branch': (cid, runId) => payrollReportsService.byDimension(cid, runId, 'branch'),
   'by-department': (cid, runId) => payrollReportsService.byDimension(cid, runId, 'department'),
   'by-cost-center': (cid, runId) => payrollReportsService.byDimension(cid, runId, 'costCenter'),
@@ -621,13 +673,10 @@ router.get(
     const cid = companyId(req);
     const includeAmounts = await canViewPayrollAmounts(req, cid);
     const rows = await payrollCompensationComponentService.listForEmployment(cid, req.params.employmentId);
-    if (!includeAmounts) {
-      return void res.json({
-        status: 'success',
-        data: rows.map((r) => ({ ...r, amount: null, amountsRedacted: true })),
-      });
-    }
-    res.json({ status: 'success', data: rows });
+    res.json({
+      status: 'success',
+      data: asPayrollApiData(rows, includeAmounts),
+    });
   }
 );
 
@@ -670,41 +719,91 @@ router.post(
 router.get(
   '/localization/schema/:countryCode',
   authorize({ resource: 'payroll', action: 'view' }),
-  async (req: AuthRequest, res: Response) => {
+  asyncHandler(async (req: AuthRequest, res: Response) => {
     res.json({
       status: 'success',
       data: payrollLocalizationAdminService.providerSchema(req.params.countryCode),
     });
-  }
+  })
+);
+
+router.post(
+  '/localization/validate',
+  authorize({ resource: 'payroll', action: 'localization_manage' }),
+  asyncHandler(async (req: AuthRequest, res: Response) => {
+    const body = req.body as Record<string, unknown>;
+    const result = await payrollLocalizationAdminService.validateWithProvider(companyId(req), {
+      countryCode: String(body.countryCode ?? 'EG'),
+      configKey: String(body.configKey ?? ''),
+      config: (body.config as Record<string, unknown>) ?? {},
+    });
+    res.json({ status: 'success', data: result });
+  })
+);
+
+router.get(
+  '/localization/detail/:id',
+  authorize({ resource: 'payroll', action: 'view' }),
+  asyncHandler(async (req: AuthRequest, res: Response) => {
+    const row = await payrollLocalizationAdminService.getConfigById(companyId(req), req.params.id);
+    res.json({ status: 'success', data: row });
+  })
+);
+
+router.get(
+  '/localization/:countryCode/:configKey/versions',
+  authorize({ resource: 'payroll', action: 'view' }),
+  asyncHandler(async (req: AuthRequest, res: Response) => {
+    const rows = await payrollLocalizationAdminService.listVersions(
+      companyId(req),
+      req.params.countryCode,
+      req.params.configKey
+    );
+    res.json({ status: 'success', data: rows });
+  })
 );
 
 router.post(
   '/localization',
   authorize({ resource: 'payroll', action: 'localization_manage' }),
-  async (req: AuthRequest, res: Response) => {
+  asyncHandler(async (req: AuthRequest, res: Response) => {
     const body = req.body as Record<string, unknown>;
-    const row = await payrollLocalizationAdminService.upsertConfig(companyId(req), {
+    const cid = companyId(req);
+    const row = await payrollLocalizationAdminService.upsertConfig(cid, {
       countryCode: String(body.countryCode ?? 'EG'),
-      configKey: String(body.configKey ?? 'DEFAULT'),
+      configKey: String(body.configKey ?? 'INSURANCE_CAP'),
       effectiveFrom: new Date(String(body.effectiveFrom)),
-      effectiveTo: body.effectiveTo ? new Date(String(body.effectiveTo)) : null,
+      effectiveTo: body.effectiveTo ? new Date(String(body.effectiveTo)) : body.effectiveTo === null ? null : undefined,
       config: (body.config as Record<string, unknown>) ?? {},
       isActive: body.isActive !== false,
     });
+    if (req.user?.sub) {
+      await payrollConfigAuditService.record({
+        companyId: cid,
+        subjectType: 'HCM_PAYROLL_LOCALIZATION',
+        subjectId: row.id,
+        actorId: req.user.sub,
+        action: 'CREATED',
+        summary: `إنشاء توطين TEST ${row.countryCode}/${row.configKey}`,
+        effectiveFrom: row.effectiveFrom.toISOString().slice(0, 10),
+        effectiveTo: row.effectiveTo ? row.effectiveTo.toISOString().slice(0, 10) : null,
+        entityCode: `${row.countryCode}:${row.configKey}`,
+      });
+    }
     res.status(201).json({ status: 'success', data: row });
-  }
+  })
 );
 
 router.get(
   '/localization',
   authorize({ resource: 'payroll', action: 'view' }),
-  async (req: AuthRequest, res: Response) => {
+  asyncHandler(async (req: AuthRequest, res: Response) => {
     const rows = await prisma.hcmPayrollLocalizationConfig.findMany({
       where: { companyId: companyId(req) },
-      orderBy: [{ countryCode: 'asc' }, { effectiveFrom: 'desc' }],
+      orderBy: [{ countryCode: 'asc' }, { configKey: 'asc' }, { effectiveFrom: 'desc' }],
     });
     res.json({ status: 'success', data: rows });
-  }
+  })
 );
 
 router.get(
@@ -726,20 +825,10 @@ router.get(
     });
     if (!item) throw new AppError(404, 'Payslip not found');
     const includeAmounts = await canViewPayrollAmounts(req, companyIdVal);
-    if (!includeAmounts) {
-      return void res.json({
-        status: 'success',
-        data: {
-          ...item,
-          grossSalary: null,
-          netSalary: null,
-          basicSalary: null,
-          components: [],
-          amountsRedacted: true,
-        },
-      });
-    }
-    res.json({ status: 'success', data: { ...item, amountsRedacted: false } });
+    res.json({
+      status: 'success',
+      data: asPayrollApiData(item, includeAmounts),
+    });
   }
 );
 

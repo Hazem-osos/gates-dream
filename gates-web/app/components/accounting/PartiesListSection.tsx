@@ -133,6 +133,7 @@ export function PartiesListSection({ endpoint, queryKeyPrefix, emptyTitle, onSel
             ),
           },
         ]}
+        defaultSort={{ id: 'code', dir: 'asc' }}
         pagination={{
           page,
           pageSize,

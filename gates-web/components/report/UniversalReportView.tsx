@@ -869,13 +869,25 @@ export function UniversalReportView({
   } = useReportColumnVisibility(reportKey, allColumns);
   const isInventoryCount = reportKey === 'inventory-reports';
   const [showItemDetails, setShowItemDetails] = useState(false);
-  const displayColumns = useMemo(
-    () =>
-      isInventoryCount && !showItemDetails
-        ? visibleColumns.filter((column) => !column.detail)
-        : visibleColumns,
-    [isInventoryCount, showItemDetails, visibleColumns]
-  );
+  const displayColumns = useMemo(() => {
+    let cols = visibleColumns;
+    if (isInventoryCount) {
+      if (!showItemDetails) cols = cols.filter((column) => !column.detail);
+      if (drillQuery?.showWarehouse === 'true') {
+        cols = cols.filter((column) => column.id !== 'warehouseName');
+      }
+      if (drillQuery?.showGroups === 'true') {
+        cols = cols.filter((column) => column.id !== 'groupName');
+      }
+    }
+    return cols;
+  }, [
+    isInventoryCount,
+    showItemDetails,
+    visibleColumns,
+    drillQuery?.showGroups,
+    drillQuery?.showWarehouse,
+  ]);
 
   const gridKey = `gates-report-grid:${reportKey}`;
   const [columnFilters, setColumnFilters] = useState<Record<string, ColumnFilter>>({});

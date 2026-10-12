@@ -151,9 +151,9 @@ describe('HCM Phase 5.1 payroll HTTP permissions', () => {
       headers: authHeaders(),
       body: JSON.stringify({
         countryCode: 'EG',
-        configKey: 'DEFAULT',
+        configKey: 'INSURANCE_CAP',
         effectiveFrom: '2026-01-01',
-        config: { insuranceCap: 1 },
+        config: { maxBase: 1 },
       }),
     });
     expect(res.status).toBe(403);
@@ -162,6 +162,70 @@ describe('HCM Phase 5.1 payroll HTTP permissions', () => {
   it('reports without payroll:view amounts returns 403', async () => {
     permissions = [];
     const res = await fetch(`${baseUrl}/api/v1/hr/payroll/runs/x/reports/summary`, {
+      headers: authHeaders(),
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it('payslip JSON redacts amounts when payroll:view missing', async () => {
+    permissions = [];
+    const res = await fetch(`${baseUrl}/api/v1/hr/payroll/runs/x/payslip/y`, {
+      headers: authHeaders(),
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it('dashboard redacts monetary fields without payroll:view', async () => {
+    permissions = [];
+    const res = await fetch(`${baseUrl}/api/v1/hr/payroll/dashboard/metrics`, {
+      headers: authHeaders(),
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it('simulate redacts contextSample without payroll:view', async () => {
+    permissions = [];
+    const res = await fetch(`${baseUrl}/api/v1/hr/payroll/rules/simulate`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({
+        employeeId: 'e',
+        periodYear: 2026,
+        periodMonth: 1,
+        formulaExpr: 'comp_basic',
+      }),
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it('config-audit requires payroll:view', async () => {
+    permissions = [];
+    const res = await fetch(
+      `${baseUrl}/api/v1/hr/payroll/config-audit?subjectType=HCM_PAYROLL_RULE`,
+      { headers: authHeaders() }
+    );
+    expect(res.status).toBe(403);
+  });
+
+  it('payroll:rules_manage required for POST rules', async () => {
+    permissions = [{ resource: 'payroll', action: 'view', allow: true, module: 'hr', branchId: null }];
+    const res = await fetch(`${baseUrl}/api/v1/hr/payroll/rules`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({
+        code: 'X',
+        payComponentId: 'p',
+        effectiveFrom: '2026-01-01',
+        formulaExpr: 'comp_basic',
+      }),
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it('payroll:inputs_manage required for one-time input approve', async () => {
+    permissions = [{ resource: 'payroll', action: 'view', allow: true, module: 'hr', branchId: null }];
+    const res = await fetch(`${baseUrl}/api/v1/hr/payroll/inputs/x/approve`, {
+      method: 'POST',
       headers: authHeaders(),
     });
     expect(res.status).toBe(403);

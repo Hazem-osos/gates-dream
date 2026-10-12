@@ -620,6 +620,7 @@ function InputDesign() {
             setShowGuide(false);
             setError('');
           }}
+          defaultSort={{ id: 'code', dir: 'asc' }}
           columns={[
             { id: 'code', header: 'الكود', accessor: 'code' },
             { id: 'name', header: 'الاسم', accessor: 'arabicName' },

@@ -115,6 +115,11 @@ import {
   sourceLineToSalesRow,
   type SourceHydratePayload,
 } from '@/lib/invoices/sourceDocument';
+import {
+  buildMultiSourceHydrateNote,
+  combineSourceHydrateLines,
+  type MultiStockPermitHydrateRequest,
+} from '@/lib/invoices/multi-source-hydrate';
 import { useCustomerFrequentItems } from '@/lib/hooks/useCustomerFrequentItems';
 import { CustomerFrequentItemsBar } from '@/components/inventory/CustomerFrequentItemsBar';
 import { CustomerItemReservationButton } from '@/components/inventory/reservations/CustomerItemReservationButton';
@@ -2277,6 +2282,55 @@ function SalesInvoicePageInner() {
     [documentProfile?.lockCostCenter, documentProfile?.lockWarehouse, getValues, isSalesTaxInvoice, replace, setValue]
   );
 
+  const handleMultiStockPermitHydrate = useCallback(
+    ({ payloads, lineMode, replaceExisting }: MultiStockPermitHydrateRequest) => {
+      const first = payloads[0];
+      const warehouseId = documentProfile?.lockWarehouse
+        ? getValues('warehouseId')
+        : first.warehouseId || getValues('warehouseId');
+      if (first.customerId) {
+        setValue('customerId', first.customerId, { shouldDirty: true });
+        setCustomerSeed({
+          id: first.customerId,
+          arabicName: first.partyName,
+        });
+      }
+      if (warehouseId) setValue('warehouseId', warehouseId, { shouldDirty: true });
+      if (first.costCenterId && !documentProfile?.lockCostCenter) {
+        setValue('costCenterId', first.costCenterId, { shouldDirty: true });
+      }
+      if (first.currencyId) setValue('currencyId', first.currencyId, { shouldDirty: true });
+      if (first.delegateId) setValue('delegateId', first.delegateId, { shouldDirty: true });
+      setValue('sourceType', first.sourceType, { shouldDirty: true });
+      setValue('sourceId', first.sourceId, { shouldDirty: true });
+      setValue('sourceNumber', first.sourceNumber, { shouldDirty: true });
+      setValue(
+        'description',
+        mergeSourceNote(getValues('description'), buildMultiSourceHydrateNote(payloads)),
+        { shouldDirty: true }
+      );
+
+      const combined = combineSourceHydrateLines(
+        payloads.map((p) => p.lines),
+        lineMode
+      );
+      const newRows = combined.map((line) =>
+        sourceLineToSalesRow(line, warehouseId || '', isSalesTaxInvoice)
+      );
+      const current = getValues('lines').filter((line) => Boolean(line.itemId));
+      replace(replaceExisting ? newRows : [...current, ...newRows]);
+      toast.success(`تم تحميل ${payloads.length} مستند على الفاتورة`);
+    },
+    [
+      documentProfile?.lockCostCenter,
+      documentProfile?.lockWarehouse,
+      getValues,
+      isSalesTaxInvoice,
+      replace,
+      setValue,
+    ]
+  );
+
   // Handle delete
   const handleDelete = async () => {
     if (!selectedInvoiceId) {
@@ -2568,6 +2622,7 @@ function SalesInvoicePageInner() {
         headerExtrasOpen={headerExtrasOpen}
         onHeaderExtrasOpenChange={setHeaderExtrasOpen}
         onSourceHydrate={handleSourceHydrate}
+        onMultiStockPermitHydrate={affectsStock ? handleMultiStockPermitHydrate : undefined}
         paymentMethod={paymentMethodW ?? 'cash'}
         cashTenderKind={(cashTenderKindW ?? 'treasury') as CashTenderKind}
         onCashTenderKind={(kind) => setValue('cashTenderKind', kind, { shouldDirty: true, shouldValidate: true })}

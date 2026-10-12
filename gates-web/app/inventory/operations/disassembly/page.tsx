@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useOwnTabSearchParams } from '@/lib/navigation/tab-route-lock';
 import { ErpDocumentLayout } from '@/components/erp/ErpDocumentLayout';
 import { DocumentBrowseDrawer } from '@/components/erp/DocumentBrowseDrawer';
@@ -33,6 +33,8 @@ import { invalidateStockViews } from '@/lib/invoices/invalidate-stock-views';
 import { printManufacturingVoucher } from '@/lib/print/printManufacturingVoucher';
 import { useStoreDocumentSerial } from '@/lib/inventory/use-store-document-serial';
 import { StockMovementBottomSplit } from '@/components/inventory/stock/StockMovementBottomSplit';
+import { PageDraftRestoreBanner } from '@/components/erp/PageDraftRestoreBanner';
+import { useDraftAutosave } from '@/lib/hooks/useDraftAutosave';
 
 type ParentItem = {
   id: string;
@@ -86,6 +88,32 @@ type DisassemblyRecord = {
 
 function todayIso() {
   return new Date().toISOString().split('T')[0];
+}
+
+type DisassemblyDraft = {
+  serial: string;
+  description: string;
+  date: string;
+  parentItemId: string;
+  disassemblyQuantity: number;
+  sourceWarehouseId: string;
+  targetWarehouseId: string;
+  costCenterId: string;
+  parentUnitCost: number;
+  lines: DisassemblyComponentLine[];
+};
+
+function isDisassemblyDraftEmpty(draft: DisassemblyDraft): boolean {
+  return (
+    !draft.serial.trim() &&
+    !draft.description.trim() &&
+    !draft.parentItemId &&
+    !draft.sourceWarehouseId &&
+    !draft.targetWarehouseId &&
+    !draft.costCenterId.trim() &&
+    !(draft.parentUnitCost > 0) &&
+    !draft.lines.some(isEnteredDisassemblyLine)
+  );
 }
 
 function DisassemblyPageInner() {
@@ -184,6 +212,104 @@ function DisassemblyPageInner() {
   const parentTotal = parentUnitCost * (disassemblyQuantity || 1);
   const readOnly = isPosted || isCancelled || viewLocked;
 
+  const draftSnapshot = useMemo<DisassemblyDraft>(
+    () => ({
+      serial,
+      description,
+      date,
+      parentItemId,
+      disassemblyQuantity,
+      sourceWarehouseId,
+      targetWarehouseId,
+      costCenterId,
+      parentUnitCost,
+      lines,
+    }),
+    [
+      serial,
+      description,
+      date,
+      parentItemId,
+      disassemblyQuantity,
+      sourceWarehouseId,
+      targetWarehouseId,
+      costCenterId,
+      parentUnitCost,
+      lines,
+    ]
+  );
+
+  const applyDisassemblyDraft = useCallback((payload: DisassemblyDraft) => {
+    setViewLocked(false);
+    setSelectedId(null);
+    setSerial(payload.serial);
+    setDescription(payload.description);
+    setDate(payload.date || todayIso());
+    setParentItemId(payload.parentItemId);
+    setDisassemblyQuantity(payload.disassemblyQuantity || 1);
+    setSourceWarehouseId(payload.sourceWarehouseId);
+    setTargetWarehouseId(payload.targetWarehouseId);
+    setCostCenterId(payload.costCenterId);
+    setParentUnitCost(payload.parentUnitCost);
+    setLines(
+      payload.lines?.length ? payload.lines : [emptyDisassemblyComponentLine()]
+    );
+    setIsPosted(false);
+    setIsCancelled(false);
+    setJournalEntryId(null);
+    setGlSkipped(false);
+    setError('');
+    window.history.replaceState(null, '', window.location.pathname);
+  }, []);
+
+  const {
+    restoreOffer,
+    acceptRestore,
+    dismissRestore,
+    clearDraft,
+  } = useDraftAutosave({
+    documentType: 'stock-disassembly',
+    mode: selectedId ? 'edit' : 'new',
+    documentId: selectedId,
+    value: draftSnapshot,
+    enabled: !selectedId && !isPosted && !isCancelled,
+    applyRestore: applyDisassemblyDraft,
+    isEmpty: isDisassemblyDraftEmpty,
+    restoreMessage: 'تم استعادة مسودة أمر التفكيك',
+  });
+
+  const resetNew = useCallback(() => {
+    clearDraft();
+    resetKeepPosted();
+    setViewLocked(false);
+    setSelectedId(null);
+    setSerial('');
+    void invalidateNextSerial();
+    setDescription('');
+    setDate(todayIso());
+    setParentItemId('');
+    setDisassemblyQuantity(1);
+    setSourceWarehouseId('');
+    setTargetWarehouseId('');
+    setCostCenterId('');
+    setIsPosted(false);
+    setIsCancelled(false);
+    setJournalEntryId(null);
+    setGlSkipped(false);
+    setParentUnitCost(0);
+    setLines([emptyDisassemblyComponentLine()]);
+    setError('');
+    setSuccess('');
+    window.history.replaceState(null, '', window.location.pathname);
+  }, [clearDraft, invalidateNextSerial, resetKeepPosted]);
+
+  const handleRestoreDraft = () => {
+    const payload = acceptRestore();
+    if (!payload) return;
+    applyDisassemblyDraft(payload);
+    setSuccess('تم استعادة مسودة أمر التفكيك');
+  };
+
   const stayOnDisassembly = (id?: string | null, serialNumber?: string | null) => {
     if (!id) return;
     setSelectedId(id);
@@ -203,16 +329,28 @@ function DisassemblyPageInner() {
     setGlSkipped(skipped);
   };
 
+  const finishDisassemblySave = (posted: boolean, id?: string | null, number?: string | null) => {
+    finishDocumentSave({
+      label: 'تفكيك',
+      number,
+      posted,
+      savedId: id,
+      clearDraft,
+      onOpen: openDisassembly,
+      onSavedOpen: (saved) => invalidateQuery(['disassembly', saved]),
+      reset: resetNew,
+    });
+  };
+
   const postDisassemblyAfterSave = (id: string, number?: string | null) => {
     void apiClient
       .post(`/inventory/disassemblies/${id}/post`)
       .then((res) => {
-        setIsPosted(true);
         applyPostResponse(res);
         setSuccess(postSuccessMessage(res));
-        stayOnDisassembly(id, number);
         invalidateQuery(['disassembly', id]);
         invalidateStockViews(invalidateQuery);
+        finishDisassemblySave(true, id, number);
       })
       .catch((err: unknown) => {
         stayOnDisassembly(id, number);
@@ -237,22 +375,7 @@ function DisassemblyPageInner() {
           postDisassemblyAfterSave(id, res.data?.serial);
           return;
         }
-        finishDocumentSave({
-          label: 'تفكيك',
-          number: res.data?.serial,
-          savedId: id,
-          cleared: false,
-          onOpen: openDisassembly,
-          onSavedOpen: (saved) => invalidateQuery(['disassembly', saved]),
-          reset: () => {
-            if (id) {
-              openDisassembly(id);
-              setViewLocked(true);
-            } else {
-              resetNew();
-            }
-          },
-        });
+        finishDisassemblySave(false, id, res.data?.serial);
       },
       onError: (err: ApiError) => {
         postAfterSaveRef.current = false;
@@ -279,18 +402,7 @@ function DisassemblyPageInner() {
               setIsPosted(true);
               applyPostResponse(postRes);
               setSuccess(postSuccessMessage(postRes));
-              finishDocumentSave({
-                label: 'تفكيك',
-                number,
-                posted: true,
-                savedId: id,
-                cleared: false,
-                onOpen: openDisassembly,
-                reset: () => {
-                  stayOnDisassembly(id, number);
-                  setViewLocked(true);
-                },
-              });
+              finishDisassemblySave(true, id, number);
               invalidateQuery(['disassembly', id]);
               invalidateStockViews(invalidateQuery);
             })
@@ -304,18 +416,7 @@ function DisassemblyPageInner() {
           postDisassemblyAfterSave(id, number);
           return;
         }
-        finishDocumentSave({
-          label: 'تفكيك',
-          number,
-          savedId: id,
-          cleared: false,
-          onOpen: openDisassembly,
-          onSavedOpen: (saved) => invalidateQuery(['disassembly', saved]),
-          reset: () => {
-            stayOnDisassembly(id, number);
-            setViewLocked(true);
-          },
-        });
+        finishDisassemblySave(false, id, number);
       },
       onError: (err: ApiError) => {
         postAfterSaveRef.current = false;
@@ -439,43 +540,6 @@ function DisassemblyPageInner() {
     }
   };
 
-  const resetNew = () => {
-    resetKeepPosted();
-    setViewLocked(false);
-    setSelectedId(null);
-    setSerial('');
-    void invalidateNextSerial();
-    setDescription('');
-    setDate(todayIso());
-    setParentItemId('');
-    setDisassemblyQuantity(1);
-    setSourceWarehouseId('');
-    setTargetWarehouseId('');
-    setCostCenterId('');
-    setIsPosted(false);
-    setIsCancelled(false);
-    setJournalEntryId(null);
-    setGlSkipped(false);
-    setParentUnitCost(0);
-    setLines([emptyDisassemblyComponentLine()]);
-    setError('');
-    setSuccess('');
-    window.history.replaceState(null, '', window.location.pathname);
-  };
-
-  const handleDuplicate = () => {
-    setViewLocked(false);
-    setSelectedId(null);
-    setSerial('');
-    void invalidateNextSerial();
-    setIsPosted(false);
-    setIsCancelled(false);
-    setJournalEntryId(null);
-    setGlSkipped(false);
-    setSuccess('تم تجهيز نسخة جديدة من أمر التفكيك');
-    window.history.replaceState(null, '', window.location.pathname);
-  };
-
   const savePending = createMutation.isPending || updateMutation.isPending;
 
   return (
@@ -483,6 +547,14 @@ function DisassemblyPageInner() {
       <div className="flex min-h-[calc(100dvh-3rem)] flex-col pb-4">
         {error ? <ErrorToast message={error} onClose={() => setError('')} /> : null}
         {success ? <SuccessToast message={success} onClose={() => setSuccess('')} /> : null}
+
+        {restoreOffer && !selectedId ? (
+          <PageDraftRestoreBanner
+            message="يوجد مسودة غير محفوظة لأمر التفكيك من قبل ما خرجت من الصفحة."
+            onRestore={handleRestoreDraft}
+            onDismiss={dismissRestore}
+          />
+        ) : null}
 
         <ItemDisassemblyHeader
           docNumber={serial}
@@ -519,6 +591,7 @@ function DisassemblyPageInner() {
           canSave={!readOnly && !savePending}
           onBrowseList={() => setBrowseOpen(true)}
           moreMenuItems={[
+            { id: 'new', label: 'جديد', onClick: resetNew },
             {
               id: 'edit',
               label: 'تعديل',
@@ -589,7 +662,6 @@ function DisassemblyPageInner() {
                 });
               },
             },
-            { id: 'duplicate', label: 'تكرار التفكيك', onClick: handleDuplicate },
             {
               id: 'cancel',
               label: 'إلغاء التفكيك',
@@ -599,7 +671,6 @@ function DisassemblyPageInner() {
                 if (selectedId) cancelMutation.mutate({});
               },
             },
-            { id: 'new', label: 'أمر جديد', onClick: resetNew },
           ]}
         />
 

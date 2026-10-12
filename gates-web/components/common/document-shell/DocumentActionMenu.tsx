@@ -2,8 +2,9 @@
 
 import { useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-import { MessageSquare, MoreHorizontal, Receipt } from 'lucide-react';
+import { MessageSquare, MoreHorizontal, Printer, Receipt } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { formActionButtonClass } from '@/components/ui/forms/formTokens';
 import { SimpleDropdownMenu } from '@/components/inventory/SimpleDropdownMenu';
 import { useOptionalDocumentMode } from './DocumentModeContext';
 import {
@@ -186,12 +187,6 @@ export function DocumentActionMenu({
             onClick: () => setConfirm('unpost'),
           },
         ]),
-    {
-      id: 'print',
-      label: printLabel ?? (hidePostActions ? 'طباعة السند' : 'طباعة المستند'),
-      disabled: !hasDocument || !onPrint,
-      onClick: () => onPrint?.(),
-    },
     ...(onThermalPrint
       ? [
           {
@@ -256,17 +251,36 @@ export function DocumentActionMenu({
     },
   ];
 
+  const printButtonLabel =
+    printLabel ?? (hidePostActions ? 'طباعة السند' : 'طباعة المستند');
+
   return (
     <>
-      <SimpleDropdownMenu
-        align="right"
-        trigger={
-          <Button variant="ghost" size="sm" aria-label="قائمة الإجراءات" data-tour="three-dots-menu">
-            <MoreHorizontal className="h-5 w-5" />
+      <div className="flex shrink-0 items-center gap-1">
+        {onPrint ? (
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            className={`${formActionButtonClass} gap-1.5`}
+            disabled={!hasDocument}
+            onClick={() => onPrint()}
+            data-tour="document-print"
+          >
+            <Printer className="h-3.5 w-3.5" aria-hidden />
+            {printButtonLabel}
           </Button>
-        }
-        items={items}
-      />
+        ) : null}
+        <SimpleDropdownMenu
+          align="right"
+          trigger={
+            <Button variant="ghost" size="sm" aria-label="قائمة الإجراءات" data-tour="three-dots-menu">
+              <MoreHorizontal className="h-5 w-5" />
+            </Button>
+          }
+          items={items}
+        />
+      </div>
       {phoneDialogOpen ? (
         <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/40 px-4" dir="rtl">
           <div className="w-full max-w-sm rounded-2xl border border-emerald-200 bg-white p-5 shadow-xl">

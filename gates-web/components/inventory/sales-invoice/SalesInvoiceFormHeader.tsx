@@ -26,7 +26,9 @@ import { useFollowCurrencyCardRate } from '@/lib/hooks/useFollowCurrencyCardRate
 import { ExchangeRateInput } from '@/components/accounting/ExchangeRateInput';
 import { useCompanyBaseCurrency } from '@/lib/hooks/useCompanyBaseCurrency';
 import { InvoiceSourceDocumentControl } from '@/components/invoices/InvoiceSourceDocumentControl';
+import { MultiStockPermitLoadControl } from '@/components/invoices/MultiStockPermitLoadControl';
 import { type SourceHydratePayload } from '@/lib/invoices/sourceDocument';
+import type { MultiStockPermitHydrateRequest } from '@/lib/invoices/multi-source-hydrate';
 import { salesInvoiceSourceTypes } from '@/lib/transaction-settings/affect-stock';
 import { formatUserDisplayName } from '@/lib/user/profile';
 import type { CashTenderKind, InvoiceChequeDraft } from '@/lib/invoices/cash-tender';
@@ -105,6 +107,7 @@ type Props = {
   headerExtrasOpen?: boolean;
   onHeaderExtrasOpenChange?: (open: boolean) => void;
   onSourceHydrate?: (payload: SourceHydratePayload) => void;
+  onMultiStockPermitHydrate?: (request: MultiStockPermitHydrateRequest) => void;
   includeAllAccounts?: boolean;
   cashTenderKind?: CashTenderKind;
   onCashTenderKind?: (kind: CashTenderKind) => void;
@@ -155,6 +158,7 @@ export function SalesInvoiceFormHeader({
   headerExtrasOpen,
   onHeaderExtrasOpenChange,
   onSourceHydrate,
+  onMultiStockPermitHydrate,
   includeAllAccounts = false,
   affectsStock = true,
 }: Props) {
@@ -600,6 +604,13 @@ export function SalesInvoiceFormHeader({
       headerActions={
         <>
           {sourceLoadControl}
+          {onMultiStockPermitHydrate ? (
+            <MultiStockPermitLoadControl
+              hasExistingLines={hasExistingLines}
+              disabled={sourceDisabled}
+              onApply={onMultiStockPermitHydrate}
+            />
+          ) : null}
           {headerActions}
         </>
       }

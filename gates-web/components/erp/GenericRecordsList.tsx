@@ -16,6 +16,10 @@ import {
   rowMatchesSearch,
   type BrowsePostedStatus,
 } from '@/lib/browse/browse-list-match';
+import {
+  mapBrowseColumnToApiSort,
+  pickBrowseCodeColumnId,
+} from '@/lib/browse/browse-list-sort';
 
 export type GenericRecordRow = {
   id: string;
@@ -68,7 +72,11 @@ export function GenericRecordsList({
   const [endDate, setEndDate] = useState('');
   const [statusFilter, setStatusFilter] = useState<BrowsePostedStatus>('all');
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [sortBy, setSortBy] = useState('number');
+  const defaultCodeColumnId = useMemo(
+    () => pickBrowseCodeColumnId(columns.map((c) => c.id), columns.map((c) => c.header)),
+    [columns]
+  );
+  const [sortBy, setSortBy] = useState(() => mapBrowseColumnToApiSort(defaultCodeColumnId));
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const hasLocalFilters = Boolean(search.trim() || startDate || endDate || statusFilter !== 'all');
 
@@ -280,10 +288,10 @@ export function GenericRecordsList({
         rowClassName={(row) =>
           selectedId === row.id ? 'bg-sky-50 even:bg-sky-50 hover:bg-sky-100' : undefined
         }
-        defaultSort={{ id: columns[0]?.id ?? 'num', dir: 'asc' }}
+        defaultSort={{ id: defaultCodeColumnId, dir: 'asc' }}
         onSortChange={(next) => {
           setPage(1);
-          setSortBy(/date/.test(next.id) ? 'date' : /amount|total/.test(next.id) ? 'amount' : 'number');
+          setSortBy(mapBrowseColumnToApiSort(next.id));
           setSortDir(next.dir);
         }}
         pagination={{

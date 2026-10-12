@@ -198,16 +198,27 @@ function AssemblyPageInner() {
     setGlSkipped(skipped);
   };
 
+  const finishAssemblySave = (posted: boolean, id?: string | null, number?: string | null) => {
+    finishDocumentSave({
+      label: 'تجميع',
+      number,
+      posted,
+      savedId: id,
+      onOpen: openAssembly,
+      onSavedOpen: (saved) => invalidateQuery(['assembly', saved]),
+      reset: resetNew,
+    });
+  };
+
   const postAssemblyAfterSave = (id: string, number?: string | null) => {
     void apiClient
       .post(`/inventory/assemblies/${id}/post`)
       .then((res) => {
-        setIsPosted(true);
         applyPostResponse(res);
         setSuccess(postSuccessMessage(res));
-        stayOnAssembly(id, number);
         invalidateQuery(['assembly', id]);
         invalidateStockViews(invalidateQuery);
+        finishAssemblySave(true, id, number);
       })
       .catch((err: unknown) => {
         stayOnAssembly(id, number);
@@ -232,22 +243,7 @@ function AssemblyPageInner() {
           postAssemblyAfterSave(id, res.data?.serial);
           return;
         }
-        finishDocumentSave({
-          label: 'تجميع',
-          number: res.data?.serial,
-          savedId: id,
-          cleared: false,
-          onOpen: openAssembly,
-          onSavedOpen: (saved) => invalidateQuery(['assembly', saved]),
-          reset: () => {
-            if (id) {
-              openAssembly(id);
-              setViewLocked(true);
-            } else {
-              resetNew();
-            }
-          },
-        });
+        finishAssemblySave(false, id, res.data?.serial);
       },
       onError: (err: ApiError) => {
         postAfterSaveRef.current = false;
@@ -274,18 +270,7 @@ function AssemblyPageInner() {
               setIsPosted(true);
               applyPostResponse(postRes);
               setSuccess(postSuccessMessage(postRes));
-              finishDocumentSave({
-                label: 'تجميع',
-                number,
-                posted: true,
-                savedId: id,
-                cleared: false,
-                onOpen: openAssembly,
-                reset: () => {
-                  stayOnAssembly(id, number);
-                  setViewLocked(true);
-                },
-              });
+              finishAssemblySave(true, id, number);
               invalidateQuery(['assembly', id]);
               invalidateStockViews(invalidateQuery);
             })
@@ -299,18 +284,7 @@ function AssemblyPageInner() {
           postAssemblyAfterSave(id, number);
           return;
         }
-        finishDocumentSave({
-          label: 'تجميع',
-          number,
-          savedId: id,
-          cleared: false,
-          onOpen: openAssembly,
-          onSavedOpen: (saved) => invalidateQuery(['assembly', saved]),
-          reset: () => {
-            stayOnAssembly(id, number);
-            setViewLocked(true);
-          },
-        });
+        finishAssemblySave(false, id, number);
       },
       onError: (err: ApiError) => {
         postAfterSaveRef.current = false;
@@ -454,19 +428,6 @@ function AssemblyPageInner() {
     window.history.replaceState(null, '', window.location.pathname);
   };
 
-  const handleDuplicate = () => {
-    setViewLocked(false);
-    setSelectedId(null);
-    setSerial('');
-    void invalidateNextSerial();
-    setIsPosted(false);
-    setIsCancelled(false);
-    setJournalEntryId(null);
-    setGlSkipped(false);
-    setSuccess('تم تجهيز نسخة جديدة من أمر التجميع');
-    window.history.replaceState(null, '', window.location.pathname);
-  };
-
   const savePending = createMutation.isPending || updateMutation.isPending;
 
   return (
@@ -519,6 +480,7 @@ function AssemblyPageInner() {
           canSave={!readOnly && !savePending}
           onBrowseList={() => setBrowseOpen(true)}
           moreMenuItems={[
+            { id: 'new', label: 'جديد', onClick: resetNew },
             {
               id: 'edit',
               label: 'تعديل',
@@ -589,7 +551,6 @@ function AssemblyPageInner() {
                 });
               },
             },
-            { id: 'duplicate', label: 'تكرار التجميع', onClick: handleDuplicate },
             {
               id: 'cancel',
               label: 'إلغاء التجميع',
@@ -599,7 +560,6 @@ function AssemblyPageInner() {
                 if (selectedId) cancelMutation.mutate({});
               },
             },
-            { id: 'new', label: 'أمر جديد', onClick: resetNew },
           ]}
         />
 

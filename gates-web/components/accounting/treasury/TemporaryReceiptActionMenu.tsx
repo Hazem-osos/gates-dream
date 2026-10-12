@@ -2,6 +2,7 @@
 
 import { Copy, MoreHorizontal, Pencil, Printer, XCircle } from 'lucide-react';
 import { Button } from '@/components/ui';
+import { formActionButtonClass } from '@/components/ui/forms/formTokens';
 import { SimpleDropdownMenu } from '@/components/inventory/SimpleDropdownMenu';
 
 type Props = {
@@ -24,14 +25,27 @@ export function TemporaryReceiptActionMenu({
   onCancel,
 }: Props) {
   return (
-    <SimpleDropdownMenu
-      align="right"
-      trigger={
-        <Button type="button" variant="ghost" size="sm" aria-label="قائمة الإجراءات">
-          <MoreHorizontal className="h-5 w-5" />
-        </Button>
-      }
-      items={[
+    <div className="flex shrink-0 items-center gap-1">
+      <Button
+        type="button"
+        variant="secondary"
+        size="sm"
+        className={`${formActionButtonClass} gap-1.5`}
+        disabled={!hasDocument}
+        onClick={onPrint}
+        data-tour="document-print"
+      >
+        <Printer className="h-3.5 w-3.5" aria-hidden />
+        طباعة الإيصال
+      </Button>
+      <SimpleDropdownMenu
+        align="right"
+        trigger={
+          <Button type="button" variant="ghost" size="sm" aria-label="قائمة الإجراءات">
+            <MoreHorizontal className="h-5 w-5" />
+          </Button>
+        }
+        items={[
         ...(isReadOnly
           ? [
               {
@@ -43,13 +57,6 @@ export function TemporaryReceiptActionMenu({
               },
             ]
           : []),
-        {
-          id: 'print',
-          label: 'طباعة الإيصال',
-          disabled: !hasDocument,
-          onClick: onPrint,
-          icon: <Printer className="ml-2 h-4 w-4" />,
-        },
         {
           id: 'duplicate',
           label: 'تكرار',
@@ -65,7 +72,8 @@ export function TemporaryReceiptActionMenu({
           onClick: onCancel,
           icon: <XCircle className="ml-2 h-4 w-4" />,
         },
-      ]}
-    />
+        ]}
+      />
+    </div>
   );
 }

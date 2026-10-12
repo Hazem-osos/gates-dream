@@ -1,5 +1,6 @@
 // @ts-nocheck — strict cleanup pending; tracked for incremental typing.
 import prisma from '../../../shared/database/prisma';
+import { serialDocumentListOrderBy } from '../../../shared/utils/serial-document-list-order-by';
 import { scopedItemQuantityWhere } from '../utils/item-quantity-tenant';
 import { logger } from '../../../shared/logger';
 import { stockMovementService } from './stock-movement.service';
@@ -313,6 +314,8 @@ export class DisassemblyService {
       toDate?: string;
       skip?: number;
       take?: number;
+      sortBy?: string;
+      sortDir?: 'asc' | 'desc';
     }
   ) {
     try {
@@ -374,7 +377,7 @@ export class DisassemblyService {
               take: 3, // Limit lines in list view
             },
           },
-          orderBy: { createdAt: 'desc' },
+          orderBy: serialDocumentListOrderBy(options?.sortBy, options?.sortDir),
           skip: options?.skip || 0,
           take: options?.take || 50,
         }),

@@ -17,6 +17,10 @@ import {
   permissionGrantedFromCache,
 } from '../../../shared/cache/tenant-context.cache';
 import { redactEmployeeList } from '../services/payroll/payroll-field-redaction.util';
+import {
+  asPayrollApiData,
+  serializeEmployeeRecord,
+} from '../services/payroll/payroll-response.serializer';
 
 async function canViewCompensation(req: AuthRequest, companyId: string): Promise<boolean> {
   const userId = req.user?.sub;
@@ -106,7 +110,12 @@ router.get(
         attendancePeriodStart: ps ? new Date(`${ps}T00:00:00.000Z`) : undefined,
         attendancePeriodEnd: pe ? new Date(`${pe}T00:00:00.000Z`) : undefined,
       });
-      return void res.json({ status: 'success', data });
+      const includeSensitive =
+        includeCompensation || includePayrollAmounts;
+      return void res.json({
+        status: 'success',
+        data: asPayrollApiData(data, includeSensitive),
+      });
     } catch (error) {
       const status =
         error instanceof Error && error.message.includes('not found') ? 404 : 500;
@@ -156,10 +165,12 @@ router.get(
         companyId,
         req.params.id
       );
+      const includeSensitive =
+        (await canViewCompensation(req, companyId)) || (await canViewPayrollAmounts(req, companyId));
 
       return void res.json({
         status: 'success',
-        data: employee,
+        data: serializeEmployeeRecord(employee as Record<string, unknown>, includeSensitive),
       });
     } catch (error) {
       logger.error({ error }, 'Error getting employee');

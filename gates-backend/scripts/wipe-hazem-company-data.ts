@@ -2,7 +2,10 @@
  * Wipe operational data for hazem@gmail.com's company.
  * Keeps the login user(s), company, settings, branches, and permissions.
  *
- * Run: npx tsx scripts/wipe-hazem-company-data.ts
+ * Run: WIPE_USER_EMAIL=you@example.com npx tsx scripts/wipe-hazem-company-data.ts
+ *
+ * Railway (all companies, keep every login):
+ *   railway ssh -s gates-backend -- 'cd /app && for e in email1 email2; do WIPE_USER_EMAIL=$e npx tsx scripts/wipe-hazem-company-data.ts; done'
  */
 import { PrismaClient } from '@prisma/client';
 

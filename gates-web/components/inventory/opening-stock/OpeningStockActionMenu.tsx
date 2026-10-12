@@ -10,6 +10,7 @@ import {
   Unlock,
 } from 'lucide-react';
 import { Button } from '@/components/ui';
+import { formActionButtonClass } from '@/components/ui/forms/formTokens';
 import { SimpleDropdownMenu } from '@/components/inventory/SimpleDropdownMenu';
 
 type Props = {
@@ -38,14 +39,26 @@ export function OpeningStockActionMenu({
   onClearAll,
 }: Props) {
   return (
-    <SimpleDropdownMenu
-      align="right"
-      trigger={
-        <Button type="button" variant="ghost" size="sm" aria-label="قائمة الإجراءات">
-          <MoreHorizontal className="h-5 w-5" />
-        </Button>
-      }
-      items={[
+    <div className="flex shrink-0 items-center gap-1">
+      <Button
+        type="button"
+        variant="secondary"
+        size="sm"
+        className={`${formActionButtonClass} gap-1.5`}
+        onClick={onPrint}
+        data-tour="document-print"
+      >
+        <Printer className="h-3.5 w-3.5" aria-hidden />
+        طباعة كشف بضاعة أول المدة
+      </Button>
+      <SimpleDropdownMenu
+        align="right"
+        trigger={
+          <Button type="button" variant="ghost" size="sm" aria-label="قائمة الإجراءات">
+            <MoreHorizontal className="h-5 w-5" />
+          </Button>
+        }
+        items={[
         isPosted
           ? {
               id: 'unpost',
@@ -73,12 +86,6 @@ export function OpeningStockActionMenu({
             ]
           : []),
         {
-          id: 'print',
-          label: 'طباعة كشف بضاعة أول المدة',
-          onClick: onPrint,
-          icon: <Printer className="ml-2 h-4 w-4" />,
-        },
-        {
           id: 'excel',
           label: 'تصدير إلى إكسيل',
           onClick: onExportExcel,
@@ -92,7 +99,8 @@ export function OpeningStockActionMenu({
           onClick: onClearAll,
           icon: <Trash2 className="ml-2 h-4 w-4" />,
         },
-      ]}
-    />
+        ]}
+      />
+    </div>
   );
 }

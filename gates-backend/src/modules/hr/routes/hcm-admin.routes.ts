@@ -2,9 +2,12 @@ import { Router, Response } from 'express';
 import { authenticate } from '../../../shared/middleware/auth.middleware';
 import { authorize } from '../../../shared/middleware/authorize.middleware';
 import { setTenantContext } from '../../../shared/middleware/tenant.middleware';
+import { AppError } from '../../../shared/middleware/error-handler';
 import type { AuthRequest } from '../../../shared/auth/types';
 import { hcmBackfillService } from '../services/hcm/hcm-backfill.service';
 import { payrollCanonicalReadService } from '../services/hcm/payroll-canonical-read.service';
+import { canViewPayrollAmounts } from '../services/payroll/payroll-permission.util';
+import { asPayrollApiData } from '../services/payroll/payroll-response.serializer';
 
 const router = Router();
 router.use(authenticate);
@@ -29,12 +32,16 @@ router.get(
     if (!companyId) return void res.status(400).json({ status: 'error', message: 'معرّف الشركة مطلوب' });
     const periodYear = Number(req.query.periodYear);
     const periodMonth = Number(req.query.periodMonth);
+    const includeAmounts = await canViewPayrollAmounts(req, companyId);
+    if (!includeAmounts) {
+      throw new AppError(403, 'Payroll amounts permission required');
+    }
     const data = await payrollCanonicalReadService.listPayslipsForPeriod(
       companyId,
       periodYear,
       periodMonth
     );
-    return void res.json({ status: 'success', data });
+    return void res.json({ status: 'success', data: asPayrollApiData(data, true) });
   }
 );
 

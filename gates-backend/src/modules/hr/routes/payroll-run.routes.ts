@@ -11,6 +11,12 @@ import { payrollPostingService } from '../services/payroll-posting.service';
 import { payrollWorkflowService } from '../services/payroll/payroll-workflow.service';
 import { hcmPayrollCalculateQueue } from '../../../workers/queues/hcm-payroll-calculate.queue';
 import { randomUUID } from 'crypto';
+import { canViewPayrollAmounts } from '../services/payroll/payroll-permission.util';
+import {
+  redactSensitiveDeep,
+  asPayrollApiData,
+  serializePayrollRunRecord,
+} from '../services/payroll/payroll-response.serializer';
 
 const router = Router();
 
@@ -65,19 +71,21 @@ router.get(
   '/calculate-async/:jobId',
   authorize({ resource: 'payroll', action: 'view' }),
   async (req: AuthRequest, res: Response) => {
+    const companyId = req.companyId ?? req.tenantId;
     const job = await hcmPayrollCalculateQueue.getJob(req.params.jobId);
     if (!job) {
       return void res.status(404).json({ status: 'error', message: 'Job not found' });
     }
     const state = await job.getState();
     const progress = job.progress;
+    const includeAmounts = companyId ? await canViewPayrollAmounts(req, companyId) : false;
     return void res.json({
       status: 'success',
       data: {
         jobId: job.id,
         state,
         progress,
-        result: job.returnvalue,
+        result: redactSensitiveDeep(job.returnvalue, includeAmounts),
         failedReason: job.failedReason,
       },
     });
@@ -101,7 +109,11 @@ router.post(
         branchId: branchId ?? req.branchId,
         employeeInputs,
       });
-      return void res.status(201).json({ status: 'success', data });
+      const includeAmounts = await canViewPayrollAmounts(req, companyId);
+      return void res.status(201).json({
+        status: 'success',
+        data: serializePayrollRunRecord(data as Record<string, unknown>, includeAmounts),
+      });
     } catch (e) {
       const status = e instanceof AppError ? e.statusCode : 500;
       return void res.status(status).json({
@@ -122,7 +134,11 @@ router.get(
     }
     try {
       const data = await payrollEngineService.getPayrollRun(companyId, req.params.id);
-      return void res.json({ status: 'success', data });
+      const includeAmounts = await canViewPayrollAmounts(req, companyId);
+      return void res.json({
+        status: 'success',
+        data: serializePayrollRunRecord(data as Record<string, unknown>, includeAmounts),
+      });
     } catch (e) {
       const status = e instanceof AppError ? e.statusCode : 500;
       return void res.status(status).json({
@@ -143,7 +159,11 @@ router.post(
     }
     try {
       const data = await payrollWorkflowService.approveRun(companyId, req.params.id, req.user?.sub ?? 'system');
-      return void res.json({ status: 'success', data });
+      const includeAmounts = await canViewPayrollAmounts(req, companyId);
+      return void res.json({
+        status: 'success',
+        data: asPayrollApiData(data, includeAmounts),
+      });
     } catch (e) {
       const status = e instanceof AppError ? e.statusCode : 500;
       return void res.status(status).json({
@@ -164,7 +184,8 @@ router.post(
         return void res.status(400).json({ status: 'error', message: 'X-Fiscal-Year-Id required' });
       }
       const data = await payrollPostingService.postAccrual(ctx, req.params.id);
-      return void res.json({ status: 'success', data });
+      const includeAmounts = await canViewPayrollAmounts(req, ctx.companyId);
+      return void res.json({ status: 'success', data: asPayrollApiData(data, includeAmounts) });
     } catch (e) {
       const status = e instanceof AppError ? e.statusCode : 500;
       return void res.status(status).json({
@@ -209,7 +230,8 @@ router.post(
         safeId: req.body?.safeId,
         bankAccountId: req.body?.bankAccountId,
       });
-      return void res.json({ status: 'success', data });
+      const includeAmounts = await canViewPayrollAmounts(req, ctx.companyId);
+      return void res.json({ status: 'success', data: asPayrollApiData(data, includeAmounts) });
     } catch (e) {
       const status = e instanceof AppError ? e.statusCode : 500;
       return void res.status(status).json({
