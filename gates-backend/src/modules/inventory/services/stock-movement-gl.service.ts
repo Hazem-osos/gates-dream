@@ -49,9 +49,10 @@ async function allocateGlNum(
 ): Promise<string | undefined> {
   // Inventory JEs are system-generated (no user GL number input),
   // so always use automatic sequencing regardless of SerialAutomaticGL setting.
+  const branchId = String(ctx.branchId ?? '').trim() || null;
   return documentSequenceService.nextGlNumberInTx(
     tx,
-    { companyId: ctx.companyId, branchId: ctx.branchId ?? '', fiscalYearId: ctx.fiscalYearId },
+    { companyId: ctx.companyId, branchId, fiscalYearId: ctx.fiscalYearId },
     undefined,
     { forceAutomatic: true }
   );
@@ -955,10 +956,30 @@ export class StockMovementGlService {
     const lines = buildInventoryTransformationJournalLines(debitLines, creditLines);
     if (lines.length === 0) return null;
 
-    const legacyGlNum = await allocateGlNum(tx, ctx);
     const serial = doc.serial ?? doc.id.slice(0, 8);
     const sourceYearId = sourceYearOf(doc.date);
     const sourceType = kind === 'ASSEMBLY' ? 'ASM' : 'DSM';
+
+    const activeKeys = [
+      journalPostingService.buildActiveSourceKey(
+        ctx.companyId,
+        sourceType,
+        serial,
+        sourceYearId,
+        doc.id
+      ),
+      journalPostingService.buildActiveSourceKey(ctx.companyId, sourceType, serial, sourceYearId),
+    ].filter((key): key is string => Boolean(key));
+    for (const key of activeKeys) {
+      const existing = await tx.journalEntry.findUnique({
+        where: { activeSourceKey: key },
+      });
+      if (existing && !existing.isCancelled) {
+        return existing;
+      }
+    }
+
+    const legacyGlNum = await allocateGlNum(tx, ctx);
 
     const je = await journalPostingService.createAndPostInTx(tx, ctx, {
       date: doc.date,
@@ -970,6 +991,7 @@ export class StockMovementGlService {
       sourceType,
       sourceNumber: serial,
       sourceYearId,
+      sourceId: doc.id,
       entryType: kind,
       lines,
     });

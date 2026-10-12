@@ -76,7 +76,12 @@ export function createAutomationEventDispatchWorker(): Worker<DispatchAutomation
   });
   worker.on('failed', (job, err) => {
     logger.error(
-      { jobId: job?.id, eventId: job?.data?.eventId, error: err },
+      {
+        jobId: job?.id,
+        eventId: job?.data?.eventId,
+        error: err instanceof Error ? err.message : String(err),
+        stack: err instanceof Error ? err.stack : undefined,
+      },
       'AutomationEventDispatchWorker failed'
     );
   });

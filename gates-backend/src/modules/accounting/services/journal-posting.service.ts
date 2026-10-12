@@ -557,7 +557,7 @@ export class JournalPostingService {
           tx,
           {
             companyId: ctx.companyId,
-            branchId: optionalBranchId(ctx.branchId) ?? '',
+            branchId: optionalBranchId(ctx.branchId) ?? null,
             fiscalYearId,
           },
           requestedNumber,

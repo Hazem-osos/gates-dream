@@ -45,6 +45,11 @@ export interface NextDocumentNumberInput {
 /** Guards the skip-taken-numbers loop against an unbounded scan. */
 const MAX_SEQUENCE_SKIPS = 1000;
 
+function normalizeSequenceBranchId(branchId?: string | null): string | null {
+  const value = String(branchId ?? '').trim();
+  return value || null;
+}
+
 /**
  * Legacy-exact resolution of the three settings every `Tgeneral.Create*Num`
  * function reads for its `...Type` suffix (see
@@ -471,13 +476,29 @@ export class DocumentSequenceService {
       return this.manualGlNumberOrThrow(manualNumber);
     }
 
+    const branchId = normalizeSequenceBranchId(ctx.branchId);
+    const fiscalYearId = policy.continuous ? null : (ctx.fiscalYearId ?? null);
+
     return this.nextNumberInTx(tx, {
       companyId: ctx.companyId,
-      branchId: ctx.branchId ?? null,
-      fiscalYearId: policy.continuous ? null : (ctx.fiscalYearId ?? null),
+      branchId,
+      fiscalYearId,
       docType: 'GL',
       scope: policy.continuous ? 'C' : 'Y',
       startNumber: policy.startNumber,
+      isAvailable: async (candidate) => {
+        const clash = await tx.journalEntry.findFirst({
+          where: {
+            companyId: ctx.companyId,
+            legacyGlNum: candidate,
+            branchId,
+            fiscalYearId,
+            deletedAt: null,
+          },
+          select: { id: true },
+        });
+        return !clash;
+      },
     });
   }
 
