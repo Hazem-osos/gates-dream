@@ -1675,8 +1675,9 @@ function FinalPurchaseInvoicePageInner() {
               }}
               onHydrate={handleSourceHydrate}
             />
-            {affectsStock ? (
+            {!affectsStock ? (
               <MultiStockPermitLoadControl
+                permitTypes={['GOODS_RECEIPT']}
                 hasExistingLines={invoiceLines.some((line) => Boolean(line.itemId))}
                 disabled={isPosted || isReadOnly}
                 onApply={handleMultiStockPermitHydrate}

@@ -606,6 +606,7 @@ export function SalesInvoiceFormHeader({
           {sourceLoadControl}
           {onMultiStockPermitHydrate ? (
             <MultiStockPermitLoadControl
+              permitTypes={['DELIVERY_NOTE']}
               hasExistingLines={hasExistingLines}
               disabled={sourceDisabled}
               onApply={onMultiStockPermitHydrate}

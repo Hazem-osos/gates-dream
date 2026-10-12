@@ -47,7 +47,19 @@ export async function processDispatchDomainEventJob(
       signal: controller.signal,
     });
     if (!response.ok) {
-      throw new Error(`n8n event intake responded ${response.status}`);
+      const detail = await response.text().catch(() => '');
+      const message = `n8n event intake responded ${response.status}${
+        detail ? `: ${detail.slice(0, 240)}` : ''
+      }`;
+      // Misconfigured webhook (4xx) should not retry forever — ERP already succeeded.
+      if (response.status >= 400 && response.status < 500) {
+        logger.warn(
+          { companyId, eventId, eventType, status: response.status },
+          message
+        );
+        return { delivered: false };
+      }
+      throw new Error(message);
     }
     logger.info({ companyId, eventId, eventType }, 'Automation domain event delivered to n8n');
     return { delivered: true };

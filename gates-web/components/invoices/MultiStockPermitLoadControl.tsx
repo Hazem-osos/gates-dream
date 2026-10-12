@@ -24,16 +24,21 @@ type Props = {
   disabled?: boolean;
   hasExistingLines: boolean;
   onApply: (request: MultiStockPermitHydrateRequest) => void | Promise<void>;
+  /** Default: إذن صرف + إذن إضافة — على فاتورة المبيعات/المشتريات يُقيَّد لنوع واحد. */
+  permitTypes?: readonly MultiStockPermitSourceType[];
 };
 
 export function MultiStockPermitLoadControl({
   disabled = false,
   hasExistingLines,
   onApply,
+  permitTypes = MULTI_STOCK_PERMIT_SOURCE_TYPES,
 }: Props) {
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState<'pick' | 'options'>('pick');
-  const [sourceType, setSourceType] = useState<MultiStockPermitSourceType>('DELIVERY_NOTE');
+  const [sourceType, setSourceType] = useState<MultiStockPermitSourceType>(
+    permitTypes[0] ?? 'DELIVERY_NOTE'
+  );
   const [search, setSearch] = useState('');
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [lineMode, setLineMode] = useState<MultiSourceLineMode>('merge_similar');
@@ -153,7 +158,7 @@ export function MultiStockPermitLoadControl({
                         setSelectedIds([]);
                       }}
                     >
-                      {MULTI_STOCK_PERMIT_SOURCE_TYPES.map((t) => (
+                      {permitTypes.map((t) => (
                         <option key={t} value={t}>
                           {SOURCE_TYPE_LABELS[t]}
                         </option>

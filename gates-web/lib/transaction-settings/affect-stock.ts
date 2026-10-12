@@ -30,15 +30,23 @@ export function invoiceLineColumnsForStockPolicy(
   return columnIds.filter((id) => !STOCK_RELATED_COLUMN_IDS.has(id));
 }
 
+/**
+ * فاتورة تؤثر على المخزن → تحميل من مستندات تجارية فقط (عرض سعر / أمر).
+ * فاتورة لا تؤثر على المخزن → يمكن تحميل إذن صرف (المخزون خُصم بالإذن مسبقاً).
+ */
 export function salesInvoiceSourceTypes(affectsStock: boolean): readonly SelectableSourceType[] {
-  if (!affectsStock) {
+  if (affectsStock) {
     return SALES_INVOICE_SOURCE_TYPES.filter((t) => t !== 'DELIVERY_NOTE');
   }
   return SALES_INVOICE_SOURCE_TYPES;
 }
 
+/**
+ * فاتورة مشتريات تؤثر على المخزن → أمر/فاتورة فقط (بدون إذن إضافة).
+ * لا تؤثر → يمكن تحميل من إذن إضافة مرحّل.
+ */
 export function purchaseInvoiceSourceTypes(affectsStock: boolean): readonly SelectableSourceType[] {
-  if (!affectsStock) {
+  if (affectsStock) {
     return PURCHASE_INVOICE_SOURCE_TYPES;
   }
   return [...PURCHASE_INVOICE_SOURCE_TYPES, 'GOODS_RECEIPT'];

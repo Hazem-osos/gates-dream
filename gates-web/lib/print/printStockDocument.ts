@@ -4,6 +4,8 @@ export function printStockDocument(input: {
   title: string;
   number?: string;
   date?: string;
+  /** Shown under the date (e.g. from/to warehouse on transfers). */
+  subtitle?: string;
   rows: Array<{ item?: string; quantity?: number; price?: number }>;
 }) {
   const body = input.rows
@@ -20,6 +22,7 @@ export function printStockDocument(input: {
   void printHtml(`
     <h1>${input.title} ${input.number || ''}</h1>
     <div>التاريخ: ${input.date || ''}</div>
+    ${input.subtitle ? `<div>${input.subtitle}</div>` : ''}
     <table>
       <thead><tr><th>#</th><th>الصنف</th><th>الكمية</th><th>السعر</th></tr></thead>
       <tbody>${body}</tbody>

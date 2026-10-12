@@ -68,6 +68,9 @@ import { STOCK_TRANSFER_SOURCE_TYPES } from '@/lib/invoices/sourceDocument';
 import { toast } from '@/lib/feedback/toast';
 import { useStockMovementPanel } from '@/lib/inventory/use-stock-movement-panel';
 import { resolveWarehouseAverageUnitCost } from '@/lib/inventory/assembly-pricing';
+import { Button } from '@/components/ui/button';
+import { formActionButtonClass } from '@/components/ui/forms/formTokens';
+import { printStockDocument } from '@/lib/print/printStockDocument';
 
 
 interface TransferLine {
@@ -862,6 +865,29 @@ function TransferPageInner() {
           onNew: handleNew,
           newLabel: 'جديد',
         }}
+        printTrigger={
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            className={formActionButtonClass}
+            onClick={() =>
+              printStockDocument({
+                title: 'نقل مخزني',
+                number: watch('serialNumber'),
+                date: watch('date'),
+                subtitle: watch('description')?.trim() || undefined,
+                rows: transferLines.map((line) => ({
+                  item: line.itemName || line.itemId,
+                  quantity: line.quantity,
+                  price: line.unitPrice,
+                })),
+              })
+            }
+          >
+            طباعة
+          </Button>
+        }
         extraActions={
           <DocumentSourceLoadBar
             key={sourceBarKey}

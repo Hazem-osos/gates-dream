@@ -58,6 +58,37 @@ async function allocateGlNum(
   );
 }
 
+/** Reuse an active sourced JE when a stock post is retried after a partial failure. */
+async function findActiveSourcedJournalInTx(
+  tx: Prisma.TransactionClient,
+  ctx: StockGlPostingContext,
+  sourceType: string,
+  serial: string,
+  sourceYearId: string,
+  sourceId?: string
+) {
+  const keys = [
+    sourceId
+      ? journalPostingService.buildActiveSourceKey(
+          ctx.companyId,
+          sourceType,
+          serial,
+          sourceYearId,
+          sourceId
+        )
+      : null,
+    journalPostingService.buildActiveSourceKey(ctx.companyId, sourceType, serial, sourceYearId),
+  ].filter((key): key is string => Boolean(key));
+
+  for (const key of keys) {
+    const existing = await tx.journalEntry.findUnique({ where: { activeSourceKey: key } });
+    if (existing && !existing.isCancelled) {
+      return existing;
+    }
+  }
+  return null;
+}
+
 export type ResolveStockGlAccountsOptions = {
   /** تجميع/تفكيك: تحريك قيمة بين حسابات المخزون فقط — لا يُشترط حساب صرف المخزون. */
   transformationOnly?: boolean;
@@ -365,9 +396,26 @@ export class StockMovementGlService {
     if (issueCost <= 0 && giftCost <= 0) return null;
 
     const giftAccountId = accounts.giftAccountId || accounts.companyGiftAccountId || expenseAccountId;
-    const legacyGlNum = await allocateGlNum(tx, ctx);
     const serial = issue.serial ?? issue.id.slice(0, 8);
     const sourceYearId = String(new Date(issue.date).getFullYear());
+
+    const existingIssueJe = await findActiveSourcedJournalInTx(
+      tx,
+      ctx,
+      'GI',
+      serial,
+      sourceYearId,
+      issue.id
+    );
+    if (existingIssueJe) {
+      await tx.issue.update({
+        where: { id: issue.id },
+        data: journalLink(existingIssueJe),
+      });
+      return existingIssueJe;
+    }
+
+    const legacyGlNum = await allocateGlNum(tx, ctx);
 
     const lines: JournalEntryLineData[] = [];
     if (issueCost > 0) {
@@ -521,9 +569,26 @@ export class StockMovementGlService {
     totalCost = roundTo4(totalCost);
     if (totalCost <= 0) return null;
 
-    const legacyGlNum = await allocateGlNum(tx, ctx);
     const serial = receipt.serial ?? receipt.id.slice(0, 8);
     const sourceYearId = String(new Date(receipt.date).getFullYear());
+
+    const existingReceiptJe = await findActiveSourcedJournalInTx(
+      tx,
+      ctx,
+      'GR',
+      serial,
+      sourceYearId,
+      receipt.id
+    );
+    if (existingReceiptJe) {
+      await tx.receipt.update({
+        where: { id: receipt.id },
+        data: journalLink(existingReceiptJe),
+      });
+      return existingReceiptJe;
+    }
+
+    const legacyGlNum = await allocateGlNum(tx, ctx);
 
     const lines: JournalEntryLineData[] = [
       ...linesFromAmountMap(
@@ -960,23 +1025,16 @@ export class StockMovementGlService {
     const sourceYearId = sourceYearOf(doc.date);
     const sourceType = kind === 'ASSEMBLY' ? 'ASM' : 'DSM';
 
-    const activeKeys = [
-      journalPostingService.buildActiveSourceKey(
-        ctx.companyId,
-        sourceType,
-        serial,
-        sourceYearId,
-        doc.id
-      ),
-      journalPostingService.buildActiveSourceKey(ctx.companyId, sourceType, serial, sourceYearId),
-    ].filter((key): key is string => Boolean(key));
-    for (const key of activeKeys) {
-      const existing = await tx.journalEntry.findUnique({
-        where: { activeSourceKey: key },
-      });
-      if (existing && !existing.isCancelled) {
-        return existing;
-      }
+    const existingTransformJe = await findActiveSourcedJournalInTx(
+      tx,
+      ctx,
+      sourceType,
+      serial,
+      sourceYearId,
+      doc.id
+    );
+    if (existingTransformJe) {
+      return existingTransformJe;
     }
 
     const legacyGlNum = await allocateGlNum(tx, ctx);
@@ -1058,9 +1116,26 @@ export class StockMovementGlService {
     }
     if (total <= 0) return null;
 
-    const legacyGlNum = await allocateGlNum(tx, ctx);
     const serial = transfer.serial ?? transfer.id.slice(0, 8);
     const sourceYearId = sourceYearOf(transfer.date);
+
+    const existingTransferJe = await findActiveSourcedJournalInTx(
+      tx,
+      ctx,
+      'TRF',
+      serial,
+      sourceYearId,
+      transfer.id
+    );
+    if (existingTransferJe) {
+      await tx.transfer.update({
+        where: { id: transfer.id },
+        data: journalLink(existingTransferJe),
+      });
+      return existingTransferJe;
+    }
+
+    const legacyGlNum = await allocateGlNum(tx, ctx);
 
     const lines: JournalEntryLineData[] = [];
     let lineOrder = 1;
@@ -1095,6 +1170,7 @@ export class StockMovementGlService {
       sourceType: 'TRF',
       sourceNumber: serial,
       sourceYearId,
+      sourceId: transfer.id,
       entryType: 'TRANSFER',
       lines,
     });

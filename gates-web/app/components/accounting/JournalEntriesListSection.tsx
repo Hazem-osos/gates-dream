@@ -16,6 +16,7 @@ import {
   useRowDetailPrefetch,
 } from '@/lib/hooks/useRowDetailPrefetch';
 import { JournalSourceBadge } from '@/components/accounting/JournalSourceBadge';
+import { isSourcedJournalEntry } from '@/lib/accounting/journal-source';
 import { toast } from '@/lib/feedback/toast';
 import { confirmAction } from '@/lib/feedback/confirm';
 import { deleteDraftDocument } from '@/lib/documents/deleteDraftDocument';
@@ -293,7 +294,7 @@ export function JournalEntriesListSection({
                     {restoringId === r.id ? 'جاري الاستعادة…' : 'استعادة'}
                   </Button>
                 ) : null}
-                {!r.isPosted && !r.isCancelled ? (
+                {!r.isPosted && !r.isCancelled && !isSourcedJournalEntry(r) ? (
                   <Button
                     variant="danger"
                     size="sm"

@@ -2622,7 +2622,7 @@ function SalesInvoicePageInner() {
         headerExtrasOpen={headerExtrasOpen}
         onHeaderExtrasOpenChange={setHeaderExtrasOpen}
         onSourceHydrate={handleSourceHydrate}
-        onMultiStockPermitHydrate={affectsStock ? handleMultiStockPermitHydrate : undefined}
+        onMultiStockPermitHydrate={!affectsStock ? handleMultiStockPermitHydrate : undefined}
         paymentMethod={paymentMethodW ?? 'cash'}
         cashTenderKind={(cashTenderKindW ?? 'treasury') as CashTenderKind}
         onCashTenderKind={(kind) => setValue('cashTenderKind', kind, { shouldDirty: true, shouldValidate: true })}

@@ -64,11 +64,10 @@ export const STOCK_RECEIPT_SOURCE_TYPES = [
   'PURCHASE_INVOICE',
 ] as const satisfies readonly SelectableSourceType[];
 
-/** إذن صرف مخزني */
+/** إذن صرف مخزني — تحميل من مستندات لا تخصم المخزون (ليس من إذن صرف آخر). */
 export const STOCK_ISSUE_SOURCE_TYPES = [
   'QUOTATION',
   'SALES_ORDER',
-  'DELIVERY_NOTE',
   'SALES_INVOICE',
 ] as const satisfies readonly SelectableSourceType[];
 
