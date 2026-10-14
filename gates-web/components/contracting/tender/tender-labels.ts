@@ -32,3 +32,17 @@ export const COST_ELEMENT_AR: Record<string, string> = {
   SUBCONTRACTOR: 'مقاول باطن',
   SITE_EXPENSE: 'مصروفات',
 };
+
+export const CATALOG_KIND_AR: Record<string, string> = {
+  SEASON: 'موسم',
+  CHAPTER: 'فصل',
+  OFFICIAL: 'بند رسمي',
+  EXECUTABLE: 'بند تنفيذي',
+};
+
+export const CATALOG_KINDS = ['SEASON', 'CHAPTER', 'OFFICIAL', 'EXECUTABLE'] as const;
+
+/** Matches backend rate-analysis: quota × (1 + waste) × unitCost */
+export function analysisElementCost(quota: number, wasteRate: number, unitCost: number) {
+  return quota * (1 + wasteRate) * unitCost;
+}

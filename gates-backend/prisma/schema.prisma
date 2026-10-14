@@ -349,6 +349,7 @@ model Company {
   contractQuotations                        ContractQuotation[]
   contractQuotationLines                    ContractQuotationLine[]
   contractTenderAwards                      ContractTenderAward[]
+  contractingWorkItemCatalogs               ContractingWorkItemCatalog[]
   siteStockMaterials                        SiteStockMaterial[]
   projectLettersOfGuarantee                 ProjectLetterOfGuarantee[]
   lgActionHistories                         LgActionHistory[]
@@ -7762,6 +7763,13 @@ enum ContractQuotationStatus {
   CANCELLED
 }
 
+enum ContractingCatalogKind {
+  SEASON
+  CHAPTER
+  OFFICIAL
+  EXECUTABLE
+}
+
 model ContractTender {
   id                   String              @id @default(uuid())
   companyId            String
@@ -7776,6 +7784,11 @@ model ContractTender {
   expectedStart        DateTime?
   expectedEnd          DateTime?
   location             String?             @db.VarChar(255)
+  consultantName       String?             @db.VarChar(255)
+  projectManagerName   String?             @db.VarChar(255)
+  fundingSource        String?             @db.VarChar(255)
+  delayPenaltyRate     Decimal?            @db.Decimal(8, 6)
+  contractDurationDays Int?
   status               ContractTenderStatus @default(DRAFT)
   lostReason           String?             @db.VarChar(255)
   competitorName       String?             @db.VarChar(255)
@@ -7810,6 +7823,7 @@ model ContractTenderBoqItem {
   unit               BOQItemUnit
   quantity           Decimal                     @db.Decimal(18, 4)
   sectionName        String?                     @db.VarChar(255)
+  kind               String?                     @db.VarChar(32)
   clientSuppliedRate Decimal?                    @db.Decimal(18, 4)
   notes              String?                     @db.Text
   sortOrder          Int                         @default(0)
@@ -7933,6 +7947,28 @@ model ContractTenderAward {
   project        ContractingProject @relation(fields: [projectId], references: [id], onDelete: Restrict)
 
   @@map("contract_tender_awards")
+}
+
+/// دليل بنود الأعمال (موسم / فصل / بند رسمي / بند تنفيذي) — مستقل عن مشروع معيّن.
+model ContractingWorkItemCatalog {
+  id            String                 @id @default(uuid())
+  companyId     String
+  itemCode      String                 @db.VarChar(64)
+  descriptionAr String                 @db.VarChar(500)
+  descriptionEn String?                @db.VarChar(500)
+  unit          BOQItemUnit            @default(ITEM)
+  kind          ContractingCatalogKind @default(EXECUTABLE)
+  groupName     String?                @db.VarChar(255)
+  notes         String?                @db.Text
+  isActive      Boolean                @default(true)
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, itemCode])
+  @@index([companyId, kind])
+  @@map("contracting_work_item_catalog")
 }
 
 /// مستخلص مقاول باطن ابتدائي (تشغيلي — بلا قيود).

@@ -40,6 +40,14 @@ export class ContractTenderService {
       description?: string;
       currencyCode?: string;
       submissionDeadline?: Date;
+      expectedStart?: Date;
+      expectedEnd?: Date;
+      location?: string;
+      consultantName?: string;
+      projectManagerName?: string;
+      fundingSource?: string;
+      delayPenaltyRate?: number;
+      contractDurationDays?: number;
       createdBy?: string;
     }
   ) {
@@ -61,6 +69,14 @@ export class ContractTenderService {
           description: input.description ?? null,
           currencyCode: input.currencyCode ?? 'EGP',
           submissionDeadline: input.submissionDeadline ?? null,
+          expectedStart: input.expectedStart ?? null,
+          expectedEnd: input.expectedEnd ?? null,
+          location: input.location ?? null,
+          consultantName: input.consultantName ?? null,
+          projectManagerName: input.projectManagerName ?? null,
+          fundingSource: input.fundingSource ?? null,
+          delayPenaltyRate: input.delayPenaltyRate ?? null,
+          contractDurationDays: input.contractDurationDays ?? null,
           status: 'DRAFT',
           createdBy: input.createdBy ?? null,
         },
@@ -79,6 +95,11 @@ export class ContractTenderService {
       expectedStart?: Date | null;
       expectedEnd?: Date | null;
       location?: string | null;
+      consultantName?: string | null;
+      projectManagerName?: string | null;
+      fundingSource?: string | null;
+      delayPenaltyRate?: number | null;
+      contractDurationDays?: number | null;
     }
   ) {
     const tender = await prisma.contractTender.findFirst({ where: { id: tenderId, companyId } });
@@ -97,6 +118,14 @@ export class ContractTenderService {
         expectedStart: input.expectedStart !== undefined ? input.expectedStart : tender.expectedStart,
         expectedEnd: input.expectedEnd !== undefined ? input.expectedEnd : tender.expectedEnd,
         location: input.location !== undefined ? input.location : tender.location,
+        consultantName: input.consultantName !== undefined ? input.consultantName : tender.consultantName,
+        projectManagerName:
+          input.projectManagerName !== undefined ? input.projectManagerName : tender.projectManagerName,
+        fundingSource: input.fundingSource !== undefined ? input.fundingSource : tender.fundingSource,
+        delayPenaltyRate:
+          input.delayPenaltyRate !== undefined ? input.delayPenaltyRate : tender.delayPenaltyRate,
+        contractDurationDays:
+          input.contractDurationDays !== undefined ? input.contractDurationDays : tender.contractDurationDays,
       },
     });
   }

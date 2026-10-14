@@ -28,10 +28,45 @@ router.get('/', authorize({ resource: 'project', action: 'view' }), asyncHandler
   res.json({ status: 'success', data: await contractTenderService.list(cid(req as AuthRequest)) });
 }));
 
+function optionalDate(value: unknown): Date | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null || value === '') return null;
+  return new Date(String(value));
+}
+
+function optionalNumber(value: unknown): number | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null || value === '') return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function optionalText(value: unknown): string | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  const t = String(value).trim();
+  return t.length ? t : null;
+}
+
 router.post('/', authorize({ resource: 'project', action: 'edit' }), asyncHandler(async (req, res) => {
   const auth = req as AuthRequest;
-  const body = req.body as { customerId: string; nameAr: string; description?: string; currencyCode?: string };
-  const data = await contractTenderService.create(cid(auth), { ...body, createdBy: auth.userId });
+  const body = req.body as Record<string, unknown>;
+  const data = await contractTenderService.create(cid(auth), {
+    customerId: String(body.customerId ?? ''),
+    nameAr: String(body.nameAr ?? ''),
+    description: optionalText(body.description) ?? undefined,
+    currencyCode: typeof body.currencyCode === 'string' ? body.currencyCode : undefined,
+    submissionDeadline: optionalDate(body.submissionDeadline) ?? undefined,
+    expectedStart: optionalDate(body.expectedStart) ?? undefined,
+    expectedEnd: optionalDate(body.expectedEnd) ?? undefined,
+    location: optionalText(body.location) ?? undefined,
+    consultantName: optionalText(body.consultantName) ?? undefined,
+    projectManagerName: optionalText(body.projectManagerName) ?? undefined,
+    fundingSource: optionalText(body.fundingSource) ?? undefined,
+    delayPenaltyRate: optionalNumber(body.delayPenaltyRate) ?? undefined,
+    contractDurationDays: optionalNumber(body.contractDurationDays) ?? undefined,
+    createdBy: auth.userId,
+  });
   res.status(201).json({ status: 'success', data });
 }));
 
@@ -44,10 +79,15 @@ router.patch(
       nameAr: body.nameAr as string | undefined,
       description: body.description as string | null | undefined,
       currencyCode: body.currencyCode as string | undefined,
-      submissionDeadline: body.submissionDeadline ? new Date(String(body.submissionDeadline)) : body.submissionDeadline === null ? null : undefined,
-      expectedStart: body.expectedStart ? new Date(String(body.expectedStart)) : body.expectedStart === null ? null : undefined,
-      expectedEnd: body.expectedEnd ? new Date(String(body.expectedEnd)) : body.expectedEnd === null ? null : undefined,
-      location: body.location as string | null | undefined,
+      submissionDeadline: optionalDate(body.submissionDeadline),
+      expectedStart: optionalDate(body.expectedStart),
+      expectedEnd: optionalDate(body.expectedEnd),
+      location: optionalText(body.location),
+      consultantName: optionalText(body.consultantName),
+      projectManagerName: optionalText(body.projectManagerName),
+      fundingSource: optionalText(body.fundingSource),
+      delayPenaltyRate: optionalNumber(body.delayPenaltyRate),
+      contractDurationDays: optionalNumber(body.contractDurationDays),
     });
     res.json({ status: 'success', data });
   })
@@ -64,6 +104,18 @@ router.post('/:tenderId/boq', authorize({ resource: 'project', action: 'edit' })
   res.json({
     status: 'success',
     data: await contractTenderBoqService.upsertLine(cid(req as AuthRequest), req.params.tenderId, req.body),
+  });
+}));
+
+router.post('/:tenderId/boq/from-catalog', authorize({ resource: 'project', action: 'edit' }), asyncHandler(async (req, res) => {
+  const { catalogIds } = req.body as { catalogIds?: string[] };
+  res.json({
+    status: 'success',
+    data: await contractTenderBoqService.addFromCatalog(
+      cid(req as AuthRequest),
+      req.params.tenderId,
+      Array.isArray(catalogIds) ? catalogIds : []
+    ),
   });
 }));
 

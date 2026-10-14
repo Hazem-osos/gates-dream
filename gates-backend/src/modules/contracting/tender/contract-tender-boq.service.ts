@@ -16,6 +16,7 @@ export class ContractTenderBoqService {
       unit: BOQItemUnit;
       quantity: number;
       sectionName?: string;
+      kind?: string;
       notes?: string;
       sortOrder?: number;
     }
@@ -36,6 +37,7 @@ export class ContractTenderBoqService {
           unit: input.unit,
           quantity: money(input.quantity),
           sectionName: input.sectionName ?? null,
+          kind: input.kind ?? null,
           notes: input.notes ?? null,
           sortOrder: input.sortOrder ?? 0,
         },
@@ -53,6 +55,7 @@ export class ContractTenderBoqService {
         unit: input.unit,
         quantity: money(input.quantity),
         sectionName: input.sectionName ?? null,
+        kind: input.kind ?? null,
         notes: input.notes ?? null,
         sortOrder: input.sortOrder ?? 0,
         markupRate: tender.defaultMarkupRate,
@@ -91,6 +94,40 @@ export class ContractTenderBoqService {
         await this.upsertLine(companyId, tenderId, {
           ...row,
           sortOrder: i + 1,
+        })
+      );
+    }
+    return out;
+  }
+
+  async addFromCatalog(companyId: string, tenderId: string, catalogIds: string[]) {
+    if (!catalogIds.length) throw new AppError(422, 'اختر بنداً واحداً على الأقل من الدليل');
+    const catalog = await prisma.contractingWorkItemCatalog.findMany({
+      where: { companyId, id: { in: catalogIds }, isActive: true },
+    });
+    if (!catalog.length) throw new AppError(404, 'لم يُعثر على بنود الدليل');
+
+    const existing = await prisma.contractTenderBoqItem.findMany({
+      where: { companyId, tenderId },
+      select: { itemCode: true, sortOrder: true },
+    });
+    const existingCodes = new Set(existing.map((r) => r.itemCode));
+    let sortOrder = existing.reduce((max, r) => Math.max(max, r.sortOrder), 0);
+
+    const out = [];
+    for (const row of catalog) {
+      if (existingCodes.has(row.itemCode)) continue;
+      sortOrder += 1;
+      out.push(
+        await this.upsertLine(companyId, tenderId, {
+          itemCode: row.itemCode,
+          descriptionAr: row.descriptionAr,
+          unit: row.unit,
+          quantity: 1,
+          sectionName: row.groupName ?? undefined,
+          kind: row.kind,
+          notes: row.notes ?? undefined,
+          sortOrder,
         })
       );
     }

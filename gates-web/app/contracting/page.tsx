@@ -51,6 +51,7 @@ export default function ContractingCommand() {
       shortcuts={[
         { key: 'F2', label: 'المشاريع', href: '/contracting/projects' },
         { key: 'F3', label: 'العطاءات', href: '/contracting/tenders' },
+        { key: 'F5', label: 'دليل البنود', href: '/contracting/catalog/work-items' },
         { key: 'F4', label: 'باطن', href: '/subcontracts/contracts' },
         { key: 'F6', label: 'أرشيف Wave3', href: '/contracting/extracts' },
       ]}

@@ -19,6 +19,8 @@ export const extractsModules: ModuleNavNode[] = [
       { key: 'contracting-dashboard', icon: '', label: 'لوحة المقاولات', color: '#0E78AA', href: '/contracting' },
       { key: 'contracting-tenders', icon: '', label: 'العطاءات', color: '#0E78AA', href: '/contracting/tenders' },
       { key: 'contracting-tenders-new', icon: '', label: 'عطاء جديد', color: '#0E78AA', href: '/contracting/tenders/new' },
+      { key: 'contracting-work-item-catalog', icon: '', label: 'دليل بنود الأعمال', color: '#0E78AA', href: '/contracting/catalog/work-items' },
+      { key: 'contracting-item-catalog', icon: '', label: 'دليل الأصناف', color: '#0E78AA', href: '/contracting/catalog/items' },
       { key: 'contracting-projects', icon: '', label: 'المشاريع', color: '#0E78AA', href: '/contracting/projects' },
       { key: 'contracting-reports', icon: '', label: 'التقارير', color: '#0E78AA', href: '/contracting/reports' },
       { key: 'subcontracts-home', icon: '', label: 'لوحة مقاولي الباطن', color: '#0E78AA', href: '/subcontracts' },

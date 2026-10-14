@@ -13,6 +13,9 @@ type TenderRow = {
   tenderNumber: string;
   nameAr: string;
   status: string;
+  location?: string | null;
+  consultantName?: string | null;
+  submissionDeadline?: string | null;
   customer: { arabicName: string };
 };
 
@@ -52,8 +55,11 @@ export default function TendersListPage() {
             <thead className="bg-[var(--info-soft)]">
               <tr>
                 <th className="px-3 py-2 text-right">رقم العطاء</th>
-                <th className="px-3 py-2 text-right">العميل</th>
+                <th className="px-3 py-2 text-right">المالك</th>
                 <th className="px-3 py-2 text-right">الاسم</th>
+                <th className="px-3 py-2 text-right">الاستشاري</th>
+                <th className="px-3 py-2 text-right">الموقع</th>
+                <th className="px-3 py-2 text-right">موعد التقديم</th>
                 <th className="px-3 py-2 text-right">الحالة</th>
               </tr>
             </thead>
@@ -67,6 +73,9 @@ export default function TendersListPage() {
                   </td>
                   <td className="px-3 py-2">{t.customer.arabicName}</td>
                   <td className="px-3 py-2">{t.nameAr}</td>
+                  <td className="px-3 py-2">{t.consultantName || '—'}</td>
+                  <td className="px-3 py-2">{t.location || '—'}</td>
+                  <td className="px-3 py-2">{t.submissionDeadline?.slice(0, 10) || '—'}</td>
                   <td className="px-3 py-2">
                     <StatusBadge
                       label={TENDER_STATUS_AR[t.status] ?? t.status}
