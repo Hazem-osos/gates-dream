@@ -6,6 +6,7 @@ import { money, rate, sumMoney } from '../utils/money-decimal';
 import {
   marginPercentFromSelling,
   sellingFromCostPlusMarkup,
+  sellingFromStackedStudy,
   sellingFromTargetMargin,
 } from './contract-tender-pricing.util';
 
@@ -26,16 +27,28 @@ export class ContractTenderPricingService {
     };
     let directCost = 0;
     let sellingValue = 0;
+    let studySellingValue = 0;
     const lines = [];
+    const stackedRates = {
+      generalOverheadRate: Number(tender.generalOverheadRate),
+      siteOverheadRate: Number(tender.siteOverheadRate),
+      contingencyRiskRate: Number(tender.contingencyRiskRate),
+      profitMarginRate: Number(tender.profitMarginRate),
+      contractTaxesRate: Number(tender.contractTaxesRate),
+    };
 
     for (const item of tender.boqItems) {
+      if (!item.isExecutable) continue;
       const qty = Number(item.quantity);
       const directUnit = Number(item.directUnitCost);
       const sellUnit = Number(item.sellingUnitRate);
+      const studyUnit = sellingFromStackedStudy(directUnit, stackedRates);
       const lineDirect = money(qty * directUnit).toNumber();
       const lineSell = money(qty * sellUnit).toNumber();
+      const lineStudy = money(qty * studyUnit).toNumber();
       directCost = money(directCost + lineDirect).toNumber();
       sellingValue = money(sellingValue + lineSell).toNumber();
+      studySellingValue = money(studySellingValue + lineStudy).toNumber();
       for (const ra of item.rateAnalysisItems) {
         byCategory[ra.costElementType] = money(
           byCategory[ra.costElementType] + Number(ra.totalCostPerUnit) * qty
@@ -49,6 +62,8 @@ export class ContractTenderPricingService {
         sellingUnitRate: sellUnit,
         directTotal: lineDirect,
         sellingTotal: lineSell,
+        studyUnit,
+        studyTotal: lineStudy,
         profit: money(lineSell - lineDirect).toNumber(),
         marginPercent: marginPercentFromSelling(lineDirect, lineSell),
         markupPercent: Number(item.markupRate) * 100,
@@ -82,11 +97,16 @@ export class ContractTenderPricingService {
       directMarginPercent,
       fullyLoadedExpectedProfit,
       fullyLoadedExpectedMarginPercent,
+      studySellingValue,
+      studyProfit: money(studySellingValue - expectedCost).toNumber(),
+      rates: stackedRates,
       policy: {
         contractValueBasis:
           'ClientContract.totalContractValue = quotation subtotal − discount (pre-tax selling scope)',
         marginFormula: '(Selling − Cost) / Selling × 100',
         markupFormula: '(Selling − Cost) / Cost × 100',
+        stackedStudy:
+          'direct × (1 + generalOH + siteOH + risk) × (1 + profit) × (1 + tax)',
       },
       lines,
     };
@@ -252,6 +272,36 @@ export class ContractTenderPricingService {
       await this.setLinePricing(companyId, item.id, {
         pricingMethod: 'COST_PLUS_MARKUP',
         markupRate,
+      });
+    }
+    return this.getSummary(companyId, tenderId);
+  }
+
+  async applyStackedStudy(companyId: string, tenderId: string) {
+    const tender = await prisma.contractTender.findFirst({
+      where: { id: tenderId, companyId },
+      include: { boqItems: true },
+    });
+    if (!tender) throw new AppError(404, 'العطاء غير موجود');
+    if (['AWARDED', 'LOST', 'CANCELLED'].includes(tender.status)) {
+      throw new AppError(422, 'لا يمكن تعديل التسعير في هذه الحالة');
+    }
+    const rates = {
+      generalOverheadRate: Number(tender.generalOverheadRate),
+      siteOverheadRate: Number(tender.siteOverheadRate),
+      contingencyRiskRate: Number(tender.contingencyRiskRate),
+      profitMarginRate: Number(tender.profitMarginRate),
+      contractTaxesRate: Number(tender.contractTaxesRate),
+    };
+    for (const item of tender.boqItems) {
+      if (!item.isExecutable) continue;
+      const selling = sellingFromStackedStudy(Number(item.directUnitCost), rates);
+      await prisma.contractTenderBoqItem.update({
+        where: { id: item.id },
+        data: {
+          pricingMethod: 'MANUAL_SELLING',
+          sellingUnitRate: money(selling),
+        },
       });
     }
     return this.getSummary(companyId, tenderId);

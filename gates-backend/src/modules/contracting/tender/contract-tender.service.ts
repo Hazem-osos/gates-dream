@@ -100,6 +100,11 @@ export class ContractTenderService {
       fundingSource?: string | null;
       delayPenaltyRate?: number | null;
       contractDurationDays?: number | null;
+      generalOverheadRate?: number | null;
+      siteOverheadRate?: number | null;
+      contingencyRiskRate?: number | null;
+      profitMarginRate?: number | null;
+      contractTaxesRate?: number | null;
     }
   ) {
     const tender = await prisma.contractTender.findFirst({ where: { id: tenderId, companyId } });
@@ -126,6 +131,26 @@ export class ContractTenderService {
           input.delayPenaltyRate !== undefined ? input.delayPenaltyRate : tender.delayPenaltyRate,
         contractDurationDays:
           input.contractDurationDays !== undefined ? input.contractDurationDays : tender.contractDurationDays,
+        generalOverheadRate:
+          input.generalOverheadRate !== undefined && input.generalOverheadRate != null
+            ? input.generalOverheadRate
+            : tender.generalOverheadRate,
+        siteOverheadRate:
+          input.siteOverheadRate !== undefined && input.siteOverheadRate != null
+            ? input.siteOverheadRate
+            : tender.siteOverheadRate,
+        contingencyRiskRate:
+          input.contingencyRiskRate !== undefined && input.contingencyRiskRate != null
+            ? input.contingencyRiskRate
+            : tender.contingencyRiskRate,
+        profitMarginRate:
+          input.profitMarginRate !== undefined && input.profitMarginRate != null
+            ? input.profitMarginRate
+            : tender.profitMarginRate,
+        contractTaxesRate:
+          input.contractTaxesRate !== undefined && input.contractTaxesRate != null
+            ? input.contractTaxesRate
+            : tender.contractTaxesRate,
       },
     });
   }

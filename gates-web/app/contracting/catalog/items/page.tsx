@@ -16,7 +16,7 @@ export default function ContractingItemsCatalogPage() {
       favoriteHref="/contracting/catalog/items"
     >
       <p className="mb-4 text-sm text-slate-600">
-        أصناف المخزون المستخدمة في تحليل أسعار العطاء (مواد / معدات). الدليل التشغيلي للأصناف هو دليل المخزون.
+        أصناف المخزون. من تحليل سعر العطاء يمكن اختيار صنف مواد من هنا أو من دليل المواد لتعبئة البيان والوحدة.
       </p>
       <ItemsCatalogListSection />
     </ExtractsPageChrome>

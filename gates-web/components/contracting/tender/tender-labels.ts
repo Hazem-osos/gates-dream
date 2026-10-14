@@ -42,6 +42,12 @@ export const CATALOG_KIND_AR: Record<string, string> = {
 
 export const CATALOG_KINDS = ['SEASON', 'CHAPTER', 'OFFICIAL', 'EXECUTABLE'] as const;
 
+export const HEADER_KINDS = ['SEASON', 'CHAPTER', 'OFFICIAL'] as const;
+
+export function isTenderHeaderKind(kind?: string | null) {
+  return kind === 'SEASON' || kind === 'CHAPTER' || kind === 'OFFICIAL';
+}
+
 /** Matches backend rate-analysis: quota × (1 + waste) × unitCost */
 export function analysisElementCost(quota: number, wasteRate: number, unitCost: number) {
   return quota * (1 + wasteRate) * unitCost;

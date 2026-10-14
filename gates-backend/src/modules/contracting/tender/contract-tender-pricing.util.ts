@@ -5,6 +5,25 @@ export function sellingFromCostPlusMarkup(directUnitCost: number, markupRate: nu
   return money(directUnitCost * (1 + markupRate)).toNumber();
 }
 
+/** Notebook / technical-office stack: direct × (1+OH+site+risk) × (1+profit) × (1+tax) */
+export function sellingFromStackedStudy(
+  directUnitCost: number,
+  rates: {
+    generalOverheadRate: number;
+    siteOverheadRate: number;
+    contingencyRiskRate: number;
+    profitMarginRate: number;
+    contractTaxesRate: number;
+  }
+) {
+  const loaded = directUnitCost * (1 + rates.generalOverheadRate + rates.siteOverheadRate + rates.contingencyRiskRate);
+  return money(loaded * (1 + rates.profitMarginRate) * (1 + rates.contractTaxesRate)).toNumber();
+}
+
+export function isTenderHeaderKind(kind?: string | null) {
+  return kind === 'SEASON' || kind === 'CHAPTER' || kind === 'OFFICIAL';
+}
+
 /** Selling = Cost / (1 - marginRate); marginRate in 0..1 */
 export function sellingFromTargetMargin(directUnitCost: number, marginRate: number) {
   if (marginRate >= 1) throw new Error('INVALID_TARGET_MARGIN');

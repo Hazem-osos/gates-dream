@@ -3,6 +3,7 @@ import type { BOQItemUnit } from '@prisma/client';
 import prisma from '../../../shared/database/prisma';
 import { AppError } from '../../../shared/middleware/error-handler';
 import { money } from '../utils/money-decimal';
+import { isTenderHeaderKind } from './contract-tender-pricing.util';
 import { contractTenderPricingService } from './contract-tender-pricing.service';
 
 export class ContractTenderBoqService {
@@ -17,6 +18,7 @@ export class ContractTenderBoqService {
       quantity: number;
       sectionName?: string;
       kind?: string;
+      isExecutable?: boolean;
       notes?: string;
       sortOrder?: number;
     }
@@ -26,7 +28,9 @@ export class ContractTenderBoqService {
     if (['AWARDED', 'LOST', 'CANCELLED'].includes(tender.status)) {
       throw new AppError(422, 'لا يمكن تعديل BOQ في هذه الحالة');
     }
-    if (input.quantity <= 0) throw new AppError(422, 'الكمية يجب أن تكون أكبر من صفر');
+    const isExecutable =
+      input.isExecutable ?? (input.kind ? !isTenderHeaderKind(input.kind) : true);
+    if (isExecutable && input.quantity <= 0) throw new AppError(422, 'الكمية يجب أن تكون أكبر من صفر');
 
     if (input.lineId) {
       await prisma.contractTenderBoqItem.update({
@@ -35,9 +39,10 @@ export class ContractTenderBoqService {
           itemCode: input.itemCode,
           descriptionAr: input.descriptionAr,
           unit: input.unit,
-          quantity: money(input.quantity),
+          quantity: money(Math.max(0, input.quantity)),
           sectionName: input.sectionName ?? null,
           kind: input.kind ?? null,
+          isExecutable,
           notes: input.notes ?? null,
           sortOrder: input.sortOrder ?? 0,
         },
@@ -53,9 +58,10 @@ export class ContractTenderBoqService {
         itemCode: input.itemCode,
         descriptionAr: input.descriptionAr,
         unit: input.unit,
-        quantity: money(input.quantity),
+        quantity: money(Math.max(0, input.quantity)),
         sectionName: input.sectionName ?? null,
         kind: input.kind ?? null,
+        isExecutable,
         notes: input.notes ?? null,
         sortOrder: input.sortOrder ?? 0,
         markupRate: tender.defaultMarkupRate,
@@ -126,6 +132,7 @@ export class ContractTenderBoqService {
           quantity: 1,
           sectionName: row.groupName ?? undefined,
           kind: row.kind,
+          isExecutable: !isTenderHeaderKind(row.kind),
           notes: row.notes ?? undefined,
           sortOrder,
         })

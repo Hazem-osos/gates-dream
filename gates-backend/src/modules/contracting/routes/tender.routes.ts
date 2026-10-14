@@ -88,6 +88,11 @@ router.patch(
       fundingSource: optionalText(body.fundingSource),
       delayPenaltyRate: optionalNumber(body.delayPenaltyRate),
       contractDurationDays: optionalNumber(body.contractDurationDays),
+      generalOverheadRate: optionalNumber(body.generalOverheadRate),
+      siteOverheadRate: optionalNumber(body.siteOverheadRate),
+      contingencyRiskRate: optionalNumber(body.contingencyRiskRate),
+      profitMarginRate: optionalNumber(body.profitMarginRate),
+      contractTaxesRate: optionalNumber(body.contractTaxesRate),
     });
     res.json({ status: 'success', data });
   })
@@ -135,6 +140,13 @@ router.post('/:tenderId/pricing/markup', authorize({ resource: 'project', action
   res.json({
     status: 'success',
     data: await contractTenderPricingService.applyDefaultMarkup(cid(req as AuthRequest), req.params.tenderId, markupRate),
+  });
+}));
+
+router.post('/:tenderId/pricing/stacked-study', authorize({ resource: 'project', action: 'edit' }), asyncHandler(async (req, res) => {
+  res.json({
+    status: 'success',
+    data: await contractTenderPricingService.applyStackedStudy(cid(req as AuthRequest), req.params.tenderId),
   });
 }));
 

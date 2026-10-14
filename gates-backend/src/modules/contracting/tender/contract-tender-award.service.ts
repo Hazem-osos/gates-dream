@@ -62,6 +62,8 @@ export class ContractTenderAwardService {
           customerId: tender.customerId,
           contractValue: money(contractValue),
           sourceTenderId: tenderId,
+          startDate: tender.expectedStart,
+          endDate: tender.expectedEnd,
           status: 'ACTIVE',
         },
       });
@@ -76,6 +78,10 @@ export class ContractTenderAwardService {
           totalContractValue: money(contractValue),
           sourceTenderId: tenderId,
           sourceQuotationId: quotationId,
+          plannedStart: tender.expectedStart,
+          plannedEnd: tender.expectedEnd,
+          contractDurationDays: tender.contractDurationDays,
+          delayPenaltyRate: tender.delayPenaltyRate,
           status: 'ACTIVE',
         },
       });

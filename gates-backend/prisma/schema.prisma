@@ -350,6 +350,7 @@ model Company {
   contractQuotationLines                    ContractQuotationLine[]
   contractTenderAwards                      ContractTenderAward[]
   contractingWorkItemCatalogs               ContractingWorkItemCatalog[]
+  contractingCostElementCatalogs            ContractingCostElementCatalog[]
   siteStockMaterials                        SiteStockMaterial[]
   projectLettersOfGuarantee                 ProjectLetterOfGuarantee[]
   lgActionHistories                         LgActionHistory[]
@@ -7132,6 +7133,10 @@ model ClientContract {
   advanceRecoveryRate   Decimal              @default(0) @db.Decimal(8, 6)
   retentionRate         Decimal              @default(0.05) @db.Decimal(8, 6)
   engineeringStampsRate Decimal              @default(0.005) @db.Decimal(8, 6)
+  plannedStart          DateTime?
+  plannedEnd            DateTime?
+  contractDurationDays  Int?
+  delayPenaltyRate      Decimal?             @db.Decimal(8, 6)
   sourceTenderId        String?
   sourceQuotationId     String?
   status                ClientContractStatus @default(ACTIVE)
@@ -7796,6 +7801,8 @@ model ContractTender {
   generalOverheadRate  Decimal             @default(0.08) @db.Decimal(8, 6)
   siteOverheadRate     Decimal             @default(0.05) @db.Decimal(8, 6)
   contingencyRiskRate  Decimal             @default(0.03) @db.Decimal(8, 6)
+  profitMarginRate     Decimal             @default(0.12) @db.Decimal(8, 6)
+  contractTaxesRate    Decimal             @default(0) @db.Decimal(8, 6)
   defaultMarkupRate    Decimal             @default(0.20) @db.Decimal(8, 6)
   createdBy            String?
   createdAt            DateTime            @default(now())
@@ -7824,6 +7831,7 @@ model ContractTenderBoqItem {
   quantity           Decimal                     @db.Decimal(18, 4)
   sectionName        String?                     @db.VarChar(255)
   kind               String?                     @db.VarChar(32)
+  isExecutable       Boolean                     @default(true)
   clientSuppliedRate Decimal?                    @db.Decimal(18, 4)
   notes              String?                     @db.Text
   sortOrder          Int                         @default(0)
@@ -7969,6 +7977,27 @@ model ContractingWorkItemCatalog {
   @@unique([companyId, itemCode])
   @@index([companyId, kind])
   @@map("contracting_work_item_catalog")
+}
+
+/// دليل عناصر التكلفة (مواد / عمالة / معدات / موقع / مقاول باطن-خدمات).
+model ContractingCostElementCatalog {
+  id               String             @id @default(uuid())
+  companyId        String
+  costElementType  BOQCostElementType
+  resourceCode     String             @db.VarChar(64)
+  descriptionAr    String             @db.VarChar(255)
+  unit             String             @db.VarChar(20)
+  unitCost         Decimal            @default(0) @db.Decimal(18, 4)
+  notes            String?            @db.Text
+  isActive         Boolean            @default(true)
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, costElementType, resourceCode], map: "contracting_cost_element_catalog_company_type_code_key")
+  @@index([companyId, costElementType])
+  @@map("contracting_cost_element_catalog")
 }
 
 /// مستخلص مقاول باطن ابتدائي (تشغيلي — بلا قيود).

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { analysisElementCost, CATALOG_KIND_AR } from '@/components/contracting/tender/tender-labels';
+import { analysisElementCost, CATALOG_KIND_AR, isTenderHeaderKind } from '@/components/contracting/tender/tender-labels';
 
 describe('tender notebook display math', () => {
   it('matches handwritten 0.15 × 13500 = 2025 with zero waste', () => {
@@ -17,5 +17,10 @@ describe('tender notebook display math', () => {
   it('labels catalog kinds in Arabic', () => {
     expect(CATALOG_KIND_AR.SEASON).toBe('موسم');
     expect(CATALOG_KIND_AR.EXECUTABLE).toBe('بند تنفيذي');
+  });
+
+  it('marks season/chapter/official as headers', () => {
+    expect(isTenderHeaderKind('SEASON')).toBe(true);
+    expect(isTenderHeaderKind('EXECUTABLE')).toBe(false);
   });
 });
