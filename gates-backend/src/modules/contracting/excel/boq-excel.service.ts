@@ -4,6 +4,7 @@ import prisma from '../../../shared/database/prisma';
 import { AppError } from '../../../shared/middleware/error-handler';
 import { ContractingProjectNotFoundError } from '../technical-office/errors/technical-office-domain.errors';
 import { money, rate, toDecimal } from '../utils/money-decimal';
+import { assertAcyclicParent, inferParentIdFromCodes } from '../utils/boq-hierarchy.util';
 import {
   addInstructionsSheet,
   applyListValidation,
@@ -277,6 +278,7 @@ export class BoqExcelService {
               unitSellingPrice: money(row.unitPrice),
               totalSellingPrice: money(row.totalPrice),
               directCostEstimated: money(row.unitPrice),
+              notes: row.notes ?? null,
               status: 'PRICED',
             })),
           });
@@ -293,8 +295,42 @@ export class BoqExcelService {
               contractQuantity: money(row.quantity),
               unitSellingPrice: money(row.unitPrice),
               totalSellingPrice: money(row.totalPrice),
+              notes: row.notes ?? null,
               status: current.status === 'APPROVED_IN_CONTRACT' ? current.status : 'PRICED',
             },
+          });
+        }
+
+        const all = await tx.projectBOQItem.findMany({
+          where: { companyId, projectId },
+          select: { id: true, parentId: true, itemCode: true },
+        });
+        const inferred = inferParentIdFromCodes(all);
+        const nodes = all.map((row) => ({
+          id: row.id,
+          parentId: inferred.get(row.id) ?? row.parentId,
+        }));
+        try {
+          for (const node of nodes) {
+            assertAcyclicParent(nodes, node.id, node.parentId);
+          }
+        } catch {
+          throw new AppError(400, 'BOQ parent would create a cycle');
+        }
+        for (const item of all) {
+          const parentId = inferred.get(item.id);
+          if (parentId && item.parentId !== parentId) {
+            await tx.projectBOQItem.update({
+              where: { id: item.id },
+              data: { parentId },
+            });
+          }
+        }
+        const headerIds = [...new Set(inferred.values())];
+        if (headerIds.length) {
+          await tx.projectBOQItem.updateMany({
+            where: { id: { in: headerIds } },
+            data: { isExecutable: false },
           });
         }
       },

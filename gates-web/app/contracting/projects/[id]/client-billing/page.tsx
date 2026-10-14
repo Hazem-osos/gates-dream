@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { FilePlus2, Warehouse } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/EmptyState';
@@ -26,7 +26,12 @@ import type {
 } from '@/lib/contracting/types';
 import { useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
 import { queryKeys, staleTimes } from '@/lib/query/query-keys';
-import { formatDateAr, formatEgp, formatPercent, toMoney } from '@/lib/subcontracts/money';
+import { remainingStatementQty } from '@/lib/contracting/statement-line-math';
+import { previousQtyByBoq } from '@/lib/contracting/client-invoice-math';
+import { enterpriseDraftInvoiceItems } from '@/lib/contracting/mostakhlasat-contracts';
+import type { ContractBoqScope } from '@/lib/contracting/variation-types';
+import { toast } from '@/lib/feedback/toast';
+import { formatDateAr, formatEgp, formatPercent, toDateInput, toMoney } from '@/lib/subcontracts/money';
 
 const RegisterClientContractModal = lazyNamedModal(
   () => import('@/components/contracting/RegisterClientContractModal'),
@@ -92,6 +97,34 @@ export default function ClientBillingPage() {
   const invoices = contract?.invoices ?? [];
   const activeInvoice = invoices.find((row) => row.id === activeInvoiceId) ?? invoices[invoices.length - 1] ?? null;
   const storedStock = useMemo(() => siteStock.filter((row) => row.status === 'STORED_ON_SITE'), [siteStock]);
+  const draftEditable = !activeInvoice || activeInvoice.status === 'DRAFT';
+  const contractId = contract?.id;
+  const scopeQ = useQuery({
+    queryKey: ['contract-boq-scope', contractId],
+    enabled: Boolean(contractId),
+    queryFn: async () => {
+      const res = await apiClient.get<ContractBoqScope>(
+        `/contracting/client-billing/contracts/${contractId}/boq-scope`
+      );
+      return res.data!;
+    },
+  });
+  const scope = scopeQ.data;
+
+  useEffect(() => {
+    if (!activeInvoice) return;
+    setPeriodStart(toDateInput(activeInvoice.periodStartDate));
+    setPeriodEnd(toDateInput(activeInvoice.periodEndDate));
+    setPenalties(String(toMoney(activeInvoice.otherClientPenalties)));
+    if (activeInvoice.items?.length) {
+      setLines(
+        activeInvoice.items.map((item) => ({
+          projectBOQItemId: item.projectBOQItemId,
+          currentQuantity: toMoney(item.currentQuantity),
+        }))
+      );
+    }
+  }, [activeInvoice?.id]);
 
   const refresh = () => {
     invalidate(queryKeys.contracting.clientContract(projectId));
@@ -107,14 +140,30 @@ export default function ClientBillingPage() {
   const saveDraft = useMutation({
     mutationFn: async () => {
       if (!contract) throw new Error('missing contract');
+      const fail = (message: string): never => {
+        toast.error(message);
+        throw new Error(message);
+      };
+      if (!draftEditable) fail('لا يمكن تعديل مستخلص غير مسودة');
+      if (!periodStart || !periodEnd) fail('أدخل بداية ونهاية الفترة');
+      if (periodEnd < periodStart) fail('نهاية الفترة قبل بدايتها');
+      const prevMap = previousQtyByBoq(contract);
+      const items = enterpriseDraftInvoiceItems(boqItems, lines);
+      const over = items.find((item) => {
+        const boq = boqItems.find((row) => row.id === item.projectBOQItemId);
+        if (!boq) return false;
+        const previous = prevMap.get(item.projectBOQItemId) ?? toMoney(boq.cumulativeExecutedQty);
+        return item.currentQuantity > remainingStatementQty(toMoney(boq.contractQuantity), previous) + 1e-9;
+      });
+      if (over) {
+        const code = boqItems.find((row) => row.id === over.projectBOQItemId)?.itemCode ?? over.projectBOQItemId;
+        fail(`الكمية الحالية للبند ${code} تتجاوز المتبقي من كمية العقد`);
+      }
       return apiClient.post<ClientInvoice>(`/contracting/client-billing/contracts/${contract.id}/invoices/draft`, {
         invoiceId: activeInvoice?.status === 'DRAFT' ? activeInvoice.id : undefined,
         periodStartDate: periodStart,
         periodEndDate: periodEnd,
-        items: boqItems.map((item) => ({
-          projectBOQItemId: item.id,
-          currentQuantity: lines.find((row) => row.projectBOQItemId === item.id)?.currentQuantity ?? 0,
-        })),
+        items,
         otherClientPenalties: toMoney(penalties),
         claimSiteStockMaterialIds: claimIds.length ? claimIds : storedStock.map((row) => row.id),
         installSiteStockMaterialIds: installIds,
@@ -164,7 +213,18 @@ export default function ClientBillingPage() {
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
               <MetricTile label="رقم العقد" value={contract.contractNumber} />
               <MetricTile label="العميل" value={contract.client?.arabicName ?? '—'} />
-              <MetricTile label="قيمة العقد" value={formatEgp(contract.totalContractValue)} />
+              <MetricTile
+                label="قيمة العقد الأصلية"
+                value={formatEgp(scope?.originalContractValue ?? contract.totalContractValue)}
+              />
+              <MetricTile
+                label="أوامر تغيير معتمدة"
+                value={formatEgp(scope?.approvedVariationNetImpact ?? 0)}
+              />
+              <MetricTile
+                label="القيمة المعدّلة"
+                value={formatEgp(scope?.revisedContractValue ?? contract.totalContractValue)}
+              />
               <MetricTile label="الدفعة المقدمة" value={formatEgp(contract.advancePaymentAmount)} />
               <MetricTile label="استرداد المقدمة" value={formatPercent(toMoney(contract.advanceRecoveryRate) * 100)} />
               <MetricTile label="تأمين حسن التنفيذ" value={formatPercent(toMoney(contract.retentionRate) * 100)} />
@@ -231,6 +291,7 @@ export default function ClientBillingPage() {
                 size="sm"
                 iconStart={<FilePlus2 className="h-4 w-4" />}
                 isLoading={saveDraft.isPending}
+                disabled={!draftEditable}
                 onClick={() => saveDraft.mutate()}
               >
                 حفظ المسودة
@@ -250,6 +311,7 @@ export default function ClientBillingPage() {
                 claimIds={claimIds.length ? claimIds : storedStock.map((row) => row.id)}
                 installIds={installIds}
                 penalties={penalties}
+                readOnly={!draftEditable}
                 onPeriodStart={setPeriodStart}
                 onPeriodEnd={setPeriodEnd}
                 onLineQty={(id, qty) =>

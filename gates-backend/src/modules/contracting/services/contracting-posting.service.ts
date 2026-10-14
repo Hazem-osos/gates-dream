@@ -190,7 +190,12 @@ export class ContractingPostingService {
       },
     });
     if (!extract) throw new AppError(404, 'Contract extract not found');
-    if (extract.status === 'POSTED') throw new AppError(400, 'Extract already posted');
+    if (extract.status === 'POSTED' && extract.journalEntryId) {
+      return prisma.contractExtract.findFirstOrThrow({
+        where: { id: extractId, companyId: ctx.companyId },
+        include: { lines: { include: { boqItem: true } }, project: true },
+      });
+    }
     if (extract.status !== 'APPROVED' && extract.status !== 'DRAFT') {
       throw new AppError(400, 'Extract must be DRAFT or APPROVED to post');
     }
@@ -207,6 +212,24 @@ export class ContractingPostingService {
         : this.buildSubcontractorJournalLines(extract, accounts);
 
     return prisma.$transaction(async (tx) => {
+      const claimed = await tx.contractExtract.updateMany({
+        where: {
+          id: extractId,
+          companyId: ctx.companyId,
+          status: { in: ['DRAFT', 'APPROVED'] },
+          journalEntryId: null,
+        },
+        data: { postedAt: new Date() },
+      });
+      if (claimed.count !== 1) {
+        const existing = await tx.contractExtract.findFirst({
+          where: { id: extractId, companyId: ctx.companyId },
+          include: { lines: { include: { boqItem: true } }, project: true },
+        });
+        if (existing?.status === 'POSTED' && existing.journalEntryId) return existing;
+        throw new AppError(409, 'Extract is already being posted');
+      }
+
       const je = await journalPostingService.createAndPostInTx(tx, ctx, {
         fiscalYearId: ctx.fiscalYearId!,
         legacyGlNum,

@@ -43,6 +43,10 @@ describe('contract variation effective quantities', () => {
     expect(effective.toString()).toBe('125');
   });
 
+  it('does not treat unapproved variation quantity as available contract scope', () => {
+    expect(resolveEffectiveOwnerBoqQuantityFromBase(baseQty, [], boqId).toString()).toBe('100');
+  });
+
   it('floors effective quantity at zero', () => {
     const lines = [
       line({ changeType: 'OMIT', projectBOQItemId: boqId, quantityDelta: new Decimal(-500) }),

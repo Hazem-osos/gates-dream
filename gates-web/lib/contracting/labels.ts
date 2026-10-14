@@ -39,6 +39,8 @@ export const ELEMENT_LABEL: Record<BOQCostElementType, string> = {
   SITE_EXPENSE: 'مصاريف موقع',
 };
 
+/** Handwritten "خدمات" maps to SUBCONTRACTOR — BOQCostElementType has no SERVICE value. */
+
 export const ELEMENT_TYPES: BOQCostElementType[] = [
   'MATERIAL',
   'LABOR',

@@ -1,6 +1,7 @@
 'use client';
 
 import { Input } from '@/components/ui/input';
+import { withItemCodeHierarchy } from '@/lib/contracting/boq-hierarchy';
 import type { OwnerPreliminaryLine } from '@/lib/contracting/preliminary-types';
 import type { PreliminaryCertificateStatus } from '@/lib/contracting/preliminary-types';
 import { formatEgp, formatQty, toMoney } from '@/lib/subcontracts/money';
@@ -52,7 +53,7 @@ export function OwnerPreliminaryBoqTable({
           </tr>
         </thead>
         <tbody>
-          {lines.map((line) => {
+          {withItemCodeHierarchy(lines, (line) => line.itemCodeSnapshot).map((line) => {
             const requested =
               draft && requestedByBoq[line.projectBOQItemId] != null
                 ? requestedByBoq[line.projectBOQItemId]
@@ -76,8 +77,19 @@ export function OwnerPreliminaryBoqTable({
               : displayCumulative * toMoney(line.unitRateSnapshot);
 
             return (
-              <tr key={line.projectBOQItemId} className="border-t border-slate-100 even:bg-[#F6FBFD]/50">
-                <td className="px-2 py-2 font-semibold text-[#094C6B]">{line.itemCodeSnapshot}</td>
+              <tr
+                key={line.projectBOQItemId}
+                className={`border-t border-slate-100 ${line.__isParent ? 'bg-[#EEF6FA]' : 'even:bg-[#F6FBFD]/50'}`}
+              >
+                <td
+                  className="px-2 py-2 font-semibold text-[#094C6B]"
+                  style={{ paddingInlineStart: 8 + line.__depth * 14 }}
+                >
+                  {line.itemCodeSnapshot}
+                  {line.__isParent ? (
+                    <span className="mr-1 text-[10px] font-normal text-[#0E78AA]"> بند رئيسي</span>
+                  ) : null}
+                </td>
                 <td className="px-2 py-2 text-start text-xs">{line.descriptionArSnapshot}</td>
                 <td className="px-2 py-2">{line.unitSnapshot}</td>
                 <td className="px-2 py-2 tabular-nums">

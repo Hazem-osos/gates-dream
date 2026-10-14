@@ -6,6 +6,7 @@ import { contractingAccountResolverService } from './contracting-account-resolve
 import { contractingPostingService } from './contracting-posting.service';
 import { contractingProjectService } from './contracting-project.service';
 import {
+  applyServerPreviousQuantities,
   computeBoqLines,
   computeExtractFinancials,
   type BoqLineInput,
@@ -99,6 +100,7 @@ export class ContractExtractService {
       maxAdvanceRecovery = Number(subcontract.advancePaymentBalance);
     }
 
+    const { vatRate, whtRate } = await this.resolveRates(companyId);
     return {
       project,
       boq,
@@ -107,6 +109,8 @@ export class ContractExtractService {
       retentionPercent,
       advanceDeductionPercent,
       maxAdvanceRecovery,
+      vatRate,
+      whtRate,
       subcontract,
     };
   }
@@ -141,8 +145,15 @@ export class ContractExtractService {
     );
 
     const boqMap = new Map(ctx.boq.map((b) => [b.id, b]));
-    const linesForCalc = input.lines.map((l) => ({
+    for (const line of input.lines) {
+      if (!boqMap.has(line.boqItemId)) {
+        throw new AppError(404, `BOQ item not found on this project: ${line.boqItemId}`);
+      }
+    }
+    const withServerPrevious = applyServerPreviousQuantities(input.lines, ctx.previousQuantities);
+    const linesForCalc = withServerPrevious.map((l) => ({
       ...l,
+      unitPrice: Number(boqMap.get(l.boqItemId)?.unitPrice ?? l.unitPrice),
       contractQuantity: Number(boqMap.get(l.boqItemId)?.contractQuantity ?? 0),
     }));
 

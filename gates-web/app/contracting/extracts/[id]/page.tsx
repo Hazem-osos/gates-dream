@@ -28,6 +28,8 @@ import { WhatsAppShareButton } from '@/components/share/WhatsAppShareButton';
 import { buildContractExtractWhatsAppMessage } from '@/lib/whatsapp/messageTemplates';
 import type { InternalNoteEntry } from '@/lib/invoices/payment-split.types';
 import { printPageContent } from '@/lib/print/printHtml';
+import { withItemCodeHierarchy } from '@/lib/contracting/boq-hierarchy';
+import { mapExtractContractError, wave3ExtractSaveLines } from '@/lib/contracting/mostakhlasat-contracts';
 
 type ProjectOption = {
   id: string;
@@ -64,6 +66,8 @@ type ContextPayload = {
   retentionPercent: number;
   advanceDeductionPercent: number;
   maxAdvanceRecovery: number;
+  vatRate?: number;
+  whtRate?: number;
   subcontract?: { subcontractorId: string; subcontractor?: { arabicName: string } };
 };
 
@@ -90,9 +94,6 @@ type ContractExtractDetail = {
   lines?: ExtractLineApi[];
   status?: string;
 };
-
-const VAT_RATE = 0.14;
-const WHT_RATE = 0.01;
 
 export default function ContractExtractEditorPage() {
   const params = useParams();
@@ -179,11 +180,22 @@ export default function ContractExtractEditorPage() {
             currentQuantity: 0,
           }))
         );
+      } else if (!isNew && extractRes?.data?.status !== 'POSTED') {
+        setLineDrafts((rows) =>
+          rows.map((r) => ({
+            ...r,
+            previousQuantity: ctx.previousQuantities[r.boqItemId] ?? r.previousQuantity,
+            unitPrice: Number(ctx.boq.find((b) => b.id === r.boqItemId)?.unitPrice ?? r.unitPrice),
+            contractQuantity: Number(
+              ctx.boq.find((b) => b.id === r.boqItemId)?.contractQuantity ?? r.contractQuantity
+            ),
+          }))
+        );
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'تعذر تحميل سياق المشروع');
     }
-  }, [projectId, partyId, extractType, isNew, extractNumber, lineDrafts.length]);
+  }, [projectId, partyId, extractType, isNew, extractNumber, lineDrafts.length, extractRes?.data?.status]);
 
   useEffect(() => {
     void loadContext();
@@ -199,12 +211,14 @@ export default function ContractExtractEditorPage() {
   const preview = useMemo(() => {
     if (!context) return null;
     return computeExtractPreview({
-      lines: lineDrafts,
+      lines: withItemCodeHierarchy(lineDrafts, (row) => row.itemNumber).filter(
+        (row) => row.__isExecutable
+      ),
       previousExecutedAmount: context.previousExecutedAmount,
       advanceDeductionPercent: context.advanceDeductionPercent,
       retentionPercent: context.retentionPercent,
-      vatRate: VAT_RATE,
-      whtRate: WHT_RATE,
+      vatRate: context.vatRate ?? 0.14,
+      whtRate: context.whtRate ?? 0.01,
       penalties,
       maxAdvanceRecovery: context.maxAdvanceRecovery,
       extractType,
@@ -254,22 +268,17 @@ export default function ContractExtractEditorPage() {
         extractNumber,
         penalties,
         internalNotes,
-        lines: lineDrafts.map((l) => ({
-          boqItemId: l.boqItemId,
-          previousQuantity: l.previousQuantity,
-          currentQuantity: l.currentQuantity,
-          unitPrice: l.unitPrice,
-          contractQuantity: l.contractQuantity,
-        })),
+        lines: wave3ExtractSaveLines(lineDrafts),
       };
       const res = await saveMutation.mutateAsync(body);
-      setSuccess('تم حفظ المستخلص');
+      setSuccess('تم حفظ المسودة. الكميات السابقة تُعاد من المستخلصات المرحّلة.');
       invalidate(['contract-extracts']);
+      invalidate(['contract-extract', extractId]);
       if (isNew && res.data?.id) {
         router.replace(`/contracting/extracts/${res.data.id}`);
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'فشل الحفظ');
+      setError(mapExtractContractError(e).message);
     }
   };
 
@@ -280,7 +289,7 @@ export default function ContractExtractEditorPage() {
       setSuccess('تم ترحيل المستخلص إلى الأستاذ العام');
       invalidate(['contract-extract', extractId]);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'فشل الترحيل');
+      setError(mapExtractContractError(e).message);
     }
   };
 
@@ -289,8 +298,11 @@ export default function ContractExtractEditorPage() {
   };
 
   const status = extractRes?.data?.status;
-
   const isPosted = status === 'POSTED';
+  const canSave = !isPosted && (isNew || status === 'DRAFT' || !status);
+  const canPost = !isNew && (status === 'DRAFT' || status === 'APPROVED');
+  const statusLabel =
+    status === 'POSTED' ? 'مرحّل' : status === 'APPROVED' ? 'معتمد' : isNew ? 'جديد' : 'مسودة';
 
   return (
     <ExtractsPageChrome
@@ -301,10 +313,10 @@ export default function ContractExtractEditorPage() {
         { label: isNew ? 'جديد' : extractNumber || 'مستخلص' },
       ]}
       docNumber={extractNumber || 'جديد'}
-      statusLabel={isPosted ? 'مرحّل' : isNew ? 'جديد' : 'تعديل'}
+      statusLabel={statusLabel}
       onSave={() => void handleSave()}
       savePending={saveMutation.isPending}
-      canSave={!isPosted}
+      canSave={canSave}
       onNew={undefined}
       currentId={isNew ? null : extractId}
       favoriteHref="/contracting/extracts"
@@ -316,7 +328,7 @@ export default function ContractExtractEditorPage() {
       }
       moreMenuItems={[
         { id: 'print', label: 'طباعة A4', onClick: handlePrint },
-        ...(!isNew && !isPosted
+        ...(canPost
           ? [{ id: 'post', label: 'ترحيل', onClick: () => void handlePost() }]
           : []),
       ]}
@@ -357,7 +369,7 @@ export default function ContractExtractEditorPage() {
                   className={compactControlClass}
                   value={projectId}
                   onChange={(e) => setProjectId(e.target.value)}
-                  disabled={!isNew && isPosted}
+                  disabled={!isNew && !canSave}
                 >
                   <option value="">—</option>
                   {projects.map((p) => (
@@ -398,6 +410,7 @@ export default function ContractExtractEditorPage() {
                 label="رقم المستخلص"
                 value={extractNumber}
                 onChange={(e) => setExtractNumber(e.target.value)}
+                disabled={!canSave}
               />
             </FormSectionCard>
 
@@ -433,7 +446,7 @@ export default function ContractExtractEditorPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {lineDrafts.map((line) => {
+                  {withItemCodeHierarchy(lineDrafts, (row) => row.itemNumber).map((line) => {
                     const cum = line.previousQuantity + line.currentQuantity;
                     const lineTotal = line.currentQuantity * line.unitPrice;
                     const pct =
@@ -442,27 +455,46 @@ export default function ContractExtractEditorPage() {
                         : 0;
                     return (
                       <tr key={line.boqItemId} className={denseTrClass}>
-                        <td className={denseTdClass}>{line.itemNumber}</td>
+                        <td className={denseTdClass}>
+                          {line.itemNumber}
+                          {line.__isParent ? (
+                            <span className="mr-1 text-[10px] text-[#0E78AA]"> رئيسي</span>
+                          ) : null}
+                        </td>
                         <td className={denseTdClass}>{line.description}</td>
                         <td className={denseTdClass}>{line.unit ?? '—'}</td>
-                        <td className={denseTdClass}>{fmtMoney(line.unitPrice)}</td>
-                        <td className={denseTdClass}>{line.previousQuantity}</td>
                         <td className={denseTdClass}>
-                          <input
-                            type="number"
-                            min={0}
-                            step="0.0001"
-                            className={compactControlClass}
-                            value={line.currentQuantity || ''}
-                            onChange={(e) =>
-                              updateCurrentQty(line.boqItemId, Number(e.target.value) || 0)
-                            }
-                            disabled={isPosted}
-                          />
+                          {line.__isParent ? '—' : fmtMoney(line.unitPrice)}
                         </td>
-                        <td className={denseTdClass}>{cum.toLocaleString()}</td>
-                        <td className={denseTdClass}>{pct.toLocaleString()}%</td>
-                        <td className={`${denseTdClass} font-medium`}>{fmtMoney(lineTotal)}</td>
+                        <td className={denseTdClass}>
+                          {line.__isParent ? '—' : line.previousQuantity}
+                        </td>
+                        <td className={denseTdClass}>
+                          {line.__isParent ? (
+                            '—'
+                          ) : (
+                            <input
+                              type="number"
+                              min={0}
+                              step="0.0001"
+                              className={compactControlClass}
+                              value={line.currentQuantity || ''}
+                              onChange={(e) =>
+                                updateCurrentQty(line.boqItemId, Number(e.target.value) || 0)
+                              }
+                              disabled={!canSave}
+                            />
+                          )}
+                        </td>
+                        <td className={denseTdClass}>
+                          {line.__isParent ? '—' : cum.toLocaleString()}
+                        </td>
+                        <td className={denseTdClass}>
+                          {line.__isParent ? '—' : `${pct.toLocaleString()}%`}
+                        </td>
+                        <td className={`${denseTdClass} font-medium`}>
+                          {line.__isParent ? '—' : fmtMoney(lineTotal)}
+                        </td>
                       </tr>
                     );
                   })}
@@ -473,7 +505,14 @@ export default function ContractExtractEditorPage() {
 
         <aside className="print:hidden">
           <div className="sticky top-4 space-y-3 rounded-xl border border-[#E6F0F7] bg-white p-4 text-sm">
-            <h2 className="font-bold text-[#0A3D5E]">ملخص مالي</h2>
+            <h2 className="font-bold text-[#0A3D5E]">
+              {isPosted ? 'ملخص مرحّل' : 'معاينة محلية — ليست مبلغاً مرحّلاً'}
+            </h2>
+            {!isPosted ? (
+              <p className="text-[11px] text-slate-500">
+                الكميات السابقة من المستخلصات المرحّلة فقط. الإجمالي النهائي يُحسب على السيرفر عند الحفظ.
+              </p>
+            ) : null}
             {preview ? (
               <>
                 <Row label="إجمالي سابق" value={fmtMoney(preview.previousExecutedAmount)} />
@@ -490,10 +529,11 @@ export default function ContractExtractEditorPage() {
                     className={`${compactControlClass} mt-1`}
                     value={penalties || ''}
                     onChange={(e) => setPenalties(Number(e.target.value) || 0)}
+                    disabled={!canSave}
                   />
                 </label>
                 <Row label="صافي قبل الضريبة" value={fmtMoney(preview.netBeforeVat)} />
-                <Row label="ضريبة 14%" value={fmtMoney(preview.vatAmount)} />
+                <Row label="ضريبة القيمة المضافة" value={fmtMoney(preview.vatAmount)} />
                 <Row label="الصافي المستحق" value={fmtMoney(preview.netPayableAmount)} bold />
               </>
             ) : (

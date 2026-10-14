@@ -1,4 +1,5 @@
 import { toMoney } from '@/lib/subcontracts/money';
+import { executableRows, ownerBoqHierarchyHints, withItemCodeHierarchy } from './boq-hierarchy';
 import type { ClientContractDetail, LiveClientBreakdown, OwnerBoqItem, SiteStockMaterial } from './types';
 import { HISTORICAL_CLIENT_INVOICE_STATUSES } from './types';
 
@@ -36,11 +37,16 @@ export function computeLiveClientBreakdown(params: {
 }): LiveClientBreakdown {
   const { contract, boqItems, lines, siteStock, claimIds, installIds, otherClientPenalties } = params;
   const boqById = new Map(boqItems.map((row) => [row.id, row]));
+  const executableIds = new Set(
+    executableRows(withItemCodeHierarchy(boqItems, (item) => item.itemCode, ownerBoqHierarchyHints)).map(
+      (row) => row.id
+    )
+  );
 
   let grossCurrentWorks = 0;
   for (const line of lines) {
     const boq = boqById.get(line.projectBOQItemId);
-    if (!boq) continue;
+    if (!boq || !executableIds.has(boq.id)) continue;
     grossCurrentWorks += Math.max(0, line.currentQuantity) * toMoney(boq.unitSellingPrice);
   }
 

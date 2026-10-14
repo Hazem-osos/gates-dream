@@ -327,6 +327,11 @@ export async function isOwnerBoqItemCertifiableInTx(
     where: { id: projectBOQItemId, companyId },
   });
   if (!boq) return false;
+  const child = await db.projectBOQItem.findFirst({
+    where: { companyId, parentId: projectBOQItemId },
+    select: { id: true },
+  });
+  if (child || boq.isExecutable === false) return false;
   if (boq.origin === 'BASE_CONTRACT') return true;
   if (!boq.sourceVariationOrderId) return false;
   const vo = await db.contractVariationOrder.findFirst({

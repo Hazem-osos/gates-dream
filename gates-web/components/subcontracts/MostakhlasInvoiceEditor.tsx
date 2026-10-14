@@ -12,6 +12,8 @@ import { apiClient } from '@/lib/api/client';
 import { notifyApiSuccess } from '@/lib/api/api-success-notify';
 import { toast } from '@/lib/feedback/toast';
 import { queryKeys } from '@/lib/query/query-keys';
+import { withItemCodeHierarchy } from '@/lib/contracting/boq-hierarchy';
+import { statementLineAmounts } from '@/lib/contracting/statement-line-math';
 import { calculateLiveDraft, nextInvoiceSequence } from '@/lib/subcontracts/calculate-draft';
 import { formatEgp, formatPercent, formatQty, toDateInput, toMoney } from '@/lib/subcontracts/money';
 import type { SubcontractDetail, SubcontractInvoice } from '@/lib/subcontracts/types';
@@ -73,8 +75,8 @@ export function MostakhlasInvoiceEditor({
     periodStartDate: periodStart,
     periodEndDate: periodEnd,
     applyEarlyPaymentDiscount: earlyPay,
-    items: live.lines
-      .filter((line) => line.currentQuantity > 0)
+    items: withItemCodeHierarchy(live.lines, (line) => line.itemCode)
+      .filter((line) => line.__isExecutable && line.currentQuantity > 0)
       .map((line) => ({ boqItemId: line.subcontractBOQItemId, currentQuantity: line.currentQuantity })),
   });
 
@@ -176,22 +178,38 @@ export function MostakhlasInvoiceEditor({
         </div>
 
         <div className="overflow-x-auto rounded-2xl border border-[#E6F0F7] bg-white">
-          <table className="w-full min-w-[980px] text-center text-sm">
+          <table className="w-full min-w-[1280px] text-center text-sm">
             <thead>
               <tr className="bg-[#0E78AA] text-white">
                 <th className="px-2 py-3">البند</th>
                 <th className="px-2 py-3">الوصف</th>
+                <th className="px-2 py-3">الوحدة</th>
+                <th className="px-2 py-3">كمية العقد</th>
                 <th className="px-2 py-3">سابق</th>
                 <th className="px-2 py-3">حالي</th>
                 <th className="px-2 py-3">تراكمي</th>
                 <th className="px-2 py-3">الإنجاز</th>
+                <th className="px-2 py-3">سعر الوحدة</th>
+                <th className="px-2 py-3">قيمة السابق</th>
                 <th className="px-2 py-3">قيمة الفترة</th>
+                <th className="px-2 py-3">القيمة التراكمية</th>
               </tr>
             </thead>
             <tbody>
-              {live.lines.map((line, index) => (
-                <tr key={line.subcontractBOQItemId} className={index % 2 ? 'bg-[#F6FBFD]' : 'bg-white'}>
-                  <td className="px-2 py-2 font-semibold">{line.itemCode}</td>
+              {withItemCodeHierarchy(live.lines, (line) => line.itemCode).map((line) => {
+                const amounts = statementLineAmounts({
+                  previousQty: line.previousQuantity,
+                  currentQty: line.currentQuantity,
+                  unitPrice: line.unitPrice,
+                });
+                return (
+                <tr
+                  key={line.subcontractBOQItemId}
+                  className={line.__isParent ? 'bg-[#EEF6FA]' : 'even:bg-[#F6FBFD]'}
+                >
+                  <td className="px-2 py-2 font-semibold" style={{ paddingInlineStart: 8 + line.__depth * 14 }}>
+                    {line.itemCode}
+                  </td>
                   <td className="px-2 py-2 text-right">
                     <div>{line.descriptionAr}</div>
                     {line.approachingMax || line.exceedsMax ? (
@@ -201,27 +219,49 @@ export function MostakhlasInvoiceEditor({
                       </span>
                     ) : null}
                   </td>
-                  <td className="px-2 py-2 tabular-nums text-slate-500">{formatQty(line.previousQuantity)}</td>
-                  <td className="px-2 py-2">
-                    <Input
-                      type="number"
-                      min="0"
-                      step="0.001"
-                      className="mx-auto max-w-28 text-center"
-                      value={qty[line.subcontractBOQItemId] ?? ''}
-                      onChange={(e) =>
-                        setQty((prev) => ({
-                          ...prev,
-                          [line.subcontractBOQItemId]: toMoney(e.target.value),
-                        }))
-                      }
-                    />
+                  <td className="px-2 py-2">{line.unit}</td>
+                  <td className="px-3 py-2 tabular-nums">{line.__isParent ? '—' : formatQty(line.contractQuantity)}</td>
+                  <td className="px-2 py-2 tabular-nums text-slate-500">
+                    {line.__isParent ? '—' : formatQty(line.previousQuantity)}
                   </td>
-                  <td className="px-2 py-2 tabular-nums">{formatQty(line.totalCumulativeQuantity)}</td>
-                  <td className="px-2 py-2 tabular-nums">{formatPercent(line.completionPercentage)}</td>
-                  <td className="px-2 py-2 tabular-nums font-semibold">{formatEgp(line.totalCurrentAmount)}</td>
+                  <td className="px-2 py-2">
+                    {line.__isParent ? (
+                      '—'
+                    ) : (
+                      <Input
+                        type="number"
+                        min="0"
+                        step="0.001"
+                        className="mx-auto max-w-28 text-center"
+                        value={qty[line.subcontractBOQItemId] ?? ''}
+                        onChange={(e) =>
+                          setQty((prev) => ({
+                            ...prev,
+                            [line.subcontractBOQItemId]: toMoney(e.target.value),
+                          }))
+                        }
+                      />
+                    )}
+                  </td>
+                  <td className="px-2 py-2 tabular-nums">
+                    {line.__isParent ? '—' : formatQty(line.totalCumulativeQuantity)}
+                  </td>
+                  <td className="px-2 py-2 tabular-nums">
+                    {line.__isParent ? '—' : formatPercent(line.completionPercentage)}
+                  </td>
+                  <td className="px-2 py-2 tabular-nums">{line.__isParent ? '—' : formatEgp(line.unitPrice)}</td>
+                  <td className="px-2 py-2 tabular-nums text-slate-500">
+                    {line.__isParent ? '—' : formatEgp(amounts.previousAmount)}
+                  </td>
+                  <td className="px-2 py-2 tabular-nums font-semibold">
+                    {line.__isParent ? '—' : formatEgp(line.totalCurrentAmount)}
+                  </td>
+                  <td className="px-2 py-2 tabular-nums">
+                    {line.__isParent ? '—' : formatEgp(amounts.cumulativeAmount)}
+                  </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>

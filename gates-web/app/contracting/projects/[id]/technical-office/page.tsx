@@ -146,6 +146,7 @@ export default function TechnicalOfficePage() {
         <CreateOwnerBoqModal
           open
           projectId={projectId}
+          existingItems={items.map((row) => ({ id: row.id, itemCode: row.itemCode }))}
           onClose={() => setCreateOpen(false)}
           onCreated={refresh}
         />

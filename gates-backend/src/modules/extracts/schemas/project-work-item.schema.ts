@@ -2,6 +2,8 @@ import { z } from 'zod';
 
 export const createProjectWorkItemSchema = z.object({
   projectId: z.string().uuid(),
+  parentId: z.string().uuid().optional().nullable(),
+  isExecutable: z.boolean().optional(),
   buildingId: z.string().uuid().optional().nullable(),
   itemNumber: z.string().min(1),
   itemGroupCode: z.string().optional().nullable(),

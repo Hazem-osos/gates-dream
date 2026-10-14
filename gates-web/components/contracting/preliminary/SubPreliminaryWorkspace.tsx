@@ -23,6 +23,7 @@ import type {
 } from '@/lib/contracting/preliminary-types';
 import { toast } from '@/lib/feedback/toast';
 import { queryKeys } from '@/lib/query/query-keys';
+import { withItemCodeHierarchy } from '@/lib/contracting/boq-hierarchy';
 import { toDateInput, toMoney } from '@/lib/subcontracts/money';
 import type { SubcontractDetail } from '@/lib/subcontracts/types';
 
@@ -112,7 +113,17 @@ export function SubPreliminaryWorkspace({
     });
   }, [cert?.lines, lineDrafts, boqItems]);
 
-  const availableBoq = boqItems.filter((b) => !lineDrafts.some((l) => l.subcontractBOQItemId === b.id));
+  const hierarchicalBoq = useMemo(
+    () => withItemCodeHierarchy(boqItems, (row) => row.itemCode),
+    [boqItems]
+  );
+  const executableBoqIds = useMemo(
+    () => new Set(hierarchicalBoq.filter((row) => row.__isExecutable).map((row) => row.id)),
+    [hierarchicalBoq]
+  );
+  const availableBoq = hierarchicalBoq.filter(
+    (b) => b.__isExecutable && !lineDrafts.some((l) => l.subcontractBOQItemId === b.id)
+  );
 
   const invalidate = () => {
     void queryClient.invalidateQueries({ queryKey: ['sub-preliminary', subcontractId] });
@@ -123,7 +134,9 @@ export function SubPreliminaryWorkspace({
 
   const saveMutation = useMutation({
     mutationFn: async () => {
-      if (!lineDrafts.length) throw new Error('أضف بنداً واحداً على الأقل');
+      if (!lineDrafts.some((l) => executableBoqIds.has(l.subcontractBOQItemId))) {
+        throw new Error('أضف بنداً تنفيذياً واحداً على الأقل');
+      }
       return apiClient.post<SubPreliminaryCertificate>(
         `/subcontracts/${subcontractId}/preliminary-certificates`,
         {
@@ -131,10 +144,12 @@ export function SubPreliminaryWorkspace({
           periodStartDate: periodStart,
           periodEndDate: periodEnd,
           applyEarlyPaymentDiscount: earlyPay,
-          lines: lineDrafts.map((l) => ({
-            subcontractBOQItemId: l.subcontractBOQItemId,
-            requestedCurrentQuantity: requestedByBoq[l.subcontractBOQItemId] ?? l.requestedCurrentQuantity,
-          })),
+          lines: lineDrafts
+            .filter((l) => executableBoqIds.has(l.subcontractBOQItemId))
+            .map((l) => ({
+              subcontractBOQItemId: l.subcontractBOQItemId,
+              requestedCurrentQuantity: requestedByBoq[l.subcontractBOQItemId] ?? l.requestedCurrentQuantity,
+            })),
         }
       );
     },

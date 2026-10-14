@@ -22,6 +22,7 @@ import type {
   OwnerPreliminaryCertificate,
   OwnerPreliminaryLine,
 } from '@/lib/contracting/preliminary-types';
+import { executableOwnerBoqItems } from '@/lib/contracting/mostakhlasat-contracts';
 import type { ClientContractDetail, OwnerBoqItem } from '@/lib/contracting/types';
 import type { ContractBoqScope } from '@/lib/contracting/variation-types';
 import { toast } from '@/lib/feedback/toast';
@@ -175,17 +176,26 @@ export function OwnerPreliminaryWorkspace({
     });
   }, [cert?.lines, lineDrafts, boqItems, scopeByBoq]);
 
-  const availableBoq = boqItems.filter((b) => !lineDrafts.some((l) => l.projectBOQItemId === b.id));
+  const availableBoq = executableOwnerBoqItems(boqItems).filter(
+    (b) => !lineDrafts.some((l) => l.projectBOQItemId === b.id)
+  );
+
+  const executableIds = useMemo(
+    () => new Set(executableOwnerBoqItems(boqItems).map((row) => row.id)),
+    [boqItems]
+  );
 
   const savePayload = () => ({
     certificateId: certificateId,
     periodStartDate: periodStart,
     periodEndDate: periodEnd,
     otherClientPenalties: toMoney(penalties),
-    lines: lineDrafts.map((l) => ({
-      projectBOQItemId: l.projectBOQItemId,
-      requestedCurrentQuantity: requestedByBoq[l.projectBOQItemId] ?? l.requestedCurrentQuantity,
-    })),
+    lines: lineDrafts
+      .filter((l) => executableIds.has(l.projectBOQItemId))
+      .map((l) => ({
+        projectBOQItemId: l.projectBOQItemId,
+        requestedCurrentQuantity: requestedByBoq[l.projectBOQItemId] ?? l.requestedCurrentQuantity,
+      })),
     measurementSheetIds: selectedMeasurements.length ? selectedMeasurements : undefined,
   });
 
@@ -198,7 +208,7 @@ export function OwnerPreliminaryWorkspace({
 
   const saveMutation = useMutation({
     mutationFn: async () => {
-      if (!lineDrafts.length) throw new Error('أضف بنداً واحداً على الأقل');
+      if (!savePayload().lines.length) throw new Error('أضف بنداً تنفيذياً واحداً على الأقل');
       return apiClient.post<OwnerPreliminaryCertificate>(
         `/contracting/client-billing/contracts/${contractId}/preliminary-certificates`,
         savePayload()

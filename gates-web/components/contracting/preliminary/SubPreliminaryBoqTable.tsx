@@ -1,7 +1,9 @@
 'use client';
 
 import { Input } from '@/components/ui/input';
+import { withItemCodeHierarchy } from '@/lib/contracting/boq-hierarchy';
 import type { PreliminaryCertificateStatus, SubPreliminaryLine } from '@/lib/contracting/preliminary-types';
+import { statementLineAmounts } from '@/lib/contracting/statement-line-math';
 import { formatEgp, formatQty, toMoney } from '@/lib/subcontracts/money';
 
 export function SubPreliminaryBoqTable({
@@ -38,10 +40,11 @@ export function SubPreliminaryBoqTable({
             <th className="px-2 py-2">المتبقي</th>
             <th className="px-2 py-2">السعر</th>
             <th className="px-2 py-2">قيمة الحالي</th>
+            <th className="px-2 py-2">القيمة التراكمية</th>
           </tr>
         </thead>
         <tbody>
-          {lines.map((line) => {
+          {withItemCodeHierarchy(lines, (line) => line.itemCodeSnapshot).map((line) => {
             const requested =
               draft && requestedByBoq[line.subcontractBOQItemId] != null
                 ? requestedByBoq[line.subcontractBOQItemId]
@@ -61,10 +64,18 @@ export function SubPreliminaryBoqTable({
             const currentAmount = frozen
               ? toMoney(line.currentAmount)
               : (review ? approved : requested) * toMoney(line.unitRateSnapshot);
+            const amounts = statementLineAmounts({
+              previousQty: toMoney(line.previousCertifiedQuantity),
+              currentQty: review || frozen ? approved : requested,
+              unitPrice: toMoney(line.unitRateSnapshot),
+            });
 
             return (
-              <tr key={line.subcontractBOQItemId} className="border-t border-slate-100 even:bg-[#F6FBFD]/50">
-                <td className="px-2 py-2 text-start">
+              <tr
+                key={line.subcontractBOQItemId}
+                className={`border-t border-slate-100 ${line.__isParent ? 'bg-[#EEF6FA]' : 'even:bg-[#F6FBFD]/50'}`}
+              >
+                <td className="px-2 py-2 text-start" style={{ paddingInlineStart: 8 + line.__depth * 14 }}>
                   <p className="font-semibold text-[#094C6B]">{line.itemCodeSnapshot}</p>
                   <p className="text-xs text-slate-500">{line.descriptionArSnapshot}</p>
                 </td>
@@ -105,6 +116,7 @@ export function SubPreliminaryBoqTable({
                 <td className="px-2 py-2 tabular-nums">{formatQty(remaining)}</td>
                 <td className="px-2 py-2 tabular-nums">{formatEgp(line.unitRateSnapshot)}</td>
                 <td className="px-2 py-2 tabular-nums font-semibold">{formatEgp(currentAmount)}</td>
+                <td className="px-2 py-2 tabular-nums">{formatEgp(amounts.cumulativeAmount)}</td>
               </tr>
             );
           })}

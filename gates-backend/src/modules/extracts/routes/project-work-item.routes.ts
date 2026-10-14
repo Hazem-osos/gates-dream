@@ -108,7 +108,11 @@ router.post(
       });
     } catch (error) {
       logger.error({ error }, 'Error creating project work item');
-      return void res.status(500).json({
+      const statusCode =
+        error && typeof error === 'object' && 'statusCode' in error
+          ? Number((error as { statusCode: number }).statusCode)
+          : 500;
+      return void res.status(statusCode).json({
         status: 'error',
         message: error instanceof Error ? error.message : 'Failed to create project work item',
       });

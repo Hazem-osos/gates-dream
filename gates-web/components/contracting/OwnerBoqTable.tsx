@@ -5,9 +5,17 @@ import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { TableSkeleton } from '@/components/ui/TableSkeleton';
 import { BoqStatusBadge } from '@/components/contracting/StatusBadges';
+import { ownerBoqHierarchyHints, withItemCodeHierarchy } from '@/lib/contracting/boq-hierarchy';
 import { BOQ_UNIT_LABEL } from '@/lib/contracting/labels';
 import type { OwnerBoqItem } from '@/lib/contracting/types';
+import type { ContractBoqScopeItem } from '@/lib/contracting/variation-types';
 import { formatEgp, formatPercent, formatQty, toMoney } from '@/lib/subcontracts/money';
+
+function isOwnerBoqHeader(item: OwnerBoqItem, dottedParent: boolean): boolean {
+  if (item.hasChildren === true || item.isLeaf === false || item.isExecutable === false) return true;
+  if (item.hasChildren === false || item.isLeaf === true) return false;
+  return dottedParent;
+}
 
 export function OwnerBoqTable({
   items,
@@ -19,7 +27,7 @@ export function OwnerBoqTable({
   onMeasurements,
 }: {
   items: OwnerBoqItem[];
-  scopeByItemId?: Map<string, import('@/lib/contracting/variation-types').ContractBoqScopeItem>;
+  scopeByItemId?: Map<string, ContractBoqScopeItem>;
   loading?: boolean;
   onAdd?: () => void;
   onRateBreakdown: (item: OwnerBoqItem) => void;
@@ -43,9 +51,25 @@ export function OwnerBoqTable({
     );
   }
 
+  const rows = withItemCodeHierarchy(items, (item) => item.itemCode, ownerBoqHierarchyHints);
+  const computedSelling = rows.reduce(
+    (sum, item) =>
+      isOwnerBoqHeader(item, item.__isParent) ? sum : sum + toMoney(item.totalSellingPrice),
+    0
+  );
+  const apiLeafTotal = items[0]?.costStatus?.leafOnlyContractSellingTotal;
+  const totalSelling = apiLeafTotal != null ? toMoney(apiLeafTotal) : computedSelling;
+  const totalDirect = rows.reduce(
+    (sum, item) =>
+      isOwnerBoqHeader(item, item.__isParent)
+        ? sum
+        : sum + toMoney(item.directCostEstimated) * toMoney(item.contractQuantity),
+    0
+  );
+
   return (
     <div className="overflow-x-auto rounded-xl border border-[#E6F0F7]">
-      <table className="w-full min-w-[980px] text-center text-sm">
+      <table className="w-full min-w-[1100px] text-center text-sm">
         <thead>
           <tr className="bg-[#0E78AA] text-white">
             <th className="px-3 py-2">كود البند</th>
@@ -68,60 +92,121 @@ export function OwnerBoqTable({
           </tr>
         </thead>
         <tbody>
-          {items.map((item) => {
+          {rows.map((item) => {
             const scope = scopeByItemId?.get(item.id);
+            const isParent = isOwnerBoqHeader(item, item.__isParent);
+            const pad = 8 + item.__depth * 16;
             return (
-            <tr key={item.id} className="border-t border-slate-100 even:bg-[#F6FBFD]/50">
-              <td className="px-3 py-2 font-semibold text-[#094C6B]">
-                {item.itemCode}
-                {scope?.origin === 'VARIATION_ORDER' && scope.sourceVariationOrderNumber ? (
-                  <p className="text-[10px] font-normal text-emerald-800">
-                    بند مضاف بأمر تغيير {scope.sourceVariationOrderNumber}
-                  </p>
+              <tr
+                key={item.id}
+                className={`border-t border-slate-100 ${
+                  isParent ? 'bg-[#EEF6FA] font-semibold' : 'even:bg-[#F6FBFD]/50'
+                }`}
+              >
+                <td className="px-3 py-2 text-start font-semibold text-[#094C6B]" style={{ paddingInlineStart: pad }}>
+                  {item.itemCode}
+                  {isParent ? (
+                    <span className="mr-2 rounded bg-[#0E78AA]/10 px-1.5 py-0.5 text-[10px] font-normal text-[#0E78AA]">
+                      بند رئيسي
+                    </span>
+                  ) : (
+                    <span className="mr-2 rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-normal text-emerald-800">
+                      بند تنفيذي
+                    </span>
+                  )}
+                  {scope?.origin === 'VARIATION_ORDER' && scope.sourceVariationOrderNumber ? (
+                    <p className="text-[10px] font-normal text-emerald-800">
+                      بند مضاف بأمر تغيير {scope.sourceVariationOrderNumber}
+                    </p>
+                  ) : null}
+                </td>
+                <td className="px-3 py-2 text-start">
+                  <p>{item.descriptionAr}</p>
+                  {item.descriptionEn ? <p className="text-[11px] text-slate-500">{item.descriptionEn}</p> : null}
+                  {item.notes ? <p className="text-[11px] text-slate-500">{item.notes}</p> : null}
+                </td>
+                <td className="px-3 py-2">{BOQ_UNIT_LABEL[item.unit] ?? item.unit}</td>
+                <td className="px-3 py-2 tabular-nums">
+                  {isParent ? '—' : formatQty(scope?.originalQuantity ?? item.contractQuantity)}
+                </td>
+                {scopeByItemId ? (
+                  <>
+                    <td className="px-3 py-2 tabular-nums">
+                      {!isParent && scope && scope.approvedVariationQuantityDelta !== 0
+                        ? formatQty(scope.approvedVariationQuantityDelta)
+                        : '—'}
+                    </td>
+                    <td className="px-3 py-2 tabular-nums font-medium">
+                      {isParent ? '—' : formatQty(scope?.effectiveQuantity ?? item.contractQuantity)}
+                    </td>
+                  </>
                 ) : null}
-              </td>
-              <td className="px-3 py-2 text-start">{item.descriptionAr}</td>
-              <td className="px-3 py-2">{BOQ_UNIT_LABEL[item.unit] ?? item.unit}</td>
-              <td className="px-3 py-2 tabular-nums">
-                {formatQty(scope?.originalQuantity ?? item.contractQuantity)}
-              </td>
-              {scopeByItemId ? (
-                <>
-                  <td className="px-3 py-2 tabular-nums">
-                    {scope && scope.approvedVariationQuantityDelta !== 0
-                      ? formatQty(scope.approvedVariationQuantityDelta)
-                      : '—'}
-                  </td>
-                  <td className="px-3 py-2 tabular-nums font-medium">
-                    {formatQty(scope?.effectiveQuantity ?? item.contractQuantity)}
-                  </td>
-                </>
-              ) : null}
-              <td className="px-3 py-2 tabular-nums">{formatEgp(item.directCostEstimated)}</td>
-              <td className="px-3 py-2 tabular-nums">{formatPercent(toMoney(item.indirectMarkupRate) * 100)}</td>
-              <td className="px-3 py-2 tabular-nums">{formatEgp(item.unitSellingPrice)}</td>
-              <td className="px-3 py-2 tabular-nums font-semibold">{formatEgp(item.totalSellingPrice)}</td>
-              <td className="px-3 py-2 tabular-nums">{formatQty(item.cumulativeExecutedQty)}</td>
-              <td className="px-3 py-2">
-                <BoqStatusBadge status={item.status} />
-              </td>
-              <td className="px-3 py-2">
-                <div className="flex flex-wrap justify-center gap-1">
-                  <Button size="sm" variant="secondary" iconStart={<Layers className="h-3.5 w-3.5" />} onClick={() => onRateBreakdown(item)}>
-                    تحليل السعر
-                  </Button>
-                  <Button size="sm" variant="secondary" iconStart={<Calculator className="h-3.5 w-3.5" />} onClick={() => onMarkup(item)}>
-                    تحميل التكاليف
-                  </Button>
-                  <Button size="sm" variant="ghost" iconStart={<Ruler className="h-3.5 w-3.5" />} onClick={() => onMeasurements(item)}>
-                    دفتر الحصر
-                  </Button>
-                </div>
-              </td>
-            </tr>
+                <td className="px-3 py-2 tabular-nums">
+                  {isParent ? '—' : formatEgp(item.directCostEstimated)}
+                </td>
+                <td className="px-3 py-2 tabular-nums">
+                  {isParent ? '—' : formatPercent(toMoney(item.indirectMarkupRate) * 100)}
+                </td>
+                <td className="px-3 py-2 tabular-nums">
+                  {isParent ? '—' : formatEgp(item.unitSellingPrice)}
+                </td>
+                <td className="px-3 py-2 tabular-nums font-semibold">
+                  {isParent ? '—' : formatEgp(item.totalSellingPrice)}
+                </td>
+                <td className="px-3 py-2 tabular-nums">
+                  {isParent ? '—' : formatQty(item.cumulativeExecutedQty)}
+                </td>
+                <td className="px-3 py-2">
+                  <BoqStatusBadge status={item.status} />
+                </td>
+                <td className="px-3 py-2">
+                  {isParent ? (
+                    <span className="text-xs text-slate-500">يُسعَّر عبر البنود التنفيذية</span>
+                  ) : (
+                    <div className="flex flex-wrap justify-center gap-1">
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        iconStart={<Layers className="h-3.5 w-3.5" />}
+                        onClick={() => onRateBreakdown(item)}
+                      >
+                        تحليل السعر
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        iconStart={<Calculator className="h-3.5 w-3.5" />}
+                        onClick={() => onMarkup(item)}
+                      >
+                        تحميل التكاليف
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        iconStart={<Ruler className="h-3.5 w-3.5" />}
+                        onClick={() => onMeasurements(item)}
+                      >
+                        دفتر الحصر
+                      </Button>
+                    </div>
+                  )}
+                </td>
+              </tr>
             );
           })}
         </tbody>
+        <tfoot>
+          <tr className="border-t-2 border-[#0E78AA] bg-[#F0F7FB] font-semibold">
+            <td className="px-3 py-2 text-start" colSpan={scopeByItemId ? 6 : 4}>
+              إجمالي البنود التنفيذية (بدون البنود الرئيسية)
+            </td>
+            <td className="px-3 py-2 tabular-nums">{formatEgp(totalDirect)}</td>
+            <td />
+            <td />
+            <td className="px-3 py-2 tabular-nums text-[#0E78AA]">{formatEgp(totalSelling)}</td>
+            <td colSpan={3} />
+          </tr>
+        </tfoot>
       </table>
     </div>
   );

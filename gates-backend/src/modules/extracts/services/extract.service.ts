@@ -2,6 +2,13 @@ import prisma from '../../../shared/database/prisma';
 import { logger } from '../../../shared/logger';
 import { Decimal } from '@prisma/client/runtime/library';
 import { AppError } from '../../../shared/middleware/error-handler';
+import {
+  aggregatePreviousWorkItemQuantities,
+  attachRemainingQuantity,
+  computeExtractLines,
+  type ExtractLineInput,
+  type WorkItemForExtract,
+} from '../utils/extract-statement.util';
 
 export interface CreateExtractData {
   projectId: string;
@@ -30,73 +37,78 @@ export interface CreateExtractData {
 }
 
 export class ExtractService {
+  async previewExtract(companyId: string, data: CreateExtractData) {
+    const computed = await this.computeStatement(companyId, data, null);
+    return {
+      previousWorkTotal: computed.previousWorkTotal,
+      previousExtractCount: computed.previousExtractCount,
+      totalValue: computed.totalValue,
+      items: computed.lines,
+    };
+  }
+
   async createExtract(companyId: string, data: CreateExtractData) {
     try {
-      // Verify project exists
-      const project = await prisma.project.findFirst({
-        where: { id: data.projectId, companyId },
-      });
+      const computed = await this.computeStatement(companyId, data, null);
 
-      if (!project) {
-        throw new Error('Project not found');
-      }
-
-      // Calculate totals
-      const totalValue = data.items.reduce(
-        (sum, item) => sum + (item.totalPrice || item.unitPrice || 0) * item.quantity,
-        0
-      );
-
-      const extract = await prisma.extract.create({
-        data: {
-          projectId: data.projectId,
-          contractorId: data.contractorId,
-          extractNumber: data.extractNumber,
-          extractDate: data.extractDate,
-          statementType: data.statementType || 'partial',
-          statement: data.statement,
-          extractType: data.extractType || 'contractor',
-          totalValue: new Decimal(totalValue),
-          notes: data.notes,
-          items: {
-            create: data.items.map((item) => ({
-              workItemId: item.workItemId,
-              buildingId: item.buildingId,
-              unitNumber: item.unitNumber,
-              modelNumber: item.modelNumber,
-              groupCode: item.groupCode,
-              groupName: item.groupName,
-              itemNumber: item.itemNumber,
-              itemName: item.itemName,
-              quantity: new Decimal(item.quantity),
-              unit: item.unit,
-              unitPrice: item.unitPrice ? new Decimal(item.unitPrice) : null,
-              totalPrice: item.totalPrice
-                ? new Decimal(item.totalPrice)
-                : item.unitPrice
-                ? new Decimal(item.unitPrice * item.quantity)
-                : null,
-              notes: item.notes,
-            })),
-          },
-        },
-        include: {
-          project: true,
-          contractor: true,
-          items: {
-            include: {
-              workItem: true,
-              building: true,
+      const extract = await prisma.$transaction(async (tx) => {
+        await this.assertUniqueExtractNumber(
+          tx,
+          data.projectId,
+          data.extractNumber,
+          null
+        );
+        return tx.extract.create({
+          data: {
+            projectId: data.projectId,
+            contractorId: data.contractorId,
+            extractNumber: data.extractNumber,
+            extractDate: data.extractDate,
+            statementType: data.statementType || 'partial',
+            statement: data.statement,
+            extractType: data.extractType || 'contractor',
+            totalValue: new Decimal(computed.totalValue),
+            previousWorkTotal: new Decimal(computed.previousWorkTotal),
+            previousExtractCount: computed.previousExtractCount,
+            notes: data.notes,
+            items: {
+              create: computed.lines.map((item) => ({
+                workItemId: item.workItemId,
+                buildingId: item.buildingId,
+                unitNumber: item.unitNumber,
+                modelNumber: item.modelNumber,
+                groupCode: item.groupCode,
+                groupName: item.groupName,
+                itemNumber: item.itemNumber,
+                itemName: item.itemName,
+                quantity: new Decimal(item.currentQuantity),
+                previousQuantity: new Decimal(item.previousQuantity),
+                cumulativeQuantity: new Decimal(item.cumulativeQuantity),
+                unit: item.unit,
+                unitPrice: item.unitPrice != null ? new Decimal(item.unitPrice) : null,
+                totalPrice: item.totalPrice != null ? new Decimal(item.totalPrice) : null,
+                notes: item.notes,
+              })),
             },
           },
-        },
+          include: {
+            project: true,
+            contractor: true,
+            items: {
+              include: {
+                workItem: true,
+                building: true,
+              },
+            },
+          },
+        });
       });
 
       logger.info({ companyId, extractId: extract.id }, 'Extract created');
-      return extract;
+      return { ...extract, items: attachRemainingQuantity(extract.items) };
     } catch (error) {
       logger.error({ error, companyId }, 'Error creating extract');
-      throw error;
+      this.rethrow(error);
     }
   }
 
@@ -205,7 +217,7 @@ export class ExtractService {
         throw new Error('Extract not found');
       }
 
-      return extract;
+      return { ...extract, items: attachRemainingQuantity(extract.items) };
     } catch (error) {
       logger.error({ error, companyId, extractId: id }, 'Error getting extract');
       throw error;
@@ -241,13 +253,23 @@ export class ExtractService {
       if (data.notes !== undefined) updateData.notes = data.notes;
 
       if (data.items) {
-        // Delete existing items and create new ones
-        await prisma.extractItem.deleteMany({
-          where: { extractId: id },
-        });
-
+        const computed = await this.computeStatement(
+          companyId,
+          {
+            ...data,
+            projectId: existing.projectId,
+            extractDate: data.extractDate ?? existing.extractDate,
+            extractType:
+              data.extractType ??
+              (existing.extractType as CreateExtractData['extractType']),
+            contractorId: data.contractorId ?? existing.contractorId ?? undefined,
+            items: data.items as CreateExtractData['items'],
+          },
+          id
+        );
         updateData.items = {
-          create: data.items.map((item) => ({
+          deleteMany: {},
+          create: computed.lines.map((item) => ({
             workItemId: item.workItemId,
             buildingId: item.buildingId,
             unitNumber: item.unitNumber,
@@ -256,24 +278,28 @@ export class ExtractService {
             groupName: item.groupName,
             itemNumber: item.itemNumber,
             itemName: item.itemName,
-            quantity: new Decimal(item.quantity),
+            quantity: new Decimal(item.currentQuantity),
+            previousQuantity: new Decimal(item.previousQuantity),
+            cumulativeQuantity: new Decimal(item.cumulativeQuantity),
             unit: item.unit,
-            unitPrice: item.unitPrice ? new Decimal(item.unitPrice) : null,
-            totalPrice: item.totalPrice
-              ? new Decimal(item.totalPrice)
-              : item.unitPrice
-              ? new Decimal(item.unitPrice * item.quantity)
-              : null,
+            unitPrice: item.unitPrice != null ? new Decimal(item.unitPrice) : null,
+            totalPrice: item.totalPrice != null ? new Decimal(item.totalPrice) : null,
             notes: item.notes,
           })),
         };
+        updateData.totalValue = new Decimal(computed.totalValue);
+        updateData.previousWorkTotal = new Decimal(computed.previousWorkTotal);
+        updateData.previousExtractCount = computed.previousExtractCount;
+      }
 
-        // Recalculate total
-        const totalValue = data.items.reduce(
-          (sum, item) => sum + (item.totalPrice || item.unitPrice || 0) * item.quantity,
-          0
+      if (data.extractNumber !== undefined) {
+        await this.assertUniqueExtractNumber(
+          prisma,
+          existing.projectId,
+          data.extractNumber,
+          id
         );
-        updateData.totalValue = new Decimal(totalValue);
+        updateData.extractNumber = data.extractNumber;
       }
 
       const extract = await prisma.extract.update({
@@ -292,7 +318,7 @@ export class ExtractService {
       });
 
       logger.info({ companyId, extractId: id }, 'Extract updated');
-      return extract;
+      return { ...extract, items: attachRemainingQuantity(extract.items) };
     } catch (error) {
       logger.error({ error, companyId, extractId: id }, 'Error updating extract');
       throw error;
@@ -392,6 +418,161 @@ export class ExtractService {
       logger.error({ error, companyId, extractId: id }, 'Error cancelling extract');
       throw error;
     }
+  }
+
+  private async computeStatement(
+    companyId: string,
+    data: CreateExtractData,
+    excludeExtractId: string | null
+  ) {
+    const project = await prisma.project.findFirst({
+      where: { id: data.projectId, companyId },
+    });
+    if (!project) throw new AppError(404, 'Project not found');
+
+    const workRows = await prisma.projectWorkItem.findMany({
+      where: { projectId: data.projectId },
+      select: {
+        id: true,
+        parentId: true,
+        isExecutable: true,
+        itemNumber: true,
+        arabicName: true,
+        quantity: true,
+        unit: true,
+        unitPrice: true,
+      },
+    });
+    const workItems: WorkItemForExtract[] = workRows.map((row) => ({
+      id: row.id,
+      parentId: row.parentId,
+      isExecutable: row.isExecutable,
+      itemNumber: row.itemNumber,
+      arabicName: row.arabicName,
+      quantity: Number(row.quantity),
+      unit: row.unit,
+      unitPrice: row.unitPrice != null ? Number(row.unitPrice) : null,
+    }));
+
+    const extractType = data.extractType || 'contractor';
+    const priorWhere = {
+      projectId: data.projectId,
+      // Cancelled extracts never occupy remaining quantity. Unposted drafts do,
+      // so two overlapping drafts cannot both consume the same remaining BOQ qty.
+      isCancelled: false,
+      extractType,
+      ...(extractType === 'contractor'
+        ? { contractorId: data.contractorId ?? null }
+        : {}),
+      ...(excludeExtractId ? { id: { not: excludeExtractId } } : {}),
+    };
+
+    const priorExtracts = await prisma.extract.findMany({
+      where: priorWhere,
+      select: {
+        id: true,
+        totalValue: true,
+        items: { select: { workItemId: true, quantity: true } },
+      },
+    });
+
+    const previousQuantityByWorkItemId = aggregatePreviousWorkItemQuantities(
+      priorExtracts.map((extract) => ({
+        isCancelled: false,
+        items: extract.items.map((item) => ({
+          workItemId: item.workItemId,
+          quantity: Number(item.quantity),
+        })),
+      }))
+    );
+    let previousWorkTotal = 0;
+    for (const extract of priorExtracts) {
+      previousWorkTotal += Number(extract.totalValue ?? 0);
+    }
+
+    const lines: ExtractLineInput[] = data.items.map((item) => ({
+      workItemId: item.workItemId,
+      buildingId: item.buildingId,
+      unitNumber: item.unitNumber,
+      modelNumber: item.modelNumber,
+      groupCode: item.groupCode,
+      groupName: item.groupName,
+      itemNumber: item.itemNumber,
+      itemName: item.itemName,
+      quantity: item.quantity,
+      unit: item.unit,
+      unitPrice: item.unitPrice,
+      notes: item.notes,
+    }));
+
+    try {
+      const computed = computeExtractLines({
+        lines,
+        workItems,
+        previousQuantityByWorkItemId,
+      });
+      return {
+        ...computed,
+        previousWorkTotal,
+        previousExtractCount: priorExtracts.length,
+      };
+    } catch (error) {
+      this.rethrow(error);
+    }
+  }
+
+  private async assertUniqueExtractNumber(
+    db: Pick<typeof prisma, 'extract'> | typeof prisma,
+    projectId: string,
+    extractNumber: string | undefined,
+    excludeId: string | null
+  ) {
+    const serial = extractNumber?.trim();
+    if (!serial) return;
+    const existing = await (db as typeof prisma).extract.findFirst({
+      where: {
+        projectId,
+        extractNumber: serial,
+        isCancelled: false,
+        ...(excludeId ? { id: { not: excludeId } } : {}),
+      },
+      select: { id: true },
+    });
+    if (existing) {
+      throw new AppError(409, `Extract number ${serial} already exists on this project`);
+    }
+  }
+
+  private rethrow(error: unknown): never {
+    if (error instanceof AppError) throw error;
+    const message = error instanceof Error ? error.message : '';
+    if (message === 'EXTRACT_ITEMS_REQUIRED') {
+      throw new AppError(422, 'At least one extract item is required');
+    }
+    if (message === 'EXTRACT_NON_FINITE_AMOUNT') {
+      throw new AppError(400, 'Quantities and unit prices must be finite numbers');
+    }
+    if (message === 'EXTRACT_NEGATIVE_QUANTITY' || message === 'EXTRACT_NEGATIVE_PRICE') {
+      throw new AppError(400, 'Quantities and unit prices cannot be negative');
+    }
+    if (message === 'EXTRACT_WORK_ITEM_NOT_FOUND') {
+      throw new AppError(404, 'Work item not found on this project');
+    }
+    if (message.startsWith('EXTRACT_DUPLICATE_WORK_ITEM:')) {
+      throw new AppError(400, 'Duplicate work item on this extract');
+    }
+    if (message.startsWith('EXTRACT_HEADER_NOT_CERTIFIABLE:')) {
+      const code = message.split(':')[1];
+      throw new AppError(422, `Cannot certify header work item ${code}; certify leaf items only`);
+    }
+    if (message.startsWith('EXTRACT_QTY_EXCEEDS_BOQ:')) {
+      const [, code, cum, contract] = message.split(':');
+      throw new AppError(
+        422,
+        `Work item ${code} cumulative quantity (${cum}) exceeds BOQ quantity (${contract})`
+      );
+    }
+    throw error;
   }
 }
 

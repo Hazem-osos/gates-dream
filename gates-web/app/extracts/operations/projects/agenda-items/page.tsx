@@ -13,6 +13,8 @@ import {
   compactControlClass,
 } from '@/components/ui';
 import { useApiQuery } from '@/lib/hooks/useApi';
+import { sumExecutable, withItemCodeHierarchy, workItemHierarchyHints } from '@/lib/contracting/boq-hierarchy';
+import { formatEgp, formatQty, toMoney } from '@/lib/subcontracts/money';
 
 function fmt(v: unknown) {
   if (v == null || v === '') return '—';
@@ -30,7 +32,9 @@ export default function AgendaItemsPage() {
   const [showTotalView, setShowTotalView] = useState(false);
   const [page, setPage] = useState(1);
   const [pageSize] = useState(10);
-  const tabs = ['تشطيبات', 'أعمال فوق الأرض', 'أعمال تحت الأرض', 'تجهيزات'];
+  const [codeFilter, setCodeFilter] = useState('');
+  const [nameFilter, setNameFilter] = useState('');
+  const tabs = ['الكل', 'تشطيبات', 'أعمال فوق الأرض', 'أعمال تحت الأرض', 'تجهيزات'];
 
   const { data: projectsResponse } = useApiQuery<{ id: string; arabicName?: string; serial?: string }[]>(
     ['projects'],
@@ -69,9 +73,12 @@ export default function AgendaItemsPage() {
       id: string;
       arabicName: string;
       itemNumber: string;
+      parentId?: string | null;
+      isExecutable?: boolean;
+      _count?: { children?: number };
       unit?: string | null;
-      quantity?: unknown;
-      totalPrice?: unknown;
+      quantity?: number | string | null;
+      totalPrice?: number | string | null;
       itemGroupName?: string | null;
     }[]
   >(
@@ -82,24 +89,27 @@ export default function AgendaItemsPage() {
   );
   const workItems = workRes?.data ?? [];
   const workItemsTotal = workRes?.pagination?.total ?? workRes?.meta?.total ?? workItems.length;
-
-  const totalQty = useMemo(() => {
-    let t = 0;
-    for (const w of workItems) {
-      const qv = w.quantity != null ? Number(w.quantity) : NaN;
-      if (!Number.isNaN(qv)) t += qv;
-    }
-    return t;
-  }, [workItems]);
-
-  const totalValue = useMemo(
-    () =>
-      workItems.reduce((acc, w) => {
-        const v = w.totalPrice != null ? Number(w.totalPrice) : NaN;
-        return acc + (Number.isNaN(v) ? 0 : v);
-      }, 0),
-    [workItems]
+  const tabLabel = tabs[activeTab];
+  const visibleItems = useMemo(() => {
+    return workItems.filter((w) => {
+      if (tabLabel && tabLabel !== 'الكل') {
+        const group = `${w.itemGroupName ?? ''} ${w.arabicName ?? ''}`;
+        if (!group.includes(tabLabel.replace('أعمال ', ''))) return false;
+      }
+      if (codeFilter.trim() && !(w.itemNumber || '').toLowerCase().includes(codeFilter.trim().toLowerCase())) {
+        return false;
+      }
+      if (nameFilter.trim() && !(w.arabicName || '').includes(nameFilter.trim())) return false;
+      return true;
+    });
+  }, [workItems, tabLabel, codeFilter, nameFilter]);
+  const hierarchical = useMemo(
+    () => withItemCodeHierarchy(visibleItems, (row) => row.itemNumber || '', workItemHierarchyHints),
+    [visibleItems]
   );
+
+  const totalQty = sumExecutable(hierarchical, (w) => toMoney(w.quantity));
+  const totalValue = sumExecutable(hierarchical, (w) => toMoney(w.totalPrice));
 
   const selectedProjectLabel =
     projects.find((p) => p.id === projectId)?.arabicName ??
@@ -153,9 +163,19 @@ export default function AgendaItemsPage() {
           </select>
         </CompactFormField>
         <CompactFormField label="الإسم العربي" readOnly value={selectedProjectLabel || '—'} />
-        <CompactFormField label="الكود" placeholder="" />
-        <CompactFormField label="الإسم الإنجليزي" placeholder="إدخل الإسم الإنجليزي" />
-        <CompactFormField label="الموازنة الكلية" placeholder="إدخل الموازنة الكلية بالأرقام" />
+        <CompactFormField
+          label="الكود"
+          placeholder="بحث بالكود"
+          value={codeFilter}
+          onChange={(e) => setCodeFilter(e.target.value)}
+        />
+        <CompactFormField
+          label="الإسم العربي للبند"
+          placeholder="بحث بالاسم"
+          value={nameFilter}
+          onChange={(e) => setNameFilter(e.target.value)}
+        />
+        <CompactFormField label="إجمالي البنود التنفيذية" readOnly value={formatEgp(totalValue)} />
       </FormSectionCard>
 
       <div className="mb-4 flex flex-wrap items-center justify-center gap-1.5 rounded-xl border border-slate-200/80 bg-slate-50/50 p-1.5">
@@ -181,7 +201,7 @@ export default function AgendaItemsPage() {
               { id: 'qty', header: 'الكمية', cell: (row) => fmt(row.quantity) },
               { id: 'value', header: 'القيمة', cell: (row) => fmt(row.totalPrice) },
             ]}
-            data={workItems}
+            data={hierarchical}
             getRowKey={(row) => `${row.id}-sum`}
             isLoading={workLoading}
             emptyTitle={!projectId ? 'اختر مشروعاً' : 'لا توجد بنود'}
@@ -196,7 +216,7 @@ export default function AgendaItemsPage() {
               { id: 'qty', header: 'الكمية', cell: (row) => fmt(row.quantity) },
               { id: 'group', header: 'فئة العميل', cell: (row) => fmt(row.itemGroupName) },
             ]}
-            data={workItems}
+            data={hierarchical}
             getRowKey={(row) => row.id}
             isLoading={workLoading}
             emptyTitle={!projectId ? 'اختر مشروعاً' : 'لا توجد بنود'}
@@ -207,14 +227,23 @@ export default function AgendaItemsPage() {
         <AppTable
           columns={[
             { id: 'idx', header: 'م', cell: (_row, index) => index + 1 },
+            {
+              id: 'code',
+              header: 'الكود',
+              cell: (row) => (
+                <span style={{ paddingInlineStart: row.__depth * 12 }}>
+                  {fmt(row.itemNumber)}
+                  {row.__isParent ? <span className="mr-1 text-[10px] text-[#0E78AA]"> رئيسي</span> : null}
+                </span>
+              ),
+            },
             { id: 'name', header: 'إسم البند', cell: (row) => fmt(row.arabicName) },
-            { id: 'code', header: 'الكود', cell: (row) => fmt(row.itemNumber) },
             { id: 'unit', header: 'الوحدة', cell: (row) => fmt(row.unit) },
-            { id: 'qty', header: 'الكمية', cell: (row) => fmt(row.quantity) },
-            { id: 'total', header: 'إجمالي', cell: (row) => fmt(row.totalPrice) },
+            { id: 'qty', header: 'الكمية', cell: (row) => (row.__isParent ? '—' : formatQty(row.quantity)) },
+            { id: 'total', header: 'إجمالي', cell: (row) => (row.__isParent ? '—' : formatEgp(row.totalPrice)) },
             { id: 'group', header: 'البند العام', cell: (row) => fmt(row.itemGroupName) },
           ]}
-          data={workItems}
+          data={hierarchical}
           getRowKey={(row) => row.id}
           isLoading={workLoading}
           emptyTitle={!projectId ? 'اختر مشروعاً لعرض بنود الأعمال' : 'لا توجد بنود مسجّلة لهذا المشروع'}
@@ -232,12 +261,12 @@ export default function AgendaItemsPage() {
         <CompactFormField
           label="إجمالي الكمية"
           readOnly
-          value={workItems.length ? String(totalQty) : '—'}
+          value={hierarchical.length ? formatQty(totalQty) : '—'}
         />
         <CompactFormField
-          label="إجمالي القيمة"
+          label="إجمالي القيمة (بنود تنفيذية فقط)"
           readOnly
-          value={workItems.length ? String(totalValue) : '—'}
+          value={hierarchical.length ? formatEgp(totalValue) : '—'}
         />
       </FormSectionCard>
     </ExtractsPageChrome>

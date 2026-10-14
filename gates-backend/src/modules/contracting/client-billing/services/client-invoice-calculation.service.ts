@@ -19,6 +19,7 @@ import {
   resolveEffectiveOwnerBoqQuantityInTx,
   resolveEffectiveOwnerBoqRateInTx,
 } from '../../variation/contract-variation-effective.service';
+import { isNonCertifiableHeader } from '../../utils/boq-hierarchy.util';
 
 type Db = Prisma.TransactionClient | typeof prisma;
 
@@ -86,6 +87,12 @@ export class ClientInvoiceCalculationService {
       const boq = boqById.get(input.projectBOQItemId);
       if (!boq) {
         throw new AppError(400, `Owner BOQ item ${input.projectBOQItemId} is not on this project`);
+      }
+      if (isNonCertifiableHeader(boqItems, boq.id)) {
+        throw new AppError(
+          422,
+          `Cannot certify header BOQ item ${boq.itemCode}; certify leaf items only`
+        );
       }
 
       const previousQuantity = await sumPreviousOwnerCertifiedQuantityInTx(

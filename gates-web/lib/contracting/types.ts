@@ -72,9 +72,14 @@ export type BoqMarkupStructure = {
 export type OwnerBoqItem = {
   id: string;
   projectId: string;
+  parentId?: string | null;
+  isExecutable?: boolean;
+  hasChildren?: boolean;
+  isLeaf?: boolean;
   itemCode: string;
   descriptionAr: string;
   descriptionEn?: string | null;
+  notes?: string | null;
   unit: BoqItemUnit;
   contractQuantity: Moneyish;
   directCostEstimated: Moneyish;
@@ -93,6 +98,7 @@ export type OwnerBoqItem = {
     earnedBudgetCost: Moneyish;
     quantityVariance: Moneyish;
     completionRate: Moneyish;
+    leafOnlyContractSellingTotal?: Moneyish;
   };
 };
 

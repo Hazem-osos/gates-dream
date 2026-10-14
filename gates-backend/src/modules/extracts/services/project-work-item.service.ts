@@ -1,9 +1,18 @@
 import prisma from '../../../shared/database/prisma';
 import { logger } from '../../../shared/logger';
 import { Decimal } from '@prisma/client/runtime/library';
+import { AppError } from '../../../shared/middleware/error-handler';
+import {
+  assertAcyclicParent,
+  orphanChildIdsForParentCode,
+  parentCodeFromItemCode,
+} from '../../contracting/utils/boq-hierarchy.util';
+import { computeWorkItemTotal } from '../utils/extract-statement.util';
 
 export interface CreateProjectWorkItemData {
   projectId: string;
+  parentId?: string | null;
+  isExecutable?: boolean;
   buildingId?: string;
   itemNumber: string;
   itemGroupCode?: string;
@@ -42,13 +51,51 @@ export class ProjectWorkItemService {
         }
       }
 
-      const totalPrice = data.totalPrice || (data.unitPrice ? data.unitPrice * data.quantity : null);
+      const duplicate = await prisma.projectWorkItem.findFirst({
+        where: { projectId: data.projectId, itemNumber: data.itemNumber.trim() },
+        select: { id: true },
+      });
+      if (duplicate) {
+        throw new AppError(409, `Work item ${data.itemNumber} already exists on this project`);
+      }
 
-      const workItem = await prisma.projectWorkItem.create({
+      const siblings = await prisma.projectWorkItem.findMany({
+        where: { projectId: data.projectId },
+        select: { id: true, parentId: true, itemNumber: true },
+      });
+      let parentId = data.parentId ?? null;
+      if (!parentId) {
+        const inferred = parentCodeFromItemCode(data.itemNumber);
+        if (inferred) {
+          parentId = siblings.find((row) => row.itemNumber === inferred)?.id ?? null;
+        }
+      }
+      if (parentId) {
+        const parent = siblings.find((row) => row.id === parentId);
+        if (!parent) throw new AppError(404, 'Parent work item not found on this project');
+        try {
+          assertAcyclicParent([...siblings, { id: 'new', parentId }], 'new', parentId);
+        } catch {
+          throw new AppError(400, 'Work item parent would create a cycle');
+        }
+      }
+
+      const totalPrice = computeWorkItemTotal(data.quantity, data.unitPrice);
+
+      const workItem = await prisma.$transaction(async (tx) => {
+        if (parentId) {
+          await tx.projectWorkItem.update({
+            where: { id: parentId },
+            data: { isExecutable: false },
+          });
+        }
+        const created = await tx.projectWorkItem.create({
         data: {
           projectId: data.projectId,
+          parentId,
+          isExecutable: data.isExecutable ?? true,
           buildingId: data.buildingId,
-          itemNumber: data.itemNumber,
+          itemNumber: data.itemNumber.trim(),
           itemGroupCode: data.itemGroupCode,
           itemGroupName: data.itemGroupName,
           arabicName: data.arabicName,
@@ -75,6 +122,39 @@ export class ProjectWorkItemService {
             },
           },
         },
+      });
+        const orphanIds = orphanChildIdsForParentCode(
+          siblings.map((row) => ({ id: row.id, itemCode: row.itemNumber, parentId: row.parentId })),
+          created.itemNumber,
+          created.id
+        );
+        if (orphanIds.length) {
+          await tx.projectWorkItem.updateMany({
+            where: { id: { in: orphanIds }, projectId: data.projectId },
+            data: { parentId: created.id },
+          });
+          return tx.projectWorkItem.update({
+            where: { id: created.id },
+            data: { isExecutable: false },
+            include: {
+              project: {
+                select: {
+                  id: true,
+                  arabicName: true,
+                  serial: true,
+                },
+              },
+              building: {
+                select: {
+                  id: true,
+                  arabicName: true,
+                  unitNumber: true,
+                },
+              },
+            },
+          });
+        }
+        return created;
       });
 
       logger.info({ companyId, workItemId: workItem.id }, 'Project work item created');
@@ -147,6 +227,7 @@ export class ProjectWorkItemService {
               select: {
                 contractorAssignments: true,
                 extractItems: true,
+                children: true,
               },
             },
           },
@@ -208,6 +289,20 @@ export class ProjectWorkItemService {
         throw new Error('Project work item not found');
       }
 
+      if (data.itemNumber !== undefined && data.itemNumber.trim() !== existing.itemNumber) {
+        const duplicate = await prisma.projectWorkItem.findFirst({
+          where: {
+            projectId: existing.projectId,
+            itemNumber: data.itemNumber.trim(),
+            id: { not: id },
+          },
+          select: { id: true },
+        });
+        if (duplicate) {
+          throw new AppError(409, `Work item ${data.itemNumber} already exists on this project`);
+        }
+      }
+
       // Verify building exists if provided
       if (data.buildingId && data.projectId) {
         const building = await prisma.projectBuilding.findFirst({
@@ -229,11 +324,34 @@ export class ProjectWorkItemService {
       if (data.quantity !== undefined) updateData.quantity = new Decimal(data.quantity);
       if (data.unit !== undefined) updateData.unit = data.unit;
       if (data.unitPrice !== undefined) updateData.unitPrice = data.unitPrice ? new Decimal(data.unitPrice) : null;
-      if (data.totalPrice !== undefined) {
-        updateData.totalPrice = data.totalPrice ? new Decimal(data.totalPrice) : null;
-      } else if (data.unitPrice !== undefined && data.quantity !== undefined) {
-        updateData.totalPrice = new Decimal(data.unitPrice * data.quantity);
+      const nextQty = data.quantity !== undefined ? data.quantity : Number(existing.quantity);
+      const nextPrice =
+        data.unitPrice !== undefined
+          ? data.unitPrice
+          : existing.unitPrice != null
+            ? Number(existing.unitPrice)
+            : null;
+      const computedTotal = computeWorkItemTotal(nextQty, nextPrice);
+      updateData.totalPrice = computedTotal != null ? new Decimal(computedTotal) : null;
+      if (data.parentId !== undefined) {
+        const siblings = await prisma.projectWorkItem.findMany({
+          where: { projectId: existing.projectId },
+          select: { id: true, parentId: true },
+        });
+        try {
+          assertAcyclicParent(siblings, id, data.parentId);
+        } catch {
+          throw new AppError(400, 'Work item parent would create a cycle');
+        }
+        updateData.parentId = data.parentId;
+        if (data.parentId) {
+          await prisma.projectWorkItem.update({
+            where: { id: data.parentId },
+            data: { isExecutable: false },
+          });
+        }
       }
+      if (data.isExecutable !== undefined) updateData.isExecutable = data.isExecutable;
       if (data.notes !== undefined) updateData.notes = data.notes;
 
       const workItem = await prisma.projectWorkItem.update({
@@ -261,6 +379,14 @@ export class ProjectWorkItemService {
 
       if (!workItem) {
         throw new Error('Project work item not found');
+      }
+
+      const child = await prisma.projectWorkItem.findFirst({
+        where: { parentId: id },
+        select: { id: true },
+      });
+      if (child) {
+        throw new AppError(409, 'Cannot delete a header work item that still has children');
       }
 
       await prisma.projectWorkItem.delete({

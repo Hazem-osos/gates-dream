@@ -3783,6 +3783,7 @@ model PurchaseOrder {
   expectedDeliveryDate      DateTime?
   expectedDeliveryDateHijri String?
   costCenterId              String?
+  internalNotes             Json?
   totalAmount               Decimal   @default(0) @db.Decimal(15, 2)
   totalDiscount             Decimal   @default(0) @db.Decimal(15, 2)
   totalTax                  Decimal   @default(0) @db.Decimal(15, 2)
@@ -3971,6 +3972,7 @@ model PriceQuote {
   costCenterId      String?
   validUntil        DateTime? // Quote expiration date
   record            String? // رقم القيد (Journal Entry Reference)
+  internalNotes     Json?
   totalAmount       Decimal   @default(0) @db.Decimal(15, 2)
   totalDiscount     Decimal   @default(0) @db.Decimal(15, 2)
   totalTax          Decimal   @default(0) @db.Decimal(15, 2)
@@ -4431,6 +4433,24 @@ enum DocumentBaseType {
   OPENING_BALANCE
   SECURITIES_RECEIPT
   SECURITIES_PAYMENT
+  STOCK_TRANSFER
+  STOCK_STOCKTAKING
+  PURCHASE_ORDER
+  STOCK_OTHER_ADJUSTMENT
+  OPENING_STOCK
+  STOCK_ASSEMBLY
+  STOCK_DISASSEMBLY
+  PRICE_QUOTE
+  SALES_ORDER
+  MANUFACTURING_ORDER
+  MANUFACTURING_WORK_ORDER
+  PAYMENT_ORDER
+  RECEIPT_ORDER
+  TEMPORARY_RECEIPT
+  CHEQUE_RECEIPT
+  CHEQUE_PAYMENT
+  OPENING_SECURITIES_RECEIPT
+  OPENING_SECURITIES_PAYMENT
 }
 
 enum NumberingMode {
@@ -6856,6 +6876,9 @@ model ProjectBOQItem {
   id                    String               @id @default(uuid())
   companyId             String
   projectId             String
+  parentId              String?
+  /// When false, the row is a header (e.g. item 1 with children 1.1). Headers are not certified.
+  isExecutable          Boolean              @default(true)
   itemCode              String
   descriptionAr         String
   descriptionEn         String?
@@ -6870,12 +6893,15 @@ model ProjectBOQItem {
   sourceVariationOrderId String?
   sourceTenderBoqItemId String?
   sourceQuotationLineId String?
+  notes                 String?              @db.Text
   status                ProjectBOQItemStatus @default(PENDING_PRICING)
   createdAt             DateTime             @default(now())
   updatedAt             DateTime             @updatedAt
 
   company            Company                       @relation(fields: [companyId], references: [id], onDelete: Cascade)
   project            ContractingProject            @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  parent             ProjectBOQItem?               @relation("OwnerBoqHierarchy", fields: [parentId], references: [id], onDelete: Restrict)
+  children           ProjectBOQItem[]              @relation("OwnerBoqHierarchy")
   sourceVariationOrder ContractVariationOrder?       @relation("VariationCreatedBoqItems", fields: [sourceVariationOrderId], references: [id], onDelete: SetNull)
   rateAnalysisItems  BOQRateAnalysisItem[]
   markupStructures   BOQMarkupStructure[]
@@ -6894,6 +6920,7 @@ model ProjectBOQItem {
   @@unique([companyId, projectId, itemCode])
   @@index([companyId])
   @@index([projectId])
+  @@index([parentId])
   @@index([status])
   @@index([sourceVariationOrderId])
   @@index([sourceTenderBoqItemId])
@@ -9298,6 +9325,9 @@ model ProjectBuilding {
 model ProjectWorkItem {
   id            String   @id @default(uuid())
   projectId     String
+  parentId      String?
+  /// Header rows (item 1 with children 1.1) are not certified on extracts.
+  isExecutable  Boolean  @default(true)
   buildingId    String?
   itemNumber    String
   itemGroupCode String?
@@ -9313,11 +9343,15 @@ model ProjectWorkItem {
   updatedAt     DateTime @updatedAt
 
   project               Project                @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  parent                ProjectWorkItem?       @relation("WorkItemHierarchy", fields: [parentId], references: [id], onDelete: Restrict)
+  children              ProjectWorkItem[]      @relation("WorkItemHierarchy")
   building              ProjectBuilding?       @relation(fields: [buildingId], references: [id], onDelete: SetNull)
   contractorAssignments ContractorAssignment[]
   extractItems          ExtractItem[]
 
   @@index([projectId])
+  @@index([projectId, itemNumber])
+  @@index([parentId])
   @@index([buildingId])
   @@map("project_work_items")
 }
@@ -9433,7 +9467,10 @@ model ExtractItem {
   groupName   String?
   itemNumber  String?
   itemName    String
+  /// Current-period quantity (source of line total).
   quantity    Decimal  @db.Decimal(15, 2)
+  previousQuantity   Decimal  @default(0) @db.Decimal(15, 4)
+  cumulativeQuantity Decimal  @default(0) @db.Decimal(15, 4)
   unit        String?
   unitPrice   Decimal? @db.Decimal(15, 2)
   totalPrice  Decimal? @db.Decimal(15, 2)

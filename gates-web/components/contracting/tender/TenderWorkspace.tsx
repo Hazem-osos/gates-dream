@@ -7,6 +7,7 @@ import { PageHeader } from '@/components/ui/PageHeader';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { apiClient } from '@/lib/api/client';
 import { useApiMutation, useApiQuery, useInvalidateQuery } from '@/lib/hooks/useApi';
+import { withItemCodeHierarchy } from '@/lib/contracting/boq-hierarchy';
 import { commitTenderBoqRows, previewTenderBoqExcel, type TenderExcelPreview } from '@/lib/contracting/tender-excel-transfer';
 import { formatEgp, formatQty } from '@/lib/subcontracts/money';
 import { cn } from '@/lib/utils';
@@ -437,9 +438,18 @@ export function TenderWorkspace({ tenderId }: { tenderId: string }) {
               <input className="w-full rounded border px-3 py-2 text-sm" value={headerForm.nameAr} onChange={(e) => setHeaderForm({ ...headerForm, nameAr: e.target.value })} placeholder="اسم العطاء" />
               <textarea className="w-full rounded border px-3 py-2 text-sm" rows={3} value={headerForm.description} onChange={(e) => setHeaderForm({ ...headerForm, description: e.target.value })} placeholder="الوصف" />
               <div className="grid gap-2 sm:grid-cols-3">
-                <input className="rounded border px-2 py-1 text-sm" value={headerForm.currencyCode} onChange={(e) => setHeaderForm({ ...headerForm, currencyCode: e.target.value })} placeholder="العملة" />
-                <input type="date" className="rounded border px-2 py-1 text-sm" value={headerForm.submissionDeadline} onChange={(e) => setHeaderForm({ ...headerForm, submissionDeadline: e.target.value })} title="موعد التقديم" />
-                <input className="rounded border px-2 py-1 text-sm" value={headerForm.location} onChange={(e) => setHeaderForm({ ...headerForm, location: e.target.value })} placeholder="الموقع" />
+                <label className="text-xs">
+                  العملة
+                  <input className="mt-1 w-full rounded border px-2 py-1 text-sm" value={headerForm.currencyCode} onChange={(e) => setHeaderForm({ ...headerForm, currencyCode: e.target.value })} placeholder="العملة" />
+                </label>
+                <label className="text-xs">
+                  موعد تقديم العطاء
+                  <input type="date" className="mt-1 w-full rounded border px-2 py-1 text-sm" value={headerForm.submissionDeadline} onChange={(e) => setHeaderForm({ ...headerForm, submissionDeadline: e.target.value })} />
+                </label>
+                <label className="text-xs">
+                  موقع المشروع
+                  <input className="mt-1 w-full rounded border px-2 py-1 text-sm" value={headerForm.location} onChange={(e) => setHeaderForm({ ...headerForm, location: e.target.value })} placeholder="الموقع" />
+                </label>
               </div>
               <div className="grid gap-2 sm:grid-cols-2">
                 <label className="text-xs">
@@ -456,7 +466,14 @@ export function TenderWorkspace({ tenderId }: { tenderId: string }) {
               </button>
             </>
           ) : (
-            <p className="text-sm whitespace-pre-wrap">{t.description || '—'}</p>
+            <div className="grid gap-3 text-sm sm:grid-cols-2">
+              <p><span className="text-slate-500">العميل: </span>{t.customer.arabicName}</p>
+              <p><span className="text-slate-500">موعد التقديم: </span>{t.submissionDeadline?.slice(0, 10) || '—'}</p>
+              <p><span className="text-slate-500">البداية المتوقعة: </span>{t.expectedStart?.slice(0, 10) || '—'}</p>
+              <p><span className="text-slate-500">النهاية المتوقعة: </span>{t.expectedEnd?.slice(0, 10) || '—'}</p>
+              <p><span className="text-slate-500">تاريخ الترسية: </span>{t.award?.awardedAt?.slice(0, 10) || '—'}</p>
+              <p className="sm:col-span-2 whitespace-pre-wrap">{t.description || '—'}</p>
+            </div>
           )}
           {!locked && t.status !== 'LOST' && (
             <div className="border-t pt-3">
@@ -544,11 +561,14 @@ export function TenderWorkspace({ tenderId }: { tenderId: string }) {
                 </tr>
               </thead>
               <tbody>
-                {t.boqItems.map((b) => (
-                  <tr key={b.id} className="border-t">
-                    <td className="px-2 py-2 font-mono">{b.itemCode}</td>
+                {withItemCodeHierarchy(t.boqItems, (b) => b.itemCode).map((b) => (
+                  <tr key={b.id} className={`border-t ${b.__isParent ? 'bg-[#EEF6FA]' : ''}`}>
+                    <td className="px-2 py-2 font-mono" style={{ paddingInlineStart: 8 + b.__depth * 14 }}>
+                      {b.itemCode}
+                      {b.__isParent ? <span className="mr-1 text-[10px] text-[#0E78AA]"> رئيسي</span> : null}
+                    </td>
                     <td className="px-2 py-2">{b.descriptionAr}</td>
-                    <td className="px-2 py-2">{formatQty(Number(b.quantity))}</td>
+                    <td className="px-2 py-2">{b.__isParent ? '—' : formatQty(Number(b.quantity))}</td>
                     <td className="px-2 py-2">{formatEgp(Number(b.directUnitCost))} / {formatEgp(Number(b.sellingUnitRate))}</td>
                     {!locked && (
                       <td className="px-2 py-2">

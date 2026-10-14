@@ -1,6 +1,7 @@
 import type { BOQCostElementType, Prisma } from '@prisma/client';
 import prisma from '../../../../shared/database/prisma';
 import { money, moneyZero, rate, sumMoney, toDecimal } from '../../utils/money-decimal';
+import { AppError } from '../../../../shared/middleware/error-handler';
 import {
   ProjectBOQItemNotFoundError,
   RateAnalysisEmptyError,
@@ -133,6 +134,19 @@ export class RateAnalysisCalculationService {
     const consumptionQuotaPerUnit = money(item.consumptionQuotaPerUnit);
     const wasteFactorRate = rate(item.wasteFactorRate ?? 0);
     const unitCost = money(item.unitCost);
+    if (
+      !consumptionQuotaPerUnit.isFinite() ||
+      !wasteFactorRate.isFinite() ||
+      !unitCost.isFinite()
+    ) {
+      throw new AppError(400, 'Rate analysis quantities and costs must be finite numbers');
+    }
+    if (consumptionQuotaPerUnit.lt(0) || unitCost.lt(0) || wasteFactorRate.lt(0)) {
+      throw new AppError(400, 'Rate analysis quantities, waste, and unit costs cannot be negative');
+    }
+    if (wasteFactorRate.gt(1)) {
+      throw new AppError(400, 'wasteFactorRate must be a decimal rate between 0 and 1 (e.g. 0.10 for 10%)');
+    }
     const elementCost = money(
       consumptionQuotaPerUnit.mul(toDecimal(1).plus(wasteFactorRate)).mul(unitCost)
     );

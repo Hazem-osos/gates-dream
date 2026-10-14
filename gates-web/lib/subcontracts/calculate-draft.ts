@@ -1,3 +1,4 @@
+import { isParentItemCode } from '@/lib/contracting/boq-hierarchy';
 import { toMoney } from './money';
 import {
   HISTORICAL_INVOICE_STATUSES,
@@ -35,7 +36,10 @@ export function calculateLiveDraft(
     0
   );
 
-  const lines: LiveInvoiceLine[] = (subcontract.boqItems ?? []).map((boq) => {
+  const boqCodes = (subcontract.boqItems ?? []).map((row) => row.itemCode);
+  const lines: LiveInvoiceLine[] = (subcontract.boqItems ?? [])
+    .filter((boq) => !isParentItemCode(boq.itemCode, boqCodes))
+    .map((boq) => {
     const previousQuantity = previousQtyByBoq.get(boq.id) ?? 0;
     const currentQuantity = Math.max(0, toMoney(currentQtyByBoq[boq.id]));
     const contractQuantity = toMoney(boq.contractQuantity);

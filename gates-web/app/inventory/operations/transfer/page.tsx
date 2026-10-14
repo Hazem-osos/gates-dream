@@ -42,7 +42,10 @@ import {
   type InventoryTransferHeaderFormInput,
 } from '@/lib/validation/inventory.schema';
 import type { ApiError, ApiResponse } from '@/lib/api/types';
-import { useRepostAfterUnpost } from '@/lib/accounting/ensure-posted-after-save';
+import {
+  postNamedDocumentAfterSave,
+  useRepostAfterUnpost,
+} from '@/lib/accounting/ensure-posted-after-save';
 import { onFieldErrors } from '@/lib/forms/on-field-errors';
 import { finishDocumentSave } from '@/lib/documents/finish-save';
 import {
@@ -53,12 +56,10 @@ import {
   useStoreDocumentSerial,
   STORE_DOCUMENT_UNPOSTED_LABEL,
 } from '@/lib/inventory/use-store-document-serial';
-import { STORE_SAVE_AND_POST_LABEL } from '@/lib/inventory/store-document-save-post';
 import { apiClient } from '@/lib/api/client';
 import { invalidateStockViews } from '@/lib/invoices/invalidate-stock-views';
 import { useDraftAutosave } from '@/lib/hooks/useDraftAutosave';
-import { rememberTabHref, rememberTabSearch } from '@/lib/navigation/tab-memory';
-import { normalizeAppPath } from '@/lib/navigation/app-module-root';
+import { pinDocumentTabQuery } from '@/lib/navigation/tab-memory';
 import { consumeMfgTransferPrefill } from '@/lib/manufacturing/mfg-transfer-prefill';
 import Link from 'next/link';
 import { DocumentSourceLoadBar } from '@/components/invoices/DocumentSourceLoadBar';
@@ -71,6 +72,13 @@ import { resolveWarehouseAverageUnitCost } from '@/lib/inventory/assembly-pricin
 import { Button } from '@/components/ui/button';
 import { formActionButtonClass } from '@/components/ui/forms/formTokens';
 import { printStockDocument } from '@/lib/print/printStockDocument';
+import { restoreCancelledDocument } from '@/lib/documents/restore-cancelled-document';
+import { invalidateAfterTransactionSettingsSave } from '@/lib/inventory/transaction-settings-invalidate';
+import { maybePrintStockDocumentAfterSave } from '@/lib/inventory/stock-document-print-after-save';
+import {
+  useApplyDefaultWarehouseFromTransactionSettings,
+  useTransactionDocumentSettings,
+} from '@/lib/transaction-settings/use-transaction-document-settings';
 
 
 interface TransferLine {
@@ -208,21 +216,6 @@ function needsStockGlSetupHint(message: string): boolean {
   return /حساب|جرد|مخزون|GL|configured/i.test(m);
 }
 
-function pinTransferTabSearch(id: string | null) {
-  if (typeof window === 'undefined') return;
-  const path = normalizeAppPath(window.location.pathname);
-  if (id) {
-    const qs = `id=${id}`;
-    window.history.replaceState(null, '', `?${qs}`);
-    rememberTabSearch(path, qs);
-    rememberTabHref(path, `${path}?${qs}`);
-    return;
-  }
-  window.history.replaceState(null, '', path);
-  rememberTabSearch(path, '');
-  rememberTabHref(path, path);
-}
-
 export default function TransferPage() {
   return (
     <DocumentModeProvider>
@@ -234,7 +227,14 @@ export default function TransferPage() {
 function TransferPageInner() {
   const searchParams = useOwnTabSearchParams();
   const { lockToView, setMode, unlockForEdit, isReadOnly } = useDocumentMode();
-  const { markUnpostedForEdit, resetKeepPosted } = useRepostAfterUnpost();
+  const {
+    autoPostOnSave,
+    autoPrintOnSave,
+    saveLabel,
+    defaultWarehouseId: txDefaultWarehouseId,
+  } = useTransactionDocumentSettings('STOCK_TRANSFER');
+  const { markUnpostedForEdit, consumeShouldRepost, resetKeepPosted } =
+    useRepostAfterUnpost(autoPostOnSave);
   const invalidateQuery = useInvalidateQuery();
   const todayStr = new Date().toISOString().split('T')[0];
   const skipServerHydrateRef = useRef(false);
@@ -327,6 +327,7 @@ function TransferPageInner() {
 
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [restorePending, setRestorePending] = useState(false);
   const [selectedTransferId, setSelectedTransferId] = useState<string | null>(
     () => searchParams.get('id')?.trim() || null
   );
@@ -342,6 +343,13 @@ function TransferPageInner() {
     setSerial: setSerialNumber,
   });
 
+  useApplyDefaultWarehouseFromTransactionSettings({
+    selectedId: selectedTransferId,
+    warehouseId: fromWarehouseId,
+    defaultWarehouseId: txDefaultWarehouseId,
+    setWarehouseId: (id) => setValue('fromWarehouseId', id, { shouldDirty: false }),
+  });
+
   useEffect(() => {
     if (!selectedTransferId) {
       setMode('create');
@@ -353,7 +361,7 @@ function TransferPageInner() {
 
   const openTransfer = useCallback((id: string | null) => {
     setSelectedTransferId(id);
-    pinTransferTabSearch(id);
+    pinDocumentTabQuery(id);
   }, []);
   const [showList, setShowList] = useState(false);
 
@@ -493,6 +501,17 @@ function TransferPageInner() {
         }
         const number = transferSerialFromResponse(res);
         const finish = (posted: boolean) => {
+          maybePrintStockDocumentAfterSave(autoPrintOnSave, {
+            title: 'نقل مخزني',
+            number: number || watch('serialNumber'),
+            date: watch('date'),
+            subtitle: watch('description')?.trim() || undefined,
+            rows: transferLines.map((line) => ({
+              item: line.itemName || line.itemId,
+              quantity: line.quantity,
+              price: line.unitPrice,
+            })),
+          });
           finishDocumentSave({
             label: 'تحويل',
             number,
@@ -504,6 +523,21 @@ function TransferPageInner() {
             reset: clearTransferForNext,
           });
         };
+        if (consumeShouldRepost() && id) {
+          void postNamedDocumentAfterSave(`/inventory/transfers/${id}/post`)
+            .then(() => {
+              setValue('statusPosted', true);
+              stockPanel.onPosted();
+              invalidateStockViews(invalidateQuery);
+              if (id) invalidateQuery(['transfer', id]);
+              finish(true);
+            })
+            .catch((err: unknown) => {
+              setError(err instanceof Error ? err.message : 'تم الحفظ لكن تعذر إعادة ترحيل التحويل');
+              if (id) openTransfer(id);
+            });
+          return;
+        }
         if (shouldPost && id) {
           void apiClient
             .post(`/inventory/transfers/${id}/post`)
@@ -553,6 +587,17 @@ function TransferPageInner() {
           selectedTransfer?.serialNumber ||
           selectedTransfer?.serial;
         const finish = (posted: boolean) => {
+          maybePrintStockDocumentAfterSave(autoPrintOnSave, {
+            title: 'نقل مخزني',
+            number: number || watch('serialNumber'),
+            date: watch('date'),
+            subtitle: watch('description')?.trim() || undefined,
+            rows: transferLines.map((line) => ({
+              item: line.itemName || line.itemId,
+              quantity: line.quantity,
+              price: line.unitPrice,
+            })),
+          });
           finishDocumentSave({
             label: 'تحويل',
             number,
@@ -564,6 +609,21 @@ function TransferPageInner() {
             reset: clearTransferForNext,
           });
         };
+        if (consumeShouldRepost() && id) {
+          void postNamedDocumentAfterSave(`/inventory/transfers/${id}/post`)
+            .then(() => {
+              setValue('statusPosted', true);
+              stockPanel.onPosted();
+              invalidateStockViews(invalidateQuery);
+              if (id) invalidateQuery(['transfer', id]);
+              finish(true);
+            })
+            .catch((err: unknown) => {
+              setError(err instanceof Error ? err.message : 'تم الحفظ لكن تعذر إعادة ترحيل التحويل');
+              invalidateStockViews(invalidateQuery);
+            });
+          return;
+        }
         if (shouldPost && id) {
           void apiClient
             .post(`/inventory/transfers/${id}/post`)
@@ -590,18 +650,19 @@ function TransferPageInner() {
     }
   );
 
-  const transferDeleteMutation = useApiMutation<unknown, Record<string, unknown>>(
-    selectedTransferId ? `/inventory/transfers/${selectedTransferId}` : '/inventory/transfers',
-    'DELETE',
+  const transferCancelMutation = useApiMutation<unknown, Record<string, unknown>>(
+    selectedTransferId ? `/inventory/transfers/${selectedTransferId}/cancel` : '/inventory/transfers',
+    'POST',
     {
       showSuccessToast: false,
       onSuccess: () => {
-        setSuccess('تم حذف النقل المخزني بنجاح');
+        setSuccess('تم إلغاء النقل');
         invalidateStockViews(invalidateQuery);
-        clearTransferForNext();
+        if (selectedTransferId) invalidateQuery(['transfer', selectedTransferId]);
+        setValue('statusPosted', false);
       },
       onError: (error: ApiError) => {
-        setError(error.message || 'حدث خطأ أثناء الحذف');
+        setError(error.message || 'تعذر الإلغاء');
       },
     }
   );
@@ -617,7 +678,8 @@ function TransferPageInner() {
     'unpost'
   );
 
-  const loading = transferMutation.isPending || transferUpdateMutation.isPending || transferDeleteMutation.isPending;
+  const loading =
+    transferMutation.isPending || transferUpdateMutation.isPending || transferCancelMutation.isPending;
 
   // Handle post/unpost
   const handlePostUnpost = async (post: boolean) => {
@@ -668,15 +730,32 @@ function TransferPageInner() {
     }
   };
 
-  // Handle delete
-  const handleDelete = async () => {
+  const handleVoid = async () => {
     if (!selectedTransferId) {
       setError('يرجى اختيار نقل أولاً');
       return;
     }
+    if (await confirmAction('إلغاء المستند؟ يمكن استعادته من قائمة (...).')) {
+      transferCancelMutation.mutate({});
+    }
+  };
 
-    if (await confirmAction('هل أنت متأكد من حذف هذا النقل؟')) {
-      transferDeleteMutation.mutate({});
+  const handleRestore = async () => {
+    if (!selectedTransferId || restorePending) return;
+    setRestorePending(true);
+    try {
+      await restoreCancelledDocument({
+        restorePath: `/inventory/transfers/${selectedTransferId}/restore`,
+        postPath: `/inventory/transfers/${selectedTransferId}/post`,
+        kind: 'named',
+      });
+      invalidateQuery(['transfer', selectedTransferId]);
+      invalidateStockViews(invalidateQuery);
+      setSuccess('تمت الاستعادة');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'تعذر الاستعادة');
+    } finally {
+      setRestorePending(false);
     }
   };
 
@@ -825,11 +904,16 @@ function TransferPageInner() {
         ]}
         title="نقل مخزني"
         docNumber={watch('serialNumber') || ''}
-        statusTone={statusPosted ? 'success' : 'warning'}
-        statusLabel={statusPosted ? 'مرحّل' : STORE_DOCUMENT_UNPOSTED_LABEL}
-        saveLabel={STORE_SAVE_AND_POST_LABEL}
+        lifecycle={{
+          documentId: selectedTransferId,
+          isPosted: statusPosted,
+          isCancelled: Boolean(
+            (selectedTransfer as { isCancelled?: boolean } | undefined)?.isCancelled
+          ),
+        }}
+        saveLabel={saveLabel}
         onSaveDraft={() => {
-          postAfterSaveRef.current = true;
+          postAfterSaveRef.current = autoPostOnSave;
           if (typeof document !== 'undefined' && document.activeElement instanceof HTMLElement) {
             document.activeElement.blur();
           }
@@ -852,6 +936,12 @@ function TransferPageInner() {
         standardActions={{
           hasDocument: Boolean(selectedTransferId),
           isPosted: statusPosted,
+          isCancelled: Boolean(
+            (selectedTransfer as { isCancelled?: boolean } | undefined)?.isCancelled
+          ),
+          onRestore: selectedTransferId ? () => void handleRestore() : undefined,
+          restoreLabel: 'استعادة',
+          restorePending,
           onEdit: () => {
             if (statusPosted) {
               setError('يجب إلغاء الترحيل أولاً للتعديل');
@@ -861,9 +951,15 @@ function TransferPageInner() {
           },
           onPost: () => handlePostUnpost(true),
           onUnpost: () => handlePostUnpost(false),
-          onVoid: handleDelete,
+          onVoid: handleVoid,
+          voidPending: transferCancelMutation.isPending,
           onNew: handleNew,
           newLabel: 'جديد',
+          transactionSettingsDocumentType: 'STOCK_TRANSFER',
+          onTransactionSettingsSaved: () => {
+            invalidateAfterTransactionSettingsSave(invalidateQuery, 'STOCK_TRANSFER');
+            invalidateNextSerial();
+          },
         }}
         printTrigger={
           <Button
@@ -888,7 +984,7 @@ function TransferPageInner() {
             طباعة
           </Button>
         }
-        extraActions={
+        sourceActions={
           <DocumentSourceLoadBar
             key={sourceBarKey}
             hasExistingLines={transferLines.some((l) => Boolean(l.itemId))}

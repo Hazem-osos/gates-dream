@@ -1,6 +1,13 @@
 import type { BOQCostElementType, Prisma } from '@prisma/client';
 import prisma from '../../../../shared/database/prisma';
-import { money, rate } from '../../utils/money-decimal';
+import { money, rate, sumMoney } from '../../utils/money-decimal';
+import {
+  assertAcyclicParent,
+  leafItems,
+  orphanChildIdsForParentCode,
+  parentCodeFromItemCode,
+} from '../../utils/boq-hierarchy.util';
+import { AppError } from '../../../../shared/middleware/error-handler';
 import {
   ContractingProjectNotFoundError,
   MeasurementSheetNotFoundError,
@@ -34,20 +41,68 @@ export class TechnicalOfficeCommandService {
       descriptionEn?: string | null;
       unit: 'M2' | 'M3' | 'TON' | 'ITEM' | 'LM' | 'LS';
       contractQuantity: string | number;
+      parentId?: string | null;
+      notes?: string | null;
+      isExecutable?: boolean;
     }
   ) {
     await this.assertProject(companyId, projectId);
-    return prisma.projectBOQItem.create({
-      data: {
-        companyId,
-        projectId,
-        itemCode: dto.itemCode,
-        descriptionAr: dto.descriptionAr,
-        descriptionEn: dto.descriptionEn ?? null,
-        unit: dto.unit,
-        contractQuantity: money(dto.contractQuantity),
-        status: 'PENDING_PRICING',
-      },
+    return prisma.$transaction(async (tx) => {
+      const siblings = await tx.projectBOQItem.findMany({
+        where: { companyId, projectId },
+        select: { id: true, parentId: true, itemCode: true },
+      });
+      let parentId = dto.parentId?.trim() || null;
+      if (!parentId) {
+        const inferred = parentCodeFromItemCode(dto.itemCode);
+        if (inferred) {
+          parentId = siblings.find((row) => row.itemCode === inferred)?.id ?? null;
+        }
+      }
+      if (parentId) {
+        const parent = siblings.find((row) => row.id === parentId);
+        if (!parent) throw new AppError(404, 'Parent BOQ item not found on this project');
+        try {
+          assertAcyclicParent([...siblings, { id: 'new', parentId: null }], 'new', parentId);
+        } catch {
+          throw new AppError(400, 'BOQ parent would create a cycle');
+        }
+        await tx.projectBOQItem.update({
+          where: { id: parentId },
+          data: { isExecutable: false },
+        });
+      }
+      const created = await tx.projectBOQItem.create({
+        data: {
+          companyId,
+          projectId,
+          parentId,
+          isExecutable: dto.isExecutable ?? true,
+          itemCode: dto.itemCode.trim(),
+          descriptionAr: dto.descriptionAr,
+          descriptionEn: dto.descriptionEn ?? null,
+          unit: dto.unit,
+          contractQuantity: money(dto.contractQuantity),
+          notes: dto.notes ?? null,
+          status: 'PENDING_PRICING',
+        },
+      });
+      const orphanIds = orphanChildIdsForParentCode(
+        siblings.map((row) => ({ id: row.id, itemCode: row.itemCode, parentId: row.parentId })),
+        created.itemCode,
+        created.id
+      );
+      if (orphanIds.length) {
+        await tx.projectBOQItem.updateMany({
+          where: { id: { in: orphanIds }, companyId, projectId },
+          data: { parentId: created.id },
+        });
+        return tx.projectBOQItem.update({
+          where: { id: created.id },
+          data: { isExecutable: false },
+        });
+      }
+      return created;
     });
   }
 
@@ -59,9 +114,23 @@ export class TechnicalOfficeCommandService {
       include: {
         rateAnalysisItems: { orderBy: { createdAt: 'asc' } },
         markupStructures: { orderBy: { updatedAt: 'desc' }, take: 1 },
+        _count: { select: { children: true } },
       },
       orderBy: { itemCode: 'asc' },
     });
+
+    const hierarchy = items.map((item) => ({
+      id: item.id,
+      parentId: item.parentId,
+      quantity: Number(item.contractQuantity),
+      unitPrice: Number(item.unitSellingPrice),
+    }));
+    const leafIds = new Set(leafItems(hierarchy).map((row) => row.id));
+    const leafContractValue = sumMoney(
+      items
+        .filter((item) => leafIds.has(item.id))
+        .map((item) => money(item.contractQuantity).mul(money(item.unitSellingPrice)))
+    );
 
     return items.map((item) => {
       const contractQuantity = money(item.contractQuantity);
@@ -70,9 +139,12 @@ export class TechnicalOfficeCommandService {
       const completionRate = contractQuantity.gt(0)
         ? rate(executedQty.div(contractQuantity))
         : rate(0);
+      const isLeaf = leafIds.has(item.id);
 
       return {
         ...item,
+        hasChildren: item._count.children > 0,
+        isLeaf,
         costStatus: {
           pricingStatus: item.status,
           hasRateAnalysis: item.rateAnalysisItems.length > 0,
@@ -81,6 +153,7 @@ export class TechnicalOfficeCommandService {
           earnedBudgetCost: money(executedQty.mul(directCostEstimated)),
           quantityVariance: money(executedQty.minus(contractQuantity)),
           completionRate,
+          leafOnlyContractSellingTotal: leafContractValue,
         },
       };
     });
@@ -89,6 +162,16 @@ export class TechnicalOfficeCommandService {
   async upsertRateAnalysis(companyId: string, boqItemId: string, dto: UpsertRateAnalysisDto) {
     return prisma.$transaction(async (tx) => {
       const boq = await this.requireBoq(tx, companyId, boqItemId);
+      const child = await tx.projectBOQItem.findFirst({
+        where: { companyId, parentId: boq.id },
+        select: { id: true },
+      });
+      if (child || boq.isExecutable === false) {
+        throw new AppError(
+          422,
+          `Cannot attach cost analysis to header BOQ item ${boq.itemCode}; analyze leaf items only`
+        );
+      }
       const computed = rateAnalysisCalculationService.calculateDirectUnitCost(boq.id, dto.items);
 
       await tx.bOQRateAnalysisItem.deleteMany({

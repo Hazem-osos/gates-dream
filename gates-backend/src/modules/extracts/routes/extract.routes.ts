@@ -62,6 +62,46 @@ router.get(
 );
 
 /**
+ * POST /api/v1/extracts/preview
+ * Server-side statement totals (does not persist).
+ */
+router.post(
+  '/preview',
+  authorize({ resource: 'extract', action: 'view' }),
+  validate({ body: createExtractSchema }),
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const companyId = req.companyId || req.tenantId;
+      if (!companyId) {
+        return void res.status(400).json({
+          status: 'error',
+          message: 'معرّف الشركة مطلوب',
+        });
+      }
+      const data = {
+        ...req.body,
+        extractDate:
+          typeof req.body.extractDate === 'string'
+            ? new Date(req.body.extractDate)
+            : req.body.extractDate,
+      };
+      const preview = await extractService.previewExtract(companyId, data);
+      return void res.json({ status: 'success', data: preview });
+    } catch (error) {
+      logger.error({ error }, 'Error previewing extract');
+      const statusCode =
+        error && typeof error === 'object' && 'statusCode' in error
+          ? Number((error as { statusCode: number }).statusCode)
+          : 500;
+      return void res.status(statusCode).json({
+        status: 'error',
+        message: error instanceof Error ? error.message : 'Failed to preview extract',
+      });
+    }
+  }
+);
+
+/**
  * GET /api/v1/extracts/:id
  * Get extract by ID
  */
@@ -131,7 +171,11 @@ router.post(
       });
     } catch (error) {
       logger.error({ error }, 'Error creating extract');
-      return void res.status(500).json({
+      const statusCode =
+        error && typeof error === 'object' && 'statusCode' in error
+          ? Number((error as { statusCode: number }).statusCode)
+          : 500;
+      return void res.status(statusCode).json({
         status: 'error',
         message: error instanceof Error ? error.message : 'Failed to create extract',
       });
@@ -172,7 +216,9 @@ router.put(
     } catch (error) {
       logger.error({ error }, 'Error updating extract');
       const status =
-        error instanceof Error && error.message === 'Extract not found'
+        error && typeof error === 'object' && 'statusCode' in error
+          ? Number((error as { statusCode: number }).statusCode)
+          : error instanceof Error && error.message === 'Extract not found'
           ? 404
           : error instanceof Error && error.message.includes('Cannot update')
           ? 400

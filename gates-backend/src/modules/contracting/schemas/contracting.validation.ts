@@ -112,6 +112,9 @@ export const createOwnerBoqItemSchema = z.object({
     invalid_type_error: 'unit must be M2, M3, TON, ITEM, LM, or LS',
   }),
   contractQuantity: moneyField('contractQuantity'),
+  parentId: z.string().min(1).optional().nullable(),
+  notes: z.string().optional().nullable(),
+  isExecutable: z.boolean().optional(),
 });
 
 export const createMeasurementSheetSchema = z.object({
