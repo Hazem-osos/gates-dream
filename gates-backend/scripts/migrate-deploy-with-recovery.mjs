@@ -31,9 +31,37 @@ function migrateDeploy() {
   return run('npx', ['prisma', 'migrate', 'deploy'], { allowFail: true });
 }
 
+function isTooManyConnections(out) {
+  return /too many connections/i.test(out);
+}
+
+function sleepSync(ms) {
+  spawnSync('sleep', [String(Math.max(1, Math.ceil(ms / 1000)))], { stdio: 'ignore' });
+}
+
+function migrateDeployWithConnectionRetry() {
+  const delaysMs = [4_000, 10_000, 20_000, 30_000];
+  let attempt = migrateDeploy();
+  for (const delay of delaysMs) {
+    if (attempt.ok || !isTooManyConnections(attempt.out)) return attempt;
+    console.log(
+      `migrate deploy: MySQL too many connections — waiting ${delay / 1000}s then retrying…`
+    );
+    sleepSync(delay);
+    attempt = migrateDeploy();
+  }
+  return attempt;
+}
+
 function runVoRepairSql() {
   const repairPath = path.join(root, 'scripts/repair-vo-partial-migration.sql');
   console.log('Applying idempotent VO migration repair SQL…');
+  return run('npx', ['prisma', 'db', 'execute', '--file', repairPath], { allowFail: true });
+}
+
+function clearStuckPrismaMigrationRows() {
+  const repairPath = path.join(root, 'scripts/clear-stuck-prisma-migrations.sql');
+  console.log('Clearing stuck _prisma_migrations rows (finished_at IS NULL)…');
   return run('npx', ['prisma', 'db', 'execute', '--file', repairPath], { allowFail: true });
 }
 
@@ -45,19 +73,32 @@ function recoverFromFailedOutput(out) {
   if (out.includes('20260924170000_whatsapp_embedded_signup')) {
     migrateResolve('rolled-back', '20260924170000_whatsapp_embedded_signup');
   }
+  if (out.includes('P3009') || out.includes('failed migrations')) {
+    const re = /The `([^`]+)` migration/g;
+    let match;
+    while ((match = re.exec(out)) !== null) {
+      migrateResolve('rolled-back', match[1]);
+    }
+    clearStuckPrismaMigrationRows();
+  }
 }
 
 export function runMigrateDeployWithRecovery() {
-  let attempt = migrateDeploy();
+  let attempt = migrateDeployWithConnectionRetry();
   if (attempt.ok) {
     console.log('prisma migrate deploy succeeded.');
     return 0;
   }
 
+  if (isTooManyConnections(attempt.out)) {
+    process.stderr.write(attempt.out);
+    return attempt.status || 1;
+  }
+
   console.log('migrate deploy failed — running recovery…');
   recoverFromFailedOutput(attempt.out);
 
-  attempt = migrateDeploy();
+  attempt = migrateDeployWithConnectionRetry();
   if (attempt.ok) {
     console.log('prisma migrate deploy succeeded after recovery.');
     return 0;
@@ -65,8 +106,11 @@ export function runMigrateDeployWithRecovery() {
 
   if (attempt.out.includes('P3009') || attempt.out.includes('failed migrations')) {
     recoverFromFailedOutput(attempt.out);
-    attempt = migrateDeploy();
-    if (attempt.ok) return 0;
+    attempt = migrateDeployWithConnectionRetry();
+    if (attempt.ok) {
+      console.log('prisma migrate deploy succeeded after P3009 recovery.');
+      return 0;
+    }
   }
 
   process.stderr.write(attempt.out);
