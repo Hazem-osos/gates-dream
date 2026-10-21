@@ -34,6 +34,7 @@ MainProgram/
 **/playwright/.auth/
 gates-backend/storage/
 gates-backend/backups/
+backups/
 gates-backend/exports/
 gates-backend/scripts/migration/fixtures/prod-like/
 
