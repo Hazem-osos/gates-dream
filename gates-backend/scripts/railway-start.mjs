@@ -56,6 +56,8 @@ if (prismaClientReady) {
 
 if (runWorkers) {
   console.log('GATES_RUN_WORKERS=1 — starting the worker process, skipping migrate and seed.');
+} else if (truthy(process.env.GATES_SKIP_PRISMA_MIGRATE)) {
+  console.log('GATES_SKIP_PRISMA_MIGRATE=1 — skipping prisma migrate deploy on boot.');
 } else {
   const migrated = runMigrateDeployWithRecovery();
   if (migrated !== 0) process.exit(migrated);
@@ -81,10 +83,17 @@ if (!existsSync(entry)) {
   process.exit(1);
 }
 
+const childEnv = {
+  ...process.env,
+  NODE_OPTIONS: [process.env.NODE_OPTIONS, '--max-old-space-size=1024']
+    .filter(Boolean)
+    .join(' ')
+    .trim(),
+};
 const tsxBin = path.join(root, 'node_modules/.bin/tsx');
 const child = existsSync(tsxBin)
-  ? spawn(tsxBin, [entry], { cwd: root, env: process.env, stdio: 'inherit' })
-  : spawn('npx', ['tsx', entry], { cwd: root, env: process.env, stdio: 'inherit' });
+  ? spawn(tsxBin, [entry], { cwd: root, env: childEnv, stdio: 'inherit' })
+  : spawn('npx', ['tsx', entry], { cwd: root, env: childEnv, stdio: 'inherit' });
 
 let shuttingDown = false;
 const shutdown = (signal) => {
