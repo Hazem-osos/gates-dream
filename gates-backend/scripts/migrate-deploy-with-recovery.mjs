@@ -105,11 +105,15 @@ export function runMigrateDeployWithRecovery() {
     return 0;
   }
 
-  if (attempt.out.includes('P3009') || attempt.out.includes('failed migrations')) {
+  if (
+    attempt.out.includes('P3009') ||
+    attempt.out.includes('failed migrations') ||
+    attempt.out.includes('P3018')
+  ) {
     recoverFromFailedOutput(attempt.out);
     attempt = migrateDeployWithConnectionRetry();
     if (attempt.ok) {
-      console.log('prisma migrate deploy succeeded after P3009 recovery.');
+      console.log('prisma migrate deploy succeeded after follow-up recovery.');
       return 0;
     }
   }
